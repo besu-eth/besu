@@ -35,6 +35,16 @@ compileJava {
     '-Alog4j.graalvm.groupId=' + project.group,
     '-Alog4j.graalvm.artifactId=' + project.name
   ]
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
+    option('NullAway:AnnotatedPackages', 'org.hyperledger.besu.util')
+  }
+}
+
+tasks.named('compileTestJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+  }
 }
 
 dependencies {
@@ -42,6 +52,8 @@ dependencies {
 
   annotationProcessor 'org.apache.logging.log4j:log4j-core'
   annotationProcessor 'com.google.dagger:dagger-compiler'
+
+  errorprone 'com.uber.nullaway:nullaway:0.12.4'
 
   implementation 'com.google.guava:guava'
   implementation 'com.google.dagger:dagger'

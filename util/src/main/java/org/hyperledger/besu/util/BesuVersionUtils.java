@@ -24,6 +24,7 @@ import java.util.jar.Attributes;
 import java.util.jar.Manifest;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,10 +35,10 @@ import org.slf4j.LoggerFactory;
 public final class BesuVersionUtils {
   private static final Logger LOG = LoggerFactory.getLogger(BesuVersionUtils.class);
   private static final String CLIENT = "besu";
-  private static final String VERSION;
+  private static final @Nullable String VERSION;
   private static final String OS = PlatformDetector.getOS();
   private static final String VM = PlatformDetector.getVM();
-  private static final String COMMIT;
+  private static final @Nullable String COMMIT;
 
   static {
     String className = BesuVersionUtils.class.getSimpleName() + ".class";
@@ -77,7 +78,7 @@ public final class BesuVersionUtils {
    *
    * @return Besu version in format such as "v23.1.0" or "v23.1.1-dev-ac23d311"
    */
-  public static String shortVersion() {
+  public static @Nullable String shortVersion() {
     return VERSION;
   }
 
@@ -119,7 +120,7 @@ public final class BesuVersionUtils {
    *
    * @return the commit hash for this besu version
    */
-  public static String commit() {
+  public static @Nullable String commit() {
     return COMMIT;
   }
 }

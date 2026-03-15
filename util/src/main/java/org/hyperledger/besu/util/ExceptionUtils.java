@@ -15,6 +15,7 @@
 package org.hyperledger.besu.util;
 
 import com.google.common.base.Throwables;
+import org.jspecify.annotations.Nullable;
 
 /** The Exception utils. */
 public class ExceptionUtils {
@@ -27,7 +28,7 @@ public class ExceptionUtils {
    * @param throwable the throwable whose root cause we want to find
    * @return The root cause
    */
-  public static Throwable rootCause(final Throwable throwable) {
+  public static @Nullable Throwable rootCause(final @Nullable Throwable throwable) {
     return throwable != null ? Throwables.getRootCause(throwable) : null;
   }
 }
