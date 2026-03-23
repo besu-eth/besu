@@ -287,12 +287,14 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
 
   /** Method to reload the healing process of the trie */
   public synchronized void reloadTrieHeal() {
+    LOG.info("Reloading the trie healing process");
     // Clear the flat database and trie log from the world state storage if needed
     worldStateStorageCoordinator.applyOnMatchingStrategies(
         List.of(DataStorageFormat.BONSAI, DataStorageFormat.X_BONSAI_ARCHIVE),
         worldStateKeyValueStorage -> {
           final BonsaiWorldStateKeyValueStorage strategy =
               worldStateStorageCoordinator.getStrategy(BonsaiWorldStateKeyValueStorage.class);
+          LOG.info("Clearing flat database as part of trie healing process reload");
           strategy.clearFlatDatabase();
           strategy.clearTrieLog();
         });
@@ -514,6 +516,10 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
 
   public SnapSyncMetricsManager getMetricsManager() {
     return metricsManager;
+  }
+
+  public boolean isPartialFlatDbModeActive() {
+    return worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.PARTIAL);
   }
 
   public void setPivotBlockSelector(final DynamicPivotBlockSelector pivotBlockSelector) {

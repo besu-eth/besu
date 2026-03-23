@@ -496,7 +496,11 @@ public class SnapWorldStateDownloadProcess implements WorldStateDownloadProcess 
       final SnapSyncProcessState snapSyncState,
       final SnapWorldDownloadState downloadState,
       final boolean newBlockFound) {
-    if (snapSyncState.isHealTrieInProgress() && newBlockFound) {
+    LOG.info("Reloading the trie healing process from SnapWorldStateDownloadProcess if needed");
+    if (snapSyncState.isHealTrieInProgress()
+        && newBlockFound
+        && downloadState.isPartialFlatDbModeActive()) {
+      LOG.info("Reloading the trie healing process from SnapWorldStateDownloadProcess is needed");
       downloadState.reloadTrieHeal();
     }
   }
