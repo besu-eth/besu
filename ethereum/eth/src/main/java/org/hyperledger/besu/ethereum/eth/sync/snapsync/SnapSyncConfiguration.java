@@ -33,10 +33,10 @@ public class SnapSyncConfiguration {
       84; // The default number of block access lists to download from peers per request.
 
   public static final int DEFAULT_LOCAL_FLAT_ACCOUNT_COUNT_TO_HEAL_PER_REQUEST =
-      128; // The default number of flat accounts entries to verify and heal per request.
+      256; // The default number of flat accounts entries to verify and heal per request.
 
   public static final int DEFAULT_LOCAL_FLAT_STORAGE_COUNT_TO_HEAL_PER_REQUEST =
-      1024; // The default number of flat slots entries to verify and heal per request.
+      2048; // The default number of flat slots entries to verify and heal per request.
 
   public static final Boolean DEFAULT_SNAP_SERVER_ENABLED = Boolean.FALSE;
 
