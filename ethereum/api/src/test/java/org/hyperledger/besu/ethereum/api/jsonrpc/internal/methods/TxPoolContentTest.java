@@ -103,8 +103,7 @@ public class TxPoolContentTest {
 
     when(transactionPool.getPendingTransactionsBySender())
         .thenReturn(
-            Map.of(
-                SENDER_A, new SenderPendingTransactionsData(SENDER_A, 0L, List.of(tx2, tx3))));
+            Map.of(SENDER_A, new SenderPendingTransactionsData(SENDER_A, 0L, List.of(tx2, tx3))));
 
     final TransactionPoolContentResult result = invokeMethod();
 
@@ -148,7 +147,8 @@ public class TxPoolContentTest {
     when(transactionPool.getPendingTransactionsBySender())
         .thenReturn(
             Map.of(
-                SENDER_A, new SenderPendingTransactionsData(SENDER_A, 0L, List.of(txA0, txA1, txA3)),
+                SENDER_A,
+                    new SenderPendingTransactionsData(SENDER_A, 0L, List.of(txA0, txA1, txA3)),
                 SENDER_B, new SenderPendingTransactionsData(SENDER_B, 5L, List.of(txB5, txB6))));
 
     final TransactionPoolContentResult result = invokeMethod();
