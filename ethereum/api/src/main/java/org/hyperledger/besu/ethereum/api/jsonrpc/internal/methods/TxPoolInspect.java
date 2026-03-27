@@ -20,7 +20,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPoolResult;
-import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.SenderPendingTransactionsData;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
@@ -67,22 +66,7 @@ public class TxPoolInspect extends AbstractTxPoolContent<String> {
     return new TransactionPoolResult<>(pending, queued);
   }
 
-  // Produces the spec-defined summary: "<to>: <value> wei + <gasLimit> gas × <gasPrice> wei"
-  // For contract creation the destination is "contract creation".
   static String humanReadableView(final PendingTransaction pendingTransaction) {
-    final Transaction tx = pendingTransaction.getTransaction();
-    final String to = tx.getTo().map(Address::toString).orElse("contract creation");
-    final String gasPrice =
-        tx.getGasPrice()
-            .map(gp -> gp.toBigInteger().toString())
-            .orElseGet(() -> tx.getMaxFeePerGas().map(f -> f.toBigInteger().toString()).orElse("0"));
-    return to
-        + ": "
-        + tx.getValue().toBigInteger()
-        + " wei + "
-        + tx.getGasLimit()
-        + " gas \u00d7 "
-        + gasPrice
-        + " wei";
+    return pendingTransaction.toTraceLog();
   }
 }

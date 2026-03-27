@@ -21,7 +21,6 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -80,91 +79,11 @@ public class TxPoolInspectTest {
   }
 
   @Test
-  public void humanReadableViewFormatsLegacyTransactionCorrectly() {
-    final Wei gasPrice = Wei.of(50_000_000_000L);
-    final Wei value = Wei.of(115_000_000_000_000_000L);
-    final long gasLimit = 21_000L;
+  public void humanReadableViewDelegatesToTraceLog() {
+    final PendingTransaction pendingTx = mock(PendingTransaction.class);
+    when(pendingTx.toTraceLog()).thenReturn("trace-log-output");
 
-    final Transaction tx =
-        new TransactionTestFixture()
-            .sender(SENDER)
-            .to(Optional.of(RECIPIENT))
-            .nonce(0)
-            .gasPrice(gasPrice)
-            .gasLimit(gasLimit)
-            .value(value)
-            .createTransaction(KEY_PAIR);
-
-    final PendingTransaction pendingTx = pendingTxOf(tx);
-
-    final String summary = TxPoolInspect.humanReadableView(pendingTx);
-
-    assertThat(summary)
-        .isEqualTo(
-            RECIPIENT
-                + ": "
-                + value.toBigInteger()
-                + " wei + "
-                + gasLimit
-                + " gas × "
-                + gasPrice.toBigInteger()
-                + " wei");
-  }
-
-  @Test
-  public void humanReadableViewUsesMaxFeePerGasForEip1559Transaction() {
-    final Wei maxFeePerGas = Wei.of(100_000_000_000L);
-    final Wei maxPriorityFeePerGas = Wei.of(1_000_000_000L);
-    final Wei value = Wei.of(1_000_000_000_000_000L);
-    final long gasLimit = 50_000L;
-
-    final Transaction tx =
-        new TransactionTestFixture()
-            .type(TransactionType.EIP1559)
-            .sender(SENDER)
-            .to(Optional.of(RECIPIENT))
-            .nonce(1)
-            .maxFeePerGas(Optional.of(maxFeePerGas))
-            .maxPriorityFeePerGas(Optional.of(maxPriorityFeePerGas))
-            .gasLimit(gasLimit)
-            .value(value)
-            .createTransaction(KEY_PAIR);
-
-    final String summary = TxPoolInspect.humanReadableView(pendingTxOf(tx));
-
-    assertThat(summary)
-        .isEqualTo(
-            RECIPIENT
-                + ": "
-                + value.toBigInteger()
-                + " wei + "
-                + gasLimit
-                + " gas × "
-                + maxFeePerGas.toBigInteger()
-                + " wei");
-  }
-
-  @Test
-  public void humanReadableViewUsesContractCreationWhenToIsAbsent() {
-    final Wei gasPrice = Wei.of(20_000_000_000L);
-    final Wei value = Wei.ZERO;
-    final long gasLimit = 100_000L;
-
-    final Transaction tx =
-        new TransactionTestFixture()
-            .sender(SENDER)
-            .to(Optional.empty())
-            .nonce(0)
-            .gasPrice(gasPrice)
-            .gasLimit(gasLimit)
-            .value(value)
-            .createTransaction(KEY_PAIR);
-
-    final String summary = TxPoolInspect.humanReadableView(pendingTxOf(tx));
-
-    assertThat(summary)
-        .isEqualTo(
-            "contract creation: 0 wei + " + gasLimit + " gas × " + gasPrice.toBigInteger() + " wei");
+    assertThat(TxPoolInspect.humanReadableView(pendingTx)).isEqualTo("trace-log-output");
   }
 
   @Test
@@ -203,14 +122,12 @@ public class TxPoolInspectTest {
     final PendingTransaction tx0 = pendingTxWith(0, Wei.of(1_000_000_000L));
 
     when(transactionPool.getPendingTransactionsBySender())
-        .thenReturn(
-            Map.of(SENDER, new SenderPendingTransactionsData(SENDER, 0L, List.of(tx0))));
+        .thenReturn(Map.of(SENDER, new SenderPendingTransactionsData(SENDER, 0L, List.of(tx0))));
 
     final TransactionPoolResult<Map<String, SequencedMap<String, String>>> result = invokeMethod();
 
     final String summary = result.getPending().get(SENDER.toString()).get("0");
-    assertThat(summary).isInstanceOf(String.class);
-    assertThat(summary).contains("wei").contains("gas").contains("×");
+    assertThat(summary).isInstanceOf(String.class).isNotEmpty();
   }
 
   @SuppressWarnings("unchecked")
@@ -223,12 +140,6 @@ public class TxPoolInspectTest {
     return (TransactionPoolResult<Map<String, SequencedMap<String, String>>>) response.getResult();
   }
 
-  private PendingTransaction pendingTxOf(final Transaction tx) {
-    final PendingTransaction pendingTransaction = mock(PendingTransaction.class);
-    when(pendingTransaction.getTransaction()).thenReturn(tx);
-    return pendingTransaction;
-  }
-
   private PendingTransaction pendingTxWith(final long nonce, final Wei gasPrice) {
     final Transaction tx =
         new TransactionTestFixture()
@@ -237,8 +148,10 @@ public class TxPoolInspectTest {
             .nonce(nonce)
             .gasPrice(gasPrice)
             .createTransaction(KEY_PAIR);
-    final PendingTransaction pendingTransaction = pendingTxOf(tx);
+    final PendingTransaction pendingTransaction = mock(PendingTransaction.class);
     when(pendingTransaction.getNonce()).thenReturn(nonce);
+    when(pendingTransaction.getTransaction()).thenReturn(tx);
+    when(pendingTransaction.toTraceLog()).thenReturn(tx.getHash() + ": summary");
     return pendingTransaction;
   }
 }

@@ -20,24 +20,18 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPendingResult;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPoolContentResult;
-import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPoolResult;
 import org.hyperledger.besu.ethereum.eth.transactions.SenderPendingTransactionsData;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
 import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.SequencedMap;
-import java.util.stream.Collectors;
 
-public class TxPoolContent implements JsonRpcMethod {
-
-  private final TransactionPool transactionPool;
+public class TxPoolContent extends AbstractTxPoolContent<TransactionPendingResult> {
 
   public TxPoolContent(final TransactionPool transactionPool) {
-    this.transactionPool = transactionPool;
+    super(transactionPool);
   }
 
   @Override
@@ -50,7 +44,8 @@ public class TxPoolContent implements JsonRpcMethod {
     return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), content());
   }
 
-  private TransactionPoolContentResult content() {
+  private TransactionPoolResult<Map<String, SequencedMap<String, TransactionPendingResult>>>
+      content() {
     final Map<Address, SenderPendingTransactionsData> pendingTransactionsBySender =
         transactionPool.getPendingTransactionsBySender();
 
@@ -59,43 +54,16 @@ public class TxPoolContent implements JsonRpcMethod {
 
     pendingTransactionsBySender.forEach(
         (sender, pendingTransactionsData) -> {
-          final List<PendingTransaction> pendingTransactions =
-              pendingTransactionsData.pendingTransactions();
-          long expectedNonce = pendingTransactionsData.nonce();
-          int idx = 0;
-          while (idx < pendingTransactions.size()
-              && expectedNonce == pendingTransactions.get(idx).getNonce()) {
-            ++expectedNonce;
-            ++idx;
+          final PendingAndQueued<TransactionPendingResult> pendingAndQueued =
+              getPendingAndQueued(pendingTransactionsData, TransactionPendingResult::new);
+
+          if (!pendingAndQueued.pendingByNonce().isEmpty()) {
+            pending.put(sender.toString(), pendingAndQueued.pendingByNonce());
           }
-
-          final SequencedMap<String, TransactionPendingResult> pendingByNonce =
-              pendingTransactions.subList(0, idx).stream()
-                  .map(PendingTransaction::getTransaction)
-                  .collect(
-                      Collectors.toMap(
-                          tx -> Long.toString(tx.getNonce()),
-                          TransactionPendingResult::new,
-                          (a, b) -> a,
-                          LinkedHashMap::new));
-
-          final SequencedMap<String, TransactionPendingResult> queuedByNonce =
-              pendingTransactions.subList(idx, pendingTransactions.size()).stream()
-                  .map(PendingTransaction::getTransaction)
-                  .collect(
-                      Collectors.toMap(
-                          tx -> Long.toString(tx.getNonce()),
-                          TransactionPendingResult::new,
-                          (a, b) -> a,
-                          LinkedHashMap::new));
-
-          if (!pendingByNonce.isEmpty()) {
-            pending.put(sender.toString(), pendingByNonce);
-          }
-          if (!queuedByNonce.isEmpty()) {
-            queued.put(sender.toString(), queuedByNonce);
+          if (!pendingAndQueued.queuedByNonce().isEmpty()) {
+            queued.put(sender.toString(), pendingAndQueued.queuedByNonce());
           }
         });
-    return new TransactionPoolContentResult(pending, queued);
+    return new TransactionPoolResult<>(pending, queued);
   }
 }

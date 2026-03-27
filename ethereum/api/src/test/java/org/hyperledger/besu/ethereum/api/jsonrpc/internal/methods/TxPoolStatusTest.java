@@ -20,7 +20,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPoolStatusResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPoolResult;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
@@ -52,60 +52,57 @@ public class TxPoolStatusTest {
   public void shouldReturnZeroCountsWhenPoolIsEmpty() {
     when(transactionPool.getStatus()).thenReturn(new PendingTransactions.Status(0, 0));
 
-    final JsonRpcRequestContext request = buildRequest();
-    final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
-    final TransactionPoolStatusResult result = (TransactionPoolStatusResult) response.getResult();
+    final TransactionPoolResult<Long> result = invokeMethod();
 
-    assertThat(result.getPending()).isEqualTo("0x0");
-    assertThat(result.getQueued()).isEqualTo("0x0");
+    assertThat(result.getPending()).isEqualTo(0L);
+    assertThat(result.getQueued()).isEqualTo(0L);
   }
 
   @Test
   public void shouldReturnCorrectCountsWithPendingAndQueuedTransactions() {
     when(transactionPool.getStatus()).thenReturn(new PendingTransactions.Status(10, 7));
 
-    final JsonRpcRequestContext request = buildRequest();
-    final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
-    final TransactionPoolStatusResult result = (TransactionPoolStatusResult) response.getResult();
+    final TransactionPoolResult<Long> result = invokeMethod();
 
-    assertThat(result.getPending()).isEqualTo("0xa");
-    assertThat(result.getQueued()).isEqualTo("0x7");
+    assertThat(result.getPending()).isEqualTo(10L);
+    assertThat(result.getQueued()).isEqualTo(7L);
   }
 
   @Test
   public void shouldReturnCorrectCountsWithOnlyPendingTransactions() {
     when(transactionPool.getStatus()).thenReturn(new PendingTransactions.Status(5, 0));
 
-    final JsonRpcRequestContext request = buildRequest();
-    final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
-    final TransactionPoolStatusResult result = (TransactionPoolStatusResult) response.getResult();
+    final TransactionPoolResult<Long> result = invokeMethod();
 
-    assertThat(result.getPending()).isEqualTo("0x5");
-    assertThat(result.getQueued()).isEqualTo("0x0");
+    assertThat(result.getPending()).isEqualTo(5L);
+    assertThat(result.getQueued()).isEqualTo(0L);
   }
 
   @Test
   public void shouldReturnCorrectCountsWithOnlyQueuedTransactions() {
     when(transactionPool.getStatus()).thenReturn(new PendingTransactions.Status(0, 3));
 
-    final JsonRpcRequestContext request = buildRequest();
-    final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
-    final TransactionPoolStatusResult result = (TransactionPoolStatusResult) response.getResult();
+    final TransactionPoolResult<Long> result = invokeMethod();
 
-    assertThat(result.getPending()).isEqualTo("0x0");
-    assertThat(result.getQueued()).isEqualTo("0x3");
+    assertThat(result.getPending()).isEqualTo(0L);
+    assertThat(result.getQueued()).isEqualTo(3L);
   }
 
   @Test
-  public void shouldReturnHexEncodedLargeValues() {
+  public void shouldReturnLargeValues() {
     when(transactionPool.getStatus()).thenReturn(new PendingTransactions.Status(256, 4096));
 
-    final JsonRpcRequestContext request = buildRequest();
-    final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
-    final TransactionPoolStatusResult result = (TransactionPoolStatusResult) response.getResult();
+    final TransactionPoolResult<Long> result = invokeMethod();
 
-    assertThat(result.getPending()).isEqualTo("0x100");
-    assertThat(result.getQueued()).isEqualTo("0x1000");
+    assertThat(result.getPending()).isEqualTo(256L);
+    assertThat(result.getQueued()).isEqualTo(4096L);
+  }
+
+  @SuppressWarnings("unchecked")
+  private TransactionPoolResult<Long> invokeMethod() {
+    final JsonRpcSuccessResponse response =
+        (JsonRpcSuccessResponse) method.response(buildRequest());
+    return (TransactionPoolResult<Long>) response.getResult();
   }
 
   private JsonRpcRequestContext buildRequest() {

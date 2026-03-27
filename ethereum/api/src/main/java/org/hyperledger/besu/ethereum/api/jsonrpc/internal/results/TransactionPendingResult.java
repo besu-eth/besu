@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
+import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 
 import java.util.Optional;
 
@@ -26,6 +27,10 @@ public class TransactionPendingResult extends TransactionBaseResult {
 
   private final String publicKey;
   private final String raw;
+
+  public TransactionPendingResult(final PendingTransaction pendingTransaction) {
+    this(pendingTransaction.getTransaction());
+  }
 
   public TransactionPendingResult(final Transaction transaction) {
     super(transaction, Optional.empty());

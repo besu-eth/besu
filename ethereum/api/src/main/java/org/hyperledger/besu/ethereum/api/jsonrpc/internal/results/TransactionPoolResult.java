@@ -16,17 +16,12 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
 
-import java.util.Map;
-import java.util.SequencedMap;
-
 public class TransactionPoolResult<T> {
 
   private final T pending;
   private final T queued;
 
-  public TransactionPoolResult(
-      final T pending,
-      final T queued) {
+  public TransactionPoolResult(final T pending, final T queued) {
     this.pending = pending;
     this.queued = queued;
   }
