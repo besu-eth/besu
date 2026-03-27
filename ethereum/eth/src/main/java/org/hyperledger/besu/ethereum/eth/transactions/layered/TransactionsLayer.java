@@ -87,6 +87,8 @@ public interface TransactionsLayer {
 
   List<PendingTransaction> getAll();
 
+  Map<Address, List<PendingTransaction>> getAllBySender();
+
   /**
    * Returns all pending transactions across all layers, grouped by sender and sorted by nonce in
    * ascending order per sender.
