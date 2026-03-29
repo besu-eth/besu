@@ -38,10 +38,12 @@ import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerCo
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
+import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
 import java.util.TreeMap;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.assertj.core.api.Assertions;
@@ -55,6 +57,8 @@ class DebugOperationTracerTest {
 
   private static final int DEPTH = 4;
   private static final long INITIAL_GAS = 1000L;
+  private static final Bytes32 WORD_1 = Bytes32.fromHexString("0x" + "aa".repeat(32));
+  private static final Bytes32 WORD_2 = Bytes32.fromHexString("0x" + "bb".repeat(32));
 
   @Mock private WorldUpdater worldUpdater;
 
@@ -65,6 +69,15 @@ class DebugOperationTracerTest {
         @Override
         public OperationResult execute(final MessageFrame frame, final EVM evm) {
           return new OperationResult(20L, null);
+        }
+      };
+  private final Operation MSTORE_OPERATION =
+      new AbstractOperation(0x52, "MSTORE", 2, 0, null) {
+        @Override
+        public OperationResult execute(final MessageFrame frame, final EVM evm) {
+          // explicitMemoryUpdate=true simulates what MSTORE does in the real EVM
+          frame.writeMemory(0L, 32, WORD_2, true);
+          return new OperationResult(3L, null);
         }
       };
 
@@ -284,6 +297,126 @@ class DebugOperationTracerTest {
     assertThat(traceFrame.getStorage()).contains(updatedStorage);
   }
 
+  @Test
+  void shouldUseLastSnapshotInNonMemoryWriteOperation() {
+    final MessageFrame frame = validMessageFrameWithInitiatedMemory(WORD_1);
+    final DebugOperationTracer tracer = createDebugOperationTracerWithMemory();
+
+    // Frame 0: non-memory-writing op — captures initial snapshot
+    traceFrame(frame, tracer, anOperation);
+    // Frame 1: another non-memory-writing op — should reuse last snapshot, not re-capture
+    traceFrame(frame, tracer, anOperation);
+
+    final List<TraceFrame> frames = tracer.getTraceFrames();
+    assertThat(frames).hasSize(2);
+    assertThat(frames.get(0).getMemory()).isPresent();
+    assertThat(frames.get(1).getMemory()).isPresent();
+    final Bytes[] frame0Memory = frames.get(0).getMemory().get();
+    final Bytes[] frame1Memory = frames.get(1).getMemory().get();
+
+    assertThat(frame1Memory)
+        .as("For a non-memory-writing opcode, the last snapshot must be reused")
+        .isSameAs(frame0Memory);
+  }
+
+  @Test
+  void shouldTakeNewMemorySnapshotWhenMemorySizeGrowsWithoutExplicitWrite() {
+    final MessageFrame frame = validMessageFrameWithInitiatedMemory(WORD_1);
+    final DebugOperationTracer tracer = createDebugOperationTracerWithMemory();
+
+    traceFrame(frame, tracer, anOperation);
+
+    frame.writeMemory(32L, 32, WORD_2);
+    traceFrame(frame, tracer, anOperation);
+
+    final List<TraceFrame> frames = tracer.getTraceFrames();
+    assertThat(frames).hasSize(2);
+
+    assertThat(frames.get(0).getMemory()).isPresent();
+    assertThat(frames.get(1).getMemory()).isPresent();
+    final Bytes[] snapshot0 = frames.get(0).getMemory().get();
+    final Bytes[] snapshot1 = frames.get(1).getMemory().get();
+
+    assertThat(snapshot1)
+        .as("When memory size grows, a fresh snapshot must be taken even without an explicit write")
+        .isNotSameAs(snapshot0);
+    assertThat(snapshot0).hasSize(1);
+    assertThat(snapshot1).hasSize(2);
+    assertThat(snapshot1[1]).isEqualTo(WORD_2);
+  }
+
+  @Test
+  void shouldTakeNewMemorySnapshotAfterExplicitMemoryWrite() {
+    final MessageFrame frame = validMessageFrameWithInitiatedMemory(WORD_1);
+    final DebugOperationTracer tracer = createDebugOperationTracerWithMemory();
+
+    traceFrame(frame, tracer, anOperation);
+    traceFrame(frame, tracer, MSTORE_OPERATION);
+
+    final List<TraceFrame> frames = tracer.getTraceFrames();
+    assertThat(frames).hasSize(2);
+    assertThat(frames.get(0).getMemory()).isPresent();
+    assertThat(frames.get(1).getMemory()).isPresent();
+
+    final Bytes[] before = frames.get(0).getMemory().get();
+    final Bytes[] after = frames.get(1).getMemory().get();
+
+    assertThat(after)
+        .as("After a memory-writing opcode, a new memory snapshot must be taken")
+        .isNotSameAs(before);
+    assertThat(before[0]).isEqualTo(WORD_1);
+    assertThat(after[0]).isEqualTo(WORD_2);
+  }
+
+  @Test
+  void shouldCaptureMemoryDirectlyWhenLastFrameIsNull() {
+    final MessageFrame frame = validMessageFrameWithInitiatedMemory(WORD_1);
+    final DebugOperationTracer tracer = createDebugOperationTracerWithMemory();
+    traceFrame(frame, tracer, anOperation);
+
+    final List<TraceFrame> frames = tracer.getTraceFrames();
+    assertThat(frames).hasSize(1);
+    assertThat(frames.getFirst().getMemory()).isPresent();
+    assertThat(frames.getFirst().getMemory().get()).containsExactly(WORD_1);
+  }
+
+  @Test
+  void shouldHandleCallScenarioAndDepthChange() {
+    final DebugOperationTracer tracer = createDebugOperationTracerWithMemory();
+    final MessageFrame parentFrame = validMessageFrameWithInitiatedMemory(WORD_1);
+
+    traceFrame(parentFrame, tracer, callOperation);
+
+    // Child frame enters at depth 1
+    final MessageFrame childFrame = validMessageFrameWithInitiatedMemory(WORD_2);
+    childFrame.getMessageFrameStack().add(childFrame);
+
+    traceFrame(childFrame, tracer, anOperation);
+    traceFrame(parentFrame, tracer, anOperation);
+
+    final List<TraceFrame> frames = tracer.getTraceFrames();
+    assertThat(frames).hasSize(3);
+    assertThat(frames.get(0).getMemory()).isPresent();
+    assertThat(frames.get(1).getMemory()).isPresent();
+    assertThat(frames.get(2).getMemory()).isPresent();
+
+    final Bytes[] parentSnapshot = frames.get(0).getMemory().get();
+    final Bytes[] childSnapshot = frames.get(1).getMemory().get();
+    final Bytes[] parentAfterReturn = frames.get(2).getMemory().get();
+
+    assertThat(childSnapshot)
+        .as("On CALL entry, child must get a fresh snapshot — not reuse the parent's")
+        .isNotSameAs(parentSnapshot);
+    assertThat(childSnapshot[0]).isEqualTo(WORD_2);
+
+    assertThat(parentAfterReturn)
+        .as("After RETURN, parent memory must be freshly captured — not the child's snapshot")
+        .isNotSameAs(childSnapshot);
+    assertThat(parentAfterReturn[0])
+        .as("After RETURN, parent memory must reflect the parent frame's actual content")
+        .isEqualTo(WORD_1);
+  }
+
   private TraceFrame traceFrame(final MessageFrame frame) {
     return traceFrame(
         frame,
@@ -304,6 +437,14 @@ class DebugOperationTracerTest {
     OperationResult operationResult = anOperation.execute(frame, null);
     tracer.tracePostExecution(frame, operationResult);
     return getOnlyTraceFrame(tracer);
+  }
+
+  private void traceFrame(
+      final MessageFrame frame, final DebugOperationTracer tracer, final Operation operation) {
+    frame.setCurrentOperation(operation);
+    tracer.tracePreExecution(frame);
+    OperationResult operationResult = operation.execute(frame, null);
+    tracer.tracePostExecution(frame, operationResult);
   }
 
   private MessageFrame validMessageFrame() {
@@ -337,6 +478,13 @@ class DebugOperationTracerTest {
         .blockchain(blockchain);
   }
 
+  private MessageFrame validMessageFrameWithInitiatedMemory(final Bytes32 initiatedMemory) {
+    final MessageFrame frame = validMessageFrameBuilder().build();
+    frame.writeMemory(0L, 32, initiatedMemory);
+
+    return frame;
+  }
+
   private Map<UInt256, UInt256> setupStorageForCapture(final MessageFrame frame) {
     final MutableAccount account = mock(MutableAccount.class);
     when(worldUpdater.getAccount(frame.getRecipientAddress())).thenReturn(account);
@@ -352,5 +500,15 @@ class DebugOperationTracerTest {
     frame.writeMemory(32, 32, word2);
     frame.writeMemory(64, 32, word3);
     return updatedStorage;
+  }
+
+  private static DebugOperationTracer createDebugOperationTracerWithMemory() {
+    final OpCodeTracerConfig config =
+        OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+            .traceMemory(true)
+            .traceStack(false)
+            .traceStorage(false)
+            .build();
+    return new DebugOperationTracer(config, false);
   }
 }

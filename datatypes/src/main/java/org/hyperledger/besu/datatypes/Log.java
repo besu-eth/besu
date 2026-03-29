@@ -118,8 +118,16 @@ public class Log {
     final List<LogTopic> topics;
     final Bytes data;
     if (compacted) {
-      topics = in.readList(listIn -> LogTopic.wrap(Bytes32.wrap(readTrimmedData(in))));
-      data = Bytes.wrap(readTrimmedData(in));
+      // Topics and data may be in canonical compacted format ([leadingZeros, shortData] lists)
+      // or raw bytes32/bytes (wire format). Autodetect per-item using nextIsList().
+      topics =
+          in.readList(
+              listIn ->
+                  LogTopic.wrap(
+                      listIn.nextIsList()
+                          ? Bytes32.wrap(readTrimmedData(listIn))
+                          : listIn.readBytes32()));
+      data = in.nextIsList() ? readTrimmedData(in) : in.readBytes();
     } else {
       topics = in.readList(listIn -> LogTopic.wrap(listIn.readBytes32()));
       data = in.readBytes();

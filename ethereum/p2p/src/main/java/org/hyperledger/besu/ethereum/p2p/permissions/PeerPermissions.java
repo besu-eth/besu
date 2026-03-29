@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.p2p.permissions;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.util.Subscribers;
 
+import java.net.InetSocketAddress;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -64,6 +65,17 @@ public abstract class PeerPermissions implements AutoCloseable {
    */
   public abstract boolean isPermitted(
       final Peer localNode, final Peer remotePeer, final Action action);
+
+  /**
+   * Checks whether a connection to/from the given address is permitted. This is a pre-identity
+   * IP-level check that can be used before the remote peer's node ID is known.
+   *
+   * @param address the remote socket address to check
+   * @return {@code true} if the address is permitted (default: always true)
+   */
+  public boolean isPermitted(final InetSocketAddress address) {
+    return true;
+  }
 
   @Override
   public void close() {
@@ -127,6 +139,16 @@ public abstract class PeerPermissions implements AutoCloseable {
     public boolean isPermitted(final Peer localNode, final Peer remotePeer, final Action action) {
       for (final PeerPermissions permission : permissions) {
         if (!permission.isPermitted(localNode, remotePeer, action)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    @Override
+    public boolean isPermitted(final InetSocketAddress address) {
+      for (final PeerPermissions permission : permissions) {
+        if (!permission.isPermitted(address)) {
           return false;
         }
       }

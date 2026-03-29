@@ -16,18 +16,24 @@ package org.hyperledger.besu.ethereum.eth.manager.snap;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
+import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
 import org.hyperledger.besu.ethereum.eth.messages.snap.AccountRangeMessage;
+import org.hyperledger.besu.ethereum.eth.messages.snap.BlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.ByteCodesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetAccountRangeMessage;
+import org.hyperledger.besu.ethereum.eth.messages.snap.GetBlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetByteCodesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetStorageRangeMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetTrieNodesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV1;
+import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV2;
 import org.hyperledger.besu.ethereum.eth.messages.snap.StorageRangeMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.TrieNodesMessage;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
@@ -206,6 +212,58 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
     snapMessages.registerResponseConstructor(
         SnapV1.GET_TRIE_NODES,
         (peer, messageData, capability) -> constructGetTrieNodesResponse(messageData));
+    snapMessages.registerResponseConstructor(
+        SnapV2.GET_BLOCK_ACCESS_LISTS,
+        (peer, messageData, capability) -> constructGetBlockAccessListsResponse(messageData));
+  }
+
+  MessageData constructGetBlockAccessListsResponse(final MessageData message) {
+    if (!isStarted.get()) {
+      return BlockAccessListsMessage.create(List.of());
+    }
+
+    final GetBlockAccessListsMessage getBlockAccessLists =
+        GetBlockAccessListsMessage.readFrom(message);
+    final Iterable<Hash> blockHashes = getBlockAccessLists.blockHashes(true);
+
+    int responseSizeEstimate = RLP.MAX_PREFIX_SIZE;
+    final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
+    rlp.startList();
+
+    final Optional<Blockchain> maybeBlockchain =
+        protocolContext.map(ProtocolContext::getBlockchain);
+
+    if (maybeBlockchain.isPresent()) {
+      final var blockchain = maybeBlockchain.get();
+      int count = 0;
+      for (final Hash blockHash : blockHashes) {
+        if (count >= MAX_ENTRIES_PER_REQUEST) {
+          break;
+        }
+        count++;
+
+        final Optional<BlockAccessList> maybeBlockAccessList =
+            blockchain.getBlockAccessList(blockHash);
+        final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
+        if (maybeBlockAccessList.isPresent()) {
+          BlockAccessListEncoder.encode(maybeBlockAccessList.get(), balOutput);
+        } else {
+          // Empty lists are returned for blocks where the BAL is unavailable.
+          balOutput.startList();
+          balOutput.endList();
+        }
+
+        final int encodedSize = balOutput.encodedSize();
+        if (responseSizeEstimate + encodedSize > MAX_RESPONSE_SIZE) {
+          break;
+        }
+        responseSizeEstimate += encodedSize;
+        rlp.writeRaw(balOutput.encoded());
+      }
+    }
+    rlp.endList();
+
+    return BlockAccessListsMessage.createUnsafe(rlp.encoded());
   }
 
   MessageData constructGetAccountRangeResponse(final MessageData message) {

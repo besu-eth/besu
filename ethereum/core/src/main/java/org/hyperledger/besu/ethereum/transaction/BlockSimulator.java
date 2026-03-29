@@ -93,7 +93,7 @@ public class BlockSimulator {
       TransactionValidationParams.blockSimulatorStrict();
 
   private static final TransactionValidationParams SIMULATION_PARAMS =
-      TransactionValidationParams.transactionSimulatorAllowExceedingBalanceAndFutureNonce();
+      TransactionValidationParams.blockSimulatorNonStrict();
 
   private final TransactionSimulator transactionSimulator;
   private final WorldStateArchive worldStateArchive;
@@ -377,6 +377,14 @@ public class BlockSimulator {
         }
       }
 
+      if (callParameter.getGas().isPresent()
+          && callParameter.getGas().getAsLong()
+              > blockStateCallSimulationResult.getRemainingGas()) {
+        throw new BlockStateCallException(
+            BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED.getMessage(),
+            BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED);
+      }
+
       long gasLimit =
           transactionSimulator.calculateSimulationGasCap(
               blockHeader,
@@ -570,19 +578,16 @@ public class BlockSimulator {
     long timestamp = blockOverrides.getTimestamp().orElseThrow();
     long blockNumber = blockOverrides.getBlockNumber().orElseThrow();
 
-    // For PoS, coinbase is always configured, but for PoA it is not configured,
-    // rather generated for each block via MiningBeneficiaryCalculator.
-    // For simulation, if not configured, we use a dummy address 0x00.
-    // We don't throw an exception if coinbase is not configured.
+    // The fee recipient is stored in the header coinbase field. Precedence:
+    // (1) an explicit feeRecipient in blockOverrides, otherwise
+    // (2) the parent header's coinbase — this allows a feeRecipient set in an earlier simulated
+    // block to persist across subsequent blocks without needing to repeat it in every override.
     BlockHeaderBuilder builder =
         BlockHeaderBuilder.createDefault()
             .parentHash(header.getHash())
             .timestamp(timestamp)
             .number(blockNumber)
-            .coinbase(
-                blockOverrides
-                    .getFeeRecipient()
-                    .orElseGet(() -> miningConfiguration.getCoinbase().orElse(Address.ZERO)))
+            .coinbase(blockOverrides.getFeeRecipient().orElse(header.getCoinbase()))
             .difficulty(
                 blockOverrides.getDifficulty().map(Difficulty::of).orElseGet(header::getDifficulty))
             .gasLimit(
@@ -707,11 +712,21 @@ public class BlockSimulator {
                     newProtocolSpec
                         .getPreExecutionProcessor()
                         .createBlockHashLookup(blockchain, blockHeader));
+    // Fallback lookup using the real chain head, for when the primary lookup can't
+    // walk back past simulated blocks to reach real chain blocks.
+    var chainHeadFallback =
+        newProtocolSpec
+            .getPreExecutionProcessor()
+            .createBlockHashLookup(blockchain, blockchain.getChainHeadHeader());
     return (frame, blockNumber) -> {
       if (blockHashCache.containsKey(blockNumber)) {
         return blockHashCache.get(blockNumber);
       }
-      return blockCallBlockHashLookup.apply(frame, blockNumber);
+      Hash result = blockCallBlockHashLookup.apply(frame, blockNumber);
+      if (!result.equals(Hash.ZERO)) {
+        return result;
+      }
+      return chainHeadFallback.apply(frame, blockNumber);
     };
   }
 

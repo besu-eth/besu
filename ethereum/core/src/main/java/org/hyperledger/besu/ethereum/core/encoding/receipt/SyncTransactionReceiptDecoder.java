@@ -25,6 +25,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.bytes.MutableBytes;
 
 public class SyncTransactionReceiptDecoder {
 
@@ -138,8 +140,18 @@ public class SyncTransactionReceiptDecoder {
 
           final Bytes logger = logInput.readBytes();
 
-          final List<Bytes> topics = logInput.readList(RLPInput::readBytes32);
-          final Bytes data = logInput.readBytes();
+          // Topics may be raw bytes32 (wire format) or [leadingZeros, shortData] lists
+          // (compacted canonical storage format).
+          final List<Bytes> topics =
+              logInput.readList(
+                  topicIn ->
+                      topicIn.nextIsList()
+                          ? Bytes32.wrap(readTrimmedData(topicIn))
+                          : topicIn.readBytes32());
+
+          // Data may also be compacted [leadingZeros, shortData] in canonical storage format.
+          final Bytes data =
+              logInput.nextIsList() ? readTrimmedData(logInput) : logInput.readBytes();
 
           logInput.leaveList();
           List<Bytes> result = new ArrayList<>(topics.size() + 2);
@@ -148,6 +160,19 @@ public class SyncTransactionReceiptDecoder {
           result.add(data);
           return result;
         });
+  }
+
+  private static Bytes readTrimmedData(final RLPInput in) {
+    in.enterList();
+    final int zeroLeadDataSize = in.readIntScalar();
+    final Bytes shortData = in.readBytes();
+    in.leaveList();
+    if (zeroLeadDataSize == 0) {
+      return shortData;
+    }
+    final MutableBytes data = MutableBytes.create(zeroLeadDataSize + shortData.size());
+    data.set(zeroLeadDataSize, shortData);
+    return data;
   }
 
   private boolean isNextNotBloomFilter(final RLPInput input) {

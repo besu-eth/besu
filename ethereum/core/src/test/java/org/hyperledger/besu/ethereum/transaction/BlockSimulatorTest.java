@@ -29,6 +29,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StateOverride;
 import org.hyperledger.besu.datatypes.StateOverrideMap;
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.datatypes.parameters.UnsignedLongParameter;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
@@ -38,12 +39,16 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
+import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MiningBeneficiaryCalculator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
@@ -57,6 +62,7 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -145,6 +151,7 @@ public class BlockSimulatorTest {
     when(mutableWorldState.updater()).thenReturn(updater);
 
     CallParameter callParameter = mock(CallParameter.class);
+    when(callParameter.getGas()).thenReturn(OptionalLong.empty());
     BlockStateCall blockStateCall = new BlockStateCall(List.of(callParameter), null, null);
 
     TransactionSimulatorResult transactionSimulatorResult = mock(TransactionSimulatorResult.class);
@@ -179,6 +186,7 @@ public class BlockSimulatorTest {
     when(mutableWorldState.updater()).thenReturn(updater);
 
     CallParameter callParameter = mock(CallParameter.class);
+    when(callParameter.getGas()).thenReturn(OptionalLong.empty());
     BlockStateCall blockStateCall = new BlockStateCall(List.of(callParameter), null, null);
 
     when(transactionSimulator.processWithWorldUpdater(
@@ -269,6 +277,34 @@ public class BlockSimulatorTest {
   }
 
   @Test
+  public void shouldInheritFeeRecipientFromParentBlock() {
+    // When feeRecipient is set on the first block, subsequent blocks without feeRecipient
+    // should inherit from the parent block's coinbase, regardless of mining configuration.
+
+    var expectedFeeRecipient = Address.fromHexString("0xc200000000000000000000000000000000000000");
+
+    // Block 1: with feeRecipient override
+    BlockOverrides block1Overrides =
+        BlockOverrides.builder()
+            .timestamp(1L)
+            .blockNumber(1L)
+            .feeRecipient(expectedFeeRecipient)
+            .build();
+
+    BlockHeader block1Header =
+        blockSimulator.overrideBlockHeader(blockHeader, protocolSpec, block1Overrides, false);
+    assertEquals(expectedFeeRecipient, block1Header.getCoinbase());
+
+    // Block 2: no feeRecipient override — should inherit from block 1
+    BlockOverrides block2Overrides =
+        BlockOverrides.builder().timestamp(13L).blockNumber(2L).build();
+
+    BlockHeader block2Header =
+        blockSimulator.overrideBlockHeader(block1Header, protocolSpec, block2Overrides, false);
+    assertEquals(expectedFeeRecipient, block2Header.getCoinbase());
+  }
+
+  @Test
   public void shouldDetectInvalidPrecompile() {
     var stateOverrideMap = new StateOverrideMap();
     var targetAddress = Address.fromHexString("0x3");
@@ -305,6 +341,120 @@ public class BlockSimulatorTest {
             .validate(Set.of(precompileAddress1, precompileAddress2));
 
     assertThat(validationResult).isEmpty();
+  }
+
+  @Test
+  public void shouldThrowBlockGasLimitExceededWhenTxGasExceedsBlockLimitWithValidationDisabled() {
+    when(mutableWorldState.updater()).thenReturn(updater);
+
+    // gasLimitCalculator.nextGasLimit returns 1L (from setUp), so block gas limit = 1
+    CallParameter callParameter = mock(CallParameter.class);
+    when(callParameter.getGas()).thenReturn(OptionalLong.of(1_000_000L));
+    BlockStateCall blockStateCall = new BlockStateCall(List.of(callParameter), null, null);
+
+    BlockSimulationParameter parameter =
+        new BlockSimulationParameter.BlockSimulationParameterBuilder()
+            .blockStateCalls(List.of(blockStateCall))
+            .validation(false)
+            .build();
+
+    BlockStateCallException exception =
+        assertThrows(
+            BlockStateCallException.class,
+            () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+
+    assertThat(exception.getError()).isEqualTo(BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED);
+    assertThat(exception.getError().getCode()).isEqualTo(-38015);
+  }
+
+  @Test
+  public void shouldThrowBlockGasLimitExceededWhenTxGasExceedsBlockLimitWithValidationEnabled() {
+    when(mutableWorldState.updater()).thenReturn(updater);
+
+    // gasLimitCalculator.nextGasLimit returns 1L (from setUp), so block gas limit = 1
+    CallParameter callParameter = mock(CallParameter.class);
+    when(callParameter.getGas()).thenReturn(OptionalLong.of(1_000_000L));
+    BlockStateCall blockStateCall = new BlockStateCall(List.of(callParameter), null, null);
+
+    BlockSimulationParameter parameter =
+        new BlockSimulationParameter.BlockSimulationParameterBuilder()
+            .blockStateCalls(List.of(blockStateCall))
+            .validation(true)
+            .build();
+
+    BlockStateCallException exception =
+        assertThrows(
+            BlockStateCallException.class,
+            () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+
+    assertThat(exception.getError()).isEqualTo(BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED);
+    assertThat(exception.getError().getCode()).isEqualTo(-38015);
+  }
+
+  @Test
+  public void
+      shouldThrowBlockGasLimitExceededWhenSecondTxGasExceedsRemainingAfterFirstTxConsumed() {
+    // Block gas limit = 30,000. First tx consumes 21,000 (leaving 9,000 remaining).
+    // Second tx explicitly requests 10,000 gas, which exceeds the 9,000 remaining.
+    GasLimitCalculator gasLimitCalculator = mock(GasLimitCalculator.class);
+    when(protocolSpec.getGasLimitCalculator()).thenReturn(gasLimitCalculator);
+    when(gasLimitCalculator.nextGasLimit(anyLong(), anyLong(), anyLong())).thenReturn(30_000L);
+    when(gasLimitCalculator.computeExcessBlobGas(anyLong(), anyLong(), anyLong())).thenReturn(0L);
+
+    WorldUpdater transactionUpdater = mock(WorldUpdater.class);
+    when(mutableWorldState.updater()).thenReturn(updater);
+    when(updater.updater()).thenReturn(transactionUpdater);
+
+    CallParameter firstCallParam = mock(CallParameter.class);
+    when(firstCallParam.getGas()).thenReturn(OptionalLong.empty());
+    when(firstCallParam.getGasPrice()).thenReturn(Optional.empty());
+    when(firstCallParam.getMaxFeePerGas()).thenReturn(Optional.empty());
+    when(firstCallParam.getMaxPriorityFeePerGas()).thenReturn(Optional.empty());
+
+    CallParameter secondCallParam = mock(CallParameter.class);
+    when(secondCallParam.getGas()).thenReturn(OptionalLong.of(10_000L));
+
+    BlockStateCall blockStateCall =
+        new BlockStateCall(List.of(firstCallParam, secondCallParam), null, null);
+
+    Transaction tx = mock(Transaction.class);
+    when(tx.getType()).thenReturn(TransactionType.FRONTIER);
+
+    TransactionProcessingResult processingResult = mock(TransactionProcessingResult.class);
+    when(processingResult.getPartialBlockAccessView()).thenReturn(Optional.empty());
+
+    TransactionSimulatorResult firstTxResult = mock(TransactionSimulatorResult.class);
+    when(firstTxResult.isInvalid()).thenReturn(false);
+    when(firstTxResult.getGasEstimate()).thenReturn(21_000L);
+    when(firstTxResult.transaction()).thenReturn(tx);
+    when(firstTxResult.result()).thenReturn(processingResult);
+
+    when(transactionSimulator.processWithWorldUpdater(
+            any(), any(), any(), any(), any(), any(), any(), anyLong(), any(), any(), any(), any(),
+            any()))
+        .thenReturn(Optional.of(firstTxResult));
+
+    AbstractBlockProcessor.TransactionReceiptFactory receiptFactory =
+        mock(AbstractBlockProcessor.TransactionReceiptFactory.class);
+    when(protocolSpec.getTransactionReceiptFactory()).thenReturn(receiptFactory);
+    TransactionReceipt receipt = mock(TransactionReceipt.class);
+    when(receipt.getLogsList()).thenReturn(List.of());
+    when(receiptFactory.create(any(TransactionType.class), any(), any(), anyLong()))
+        .thenReturn(receipt);
+
+    BlockSimulationParameter parameter =
+        new BlockSimulationParameter.BlockSimulationParameterBuilder()
+            .blockStateCalls(List.of(blockStateCall))
+            .validation(false)
+            .build();
+
+    BlockStateCallException exception =
+        assertThrows(
+            BlockStateCallException.class,
+            () -> blockSimulator.process(blockHeader, parameter, mutableWorldState));
+
+    assertThat(exception.getError()).isEqualTo(BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED);
+    assertThat(exception.getError().getCode()).isEqualTo(-38015);
   }
 
   private BlockSimulationParameter createSimulationParameter(final BlockStateCall blockStateCall) {

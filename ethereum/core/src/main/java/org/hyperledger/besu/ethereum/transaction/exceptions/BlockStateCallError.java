@@ -32,6 +32,8 @@ public enum BlockStateCallError {
   DUPLICATED_PRECOMPILE_TARGET(-38023, "Duplicated move precompile target"),
   /** The nonce is invalid. */
   INVALID_NONCES(-32602, "Invalid nonces"),
+  /** Block gas limit exceeded by the block's transactions. */
+  BLOCK_GAS_LIMIT_EXCEEDED(-38015, "Transaction gas exceeds block gas limit"),
   /** Upfront cost exceeds balance. */
   UPFRONT_COST_EXCEEDS_BALANCE(-38014, "Upfront cost exceeds balance"),
   /** Gas price too low. */

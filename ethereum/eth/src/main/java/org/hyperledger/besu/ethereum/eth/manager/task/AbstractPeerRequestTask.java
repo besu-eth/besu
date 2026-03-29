@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.eth.manager.PeerRequest;
 import org.hyperledger.besu.ethereum.eth.manager.PendingPeerRequest;
 import org.hyperledger.besu.ethereum.eth.manager.RequestManager;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.PeerBreachedProtocolException;
+import org.hyperledger.besu.ethereum.p2p.rlpx.framing.FramingException;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
@@ -111,6 +112,16 @@ public abstract class AbstractPeerRequestTask<R> extends AbstractPeerTask<R> {
             promise.complete(r);
             peer.recordUsefulResponse();
           });
+    } catch (final FramingException e) {
+      // Peer sent us data that failed to decompress - disconnect
+      LOG.atDebug()
+          .setMessage("Disconnecting peer {} due to decompression failure for message code {}")
+          .addArgument(peer::getLoggableId)
+          .addArgument(message.getCode())
+          .setCause(e)
+          .log();
+      peer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+      promise.completeExceptionally(new PeerBreachedProtocolException());
     } catch (final RLPException e) {
       // Peer sent us malformed data - disconnect
       LOG.debug(

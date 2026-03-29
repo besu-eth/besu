@@ -31,7 +31,6 @@ public class TransactionGasAccountingTest {
         .stateGasUsed(0L)
         .initialFrameStateGasSpill(0L)
         .stateGasSpillBurned(0L)
-        .regularGasCollisionBurned(0L)
         .refundedGas(0L)
         .floorCost(0L)
         .regularGasLimitExceeded(false);
@@ -143,7 +142,7 @@ public class TransactionGasAccountingTest {
 
   @Test
   public void zeroStateGas_preAmsterdamEquivalent() {
-    // Pre-Amsterdam: stateGasUsed=0, spillBurned=0, collisionBurned=0
+    // Pre-Amsterdam: stateGasUsed=0, spillBurned=0
     // Should behave identically to pre-8037 gas accounting
     final var result =
         baseBuilder()

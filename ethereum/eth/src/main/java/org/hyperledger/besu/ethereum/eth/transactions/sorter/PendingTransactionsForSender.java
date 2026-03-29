@@ -31,7 +31,7 @@ public class PendingTransactionsForSender {
   private final NavigableMap<Long, PendingTransaction> pendingTransactions;
   private OptionalLong nextGap = OptionalLong.empty();
 
-  private Optional<Account> maybeSenderAccount;
+  private volatile Optional<Account> maybeSenderAccount;
 
   public PendingTransactionsForSender(final Optional<Account> maybeSenderAccount) {
     this.pendingTransactions = new TreeMap<>();
@@ -113,12 +113,22 @@ public class PendingTransactionsForSender {
     }
   }
 
+  public OptionalLong maybeCurrentNonce() {
+    return maybeSenderAccount
+        .map(account -> OptionalLong.of(account.getNonce()))
+        .orElse(OptionalLong.empty());
+  }
+
   public int transactionCount() {
     return pendingTransactions.size();
   }
 
   public List<PendingTransaction> getPendingTransactions(final long startingNonce) {
     return List.copyOf(pendingTransactions.tailMap(startingNonce).values());
+  }
+
+  public List<PendingTransaction> getPendingTransactions() {
+    return List.copyOf(pendingTransactions.values());
   }
 
   public Stream<PendingTransaction> streamPendingTransactions() {

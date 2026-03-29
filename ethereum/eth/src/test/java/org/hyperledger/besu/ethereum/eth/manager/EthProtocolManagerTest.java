@@ -134,6 +134,28 @@ public final class EthProtocolManagerTest {
   }
 
   @Test
+  public void disconnectOnDecompressionFailure() {
+    try (final EthProtocolManager ethManager =
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.DEFAULT)
+            .build()) {
+      // Create a RawMessage with invalid compressed data that will throw FramingException
+      final MessageData messageData =
+          new RawMessage(EthProtocolMessages.GET_BLOCK_HEADERS, new byte[] {0x01, 0x02, 0x03});
+      final MockPeerConnection peer = setupPeer(ethManager, (cap, msg, conn) -> {});
+      ethManager.processMessage(EthProtocol.ETH68, new DefaultMessage(peer, messageData));
+      assertThat(peer.isDisconnected()).isTrue();
+      assertThat(peer.getDisconnectReason())
+          .contains(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+    }
+  }
+
+  @Test
   public void handleMalformedRequestIdMessage() {
     try (final EthProtocolManager ethManager =
         EthProtocolManagerTestBuilder.builder()

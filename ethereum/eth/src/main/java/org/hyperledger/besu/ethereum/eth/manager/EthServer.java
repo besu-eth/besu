@@ -320,7 +320,8 @@ class EthServer {
         "Paginated receipt request for {} blocks with first block receipt index {}",
         blockHashes.size(),
         skipBefore);
-    int responseSizeEstimate = RLP.MAX_PREFIX_SIZE;
+    // Account for the outer list header and the lastBlockIncomplete scalar (max 2 bytes).
+    int responseSizeEstimate = RLP.MAX_PREFIX_SIZE + 2;
     boolean lastBlockIncomplete = false;
 
     for (final Hash blockHash : blockHashes) {
@@ -347,6 +348,9 @@ class EthServer {
       } else {
         requestedReceipts = blockReceipts;
       }
+
+      // Account for this block's own list header before processing its receipts.
+      responseSizeEstimate += RLP.MAX_PREFIX_SIZE;
 
       final BytesValueRLPOutput encodedBlockReceipts = new BytesValueRLPOutput();
       encodedBlockReceipts.startList();

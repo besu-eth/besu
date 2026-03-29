@@ -167,21 +167,9 @@ public abstract class AbstractMessageProcessor {
    * Gets called when the message frame encounters an exceptional halt.
    *
    * @param frame The message frame
-   * @param preExecutionHalt true if the halt occurred before any code was executed (e.g. address
-   *     collision in CONTRACT_CREATION detected in start())
    */
-  private void exceptionalHalt(final MessageFrame frame, final boolean preExecutionHalt) {
+  private void exceptionalHalt(final MessageFrame frame) {
     handleStateGasSpill(frame);
-
-    // EIP-8037: Gas burned by a CREATE child that halted before executing any code (address
-    // collision) is excluded from block regular gas accounting. It still counts toward fees.
-    if (preExecutionHalt && frame.getType() == MessageFrame.Type.CONTRACT_CREATION) {
-      final long collisionGas = frame.getRemainingGas();
-      if (collisionGas > 0) {
-        frame.accumulateRegularGasCollisionBurned(collisionGas);
-      }
-    }
-
     frame.clearGasRemaining();
     frame.clearOutputData();
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
@@ -262,7 +250,7 @@ public abstract class AbstractMessageProcessor {
     }
 
     if (frame.getState() == MessageFrame.State.EXCEPTIONAL_HALT) {
-      exceptionalHalt(frame, !wasCodeExecuting);
+      exceptionalHalt(frame);
     }
 
     if (frame.getState() == MessageFrame.State.REVERT) {

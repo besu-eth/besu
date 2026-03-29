@@ -160,30 +160,38 @@ public class BlockGasAccountingStrategyTest {
   }
 
   @Test
-  public void amsterdamStrategy_hasBlockCapacityWith2DHeadroom() {
+  public void amsterdamStrategy_hasBlockCapacityPerDimension() {
     final long blockGasLimit = 100_000L;
     // Regular used: 60k, State used: 40k
-    // Headroom = max(0, 100k-60k) + max(0, 100k-40k) = 40k + 60k = 100k
+    // min(remaining_regular, remaining_state) = min(40k, 60k) = 40k
     assertThat(
             BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
-                100_000L, 60_000L, 40_000L, blockGasLimit))
+                40_000L, 60_000L, 40_000L, blockGasLimit))
         .isTrue();
-    // txGasLimit=101k > headroom=100k
+    // txGasLimit=40001 > min(40k, 60k) = 40k — exceeds tighter dimension
     assertThat(
             BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
-                100_001L, 60_000L, 40_000L, blockGasLimit))
+                40_001L, 60_000L, 40_000L, blockGasLimit))
         .isFalse();
 
-    // Frontier only checks regular dimension
-    // Regular headroom = 100k - 60k = 40k, txGasLimit=50k > 40k
-    assertThat(
-            BlockGasAccountingStrategy.FRONTIER.hasBlockCapacity(
-                50_000L, 60_000L, 40_000L, blockGasLimit))
-        .isFalse();
-    // But Amsterdam has 2D headroom: 40k + 60k = 100k >= 50k
+    // When state gas is 0, only regular headroom matters: 100k - 60k = 40k
     assertThat(
             BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
-                50_000L, 60_000L, 40_000L, blockGasLimit))
+                40_000L, 60_000L, 0L, blockGasLimit))
         .isTrue();
+    assertThat(
+            BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
+                40_001L, 60_000L, 0L, blockGasLimit))
+        .isFalse();
+
+    // Frontier only checks regular dimension (same as Amsterdam when stateGas=0)
+    assertThat(
+            BlockGasAccountingStrategy.FRONTIER.hasBlockCapacity(
+                40_000L, 60_000L, 0L, blockGasLimit))
+        .isTrue();
+    assertThat(
+            BlockGasAccountingStrategy.FRONTIER.hasBlockCapacity(
+                40_001L, 60_000L, 0L, blockGasLimit))
+        .isFalse();
   }
 }

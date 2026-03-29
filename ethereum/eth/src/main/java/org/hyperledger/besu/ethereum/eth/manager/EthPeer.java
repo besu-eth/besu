@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.eth.messages.snap.GetByteCodesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetStorageRangeMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetTrieNodesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV1;
+import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV2;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection.PeerNotConnected;
@@ -119,6 +120,7 @@ public class EthPeer implements Comparable<EthPeer> {
     roundMessages.put(SnapV1.STORAGE_RANGE, SnapV1.GET_STORAGE_RANGE);
     roundMessages.put(SnapV1.BYTECODES, SnapV1.GET_BYTECODES);
     roundMessages.put(SnapV1.TRIE_NODES, SnapV1.GET_TRIE_NODES);
+    roundMessages.put(SnapV2.BLOCK_ACCESS_LISTS, SnapV2.GET_BLOCK_ACCESS_LISTS);
   }
 
   @VisibleForTesting
@@ -174,7 +176,8 @@ public class EthPeer implements Comparable<EthPeer> {
             Map.entry(SnapV1.GET_ACCOUNT_RANGE, new RequestManager(this, SnapProtocol.NAME)),
             Map.entry(SnapV1.GET_STORAGE_RANGE, new RequestManager(this, SnapProtocol.NAME)),
             Map.entry(SnapV1.GET_BYTECODES, new RequestManager(this, SnapProtocol.NAME)),
-            Map.entry(SnapV1.GET_TRIE_NODES, new RequestManager(this, SnapProtocol.NAME))));
+            Map.entry(SnapV1.GET_TRIE_NODES, new RequestManager(this, SnapProtocol.NAME)),
+            Map.entry(SnapV2.GET_BLOCK_ACCESS_LISTS, new RequestManager(this, SnapProtocol.NAME))));
   }
 
   public void markValidated(final PeerValidator validator) {

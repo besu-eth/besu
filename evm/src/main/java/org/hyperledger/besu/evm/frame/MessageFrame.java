@@ -920,26 +920,6 @@ public class MessageFrame {
   }
 
   /**
-   * Accumulates regular gas burned by a CREATE child frame that halted before executing code
-   * (address collision). NOT undone on revert — excluded from block gas accounting but still
-   * charged for fee purposes.
-   *
-   * @param amount the collision gas amount to accumulate
-   */
-  public void accumulateRegularGasCollisionBurned(final long amount) {
-    txValues.regularGasCollisionBurned()[0] += amount;
-  }
-
-  /**
-   * Returns accumulated regular gas burned by pre-execution CREATE collision halts.
-   *
-   * @return accumulated collision gas burned
-   */
-  public long getRegularGasCollisionBurned() {
-    return txValues.regularGasCollisionBurned()[0];
-  }
-
-  /**
    * Add recipient to the self-destruct set if not already present.
    *
    * @param address The recipient to self-destruct
