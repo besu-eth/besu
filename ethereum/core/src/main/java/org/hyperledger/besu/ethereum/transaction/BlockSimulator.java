@@ -38,6 +38,7 @@ import org.hyperledger.besu.ethereum.core.ParsedExtraData;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
@@ -45,6 +46,7 @@ import org.hyperledger.besu.ethereum.mainnet.MiningBeneficiaryCalculator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
+import org.hyperledger.besu.ethereum.mainnet.WithdrawalsValidator.AllowedWithdrawals;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
@@ -498,10 +500,7 @@ public class BlockSimulator {
     List<Transaction> transactions = simResult.getTransactions();
     List<TransactionReceipt> receipts = simResult.getReceipts();
 
-    boolean isShanghaiPlus =
-        protocolSpec.getWithdrawalsValidator()
-            instanceof
-            org.hyperledger.besu.ethereum.mainnet.WithdrawalsValidator.AllowedWithdrawals;
+    boolean isShanghaiPlus = protocolSpec.getWithdrawalsValidator() instanceof AllowedWithdrawals;
     boolean isCancunPlus = protocolSpec.getFeeMarket().implementsBlobFee();
 
     BlockHeaderBuilder headerBuilder =
@@ -532,7 +531,7 @@ public class BlockSimulator {
 
     BlockHeader finalBlockHeader = headerBuilder.buildBlockHeader();
 
-    Optional<List<org.hyperledger.besu.ethereum.core.Withdrawal>> withdrawals =
+    Optional<List<Withdrawal>> withdrawals =
         isShanghaiPlus ? Optional.of(List.of()) : Optional.empty();
 
     Block block = new Block(finalBlockHeader, new BlockBody(transactions, List.of(), withdrawals));
