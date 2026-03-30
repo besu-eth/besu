@@ -1947,17 +1947,15 @@ public class LayersTest extends BaseTransactionPoolTest {
 
     private void assertExpectedReady(
         final ReadyTransactions readyLayer, final List<PendingTransaction> expected) {
-      assertThat(readyLayer.getBySender())
+      assertThat(readyLayer.getBySender().stream().flatMap(List::stream).toList())
           .describedAs("Ready")
-          .flatExtracting(SenderPendingTransactions::pendingTransactions)
           .containsExactlyElementsOf(expected);
     }
 
     private void assertExpectedSparse(
         final SparseTransactions sparseLayer, final List<PendingTransaction> expected) {
-      assertThat(sparseLayer.getBySender())
+      assertThat(sparseLayer.getBySender().stream().flatMap(List::stream).toList())
           .describedAs("Sparse")
-          .flatExtracting(SenderPendingTransactions::pendingTransactions)
           .containsExactlyElementsOf(expected);
     }
 
@@ -2053,8 +2051,7 @@ public class LayersTest extends BaseTransactionPoolTest {
               expectedSelected.add(get(sender, nonce));
             }
 
-            assertThat(prio.getBySender())
-                .flatExtracting(SenderPendingTransactions::pendingTransactions)
+            assertThat(prio.getBySender().stream().flatMap(List::stream).toList())
                 .containsExactlyElementsOf(expectedSelected);
           });
       return this;

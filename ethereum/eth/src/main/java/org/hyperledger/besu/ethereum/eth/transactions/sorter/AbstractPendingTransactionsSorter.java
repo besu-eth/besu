@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
+import org.hyperledger.besu.ethereum.eth.transactions.SenderPendingTransactionsData;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolReplacementHandler;
@@ -389,6 +390,20 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   @Override
   public List<PendingTransaction> getPendingTransactions() {
     return new ArrayList<>(pendingTransactions.values());
+  }
+
+  @Override
+  public SenderPendingTransactionsData getPendingTransactionsFor(final Address sender) {
+    final PendingTransactionsForSender pendingTransactionsForSender =
+        transactionsBySender.get(sender);
+    if (pendingTransactionsForSender == null) {
+      return SenderPendingTransactionsData.empty(sender);
+    }
+
+    return new SenderPendingTransactionsData(
+        sender,
+        pendingTransactionsForSender.maybeCurrentNonce().orElse(0),
+        pendingTransactionsForSender.getPendingTransactions());
   }
 
   @Override

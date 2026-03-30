@@ -193,15 +193,12 @@ public abstract class AbstractPrioritizedTransactions extends AbstractSequential
    * @return a list of sender pending txs
    */
   @Override
-  public List<SenderPendingTransactions> getBySender() {
+  public List<List<PendingTransaction>> getBySender() {
     final var sendersToAdd = new HashSet<>(txsBySender.keySet());
     return orderByFee.descendingSet().stream()
         .map(PendingTransaction::getSender)
         .filter(sendersToAdd::remove)
-        .map(
-            sender ->
-                new SenderPendingTransactions(
-                    sender, List.copyOf(txsBySender.get(sender).values())))
+        .map(sender -> List.copyOf(txsBySender.get(sender).values()))
         .toList();
   }
 

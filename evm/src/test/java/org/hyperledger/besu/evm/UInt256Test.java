@@ -392,7 +392,86 @@ public class UInt256Test {
         Arguments.of(
             "0x7effffff8000000000000000000000000000000000000000d900000000000001",
             "0x010000000000000000",
-            "0x7effffff800000007effffff800000008000ff00000100007effffff80000000"));
+            "0x7effffff800000007effffff800000008000ff00000100007effffff80000000"),
+        // UInt128 M-R path: modReduceNormalisedSlowPath(UInt576) branch coverage
+        // (128-bit modulus, at least one operand > 128 bits triggers multiply-then-reduce)
+        // Branch 5 (else, 3 reduceSteps): product ~258 bits
+        Arguments.of(
+            "0x0100000000000000010000000000000001",
+            "0x0100000000000000010000000000000001",
+            "0x80000000000000000000000000000001"),
+        // Branch 4 (4 reduceSteps): product ~321 bits
+        Arguments.of(
+            "0x01000000000000000000000000000000010000000000000001",
+            "0x0100000000000000010000000000000001",
+            "0x80000000000000000000000000000001"),
+        // Branch 3 (5 reduceSteps): product ~384 bits
+        Arguments.of(
+            "0x8000000000000000000000000000000000000000000000010000000000000001",
+            "0x0100000000000000010000000000000001",
+            "0x80000000000000000000000000000001"),
+        // Branch 2 (6 reduceSteps): product ~448 bits
+        Arguments.of(
+            "0x8000000000000000000000000000000000000000000000010000000000000001",
+            "0x01000000000000000000000000000000010000000000000001",
+            "0x80000000000000000000000000000001"),
+        // Branch 1 via v.u7 >= u1 (7 reduceSteps): product ~512 bits, shift=0
+        Arguments.of(
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "0x80000000000000000000000000000001"),
+        // Branch 1 via v.u8 != 0 (7 reduceSteps): shifted product > 512 bits, shift=1
+        Arguments.of(
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "0x40000000000000000000000000000001"),
+        // UInt128 mulSubOverflow through M-R: triggers v2 == u1 in reduceStep
+        Arguments.of(
+            "0x7effffff80000000000000000000000000000000000000000000000000000001",
+            "0x01000000000000000000000000000000000000000000000001",
+            "0x7effffff800000007fffffffffffffff"),
+        // Noisy: 256-bit x 64-bit operands, 128-bit modulus
+        Arguments.of(
+            "0xdeadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabe",
+            "0xcafebabedeadbeef",
+            "0x80000000000000000000000000000001"),
+        // UInt192 M-R path: modReduceNormalisedSlowPath(UInt576) branch coverage
+        // (192-bit modulus, at least one operand > 192 bits triggers multiply-then-reduce)
+        // Branch 4 (else, 3 reduceSteps): product ~321 bits
+        Arguments.of(
+            "0x01000000000000000000000000000000010000000000000001",
+            "0x0100000000000000010000000000000001",
+            "0x800000000000000000000000000000000000000000000001"),
+        // Branch 3 (4 reduceSteps): product ~384 bits
+        Arguments.of(
+            "0x8000000000000000000000000000000000000000000000010000000000000001",
+            "0x0100000000000000010000000000000001",
+            "0x800000000000000000000000000000000000000000000001"),
+        // Branch 2 (5 reduceSteps): product ~448 bits
+        Arguments.of(
+            "0x8000000000000000000000000000000000000000000000010000000000000001",
+            "0x01000000000000000000000000000000010000000000000001",
+            "0x800000000000000000000000000000000000000000000001"),
+        // Branch 1 via v.u7 >= u2 (6 reduceSteps): product ~512 bits, shift=0
+        Arguments.of(
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "0x800000000000000000000000000000000000000000000001"),
+        // Branch 1 via v.u8 != 0 (6 reduceSteps): shifted product > 512 bits, shift=1
+        Arguments.of(
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "0x400000000000000000000000000000000000000000000001"),
+        // UInt192 mulSubOverflow through M-R: triggers v3 == u2 in reduceStep
+        Arguments.of(
+            "0x8200000000000000000000000000000000000000000000000000000000000001",
+            "0x01000000000000000000000000000000000000000000000001",
+            "0x8200000000000000fe000004000000ffff000000fffff700"),
+        // Noisy: 256-bit x 128-bit operands, 192-bit modulus
+        Arguments.of(
+            "0xdeadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabe",
+            "0xcafebabedeadbeefcafebabedeadbeef",
+            "0x800000000000000000000000000000000000000000000001"));
   }
 
   @Test
@@ -424,6 +503,50 @@ public class UInt256Test {
               String.format(
                   "Failure detected:\n%s.MULMOD(%s, %s)\n",
                   a.toHexString(), b.toHexString(), c.toHexString()))
+          .isEqualTo(expected);
+    }
+  }
+
+  @Test
+  public void mulModRandomWideMR() {
+    // Targeted random test for the M-R (multiply-then-reduce) path in UInt128 and UInt192.
+    // Generates 128-bit or 192-bit moduli with a 256-bit first operand (always exceeds modulus
+    // width) and a varying-width second operand to exercise different branches of
+    // modReduceNormalisedSlowPath(UInt576).
+    final Random random = new Random(456789);
+    for (int i = 0; i < SAMPLE_SIZE; i++) {
+      // Generate modulus of 128-bit or 192-bit width
+      int modWidth = random.nextBoolean() ? 16 : 24;
+      final byte[] modArray = new byte[modWidth];
+      random.nextBytes(modArray);
+      modArray[0] |= (byte) 0x80; // ensure exact width (MSB set)
+
+      // First operand: always 256 bits (exceeds both 128 and 192 modulus width)
+      final byte[] aArray = new byte[32];
+      random.nextBytes(aArray);
+      aArray[0] |= (byte) 0x80; // ensure 256 bits
+
+      // Second operand: varying width to hit different slow-path branches
+      int bWidth = random.nextInt(1, 33);
+      final byte[] bArray = new byte[bWidth];
+      random.nextBytes(bArray);
+
+      BigInteger aInt = new BigInteger(1, aArray);
+      BigInteger bInt = new BigInteger(1, bArray);
+      BigInteger mInt = new BigInteger(1, modArray);
+      UInt256 a = UInt256.fromBytesBE(aArray);
+      UInt256 b = UInt256.fromBytesBE(bArray);
+      UInt256 m = UInt256.fromBytesBE(modArray);
+      Bytes32 remainder = Bytes32.leftPad(Bytes.wrap(a.mulMod(b, m).toBytesBE()));
+      Bytes32 expected =
+          BigInteger.ZERO.compareTo(mInt) == 0
+              ? Bytes32.ZERO
+              : bigIntTo32B(aInt.multiply(bInt).mod(mInt));
+      assertThat(remainder)
+          .withFailMessage(
+              String.format(
+                  "Failure detected:\n%s.MULMOD(%s, %s)\n",
+                  a.toHexString(), b.toHexString(), m.toHexString()))
           .isEqualTo(expected);
     }
   }

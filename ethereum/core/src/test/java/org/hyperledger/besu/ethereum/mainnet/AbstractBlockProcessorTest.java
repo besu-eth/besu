@@ -135,18 +135,25 @@ abstract class AbstractBlockProcessorTest {
     when(tx.getGasLimit()).thenReturn(50_000L);
     when(tx.getHash()).thenReturn(Hash.fromHexStringLenient("0x1234"));
 
-    // Regular=60k, State=40k. 1D headroom=40k < txGasLimit=50k → would fail.
-    // 2D headroom = (100k-60k) + (100k-40k) = 100k >= 50k → should pass with AMSTERDAM.
+    // Regular=60k, State=40k. Per-dimension: min(100k-60k, 100k-40k) = min(40k, 60k) = 40k.
+    // txGasLimit=50k > 40k → should fail with AMSTERDAM (exceeds tighter dimension).
+    assertThat(
+            blockProcessor.hasAvailableBlockBudget(
+                header, tx, 60_000L, 40_000L, BlockGasAccountingStrategy.AMSTERDAM))
+        .isFalse();
+
+    // txGasLimit=40k fits: min(40k, 60k) = 40k >= 40k
+    when(tx.getGasLimit()).thenReturn(40_000L);
     assertThat(
             blockProcessor.hasAvailableBlockBudget(
                 header, tx, 60_000L, 40_000L, BlockGasAccountingStrategy.AMSTERDAM))
         .isTrue();
 
-    // Same scenario with FRONTIER (1D check): should fail
+    // Same scenario with FRONTIER (1D check, only regular): 40k <= 100k-60k=40k → passes
     assertThat(
             blockProcessor.hasAvailableBlockBudget(
                 header, tx, 60_000L, 40_000L, BlockGasAccountingStrategy.FRONTIER))
-        .isFalse();
+        .isTrue();
   }
 
   private static class TestBlockProcessor extends AbstractBlockProcessor {

@@ -32,13 +32,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
-public class TransactionCompleteResultTest {
+public class TransactionWithMetadataResultTest {
 
   @Test
   public void eip1559TransactionWithShortWeiVals() {
     final BlockDataGenerator gen = new BlockDataGenerator();
-    TransactionCompleteResult zeroPriorityFeeTx =
-        new TransactionCompleteResult(
+    TransactionWithMetadataResult zeroPriorityFeeTx =
+        new TransactionWithMetadataResult(
             new TransactionWithMetadata(
                 new TransactionTestFixture()
                     .type(TransactionType.EIP1559)
@@ -59,8 +59,8 @@ public class TransactionCompleteResultTest {
   public void eip1559TransactionFields() {
     final BlockDataGenerator gen = new BlockDataGenerator();
     final Transaction transaction = gen.transaction(TransactionType.EIP1559);
-    TransactionCompleteResult tcr =
-        new TransactionCompleteResult(
+    TransactionWithMetadataResult tcr =
+        new TransactionWithMetadataResult(
             new TransactionWithMetadata(
                 transaction, 0L, Optional.of(Wei.of(7L)), Hash.ZERO, 0, 0L));
     assertThat(tcr.getMaxFeePerGas()).isNotEmpty();
@@ -74,8 +74,8 @@ public class TransactionCompleteResultTest {
   public void legacyTransactionPostLondonFields() {
     final BlockDataGenerator gen = new BlockDataGenerator();
     final Transaction transaction = gen.transaction(TransactionType.FRONTIER);
-    TransactionCompleteResult tcr =
-        new TransactionCompleteResult(
+    TransactionWithMetadataResult tcr =
+        new TransactionWithMetadataResult(
             new TransactionWithMetadata(
                 transaction, 0L, Optional.of(Wei.of(7L)), Hash.ZERO, 0, 0L));
     assertThat(tcr.getMaxFeePerGas()).isNull();
@@ -89,8 +89,8 @@ public class TransactionCompleteResultTest {
   public void legacyTransactionPreLondonFields() {
     final BlockDataGenerator gen = new BlockDataGenerator();
     final Transaction transaction = gen.transaction(TransactionType.FRONTIER);
-    TransactionCompleteResult tcr =
-        new TransactionCompleteResult(
+    TransactionWithMetadataResult tcr =
+        new TransactionWithMetadataResult(
             new TransactionWithMetadata(transaction, 0L, Optional.empty(), Hash.ZERO, 0, 0L));
     assertThat(tcr.getMaxFeePerGas()).isNull();
     assertThat(tcr.getMaxPriorityFeePerGas()).isNull();
@@ -103,8 +103,8 @@ public class TransactionCompleteResultTest {
   public void accessListTransactionFields() {
     final BlockDataGenerator gen = new BlockDataGenerator();
     final Transaction transaction = gen.transaction(TransactionType.ACCESS_LIST);
-    final TransactionCompleteResult transactionCompleteResult =
-        new TransactionCompleteResult(
+    final TransactionWithMetadataResult transactionWithMetadataResult =
+        new TransactionWithMetadataResult(
             new TransactionWithMetadata(
                 transaction,
                 136,
@@ -114,12 +114,12 @@ public class TransactionCompleteResultTest {
                 0,
                 0L));
 
-    assertThat(transactionCompleteResult.getGasPrice()).isNotEmpty();
-    assertThat(transactionCompleteResult.getMaxFeePerGas()).isNull();
-    assertThat(transactionCompleteResult.getMaxPriorityFeePerGas()).isNull();
+    assertThat(transactionWithMetadataResult.getGasPrice()).isNotEmpty();
+    assertThat(transactionWithMetadataResult.getMaxFeePerGas()).isNull();
+    assertThat(transactionWithMetadataResult.getMaxPriorityFeePerGas()).isNull();
     final ObjectMapper objectMapper = new ObjectMapper();
     final JsonNode transactionCompleteResultJson =
-        objectMapper.valueToTree(transactionCompleteResult);
+        objectMapper.valueToTree(transactionWithMetadataResult);
     final List<JsonNode> accessListJson =
         ImmutableList.copyOf(transactionCompleteResultJson.get("accessList").elements());
     assertThat(accessListJson).hasSizeGreaterThan(0);

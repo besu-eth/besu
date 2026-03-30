@@ -21,34 +21,42 @@ import org.immutables.value.Value;
 public interface TransactionValidationParams {
 
   TransactionValidationParams processingBlockParams =
-      ImmutableTransactionValidationParams.of(false, false, false, true, false, false, false);
+      ImmutableTransactionValidationParams.of(
+          false, false, false, true, false, false, false, false);
 
   TransactionValidationParams transactionPoolParams =
-      ImmutableTransactionValidationParams.of(true, false, true, true, true, false, false);
+      ImmutableTransactionValidationParams.of(true, false, true, true, true, false, false, false);
 
   TransactionValidationParams miningParams =
-      ImmutableTransactionValidationParams.of(false, false, false, true, true, false, false);
+      ImmutableTransactionValidationParams.of(false, false, false, true, true, false, false, false);
 
   TransactionValidationParams blockReplayParams =
-      ImmutableTransactionValidationParams.of(false, false, false, false, false, false, false);
+      ImmutableTransactionValidationParams.of(
+          false, false, false, false, false, false, false, false);
 
   TransactionValidationParams transactionSimulatorParams =
-      ImmutableTransactionValidationParams.of(false, false, false, false, false, true, true);
+      ImmutableTransactionValidationParams.of(false, false, false, false, false, true, true, false);
 
   TransactionValidationParams transactionSimulatorParamsAllowFutureNonce =
-      ImmutableTransactionValidationParams.of(true, false, false, false, false, true, true);
+      ImmutableTransactionValidationParams.of(true, false, false, false, false, true, true, false);
 
   TransactionValidationParams transactionSimulatorAllowUnderpricedAndFutureNonceParams =
-      ImmutableTransactionValidationParams.of(true, false, true, false, false, true, true);
+      ImmutableTransactionValidationParams.of(true, false, true, false, false, true, true, false);
 
   TransactionValidationParams transactionSimulatorAllowExceedingBalanceParams =
-      ImmutableTransactionValidationParams.of(false, true, false, false, false, true, true);
+      ImmutableTransactionValidationParams.of(false, true, false, false, false, true, true, false);
 
   TransactionValidationParams transactionSimulatorAllowExceedingBalanceAndFutureNonceParams =
-      ImmutableTransactionValidationParams.of(true, true, false, false, false, true, true);
+      ImmutableTransactionValidationParams.of(true, true, false, false, false, true, true, false);
 
   TransactionValidationParams blockSimulatorStrictParams =
-      ImmutableTransactionValidationParams.of(false, false, false, false, false, true, false);
+      ImmutableTransactionValidationParams.of(
+          false, false, false, false, false, true, false, false);
+
+  // eth_simulateV1 non-strict: allows exceeding balance and future nonces, and preserves
+  // caller-provided gas pricing so that gas fees are actually charged during simulation.
+  TransactionValidationParams blockSimulatorNonStrictParams =
+      ImmutableTransactionValidationParams.of(true, true, false, false, false, true, true, true);
 
   @Value.Default
   default boolean isAllowFutureNonce() {
@@ -85,6 +93,17 @@ public interface TransactionValidationParams {
     return false;
   }
 
+  /**
+   * When true, caller-provided gas pricing is preserved during transaction simulation instead of
+   * being zeroed out. This is used by eth_simulateV1 so that gas fees are actually charged from the
+   * sender's balance, producing the correct stateRoot and block hash. eth_call leaves this false so
+   * that gas pricing is zeroed (callers don't need sufficient balance for gas).
+   */
+  @Value.Default
+  default boolean isPreserveCallerGasPricing() {
+    return false;
+  }
+
   static TransactionValidationParams transactionSimulator() {
     return transactionSimulatorParams;
   }
@@ -107,6 +126,10 @@ public interface TransactionValidationParams {
 
   static TransactionValidationParams blockSimulatorStrict() {
     return blockSimulatorStrictParams;
+  }
+
+  static TransactionValidationParams blockSimulatorNonStrict() {
+    return blockSimulatorNonStrictParams;
   }
 
   static TransactionValidationParams processingBlock() {
