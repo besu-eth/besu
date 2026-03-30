@@ -1,8 +1,8 @@
 /*
  * Copyright contributors to Hyperledger Besu.
  *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
- * the License. You may obtain a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the
+ * License. You may obtain a copy of the License at
  *
  * http://www.apache.org/licenses/LICENSE-2.0
  *
@@ -14,7 +14,12 @@
  */
 package org.hyperledger.besu.plugin.services.storage.rocksdb;
 
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Properties;
+import java.util.Set;
 
 import com.google.common.base.Splitter;
 import org.slf4j.Logger;
@@ -28,15 +33,44 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Additional column-family strings are parsed here; {@link
  * org.hyperledger.besu.plugin.services.storage.rocksdb.segmented.RocksDBColumnarKeyValueStorage}
- * merges Besu's block-table defaults into the same {@link Properties} map, then applies everything
- * with one {@code getColumnFamilyOptionsFromProps} call (compaction and blob options may still be
- * set in Java afterward).
+ * merges Besu defaults using {@link InsertionOrderedProperties} so JNI builds a deterministic
+ * option string (standard {@link Properties} iteration order is undefined).
  */
 public final class RocksDbNativeOptionStrings {
 
   private static final Logger LOG = LoggerFactory.getLogger(RocksDbNativeOptionStrings.class);
 
   private RocksDbNativeOptionStrings() {}
+
+  /**
+   * {@link Properties} whose {@link #stringPropertyNames()} follows insertion order, so {@link
+   * org.rocksdb.Options#getOptionStringFromProps} emits a stable option string for JNI.
+   */
+  public static final class InsertionOrderedProperties extends Properties {
+    private final List<String> insertionOrder = new ArrayList<>();
+    private final Set<String> seenKeys = new HashSet<>();
+
+    @Override
+    public synchronized Object put(final Object key, final Object value) {
+      if (key instanceof final String s && seenKeys.add(s)) {
+        insertionOrder.add(s);
+      }
+      return super.put(key, value);
+    }
+
+    @Override
+    public Set<String> stringPropertyNames() {
+      synchronized (this) {
+        final LinkedHashSet<String> names = new LinkedHashSet<>();
+        for (final String k : insertionOrder) {
+          if (containsKey(k)) {
+            names.add(k);
+          }
+        }
+        return names;
+      }
+    }
+  }
 
   /**
    * Parses a DB options string for {@link org.rocksdb.DBOptions#getDBOptionsFromProps}.

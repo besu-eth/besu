@@ -34,6 +34,7 @@ import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksD
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -90,6 +91,19 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   /** RocksDb Time to roll a log file (1 day = 3600 * 24 seconds) */
   private static final long TIME_TO_ROLL_LOG_FILE = 86_400L;
+
+  /**
+   * Keys set by {@link #mergeBesuNativeColumnFamilyOptionsBeforeParse}; user CLI cannot override.
+   */
+  private static final Set<String> BESU_MERGED_NATIVE_COLUMN_FAMILY_KEYS =
+      Set.of(
+          "block_based_table_factory.index_type",
+          "block_based_table_factory.format_version",
+          "block_based_table_factory.filter_policy",
+          "block_based_table_factory.partition_filters",
+          "block_based_table_factory.cache_index_and_filter_blocks",
+          "block_based_table_factory.block_size",
+          "block_based_table_factory.block_cache");
 
   static {
     RocksDbUtil.loadNativeLibrary();
@@ -182,13 +196,14 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
    * Create a Column Family Descriptor for a given segment It defines basically the different
    * options to apply to the corresponding Column Family
    *
-   * <p>Additional CF options from configuration are parsed into {@link Properties}; Besu merges its
-   * block-table defaults into that map (same flat keys as the CLI string) before a single {@code
-   * getColumnFamilyOptionsFromProps} call so user keys such as {@code
-   * block_based_table_factory.prepopulate_block_cache} are not lost. Compaction and blob options
-   * are still set in Java where needed. {@code level_compaction_dynamic_level_bytes} is taken from
-   * the latest on-disk {@code OPTIONS-*} file when present for this column family (existing
-   * deployments); otherwise it defaults to {@code true}.
+   * <p>Additional CF options from configuration are parsed into a scratch {@link Properties}; Besu
+   * then builds {@link RocksDbNativeOptionStrings.InsertionOrderedProperties} by applying its
+   * block-table keys in a fixed order (so {@code index_type} precedes {@code partition_filters} in
+   * the JNI option string), then copies remaining user keys. A single {@code
+   * getColumnFamilyOptionsFromProps} call follows. Compaction and blob options are still set in
+   * Java where needed. {@code level_compaction_dynamic_level_bytes} is taken from the latest
+   * on-disk {@code OPTIONS-*} file when present for this column family (existing deployments);
+   * otherwise it defaults to {@code true}.
    *
    * @param segment the segment identifier
    * @param configuration RocksDB configuration
@@ -199,13 +214,21 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     final boolean dynamicLevelCompaction =
         readLevelCompactionDynamicLevelBytesFromOptionsFile(segment, configuration);
 
-    final Properties additionalCfProps =
+    final Properties userCfProps =
         RocksDbNativeOptionStrings.parseSemicolonKeyValueString(
             configuration.getAdditionalColumnFamilyOptions().orElse(""));
-    mergeBesuNativeColumnFamilyOptionsBeforeParse(additionalCfProps, segment, configuration);
+    final RocksDbNativeOptionStrings.InsertionOrderedProperties cfProps =
+        new RocksDbNativeOptionStrings.InsertionOrderedProperties();
+    mergeBesuNativeColumnFamilyOptionsBeforeParse(cfProps, segment, configuration);
+    final List<String> userKeys = new ArrayList<>(userCfProps.stringPropertyNames());
+    Collections.sort(userKeys);
+    for (final String key : userKeys) {
+      if (!BESU_MERGED_NATIVE_COLUMN_FAMILY_KEYS.contains(key)) {
+        cfProps.setProperty(key, userCfProps.getProperty(key));
+      }
+    }
 
-    final ColumnFamilyOptions columnOpts =
-        columnFamilyOptionsFromNativeProperties(additionalCfProps);
+    final ColumnFamilyOptions columnOpts = columnFamilyOptionsFromNativeProperties(cfProps);
 
     columnOpts.setLevelCompactionDynamicLevelBytes(dynamicLevelCompaction);
     if (segment.containsStaticData()) {
@@ -215,19 +238,21 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   }
 
   /**
-   * Inserts Besu's block-table defaults as {@code block_based_table_factory.*} properties before
-   * {@link ColumnFamilyOptions#getColumnFamilyOptionsFromProps}, so they follow the same code path
-   * as keys from {@code --Xplugin-rocksdb-additional-column-family-options}. These entries
-   * intentionally overwrite user values for the same keys.
+   * Writes Besu's block-table defaults onto {@code cfProps} in this call order so the JNI option
+   * string has {@code index_type=kTwoLevelIndexSearch} before {@code partition_filters=true}
+   * (partitioned filters need a two-level index when options are applied incrementally in native
+   * code). Must run on an empty {@link RocksDbNativeOptionStrings.InsertionOrderedProperties}
+   * before user keys are added.
    */
   private static void mergeBesuNativeColumnFamilyOptionsBeforeParse(
-      final Properties cfProps,
+      final RocksDbNativeOptionStrings.InsertionOrderedProperties cfProps,
       final SegmentIdentifier segment,
       final RocksDBConfiguration configuration) {
     final long blockCacheBytes =
         configuration.isHighSpec() && segment.isEligibleToHighSpecFlag()
             ? ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC
             : configuration.getCacheCapacity();
+    cfProps.setProperty("block_based_table_factory.index_type", "kTwoLevelIndexSearch");
     cfProps.setProperty(
         "block_based_table_factory.format_version", Integer.toString(ROCKSDB_FORMAT_VERSION));
     cfProps.setProperty("block_based_table_factory.filter_policy", "bloomfilter:10:false");

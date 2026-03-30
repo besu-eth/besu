@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetricsFactory;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbSegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbUtil;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBConfigurationBuilder;
 
@@ -38,6 +39,7 @@ import org.rocksdb.CompressionType;
 import org.rocksdb.ConfigOptions;
 import org.rocksdb.DBOptions;
 import org.rocksdb.Env;
+import org.rocksdb.FlushOptions;
 import org.rocksdb.OptionsUtil;
 import org.rocksdb.RocksDB;
 
@@ -139,6 +141,62 @@ public class AdditionalColumnFamilyOptionsIntegrationTest {
         Files.readString(dbDir.resolve(optionsFileName), StandardCharsets.UTF_8);
     assertThat(optionsContent).contains("write_buffer_size=" + writeBufferSize);
     assertThat(optionsContent)
+        .containsIgnoringCase("prepopulate_block_cache")
+        .containsIgnoringCase("kFlushOnly");
+  }
+
+  /**
+   * Regression for native SIGSEGV in {@code PartitionedFilterBlockBuilder::DecideCutAFilterBlock}
+   * when {@code partition_filters=true} was applied without {@code index_type=kTwoLevelIndexSearch}
+   * on the incremental native options path (e.g. during WAL processing / flush). Besu applies
+   * block-table keys in a safe sequence on {@link
+   * org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbNativeOptionStrings.InsertionOrderedProperties}.
+   */
+  @Test
+  public void besuMergedBlockTableOptionsSurviveFlushAllColumnFamiliesWithoutNativeCrash(
+      @TempDir final Path dbDir) throws Exception {
+    RocksDbUtil.loadNativeLibrary();
+    final var configuration =
+        new RocksDBConfigurationBuilder()
+            .databaseDir(dbDir)
+            .cacheCapacity(2 * 1024 * 1024)
+            .additionalColumnFamilyOptions(
+                Optional.of(
+                    "write_buffer_size=65536;block_based_table_factory.prepopulate_block_cache=kFlushOnly;"))
+            .build();
+
+    try (OptimisticRocksDBColumnarKeyValueStorage store =
+        new OptimisticRocksDBColumnarKeyValueStorage(
+            configuration,
+            List.of(
+                RocksDBColumnarKeyValueStorageTest.TestSegment.DEFAULT,
+                RocksDBColumnarKeyValueStorageTest.TestSegment.FOO),
+            List.of(),
+            new NoOpMetricsSystem(),
+            RocksDBMetricsFactory.PUBLIC_ROCKS_DB_METRICS)) {
+
+      final RocksDB db = store.getDB();
+      final List<ColumnFamilyHandle> handles = new ArrayList<>();
+      for (final RocksDbSegmentIdentifier seg : store.columnHandlesBySegmentIdentifier.values()) {
+        handles.add(seg.get());
+      }
+      final byte[] value = new byte[512];
+      for (int i = 0; i < 200; i++) {
+        final byte[] key = String.format("k%06d", i).getBytes(StandardCharsets.UTF_8);
+        for (final ColumnFamilyHandle h : handles) {
+          db.put(h, key, value);
+        }
+      }
+      try (final FlushOptions flushOptions = new FlushOptions().setWaitForFlush(true)) {
+        db.flush(flushOptions, handles);
+      }
+    }
+
+    final String optionsFileName =
+        OptionsUtil.getLatestOptionsFileName(dbDir.toString(), Env.getDefault());
+    final String content = Files.readString(dbDir.resolve(optionsFileName), StandardCharsets.UTF_8);
+    assertThat(content).containsIgnoringCase("partition_filters");
+    assertThat(content)
         .containsIgnoringCase("prepopulate_block_cache")
         .containsIgnoringCase("kFlushOnly");
   }

@@ -16,6 +16,8 @@ package org.hyperledger.besu.plugin.services.storage.rocksdb;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 
 import org.junit.jupiter.api.Test;
@@ -42,6 +44,25 @@ public class RocksDbNativeOptionStringsTest {
     assertThat(props.getProperty("block_based_table_factory.prepopulate_block_cache"))
         .isEqualTo("kFlushOnly");
     assertThat(props.getProperty("block_based_table_factory.block_size")).isEqualTo("8192");
+  }
+
+  @Test
+  public void insertionOrderedPropertiesKeepsBesuBlockTableKeyCallOrder() {
+    final RocksDbNativeOptionStrings.InsertionOrderedProperties cfProps =
+        new RocksDbNativeOptionStrings.InsertionOrderedProperties();
+    cfProps.setProperty("block_based_table_factory.index_type", "kTwoLevelIndexSearch");
+    cfProps.setProperty("block_based_table_factory.format_version", "5");
+    cfProps.setProperty("block_based_table_factory.filter_policy", "bloomfilter:10:false");
+    cfProps.setProperty("block_based_table_factory.partition_filters", "true");
+    cfProps.setProperty("block_based_table_factory.cache_index_and_filter_blocks", "false");
+    cfProps.setProperty("block_based_table_factory.block_size", "32768");
+    cfProps.setProperty("block_based_table_factory.block_cache", "8388608");
+    cfProps.setProperty("write_buffer_size", "123");
+    final List<String> names = new ArrayList<>(cfProps.stringPropertyNames());
+    assertThat(names.indexOf("block_based_table_factory.index_type"))
+        .isLessThan(names.indexOf("block_based_table_factory.partition_filters"));
+    assertThat(names.indexOf("block_based_table_factory.partition_filters"))
+        .isLessThan(names.indexOf("write_buffer_size"));
   }
 
   @Test
@@ -94,7 +115,9 @@ public class RocksDbNativeOptionStringsTest {
       getColumnFamilyOptionsFromPropsAcceptsBesuStyleBlockTableKeysWithBlockCacheCapacity() {
     RocksDbUtil.loadNativeLibrary();
     final long cacheBytes = 8 * 1024 * 1024;
-    final Properties cfProps = new Properties();
+    final RocksDbNativeOptionStrings.InsertionOrderedProperties cfProps =
+        new RocksDbNativeOptionStrings.InsertionOrderedProperties();
+    cfProps.setProperty("block_based_table_factory.index_type", "kTwoLevelIndexSearch");
     cfProps.setProperty("block_based_table_factory.format_version", "5");
     cfProps.setProperty("block_based_table_factory.filter_policy", "bloomfilter:10:false");
     cfProps.setProperty("block_based_table_factory.partition_filters", "true");
