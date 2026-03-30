@@ -977,12 +977,12 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         System.exit(0); // Exit before any services are started
       }
 
+      logger.info("Starting Besu");
+
       // set merge config on the basis of genesis config
       setMergeConfigOptions();
 
       instantiateSignatureAlgorithmFactory();
-
-      logger.info("Starting Besu");
 
       // Need to create vertx after cmdline has been parsed, such that metricsSystem is configurable
       vertx = createVertx(besuComponent.getMetricsSystem());

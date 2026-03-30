@@ -36,6 +36,8 @@ public class SignatureAlgorithmFactory {
   public static void setInstance(final SignatureAlgorithmType signatureAlgorithmType) {
     instance = signatureAlgorithmType.getInstance();
 
+    LOG.info("Setting SignatureAlgorithmFactory instance to {}", instance.getCurveName());
+
     if (!SignatureAlgorithmType.isDefault(instance)) {
       LOG.info(
           "The signature algorithm uses the elliptic curve {}. The usage of alternative elliptic curves is still experimental.",
