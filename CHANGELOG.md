@@ -5,9 +5,6 @@
 ### Repository Migration
 - The Besu repository has moved from `hyperledger/besu` to `besu-eth/besu`. GitHub automatically redirects all existing links from the old location.
 
-### Repository Migration
-- The Besu repository has moved from `hyperledger/besu` to `besu-eth/besu`. GitHub automatically redirects all existing links from the old location.
-
 ### Breaking Changes
 - Clique consensus has been removed. Besu can no longer start or mine on pure Clique networks. Syncing networks that started as Clique and have since transitioned to PoS via `terminalTotalDifficulty` (e.g. Linea Mainnet) are still supported. [#9852](https://github.com/hyperledger/besu/pull/9852)
 - Deprecated `--min-block-occupancy-ratio` for removal and make it noop. That option, that is ignored on PoS networks, is related to the deprecated PoW, and allowed to broadcast a mined block as soon as it reached a satisfying fill threshold. The option is still recognized, but it has no effect and will be completely removed in a future release. [#10036](https://github.com/besu-eth/besu/pull/10036)
@@ -58,6 +55,7 @@ are provided with different values, using input as per the execution-apis spec i
 - Add blockTimestamp to transaction RPC results [#9887](https://github.com/hyperledger/besu/pull/9887)
 - Add `txpool_status` RPC method [#10002](https://github.com/hyperledger/besu/pull/10002)
 - Add `txpool_contentFrom` JSON-RPC method [#10111](https://github.com/besu-eth/besu/pull/10111)
+- Add `txpool_content` JSON-RPC method [#10120](https://github.com/besu-eth/besu/pull/10120) 
 - Add maxUsedGas field to eth_simulateV1 results [#10066](https://github.com/besu-eth/besu/pull/10066)
 
 ### Performance

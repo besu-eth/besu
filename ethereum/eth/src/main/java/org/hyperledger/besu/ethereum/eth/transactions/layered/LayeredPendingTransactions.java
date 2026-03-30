@@ -50,6 +50,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -354,6 +355,19 @@ public class LayeredPendingTransactions implements PendingTransactions {
         sender,
         prioritizedTransactions.getCurrentNonceFor(sender).orElse(0),
         prioritizedTransactions.getAllFor(sender));
+  }
+
+  @Override
+  public synchronized Map<Address, SenderPendingTransactionsData> getPendingTransactionsBySender() {
+    return prioritizedTransactions.getAllBySender().entrySet().stream()
+        .collect(
+            Collectors.toMap(
+                Map.Entry::getKey,
+                e ->
+                    new SenderPendingTransactionsData(
+                        e.getKey(),
+                        prioritizedTransactions.getCurrentNonceFor(e.getKey()).orElse(0),
+                        e.getValue())));
   }
 
   @Override

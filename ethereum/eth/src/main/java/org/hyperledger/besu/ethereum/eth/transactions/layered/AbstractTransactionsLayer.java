@@ -166,6 +166,25 @@ public abstract class AbstractTransactionsLayer implements TransactionsLayer {
   }
 
   @Override
+  public Map<Address, List<PendingTransaction>> getAllBySender() {
+    final Map<Address, List<PendingTransaction>> allNextLayers = nextLayer.getAllBySender();
+    final Map<Address, List<PendingTransaction>> allBySender =
+        HashMap.newHashMap(allNextLayers.size() + txsBySender.size());
+    allBySender.putAll(allNextLayers);
+
+    txsBySender.forEach(
+        (sender, pendingTxs) ->
+            allBySender.merge(
+                sender,
+                new ArrayList<>(pendingTxs.values()),
+                (prevList, newList) -> {
+                  newList.addAll(prevList);
+                  return newList;
+                }));
+    return allBySender;
+  }
+
+  @Override
   public long getCumulativeUsedSpace() {
     return getLayerSpaceUsed() + nextLayer.getCumulativeUsedSpace();
   }

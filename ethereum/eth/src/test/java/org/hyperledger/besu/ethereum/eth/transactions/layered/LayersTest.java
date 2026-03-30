@@ -198,6 +198,12 @@ public class LayersTest extends BaseTransactionPoolTest {
     assertScenario(scenario);
   }
 
+  @ParameterizedTest
+  @MethodSource("providerPendingBySender")
+  void pendingBySender(final Scenario scenario) {
+    assertScenario(scenario);
+  }
+
   private void assertScenario(final Scenario scenario) {
     scenario.run();
   }
@@ -1412,6 +1418,40 @@ public class LayersTest extends BaseTransactionPoolTest {
                 .expectedReadyForSenders()));
   }
 
+  static Stream<Arguments> providerPendingBySender() {
+    return Stream.of(
+        Arguments.of(new Scenario("no txs for sender").expectedAllForSender(S1)),
+        Arguments.of(
+            new Scenario("only one in prio")
+                .addForSender(S1, 0)
+                .expectedPrioritizedForSender(S1, 0)
+                .expectedAllForSender(S1, 0)),
+        Arguments.of(
+            new Scenario("only one in ready")
+                .hasSenderEnoughBalance(S1, false)
+                .addForSender(S1, 0)
+                .expectedReadyForSender(S1, 0)
+                .expectedAllForSender(S1, 0)),
+        Arguments.of(
+            new Scenario("only one in sparse")
+                .addForSender(S1, 1)
+                .expectedSparseForSender(S1, 1)
+                .expectedAllForSender(S1, 1)),
+        Arguments.of(
+            new Scenario("only one in prio and sparse")
+                .addForSender(S1, 0, 3)
+                .expectedPrioritizedForSender(S1, 0)
+                .expectedSparseForSender(S1, 3)
+                .expectedAllForSender(S1, 0, 3)),
+        Arguments.of(
+            new Scenario("something in all layers")
+                .addForSender(S1, 0, 1, 2, 3, 6)
+                .expectedPrioritizedForSender(S1, 0, 1, 2)
+                .expectedReadyForSender(S1, 3)
+                .expectedSparseForSender(S1, 6)
+                .expectedAllForSender(S1, 0, 1, 2, 3, 6)));
+  }
+
   private static BlockHeader mockBlockHeader() {
     final BlockHeader blockHeader = mock(BlockHeader.class);
     when(blockHeader.getBaseFee()).thenReturn(Optional.of(BASE_FEE));
@@ -1439,6 +1479,7 @@ public class LayersTest extends BaseTransactionPoolTest {
     final LayeredPendingTransactions pending;
     final NotificationsChecker notificationsChecker = new NotificationsChecker();
     final List<Runnable> actions = new ArrayList<>();
+    List<PendingTransaction> lastExpectedAll = new ArrayList<>();
     List<PendingTransaction> lastExpectedPrioritized = new ArrayList<>();
     List<PendingTransaction> lastExpectedReady = new ArrayList<>();
     List<PendingTransaction> lastExpectedSparse = new ArrayList<>();
@@ -1826,6 +1867,15 @@ public class LayersTest extends BaseTransactionPoolTest {
           sender.hasPriority);
     }
 
+    public Scenario expectedAllForSender(final Sender sender, final long... nonce) {
+      actions.add(
+          () -> {
+            lastExpectedAll = expectedForSender(sender, nonce);
+            assertExpectedAll(prio, sender, lastExpectedAll);
+          });
+      return this;
+    }
+
     public Scenario expectedPrioritizedForSender(final Sender sender, final long... nonce) {
       actions.add(
           () -> {
@@ -1936,6 +1986,18 @@ public class LayersTest extends BaseTransactionPoolTest {
             assertExpectedDropped(dropped, lastExpectedDropped);
           });
       return this;
+    }
+
+    private void assertExpectedAll(
+        final AbstractPrioritizedTransactions prioLayer,
+        final Sender sender,
+        final List<PendingTransaction> expected) {
+      final List<PendingTransaction> allForSender = prioLayer.getAllBySender().get(sender.address);
+      if (expected.isEmpty()) {
+        assertThat(allForSender).describedAs("All").isNull();
+      } else {
+        assertThat(allForSender).describedAs("All").containsExactlyElementsOf(expected);
+      }
     }
 
     private void assertExpectedPrioritized(
