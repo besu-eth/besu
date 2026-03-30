@@ -54,14 +54,12 @@ import org.apache.tuweni.bytes.Bytes32;
  * @param stateGasUsed The cumulative state gas used (EIP-8037), undone on revert
  * @param stateGasReservoir The EIP-8037 state gas reservoir (overflow from regular gas budget),
  *     undone on revert
- * @param enableEvmV2 whether the experimental EVM v2 (long[] stack) is enabled
  * @param stateGasSpillBurned EIP-8037 accumulated state gas that spilled from reverted child
  *     frames; NOT undone on revert (permanent burn counter for block accounting)
  */
 public record TxValues(
     BlockHashLookup blockHashLookup,
     int maxStackSize,
-    boolean enableEvmV2,
     UndoSet<Address> warmedUpAddresses,
     UndoTable<Address, Bytes32, Boolean> warmedUpStorage,
     Address originator,
@@ -85,7 +83,6 @@ public record TxValues(
    *
    * @param blockHashLookup block hash lookup function
    * @param maxStackSize maximum stack size
-   * @param enableEvmV2 whether experimental EVM v2 (long[] stack) is enabled
    * @param warmedUpAddresses pre-warmed addresses
    * @param originator the transaction originator
    * @param gasPrice the gas price
@@ -98,7 +95,6 @@ public record TxValues(
   public static TxValues forTransaction(
       final BlockHashLookup blockHashLookup,
       final int maxStackSize,
-      final boolean enableEvmV2,
       final UndoSet<Address> warmedUpAddresses,
       final Address originator,
       final Wei gasPrice,
@@ -109,7 +105,6 @@ public record TxValues(
     return new TxValues(
         blockHashLookup,
         maxStackSize,
-        enableEvmV2,
         warmedUpAddresses,
         UndoTable.of(HashBasedTable.create()),
         originator,

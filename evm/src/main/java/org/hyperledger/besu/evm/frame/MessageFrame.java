@@ -253,6 +253,7 @@ public class MessageFrame {
   }
 
   private MessageFrame(
+      final boolean enableEvmV2,
       final Type type,
       final WorldUpdater worldUpdater,
       final long initialGas,
@@ -275,7 +276,7 @@ public class MessageFrame {
     this.worldUpdater = worldUpdater;
     this.gasRemaining = initialGas;
     this.stack = new OperandStack(txValues.maxStackSize());
-    this.stackDataV2 = txValues.enableEvmV2() ? new long[txValues.maxStackSize() * 4] : null;
+    this.stackDataV2 = enableEvmV2 ? new long[txValues.maxStackSize() * 4] : null;
     this.stackTopV2 = 0;
     this.pc = 0;
     this.recipient = recipient;
@@ -1820,7 +1821,6 @@ public class MessageFrame {
             TxValues.forTransaction(
                 blockHashLookup,
                 maxStackSize,
-                enableEvmV2,
                 UndoSet.of(warmedUpAddresses),
                 originator,
                 gasPrice,
@@ -1839,6 +1839,7 @@ public class MessageFrame {
 
       MessageFrame messageFrame =
           new MessageFrame(
+              enableEvmV2,
               type,
               updater,
               initialGas,
