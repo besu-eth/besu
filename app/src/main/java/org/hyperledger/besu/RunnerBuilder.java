@@ -689,6 +689,12 @@ public class RunnerBuilder {
           networkingConfiguration.discoveryConfiguration().isDiscoveryV5Enabled());
       discoveryConfiguration.setFilterOnEnrForkId(
           networkingConfiguration.discoveryConfiguration().isFilterOnEnrForkIdEnabled());
+      discoveryConfiguration.setDiscV5DiscoveryIntervalSeconds(
+          networkingConfiguration.discoveryConfiguration().getDiscV5DiscoveryIntervalSeconds());
+      discoveryConfiguration.setDiscV5DiscoveryTimeoutSeconds(
+          networkingConfiguration.discoveryConfiguration().getDiscV5DiscoveryTimeoutSeconds());
+      discoveryConfiguration.setDiscV5MinimumPeerRatio(
+          networkingConfiguration.discoveryConfiguration().getDiscV5MinimumPeerRatio());
     } else {
       discoveryConfiguration.setEnabled(false);
     }
