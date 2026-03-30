@@ -407,6 +407,19 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   }
 
   @Override
+  public Map<Address, SenderPendingTransactionsData> getPendingTransactionsBySender() {
+    return transactionsBySender.entrySet().stream()
+        .collect(
+            Collectors.toMap(
+                Map.Entry::getKey,
+                entry ->
+                    new SenderPendingTransactionsData(
+                        entry.getKey(),
+                        entry.getValue().maybeCurrentNonce().orElse(0),
+                        entry.getValue().getPendingTransactions())));
+  }
+
+  @Override
   public long subscribePendingTransactions(final PendingTransactionAddedListener listener) {
     return pendingTransactionSubscribers.subscribe(listener);
   }
