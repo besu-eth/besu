@@ -109,8 +109,8 @@ public class Log {
    * Reads the log entry from the provided RLP input.
    *
    * @param in the input from which to decode the log entry.
-   * @param compacted if true, topics and data are encoded in compacted form (leading zeros trimmed);
-   *     if false, topics are raw bytes32 and data is raw bytes.
+   * @param compacted if true, topics and data are encoded in compacted form (leading zeros
+   *     trimmed); if false, topics are raw bytes32 and data is raw bytes.
    * @return the read log entry.
    */
   public static Log readFrom(final RLPInput in, final boolean compacted) {
