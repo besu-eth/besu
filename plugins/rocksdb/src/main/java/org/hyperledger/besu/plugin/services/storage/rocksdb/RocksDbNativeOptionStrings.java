@@ -37,12 +37,23 @@ public final class RocksDbNativeOptionStrings {
 
   private RocksDbNativeOptionStrings() {}
 
-  /** Parses {@code key=value;} pairs for {@link org.rocksdb.DBOptions#getDBOptionsFromProps}. */
+  /**
+   * Parses a DB options string for {@link org.rocksdb.DBOptions#getDBOptionsFromProps}.
+   *
+   * @param raw semicolon-separated {@code key=value} segments; may be null or blank
+   * @return properties suitable for {@code getDBOptionsFromProps}; empty if {@code raw} is null or
+   *     blank
+   */
   public static Properties parseDbOptionString(final String raw) {
     return parseSemicolonKeyValueString(raw);
   }
 
-  /** Nethermind-style {@code a=b;c=d;} into flat {@link Properties} keys. */
+  /**
+   * Parses a Nethermind-style options string ({@code a=b;c=d;}) into flat {@link Properties} keys.
+   *
+   * @param raw semicolon-separated {@code key=value} segments; may be null or blank
+   * @return parsed properties; malformed segments are skipped with a warning
+   */
   public static Properties parseSemicolonKeyValueString(final String raw) {
     final Properties props = new Properties();
     if (raw == null || raw.isBlank()) {
