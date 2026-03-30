@@ -157,8 +157,9 @@ public class RocksDBConfigurationBuilder {
   }
 
   /**
-   * Additional column-family options (semicolon-separated {@code key=value;}), merged with Besu
-   * defaults and parsed natively except {@code block_based_table_factory.*} keys.
+   * Additional column-family options (semicolon-separated {@code key=value;}). Besu merges its own
+   * {@code block_based_table_factory.*} defaults into the same native map before parsing; keys
+   * listed there are overwritten by Besu.
    *
    * @param additionalColumnFamilyOptions the options string
    * @return this builder

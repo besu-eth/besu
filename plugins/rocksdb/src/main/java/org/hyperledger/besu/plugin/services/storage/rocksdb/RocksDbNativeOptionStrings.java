@@ -26,10 +26,11 @@ import org.slf4j.LoggerFactory;
  * option parser via {@link org.rocksdb.ColumnFamilyOptions#getColumnFamilyOptionsFromProps} and
  * {@link org.rocksdb.DBOptions#getDBOptionsFromProps}.
  *
- * <p>Additional column-family strings are parsed here, applied in {@link
+ * <p>Additional column-family strings are parsed here; {@link
  * org.hyperledger.besu.plugin.services.storage.rocksdb.segmented.RocksDBColumnarKeyValueStorage}
- * via {@code getColumnFamilyOptionsFromProps}, then Besu overwrites selected options in Java where
- * it sets them explicitly (block table, compaction, blob, etc.).
+ * merges Besu's block-table defaults into the same {@link Properties} map, then applies everything
+ * with one {@code getColumnFamilyOptionsFromProps} call (compaction and blob options may still be
+ * set in Java afterward).
  */
 public final class RocksDbNativeOptionStrings {
 

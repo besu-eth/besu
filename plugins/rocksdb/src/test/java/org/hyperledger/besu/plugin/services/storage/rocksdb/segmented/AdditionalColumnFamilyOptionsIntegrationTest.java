@@ -43,10 +43,9 @@ import org.rocksdb.RocksDB;
 
 /**
  * Verifies additional column-family option strings against RocksDB and against Besu's storage
- * wrapper. Memtable options such as {@code write_buffer_size} survive Besu's Java overlay; some
- * block-table factory settings from the native string may be reset when Besu reapplies its table
- * configuration in Java (see {@link
- * #prepopulateBlockCacheFromNativeStringSurvivesWithoutBesuTableOverlay}).
+ * wrapper. Besu merges its block-table defaults into the native option map before parsing, so user
+ * block-table keys such as {@code prepopulate_block_cache} are preserved alongside Besu's {@code
+ * format_version}, bloom filter, and block cache size.
  *
  * <p>Database-level strings are covered by {@link AdditionalDatabaseOptionsIntegrationTest}.
  */
@@ -139,8 +138,9 @@ public class AdditionalColumnFamilyOptionsIntegrationTest {
     final String optionsContent =
         Files.readString(dbDir.resolve(optionsFileName), StandardCharsets.UTF_8);
     assertThat(optionsContent).contains("write_buffer_size=" + writeBufferSize);
-    // Besu reapplies block table settings in Java; JNI resets prepopulate_block_cache to default.
-    assertThat(optionsContent).containsIgnoringCase("prepopulate_block_cache=kDisable");
+    assertThat(optionsContent)
+        .containsIgnoringCase("prepopulate_block_cache")
+        .containsIgnoringCase("kFlushOnly");
   }
 
   @Test

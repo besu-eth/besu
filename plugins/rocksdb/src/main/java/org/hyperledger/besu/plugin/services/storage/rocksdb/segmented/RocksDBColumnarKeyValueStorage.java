@@ -49,8 +49,6 @@ import com.google.common.collect.Streams;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.tuweni.bytes.Bytes;
 import org.rocksdb.AbstractRocksIterator;
-import org.rocksdb.BlockBasedTableConfig;
-import org.rocksdb.BloomFilter;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
@@ -58,7 +56,6 @@ import org.rocksdb.CompressionType;
 import org.rocksdb.ConfigOptions;
 import org.rocksdb.DBOptions;
 import org.rocksdb.Env;
-import org.rocksdb.LRUCache;
 import org.rocksdb.Options;
 import org.rocksdb.OptionsUtil;
 import org.rocksdb.ReadOptions;
@@ -185,12 +182,13 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
    * Create a Column Family Descriptor for a given segment It defines basically the different
    * options to apply to the corresponding Column Family
    *
-   * <p>Additional CF options from configuration are parsed into {@link Properties} and applied with
-   * {@code getColumnFamilyOptionsFromProps}; Besu then sets block table, compaction, and blob
-   * options in Java, which override any overlapping native values when applicable. {@code
-   * level_compaction_dynamic_level_bytes} is taken from the latest on-disk {@code OPTIONS-*} file
-   * when present for this column family (existing deployments); otherwise it defaults to {@code
-   * true}.
+   * <p>Additional CF options from configuration are parsed into {@link Properties}; Besu merges its
+   * block-table defaults into that map (same flat keys as the CLI string) before a single {@code
+   * getColumnFamilyOptionsFromProps} call so user keys such as {@code
+   * block_based_table_factory.prepopulate_block_cache} are not lost. Compaction and blob options
+   * are still set in Java where needed. {@code level_compaction_dynamic_level_bytes} is taken from
+   * the latest on-disk {@code OPTIONS-*} file when present for this column family (existing
+   * deployments); otherwise it defaults to {@code true}.
    *
    * @param segment the segment identifier
    * @param configuration RocksDB configuration
@@ -204,32 +202,39 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     final Properties additionalCfProps =
         RocksDbNativeOptionStrings.parseSemicolonKeyValueString(
             configuration.getAdditionalColumnFamilyOptions().orElse(""));
+    mergeBesuNativeColumnFamilyOptionsBeforeParse(additionalCfProps, segment, configuration);
 
     final ColumnFamilyOptions columnOpts =
         columnFamilyOptionsFromNativeProperties(additionalCfProps);
-
-    final var existingTable = columnOpts.tableFormatConfig();
-    final BlockBasedTableConfig blockTable =
-        existingTable instanceof BlockBasedTableConfig b ? b : new BlockBasedTableConfig();
-    final LRUCache blockCache =
-        new LRUCache(
-            configuration.isHighSpec() && segment.isEligibleToHighSpecFlag()
-                ? ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC
-                : configuration.getCacheCapacity());
-    blockTable
-        .setBlockCache(blockCache)
-        .setFormatVersion(ROCKSDB_FORMAT_VERSION)
-        .setFilterPolicy(new BloomFilter(10, false))
-        .setPartitionFilters(true)
-        .setCacheIndexAndFilterBlocks(false)
-        .setBlockSize(ROCKSDB_BLOCK_SIZE);
-    columnOpts.setTableFormatConfig(blockTable);
 
     columnOpts.setLevelCompactionDynamicLevelBytes(dynamicLevelCompaction);
     if (segment.containsStaticData()) {
       configureBlobDBForSegment(segment, configuration, columnOpts);
     }
     return new ColumnFamilyDescriptor(segment.getId(), columnOpts);
+  }
+
+  /**
+   * Inserts Besu's block-table defaults as {@code block_based_table_factory.*} properties before
+   * {@link ColumnFamilyOptions#getColumnFamilyOptionsFromProps}, so they follow the same code path
+   * as keys from {@code --Xplugin-rocksdb-additional-column-family-options}. These entries
+   * intentionally overwrite user values for the same keys.
+   */
+  private static void mergeBesuNativeColumnFamilyOptionsBeforeParse(
+      final Properties cfProps,
+      final SegmentIdentifier segment,
+      final RocksDBConfiguration configuration) {
+    final long blockCacheBytes =
+        configuration.isHighSpec() && segment.isEligibleToHighSpecFlag()
+            ? ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC
+            : configuration.getCacheCapacity();
+    cfProps.setProperty(
+        "block_based_table_factory.format_version", Integer.toString(ROCKSDB_FORMAT_VERSION));
+    cfProps.setProperty("block_based_table_factory.filter_policy", "bloomfilter:10:false");
+    cfProps.setProperty("block_based_table_factory.partition_filters", "true");
+    cfProps.setProperty("block_based_table_factory.cache_index_and_filter_blocks", "false");
+    cfProps.setProperty("block_based_table_factory.block_size", Long.toString(ROCKSDB_BLOCK_SIZE));
+    cfProps.setProperty("block_based_table_factory.block_cache", Long.toString(blockCacheBytes));
   }
 
   /**

@@ -88,4 +88,23 @@ public class RocksDbNativeOptionStringsTest {
       assertThat(opts).isNotNull();
     }
   }
+
+  @Test
+  public void
+      getColumnFamilyOptionsFromPropsAcceptsBesuStyleBlockTableKeysWithBlockCacheCapacity() {
+    RocksDbUtil.loadNativeLibrary();
+    final long cacheBytes = 8 * 1024 * 1024;
+    final Properties cfProps = new Properties();
+    cfProps.setProperty("block_based_table_factory.format_version", "5");
+    cfProps.setProperty("block_based_table_factory.filter_policy", "bloomfilter:10:false");
+    cfProps.setProperty("block_based_table_factory.partition_filters", "true");
+    cfProps.setProperty("block_based_table_factory.cache_index_and_filter_blocks", "false");
+    cfProps.setProperty("block_based_table_factory.block_size", "32768");
+    cfProps.setProperty("block_based_table_factory.block_cache", Long.toString(cacheBytes));
+    cfProps.setProperty("block_based_table_factory.prepopulate_block_cache", "kFlushOnly");
+    try (ColumnFamilyOptions opts =
+        ColumnFamilyOptions.getColumnFamilyOptionsFromProps(new ConfigOptions(), cfProps)) {
+      assertThat(opts).isNotNull();
+    }
+  }
 }
