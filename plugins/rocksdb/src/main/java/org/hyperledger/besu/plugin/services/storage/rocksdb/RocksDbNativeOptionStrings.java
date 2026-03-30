@@ -1,0 +1,69 @@
+/*
+ * Copyright contributors to Hyperledger Besu.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package org.hyperledger.besu.plugin.services.storage.rocksdb;
+
+import java.util.Properties;
+
+import com.google.common.base.Splitter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * Parses RocksDB option strings in the same style as Nethermind's {@code RocksDbOptions} / {@code
+ * AdditionalRocksDbOptions}: semicolon-separated {@code key=value} pairs passed to the native
+ * option parser via {@link org.rocksdb.ColumnFamilyOptions#getColumnFamilyOptionsFromProps} and
+ * {@link org.rocksdb.DBOptions#getDBOptionsFromProps}.
+ *
+ * <p>Additional column-family strings are parsed here, applied in {@link
+ * org.hyperledger.besu.plugin.services.storage.rocksdb.segmented.RocksDBColumnarKeyValueStorage}
+ * via {@code getColumnFamilyOptionsFromProps}, then Besu overwrites selected options in Java where
+ * it sets them explicitly (block table, compaction, blob, etc.).
+ */
+public final class RocksDbNativeOptionStrings {
+
+  private static final Logger LOG = LoggerFactory.getLogger(RocksDbNativeOptionStrings.class);
+
+  private RocksDbNativeOptionStrings() {}
+
+  /**
+   * Parses {@code key=value;} pairs for {@link org.rocksdb.DBOptions#getDBOptionsFromProps}.
+   */
+  public static Properties parseDbOptionString(final String raw) {
+    return parseSemicolonKeyValueString(raw);
+  }
+
+  /** Nethermind-style {@code a=b;c=d;} into flat {@link Properties} keys. */
+  public static Properties parseSemicolonKeyValueString(final String raw) {
+    final Properties props = new Properties();
+    if (raw == null || raw.isBlank()) {
+      return props;
+    }
+    for (final String segment : Splitter.on(';').split(raw)) {
+      final String part = segment.trim();
+      if (part.isEmpty()) {
+        continue;
+      }
+      final int eq = part.indexOf('=');
+      if (eq <= 0 || eq == part.length() - 1) {
+        LOG.warn("Ignoring malformed RocksDB option segment (expected key=value): {}", part);
+        continue;
+      }
+      final String key = part.substring(0, eq).trim();
+      final String value = part.substring(eq + 1).trim();
+      props.setProperty(key, value);
+    }
+    return props;
+  }
+}

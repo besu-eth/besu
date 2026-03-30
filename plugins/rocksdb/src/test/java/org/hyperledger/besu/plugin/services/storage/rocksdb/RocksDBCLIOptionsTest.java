@@ -21,6 +21,8 @@ import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_IS_HIGH_SPEC;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_MAX_OPEN_FILES;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.IS_HIGH_SPEC;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.ADDITIONAL_COLUMN_FAMILY_OPTIONS;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.ADDITIONAL_DATABASE_OPTIONS;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.MAX_OPEN_FILES_FLAG;
 
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions;
@@ -103,5 +105,29 @@ public class RocksDBCLIOptionsTest {
     assertThat(configuration.getBackgroundThreadCount()).isEqualTo(DEFAULT_BACKGROUND_THREAD_COUNT);
     assertThat(configuration.getCacheCapacity()).isEqualTo(DEFAULT_CACHE_CAPACITY);
     assertThat(configuration.isHighSpec()).isEqualTo(Boolean.TRUE);
+  }
+
+  @Test
+  public void additionalColumnFamilyOptionsIncludesBlockTableKeys() {
+    final RocksDBCLIOptions options = RocksDBCLIOptions.create();
+    new CommandLine(options)
+        .parseArgs(
+            ADDITIONAL_COLUMN_FAMILY_OPTIONS,
+            "write_buffer_size=1000000;block_based_table_factory.prepopulate_block_cache=kFlushOnly;");
+
+    final RocksDBFactoryConfiguration configuration = options.toDomainObject();
+    assertThat(configuration.getAdditionalColumnFamilyOptions())
+        .hasValue(
+            "write_buffer_size=1000000;block_based_table_factory.prepopulate_block_cache=kFlushOnly;");
+  }
+
+  @Test
+  public void additionalDatabaseOptions() {
+    final RocksDBCLIOptions options = RocksDBCLIOptions.create();
+    new CommandLine(options)
+        .parseArgs(ADDITIONAL_DATABASE_OPTIONS, "max_file_opening_threads=16;");
+
+    final RocksDBFactoryConfiguration configuration = options.toDomainObject();
+    assertThat(configuration.getAdditionalDatabaseOptions()).hasValue("max_file_opening_threads=16;");
   }
 }

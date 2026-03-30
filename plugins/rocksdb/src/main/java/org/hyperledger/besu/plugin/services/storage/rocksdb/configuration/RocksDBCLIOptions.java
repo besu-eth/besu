@@ -66,6 +66,14 @@ public class RocksDBCLIOptions {
   public static final String BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD =
       "--Xplugin-rocksdb-blob-garbage-collection-force-threshold";
 
+  /** Additional column-family options as a semicolon-separated native RocksDB string. */
+  public static final String ADDITIONAL_COLUMN_FAMILY_OPTIONS =
+      "--Xplugin-rocksdb-additional-column-family-options";
+
+  /** Additional DB-level RocksDB options as a semicolon-separated native string. */
+  public static final String ADDITIONAL_DATABASE_OPTIONS =
+      "--Xplugin-rocksdb-additional-database-options";
+
   /** The Max open files. */
   @CommandLine.Option(
       names = {MAX_OPEN_FILES_FLAG},
@@ -144,6 +152,31 @@ public class RocksDBCLIOptions {
       description = "Blob garbage collection force threshold (default: ${DEFAULT-VALUE})")
   Optional<Double> blobGarbageCollectionForceThreshold = Optional.empty();
 
+  /**
+   * Semicolon-separated column-family options passed to RocksDB's native parser (Nethermind-style),
+   * then Besu applies its own block table, compaction, and blob settings in Java where it sets them
+   * explicitly (overlapping native values are replaced).
+   */
+  @CommandLine.Option(
+      names = {ADDITIONAL_COLUMN_FAMILY_OPTIONS},
+      hidden = true,
+      paramLabel = "<STRING>",
+      description =
+          "Extra column-family options as key=value pairs separated by ';' (native string); Besu overlays programmatic CF settings afterward.")
+  Optional<String> additionalColumnFamilyOptions = Optional.empty();
+
+  /**
+   * Semicolon-separated {@code DBOptions} for {@code DBOptions.getDBOptionsFromProps}; Besu still
+   * sets create paths, max open files, statistics, env threads, and WAL limits afterward.
+   */
+  @CommandLine.Option(
+      names = {ADDITIONAL_DATABASE_OPTIONS},
+      hidden = true,
+      paramLabel = "<STRING>",
+      description =
+          "Extra DB options as key=value pairs separated by ';' (native RocksDB DBOptions string).")
+  Optional<String> additionalDatabaseOptions = Optional.empty();
+
   private RocksDBCLIOptions() {}
 
   /**
@@ -171,6 +204,8 @@ public class RocksDBCLIOptions {
     options.isBlockchainGarbageCollectionEnabled = config.isBlockchainGarbageCollectionEnabled();
     options.blobGarbageCollectionAgeCutoff = config.getBlobGarbageCollectionAgeCutoff();
     options.blobGarbageCollectionForceThreshold = config.getBlobGarbageCollectionForceThreshold();
+    options.additionalColumnFamilyOptions = config.getAdditionalColumnFamilyOptions();
+    options.additionalDatabaseOptions = config.getAdditionalDatabaseOptions();
     return options;
   }
 
@@ -188,7 +223,9 @@ public class RocksDBCLIOptions {
         enableReadCacheForSnapshots,
         isBlockchainGarbageCollectionEnabled,
         blobGarbageCollectionAgeCutoff,
-        blobGarbageCollectionForceThreshold);
+        blobGarbageCollectionForceThreshold,
+        additionalColumnFamilyOptions,
+        additionalDatabaseOptions);
   }
 
   /**
@@ -223,6 +260,8 @@ public class RocksDBCLIOptions {
         .add("isBlockchainGarbageCollectionEnabled", isBlockchainGarbageCollectionEnabled)
         .add("blobGarbageCollectionAgeCutoff", blobGarbageCollectionAgeCutoff)
         .add("blobGarbageCollectionForceThreshold", blobGarbageCollectionForceThreshold)
+        .add("additionalColumnFamilyOptions", additionalColumnFamilyOptions)
+        .add("additionalDatabaseOptions", additionalDatabaseOptions)
         .toString();
   }
 

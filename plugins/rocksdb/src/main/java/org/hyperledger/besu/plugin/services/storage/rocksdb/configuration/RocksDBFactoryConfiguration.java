@@ -27,6 +27,8 @@ public class RocksDBFactoryConfiguration {
   private final boolean isBlockchainGarbageCollectionEnabled;
   private final Optional<Double> blobGarbageCollectionAgeCutoff;
   private final Optional<Double> blobGarbageCollectionForceThreshold;
+  private final Optional<String> additionalColumnFamilyOptions;
+  private final Optional<String> additionalDatabaseOptions;
 
   /**
    * Instantiates a new RocksDb factory configuration.
@@ -40,6 +42,11 @@ public class RocksDBFactoryConfiguration {
    *     column family
    * @param blobGarbageCollectionAgeCutoff the blob garbage collection age cutoff
    * @param blobGarbageCollectionForceThreshold the blob garbage collection force threshold
+   * @param additionalColumnFamilyOptions semicolon-separated RocksDB column-family options parsed
+   *     natively (Nethermind-style); Besu then overlays programmatic CF settings in Java
+   * @param additionalDatabaseOptions semicolon-separated {@code DBOptions} string for {@code
+   *     DBOptions.getDBOptionsFromProps}; Besu still overlays create paths, max open files, stats,
+   *     env threads, and WAL sizing
    */
   public RocksDBFactoryConfiguration(
       final int maxOpenFiles,
@@ -49,7 +56,9 @@ public class RocksDBFactoryConfiguration {
       final boolean enableReadCacheForSnapshots,
       final boolean isBlockchainGarbageCollectionEnabled,
       final Optional<Double> blobGarbageCollectionAgeCutoff,
-      final Optional<Double> blobGarbageCollectionForceThreshold) {
+      final Optional<Double> blobGarbageCollectionForceThreshold,
+      final Optional<String> additionalColumnFamilyOptions,
+      final Optional<String> additionalDatabaseOptions) {
     this.backgroundThreadCount = backgroundThreadCount;
     this.maxOpenFiles = maxOpenFiles;
     this.cacheCapacity = cacheCapacity;
@@ -58,6 +67,8 @@ public class RocksDBFactoryConfiguration {
     this.isBlockchainGarbageCollectionEnabled = isBlockchainGarbageCollectionEnabled;
     this.blobGarbageCollectionAgeCutoff = blobGarbageCollectionAgeCutoff;
     this.blobGarbageCollectionForceThreshold = blobGarbageCollectionForceThreshold;
+    this.additionalColumnFamilyOptions = additionalColumnFamilyOptions;
+    this.additionalDatabaseOptions = additionalDatabaseOptions;
   }
 
   /**
@@ -130,5 +141,24 @@ public class RocksDBFactoryConfiguration {
    */
   public Optional<Double> getBlobGarbageCollectionForceThreshold() {
     return blobGarbageCollectionForceThreshold;
+  }
+
+  /**
+   * Additional column-family options as a semicolon-separated {@code key=value;} string, parsed
+   * through RocksDB's native option parser where possible.
+   *
+   * @return the additional options, if any
+   */
+  public Optional<String> getAdditionalColumnFamilyOptions() {
+    return additionalColumnFamilyOptions;
+  }
+
+  /**
+   * Additional {@link org.rocksdb.DBOptions} as a semicolon-separated native string.
+   *
+   * @return the options string, if any
+   */
+  public Optional<String> getAdditionalDatabaseOptions() {
+    return additionalDatabaseOptions;
   }
 }

@@ -216,6 +216,8 @@ public abstract class AbstractIsolationTests {
                         false,
                         false,
                         Optional.empty(),
+                        Optional.empty(),
+                        Optional.empty(),
                         Optional.empty()),
                 Arrays.asList(KeyValueSegmentIdentifier.values()),
                 RocksDBMetricsFactory.PUBLIC_ROCKS_DB_METRICS))
