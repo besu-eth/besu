@@ -487,7 +487,7 @@ public class EVM {
         result = OVERFLOW_RESPONSE;
       } catch (final UnderflowException ue) {
         result = UNDERFLOW_RESPONSE;
-      } 
+      }
       final ExceptionalHaltReason haltReason = result.getHaltReason();
       if (haltReason != null) {
         LOG.trace("MessageFrame evaluation halted because of {}", haltReason);
