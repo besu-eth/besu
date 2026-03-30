@@ -210,15 +210,16 @@ public class EthPeers implements PeerSelector {
                 .filter(p -> p.getId().equals(id))
                 .findFirst();
         ethPeer =
-            peerInList.orElse(
-                new EthPeer(
-                    newConnection,
-                    this::ethPeerStatusExchanged,
-                    peerValidators,
-                    maxMessageSize,
-                    clock,
-                    permissioningProviders,
-                    localNodeId));
+            peerInList.orElseGet(
+                () ->
+                    new EthPeer(
+                        newConnection,
+                        this::ethPeerStatusExchanged,
+                        peerValidators,
+                        maxMessageSize,
+                        clock,
+                        permissioningProviders,
+                        localNodeId));
       }
       incompleteConnections.put(newConnection, ethPeer);
     }
