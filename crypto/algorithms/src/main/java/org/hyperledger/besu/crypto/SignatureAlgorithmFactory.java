@@ -24,6 +24,7 @@ public class SignatureAlgorithmFactory {
   private static final Logger LOG = LoggerFactory.getLogger(SignatureAlgorithmFactory.class);
 
   private static SignatureAlgorithm instance = null;
+  private static SignatureAlgorithm cachedDefault = null;
 
   private SignatureAlgorithmFactory() {}
 
@@ -83,9 +84,13 @@ public class SignatureAlgorithmFactory {
    * @return SignatureAlgorithm instance
    */
   public static SignatureAlgorithm getInstance() {
-    return instance != null
-        ? instance
-        : SignatureAlgorithmType.DEFAULT_SIGNATURE_ALGORITHM_TYPE.get();
+    if (instance != null) {
+      return instance;
+    }
+    if (cachedDefault == null) {
+      cachedDefault = SignatureAlgorithmType.DEFAULT_SIGNATURE_ALGORITHM_TYPE.get();
+    }
+    return cachedDefault;
   }
 
   /**
@@ -101,5 +106,6 @@ public class SignatureAlgorithmFactory {
   @VisibleForTesting
   public static void resetInstance() {
     instance = null;
+    cachedDefault = null;
   }
 }
