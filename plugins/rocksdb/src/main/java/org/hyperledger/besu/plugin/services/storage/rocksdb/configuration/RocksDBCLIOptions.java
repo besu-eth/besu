@@ -153,9 +153,9 @@ public class RocksDBCLIOptions {
   Optional<Double> blobGarbageCollectionForceThreshold = Optional.empty();
 
   /**
-   * Semicolon-separated column-family options passed to RocksDB's native parser (Nethermind-style),
-   * then Besu applies its own block table, compaction, and blob settings in Java where it sets them
-   * explicitly (overlapping native values are replaced).
+   * Semicolon-separated column-family options passed to RocksDB's native parser; Besu merges its
+   * own block-table defaults into the same map, then applies compaction and blob settings in Java
+   * where needed.
    */
   @CommandLine.Option(
       names = {ADDITIONAL_COLUMN_FAMILY_OPTIONS},

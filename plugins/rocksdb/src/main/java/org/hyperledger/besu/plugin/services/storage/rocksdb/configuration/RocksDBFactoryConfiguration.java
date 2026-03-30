@@ -43,7 +43,8 @@ public class RocksDBFactoryConfiguration {
    * @param blobGarbageCollectionAgeCutoff the blob garbage collection age cutoff
    * @param blobGarbageCollectionForceThreshold the blob garbage collection force threshold
    * @param additionalColumnFamilyOptions semicolon-separated RocksDB column-family options parsed
-   *     natively (Nethermind-style); Besu then overlays programmatic CF settings in Java
+   *     natively; Besu merges block-table defaults into the same map, then sets other CF options in
+   *     Java where needed
    * @param additionalDatabaseOptions semicolon-separated {@code DBOptions} string for {@code
    *     DBOptions.getDBOptionsFromProps}; Besu still overlays create paths, max open files, stats,
    *     env threads, and WAL sizing

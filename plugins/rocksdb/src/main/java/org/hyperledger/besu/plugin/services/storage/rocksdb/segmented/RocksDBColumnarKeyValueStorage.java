@@ -200,10 +200,12 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
    * then builds {@link RocksDbNativeOptionStrings.InsertionOrderedProperties} by applying its
    * block-table keys in a fixed order (so {@code index_type} precedes {@code partition_filters} in
    * the JNI option string), then copies remaining user keys. A single {@code
-   * getColumnFamilyOptionsFromProps} call follows. Compaction and blob options are still set in
-   * Java where needed. {@code level_compaction_dynamic_level_bytes} is taken from the latest
-   * on-disk {@code OPTIONS-*} file when present for this column family (existing deployments);
-   * otherwise it defaults to {@code true}.
+   * getColumnFamilyOptionsFromProps} call follows, which unlocks any column-family or {@code
+   * block_based_table_factory.*} option the native RocksDB build accepts, even when rocksdbjni does
+   * not expose it on Java option classes. Compaction and blob options are still set in Java where
+   * needed. {@code level_compaction_dynamic_level_bytes} is taken from the latest on-disk {@code
+   * OPTIONS-*} file when present for this column family (existing deployments); otherwise it
+   * defaults to {@code true}.
    *
    * @param segment the segment identifier
    * @param configuration RocksDB configuration

@@ -26,8 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Parses RocksDB option strings in the same style as Nethermind's {@code RocksDbOptions} / {@code
- * AdditionalRocksDbOptions}: semicolon-separated {@code key=value} pairs passed to the native
+ * Parses RocksDB option strings as semicolon-separated {@code key=value} pairs passed to the native
  * option parser via {@link org.rocksdb.ColumnFamilyOptions#getColumnFamilyOptionsFromProps} and
  * {@link org.rocksdb.DBOptions#getDBOptionsFromProps}.
  *
@@ -35,6 +34,14 @@ import org.slf4j.LoggerFactory;
  * org.hyperledger.besu.plugin.services.storage.rocksdb.segmented.RocksDBColumnarKeyValueStorage}
  * merges Besu defaults using {@link InsertionOrderedProperties} so JNI builds a deterministic
  * option string (standard {@link Properties} iteration order is undefined).
+ *
+ * <p>Options are applied through RocksDB's native option parser ({@code
+ * GetColumnFamilyOptionsFromString} / block-table factory configuration), not only through
+ * rocksdbjni Java setters. That means column-family and block-table settings that are valid in
+ * RocksDB's C++ option map but missing or incomplete on {@link org.rocksdb.BlockBasedTableConfig}
+ * (or other Java wrappers) can still be supplied via {@code
+ * --Xplugin-rocksdb-additional-column-family-options}, as long as the key names match the native
+ * option registry for the linked RocksDB version.
  */
 public final class RocksDbNativeOptionStrings {
 
@@ -84,7 +91,8 @@ public final class RocksDbNativeOptionStrings {
   }
 
   /**
-   * Parses a Nethermind-style options string ({@code a=b;c=d;}) into flat {@link Properties} keys.
+   * Parses a semicolon-separated options string ({@code a=b;c=d;}) into flat {@link Properties}
+   * keys.
    *
    * @param raw semicolon-separated {@code key=value} segments; may be null or blank
    * @return parsed properties; malformed segments are skipped with a warning
