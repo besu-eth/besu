@@ -254,11 +254,10 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         configuration.isHighSpec() && segment.isEligibleToHighSpecFlag()
             ? ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC
             : configuration.getCacheCapacity();
-    cfProps.setProperty("block_based_table_factory.index_type", "kTwoLevelIndexSearch");
     cfProps.setProperty(
         "block_based_table_factory.format_version", Integer.toString(ROCKSDB_FORMAT_VERSION));
     cfProps.setProperty("block_based_table_factory.filter_policy", "bloomfilter:10:false");
-    cfProps.setProperty("block_based_table_factory.partition_filters", "true");
+    cfProps.setProperty("block_based_table_factory.partition_filters", "false");
     cfProps.setProperty("block_based_table_factory.cache_index_and_filter_blocks", "false");
     cfProps.setProperty("block_based_table_factory.block_size", Long.toString(ROCKSDB_BLOCK_SIZE));
     cfProps.setProperty("block_based_table_factory.block_cache", Long.toString(blockCacheBytes));
