@@ -5,9 +5,6 @@
 ### Repository Migration
 - The Besu repository has moved from `hyperledger/besu` to `besu-eth/besu`. GitHub automatically redirects all existing links from the old location.
 
-### Repository Migration
-- The Besu repository has moved from `hyperledger/besu` to `besu-eth/besu`. GitHub automatically redirects all existing links from the old location.
-
 ### Breaking Changes
 - Clique consensus has been removed. Besu can no longer start or mine on pure Clique networks. Syncing networks that started as Clique and have since transitioned to PoS via `terminalTotalDifficulty` (e.g. Linea Mainnet) are still supported. [#9852](https://github.com/hyperledger/besu/pull/9852)
 - Deprecated `--min-block-occupancy-ratio` for removal and make it noop. That option, that is ignored on PoS networks, is related to the deprecated PoW, and allowed to broadcast a mined block as soon as it reached a satisfying fill threshold. The option is still recognized, but it has no effect and will be completely removed in a future release. [#10036](https://github.com/besu-eth/besu/pull/10036)
@@ -26,6 +23,7 @@
 - `--min-block-occupancy-ratio` is deprecated and will be removed in a future release
 - Plugin API
   - `PluginTransactionSelectorFactory.create(final SelectorsStateManager selectorsStateManager)` is deprecated for removal
+- `--Xmax-tracked-seen-txs-per-peer` renamed to `--Xmax-tracked-seen-txs` (old name kept as deprecated alias will be removed in a future release)
 
 ### Bug fixes
 - Fix eth/69 snap sync receipt root mismatch by correctly identifying Frontier transaction type in SyncTransactionReceiptEncoder [#9900](https://github.com/hyperledger/besu/pull/9900)
@@ -49,6 +47,7 @@ are provided with different values, using input as per the execution-apis spec i
 - Support [EIP-8159](https://eips.ethereum.org/EIPS/eip-8159): eth/71 - block access list exchange
 - Support [EIP-8189](https://eips.ethereum.org/EIPS/eip-8189): snap/2 - block access list exchange
 - Limit pooled tx requests by size and remove pre-eth/68 transaction announcement support [#9990](https://github.com/besu-eth/besu/pull/9990)
+- Reduce tx p2p broadcast bandwidth and memory used [#9937](https://github.com/besu-eth/besu/pull/9937) 
 
 ### Plugin API
 - Plugin API: Allow the registration of multiple PluginTransactionPoolValidatorFactory [#9964](https://github.com/hyperledger/besu/pull/9964)
@@ -58,6 +57,7 @@ are provided with different values, using input as per the execution-apis spec i
 - Add blockTimestamp to transaction RPC results [#9887](https://github.com/hyperledger/besu/pull/9887)
 - Add `txpool_status` RPC method [#10002](https://github.com/hyperledger/besu/pull/10002)
 - Add `txpool_contentFrom` JSON-RPC method [#10111](https://github.com/besu-eth/besu/pull/10111)
+- Add `txpool_content` JSON-RPC method [#10120](https://github.com/besu-eth/besu/pull/10120) 
 - Add maxUsedGas field to eth_simulateV1 results [#10066](https://github.com/besu-eth/besu/pull/10066)
 
 ### Performance
@@ -66,6 +66,7 @@ are provided with different values, using input as per the execution-apis spec i
 - Fix addMod case with 256bit moduluses [#10001](https://github.com/besu-eth/besu/pull/10001)
 - Performance improvements on MOD variant instructions while converting from byte[] to longs [#9976](https://github.com/besu-eth/besu/pull/9976) 
 - Implement DIV and SDIV with long limbs [#9923](https://github.com/besu-eth/besu/pull/9923)
+- Improve MULMOD worst cases [#10088](https://github.com/besu-eth/besu/pull/10088)
 - Use cache locality to improve Shift opcodes [#9878](https://github.com/besu-eth/besu/pull/9878)
 - Defer Snappy decompression of inbound P2P messages from the Netty I/O thread to the worker thread, reducing memory held in the transaction worker queue to compressed size [#10048](https://github.com/besu-eth/besu/pull/10048)
 - Dispatch snap server request processing (GET_ACCOUNT_RANGE, GET_STORAGE_RANGE, GET_BYTECODES, GET_TRIE_NODES, GET_BLOCK_ACCESS_LISTS) off the Netty event loop to prevent heavy trie/DB work from blocking ETH protocol message handling [#10083](https://github.com/besu-eth/besu/pull/10083)

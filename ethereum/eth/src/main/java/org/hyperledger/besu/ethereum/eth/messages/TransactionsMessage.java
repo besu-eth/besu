@@ -19,9 +19,12 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 
 import java.util.List;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
 import org.apache.tuweni.bytes.Bytes;
 
 public class TransactionsMessage extends AbstractMessageData {
@@ -38,6 +41,7 @@ public class TransactionsMessage extends AbstractMessageData {
     return new TransactionsMessage(message.getData());
   }
 
+  @VisibleForTesting
   public static TransactionsMessage create(final Iterable<Transaction> transactions) {
     final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
     tmp.startList();
@@ -48,7 +52,7 @@ public class TransactionsMessage extends AbstractMessageData {
     return new TransactionsMessage(tmp.encoded());
   }
 
-  TransactionsMessage(final Bytes data) {
+  private TransactionsMessage(final Bytes data) {
     super(data);
   }
 
@@ -59,5 +63,40 @@ public class TransactionsMessage extends AbstractMessageData {
 
   public List<Transaction> transactions() {
     return new BytesValueRLPInput(data, false).readList(Transaction::readFrom);
+  }
+
+  public static class SizeLimitedBuilder {
+    private final int maxTransactionsMessageSize;
+    private final BytesValueRLPOutput message = new BytesValueRLPOutput();
+    private int estimatedMsgSize = RLP.MAX_PREFIX_SIZE;
+    private boolean finalized = false;
+
+    public SizeLimitedBuilder(final int maxTransactionsMessageSize) {
+      this.maxTransactionsMessageSize = maxTransactionsMessageSize;
+      message.startList();
+    }
+
+    public boolean add(final Transaction transaction) {
+      final BytesValueRLPOutput encodedTransaction = new BytesValueRLPOutput();
+      transaction.writeTo(encodedTransaction);
+      final Bytes encodedBytes = encodedTransaction.encoded();
+      if (estimatedMsgSize + encodedBytes.size() > maxTransactionsMessageSize) {
+        return false;
+      }
+      message.writeRaw(encodedBytes);
+      estimatedMsgSize += encodedBytes.size();
+      return true;
+    }
+
+    public int getEstimatedMessageSize() {
+      return estimatedMsgSize;
+    }
+
+    public TransactionsMessage build() {
+      Preconditions.checkState(!finalized, "Cannot call build twice");
+      finalized = true;
+      message.endList();
+      return new TransactionsMessage(message.encoded());
+    }
   }
 }

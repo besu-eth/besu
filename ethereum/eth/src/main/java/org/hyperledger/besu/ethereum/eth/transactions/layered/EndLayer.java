@@ -79,6 +79,11 @@ public class EndLayer implements TransactionsLayer {
   }
 
   @Override
+  public Map<Address, List<PendingTransaction>> getAllBySender() {
+    return Map.of();
+  }
+
+  @Override
   public TransactionAddedResult add(
       final PendingTransaction pendingTransaction, final int gap, final AddReason reason) {
     logRemoved(pendingTransaction, DROPPED, name());

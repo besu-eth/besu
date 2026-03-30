@@ -21,7 +21,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionCompleteResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionWithMetadataResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 
@@ -62,6 +62,6 @@ public class EthGetTransactionByBlockNumberAndIndex extends AbstractBlockParamet
     }
     final Optional<TransactionWithMetadata> transactionWithMetadata =
         getBlockchainQueries().transactionByBlockNumberAndIndex(blockNumber, index);
-    return transactionWithMetadata.map(TransactionCompleteResult::new).orElse(null);
+    return transactionWithMetadata.map(TransactionWithMetadataResult::new).orElse(null);
   }
 }
