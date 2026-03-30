@@ -51,7 +51,7 @@ public class BlockResultFactory {
       final boolean includeCoinbase) {
     final List<TransactionResult> txs =
         blockWithMetadata.getTransactions().stream()
-            .map(TransactionCompleteResult::new)
+            .map(TransactionWithMetadataResult::new)
             .collect(Collectors.toList());
     final List<JsonNode> ommers =
         blockWithMetadata.getOmmers().stream()
@@ -83,7 +83,7 @@ public class BlockResultFactory {
     }
     final List<TransactionResult> txs =
         transactionWithMetadata.stream()
-            .map(TransactionCompleteResult::new)
+            .map(TransactionWithMetadataResult::new)
             .collect(Collectors.toList());
 
     final List<JsonNode> ommers =

@@ -87,6 +87,13 @@ public interface TransactionsLayer {
 
   List<PendingTransaction> getAll();
 
+  /**
+   * Returns all pending transactions for the given sender across all layers, sorted by nonce in
+   * ascending order.
+   *
+   * @param sender the sender address
+   * @return transactions for the sender sorted by nonce ascending, or an empty list if none exist
+   */
   List<PendingTransaction> getAllFor(Address sender);
 
   List<Transaction> getAllLocal();

@@ -53,6 +53,14 @@ public interface PendingTransactions {
 
   Collection<PendingTransaction> getPendingTransactions();
 
+  /**
+   * Returns all pending transactions for the given sender, sorted by nonce in ascending order.
+   *
+   * @param sender the sender address
+   * @return transactions for the sender sorted by nonce ascending, or an empty list if none exist
+   */
+  SenderPendingTransactionsData getPendingTransactionsFor(Address sender);
+
   long subscribePendingTransactions(PendingTransactionAddedListener listener);
 
   void unsubscribePendingTransactions(long id);

@@ -35,6 +35,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
+import org.hyperledger.besu.ethereum.eth.transactions.SenderPendingTransactionsData;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
@@ -347,6 +348,15 @@ public class LayeredPendingTransactions implements PendingTransactions {
   }
 
   @Override
+  public synchronized SenderPendingTransactionsData getPendingTransactionsFor(
+      final Address sender) {
+    return new SenderPendingTransactionsData(
+        sender,
+        prioritizedTransactions.getCurrentNonceFor(sender).orElse(0),
+        prioritizedTransactions.getAllFor(sender));
+  }
+
+  @Override
   public long subscribePendingTransactions(final PendingTransactionAddedListener listener) {
     return prioritizedTransactions.subscribeToAdded(listener);
   }
@@ -367,7 +377,7 @@ public class LayeredPendingTransactions implements PendingTransactions {
   }
 
   @Override
-  public OptionalLong getNextNonceForSender(final Address sender) {
+  public synchronized OptionalLong getNextNonceForSender(final Address sender) {
     return prioritizedTransactions.getNextNonceFor(sender);
   }
 

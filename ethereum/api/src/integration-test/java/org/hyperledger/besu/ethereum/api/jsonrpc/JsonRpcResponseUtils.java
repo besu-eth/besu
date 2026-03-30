@@ -44,9 +44,9 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResult;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionCompleteResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionHashResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionWithMetadataResult;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
@@ -202,7 +202,7 @@ public class JsonRpcResponseUtils {
             .sender(address(fromAddress))
             .build();
 
-    return new TransactionCompleteResult(
+    return new TransactionWithMetadataResult(
         new TransactionWithMetadata(
             transaction,
             unsignedLong(blockNumber),

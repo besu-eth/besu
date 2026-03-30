@@ -169,6 +169,7 @@ public enum RpcMethod {
   TX_POOL_BESU_TRANSACTIONS("txpool_besuTransactions"),
   TX_POOL_BESU_PENDING_TRANSACTIONS("txpool_besuPendingTransactions"),
   TX_POOL_STATUS("txpool_status"),
+  TX_POOL_CONTENT_FROM("txpool_contentFrom"),
   WEB3_CLIENT_VERSION("web3_clientVersion"),
   WEB3_SHA3("web3_sha3"),
   PLUGINS_RELOAD_CONFIG("plugins_reloadPluginConfig"),
