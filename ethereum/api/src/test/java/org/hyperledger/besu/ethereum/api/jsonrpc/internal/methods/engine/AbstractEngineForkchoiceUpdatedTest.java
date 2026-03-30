@@ -240,7 +240,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
 
     var payloadParams =
         new EnginePayloadAttributesParameter(
-            String.valueOf(defaultPayloadTimestamp()),
+            String.valueOf(mockHeader.getTimestamp() + 1),
             Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
             Address.ECREC.toString(),
             null,
@@ -431,7 +431,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
 
     var payloadParams =
         new EnginePayloadAttributesParameter(
-            String.valueOf(defaultPayloadTimestamp()),
+            String.valueOf(mockHeader.getTimestamp() + 1),
             Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
             Address.ECREC.toString(),
             null,
@@ -483,7 +483,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
                 mockHeader.getHash(), Hash.ZERO, mockParent.getHash()),
             Optional.of(payloadParams));
 
-    assertInvalidForkchoiceState(resp, RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES);
+    assertInvalidForkchoiceState(resp, expectedInvalidPayloadError());
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
