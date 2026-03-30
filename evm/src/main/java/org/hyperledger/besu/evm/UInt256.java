@@ -1486,11 +1486,6 @@ public record UInt256(long u3, long u2, long u1, long u0) {
 
     private UInt256 modReduceNormalised(final UInt512 that, final int shift, final long inv) {
       UInt576 v = that.shiftLeftWide(shift);
-      // No fast-path guard: benchmarks show the slow path dispatch is equivalent for or better M-R products
-      return modReduceNormalisedSlowPath(v, shift, inv);
-    }
-
-    private UInt256 modReduceNormalisedSlowPath(final UInt576 v, final int shift, final long inv) {
       QR128 qr;
       if (v.u8 != 0 || Long.compareUnsigned(v.u7, u1) >= 0) {
         qr = reduceStep(v.u8, v.u7, v.u6, inv);
@@ -1788,11 +1783,6 @@ public record UInt256(long u3, long u2, long u1, long u0) {
 
     private UInt256 modReduceNormalised(final UInt512 that, final int shift, final long inv) {
       UInt576 v = that.shiftLeftWide(shift);
-      // No fast-path guard: benchmarks show the slow path dispatch is equivalent for or better M-R products
-      return modReduceNormalisedSlowPath(v, shift, inv);
-    }
-
-    private UInt256 modReduceNormalisedSlowPath(final UInt576 v, final int shift, final long inv) {
       QR192 qr;
       if (v.u8 != 0 || Long.compareUnsigned(v.u7, u2) >= 0) {
         qr = reduceStep(v.u8, v.u7, v.u6, v.u5, inv);
