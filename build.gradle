@@ -464,6 +464,41 @@ configure(allprojects - project(':platform')) {
   }
 }
 
+task resolveSourceArtifacts {
+  description = 'Resolves source artifacts for all configurations so they can be included in dependency verification metadata'
+  doLast {
+    def componentIds = [] as Set
+    allprojects { proj ->
+      proj.configurations.matching { it.canBeResolved }.each { config ->
+        try {
+          config.resolvedConfiguration.resolvedArtifacts.each { artifact ->
+            componentIds.add(artifact.id.componentIdentifier)
+          }
+        } catch (Exception e) {
+          logger.info("Could not resolve config ${proj.path}:${config.name}: ${e.message}")
+        }
+      }
+    }
+    // Filter to only external module components
+    def externalIds = componentIds.findAll { it instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier }
+    logger.lifecycle("Resolving sources for ${externalIds.size()} external dependencies...")
+    def result = dependencies.createArtifactResolutionQuery()
+      .forComponents(externalIds)
+      .withArtifacts(JvmLibrary, SourcesArtifact)
+      .execute()
+    def resolved = 0
+    result.resolvedComponents.each { component ->
+      component.getArtifacts(SourcesArtifact).each { source ->
+        if (source instanceof ResolvedArtifactResult) {
+          source.file // trigger download
+          resolved++
+        }
+      }
+    }
+    logger.lifecycle("Resolved ${resolved} source artifacts")
+  }
+}
+
 task deploy() {}
 
 task checkMavenCoordinateCollisions {
