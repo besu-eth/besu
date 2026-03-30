@@ -23,25 +23,42 @@ public class SignatureAlgorithmFactory {
 
   private static final Logger LOG = LoggerFactory.getLogger(SignatureAlgorithmFactory.class);
 
+  /** The constant DEFAULT_EC_CURVE_NAME. */
+  public static final String DEFAULT_EC_CURVE_NAME = "secp256k1";
+
+  /** The constant SECP_256_R1_CURVE_NAME. */
+  public static final String SECP_256_R1_CURVE_NAME = "secp256r1";
+
   private static final SignatureAlgorithm DEFAULT_INSTANCE = new SECP256K1();
   private static SignatureAlgorithm instance = DEFAULT_INSTANCE;
 
   private SignatureAlgorithmFactory() {}
 
   /**
-   * Sets instance.
+   * Sets instance by curve name.
    *
-   * @param signatureAlgorithmType the signature algorithm type
+   * @param ecCurve the ec curve name
+   * @throws IllegalArgumentException if the curve name is not supported
    */
-  public static void setInstance(final SignatureAlgorithmType signatureAlgorithmType) {
-    instance = signatureAlgorithmType.getInstance();
+  public static void setInstance(final String ecCurve) {
+    instance =
+        switch (ecCurve) {
+          case DEFAULT_EC_CURVE_NAME -> new SECP256K1();
+          case SECP_256_R1_CURVE_NAME -> new SECP256R1();
+          default ->
+              throw new IllegalArgumentException(
+                  ecCurve
+                      + " is not in the list of valid elliptic curves ["
+                      + DEFAULT_EC_CURVE_NAME
+                      + ", "
+                      + SECP_256_R1_CURVE_NAME
+                      + "]");
+        };
 
-    LOG.info("Setting SignatureAlgorithmFactory instance to {}", instance.getCurveName());
-
-    if (!SignatureAlgorithmType.isDefault(instance)) {
+    if (!DEFAULT_EC_CURVE_NAME.equals(ecCurve)) {
       LOG.info(
           "The signature algorithm uses the elliptic curve {}. The usage of alternative elliptic curves is still experimental.",
-          instance.getCurveName());
+          ecCurve);
     }
   }
 

@@ -102,7 +102,6 @@ import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.KeyPairUtil;
 import org.hyperledger.besu.crypto.SECP256R1;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
-import org.hyperledger.besu.crypto.SignatureAlgorithmType;
 import org.hyperledger.besu.cryptoservices.KeyPairSecurityModule;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.datatypes.Address;
@@ -2803,7 +2802,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .ifPresent(
             ecCurve -> {
               try {
-                SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create(ecCurve));
+                SignatureAlgorithmFactory.setInstance(ecCurve);
               } catch (final IllegalArgumentException e) {
                 throw new CommandLine.InitializationException(
                     "Invalid genesis file configuration for ecCurve. " + e.getMessage());

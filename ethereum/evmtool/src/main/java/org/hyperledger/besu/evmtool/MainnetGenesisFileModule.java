@@ -17,7 +17,6 @@ package org.hyperledger.besu.evmtool;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
-import org.hyperledger.besu.crypto.SignatureAlgorithmType;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
@@ -63,7 +62,7 @@ class MainnetGenesisFileModule extends GenesisFileModule {
         .ifPresent(
             ecCurve -> {
               try {
-                SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create(ecCurve));
+                SignatureAlgorithmFactory.setInstance(ecCurve);
               } catch (final IllegalArgumentException e) {
                 throw new CommandLine.InitializationException(
                     "Invalid genesis file configuration for ecCurve. " + e.getMessage());

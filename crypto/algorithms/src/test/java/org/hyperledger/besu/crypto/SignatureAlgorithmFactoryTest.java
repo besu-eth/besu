@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.crypto;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
 
 import org.junit.jupiter.api.AfterEach;
@@ -35,7 +36,7 @@ public class SignatureAlgorithmFactoryTest {
 
   @Test
   public void shouldReturnSECP256K1InstanceWhenSet() {
-    SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create("secp256k1"));
+    SignatureAlgorithmFactory.setInstance("secp256k1");
 
     SignatureAlgorithm signatureAlgorithm = SignatureAlgorithmFactory.getInstance();
     assertThat(signatureAlgorithm.getClass().getSimpleName())
@@ -44,8 +45,8 @@ public class SignatureAlgorithmFactoryTest {
 
   @Test
   public void shouldAllowOverridingInstance() {
-    SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create("secp256k1"));
-    SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create("secp256k1"));
+    SignatureAlgorithmFactory.setInstance("secp256k1");
+    SignatureAlgorithmFactory.setInstance("secp256k1");
 
     assertThat(SignatureAlgorithmFactory.getInstance().getClass().getSimpleName())
         .isEqualTo(SECP256K1.class.getSimpleName());
@@ -53,10 +54,17 @@ public class SignatureAlgorithmFactoryTest {
 
   @Test
   public void shouldRestoreDefaultAfterReset() {
-    SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create("secp256r1"));
+    SignatureAlgorithmFactory.setInstance("secp256r1");
     SignatureAlgorithmFactory.resetInstance();
 
     assertThat(SignatureAlgorithmFactory.getInstance().getClass().getSimpleName())
         .isEqualTo(SECP256K1.class.getSimpleName());
+  }
+
+  @Test
+  public void shouldThrowExceptionWhenInvalidCurveNameGiven() {
+    assertThatThrownBy(() -> SignatureAlgorithmFactory.setInstance("abcd"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("abcd is not in the list of valid elliptic curves");
   }
 }

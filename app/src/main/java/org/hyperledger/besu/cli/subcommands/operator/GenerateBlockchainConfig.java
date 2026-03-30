@@ -30,7 +30,6 @@ import org.hyperledger.besu.crypto.SECPPrivateKey;
 import org.hyperledger.besu.crypto.SECPPublicKey;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
-import org.hyperledger.besu.crypto.SignatureAlgorithmType;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.core.Util;
 
@@ -287,7 +286,7 @@ class GenerateBlockchainConfig implements Runnable {
         .ifPresent(
             ecCurve -> {
               try {
-                SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create(ecCurve));
+                SignatureAlgorithmFactory.setInstance(ecCurve);
               } catch (IllegalArgumentException e) {
                 throw new IllegalArgumentException(
                     "Invalid parameter for ecCurve in genesis config: " + e.getMessage());

@@ -110,7 +110,7 @@ public class SECP256R1Test {
             .format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
     suiteName(SECP256R1Test.class);
 
-    SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create("secp256r1"));
+    SignatureAlgorithmFactory.setInstance("secp256r1");
   }
 
   @BeforeEach
