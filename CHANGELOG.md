@@ -66,6 +66,7 @@ are provided with different values, using input as per the execution-apis spec i
 - Fix addMod case with 256bit moduluses [#10001](https://github.com/besu-eth/besu/pull/10001)
 - Performance improvements on MOD variant instructions while converting from byte[] to longs [#9976](https://github.com/besu-eth/besu/pull/9976) 
 - Implement DIV and SDIV with long limbs [#9923](https://github.com/besu-eth/besu/pull/9923)
+- Improve MULMOD worst cases [#10088](https://github.com/besu-eth/besu/pull/10088)
 - Use cache locality to improve Shift opcodes [#9878](https://github.com/besu-eth/besu/pull/9878)
 - Defer Snappy decompression of inbound P2P messages from the Netty I/O thread to the worker thread, reducing memory held in the transaction worker queue to compressed size [#10048](https://github.com/besu-eth/besu/pull/10048)
 - Dispatch snap server request processing (GET_ACCOUNT_RANGE, GET_STORAGE_RANGE, GET_BYTECODES, GET_TRIE_NODES, GET_BLOCK_ACCESS_LISTS) off the Netty event loop to prevent heavy trie/DB work from blocking ETH protocol message handling [#10083](https://github.com/besu-eth/besu/pull/10083)
