@@ -18,6 +18,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPoolResult;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
@@ -40,8 +41,9 @@ public class TxPoolStatus implements JsonRpcMethod {
     return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), status());
   }
 
-  private TransactionPoolResult<Long> status() {
+  private TransactionPoolResult<String> status() {
     final PendingTransactions.Status status = transactionPool.getStatus();
-    return new TransactionPoolResult<>(status.pendingCount(), status.queuedCount());
+    return new TransactionPoolResult<>(
+        Quantity.create(status.pendingCount()), Quantity.create(status.queuedCount()));
   }
 }

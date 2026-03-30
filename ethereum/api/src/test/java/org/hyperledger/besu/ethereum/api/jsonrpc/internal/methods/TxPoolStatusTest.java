@@ -52,57 +52,57 @@ public class TxPoolStatusTest {
   public void shouldReturnZeroCountsWhenPoolIsEmpty() {
     when(transactionPool.getStatus()).thenReturn(new PendingTransactions.Status(0, 0));
 
-    final TransactionPoolResult<Long> result = invokeMethod();
+    final TransactionPoolResult<String> result = invokeMethod();
 
-    assertThat(result.getPending()).isEqualTo(0L);
-    assertThat(result.getQueued()).isEqualTo(0L);
+    assertThat(result.getPending()).isEqualTo("0x0");
+    assertThat(result.getQueued()).isEqualTo("0x0");
   }
 
   @Test
   public void shouldReturnCorrectCountsWithPendingAndQueuedTransactions() {
     when(transactionPool.getStatus()).thenReturn(new PendingTransactions.Status(10, 7));
 
-    final TransactionPoolResult<Long> result = invokeMethod();
+    final TransactionPoolResult<String> result = invokeMethod();
 
-    assertThat(result.getPending()).isEqualTo(10L);
-    assertThat(result.getQueued()).isEqualTo(7L);
+    assertThat(result.getPending()).isEqualTo("0xa");
+    assertThat(result.getQueued()).isEqualTo("0x7");
   }
 
   @Test
   public void shouldReturnCorrectCountsWithOnlyPendingTransactions() {
     when(transactionPool.getStatus()).thenReturn(new PendingTransactions.Status(5, 0));
 
-    final TransactionPoolResult<Long> result = invokeMethod();
+    final TransactionPoolResult<String> result = invokeMethod();
 
-    assertThat(result.getPending()).isEqualTo(5L);
-    assertThat(result.getQueued()).isEqualTo(0L);
+    assertThat(result.getPending()).isEqualTo("0x5");
+    assertThat(result.getQueued()).isEqualTo("0x0");
   }
 
   @Test
   public void shouldReturnCorrectCountsWithOnlyQueuedTransactions() {
     when(transactionPool.getStatus()).thenReturn(new PendingTransactions.Status(0, 3));
 
-    final TransactionPoolResult<Long> result = invokeMethod();
+    final TransactionPoolResult<String> result = invokeMethod();
 
-    assertThat(result.getPending()).isEqualTo(0L);
-    assertThat(result.getQueued()).isEqualTo(3L);
+    assertThat(result.getPending()).isEqualTo("0x0");
+    assertThat(result.getQueued()).isEqualTo("0x3");
   }
 
   @Test
-  public void shouldReturnLargeValues() {
+  public void shouldReturnHexEncodedLargeValues() {
     when(transactionPool.getStatus()).thenReturn(new PendingTransactions.Status(256, 4096));
 
-    final TransactionPoolResult<Long> result = invokeMethod();
+    final TransactionPoolResult<String> result = invokeMethod();
 
-    assertThat(result.getPending()).isEqualTo(256L);
-    assertThat(result.getQueued()).isEqualTo(4096L);
+    assertThat(result.getPending()).isEqualTo("0x100");
+    assertThat(result.getQueued()).isEqualTo("0x1000");
   }
 
   @SuppressWarnings("unchecked")
-  private TransactionPoolResult<Long> invokeMethod() {
+  private TransactionPoolResult<String> invokeMethod() {
     final JsonRpcSuccessResponse response =
         (JsonRpcSuccessResponse) method.response(buildRequest());
-    return (TransactionPoolResult<Long>) response.getResult();
+    return (TransactionPoolResult<String>) response.getResult();
   }
 
   private JsonRpcRequestContext buildRequest() {
