@@ -2799,23 +2799,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   }
 
   private void instantiateSignatureAlgorithmFactory() {
-    if (SignatureAlgorithmFactory.isInstanceSet()) {
-      return;
-    }
-
-    final Optional<String> ecCurve = getEcCurveFromGenesisFile();
-
-    if (ecCurve.isEmpty()) {
-      SignatureAlgorithmFactory.setDefaultInstance();
-      return;
-    }
-
-    try {
-      SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create(ecCurve.get()));
-    } catch (final IllegalArgumentException e) {
-      throw new CommandLine.InitializationException(
-          "Invalid genesis file configuration for ecCurve. " + e.getMessage());
-    }
+    getEcCurveFromGenesisFile()
+        .ifPresent(
+            ecCurve -> {
+              try {
+                SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create(ecCurve));
+              } catch (final IllegalArgumentException e) {
+                throw new CommandLine.InitializationException(
+                    "Invalid genesis file configuration for ecCurve. " + e.getMessage());
+              }
+            });
   }
 
   private Optional<String> getEcCurveFromGenesisFile() {

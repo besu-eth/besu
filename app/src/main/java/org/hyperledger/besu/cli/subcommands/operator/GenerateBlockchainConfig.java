@@ -42,7 +42,6 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.stream.IntStream;
 
@@ -283,19 +282,17 @@ class GenerateBlockchainConfig implements Runnable {
   /** Sets the selected signature algorithm instance in SignatureAlgorithmFactory. */
   private void processEcCurve() {
     GenesisConfigOptions options = GenesisConfig.fromConfig(genesisConfig).getConfigOptions();
-    Optional<String> ecCurve = options.getEcCurve();
-
-    if (ecCurve.isEmpty()) {
-      SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.createDefault());
-      return;
-    }
-
-    try {
-      SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create(ecCurve.get()));
-    } catch (IllegalArgumentException e) {
-      throw new IllegalArgumentException(
-          "Invalid parameter for ecCurve in genesis config: " + e.getMessage());
-    }
+    options
+        .getEcCurve()
+        .ifPresent(
+            ecCurve -> {
+              try {
+                SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create(ecCurve));
+              } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException(
+                    "Invalid parameter for ecCurve in genesis config: " + e.getMessage());
+              }
+            });
   }
 
   /**

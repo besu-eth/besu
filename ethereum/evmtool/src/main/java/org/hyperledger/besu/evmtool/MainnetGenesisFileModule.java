@@ -58,17 +58,17 @@ class MainnetGenesisFileModule extends GenesisFileModule {
       @Named("RevertReasonEnabled") final boolean revertReasonEnabled,
       final EvmConfiguration evmConfiguration) {
 
-    final Optional<String> ecCurve = configOptions.getEcCurve();
-    if (ecCurve.isEmpty()) {
-      SignatureAlgorithmFactory.setDefaultInstance();
-    } else {
-      try {
-        SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create(ecCurve.get()));
-      } catch (final IllegalArgumentException e) {
-        throw new CommandLine.InitializationException(
-            "Invalid genesis file configuration for ecCurve. " + e.getMessage());
-      }
-    }
+    configOptions
+        .getEcCurve()
+        .ifPresent(
+            ecCurve -> {
+              try {
+                SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create(ecCurve));
+              } catch (final IllegalArgumentException e) {
+                throw new CommandLine.InitializationException(
+                    "Invalid genesis file configuration for ecCurve. " + e.getMessage());
+              }
+            });
 
     if (fork.isPresent()) {
       var schedules = createSchedules(configOptions.getChainId().orElse(BigInteger.valueOf(1337)));
