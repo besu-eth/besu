@@ -196,8 +196,7 @@ public class RocksDBConfigurationBuilder {
         .enableReadCacheForSnapshots(configuration.isReadCacheEnabledForSnapshots())
         .isBlockchainGarbageCollectionEnabled(configuration.isBlockchainGarbageCollectionEnabled())
         .blobGarbageCollectionAgeCutoff(configuration.getBlobGarbageCollectionAgeCutoff())
-        .blobGarbageCollectionForceThreshold(
-            configuration.getBlobGarbageCollectionForceThreshold())
+        .blobGarbageCollectionForceThreshold(configuration.getBlobGarbageCollectionForceThreshold())
         .additionalColumnFamilyOptions(configuration.getAdditionalColumnFamilyOptions())
         .additionalDatabaseOptions(configuration.getAdditionalDatabaseOptions());
   }

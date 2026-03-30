@@ -15,14 +15,14 @@
 package org.hyperledger.besu.plugin.services.storage.rocksdb;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.ADDITIONAL_COLUMN_FAMILY_OPTIONS;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.ADDITIONAL_DATABASE_OPTIONS;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.CACHE_CAPACITY_FLAG;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_BACKGROUND_THREAD_COUNT;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_CACHE_CAPACITY;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_IS_HIGH_SPEC;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_MAX_OPEN_FILES;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.IS_HIGH_SPEC;
-import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.ADDITIONAL_COLUMN_FAMILY_OPTIONS;
-import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.ADDITIONAL_DATABASE_OPTIONS;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.MAX_OPEN_FILES_FLAG;
 
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions;
@@ -124,10 +124,10 @@ public class RocksDBCLIOptionsTest {
   @Test
   public void additionalDatabaseOptions() {
     final RocksDBCLIOptions options = RocksDBCLIOptions.create();
-    new CommandLine(options)
-        .parseArgs(ADDITIONAL_DATABASE_OPTIONS, "max_file_opening_threads=16;");
+    new CommandLine(options).parseArgs(ADDITIONAL_DATABASE_OPTIONS, "max_file_opening_threads=16;");
 
     final RocksDBFactoryConfiguration configuration = options.toDomainObject();
-    assertThat(configuration.getAdditionalDatabaseOptions()).hasValue("max_file_opening_threads=16;");
+    assertThat(configuration.getAdditionalDatabaseOptions())
+        .hasValue("max_file_opening_threads=16;");
   }
 }

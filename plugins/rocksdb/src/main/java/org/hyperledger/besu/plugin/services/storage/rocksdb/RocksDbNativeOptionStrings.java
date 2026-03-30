@@ -37,9 +37,7 @@ public final class RocksDbNativeOptionStrings {
 
   private RocksDbNativeOptionStrings() {}
 
-  /**
-   * Parses {@code key=value;} pairs for {@link org.rocksdb.DBOptions#getDBOptionsFromProps}.
-   */
+  /** Parses {@code key=value;} pairs for {@link org.rocksdb.DBOptions#getDBOptionsFromProps}. */
   public static Properties parseDbOptionString(final String raw) {
     return parseSemicolonKeyValueString(raw);
   }

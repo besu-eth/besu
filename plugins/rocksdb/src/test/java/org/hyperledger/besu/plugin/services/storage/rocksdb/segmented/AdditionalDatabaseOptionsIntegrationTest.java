@@ -31,7 +31,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.rocksdb.Env;
 import org.rocksdb.OptionsUtil;
-import org.rocksdb.RocksDB;
 
 /** Integration tests for {@code --Xplugin-rocksdb-additional-database-options}. */
 public class AdditionalDatabaseOptionsIntegrationTest {

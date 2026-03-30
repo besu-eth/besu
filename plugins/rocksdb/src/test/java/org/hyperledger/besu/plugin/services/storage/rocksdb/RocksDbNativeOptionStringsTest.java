@@ -27,8 +27,7 @@ public class RocksDbNativeOptionStringsTest {
 
   @Test
   public void parseSemicolonKeyValueStringSplitsPairs() {
-    final var props =
-        RocksDbNativeOptionStrings.parseSemicolonKeyValueString("a=1;b=two;");
+    final var props = RocksDbNativeOptionStrings.parseSemicolonKeyValueString("a=1;b=two;");
     assertThat(props.getProperty("a")).isEqualTo("1");
     assertThat(props.getProperty("b")).isEqualTo("two");
   }

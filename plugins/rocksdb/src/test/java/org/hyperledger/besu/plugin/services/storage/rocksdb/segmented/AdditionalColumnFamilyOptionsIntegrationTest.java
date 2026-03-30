@@ -45,7 +45,8 @@ import org.rocksdb.RocksDB;
  * Verifies additional column-family option strings against RocksDB and against Besu's storage
  * wrapper. Memtable options such as {@code write_buffer_size} survive Besu's Java overlay; some
  * block-table factory settings from the native string may be reset when Besu reapplies its table
- * configuration in Java (see {@link #prepopulateBlockCacheFromNativeStringSurvivesWithoutBesuTableOverlay}).
+ * configuration in Java (see {@link
+ * #prepopulateBlockCacheFromNativeStringSurvivesWithoutBesuTableOverlay}).
  *
  * <p>Database-level strings are covered by {@link AdditionalDatabaseOptionsIntegrationTest}.
  */
@@ -100,8 +101,8 @@ public class AdditionalColumnFamilyOptionsIntegrationTest {
   }
 
   @Test
-  public void additionalColumnFamilyOptionsAreVisibleInLiveDbAndOptionsFile(@TempDir final Path dbDir)
-      throws Exception {
+  public void additionalColumnFamilyOptionsAreVisibleInLiveDbAndOptionsFile(
+      @TempDir final Path dbDir) throws Exception {
     RocksDbUtil.loadNativeLibrary();
     final long writeBufferSize = 2_014_040L;
     final var configuration =
@@ -149,8 +150,7 @@ public class AdditionalColumnFamilyOptionsIntegrationTest {
     final var configuration =
         new RocksDBConfigurationBuilder()
             .databaseDir(dbDir)
-            .additionalColumnFamilyOptions(
-                Optional.of("besu_nonexistent_cf_option_xyz=1;"))
+            .additionalColumnFamilyOptions(Optional.of("besu_nonexistent_cf_option_xyz=1;"))
             .build();
 
     try (OptimisticRocksDBColumnarKeyValueStorage store =
@@ -202,7 +202,8 @@ public class AdditionalColumnFamilyOptionsIntegrationTest {
       assertThat(segmentRef).isNotNull();
       final long liveWriteBuffer = store.getDB().getOptions(segmentRef.get()).writeBufferSize();
       assertThat(liveWriteBuffer).isNotEqualTo(requestedWriteBufferSize);
-      // Bare ColumnFamilyOptions default when getColumnFamilyOptionsFromProps returns null (RocksDB 9.7.x).
+      // Bare ColumnFamilyOptions default when getColumnFamilyOptionsFromProps returns null (RocksDB
+      // 9.7.x).
       assertThat(liveWriteBuffer).isEqualTo(67_108_864L);
     }
   }

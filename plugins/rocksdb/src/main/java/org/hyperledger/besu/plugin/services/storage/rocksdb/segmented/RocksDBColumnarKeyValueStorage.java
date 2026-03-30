@@ -234,9 +234,9 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   /**
    * RocksDB stores column-family options in an {@code OPTIONS-*} file under the data directory. On
-   * reopen, reading the on-disk value avoids overriding {@code level_compaction_dynamic_level_bytes}
-   * and changing compaction behaviour for existing databases. New databases have no file yet; we
-   * default to {@code true} (historical Besu default).
+   * reopen, reading the on-disk value avoids overriding {@code
+   * level_compaction_dynamic_level_bytes} and changing compaction behaviour for existing databases.
+   * New databases have no file yet; we default to {@code true} (historical Besu default).
    */
   private boolean readLevelCompactionDynamicLevelBytesFromOptionsFile(
       final SegmentIdentifier segment, final RocksDBConfiguration configuration) {
@@ -270,16 +270,15 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   /**
    * Always builds from {@code getColumnFamilyOptionsFromProps} (including when the properties map
-   * is empty), then applies Besu's fixed {@code ttl=0} and LZ4 compression on top so they are
-   * never omitted. On null or parse failure, starts from a bare {@link ColumnFamilyOptions}.
+   * is empty), then applies Besu's fixed {@code ttl=0} and LZ4 compression on top so they are never
+   * omitted. On null or parse failure, starts from a bare {@link ColumnFamilyOptions}.
    */
   private static ColumnFamilyOptions columnFamilyOptionsFromNativeProperties(
       final Properties nativeCfProps) {
     ColumnFamilyOptions base;
     try {
       final ColumnFamilyOptions fromNative =
-          ColumnFamilyOptions.getColumnFamilyOptionsFromProps(
-              new ConfigOptions(), nativeCfProps);
+          ColumnFamilyOptions.getColumnFamilyOptionsFromProps(new ConfigOptions(), nativeCfProps);
       if (fromNative != null) {
         base = fromNative;
       } else {
@@ -296,9 +295,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
           ex.getMessage());
       base = new ColumnFamilyOptions();
     }
-    return base
-        .setTtl(0)
-        .setCompressionType(CompressionType.LZ4_COMPRESSION);
+    return base.setTtl(0).setCompressionType(CompressionType.LZ4_COMPRESSION);
   }
 
   private static void configureBlobDBForSegment(
