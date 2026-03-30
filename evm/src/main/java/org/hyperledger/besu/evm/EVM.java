@@ -483,11 +483,11 @@ public class EVM {
                 yield currentOperation.execute(frame, this);
               }
             };
-      } catch (final org.hyperledger.besu.evm.internal.OverflowException oe) {
+      } catch (final OverflowException oe) {
         result = OVERFLOW_RESPONSE;
-      } catch (final org.hyperledger.besu.evm.internal.UnderflowException ue) {
+      } catch (final UnderflowException ue) {
         result = UNDERFLOW_RESPONSE;
-      }
+      } 
       final ExceptionalHaltReason haltReason = result.getHaltReason();
       if (haltReason != null) {
         LOG.trace("MessageFrame evaluation halted because of {}", haltReason);
