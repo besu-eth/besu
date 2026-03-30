@@ -14,13 +14,18 @@
  */
 package org.hyperledger.besu.ethereum.eth.messages.snap;
 
+import static org.hyperledger.besu.ethereum.eth.messages.snap.GetTrieNodesMessage.MAX_PATH_SIZE;
+import static org.hyperledger.besu.ethereum.eth.messages.snap.GetTrieNodesMessage.MAX_TOTAL_PATHS;
+
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.IntStream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -46,6 +51,120 @@ public final class GetTrieNodeMessageTest {
 
     // check match originals.
     final GetTrieNodesMessage.TrieNodesPaths response = message.paths(false);
+    Assertions.assertThat(response.worldStateRootHash()).isEqualTo(rootHash);
+    Assertions.assertThat(response.paths()).contains(paths);
+    Assertions.assertThat(response.responseBytes()).isEqualTo(AbstractSnapMessageData.SIZE_REQUEST);
+  }
+
+  @Test
+  public void totalPathsAtLimitDecodesFullly() {
+    final Hash rootHash = Hash.wrap(Bytes32.random());
+    // Create exactly MAX_TOTAL_PATHS groups with 1 path each
+    final List<List<Bytes>> groups =
+        IntStream.range(0, MAX_TOTAL_PATHS).mapToObj(i -> List.of(Bytes.of((byte) i))).toList();
+
+    final MessageData raw =
+        new RawMessage(
+            SnapV1.GET_TRIE_NODES, GetTrieNodesMessage.create(rootHash, groups).getData());
+    final GetTrieNodesMessage.TrieNodesPaths result =
+        GetTrieNodesMessage.readFrom(raw).paths(false);
+
+    int totalPaths = result.paths().stream().mapToInt(List::size).sum();
+    Assertions.assertThat(totalPaths).isEqualTo(MAX_TOTAL_PATHS);
+  }
+
+  @Test
+  public void totalPathsExceedingLimitAreTruncated() {
+    final Hash rootHash = Hash.wrap(Bytes32.random());
+    // 100 groups x 100 paths = 10,000 total paths, well over the 1,024 limit
+    final List<List<Bytes>> groups =
+        IntStream.range(0, 100)
+            .mapToObj(i -> IntStream.range(0, 100).mapToObj(j -> Bytes.of((byte) j)).toList())
+            .toList();
+
+    final MessageData raw =
+        new RawMessage(
+            SnapV1.GET_TRIE_NODES, GetTrieNodesMessage.create(rootHash, groups).getData());
+    final GetTrieNodesMessage.TrieNodesPaths result =
+        GetTrieNodesMessage.readFrom(raw).paths(false);
+
+    int totalPaths = result.paths().stream().mapToInt(List::size).sum();
+    Assertions.assertThat(totalPaths).isEqualTo(MAX_TOTAL_PATHS);
+  }
+
+  @Test
+  public void manyGroupsFewPathsCapsAtTotalLimit() {
+    final Hash rootHash = Hash.wrap(Bytes32.random());
+    // 2,000 groups x 1 path = 2,000 total, should be capped at 1,024
+    final List<List<Bytes>> groups =
+        IntStream.range(0, 2000).mapToObj(i -> List.of(Bytes.of((byte) 0x01))).toList();
+
+    final MessageData raw =
+        new RawMessage(
+            SnapV1.GET_TRIE_NODES, GetTrieNodesMessage.create(rootHash, groups).getData());
+    final GetTrieNodesMessage.TrieNodesPaths result =
+        GetTrieNodesMessage.readFrom(raw).paths(false);
+
+    int totalPaths = result.paths().stream().mapToInt(List::size).sum();
+    Assertions.assertThat(totalPaths).isEqualTo(MAX_TOTAL_PATHS);
+    Assertions.assertThat(result.paths().size()).isEqualTo(MAX_TOTAL_PATHS);
+  }
+
+  @Test
+  public void oversizedPathAbortsDecoding() {
+    final Hash rootHash = Hash.wrap(Bytes32.random());
+    // First group has valid paths, second group has an oversized path
+    final Bytes validPath = Bytes.of(new byte[MAX_PATH_SIZE]); // exactly at limit
+    final Bytes oversizedPath = Bytes.of(new byte[MAX_PATH_SIZE + 1]); // over limit
+    final List<List<Bytes>> groups =
+        List.of(
+            List.of(validPath, validPath), // group 0: 2 valid paths
+            List.of(oversizedPath), // group 1: oversized, triggers abort
+            List.of(validPath)); // group 2: never reached
+
+    final MessageData raw =
+        new RawMessage(
+            SnapV1.GET_TRIE_NODES, GetTrieNodesMessage.create(rootHash, groups).getData());
+    final GetTrieNodesMessage.TrieNodesPaths result =
+        GetTrieNodesMessage.readFrom(raw).paths(false);
+
+    // Only the first group (before the oversized path) should be present
+    Assertions.assertThat(result.paths().size()).isEqualTo(1);
+    int totalPaths = result.paths().stream().mapToInt(List::size).sum();
+    Assertions.assertThat(totalPaths).isEqualTo(2);
+  }
+
+  @Test
+  public void pathsAtMaxSizeAreAccepted() {
+    final Hash rootHash = Hash.wrap(Bytes32.random());
+    final Bytes maxSizePath = Bytes.of(new byte[MAX_PATH_SIZE]);
+    final List<List<Bytes>> groups = List.of(List.of(maxSizePath));
+
+    final MessageData raw =
+        new RawMessage(
+            SnapV1.GET_TRIE_NODES, GetTrieNodesMessage.create(rootHash, groups).getData());
+    final GetTrieNodesMessage.TrieNodesPaths result =
+        GetTrieNodesMessage.readFrom(raw).paths(false);
+
+    Assertions.assertThat(result.paths().size()).isEqualTo(1);
+    Assertions.assertThat(result.paths().get(0).get(0)).isEqualTo(maxSizePath);
+  }
+
+  @Test
+  public void wrapRoundTripTest() {
+    final Hash rootHash = Hash.wrap(Bytes32.random());
+    final List<Bytes> paths = new ArrayList<>();
+    for (int i = 0; i < 20; ++i) {
+      paths.add(Bytes32.random());
+    }
+
+    final GetTrieNodesMessage initialMessage = GetTrieNodesMessage.create(rootHash, List.of(paths));
+    final MessageData wrapped = initialMessage.wrapMessageData(BigInteger.valueOf(42));
+    final MessageData raw = new RawMessage(SnapV1.GET_TRIE_NODES, wrapped.getData());
+
+    final GetTrieNodesMessage message = GetTrieNodesMessage.readFrom(raw);
+
+    final GetTrieNodesMessage.TrieNodesPaths response = message.paths(true);
     Assertions.assertThat(response.worldStateRootHash()).isEqualTo(rootHash);
     Assertions.assertThat(response.paths()).contains(paths);
     Assertions.assertThat(response.responseBytes()).isEqualTo(AbstractSnapMessageData.SIZE_REQUEST);

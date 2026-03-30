@@ -78,12 +78,6 @@ public final class StorageRangeMessage extends AbstractSnapMessageData {
   }
 
   @Override
-  protected Bytes wrap(final BigInteger requestId) {
-    final SlotRangeData slotsData = slotsData(false);
-    return create(Optional.of(requestId), slotsData.slots(), slotsData.proofs()).getData();
-  }
-
-  @Override
   public int getCode() {
     return SnapV1.STORAGE_RANGE;
   }

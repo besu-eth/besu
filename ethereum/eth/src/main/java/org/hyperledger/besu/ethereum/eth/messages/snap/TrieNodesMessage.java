@@ -60,12 +60,6 @@ public final class TrieNodesMessage extends AbstractSnapMessageData {
   }
 
   @Override
-  protected Bytes wrap(final BigInteger requestId) {
-    final List<Bytes> nodes = nodes(false);
-    return create(Optional.of(requestId), nodes).getData();
-  }
-
-  @Override
   public int getCode() {
     return SnapV1.TRIE_NODES;
   }

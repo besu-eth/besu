@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -168,5 +169,26 @@ public final class AccountRangeMessageTest {
 
     // Exit the list
     in.leaveList();
+  }
+
+  @Test
+  public void wrapRoundTripTest() {
+    final Map<Bytes32, Bytes> keys = new HashMap<>();
+    final PmtStateTrieAccountValue accountValue =
+        new PmtStateTrieAccountValue(1L, Wei.of(2L), Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
+    keys.put(Bytes32.leftPad(Bytes.of(1)), RLP.encode(accountValue::writeTo));
+
+    final List<Bytes> proofs = new ArrayList<>();
+    proofs.add(Bytes32.random());
+
+    final AccountRangeMessage initialMessage = AccountRangeMessage.create(keys, proofs);
+    final MessageData wrapped = initialMessage.wrapMessageData(BigInteger.valueOf(42));
+    final MessageData raw = new RawMessage(SnapV1.ACCOUNT_RANGE, wrapped.getData());
+
+    final AccountRangeMessage message = AccountRangeMessage.readFrom(raw);
+
+    final AccountRangeMessage.AccountRangeData range = message.accountData(true);
+    assertThat(range.accounts()).isEqualTo(keys);
+    assertThat(range.proofs()).isEqualTo(proofs);
   }
 }

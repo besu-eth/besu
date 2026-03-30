@@ -63,11 +63,6 @@ public final class GetByteCodesMessage extends AbstractSnapMessageData {
   }
 
   @Override
-  protected Bytes wrap(final BigInteger requestId) {
-    return create(Optional.of(requestId), codeHashes(false).hashes()).getData();
-  }
-
-  @Override
   public int getCode() {
     return SnapV1.GET_BYTECODES;
   }

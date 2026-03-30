@@ -76,18 +76,6 @@ public final class GetStorageRangeMessage extends AbstractSnapMessageData {
   }
 
   @Override
-  protected Bytes wrap(final BigInteger requestId) {
-    final StorageRange range = range(false);
-    return create(
-            Optional.of(requestId),
-            range.worldStateRootHash(),
-            range.hashes(),
-            Bytes32.wrap(range.startKeyHash().getBytes()),
-            range.endKeyHash() != null ? Bytes32.wrap(range.endKeyHash().getBytes()) : null)
-        .getData();
-  }
-
-  @Override
   public int getCode() {
     return SnapV1.GET_STORAGE_RANGE;
   }

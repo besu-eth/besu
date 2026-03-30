@@ -81,12 +81,6 @@ public final class AccountRangeMessage extends AbstractSnapMessageData {
   }
 
   @Override
-  protected Bytes wrap(final BigInteger requestId) {
-    final AccountRangeData accountData = accountData(false);
-    return create(Optional.of(requestId), accountData.accounts(), accountData.proofs()).getData();
-  }
-
-  @Override
   public int getCode() {
     return SnapV1.ACCOUNT_RANGE;
   }

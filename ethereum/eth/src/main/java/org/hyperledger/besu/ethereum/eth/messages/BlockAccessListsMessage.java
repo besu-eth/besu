@@ -19,7 +19,6 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 
 import java.util.List;
-import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -38,8 +37,7 @@ public final class BlockAccessListsMessage extends AbstractMessageData {
   }
 
   public static BlockAccessListsMessage create(final Iterable<BlockAccessList> blockAccessLists) {
-    return new BlockAccessListsMessage(
-        BlockAccessListsMessageData.encode(Optional.empty(), blockAccessLists));
+    return new BlockAccessListsMessage(BlockAccessListsMessageData.encode(blockAccessLists));
   }
 
   /**
