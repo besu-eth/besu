@@ -34,6 +34,8 @@ dependencies {
   api 'org.slf4j:slf4j-api'
   api 'org.apache.logging.log4j:log4j-api'
 
+  annotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess'
+
   compileOnly 'org.jspecify:jspecify'
 
   implementation project(':config')
