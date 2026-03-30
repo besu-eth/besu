@@ -63,6 +63,7 @@ import java.util.function.BinaryOperator;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -151,7 +152,8 @@ public abstract class AbstractTransactionsLayer implements TransactionsLayer {
    *
    * @return a list of sender pending txs
    */
-  public abstract List<SenderPendingTransactions> getBySender();
+  @VisibleForTesting
+  abstract List<List<PendingTransaction>> getBySender();
 
   @Override
   public List<PendingTransaction> getAll() {

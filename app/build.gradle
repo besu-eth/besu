@@ -107,7 +107,7 @@ dependencies {
   testImplementation 'org.awaitility:awaitility'
   testImplementation 'org.junit.jupiter:junit-jupiter'
   testImplementation 'org.mockito:mockito-core'
-  testImplementation 'tech.pegasys.discovery:discovery'
+  testImplementation 'io.consensys.protocols:discovery'
   testImplementation 'com.google.dagger:dagger'
 
   annotationProcessor 'com.google.dagger:dagger-compiler'

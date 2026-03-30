@@ -289,14 +289,13 @@ class BlockSizeTransactionSelectorTest {
   }
 
   /**
-   * EIP-8037 2D gas: A transaction that would fail 1D pre-processing passes 2D pre-processing
-   * because the remaining capacity spans both dimensions.
+   * EIP-8037 2D gas: Pre-processing uses per-dimension capacity check.
    *
-   * <p>Scenario: block limit=30M, regular=25M used, state=5M used. A tx with gasLimit=10M would
-   * fail 1D (10M > 5M remaining regular) but passes 2D (headroom = 5M + 25M = 30M >= 10M).
+   * <p>Scenario: block limit=30M, regular=25M used, state=5M used. The tighter dimension is regular
+   * with 5M remaining, so txGasLimit must be <= 5M to pass.
    */
   @Test
-  void eip8037TwoDimensionalPreProcessingAcceptsTxThatWouldFail1D() {
+  void eip8037TwoDimensionalPreProcessingChecksPerDimension() {
     when(blockSelectionContext.pendingBlockHeader().getGasLimit()).thenReturn(30_000_000L);
     when(blockSelectionContext.protocolSpec().getBlockGasAccountingStrategy())
         .thenReturn(BlockGasAccountingStrategy.AMSTERDAM);
@@ -320,32 +319,39 @@ class BlockSizeTransactionSelectorTest {
     assertThat(selector.getWorkingState().regularGas()).isEqualTo(25_000_000L);
     assertThat(selector.getWorkingState().stateGas()).isEqualTo(5_000_000L);
 
-    // Second tx with gasLimit=10M: 1D would reject (10M > 30M-25M=5M remaining regular)
-    // But 2D headroom = max(0,30M-25M) + max(0,30M-5M) = 5M + 25M = 30M >= 10M -> passes
-    final var tx2 = createPendingTransaction(10_000_000L);
+    // tx with gasLimit=5M fits: min(30M-25M, 30M-5M) = min(5M, 25M) = 5M >= 5M
+    final var tx2 = createPendingTransaction(5_000_000L);
     final var ctx2 =
         new TransactionEvaluationContext(
             blockSelectionContext.pendingBlockHeader(), tx2, null, null, null, NEVER_CANCELLED);
     assertThat(selector.evaluateTransactionPreProcessing(ctx2)).isEqualTo(SELECTED);
+
+    // tx with gasLimit=5M+1 doesn't fit: exceeds tighter (regular) dimension
+    final var tx3 = createPendingTransaction(5_000_001L);
+    final var ctx3 =
+        new TransactionEvaluationContext(
+            blockSelectionContext.pendingBlockHeader(), tx3, null, null, null, NEVER_CANCELLED);
+    assertThat(selector.evaluateTransactionPreProcessing(ctx3))
+        .isEqualTo(TX_TOO_LARGE_FOR_REMAINING_GAS);
   }
 
   /**
-   * EIP-8037 2D gas: Post-processing rejects (TX_TOO_LARGE_FOR_REMAINING_GAS) when the actual gas
-   * split causes gas_metered = max(regular, state) to exceed the block gas limit.
+   * EIP-8037 2D gas: Post-processing correctly tracks gas state after successful transactions and
+   * pre-processing rejects when a dimension is exhausted.
    */
   @Test
-  void eip8037PostProcessingRejectsWhenGasMeteredExceedsLimit() {
+  void eip8037PostProcessingTracksGasAndPreProcessingRejectsWhenDimensionExhausted() {
     when(blockSelectionContext.pendingBlockHeader().getGasLimit()).thenReturn(30_000_000L);
     when(blockSelectionContext.protocolSpec().getBlockGasAccountingStrategy())
         .thenReturn(BlockGasAccountingStrategy.AMSTERDAM);
     selector = new BlockSizeTransactionSelector(blockSelectionContext, selectorsStateManager);
     selectorsStateManager.blockSelectionStarted();
 
-    // First tx: uses 20M regular, 20M state
-    final var tx1 = createPendingTransaction(40_000_000L);
+    // First tx: gasLimit=30M, uses 20M regular + 10M state = 30M total
+    final var tx1 = createPendingTransaction(30_000_000L);
     final var result1 = mock(TransactionProcessingResult.class);
-    when(result1.getEstimateGasUsedByTransaction()).thenReturn(40_000_000L);
-    when(result1.getStateGasUsed()).thenReturn(20_000_000L);
+    when(result1.getEstimateGasUsedByTransaction()).thenReturn(30_000_000L);
+    when(result1.getStateGasUsed()).thenReturn(10_000_000L);
 
     final var ctx1 =
         new TransactionEvaluationContext(
@@ -353,28 +359,29 @@ class BlockSizeTransactionSelectorTest {
     assertThat(selector.evaluateTransactionPreProcessing(ctx1)).isEqualTo(SELECTED);
     assertThat(selector.evaluateTransactionPostProcessing(ctx1, result1)).isEqualTo(SELECTED);
 
-    // State: regular=20M, state=20M, gasMetered=max(20M,20M)=20M <= 30M ok
+    // State: regular=20M, state=10M, gasMetered=max(20M,10M)=20M <= 30M ok
     assertThat(selector.getWorkingState().regularGas()).isEqualTo(20_000_000L);
-    assertThat(selector.getWorkingState().stateGas()).isEqualTo(20_000_000L);
+    assertThat(selector.getWorkingState().stateGas()).isEqualTo(10_000_000L);
 
-    // Second tx: would push state gas over limit
-    // Uses 1M regular, 15M state -> cumulative state = 35M, gasMetered=max(21M,35M)=35M > 30M
-    final var tx2 = createPendingTransaction(16_000_000L);
-    final var result2 = mock(TransactionProcessingResult.class);
-    when(result2.getEstimateGasUsedByTransaction()).thenReturn(16_000_000L);
-    when(result2.getStateGasUsed()).thenReturn(15_000_000L);
-
+    // Second tx with gasLimit=10M fits: min(30M-20M, 30M-10M) = min(10M, 20M) = 10M >= 10M
+    final var tx2 = createPendingTransaction(10_000_000L);
     final var ctx2 =
         new TransactionEvaluationContext(
             blockSelectionContext.pendingBlockHeader(), tx2, null, null, null, NEVER_CANCELLED);
     assertThat(selector.evaluateTransactionPreProcessing(ctx2)).isEqualTo(SELECTED);
-    assertThat(selector.evaluateTransactionPostProcessing(ctx2, result2))
+
+    // Third tx with gasLimit=10M+1 doesn't fit: exceeds tighter (regular) dimension
+    final var tx3 = createPendingTransaction(10_000_001L);
+    final var ctx3 =
+        new TransactionEvaluationContext(
+            blockSelectionContext.pendingBlockHeader(), tx3, null, null, null, NEVER_CANCELLED);
+    assertThat(selector.evaluateTransactionPreProcessing(ctx3))
         .isEqualTo(TX_TOO_LARGE_FOR_REMAINING_GAS);
   }
 
   /**
    * EIP-8037 2D gas: effectiveGasUsed drives occupancy/blockFull checks using max(regular,state).
-   * Both dimensions must be nearly full for the 2D headroom check to fail and trigger blockFull.
+   * When the tighter dimension has less remaining than min tx cost, the block is full.
    */
   @Test
   void eip8037EffectiveGasUsedDrivesBlockFullCheck() {
@@ -386,14 +393,12 @@ class BlockSizeTransactionSelectorTest {
     selector = new BlockSizeTransactionSelector(blockSelectionContext, selectorsStateManager);
     selectorsStateManager.blockSelectionStarted();
 
-    // Fill block with both dimensions nearly full: regular=990K, state=990K
-    // gasMetered = max(990K, 990K) = 990K; remaining = 10K < 21K min cost
-    // 2D headroom = max(0,1M-990K) + max(0,1M-990K) = 10K + 10K = 20K
-    final var tx1 = createPendingTransaction(1_980_000L);
+    // Fill block with regular dimension nearly full: gasLimit=1M, uses 990K regular + 10K state
+    final var tx1 = createPendingTransaction(1_000_000L);
     final var result1 = mock(TransactionProcessingResult.class);
-    when(result1.getEstimateGasUsedByTransaction()).thenReturn(1_980_000L);
-    when(result1.getStateGasUsed()).thenReturn(990_000L);
-    // regular gas = 1_980_000 - 990_000 = 990_000
+    when(result1.getEstimateGasUsedByTransaction()).thenReturn(1_000_000L);
+    when(result1.getStateGasUsed()).thenReturn(10_000L);
+    // regular gas = 1_000_000 - 10_000 = 990_000
 
     final var ctx1 =
         new TransactionEvaluationContext(
@@ -402,10 +407,10 @@ class BlockSizeTransactionSelectorTest {
     assertThat(selector.evaluateTransactionPostProcessing(ctx1, result1)).isEqualTo(SELECTED);
 
     assertThat(selector.getWorkingState().regularGas()).isEqualTo(990_000L);
-    assertThat(selector.getWorkingState().stateGas()).isEqualTo(990_000L);
+    assertThat(selector.getWorkingState().stateGas()).isEqualTo(10_000L);
 
-    // tx2 gasLimit=21K > 2D headroom of 20K → transactionTooLargeForBlock=true
-    // effectiveGasUsed=max(990K,990K)=990K, remaining=10K < 21K → blockFull
+    // tx2 gasLimit=21K > min(1M-990K, 1M-10K) = min(10K, 990K) = 10K
+    // transactionTooLargeForBlock=true; effectiveGasUsed=990K, remaining=10K < 21K → blockFull
     final var tx2 = createPendingTransaction(TRANSFER_GAS_LIMIT);
     final var ctx2 =
         new TransactionEvaluationContext(

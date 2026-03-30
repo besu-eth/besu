@@ -80,6 +80,11 @@ public class DisabledPendingTransactions implements PendingTransactions {
   }
 
   @Override
+  public SenderPendingTransactionsData getPendingTransactionsFor(final Address sender) {
+    return SenderPendingTransactionsData.empty(sender);
+  }
+
+  @Override
   public long subscribePendingTransactions(final PendingTransactionAddedListener listener) {
     return 0;
   }

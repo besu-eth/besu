@@ -12,27 +12,47 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.worldstate;
-
-import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+package org.hyperledger.besu.plugin.services.storage;
 
 import java.util.Collection;
 
 import org.apache.tuweni.bytes.Bytes32;
 
+/** Storage interface for Ethereum world state data backed by a key-value store. */
 public interface WorldStateKeyValueStorage {
 
+  /**
+   * Returns the storage format used by this world state storage.
+   *
+   * @return the {@link DataStorageFormat} of the underlying storage
+   */
   DataStorageFormat getDataStorageFormat();
 
+  /**
+   * Creates and returns a new {@link Updater} for batching write operations.
+   *
+   * @return a new {@link Updater} scoped to a single write transaction
+   */
   Updater updater();
 
+  /** Removes all entries from this world state storage. */
   void clear();
 
+  /** Callback interface for observing trie node insertions into world state storage. */
   interface NodesAddedListener {
+
+    /**
+     * Invoked after trie nodes have been added to the world state storage.
+     *
+     * @param nodeHash the hashes of the nodes that were added
+     */
     void onNodesAdded(Collection<Bytes32> nodeHash);
   }
 
+  /** A write transaction for batching mutations to world state storage. */
   interface Updater {
+
+    /** Atomically persists all staged write operations to the underlying storage. */
     void commit();
   }
 }

@@ -60,7 +60,7 @@ dependencies {
 
   annotationProcessor "org.immutables:value"
   implementation "org.immutables:value-annotations"
-  implementation 'tech.pegasys.discovery:discovery'
+  implementation 'io.consensys.protocols:discovery'
 
   // test dependencies.
   testImplementation project(path: ':ethereum:core', configuration: 'testArtifacts')
