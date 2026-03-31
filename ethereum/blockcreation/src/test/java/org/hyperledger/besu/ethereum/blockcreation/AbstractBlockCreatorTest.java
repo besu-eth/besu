@@ -353,17 +353,17 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
     assertThat(accountChange1.address()).isIn(sender.address(), recipient.address(), coinbase);
     assertThat(accountChange1.balanceChanges().size()).isEqualTo(1);
     assertThat(accountChange1.balanceChanges().get(0).postBalance()).isNotEqualTo(Bytes.of(0));
-    assertThat(accountChange1.balanceChanges().get(0).txIndex()).isNotNull();
+    assertThat(accountChange1.balanceChanges().get(0).txIndex()).isGreaterThanOrEqualTo(0);
     final AccountChanges accountChange2 = accountChanges.get(1);
     assertThat(accountChange2.address()).isIn(sender.address(), recipient.address(), coinbase);
     assertThat(accountChange2.balanceChanges().size()).isEqualTo(1);
     assertThat(accountChange2.balanceChanges().get(0).postBalance()).isNotEqualTo(Bytes.of(0));
-    assertThat(accountChange2.balanceChanges().get(0).txIndex()).isNotNull();
+    assertThat(accountChange2.balanceChanges().get(0).txIndex()).isGreaterThanOrEqualTo(0);
     final AccountChanges accountChange3 = accountChanges.get(2);
     assertThat(accountChange3.address()).isIn(sender.address(), recipient.address(), coinbase);
     assertThat(accountChange3.balanceChanges().size()).isEqualTo(1);
     assertThat(accountChange3.balanceChanges().get(0).postBalance()).isNotEqualTo(Bytes.of(0));
-    assertThat(accountChange3.balanceChanges().get(0).txIndex()).isNotNull();
+    assertThat(accountChange3.balanceChanges().get(0).txIndex()).isGreaterThanOrEqualTo(0);
   }
 
   @Test
