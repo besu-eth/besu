@@ -14,17 +14,14 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPendingResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPoolResult;
-import org.hyperledger.besu.ethereum.eth.transactions.SenderPendingTransactionsData;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.SequencedMap;
 
@@ -46,24 +43,6 @@ public class TxPoolContent extends AbstractTxPoolContent<TransactionPendingResul
 
   private TransactionPoolResult<Map<String, SequencedMap<String, TransactionPendingResult>>>
       content() {
-    final Map<Address, SenderPendingTransactionsData> pendingTransactionsBySender =
-        transactionPool.getPendingTransactionsBySender();
-
-    final Map<String, SequencedMap<String, TransactionPendingResult>> pending = new HashMap<>();
-    final Map<String, SequencedMap<String, TransactionPendingResult>> queued = new HashMap<>();
-
-    pendingTransactionsBySender.forEach(
-        (sender, pendingTransactionsData) -> {
-          final PendingAndQueued<TransactionPendingResult> pendingAndQueued =
-              getPendingAndQueued(pendingTransactionsData, TransactionPendingResult::new);
-
-          if (!pendingAndQueued.pendingByNonce().isEmpty()) {
-            pending.put(sender.toString(), pendingAndQueued.pendingByNonce());
-          }
-          if (!pendingAndQueued.queuedByNonce().isEmpty()) {
-            queued.put(sender.toString(), pendingAndQueued.queuedByNonce());
-          }
-        });
-    return new TransactionPoolResult<>(pending, queued);
+    return contentMap(TransactionPendingResult::new);
   }
 }

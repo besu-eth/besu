@@ -150,7 +150,6 @@ public class TxPoolInspectTest {
             .createTransaction(KEY_PAIR);
     final PendingTransaction pendingTransaction = mock(PendingTransaction.class);
     when(pendingTransaction.getNonce()).thenReturn(nonce);
-    when(pendingTransaction.getTransaction()).thenReturn(tx);
     when(pendingTransaction.toTraceLog()).thenReturn(tx.getHash() + ": summary");
     return pendingTransaction;
   }

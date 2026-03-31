@@ -14,12 +14,15 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPoolResult;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.SenderPendingTransactionsData;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.SequencedMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -58,13 +61,33 @@ abstract class AbstractTxPoolContent<T> implements JsonRpcMethod {
     return new PendingAndQueued<T>(pendingByNonce, queuedByNonce);
   }
 
+  protected TransactionPoolResult<Map<String, SequencedMap<String, T>>> contentMap(
+      final Function<PendingTransaction, T> render) {
+    final Map<String, SequencedMap<String, T>> pending = new HashMap<>();
+    final Map<String, SequencedMap<String, T>> queued = new HashMap<>();
+
+    transactionPool
+        .getPendingTransactionsBySender()
+        .forEach(
+            (sender, pendingTransactionsData) -> {
+              final PendingAndQueued<T> pq = getPendingAndQueued(pendingTransactionsData, render);
+              if (!pq.pendingByNonce().isEmpty()) {
+                pending.put(sender.toString(), pq.pendingByNonce());
+              }
+              if (!pq.queuedByNonce().isEmpty()) {
+                queued.put(sender.toString(), pq.queuedByNonce());
+              }
+            });
+    return new TransactionPoolResult<>(pending, queued);
+  }
+
   private SequencedMap<String, T> renderPendingTransactions(
       final List<PendingTransaction> pendingTransactions,
       final Function<PendingTransaction, T> pendingTransactionRender) {
     return pendingTransactions.stream()
         .collect(
             Collectors.toMap(
-                ptx -> Long.toString(ptx.getTransaction().getNonce()),
+                ptx -> Long.toString(ptx.getNonce()),
                 pendingTransactionRender,
                 (a, b) -> a,
                 LinkedHashMap::new));

@@ -14,17 +14,14 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPoolResult;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
-import org.hyperledger.besu.ethereum.eth.transactions.SenderPendingTransactionsData;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.SequencedMap;
 
@@ -45,25 +42,7 @@ public class TxPoolInspect extends AbstractTxPoolContent<String> {
   }
 
   private TransactionPoolResult<Map<String, SequencedMap<String, String>>> content() {
-    final Map<Address, SenderPendingTransactionsData> pendingTransactionsBySender =
-        transactionPool.getPendingTransactionsBySender();
-
-    final Map<String, SequencedMap<String, String>> pending = new HashMap<>();
-    final Map<String, SequencedMap<String, String>> queued = new HashMap<>();
-
-    pendingTransactionsBySender.forEach(
-        (sender, pendingTransactionsData) -> {
-          final PendingAndQueued<String> pendingAndQueued =
-              getPendingAndQueued(pendingTransactionsData, TxPoolInspect::humanReadableView);
-
-          if (!pendingAndQueued.pendingByNonce().isEmpty()) {
-            pending.put(sender.toString(), pendingAndQueued.pendingByNonce());
-          }
-          if (!pendingAndQueued.queuedByNonce().isEmpty()) {
-            queued.put(sender.toString(), pendingAndQueued.queuedByNonce());
-          }
-        });
-    return new TransactionPoolResult<>(pending, queued);
+    return contentMap(TxPoolInspect::humanReadableView);
   }
 
   static String humanReadableView(final PendingTransaction pendingTransaction) {
