@@ -52,7 +52,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -104,7 +103,7 @@ public class TransactionBroadcasterTest {
   }
 
   @Test
-  public void relayTransactionHashesFromPoolWhenPeerSupportEth65() {
+  public void relayTransactionHashesFromPool() {
     Collection<PendingTransaction> pendingTxs = setupTransactionPool(1, 1);
     List<Transaction> txs = toTransactionList(pendingTxs);
 
@@ -114,7 +113,7 @@ public class TransactionBroadcasterTest {
 
     sendTaskCapture.getValue().run();
 
-    verify(newPooledTransactionHashesMessageSender).sendTransactionHashesToPeer(ethPeer);
+    verify(newPooledTransactionHashesMessageSender).sendTransactionAnnouncementsToPeer(ethPeer);
     verifyNoInteractions(transactionsMessageSender);
   }
 
@@ -128,7 +127,7 @@ public class TransactionBroadcasterTest {
   }
 
   @Test
-  public void onTransactionsAddedWithOnlyFewEth65PeersSendFullTransactions() {
+  public void onTransactionsAddedWithOnly2PeersSendFullTransactions() {
     when(ethPeers.peerCount()).thenReturn(2);
     when(ethPeers.streamAvailablePeers())
         .thenReturn(Stream.of(ethPeer, ethPeer2).map(EthPeerImmutableAttributes::from));
@@ -145,11 +144,11 @@ public class TransactionBroadcasterTest {
     sendTaskCapture.getAllValues().forEach(Runnable::run);
 
     verify(transactionsMessageSender).sendTransactionsToPeer(ethPeer);
-    verify(newPooledTransactionHashesMessageSender).sendTransactionHashesToPeer(ethPeer2);
+    verify(newPooledTransactionHashesMessageSender).sendTransactionAnnouncementsToPeer(ethPeer2);
   }
 
   @Test
-  public void onTransactionsAddedWithOnlyEth65PeersSendFullTransactionsAndTransactionHashes() {
+  public void onTransactionsAddedWithMorePeersSendFullTransactionsAndTransactionHashes() {
     when(ethPeers.peerCount()).thenReturn(3);
     when(ethPeers.streamAvailablePeers())
         .thenReturn(Stream.of(ethPeer, ethPeer2, ethPeer3).map(EthPeerImmutableAttributes::from));
@@ -167,7 +166,8 @@ public class TransactionBroadcasterTest {
     sendTaskCapture.getAllValues().forEach(Runnable::run);
 
     verify(transactionsMessageSender, times(2)).sendTransactionsToPeer(any(EthPeer.class));
-    verify(newPooledTransactionHashesMessageSender).sendTransactionHashesToPeer(any(EthPeer.class));
+    verify(newPooledTransactionHashesMessageSender)
+        .sendTransactionAnnouncementsToPeer(any(EthPeer.class));
   }
 
   @Test
@@ -200,7 +200,7 @@ public class TransactionBroadcasterTest {
     sendTaskCapture.getAllValues().forEach(Runnable::run);
 
     verify(newPooledTransactionHashesMessageSender, times(3))
-        .sendTransactionHashesToPeer(any(EthPeer.class));
+        .sendTransactionAnnouncementsToPeer(any(EthPeer.class));
     ArgumentCaptor<EthPeer> capPeerFullTransaction = ArgumentCaptor.forClass(EthPeer.class);
     verify(transactionsMessageSender, times(2))
         .sendTransactionsToPeer(capPeerFullTransaction.capture());
@@ -245,36 +245,35 @@ public class TransactionBroadcasterTest {
         .collect(Collectors.toSet());
   }
 
+  @SuppressWarnings("unchecked")
   private void verifyTransactionAddedToPeerSendingQueue(
       final EthPeer peer, final Collection<Transaction> transactions) {
 
-    ArgumentCaptor<Transaction> trackedTransactions = ArgumentCaptor.forClass(Transaction.class);
-    verify(transactionTracker, times(transactions.size()))
-        .addToPeerSendQueue(eq(peer), trackedTransactions.capture());
-    assertThat(trackedTransactions.getAllValues())
-        .containsExactlyInAnyOrderElementsOf(transactions);
+    ArgumentCaptor<List<Transaction>> trackedTransactions = ArgumentCaptor.forClass(List.class);
+    verify(transactionTracker).addToPeerSendQueue(eq(peer), trackedTransactions.capture());
+    assertThat(trackedTransactions.getValue()).containsExactlyInAnyOrderElementsOf(transactions);
   }
 
+  @SuppressWarnings("unchecked")
   private void verifyTransactionAddedToPeerHashSendingQueue(
       final EthPeer peer, final Collection<Transaction> transactions) {
 
-    ArgumentCaptor<Transaction> trackedTransactions = ArgumentCaptor.forClass(Transaction.class);
-    verify(transactionTracker, times(transactions.size()))
-        .addToPeerHashSendQueue(eq(peer), trackedTransactions.capture());
-    assertThat(trackedTransactions.getAllValues())
-        .containsExactlyInAnyOrderElementsOf(transactions);
+    ArgumentCaptor<List<Transaction>> trackedTransactions = ArgumentCaptor.forClass(List.class);
+    verify(transactionTracker)
+        .addToPeerAnnouncementsSendQueue(eq(peer), trackedTransactions.capture());
+    assertThat(trackedTransactions.getValue()).containsExactlyInAnyOrderElementsOf(transactions);
   }
 
   private EthPeer mockPeer() {
-    EthPeer ethPeer = Mockito.mock(EthPeer.class);
-    ChainState chainState = Mockito.mock(ChainState.class);
+    EthPeer ethPeer = mock(EthPeer.class);
+    ChainState chainState = mock(ChainState.class);
 
-    Mockito.when(ethPeer.chainState()).thenReturn(chainState);
-    Mockito.when(chainState.getEstimatedHeight()).thenReturn(0L);
-    Mockito.when(chainState.getEstimatedTotalDifficulty()).thenReturn(Difficulty.of(0));
-    Mockito.when(ethPeer.getReputation()).thenReturn(new PeerReputation());
+    when(ethPeer.chainState()).thenReturn(chainState);
+    when(chainState.getEstimatedHeight()).thenReturn(0L);
+    when(chainState.getEstimatedTotalDifficulty()).thenReturn(Difficulty.of(0));
+    when(ethPeer.getReputation()).thenReturn(new PeerReputation());
     PeerConnection connection = mock(PeerConnection.class);
-    Mockito.when(ethPeer.getConnection()).thenReturn(connection);
+    when(ethPeer.getConnection()).thenReturn(connection);
     return ethPeer;
   }
 }
