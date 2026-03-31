@@ -28,7 +28,6 @@ import org.hyperledger.besu.evm.operation.Operation;
  */
 public class AddOperationV2 extends AbstractFixedCostOperationV2 {
 
-  @SuppressWarnings("UnusedVariable")
   private static final Operation.OperationResult ADD_SUCCESS =
       new Operation.OperationResult(3, null);
 
@@ -54,9 +53,40 @@ public class AddOperationV2 extends AbstractFixedCostOperationV2 {
    * @param stackData the stack operands as a long[] array
    * @return the operation result
    */
-  @SuppressWarnings("DoNotCallSuggester")
+  /**
+   * Performs ADD on the v2 long[] stack.
+   *
+   * @param frame the message frame
+   * @param s the stack data as a long[] array
+   * @return the operation result
+   */
   public static Operation.OperationResult staticOperation(
-      final MessageFrame frame, final long[] stackData) {
-    throw new UnsupportedOperationException("ADD operation not yet implemented for evm v2");
+      final MessageFrame frame, final long[] s) {
+    final int top = frame.stackTopV2();
+    final int a = (top - 1) * 4;
+    final int b = (top - 2) * 4;
+
+    long sum3 = s[a + 3] + s[b + 3];
+    long c3 = Long.compareUnsigned(sum3, s[a + 3]) < 0 ? 1L : 0L;
+
+    long partial2 = s[a + 2] + s[b + 2];
+    long c2 = Long.compareUnsigned(partial2, s[a + 2]) < 0 ? 1L : 0L;
+    long sum2 = partial2 + c3;
+    c2 |= Long.compareUnsigned(sum2, partial2) < 0 ? 1L : 0L;
+
+    long partial1 = s[a + 1] + s[b + 1];
+    long c1 = Long.compareUnsigned(partial1, s[a + 1]) < 0 ? 1L : 0L;
+    long sum1 = partial1 + c2;
+    c1 |= Long.compareUnsigned(sum1, partial1) < 0 ? 1L : 0L;
+
+    long sum0 = s[a] + s[b] + c1;
+
+    s[b] = sum0;
+    s[b + 1] = sum1;
+    s[b + 2] = sum2;
+    s[b + 3] = sum3;
+
+    frame.setTopV2(top - 1);
+    return ADD_SUCCESS;
   }
 }
