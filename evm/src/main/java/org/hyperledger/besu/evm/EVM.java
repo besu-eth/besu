@@ -84,6 +84,7 @@ import org.hyperledger.besu.evm.operation.SwapOperation;
 import org.hyperledger.besu.evm.operation.VirtualOperation;
 import org.hyperledger.besu.evm.operation.XorOperation;
 import org.hyperledger.besu.evm.operation.XorOperationOptimized;
+import org.hyperledger.besu.evm.operation.v2.AddOperationV2;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.Optional;
@@ -216,6 +217,10 @@ public class EVM {
   //
   // Please benchmark before refactoring.
   public void runToHalt(final MessageFrame frame, final OperationTracer tracing) {
+    if (evmConfiguration.enableEvmV2()) {
+      runToHaltV2(frame, tracing);
+      return;
+    }
     evmSpecVersion.maybeWarnVersion();
 
     var operationTracer = tracing == OperationTracer.NO_TRACING ? null : tracing;
@@ -429,6 +434,70 @@ public class EVM {
         frame.setState(State.EXCEPTIONAL_HALT);
       }
       if (frame.getState() == State.CODE_EXECUTING) {
+        final int currentPC = frame.getPC();
+        final int opSize = result.getPcIncrement();
+        frame.setPC(currentPC + opSize);
+      }
+      if (operationTracer != null) {
+        operationTracer.tracePostExecution(frame, result);
+      }
+    }
+  }
+
+  /**
+   * EVM v2 execution loop using long[] stack representation. Only opcodes explicitly listed in the
+   * switch are handled via the v2 path; all others fall through to the v1 operation registry. This
+   * skeleton stub establishes the dispatch structure for incremental v2 operation rollout.
+   */
+  // Note: like runToHalt, this is performance-critical code. Benchmark before refactoring.
+  private void runToHaltV2(final MessageFrame frame, final OperationTracer tracing) {
+    evmSpecVersion.maybeWarnVersion();
+
+    var operationTracer = tracing == OperationTracer.NO_TRACING ? null : tracing;
+    byte[] code = frame.getCode().getBytes().toArrayUnsafe();
+    Operation[] operationArray = operations.getOperations();
+    while (frame.getState() == MessageFrame.State.CODE_EXECUTING) {
+      Operation currentOperation;
+      int opcode;
+      int pc = frame.getPC();
+      try {
+        opcode = code[pc] & 0xff;
+        currentOperation = operationArray[opcode];
+      } catch (ArrayIndexOutOfBoundsException aiiobe) {
+        opcode = 0;
+        currentOperation = endOfScriptStop;
+      }
+      frame.setCurrentOperation(currentOperation);
+      if (operationTracer != null) {
+        operationTracer.tracePreExecution(frame);
+      }
+
+      OperationResult result;
+      try {
+        result =
+            switch (opcode) {
+              case 0x01 -> AddOperationV2.staticOperation(frame, frame.stackDataV2());
+              // TODO: implement remaining opcodes in v2; until then fall through to v1
+              default -> {
+                frame.setCurrentOperation(currentOperation);
+                yield currentOperation.execute(frame, this);
+              }
+            };
+      } catch (final OverflowException oe) {
+        result = OVERFLOW_RESPONSE;
+      } catch (final UnderflowException ue) {
+        result = UNDERFLOW_RESPONSE;
+      }
+      final ExceptionalHaltReason haltReason = result.getHaltReason();
+      if (haltReason != null) {
+        LOG.trace("MessageFrame evaluation halted because of {}", haltReason);
+        frame.setExceptionalHaltReason(Optional.of(haltReason));
+        frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
+      } else if (frame.decrementRemainingGas(result.getGasCost()) < 0) {
+        frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+        frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
+      }
+      if (frame.getState() == MessageFrame.State.CODE_EXECUTING) {
         final int currentPC = frame.getPC();
         final int opSize = result.getPcIncrement();
         frame.setPC(currentPC + opSize);
