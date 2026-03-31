@@ -53,6 +53,7 @@ public class Utils {
       case FOREST -> 1;
       case BONSAI -> 2;
       case X_BONSAI_ARCHIVE -> 3;
+      case BINTRIE -> 4;
     };
   }
 }

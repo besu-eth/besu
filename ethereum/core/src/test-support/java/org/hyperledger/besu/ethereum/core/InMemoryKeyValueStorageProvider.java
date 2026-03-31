@@ -28,6 +28,8 @@ import org.hyperledger.besu.ethereum.storage.keyvalue.WorldStatePreimageKeyValue
 import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
 import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.forest.worldview.ForestMutableWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bintrie.BinTrieWorldStateProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bintrie.storage.BinTrieWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
@@ -115,6 +117,34 @@ public class InMemoryKeyValueStorageProvider extends KeyValueStorageProvider {
         serviceManager,
         evmConfiguration,
         throwingWorldStateHealerSupplier(),
+        new CodeCache());
+  }
+
+  public static BinTrieWorldStateProvider createBinTrieInMemoryWorldStateArchive(
+      final Blockchain blockchain) {
+    return createBinTrieInMemoryWorldStateArchive(blockchain, EvmConfiguration.DEFAULT, null);
+  }
+
+  public static BinTrieWorldStateProvider createBinTrieInMemoryWorldStateArchive(
+      final Blockchain blockchain, final ServiceManager serviceManager) {
+    return createBinTrieInMemoryWorldStateArchive(
+        blockchain, EvmConfiguration.DEFAULT, serviceManager);
+  }
+
+  public static BinTrieWorldStateProvider createBinTrieInMemoryWorldStateArchive(
+      final Blockchain blockchain,
+      final EvmConfiguration evmConfiguration,
+      final ServiceManager serviceManager) {
+    final InMemoryKeyValueStorageProvider inMemoryKeyValueStorageProvider =
+        new InMemoryKeyValueStorageProvider();
+    return new BinTrieWorldStateProvider(
+        (BinTrieWorldStateKeyValueStorage)
+            inMemoryKeyValueStorageProvider.createWorldStateStorage(
+                DataStorageConfiguration.DEFAULT_BINTRIE_CONFIG),
+        blockchain,
+        DataStorageConfiguration.DEFAULT_BINTRIE_CONFIG.getPathBasedExtraStorageConfiguration(),
+        serviceManager,
+        evmConfiguration,
         new CodeCache());
   }
 

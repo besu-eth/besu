@@ -39,7 +39,8 @@ public enum FlatDbMode {
   NO_FLATTENED(Bytes.EMPTY),
   PARTIAL(Bytes.of(0x00)),
   FULL(Bytes.of(0x01)),
-  ARCHIVE(Bytes.of(0x02));
+  ARCHIVE(Bytes.of(0x02)),
+  STEM(Bytes.of(0x03));
 
   final Bytes version;
 

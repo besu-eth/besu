@@ -1,0 +1,71 @@
+{
+  "config": {
+    "chainId": 69420,
+    "homesteadBlock": 0,
+    "eip150Block": 0,
+    "eip155Block": 0,
+    "eip158Block": 0,
+    "byzantiumBlock": 0,
+    "constantinopleBlock": 0,
+    "petersburgBlock": 0,
+    "istanbulBlock": 0,
+    "berlinBlock": 0,
+    "londonBlock": 0,
+    "terminalTotalDifficulty": 0,
+    "terminalTotalDifficultyPassed": true,
+    "shanghaiTime": 0,
+    "cancunTime": 0,
+    "pragueTime": 0,
+    "binTrieTime": 0,
+    "ethash": {},
+    "withdrawalRequestContractAddress": "0x00A3ca265EBcb825B45F985A16CEFB49958cE017",
+    "consolidationRequestContractAddress": "0x00b42dbF2194e931E80326D950320f7d9Dbeac02",
+    "depositContractAddress": "0x4242424242424242424242424242424242424242"
+  },
+  "nonce": "0x0",
+  "timestamp": "0x0",
+  "extraData": "0x",
+  "gasLimit": "0x1c9c380",
+  "difficulty": "0x0",
+  "mixHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "coinbase": "0x0000000000000000000000000000000000000000",
+  "alloc": {
+    "0x0000000000000000000000000000000000000001": {
+      "balance": "0x1"
+    },
+    "0x0000000000000000000000000000000000000002": {
+      "balance": "0x1"
+    },
+    "0x0000000000000000000000000000000000000003": {
+      "balance": "0x1"
+    },
+    "0x0000000000000000000000000000000000000004": {
+      "balance": "0x1"
+    },
+    "0x0000000000000000000000000000000000000005": {
+      "balance": "0x1"
+    },
+    "0x0000000000000000000000000000000000000006": {
+      "balance": "0x1"
+    },
+    "0x0000000000000000000000000000000000000007": {
+      "balance": "0x1"
+    },
+    "0x0000000000000000000000000000000000000008": {
+      "balance": "0x1"
+    },
+    "0x0000000000000000000000000000000000000009": {
+      "balance": "0x1"
+    },
+    "0x627306090abab3a6e1400e9345bc60c78a8bef57": {
+      "balance": "0xd3c21bcecceda1000000"
+    },
+    "0x7f2d653f56ea8de6ffa554c7a0cd4e03af79f3eb": {
+      "balance": "0xd3c21bcecceda1000000"
+    }
+  },
+  "baseFeePerGas": "0x7",
+  "number": "0x0",
+  "gasUsed": "0x0",
+  "parentHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+}

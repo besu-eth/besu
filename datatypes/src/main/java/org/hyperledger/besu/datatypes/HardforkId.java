@@ -93,6 +93,8 @@ public interface HardforkId {
     BPO4(true, "BPO4"),
     /** BPO5 fork. */
     BPO5(true, "BPO5"),
+    /** BinTrie fork - Binary Trie state tree. */
+    BINTRIE(false, "BinTrie"),
     /** Amsterdam fork. */
     AMSTERDAM(false, "Amsterdam"),
     /** Bogota fork. */

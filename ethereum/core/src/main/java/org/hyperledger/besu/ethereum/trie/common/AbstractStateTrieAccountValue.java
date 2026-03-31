@@ -21,6 +21,8 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
+import java.util.Optional;
+
 /** Represents the raw values associated with an account in the world state trie. */
 public abstract class AbstractStateTrieAccountValue implements AccountValue {
 
@@ -74,6 +76,16 @@ public abstract class AbstractStateTrieAccountValue implements AccountValue {
   @Override
   public Hash getStorageRoot() {
     return Hash.EMPTY_TRIE_HASH;
+  }
+
+  /**
+   * The size of the EVM bytecode associated with this account.
+   *
+   * @return the size of the account code (which may be empty).
+   */
+  @Override
+  public Optional<Long> getCodeSize() {
+    return Optional.empty();
   }
 
   @Override

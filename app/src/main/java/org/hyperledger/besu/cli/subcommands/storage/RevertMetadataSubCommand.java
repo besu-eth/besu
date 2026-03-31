@@ -121,6 +121,9 @@ public class RevertMetadataSubCommand implements Runnable {
               case X_BONSAI_ARCHIVE ->
                   throw new IllegalArgumentException(
                       "X_BONSAI_ARCHIVE storage format cannot be reverted to v1");
+              case BINTRIE ->
+                  throw new IllegalArgumentException(
+                      "BINTRIE storage format cannot be reverted to v1");
             };
 
         @JsonSerialize

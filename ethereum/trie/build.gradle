@@ -33,6 +33,7 @@ dependencies {
   implementation project(':datatypes')
   implementation project(':ethereum:rlp')
   implementation project(':plugin-api')
+  implementation 'org.hyperledger.besu:besu-stateless'
 
   implementation 'org.immutables:value-annotations'
   implementation 'com.google.guava:guava'

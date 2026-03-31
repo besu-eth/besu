@@ -206,4 +206,13 @@ public class SealableBlockHeader extends ProcessableBlockHeader {
   public Optional<BlobGas> getExcessBlobGas() {
     return Optional.ofNullable(excessBlobGas);
   }
+
+  /**
+   * Returns the execution witness if available.
+   *
+   * @return the execution witness if available.
+   */
+  public Optional<Object> getExecutionWitness() {
+    return Optional.empty();
+  }
 }

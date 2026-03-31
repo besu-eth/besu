@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.AccountValue;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
+import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.util.Map;
 import java.util.Objects;
@@ -48,6 +49,8 @@ public interface TrieLog {
 
   /** Freezes the TrieLog to prevent further modifications. */
   void freeze();
+
+  DataStorageFormat getDataStorageFormat();
 
   /**
    * Gets a map of addresses to their account value changes.

@@ -17,18 +17,38 @@ package org.hyperledger.besu.plugin.services.storage;
 /** Supported database storage format */
 public enum DataStorageFormat {
   /** Original format. Store all tries */
-  FOREST,
+  FOREST(0),
   /** New format. Store one trie, and trie logs to roll forward and backward */
-  BONSAI,
+  BONSAI(1),
   /** The option for storing archive data e.g. state at any block */
-  X_BONSAI_ARCHIVE;
+  X_BONSAI_ARCHIVE(2),
+  /** Storage format for stateless clients */
+  BINTRIE(3);
 
-  /**
-   * Returns whether the storage format is one of the Bonsai DB formats
-   *
-   * @return true if it is, otherwise false
-   */
+  final int value;
+
+  DataStorageFormat(final int value) {
+    this.value = value;
+  }
+
+  public int getValue() {
+    return value;
+  }
+
+  public static DataStorageFormat fromValue(final int value) {
+    for (DataStorageFormat type : values()) {
+      if (type.value == value) {
+        return type;
+      }
+    }
+    return BONSAI;
+  }
+
   public boolean isBonsaiFormat() {
     return this == BONSAI || this == X_BONSAI_ARCHIVE;
+  }
+
+  public boolean isBinTrieFormat() {
+    return this == BINTRIE;
   }
 }

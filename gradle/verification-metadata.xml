@@ -3,6 +3,9 @@
    <configuration>
       <verify-metadata>true</verify-metadata>
       <verify-signatures>false</verify-signatures>
+      <trusted-artifacts>
+         <trust group="org.hyperledger.besu" name="besu-stateless" version="0.0.3-SNAPSHOT" reason="SNAPSHOT dependency from Hyperledger Artifactory"/>
+      </trusted-artifacts>
    </configuration>
    <components>
       <component group="aopalliance" name="aopalliance" version="1.0">

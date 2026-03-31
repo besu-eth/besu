@@ -242,6 +242,11 @@ public abstract class PathBasedAccount implements MutableAccount, AccountValue {
   }
 
   @Override
+  public Optional<Long> getCodeSize() {
+    return code != null ? Optional.of((long) code.getSize()) : Optional.empty();
+  }
+
+  @Override
   public UInt256 getStorageValue(final UInt256 key) {
     return context.getStorageValue(address, key);
   }

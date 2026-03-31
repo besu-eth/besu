@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.core;
 
 import static org.assertj.core.util.Preconditions.checkArgument;
+import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createBinTrieInMemoryWorldStateArchive;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createBonsaiInMemoryWorldStateArchive;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryWorldStateArchive;
@@ -199,10 +200,14 @@ public class BlockchainSetupUtil {
       final GenesisState genesisState =
           GenesisState.fromConfig(genesisConfig, protocolSchedule, new CodeCache());
       final MutableBlockchain blockchain = createInMemoryBlockchain(genesisState.getBlock());
-      final WorldStateArchive worldArchive =
-          storageFormat == DataStorageFormat.BONSAI
-              ? createBonsaiInMemoryWorldStateArchive(blockchain, serviceManager)
-              : createInMemoryWorldStateArchive();
+      final WorldStateArchive worldArchive;
+      if (storageFormat == DataStorageFormat.BONSAI) {
+        worldArchive = createBonsaiInMemoryWorldStateArchive(blockchain, serviceManager);
+      } else if (storageFormat == DataStorageFormat.BINTRIE) {
+        worldArchive = createBinTrieInMemoryWorldStateArchive(blockchain, serviceManager);
+      } else {
+        worldArchive = createInMemoryWorldStateArchive();
+      }
       final TransactionPool transactionPool = mock(TransactionPool.class);
 
       genesisState.writeStateTo(worldArchive.getWorldState());

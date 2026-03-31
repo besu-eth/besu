@@ -69,6 +69,11 @@ public enum EvmSpecVersion {
       MainnetHardforkId.OSAKA,
       Limits.MAX_CODE_SIZE_SPURIOUS_DRAGON,
       Limits.MAX_INITCODE_SIZE_SHANGHAI),
+  /** BinTrie evm spec version - Binary Trie stateless gas costs (EIP-4762). */
+  BINTRIE(
+      MainnetHardforkId.BINTRIE,
+      Limits.MAX_CODE_SIZE_SPURIOUS_DRAGON,
+      Limits.MAX_INITCODE_SIZE_SHANGHAI),
   /** Amsterdam evm spec version. */
   AMSTERDAM(
       MainnetHardforkId.AMSTERDAM,

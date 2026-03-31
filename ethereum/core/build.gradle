@@ -45,6 +45,7 @@ dependencies {
   implementation project(':ethereum:rlp')
   implementation project(':ethereum:trie')
   implementation project(':evm')
+  implementation 'org.hyperledger.besu:besu-stateless'
   implementation project(':metrics:core')
   implementation project(':plugin-api')
   implementation project(':services:kvstore')

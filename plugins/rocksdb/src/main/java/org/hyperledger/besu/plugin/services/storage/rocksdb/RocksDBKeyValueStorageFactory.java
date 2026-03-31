@@ -167,7 +167,7 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
                   metricsSystem,
                   rocksDBMetricsFactory);
         }
-        case BONSAI, X_BONSAI_ARCHIVE -> {
+        case BONSAI, X_BONSAI_ARCHIVE, BINTRIE -> {
           LOG.debug("BONSAI mode detected, Using OptimisticTransactionDB.");
           segmentedStorage =
               new OptimisticRocksDBColumnarKeyValueStorage(

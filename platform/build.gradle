@@ -158,6 +158,7 @@ dependencies {
     api 'org.hyperledger.besu:secp256r1:1.5.0'
     api 'org.hyperledger.besu:boringssl:1.5.0'
     api 'org.hyperledger.besu:besu-errorprone-checks:1.2.0'
+    api 'org.hyperledger.besu:besu-stateless:0.0.3-SNAPSHOT'
 
     api 'org.jacoco:org.jacoco.agent:0.8.14'
     api 'org.jacoco:org.jacoco.core:0.8.14'

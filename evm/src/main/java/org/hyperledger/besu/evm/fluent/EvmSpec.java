@@ -122,6 +122,7 @@ public final class EvmSpec {
       case CANCUN -> cancun(chainId, evmConfiguration);
       case PRAGUE -> prague(chainId, evmConfiguration);
       case OSAKA -> osaka(chainId, evmConfiguration);
+      case BINTRIE -> binTrie(chainId, evmConfiguration);
       case AMSTERDAM -> amsterdam(chainId, evmConfiguration);
       case BOGOTA -> bogota(chainId, evmConfiguration);
       case POLIS -> polis(chainId, evmConfiguration);
@@ -473,6 +474,20 @@ public final class EvmSpec {
     final EvmSpec evmSpec = new EvmSpec(MainnetEVMs.osaka(chainId, evmConfiguration));
     evmSpec.precompileContractRegistry =
         MainnetPrecompiledContracts.osaka(evmSpec.evm.getGasCalculator());
+    return evmSpec;
+  }
+
+  /**
+   * Instantiate BinTrie evm spec - extends Prague with Binary Trie stateless gas costs (EIP-4762).
+   *
+   * @param chainId the chain ID
+   * @param evmConfiguration the evm configuration
+   * @return the evm spec
+   */
+  public static EvmSpec binTrie(final BigInteger chainId, final EvmConfiguration evmConfiguration) {
+    final EvmSpec evmSpec = new EvmSpec(MainnetEVMs.binTrie(chainId, evmConfiguration));
+    evmSpec.precompileContractRegistry =
+        MainnetPrecompiledContracts.prague(evmSpec.evm.getGasCalculator());
     return evmSpec;
   }
 

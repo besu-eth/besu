@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evm;
 
 import org.hyperledger.besu.evm.gascalculator.BerlinGasCalculator;
+import org.hyperledger.besu.evm.gascalculator.BinTrieGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.ByzantiumGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.ConstantinopleGasCalculator;
@@ -1074,6 +1075,79 @@ public class MainnetEVMs {
 
     // EIP-7939: CLZ opcode
     registry.put(new CountLeadingZerosOperation(gasCalculator));
+  }
+
+  /**
+   * BinTrie evm - extends Prague with Binary Trie stateless gas costs (EIP-4762).
+   *
+   * @param evmConfiguration the evm configuration
+   * @return the evm
+   */
+  public static EVM binTrie(final EvmConfiguration evmConfiguration) {
+    return binTrie(DEV_NET_CHAIN_ID, evmConfiguration);
+  }
+
+  /**
+   * BinTrie evm.
+   *
+   * @param chainId the chain id
+   * @param evmConfiguration the evm configuration
+   * @return the evm
+   */
+  public static EVM binTrie(final BigInteger chainId, final EvmConfiguration evmConfiguration) {
+    return binTrie(new BinTrieGasCalculator(), chainId, evmConfiguration);
+  }
+
+  /**
+   * BinTrie evm.
+   *
+   * @param gasCalculator the gas calculator
+   * @param chainId the chain id
+   * @param evmConfiguration the evm configuration
+   * @return the evm
+   */
+  public static EVM binTrie(
+      final GasCalculator gasCalculator,
+      final BigInteger chainId,
+      final EvmConfiguration evmConfiguration) {
+    return new EVM(
+        binTrieOperations(gasCalculator, chainId, evmConfiguration),
+        gasCalculator,
+        evmConfiguration,
+        EvmSpecVersion.BINTRIE);
+  }
+
+  /**
+   * Operation registry for BinTrie's operations.
+   *
+   * @param gasCalculator the gas calculator
+   * @param chainId the chain id
+   * @param evmConfiguration the evm configuration
+   * @return the operation registry
+   */
+  private static OperationRegistry binTrieOperations(
+      final GasCalculator gasCalculator,
+      final BigInteger chainId,
+      final EvmConfiguration evmConfiguration) {
+    OperationRegistry operationRegistry = new OperationRegistry();
+    registerBinTrieOperations(operationRegistry, gasCalculator, chainId, evmConfiguration);
+    return operationRegistry;
+  }
+
+  /**
+   * Register BinTrie's operations. Extends Prague operations.
+   *
+   * @param registry the registry
+   * @param gasCalculator the gas calculator
+   * @param chainID the chain id
+   * @param evmConfiguration the evm configuration
+   */
+  private static void registerBinTrieOperations(
+      final OperationRegistry registry,
+      final GasCalculator gasCalculator,
+      final BigInteger chainID,
+      final EvmConfiguration evmConfiguration) {
+    registerOsakaOperations(registry, gasCalculator, chainID, evmConfiguration);
   }
 
   /**

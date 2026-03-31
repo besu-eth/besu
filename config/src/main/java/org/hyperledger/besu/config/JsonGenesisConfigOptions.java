@@ -354,6 +354,11 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
   }
 
   @Override
+  public OptionalLong getBinTrieTime() {
+    return getOptionalLong("bintrietime");
+  }
+
+  @Override
   public OptionalLong getAmsterdamTime() {
     return getOptionalLong("amsterdamtime");
   }
@@ -472,6 +477,7 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
     getBpo3Time().ifPresent(l -> builder.put("bpo3Time", l));
     getBpo4Time().ifPresent(l -> builder.put("bpo4Time", l));
     getBpo5Time().ifPresent(l -> builder.put("bpo5Time", l));
+    getBinTrieTime().ifPresent(l -> builder.put("binTrieTime", l));
     getAmsterdamTime().ifPresent(l -> builder.put("amsterdamTime", l));
     getTerminalBlockNumber().ifPresent(l -> builder.put("terminalBlockNumber", l));
     getTerminalBlockHash()
@@ -613,6 +619,7 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
             getBpo3Time(),
             getBpo4Time(),
             getBpo5Time(),
+            getBinTrieTime(),
             getAmsterdamTime(),
             getFutureEipsTime(),
             getExperimentalEipsTime());

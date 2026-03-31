@@ -21,6 +21,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedValue;
+import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
 
 import java.util.HashMap;
@@ -261,5 +262,10 @@ public class TrieLogLayer implements TrieLog {
         .append(code)
         .append(storage)
         .toHashCode();
+  }
+
+  @Override
+  public DataStorageFormat getDataStorageFormat() {
+    return DataStorageFormat.BONSAI;
   }
 }

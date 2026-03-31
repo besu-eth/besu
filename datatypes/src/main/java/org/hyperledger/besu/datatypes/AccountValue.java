@@ -16,6 +16,8 @@ package org.hyperledger.besu.datatypes;
 
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
+import java.util.Optional;
+
 /** The values of an account in the world state trie. */
 public interface AccountValue {
   /**
@@ -45,6 +47,13 @@ public interface AccountValue {
    * @return the hash of the account code (which may be {@link Hash#EMPTY}).
    */
   Hash getCodeHash();
+
+  /**
+   * The size of the EVM bytecode associated with this account.
+   *
+   * @return the size of the account code (which may be {@link Optional#empty()}).
+   */
+  Optional<Long> getCodeSize();
 
   /**
    * Writes the account value to the provided {@link RLPOutput}.

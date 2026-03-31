@@ -154,6 +154,13 @@ public interface BlockHeader extends ProcessableBlockHeader {
   Optional<? extends Long> getBlobGasUsed();
 
   /**
+   * The executionWitness of the block
+   *
+   * @return The executionWitness of the block
+   */
+  Optional<? extends Object> getExecutionWitness();
+
+  /**
    * Returns a human-readable string for logging.
    *
    * @return the log string.

@@ -131,6 +131,8 @@ public class MilestoneDefinitions {
         createTimestampMilestone(
             MainnetHardforkId.OSAKA, config.getOsakaTime(), specFactory::osakaDefinition),
         createTimestampMilestone(
+            MainnetHardforkId.BINTRIE, config.getBinTrieTime(), specFactory::binTrieDefinition),
+        createTimestampMilestone(
             MainnetHardforkId.BPO1, config.getBpo1Time(), specFactory::bpo1Definition),
         createTimestampMilestone(
             MainnetHardforkId.BPO2, config.getBpo2Time(), specFactory::bpo2Definition),

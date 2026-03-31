@@ -60,6 +60,8 @@ include 'plugins:rocksdb'
 include 'services:kvstore'
 include 'services:pipeline'
 include 'services:tasks'
+// stateless module replaced by external dependency org.hyperledger.besu:besu-stateless
+// include 'stateless'
 include 'testfuzz'
 include 'testutil'
 include 'util'

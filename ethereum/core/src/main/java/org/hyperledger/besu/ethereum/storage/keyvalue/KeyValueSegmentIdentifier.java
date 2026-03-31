@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.storage.keyvalue;
 
+import static org.hyperledger.besu.plugin.services.storage.DataStorageFormat.BINTRIE;
 import static org.hyperledger.besu.plugin.services.storage.DataStorageFormat.BONSAI;
 import static org.hyperledger.besu.plugin.services.storage.DataStorageFormat.FOREST;
 import static org.hyperledger.besu.plugin.services.storage.DataStorageFormat.X_BONSAI_ARCHIVE;
@@ -34,11 +35,14 @@ public enum KeyValueSegmentIdentifier implements SegmentIdentifier {
   PRIVATE_STATE(new byte[] {4}),
 
   PRUNING_STATE(new byte[] {5}, EnumSet.of(FOREST)),
-  ACCOUNT_INFO_STATE(new byte[] {6}, EnumSet.of(BONSAI, X_BONSAI_ARCHIVE), false, true, false),
-  CODE_STORAGE(new byte[] {7}, EnumSet.of(BONSAI, X_BONSAI_ARCHIVE)),
-  ACCOUNT_STORAGE_STORAGE(new byte[] {8}, EnumSet.of(BONSAI, X_BONSAI_ARCHIVE), false, true, false),
-  TRIE_BRANCH_STORAGE(new byte[] {9}, EnumSet.of(BONSAI, X_BONSAI_ARCHIVE), false, true, false),
-  TRIE_LOG_STORAGE(new byte[] {10}, EnumSet.of(BONSAI, X_BONSAI_ARCHIVE), true, false, true),
+  ACCOUNT_INFO_STATE(
+      new byte[] {6}, EnumSet.of(BONSAI, X_BONSAI_ARCHIVE, BINTRIE), false, true, false),
+  CODE_STORAGE(new byte[] {7}, EnumSet.of(BONSAI, X_BONSAI_ARCHIVE, BINTRIE)),
+  ACCOUNT_STORAGE_STORAGE(
+      new byte[] {8}, EnumSet.of(BONSAI, X_BONSAI_ARCHIVE, BINTRIE), false, true, false),
+  TRIE_BRANCH_STORAGE(new byte[] {9}, EnumSet.of(BONSAI, BINTRIE), false, true, false),
+  TRIE_LOG_STORAGE(
+      new byte[] {10}, EnumSet.of(BONSAI, X_BONSAI_ARCHIVE, BINTRIE), true, false, true),
   ACCOUNT_INFO_STATE_ARCHIVE(
       "ACCOUNT_INFO_STATE_ARCHIVE".getBytes(StandardCharsets.UTF_8),
       EnumSet.of(X_BONSAI_ARCHIVE),
@@ -74,7 +78,8 @@ public enum KeyValueSegmentIdentifier implements SegmentIdentifier {
   BACKWARD_SYNC_CHAIN(new byte[] {15}),
   SNAPSYNC_MISSING_ACCOUNT_RANGE(new byte[] {16}),
   SNAPSYNC_ACCOUNT_TO_FIX(new byte[] {17}),
-  CHAIN_PRUNER_STATE(new byte[] {18});
+  CHAIN_PRUNER_STATE(new byte[] {18}),
+  BINTRIE_BRANCH_STORAGE(new byte[] {19}, EnumSet.of(BINTRIE), false, true, false);
 
   private final byte[] id;
   private final EnumSet<DataStorageFormat> formats;

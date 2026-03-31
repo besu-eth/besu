@@ -269,6 +269,18 @@ public class MainnetProtocolSpecFactory {
         metricsSystem);
   }
 
+  public ProtocolSpecBuilder binTrieDefinition() {
+    return MainnetProtocolSpecs.binTrieDefinition(
+        chainId,
+        isRevertReasonEnabled,
+        genesisConfigOptions,
+        evmConfiguration,
+        miningConfiguration,
+        isParallelTxProcessingEnabled,
+        balConfiguration,
+        metricsSystem);
+  }
+
   public ProtocolSpecBuilder bpo1Definition() {
     return MainnetProtocolSpecs.bpo1Definition(
         chainId,

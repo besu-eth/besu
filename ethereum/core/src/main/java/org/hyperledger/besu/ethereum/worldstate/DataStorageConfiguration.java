@@ -54,6 +54,12 @@ public interface DataStorageConfiguration {
           .pathBasedExtraStorageConfiguration(PathBasedExtraStorageConfiguration.DISABLED)
           .build();
 
+  DataStorageConfiguration DEFAULT_BINTRIE_CONFIG =
+      ImmutableDataStorageConfiguration.builder()
+          .dataStorageFormat(DataStorageFormat.BINTRIE)
+          .pathBasedExtraStorageConfiguration(PathBasedExtraStorageConfiguration.DEFAULT)
+          .build();
+
   DataStorageFormat getDataStorageFormat();
 
   @Value.Default

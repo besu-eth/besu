@@ -308,6 +308,13 @@ public interface GenesisConfigOptions {
   OptionalLong getBpo5Time();
 
   /**
+   * Gets binTrie time.
+   *
+   * @return the binTrie time
+   */
+  OptionalLong getBinTrieTime();
+
+  /**
    * Gets Amsterdam time.
    *
    * @return the Amsterdam time

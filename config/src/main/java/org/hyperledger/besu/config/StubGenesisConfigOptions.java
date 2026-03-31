@@ -55,6 +55,7 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
   private OptionalLong bpo3Time = OptionalLong.empty();
   private OptionalLong bpo4Time = OptionalLong.empty();
   private OptionalLong bpo5Time = OptionalLong.empty();
+  private OptionalLong binTrieTime = OptionalLong.empty();
   private OptionalLong amsterdamTime = OptionalLong.empty();
 
   private OptionalLong futureEipsTime = OptionalLong.empty();
@@ -280,6 +281,11 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
   }
 
   @Override
+  public OptionalLong getBinTrieTime() {
+    return binTrieTime;
+  }
+
+  @Override
   public OptionalLong getAmsterdamTime() {
     return amsterdamTime;
   }
@@ -358,6 +364,7 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
     getBpo3Time().ifPresent(l -> builder.put("bpo3Time", l));
     getBpo4Time().ifPresent(l -> builder.put("bpo4Time", l));
     getBpo5Time().ifPresent(l -> builder.put("bpo5Time", l));
+    getBinTrieTime().ifPresent(l -> builder.put("binTrieTime", l));
     getAmsterdamTime().ifPresent(l -> builder.put("amsterdamTime", l));
     getFutureEipsTime().ifPresent(l -> builder.put("futureEipsTime", l));
     getExperimentalEipsTime().ifPresent(l -> builder.put("experimentalEipsTime", l));
@@ -687,6 +694,17 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
    */
   public StubGenesisConfigOptions bpo5Time(final long timestamp) {
     bpo5Time = OptionalLong.of(timestamp);
+    return this;
+  }
+
+  /**
+   * BinTrie time.
+   *
+   * @param timestamp the timestamp
+   * @return the stub genesis config options
+   */
+  public StubGenesisConfigOptions binTrieTime(final long timestamp) {
+    binTrieTime = OptionalLong.of(timestamp);
     return this;
   }
 
