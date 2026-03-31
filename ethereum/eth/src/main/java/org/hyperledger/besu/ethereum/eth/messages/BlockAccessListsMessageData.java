@@ -22,8 +22,8 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -42,18 +42,36 @@ public final class BlockAccessListsMessageData {
     return output.encoded();
   }
 
-  public static List<BlockAccessList> decode(final Bytes data, final boolean withRequestId) {
-    final RLPInput input = new BytesValueRLPInput(data, false);
-    final List<BlockAccessList> blockAccessLists = new ArrayList<>();
-    input.enterList();
-    if (withRequestId) {
-      input.skipNext();
-    }
+  public static Iterable<BlockAccessList> decode(final Bytes data, final boolean withRequestId) {
+    return () ->
+        new Iterator<>() {
+          private final RLPInput input = new BytesValueRLPInput(data, false);
+          private boolean initialized = false;
 
-    while (!input.isEndOfCurrentList()) {
-      blockAccessLists.add(BlockAccessListDecoder.decode(input.readAsRlp()));
-    }
-    input.leaveList();
-    return blockAccessLists;
+          private void ensureInitialized() {
+            if (!initialized) {
+              input.enterList();
+              if (withRequestId) {
+                input.skipNext();
+              }
+              initialized = true;
+            }
+          }
+
+          @Override
+          public boolean hasNext() {
+            ensureInitialized();
+            return !input.isEndOfCurrentList();
+          }
+
+          @Override
+          public BlockAccessList next() {
+            ensureInitialized();
+            if (!hasNext()) {
+              throw new NoSuchElementException();
+            }
+            return BlockAccessListDecoder.decode(input.readAsRlp());
+          }
+        };
   }
 }

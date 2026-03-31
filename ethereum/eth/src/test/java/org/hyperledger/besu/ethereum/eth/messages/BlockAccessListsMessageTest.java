@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
@@ -37,7 +38,9 @@ public class BlockAccessListsMessageTest {
         new RawMessage(EthProtocolMessages.BLOCK_ACCESS_LISTS, initialMessage.getData());
 
     final BlockAccessListsMessage message = BlockAccessListsMessage.readFrom(raw);
-    assertThat(message.blockAccessLists()).isEqualTo(expected);
+    final List<BlockAccessList> decoded = new ArrayList<>();
+    message.blockAccessLists().forEach(decoded::add);
+    assertThat(decoded).isEqualTo(expected);
   }
 
   @Test
