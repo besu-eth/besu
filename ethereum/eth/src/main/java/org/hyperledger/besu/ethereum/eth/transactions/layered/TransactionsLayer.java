@@ -87,6 +87,26 @@ public interface TransactionsLayer {
 
   List<PendingTransaction> getAll();
 
+  /**
+   * Returns all pending transactions across all layers, grouped by sender and sorted by nonce in
+   * ascending order per sender.
+   *
+   * <p>The nonce ordering relies on each layer's internal {@code NavigableMap<Long,
+   * PendingTransaction>} being nonce-sorted, and on the invariant that a layer always holds
+   * lower-nonce transactions than its next layer (e.g. ready transactions before sparse ones).
+   *
+   * @return a map from sender address to the list of that sender's pending transactions, sorted by
+   *     nonce ascending
+   */
+  Map<Address, List<PendingTransaction>> getAllBySender();
+
+  /**
+   * Returns all pending transactions for the given sender across all layers, sorted by nonce in
+   * ascending order.
+   *
+   * @param sender the sender address
+   * @return transactions for the sender sorted by nonce ascending, or an empty list if none exist
+   */
   List<PendingTransaction> getAllFor(Address sender);
 
   List<Transaction> getAllLocal();

@@ -14,11 +14,13 @@
  */
 package org.hyperledger.besu.datatypes;
 
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.OptionalInt;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -107,8 +109,8 @@ public class Log {
    * Reads the log entry from the provided RLP input.
    *
    * @param in the input from which to decode the log entry.
-   * @param compacted whether to compact the rlp log entry by trimming leading zeros on topics and
-   *     data.
+   * @param compacted if true, topics and data are encoded in compacted form (leading zeros
+   *     trimmed); if false, topics are raw bytes32 and data is raw bytes.
    * @return the read log entry.
    */
   public static Log readFrom(final RLPInput in, final boolean compacted) {
@@ -125,9 +127,9 @@ public class Log {
               listIn ->
                   LogTopic.wrap(
                       listIn.nextIsList()
-                          ? Bytes32.wrap(readTrimmedData(listIn))
+                          ? Bytes32.wrap(readTrimmedData(listIn, OptionalInt.of(Bytes32.SIZE)))
                           : listIn.readBytes32()));
-      data = in.nextIsList() ? readTrimmedData(in) : in.readBytes();
+      data = in.nextIsList() ? readTrimmedData(in, OptionalInt.empty()) : in.readBytes();
     } else {
       topics = in.readList(listIn -> LogTopic.wrap(listIn.readBytes32()));
       data = in.readBytes();
@@ -137,13 +139,29 @@ public class Log {
     return new Log(logger, data, topics);
   }
 
-  private static Bytes readTrimmedData(final RLPInput in) {
+  private static Bytes readTrimmedData(final RLPInput in, final OptionalInt expectedTotalSize) {
     in.enterList();
     final int zeroLeadDataSize = in.readIntScalar();
+    if (zeroLeadDataSize < 0) {
+      throw new RLPException(
+          "Invalid compacted data: negative leading zero count " + zeroLeadDataSize);
+    }
     final Bytes shortData = in.readBytes();
-    final MutableBytes data = MutableBytes.create(zeroLeadDataSize + shortData.size());
-    data.set(zeroLeadDataSize, shortData);
+    final int totalSize = zeroLeadDataSize + shortData.size();
+    if (expectedTotalSize.isPresent() && totalSize != expectedTotalSize.getAsInt()) {
+      throw new RLPException(
+          "Invalid compacted data: expected "
+              + expectedTotalSize.getAsInt()
+              + " bytes total but got "
+              + totalSize);
+    }
     in.leaveList();
+    final boolean noLeadingZeros = zeroLeadDataSize == 0;
+    if (noLeadingZeros) {
+      return shortData;
+    }
+    final MutableBytes data = MutableBytes.create(totalSize);
+    data.set(zeroLeadDataSize, shortData);
     return data;
   }
 

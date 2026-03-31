@@ -111,7 +111,7 @@ public class BlockStateCallResult extends BlockResult {
                     block.getHash(),
                     i,
                     block.getHeader().getTimestamp()))
-        .map(TransactionCompleteResult::new)
+        .map(TransactionWithMetadataResult::new)
         .collect(Collectors.toList());
   }
 

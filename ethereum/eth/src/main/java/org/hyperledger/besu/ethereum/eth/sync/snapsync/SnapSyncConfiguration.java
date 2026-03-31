@@ -29,6 +29,8 @@ public class SnapSyncConfiguration {
       84; // The default number of code entries to download from peers per request.
   public static final int DEFAULT_TRIENODE_COUNT_PER_REQUEST =
       384; // The default number of trienode entries to download from peers per request.
+  public static final int DEFAULT_BLOCK_ACCESS_LIST_COUNT_PER_REQUEST =
+      84; // The default number of block access lists to download from peers per request.
 
   public static final int DEFAULT_LOCAL_FLAT_ACCOUNT_COUNT_TO_HEAL_PER_REQUEST =
       128; // The default number of flat accounts entries to verify and heal per request.
@@ -68,6 +70,11 @@ public class SnapSyncConfiguration {
   @Value.Default
   public int getTrienodeCountPerRequest() {
     return DEFAULT_TRIENODE_COUNT_PER_REQUEST;
+  }
+
+  @Value.Default
+  public int getBlockAccessListCountPerRequest() {
+    return DEFAULT_BLOCK_ACCESS_LIST_COUNT_PER_REQUEST;
   }
 
   @Value.Default

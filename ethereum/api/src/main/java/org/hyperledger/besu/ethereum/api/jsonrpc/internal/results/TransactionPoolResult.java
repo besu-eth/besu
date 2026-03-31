@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -12,27 +12,27 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.worldstate;
+package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
-import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import com.fasterxml.jackson.annotation.JsonGetter;
 
-import java.util.Collection;
+public class TransactionPoolResult<T> {
 
-import org.apache.tuweni.bytes.Bytes32;
+  private final T pending;
+  private final T queued;
 
-public interface WorldStateKeyValueStorage {
-
-  DataStorageFormat getDataStorageFormat();
-
-  Updater updater();
-
-  void clear();
-
-  interface NodesAddedListener {
-    void onNodesAdded(Collection<Bytes32> nodeHash);
+  public TransactionPoolResult(final T pending, final T queued) {
+    this.pending = pending;
+    this.queued = queued;
   }
 
-  interface Updater {
-    void commit();
+  @JsonGetter(value = "pending")
+  public T getPending() {
+    return pending;
+  }
+
+  @JsonGetter(value = "queued")
+  public T getQueued() {
+    return queued;
   }
 }

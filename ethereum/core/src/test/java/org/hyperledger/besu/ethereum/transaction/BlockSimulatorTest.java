@@ -235,6 +235,10 @@ public class BlockSimulatorTest {
 
   @Test
   public void shouldOverrideBlockHeaderCorrectly() {
+    FeeMarket feeMarket = mock(FeeMarket.class);
+    when(feeMarket.implementsBaseFee()).thenReturn(true);
+    when(protocolSpec.getFeeMarket()).thenReturn(feeMarket);
+    when(protocolSpec.isPoS()).thenReturn(true);
 
     var expectedTimestamp = 1L;
     var expectedBlockNumber = 2L;
@@ -274,6 +278,34 @@ public class BlockSimulatorTest {
     assertEquals(expectedMixHashOrPrevRandao, result.getMixHash());
     assertEquals(expectedPrevRandao.getBytes(), result.getPrevRandao().get());
     assertEquals(expectedExtraData, result.getExtraData());
+  }
+
+  @Test
+  public void shouldInheritFeeRecipientFromParentBlock() {
+    // When feeRecipient is set on the first block, subsequent blocks without feeRecipient
+    // should inherit from the parent block's coinbase, regardless of mining configuration.
+
+    var expectedFeeRecipient = Address.fromHexString("0xc200000000000000000000000000000000000000");
+
+    // Block 1: with feeRecipient override
+    BlockOverrides block1Overrides =
+        BlockOverrides.builder()
+            .timestamp(1L)
+            .blockNumber(1L)
+            .feeRecipient(expectedFeeRecipient)
+            .build();
+
+    BlockHeader block1Header =
+        blockSimulator.overrideBlockHeader(blockHeader, protocolSpec, block1Overrides, false);
+    assertEquals(expectedFeeRecipient, block1Header.getCoinbase());
+
+    // Block 2: no feeRecipient override — should inherit from block 1
+    BlockOverrides block2Overrides =
+        BlockOverrides.builder().timestamp(13L).blockNumber(2L).build();
+
+    BlockHeader block2Header =
+        blockSimulator.overrideBlockHeader(block1Header, protocolSpec, block2Overrides, false);
+    assertEquals(expectedFeeRecipient, block2Header.getCoinbase());
   }
 
   @Test

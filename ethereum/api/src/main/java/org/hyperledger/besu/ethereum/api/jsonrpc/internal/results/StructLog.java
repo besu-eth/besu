@@ -68,9 +68,26 @@ public class StructLog {
 
   private static Map<String, String> formatStorage(final Map<UInt256, UInt256> storage) {
     final Map<String, String> formattedStorage = new TreeMap<>();
-    storage.forEach(
-        (key, value) -> formattedStorage.put(toCompactHex(key, false), toCompactHex(value, false)));
+    storage.forEach((key, value) -> formattedStorage.put(toBytes32Hex(key), toBytes32Hex(value)));
     return formattedStorage;
+  }
+
+  /**
+   * Encodes bytes as a 0x-prefixed, zero-padded 32-byte hex string (always 66 chars). Used for
+   * memory words and storage keys/values per the execution-apis opcode tracer spec.
+   */
+  public static String toBytes32Hex(final Bytes abytes) {
+    final byte[] raw = abytes.toArrayUnsafe();
+    final StringBuilder sb = new StringBuilder(66);
+    sb.append("0x");
+    for (int i = raw.length; i < 32; i++) {
+      sb.append("00");
+    }
+    for (final byte b : raw) {
+      sb.append(hexChars[(b >> 4) & 0xF]);
+      sb.append(hexChars[b & 0xF]);
+    }
+    return sb.toString();
   }
 
   @JsonGetter("depth")
