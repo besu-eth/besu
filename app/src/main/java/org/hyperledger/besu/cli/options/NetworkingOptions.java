@@ -146,6 +146,11 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
     return cliOptions;
   }
 
+  /**
+   * Validates networking-related CLI options.
+   *
+   * @param commandLine the parsed command line input
+   */
   public void validate(final CommandLine commandLine) {
     if (discV5MinimumPeerRatio <= 0) {
       throw new CommandLine.ParameterException(
