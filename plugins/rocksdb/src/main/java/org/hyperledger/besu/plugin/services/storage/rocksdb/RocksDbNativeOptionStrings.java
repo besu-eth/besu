@@ -20,8 +20,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Properties;
 import java.util.Set;
+import java.util.StringTokenizer;
 
-import com.google.common.base.Splitter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,8 +54,14 @@ public final class RocksDbNativeOptionStrings {
    * org.rocksdb.Options#getOptionStringFromProps} emits a stable option string for JNI.
    */
   public static final class InsertionOrderedProperties extends Properties {
+    /** Keys in the order they were first inserted via {@link #put}. */
     private final List<String> insertionOrder = new ArrayList<>();
+
+    /** Keys already recorded in {@link #insertionOrder} to avoid duplicates on overwrite. */
     private final Set<String> seenKeys = new HashSet<>();
+
+    /** Creates an empty map; key iteration order follows first insertion. */
+    public InsertionOrderedProperties() {}
 
     @Override
     public synchronized Object put(final Object key, final Object value) {
@@ -102,7 +108,9 @@ public final class RocksDbNativeOptionStrings {
     if (raw == null || raw.isBlank()) {
       return props;
     }
-    for (final String segment : Splitter.on(';').split(raw)) {
+    final StringTokenizer tokenizer = new StringTokenizer(raw, ";");
+    while (tokenizer.hasMoreTokens()) {
+      final String segment = tokenizer.nextToken();
       final String part = segment.trim();
       if (part.isEmpty()) {
         continue;
