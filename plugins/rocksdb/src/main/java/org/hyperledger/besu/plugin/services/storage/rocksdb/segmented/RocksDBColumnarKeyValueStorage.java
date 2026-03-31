@@ -34,7 +34,6 @@ import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksD
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -222,9 +221,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     final RocksDbNativeOptionStrings.InsertionOrderedProperties cfProps =
         new RocksDbNativeOptionStrings.InsertionOrderedProperties();
     mergeBesuNativeColumnFamilyOptionsBeforeParse(cfProps, segment, configuration);
-    final List<String> userKeys = new ArrayList<>(userCfProps.stringPropertyNames());
-    Collections.sort(userKeys);
-    for (final String key : userKeys) {
+    for (final String key : userCfProps.stringPropertyNames()) {
       if (!BESU_MERGED_NATIVE_COLUMN_FAMILY_KEYS.contains(key)) {
         cfProps.setProperty(key, userCfProps.getProperty(key));
       }

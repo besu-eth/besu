@@ -35,6 +35,12 @@ public class RocksDbNativeOptionStringsTest {
   }
 
   @Test
+  public void parseSemicolonKeyValueStringPreservesKeyOrderInStringPropertyNames() {
+    final var props = RocksDbNativeOptionStrings.parseSemicolonKeyValueString("z=1;a=2;m=3;");
+    assertThat(new ArrayList<>(props.stringPropertyNames())).containsExactly("z", "a", "m");
+  }
+
+  @Test
   public void parseSemicolonKeyValueStringKeepsAllKeysIncludingBlockTable() {
     final var props =
         RocksDbNativeOptionStrings.parseSemicolonKeyValueString(

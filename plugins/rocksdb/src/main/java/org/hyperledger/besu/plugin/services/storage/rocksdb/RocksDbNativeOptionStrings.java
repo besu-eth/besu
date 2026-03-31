@@ -98,13 +98,15 @@ public final class RocksDbNativeOptionStrings {
 
   /**
    * Parses a semicolon-separated options string ({@code a=b;c=d;}) into flat {@link Properties}
-   * keys.
+   * keys. The returned instance is {@link InsertionOrderedProperties}: {@link
+   * InsertionOrderedProperties#stringPropertyNames()} follows first-seen order in {@code raw}
+   * (stable without sorting).
    *
    * @param raw semicolon-separated {@code key=value} segments; may be null or blank
    * @return parsed properties; malformed segments are skipped with a warning
    */
   public static Properties parseSemicolonKeyValueString(final String raw) {
-    final Properties props = new Properties();
+    final InsertionOrderedProperties props = new InsertionOrderedProperties();
     if (raw == null || raw.isBlank()) {
       return props;
     }
