@@ -14,7 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsaiarchive;
 
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_FREEZER;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE;
 
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
@@ -247,14 +247,14 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   protected Optional<Long> getMigrationProgress() {
     return worldStateStorage
         .getComposedWorldStateStorage()
-        .get(ACCOUNT_INFO_STATE_FREEZER, MIGRATION_PROGRESS_KEY)
+        .get(ACCOUNT_INFO_STATE_ARCHIVE, MIGRATION_PROGRESS_KEY)
         .map(Bytes::wrap)
         .map(Bytes::toLong);
   }
 
   private void saveProgress(final long blockNumber, final SegmentedKeyValueStorageTransaction tx) {
     tx.put(
-        ACCOUNT_INFO_STATE_FREEZER,
+        ACCOUNT_INFO_STATE_ARCHIVE,
         MIGRATION_PROGRESS_KEY,
         Bytes.ofUnsignedLong(blockNumber).toArrayUnsafe());
   }
