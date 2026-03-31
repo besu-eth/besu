@@ -17,12 +17,8 @@ package org.hyperledger.besu.ethereum.eth.messages;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
-import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
-import java.util.Iterator;
-import java.util.NoSuchElementException;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -41,11 +37,8 @@ public final class GetBlockAccessListsMessage extends AbstractMessageData {
   }
 
   public static GetBlockAccessListsMessage create(final Iterable<Hash> blockHashes) {
-    final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
-    tmp.startList();
-    blockHashes.forEach(hash -> tmp.writeBytes(hash.getBytes()));
-    tmp.endList();
-    return new GetBlockAccessListsMessage(tmp.encoded());
+    return new GetBlockAccessListsMessage(
+        GetBlockAccessListsMessageData.encode(Optional.empty(), blockHashes));
   }
 
   private GetBlockAccessListsMessage(final Bytes data) {
@@ -58,30 +51,6 @@ public final class GetBlockAccessListsMessage extends AbstractMessageData {
   }
 
   public Iterable<Hash> blockHashes() {
-    return () ->
-        new Iterator<>() {
-          private final RLPInput input = new BytesValueRLPInput(data, false);
-          private boolean initialized = false;
-
-          private void ensureInitialized() {
-            if (!initialized) {
-              input.enterList();
-              initialized = true;
-            }
-          }
-
-          @Override
-          public boolean hasNext() {
-            ensureInitialized();
-            return !input.isEndOfCurrentList();
-          }
-
-          @Override
-          public Hash next() {
-            ensureInitialized();
-            if (!hasNext()) throw new NoSuchElementException();
-            return Hash.wrap(input.readBytes32());
-          }
-        };
+    return GetBlockAccessListsMessageData.decode(data, false);
   }
 }

@@ -74,7 +74,13 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
       final ForkIdManager forkIdManager) {
     if (config.discoveryConfiguration().isDiscoveryV5Enabled()) {
       return new PeerDiscoveryAgentFactoryV5(
-          nodeKey, config, natService, storageProvider, forkIdManager);
+          nodeKey,
+          config,
+          peerPermissions,
+          natService,
+          metricsSystem,
+          storageProvider,
+          forkIdManager);
     }
     return new PeerDiscoveryAgentFactoryV4(
         vertx,

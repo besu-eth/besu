@@ -23,6 +23,7 @@ import org.hyperledger.besu.evm.account.Account;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 
@@ -77,6 +78,16 @@ public class DisabledPendingTransactions implements PendingTransactions {
   @Override
   public Collection<PendingTransaction> getPendingTransactions() {
     return List.of();
+  }
+
+  @Override
+  public SenderPendingTransactionsData getPendingTransactionsFor(final Address sender) {
+    return SenderPendingTransactionsData.empty(sender);
+  }
+
+  @Override
+  public Map<Address, SenderPendingTransactionsData> getPendingTransactionsBySender() {
+    return Map.of();
   }
 
   @Override

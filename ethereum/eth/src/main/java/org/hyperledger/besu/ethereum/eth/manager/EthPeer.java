@@ -17,7 +17,6 @@ package org.hyperledger.besu.ethereum.eth.manager;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.SnapProtocol;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
@@ -31,6 +30,7 @@ import org.hyperledger.besu.ethereum.eth.messages.snap.GetByteCodesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetStorageRangeMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetTrieNodesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV1;
+import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV2;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection.PeerNotConnected;
@@ -81,8 +81,6 @@ public class EthPeer implements Comparable<EthPeer> {
               }));
   private final Bytes localNodeId;
 
-  private Optional<BlockHeader> checkpointHeader = Optional.empty();
-
   private final int maxMessageSize;
   private final Clock clock;
   private final List<NodeMessagePermissioningProvider> permissioningProviders;
@@ -119,6 +117,7 @@ public class EthPeer implements Comparable<EthPeer> {
     roundMessages.put(SnapV1.STORAGE_RANGE, SnapV1.GET_STORAGE_RANGE);
     roundMessages.put(SnapV1.BYTECODES, SnapV1.GET_BYTECODES);
     roundMessages.put(SnapV1.TRIE_NODES, SnapV1.GET_TRIE_NODES);
+    roundMessages.put(SnapV2.BLOCK_ACCESS_LISTS, SnapV2.GET_BLOCK_ACCESS_LISTS);
   }
 
   @VisibleForTesting
@@ -141,7 +140,6 @@ public class EthPeer implements Comparable<EthPeer> {
     this.requestManagers = new ConcurrentHashMap<>();
     this.localNodeId = localNodeId;
     this.id = connection.getPeer().getId();
-
     initEthRequestManagers();
     initSnapRequestManagers();
   }
@@ -174,7 +172,8 @@ public class EthPeer implements Comparable<EthPeer> {
             Map.entry(SnapV1.GET_ACCOUNT_RANGE, new RequestManager(this, SnapProtocol.NAME)),
             Map.entry(SnapV1.GET_STORAGE_RANGE, new RequestManager(this, SnapProtocol.NAME)),
             Map.entry(SnapV1.GET_BYTECODES, new RequestManager(this, SnapProtocol.NAME)),
-            Map.entry(SnapV1.GET_TRIE_NODES, new RequestManager(this, SnapProtocol.NAME))));
+            Map.entry(SnapV1.GET_TRIE_NODES, new RequestManager(this, SnapProtocol.NAME)),
+            Map.entry(SnapV2.GET_BLOCK_ACCESS_LISTS, new RequestManager(this, SnapProtocol.NAME))));
   }
 
   public void markValidated(final PeerValidator validator) {
@@ -665,14 +664,6 @@ public class EthPeer implements Comparable<EthPeer> {
     if (headStateCompare != 0) return headStateCompare;
 
     return getConnection().getPeerInfo().compareTo(ethPeer.getConnection().getPeerInfo());
-  }
-
-  public void setCheckpointHeader(final BlockHeader header) {
-    checkpointHeader = Optional.of(header);
-  }
-
-  public Optional<BlockHeader> getCheckpointHeader() {
-    return checkpointHeader;
   }
 
   public Bytes getId() {

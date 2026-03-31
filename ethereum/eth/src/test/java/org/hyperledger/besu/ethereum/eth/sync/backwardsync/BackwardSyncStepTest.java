@@ -287,6 +287,28 @@ public class BackwardSyncStepTest {
     verify(chain).prependAncestorsHeader(header);
   }
 
+  @Test
+  public void shouldRecordProgressWhenHeadersAreSaved() {
+    final BackwardChain chain = Mockito.mock(BackwardChain.class);
+    final BlockHeader header = Mockito.mock(BlockHeader.class);
+    when(header.getNumber()).thenReturn(42L);
+
+    BackwardSyncStep step = new BackwardSyncStep(context, chain);
+    step.saveHeaders(List.of(header));
+
+    verify(context.getStatus()).recordProgress();
+  }
+
+  @Test
+  public void shouldNotRecordProgressWhenHeaderListIsEmpty() {
+    final BackwardChain chain = Mockito.mock(BackwardChain.class);
+
+    BackwardSyncStep step = new BackwardSyncStep(context, chain);
+    step.saveHeaders(List.of());
+
+    verify(context.getStatus(), never()).recordProgress();
+  }
+
   private BackwardChain createBackwardChain(final int from, final int until) {
     BackwardChain chain = createBackwardChain(until);
     for (int i = until; i > from; --i) {

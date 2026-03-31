@@ -1,5 +1,5 @@
 /*
- * Copyright ConsenSys AG.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -16,10 +16,8 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.BytesHolder;
-import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.core.Transaction;
 
 import java.util.List;
@@ -56,16 +54,10 @@ import org.apache.tuweni.bytes.Bytes;
   "s",
   "blobVersionedHashes"
 })
-public class TransactionCompleteResult implements TransactionResult {
+public class TransactionBaseResult implements TransactionResult {
 
   @JsonInclude(JsonInclude.Include.NON_NULL)
   private final List<AccessListEntry> accessList;
-
-  private final String blockHash;
-  private final String blockNumber;
-
-  @JsonInclude(JsonInclude.Include.NON_NULL)
-  private final String blockTimestamp;
 
   @JsonInclude(JsonInclude.Include.NON_NULL)
   private final String chainId;
@@ -87,7 +79,6 @@ public class TransactionCompleteResult implements TransactionResult {
   private final String input;
   private final String nonce;
   private final String to;
-  private final String transactionIndex;
   private final String type;
   private final String value;
   private final String yParity;
@@ -101,33 +92,35 @@ public class TransactionCompleteResult implements TransactionResult {
   @JsonInclude(JsonInclude.Include.NON_NULL)
   private final List<CodeDelegationResult> authorizationList;
 
-  public TransactionCompleteResult(final TransactionWithMetadata tx) {
-    final Transaction transaction = tx.getTransaction();
+  public TransactionBaseResult(final Transaction transaction) {
+    this(transaction, Optional.empty());
+  }
+
+  public TransactionBaseResult(final Transaction transaction, final Optional<Wei> maybeBaseFee) {
     final TransactionType transactionType = transaction.getType();
     this.accessList =
         transaction.getAccessList().orElse(transactionType.supportsAccessList() ? List.of() : null);
-    this.blockHash = tx.getBlockHash().get().toString();
-    this.blockNumber = Quantity.create(tx.getBlockNumber().get());
-    this.blockTimestamp = tx.getBlockTimestamp().map(Quantity::create).orElse(null);
     this.chainId = transaction.getChainId().map(Quantity::create).orElse(null);
     this.from = transaction.getSender().toString();
     this.gas = Quantity.create(transaction.getGasLimit());
     this.maxPriorityFeePerGas =
-        tx.getTransaction().getMaxPriorityFeePerGas().map(Wei::toShortHexString).orElse(null);
-    this.maxFeePerGas =
-        tx.getTransaction().getMaxFeePerGas().map(Wei::toShortHexString).orElse(null);
+        transaction.getMaxPriorityFeePerGas().map(Wei::toShortHexString).orElse(null);
+    this.maxFeePerGas = transaction.getMaxFeePerGas().map(Wei::toShortHexString).orElse(null);
     this.maxFeePerBlobGas =
         transaction.getMaxFeePerBlobGas().map(Wei::toShortHexString).orElse(null);
     this.gasPrice =
         Quantity.create(
             transaction
                 .getGasPrice()
-                .orElseGet(() -> transaction.getEffectiveGasPrice(tx.getBaseFee())));
+                .orElseGet(
+                    () ->
+                        maybeBaseFee.isPresent()
+                            ? transaction.getEffectiveGasPrice(maybeBaseFee)
+                            : transaction.getMaxFeePerGas().get()));
     this.hash = transaction.getHash().toString();
     this.input = transaction.getPayload().toString();
     this.nonce = Quantity.create(transaction.getNonce());
     this.to = transaction.getTo().map(a -> a.getBytes().toHexString()).orElse(null);
-    this.transactionIndex = Quantity.create(tx.getTransactionIndex().get());
     if (transactionType == TransactionType.FRONTIER) {
       this.type = Quantity.create(0);
       this.yParity = null;
@@ -153,9 +146,9 @@ public class TransactionCompleteResult implements TransactionResult {
                 hashes ->
                     hashes.stream().map(BytesHolder::getBytes).map(Bytes::toHexString).toList())
             .orElse(null);
-    final Optional<List<CodeDelegation>> codeDelegationList = transaction.getCodeDelegationList();
     this.authorizationList =
-        codeDelegationList
+        transaction
+            .getCodeDelegationList()
             .map(cds -> cds.stream().map(CodeDelegationResult::new).toList())
             .orElse(null);
   }
@@ -163,21 +156,6 @@ public class TransactionCompleteResult implements TransactionResult {
   @JsonGetter(value = "accessList")
   public List<AccessListEntry> getAccessList() {
     return accessList;
-  }
-
-  @JsonGetter(value = "blockHash")
-  public String getBlockHash() {
-    return blockHash;
-  }
-
-  @JsonGetter(value = "blockNumber")
-  public String getBlockNumber() {
-    return blockNumber;
-  }
-
-  @JsonGetter(value = "blockTimestamp")
-  public String getBlockTimestamp() {
-    return blockTimestamp;
   }
 
   @JsonGetter(value = "chainId")
@@ -195,6 +173,11 @@ public class TransactionCompleteResult implements TransactionResult {
     return gas;
   }
 
+  @JsonGetter(value = "gasPrice")
+  public String getGasPrice() {
+    return gasPrice;
+  }
+
   @JsonGetter(value = "maxPriorityFeePerGas")
   public String getMaxPriorityFeePerGas() {
     return maxPriorityFeePerGas;
@@ -208,11 +191,6 @@ public class TransactionCompleteResult implements TransactionResult {
   @JsonGetter(value = "maxFeePerBlobGas")
   public String getMaxFeePerBlobGas() {
     return maxFeePerBlobGas;
-  }
-
-  @JsonGetter(value = "gasPrice")
-  public String getGasPrice() {
-    return gasPrice;
   }
 
   @JsonGetter(value = "hash")
@@ -233,11 +211,6 @@ public class TransactionCompleteResult implements TransactionResult {
   @JsonGetter(value = "to")
   public String getTo() {
     return to;
-  }
-
-  @JsonGetter(value = "transactionIndex")
-  public String getTransactionIndex() {
-    return transactionIndex;
   }
 
   @JsonGetter(value = "type")
@@ -280,5 +253,25 @@ public class TransactionCompleteResult implements TransactionResult {
   @JsonGetter(value = "authorizationList")
   public List<CodeDelegationResult> getAuthorizationList() {
     return authorizationList;
+  }
+
+  @JsonGetter(value = "blockHash")
+  public String getBlockHash() {
+    return null;
+  }
+
+  @JsonGetter(value = "blockNumber")
+  public String getBlockNumber() {
+    return null;
+  }
+
+  @JsonGetter(value = "blockTimestamp")
+  public String getBlockTimestamp() {
+    return null;
+  }
+
+  @JsonGetter(value = "transactionIndex")
+  public String getTransactionIndex() {
+    return null;
   }
 }

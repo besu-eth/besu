@@ -14,15 +14,12 @@
  */
 package org.hyperledger.besu.ethereum.eth.messages;
 
-import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListDecoder;
-import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -41,9 +38,8 @@ public final class BlockAccessListsMessage extends AbstractMessageData {
   }
 
   public static BlockAccessListsMessage create(final Iterable<BlockAccessList> blockAccessLists) {
-    final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
-    tmp.writeList(blockAccessLists, BlockAccessListEncoder::encode);
-    return new BlockAccessListsMessage(tmp.encoded());
+    return new BlockAccessListsMessage(
+        BlockAccessListsMessageData.encode(Optional.empty(), blockAccessLists));
   }
 
   /**
@@ -67,6 +63,6 @@ public final class BlockAccessListsMessage extends AbstractMessageData {
   }
 
   public List<BlockAccessList> blockAccessLists() {
-    return new BytesValueRLPInput(data, false).readList(BlockAccessListDecoder::decode);
+    return BlockAccessListsMessageData.decode(data, false);
   }
 }
