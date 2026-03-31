@@ -20,9 +20,7 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
-import java.math.BigInteger;
 import java.util.List;
-import java.util.Optional;
 
 import kotlin.collections.ArrayDeque;
 import org.apache.tuweni.bytes.Bytes;
@@ -47,14 +45,8 @@ public final class ByteCodesMessage extends AbstractSnapMessageData {
   }
 
   public static ByteCodesMessage create(final List<Bytes> codes) {
-    return create(Optional.empty(), codes);
-  }
-
-  public static ByteCodesMessage create(
-      final Optional<BigInteger> requestId, final List<Bytes> codes) {
     final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
     tmp.startList();
-    requestId.ifPresent(tmp::writeBigIntegerScalar);
     tmp.writeList(codes, (code, rlpOutput) -> rlpOutput.writeBytes(code));
     tmp.endList();
     return new ByteCodesMessage(tmp.encoded());

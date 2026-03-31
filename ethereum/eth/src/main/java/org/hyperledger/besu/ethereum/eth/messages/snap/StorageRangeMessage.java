@@ -20,10 +20,8 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
-import java.math.BigInteger;
 import java.util.List;
 import java.util.NavigableMap;
-import java.util.Optional;
 import java.util.TreeMap;
 
 import kotlin.collections.ArrayDeque;
@@ -51,16 +49,8 @@ public final class StorageRangeMessage extends AbstractSnapMessageData {
 
   public static StorageRangeMessage create(
       final ArrayDeque<NavigableMap<Bytes32, Bytes>> slots, final List<Bytes> proof) {
-    return create(Optional.empty(), slots, proof);
-  }
-
-  public static StorageRangeMessage create(
-      final Optional<BigInteger> requestId,
-      final ArrayDeque<NavigableMap<Bytes32, Bytes>> slots,
-      final List<Bytes> proof) {
     final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
     tmp.startList();
-    requestId.ifPresent(tmp::writeBigIntegerScalar);
     tmp.writeList(
         slots,
         (accountList, accountRlpOutput) ->

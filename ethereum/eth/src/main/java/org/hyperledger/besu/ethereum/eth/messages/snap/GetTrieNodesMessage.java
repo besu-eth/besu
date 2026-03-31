@@ -24,7 +24,6 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -54,17 +53,9 @@ public final class GetTrieNodesMessage extends AbstractSnapMessageData {
   }
 
   public static GetTrieNodesMessage create(
-      final Hash worldStateRootHash, final List<List<Bytes>> requests) {
-    return create(Optional.empty(), worldStateRootHash, requests);
-  }
-
-  public static GetTrieNodesMessage create(
-      final Optional<BigInteger> requestId,
-      final Hash worldStateRootHash,
-      final List<List<Bytes>> paths) {
+      final Hash worldStateRootHash, final List<List<Bytes>> paths) {
     final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
     tmp.startList();
-    requestId.ifPresent(tmp::writeBigIntegerScalar);
     tmp.writeBytes(worldStateRootHash.getBytes());
     tmp.writeList(
         paths,

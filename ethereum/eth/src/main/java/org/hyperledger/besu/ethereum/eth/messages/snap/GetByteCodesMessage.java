@@ -23,7 +23,6 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -48,14 +47,8 @@ public final class GetByteCodesMessage extends AbstractSnapMessageData {
   }
 
   public static GetByteCodesMessage create(final List<Bytes32> codeHashes) {
-    return create(Optional.empty(), codeHashes);
-  }
-
-  public static GetByteCodesMessage create(
-      final Optional<BigInteger> requestId, final List<Bytes32> codeHashes) {
     final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
     tmp.startList();
-    requestId.ifPresent(tmp::writeBigIntegerScalar);
     tmp.writeList(codeHashes, (hash, rlpOutput) -> rlpOutput.writeBytes(hash));
     tmp.writeBigIntegerScalar(SIZE_REQUEST);
     tmp.endList();

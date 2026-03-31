@@ -23,7 +23,6 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
 import java.util.List;
-import java.util.Optional;
 
 import kotlin.collections.ArrayDeque;
 import org.apache.tuweni.bytes.Bytes;
@@ -54,18 +53,8 @@ public final class GetStorageRangeMessage extends AbstractSnapMessageData {
       final List<Bytes32> accountHashes,
       final Bytes32 startKeyHash,
       final Bytes32 endKeyHash) {
-    return create(Optional.empty(), worldStateRootHash, accountHashes, startKeyHash, endKeyHash);
-  }
-
-  public static GetStorageRangeMessage create(
-      final Optional<BigInteger> requestId,
-      final Hash worldStateRootHash,
-      final List<Bytes32> accountHashes,
-      final Bytes32 startKeyHash,
-      final Bytes32 endKeyHash) {
     final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
     tmp.startList();
-    requestId.ifPresent(tmp::writeBigIntegerScalar);
     tmp.writeBytes(worldStateRootHash.getBytes());
     tmp.writeList(accountHashes, (hash, rlpOutput) -> rlpOutput.writeBytes(hash));
     tmp.writeBytes(startKeyHash);

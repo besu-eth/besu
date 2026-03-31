@@ -23,11 +23,9 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 
-import java.math.BigInteger;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
-import java.util.Optional;
 import java.util.TreeMap;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -57,16 +55,8 @@ public final class AccountRangeMessage extends AbstractSnapMessageData {
 
   public static AccountRangeMessage create(
       final Map<Bytes32, Bytes> accounts, final List<Bytes> proof) {
-    return create(Optional.empty(), accounts, proof);
-  }
-
-  public static AccountRangeMessage create(
-      final Optional<BigInteger> requestId,
-      final Map<Bytes32, Bytes> accounts,
-      final List<Bytes> proof) {
     final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
     tmp.startList();
-    requestId.ifPresent(tmp::writeBigIntegerScalar);
     tmp.writeList(
         accounts.entrySet(),
         (entry, rlpOutput) -> {
