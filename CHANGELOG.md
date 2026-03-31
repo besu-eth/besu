@@ -24,6 +24,7 @@
 - Plugin API
   - `PluginTransactionSelectorFactory.create(final SelectorsStateManager selectorsStateManager)` is deprecated for removal
 - `--Xmax-tracked-seen-txs-per-peer` renamed to `--Xmax-tracked-seen-txs` (old name kept as deprecated alias will be removed in a future release)
+- Besu will require Java JDK 25 to build and run in a future release.
 
 ### Bug fixes
 - Fix eth/69 snap sync receipt root mismatch by correctly identifying Frontier transaction type in SyncTransactionReceiptEncoder [#9900](https://github.com/hyperledger/besu/pull/9900)
@@ -58,6 +59,7 @@ are provided with different values, using input as per the execution-apis spec i
 - Add `txpool_status` RPC method [#10002](https://github.com/hyperledger/besu/pull/10002)
 - Add `txpool_contentFrom` JSON-RPC method [#10111](https://github.com/besu-eth/besu/pull/10111)
 - Add `txpool_content` JSON-RPC method [#10120](https://github.com/besu-eth/besu/pull/10120) 
+- Add `txpool_inspect` JSON-RPC method [#10121](https://github.com/besu-eth/besu/pull/10121) 
 - Add maxUsedGas field to eth_simulateV1 results [#10066](https://github.com/besu-eth/besu/pull/10066)
 
 ### Performance

@@ -18,22 +18,22 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPendingResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPoolResult;
+import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
 import java.util.Map;
 import java.util.SequencedMap;
 
-public class TxPoolContent extends AbstractTxPoolContent<TransactionPendingResult> {
+public class TxPoolInspect extends AbstractTxPoolContent<String> {
 
-  public TxPoolContent(final TransactionPool transactionPool) {
+  public TxPoolInspect(final TransactionPool transactionPool) {
     super(transactionPool);
   }
 
   @Override
   public String getName() {
-    return RpcMethod.TX_POOL_CONTENT.getMethodName();
+    return RpcMethod.TX_POOL_INSPECT.getMethodName();
   }
 
   @Override
@@ -41,8 +41,7 @@ public class TxPoolContent extends AbstractTxPoolContent<TransactionPendingResul
     return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), content());
   }
 
-  private TransactionPoolResult<Map<String, SequencedMap<String, TransactionPendingResult>>>
-      content() {
-    return contentMap(TransactionPendingResult::new);
+  private TransactionPoolResult<Map<String, SequencedMap<String, String>>> content() {
+    return contentMap(PendingTransaction::toTraceLog);
   }
 }

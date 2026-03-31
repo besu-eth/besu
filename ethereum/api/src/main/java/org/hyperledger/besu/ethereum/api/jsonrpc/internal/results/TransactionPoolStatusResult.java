@@ -26,12 +26,12 @@ public class TransactionPoolStatusResult {
     this.queued = queued;
   }
 
-  @JsonGetter
+  @JsonGetter(value = "pending")
   public String getPending() {
     return Quantity.create(pending);
   }
 
-  @JsonGetter
+  @JsonGetter(value = "queued")
   public String getQueued() {
     return Quantity.create(queued);
   }
