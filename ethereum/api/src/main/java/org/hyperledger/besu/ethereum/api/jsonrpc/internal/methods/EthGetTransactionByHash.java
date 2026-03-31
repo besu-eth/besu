@@ -23,8 +23,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionCompleteResult;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPendingResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionBaseResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionWithMetadataResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
@@ -67,9 +67,13 @@ public class EthGetTransactionByHash implements JsonRpcMethod {
   }
 
   private Object getResult(final Hash hash) {
-    final Optional<Object> transactionPendingResult =
-        transactionPool.getTransactionByHash(hash).map(TransactionPendingResult::new);
-    return transactionPendingResult.orElseGet(
-        () -> blockchain.transactionByHash(hash).map(TransactionCompleteResult::new).orElse(null));
+    final Optional<TransactionBaseResult> transactionResult =
+        transactionPool.getTransactionByHash(hash).map(TransactionBaseResult::new);
+    return transactionResult.orElseGet(
+        () ->
+            blockchain
+                .transactionByHash(hash)
+                .map(TransactionWithMetadataResult::new)
+                .orElse(null));
   }
 }

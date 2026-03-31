@@ -12,10 +12,9 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.eth.transactions.layered;
+package org.hyperledger.besu.ethereum.eth.transactions;
 
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -24,16 +23,23 @@ import java.util.stream.Collectors;
  * A list of pending transactions of a specific sender, ordered by nonce asc
  *
  * @param sender the sender
+ * @param nonce the expected nonce for the sender as seen by the txpool
  * @param pendingTransactions the list of pending transactions order by nonce asc
  */
-public record SenderPendingTransactions(
-    Address sender, List<PendingTransaction> pendingTransactions) {
+public record SenderPendingTransactionsData(
+    Address sender, long nonce, List<PendingTransaction> pendingTransactions) {
+
+  public static SenderPendingTransactionsData empty(final Address sender) {
+    return new SenderPendingTransactionsData(sender, 0L, List.of());
+  }
 
   @Override
   public String toString() {
     return "Sender "
         + sender
-        + " has "
+        + " has nonce "
+        + nonce
+        + " and "
         + pendingTransactions.size()
         + " pending transactions "
         + pendingTransactions.stream()

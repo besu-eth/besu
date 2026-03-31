@@ -54,15 +54,16 @@ dependencies {
   implementation project(':services:tasks')
   implementation project(':util')
 
+  implementation 'com.github.ben-manes.caffeine:caffeine'
+  implementation 'com.google.dagger:dagger'
   implementation 'com.google.guava:guava'
-  implementation 'io.vertx:vertx-core'
-  implementation 'org.apache.commons:commons-lang3'
   implementation 'io.consensys.tuweni:tuweni-bytes'
   implementation 'io.consensys.tuweni:tuweni-units'
   implementation 'io.consensys.tuweni:tuweni-rlp'
+  implementation 'io.vertx:vertx-core'
+  implementation 'org.apache.commons:commons-lang3'
+  implementation 'org.apache.commons:commons-collections4'
   implementation 'org.rocksdb:rocksdbjni'
-  implementation 'com.github.ben-manes.caffeine:caffeine'
-  implementation 'com.google.dagger:dagger'
   annotationProcessor 'com.google.dagger:dagger-compiler'
 
   annotationProcessor "org.immutables:value"

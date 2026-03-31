@@ -250,7 +250,6 @@ public class BlockchainReferenceTestCaseSpec {
     "blocknumber",
     "chainname",
     "chainnetwork",
-    "expectException",
     "expectExceptionByzantium",
     "expectExceptionConstantinople",
     "expectExceptionConstantinopleFix",
@@ -259,7 +258,6 @@ public class BlockchainReferenceTestCaseSpec {
     "expectExceptionEIP158",
     "expectExceptionFrontier",
     "expectExceptionHomestead",
-    "expectExceptionALL",
     "hasBigInt",
     "rlp_decoded",
     "receipts"
@@ -271,6 +269,8 @@ public class BlockchainReferenceTestCaseSpec {
     private final Boolean valid;
     private final List<TransactionSequence> transactionSequence;
     private final BlockAccessList blockAccessList;
+    private final String expectException;
+    private final String expectExceptionALL;
 
     @JsonCreator
     public CandidateBlock(
@@ -286,7 +286,9 @@ public class BlockchainReferenceTestCaseSpec {
         @JsonDeserialize(using = BlockAccessListDeserializer.class)
             @JsonProperty("blockAccessList")
             @JsonAlias("rlp_decoded")
-            final BlockAccessList blockAccessList) {
+            final BlockAccessList blockAccessList,
+        @JsonProperty("expectException") final String expectException,
+        @JsonProperty("expectExceptionALL") final String expectExceptionALL) {
       boolean blockValid = true;
       Bytes rlpAttempt = null;
       try {
@@ -306,10 +308,23 @@ public class BlockchainReferenceTestCaseSpec {
       this.valid = blockValid;
       this.transactionSequence = transactionSequence;
       this.blockAccessList = blockAccessList;
+      this.expectException = expectException;
+      this.expectExceptionALL = expectExceptionALL;
     }
 
     public boolean isValid() {
       return valid;
+    }
+
+    /**
+     * Returns the expected exception key (e.g. {@code "BlockException.GAS_USED_OVERFLOW"}) for this
+     * invalid block, if specified in the fixture. Returns empty when no exception is expected
+     * (valid blocks) or when the fixture does not specify one.
+     */
+    public Optional<String> getExpectedException() {
+      if (expectException != null) return Optional.of(expectException);
+      if (expectExceptionALL != null) return Optional.of(expectExceptionALL);
+      return Optional.empty();
     }
 
     public boolean areAllTransactionsValid() {

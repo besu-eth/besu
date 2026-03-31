@@ -100,14 +100,14 @@ import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive.WorldStateHealer;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.worldstate.WorldStatePreimageStorage;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.permissioning.NodeMessagePermissioningProvider;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.WorldStatePreimageStorage;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
 
 import java.io.Closeable;
@@ -852,6 +852,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             worldStateStorageCoordinator,
             ethPeers,
             snapMessages,
+            scheduler,
             synchronizer);
 
     final MiningCoordinator miningCoordinator =
@@ -1268,6 +1269,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final EthPeers ethPeers,
       final EthMessages snapMessages,
+      final EthScheduler ethScheduler,
       final Synchronizer synchronizer) {
     return Optional.of(
         new SnapProtocolManager(
@@ -1275,6 +1277,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             syncConfig.getSnapSyncConfiguration(),
             ethPeers,
             snapMessages,
+            ethScheduler,
             protocolSchedule,
             protocolContext,
             synchronizer));

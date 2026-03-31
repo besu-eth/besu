@@ -49,6 +49,7 @@ public class SnapWorldStateDownloadProcess implements WorldStateDownloadProcess 
   private final Pipeline<Task<SnapDataRequest>> fetchStorageDataPipeline;
   private final Pipeline<Task<SnapDataRequest>> fetchLargeStorageDataPipeline;
   private final Pipeline<Task<SnapDataRequest>> fetchCodePipeline;
+  private final Pipeline<Task<SnapDataRequest>> fetchBlockAccessListPipeline;
   private final Pipeline<Task<SnapDataRequest>> trieHealingPipeline;
 
   private final Pipeline<Task<SnapDataRequest>> flatAccountHealingPipeline;
@@ -62,6 +63,7 @@ public class SnapWorldStateDownloadProcess implements WorldStateDownloadProcess 
       final Pipeline<Task<SnapDataRequest>> fetchStorageDataPipeline,
       final Pipeline<Task<SnapDataRequest>> fetchLargeStorageDataPipeline,
       final Pipeline<Task<SnapDataRequest>> fetchCodePipeline,
+      final Pipeline<Task<SnapDataRequest>> fetchBlockAccessListPipeline,
       final Pipeline<Task<SnapDataRequest>> trieHealingPipeline,
       final Pipeline<Task<SnapDataRequest>> flatAccountHealingPipeline,
       final Pipeline<Task<SnapDataRequest>> flatStorageHealingPipeline,
@@ -71,6 +73,7 @@ public class SnapWorldStateDownloadProcess implements WorldStateDownloadProcess 
     this.fetchAccountPipeline = fetchAccountPipeline;
     this.fetchLargeStorageDataPipeline = fetchLargeStorageDataPipeline;
     this.fetchCodePipeline = fetchCodePipeline;
+    this.fetchBlockAccessListPipeline = fetchBlockAccessListPipeline;
     this.trieHealingPipeline = trieHealingPipeline;
     this.flatAccountHealingPipeline = flatAccountHealingPipeline;
     this.flatStorageHealingPipeline = flatStorageHealingPipeline;
@@ -91,6 +94,8 @@ public class SnapWorldStateDownloadProcess implements WorldStateDownloadProcess 
     final CompletableFuture<Void> fetchLargeStorageFuture =
         ethScheduler.startPipeline(fetchLargeStorageDataPipeline);
     final CompletableFuture<Void> fetchCodeFuture = ethScheduler.startPipeline(fetchCodePipeline);
+    final CompletableFuture<Void> fetchBlockAccessListFuture =
+        ethScheduler.startPipeline(fetchBlockAccessListPipeline);
     final CompletableFuture<Void> trieHealingFuture =
         ethScheduler.startPipeline(trieHealingPipeline);
     final CompletableFuture<Void> flatAccountHealingFuture =
@@ -103,6 +108,7 @@ public class SnapWorldStateDownloadProcess implements WorldStateDownloadProcess 
         .thenCombine(fetchStorageFuture, (unused, unused2) -> null)
         .thenCombine(fetchLargeStorageFuture, (unused, unused2) -> null)
         .thenCombine(fetchCodeFuture, (unused, unused2) -> null)
+        .thenCombine(fetchBlockAccessListFuture, (unused, unused2) -> null)
         .thenCombine(trieHealingFuture, (unused, unused2) -> null)
         .thenCombine(flatAccountHealingFuture, (unused, unused2) -> null)
         .thenCombine(flatStorageHealingFuture, (unused, unused2) -> null)
@@ -128,6 +134,7 @@ public class SnapWorldStateDownloadProcess implements WorldStateDownloadProcess 
           fetchStorageDataPipeline.abort();
           fetchLargeStorageDataPipeline.abort();
           fetchCodePipeline.abort();
+          fetchBlockAccessListPipeline.abort();
           trieHealingPipeline.abort();
           flatAccountHealingPipeline.abort();
           flatStorageHealingPipeline.abort();
@@ -142,6 +149,7 @@ public class SnapWorldStateDownloadProcess implements WorldStateDownloadProcess 
     fetchStorageDataPipeline.abort();
     fetchLargeStorageDataPipeline.abort();
     fetchCodePipeline.abort();
+    fetchBlockAccessListPipeline.abort();
     trieHealingPipeline.abort();
     flatAccountHealingPipeline.abort();
     flatStorageHealingPipeline.abort();
@@ -411,6 +419,26 @@ public class SnapWorldStateDownloadProcess implements WorldStateDownloadProcess 
               .andFinishWith(
                   "batchTrieNodeDataDownloaded", tasks -> tasks.forEach(requestsToComplete::put));
 
+      final Pipeline<Task<SnapDataRequest>> fetchBlockAccessListsPipeline =
+          createPipelineFrom(
+                  "dequeueBlockAccessListRequestBlocking",
+                  new TaskQueueIterator<>(
+                      downloadState, () -> downloadState.dequeueBlockAccessListRequestBlocking()),
+                  bufferCapacity,
+                  outputCounter,
+                  true,
+                  "block_access_lists_download_pipeline")
+              .inBatches(snapSyncConfiguration.getBlockAccessListCountPerRequest())
+              .thenProcessAsyncOrdered(
+                  "batchDownloadBlockAccessListsData",
+                  tasks -> requestDataStep.requestBlockAccessLists(tasks),
+                  maxOutstandingRequests)
+              .thenProcess(
+                  "batchPersistBlockAccessListsData", tasks -> persistDataStep.persist(tasks))
+              .andFinishWith(
+                  "batchBlockAccessListsDataDownloaded",
+                  tasks -> tasks.forEach(requestsToComplete::put));
+
       final Pipeline<Task<SnapDataRequest>> accountFlatDatabaseHealingPipeline =
           createPipelineFrom(
                   "dequeueFlatAccountRequestBlocking",
@@ -454,6 +482,7 @@ public class SnapWorldStateDownloadProcess implements WorldStateDownloadProcess 
           fetchStorageDataPipeline,
           fetchLargeStorageDataPipeline,
           fetchCodePipeline,
+          fetchBlockAccessListsPipeline,
           trieHealingPipeline,
           accountFlatDatabaseHealingPipeline,
           storageFlatDatabaseHealingPipeline,
