@@ -19,6 +19,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.TxPoolBesuPendingTransactions;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.TxPoolBesuStatistics;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.TxPoolBesuTransactions;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.TxPoolContent;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.TxPoolContentFrom;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.TxPoolStatus;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
@@ -45,6 +46,7 @@ public class TxPoolJsonRpcMethods extends ApiGroupJsonRpcMethods {
         new TxPoolBesuPendingTransactions(transactionPool),
         new TxPoolBesuStatistics(transactionPool),
         new TxPoolStatus(transactionPool),
-        new TxPoolContentFrom(transactionPool));
+        new TxPoolContentFrom(transactionPool),
+        new TxPoolContent(transactionPool));
   }
 }

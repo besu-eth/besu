@@ -565,6 +565,10 @@ public class TransactionPool implements BlockAddedObserver {
     return pendingTransactions.getPendingTransactionsFor(sender);
   }
 
+  public Map<Address, SenderPendingTransactionsData> getPendingTransactionsBySender() {
+    return pendingTransactions.getPendingTransactionsBySender();
+  }
+
   public OptionalLong getNextNonceForSender(final Address address) {
     return pendingTransactions.getNextNonceForSender(address);
   }

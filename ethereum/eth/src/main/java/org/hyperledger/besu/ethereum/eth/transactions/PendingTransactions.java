@@ -61,6 +61,8 @@ public interface PendingTransactions {
    */
   SenderPendingTransactionsData getPendingTransactionsFor(Address sender);
 
+  Map<Address, SenderPendingTransactionsData> getPendingTransactionsBySender();
+
   long subscribePendingTransactions(PendingTransactionAddedListener listener);
 
   void unsubscribePendingTransactions(long id);
