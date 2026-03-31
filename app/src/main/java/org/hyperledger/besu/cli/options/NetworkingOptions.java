@@ -98,16 +98,18 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
       hidden = true,
       paramLabel = "<INTEGER>",
       description =
-          "The interval (in seconds) between DiscV5 peer discovery cycles (default: ${DEFAULT-VALUE})")
-  private int discV5DiscoveryIntervalSeconds = 1;
+          "The interval (in seconds) between DiscV5 peer discovery cycles (default: ${DEFAULT-VALUE})",
+      converter = DurationSecondsConverter.class)
+  private Duration discV5DiscoveryIntervalSeconds = Duration.ofSeconds(1);
 
   @CommandLine.Option(
       names = DISCV5_DISCOVERY_TIMEOUT_SECONDS,
       hidden = true,
       paramLabel = "<INTEGER>",
       description =
-          "The timeout (in seconds) for each DiscV5 peer discovery operation (default: ${DEFAULT-VALUE})")
-  private int discV5DiscoveryTimeoutSeconds = 30;
+          "The timeout (in seconds) for each DiscV5 peer discovery operation (default: ${DEFAULT-VALUE})",
+      converter = DurationSecondsConverter.class)
+  private Duration discV5DiscoveryTimeoutSeconds = Duration.ofSeconds(30);
 
   @CommandLine.Option(
       names = DISCV5_MINIMUM_PEER_RATIO,
@@ -147,11 +149,19 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
 
   @Override
   public NetworkingConfiguration toDomainObject() {
+    if (discV5MinimumPeerRatio <= 0) {
+      throw new CommandLine.ParameterException(
+          new CommandLine(this),
+          "Invalid value for option '"
+              + DISCV5_MINIMUM_PEER_RATIO
+              + "': value must be positive but was "
+              + discV5MinimumPeerRatio);
+    }
     final var discovery = DiscoveryConfiguration.create();
     discovery.setDiscoveryV5Enabled(isPeerDiscoveryV5Enabled);
     discovery.setFilterOnEnrForkId(filterOnEnrForkId);
-    discovery.setDiscV5DiscoveryIntervalSeconds(discV5DiscoveryIntervalSeconds);
-    discovery.setDiscV5DiscoveryTimeoutSeconds(discV5DiscoveryTimeoutSeconds);
+    discovery.setDiscV5DiscoveryIntervalSeconds((int) discV5DiscoveryIntervalSeconds.toSeconds());
+    discovery.setDiscV5DiscoveryTimeoutSeconds((int) discV5DiscoveryTimeoutSeconds.toSeconds());
     discovery.setDiscV5MinimumPeerRatio(discV5MinimumPeerRatio);
 
     return ImmutableNetworkingConfiguration.builder()
