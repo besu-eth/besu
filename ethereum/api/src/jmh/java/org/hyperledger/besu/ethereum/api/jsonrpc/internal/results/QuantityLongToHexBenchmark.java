@@ -14,8 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
-import static com.google.common.base.Preconditions.checkArgument;
-
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
 
@@ -40,6 +38,7 @@ import org.openjdk.jmh.infra.Blackhole;
 public class QuantityLongToHexBenchmark {
   private static final String HEX_PREFIX = "0x";
   public static final String HEX_ZERO = "0x0";
+  private static final char[] HEX_DIGITS = "0123456789abcdef".toCharArray();
 
   @Param({"0", "255", "65535", "1000000", "9007199254740991", "9223372036854775807"})
   public long value;
@@ -54,9 +53,62 @@ public class QuantityLongToHexBenchmark {
     blackhole.consume(simpleHexString(value));
   }
 
+  @Benchmark
+  public void directCharArray(final Blackhole blackhole) {
+    blackhole.consume(directCharArray(value));
+  }
+
+  @Benchmark
+  public void unrolled(final Blackhole blackhole) {
+    blackhole.consume(unrolled(value));
+  }
+
   private static String simpleHexString(final long value) {
-    checkArgument(value >= 0);
     return HEX_PREFIX + Long.toHexString(value);
+  }
+
+  private static String unrolled(final long value) {
+    if (value == 0L) {
+      return HEX_ZERO;
+    }
+    final int leadingZeroNibbles = Long.numberOfLeadingZeros(value) >>> 2;
+    final char[] buf = new char[18];
+    buf[2] = HEX_DIGITS[(int) ((value >>> 60) & 0xF)];
+    buf[3] = HEX_DIGITS[(int) ((value >>> 56) & 0xF)];
+    buf[4] = HEX_DIGITS[(int) ((value >>> 52) & 0xF)];
+    buf[5] = HEX_DIGITS[(int) ((value >>> 48) & 0xF)];
+    buf[6] = HEX_DIGITS[(int) ((value >>> 44) & 0xF)];
+    buf[7] = HEX_DIGITS[(int) ((value >>> 40) & 0xF)];
+    buf[8] = HEX_DIGITS[(int) ((value >>> 36) & 0xF)];
+    buf[9] = HEX_DIGITS[(int) ((value >>> 32) & 0xF)];
+    buf[10] = HEX_DIGITS[(int) ((value >>> 28) & 0xF)];
+    buf[11] = HEX_DIGITS[(int) ((value >>> 24) & 0xF)];
+    buf[12] = HEX_DIGITS[(int) ((value >>> 20) & 0xF)];
+    buf[13] = HEX_DIGITS[(int) ((value >>> 16) & 0xF)];
+    buf[14] = HEX_DIGITS[(int) ((value >>> 12) & 0xF)];
+    buf[15] = HEX_DIGITS[(int) ((value >>> 8) & 0xF)];
+    buf[16] = HEX_DIGITS[(int) ((value >>> 4) & 0xF)];
+    buf[17] = HEX_DIGITS[(int) (value & 0xF)];
+    buf[leadingZeroNibbles] = '0';
+    buf[leadingZeroNibbles + 1] = 'x';
+    return new String(buf, leadingZeroNibbles, 18 - leadingZeroNibbles);
+  }
+
+  private static String directCharArray(final long value) {
+    if (value == 0L) {
+      return HEX_ZERO;
+    }
+    int nibbles = 16;
+    while (nibbles > 1 && ((value >>> ((nibbles - 1) * 4)) & 0xFL) == 0L) {
+      nibbles--;
+    }
+    final char[] buf = new char[2 + nibbles];
+    buf[0] = '0';
+    buf[1] = 'x';
+    for (int i = 0; i < nibbles; i++) {
+      buf[2 + i] = HEX_DIGITS[(int) ((value >>> ((nibbles - 1 - i) * 4)) & 0xFL)];
+    }
+    return new String(buf);
   }
 
   private static String uint256ToHex(final UInt256Value<?> value) {
