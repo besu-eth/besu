@@ -139,6 +139,8 @@ jobs:
         with:
           cache-disabled: true
           add-job-summary: on-failure
+      - name: Install required packages
+        run: sudo apt-get install -y xmlstarlet
       - name: Download current test list
         uses: actions/download-artifact@eaceaf801fd36c7dee90939fad912460b18a1ffe
         with:
