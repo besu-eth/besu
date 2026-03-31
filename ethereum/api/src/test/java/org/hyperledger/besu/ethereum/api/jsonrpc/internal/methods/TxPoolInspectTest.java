@@ -79,14 +79,6 @@ public class TxPoolInspectTest {
   }
 
   @Test
-  public void humanReadableViewDelegatesToTraceLog() {
-    final PendingTransaction pendingTx = mock(PendingTransaction.class);
-    when(pendingTx.toTraceLog()).thenReturn("trace-log-output");
-
-    assertThat(TxPoolInspect.humanReadableView(pendingTx)).isEqualTo("trace-log-output");
-  }
-
-  @Test
   public void shouldReturnAllTransactionsAsPendingWhenAllAreConsecutive() {
     final PendingTransaction tx0 = pendingTxWith(0, Wei.of(1_000_000_000L));
     final PendingTransaction tx1 = pendingTxWith(1, Wei.of(1_000_000_000L));

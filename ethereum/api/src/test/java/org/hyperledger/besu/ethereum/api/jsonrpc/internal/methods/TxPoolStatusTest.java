@@ -20,7 +20,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPoolResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPoolStatusResult;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
@@ -52,7 +52,7 @@ public class TxPoolStatusTest {
   public void shouldReturnZeroCountsWhenPoolIsEmpty() {
     when(transactionPool.getStatus()).thenReturn(new PendingTransactions.Status(0, 0));
 
-    final TransactionPoolResult<String> result = invokeMethod();
+    final TransactionPoolStatusResult result = invokeMethod();
 
     assertThat(result.getPending()).isEqualTo("0x0");
     assertThat(result.getQueued()).isEqualTo("0x0");
@@ -62,7 +62,7 @@ public class TxPoolStatusTest {
   public void shouldReturnCorrectCountsWithPendingAndQueuedTransactions() {
     when(transactionPool.getStatus()).thenReturn(new PendingTransactions.Status(10, 7));
 
-    final TransactionPoolResult<String> result = invokeMethod();
+    final TransactionPoolStatusResult result = invokeMethod();
 
     assertThat(result.getPending()).isEqualTo("0xa");
     assertThat(result.getQueued()).isEqualTo("0x7");
@@ -72,7 +72,7 @@ public class TxPoolStatusTest {
   public void shouldReturnCorrectCountsWithOnlyPendingTransactions() {
     when(transactionPool.getStatus()).thenReturn(new PendingTransactions.Status(5, 0));
 
-    final TransactionPoolResult<String> result = invokeMethod();
+    final TransactionPoolStatusResult result = invokeMethod();
 
     assertThat(result.getPending()).isEqualTo("0x5");
     assertThat(result.getQueued()).isEqualTo("0x0");
@@ -82,7 +82,7 @@ public class TxPoolStatusTest {
   public void shouldReturnCorrectCountsWithOnlyQueuedTransactions() {
     when(transactionPool.getStatus()).thenReturn(new PendingTransactions.Status(0, 3));
 
-    final TransactionPoolResult<String> result = invokeMethod();
+    final TransactionPoolStatusResult result = invokeMethod();
 
     assertThat(result.getPending()).isEqualTo("0x0");
     assertThat(result.getQueued()).isEqualTo("0x3");
@@ -92,17 +92,16 @@ public class TxPoolStatusTest {
   public void shouldReturnHexEncodedLargeValues() {
     when(transactionPool.getStatus()).thenReturn(new PendingTransactions.Status(256, 4096));
 
-    final TransactionPoolResult<String> result = invokeMethod();
+    final TransactionPoolStatusResult result = invokeMethod();
 
     assertThat(result.getPending()).isEqualTo("0x100");
     assertThat(result.getQueued()).isEqualTo("0x1000");
   }
 
-  @SuppressWarnings("unchecked")
-  private TransactionPoolResult<String> invokeMethod() {
+  private TransactionPoolStatusResult invokeMethod() {
     final JsonRpcSuccessResponse response =
         (JsonRpcSuccessResponse) method.response(buildRequest());
-    return (TransactionPoolResult<String>) response.getResult();
+    return (TransactionPoolStatusResult) response.getResult();
   }
 
   private JsonRpcRequestContext buildRequest() {

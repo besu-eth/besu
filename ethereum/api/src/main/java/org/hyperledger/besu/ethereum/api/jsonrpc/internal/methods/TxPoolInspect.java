@@ -42,10 +42,6 @@ public class TxPoolInspect extends AbstractTxPoolContent<String> {
   }
 
   private TransactionPoolResult<Map<String, SequencedMap<String, String>>> content() {
-    return contentMap(TxPoolInspect::humanReadableView);
-  }
-
-  static String humanReadableView(final PendingTransaction pendingTransaction) {
-    return pendingTransaction.toTraceLog();
+    return contentMap(PendingTransaction::toTraceLog);
   }
 }
