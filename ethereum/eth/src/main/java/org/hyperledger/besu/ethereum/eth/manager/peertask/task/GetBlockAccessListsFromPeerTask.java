@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.function.Predicate;
@@ -80,7 +81,9 @@ public class GetBlockAccessListsFromPeerTask implements PeerTask<List<BlockAcces
       throw new InvalidPeerTaskResponseException("Null message data");
     }
     final BlockAccessListsMessage balMessage = BlockAccessListsMessage.readFrom(messageData);
-    return balMessage.blockAccessLists();
+    final List<BlockAccessList> blockAccessLists = new ArrayList<>();
+    balMessage.blockAccessLists().forEach(blockAccessLists::add);
+    return blockAccessLists;
   }
 
   @Override
