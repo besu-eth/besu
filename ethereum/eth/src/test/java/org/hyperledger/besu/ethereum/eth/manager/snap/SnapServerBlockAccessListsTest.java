@@ -214,8 +214,10 @@ class SnapServerBlockAccessListsTest {
             snapServer.constructGetBlockAccessListsResponse(
                 request.wrapMessageData(BigInteger.ONE));
 
-    assertThat(response.blockAccessLists(false)).hasSize(SNAP_MAX_ENTRIES_PER_REQUEST);
-    assertThat(response.blockAccessLists(false).getFirst()).isEqualTo(firstAvailable);
+    final List<BlockAccessList> responseBlockAccessLists = new ArrayList<>();
+    response.blockAccessLists(false).forEach(responseBlockAccessLists::add);
+    assertThat(responseBlockAccessLists).hasSize(SNAP_MAX_ENTRIES_PER_REQUEST);
+    assertThat(responseBlockAccessLists.getFirst()).isEqualTo(firstAvailable);
     verify(blockchain, never()).getBlockAccessList(hashPastLimit);
   }
 

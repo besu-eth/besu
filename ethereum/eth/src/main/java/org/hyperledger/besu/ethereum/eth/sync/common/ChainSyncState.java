@@ -23,12 +23,14 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
  *
  * <p>Updates create new instances.
  *
+ * @param firstPivotBlockHeader header of the first pivot block
  * @param pivotBlockHeader header of the pivot block
  * @param blockDownloadAnchor header of the checkpoint block
  * @param headerDownloadAnchor set if the anchor is different from the checkpoint block header
  * @param headersDownloadComplete true if the header download has finished
  */
 public record ChainSyncState(
+    BlockHeader firstPivotBlockHeader,
     BlockHeader pivotBlockHeader,
     BlockHeader blockDownloadAnchor,
     BlockHeader headerDownloadAnchor,
@@ -46,7 +48,8 @@ public record ChainSyncState(
       final BlockHeader pivotBlockHeader,
       final BlockHeader blockDownloadAnchor,
       final BlockHeader headerDownloadAnchor) {
-    return new ChainSyncState(pivotBlockHeader, blockDownloadAnchor, headerDownloadAnchor, false);
+    return new ChainSyncState(
+        pivotBlockHeader, pivotBlockHeader, blockDownloadAnchor, headerDownloadAnchor, false);
   }
 
   /**
@@ -59,7 +62,8 @@ public record ChainSyncState(
    */
   public ChainSyncState continueToNewPivot(
       final BlockHeader newPivotHeader, final BlockHeader previousPivotHeader) {
-    return new ChainSyncState(newPivotHeader, previousPivotHeader, null, false);
+    return new ChainSyncState(
+        firstPivotBlockHeader, newPivotHeader, previousPivotHeader, null, false);
   }
 
   /**
@@ -68,7 +72,8 @@ public record ChainSyncState(
    * @return new ChainSyncState instance
    */
   public ChainSyncState withHeadersDownloadComplete() {
-    return new ChainSyncState(this.pivotBlockHeader, this.blockDownloadAnchor, null, true);
+    return new ChainSyncState(
+        firstPivotBlockHeader, this.pivotBlockHeader, this.blockDownloadAnchor, null, true);
   }
 
   /**
@@ -79,6 +84,7 @@ public record ChainSyncState(
    */
   public ChainSyncState fromHead(final BlockHeader chainHeadHeader) {
     return new ChainSyncState(
+        firstPivotBlockHeader,
         this.pivotBlockHeader,
         chainHeadHeader,
         this.headerDownloadAnchor,
@@ -88,7 +94,11 @@ public record ChainSyncState(
   @Override
   public String toString() {
     return "ChainSyncState{"
-        + "pivotBlockNumber="
+        + "firstPivotBlockNumber="
+        + firstPivotBlockHeader.getNumber()
+        + ", firstPivotBlockHash="
+        + firstPivotBlockHeader.getHash()
+        + ", pivotBlockNumber="
         + pivotBlockHeader.getNumber()
         + ", pivotBlockHash="
         + pivotBlockHeader.getHash()

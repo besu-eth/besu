@@ -12,27 +12,16 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
+package org.hyperledger.besu.ethereum.vm.operations.v2;
 
-import com.fasterxml.jackson.annotation.JsonGetter;
+import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.operation.Operation;
+import org.hyperledger.besu.evm.operation.v2.AddOperationV2;
 
-public class TransactionPoolStatusResult {
+public class AddOperationBenchmarkV2 extends BinaryOperationBenchmarkV2 {
 
-  private final long pending;
-  private final long queued;
-
-  public TransactionPoolStatusResult(final long pending, final long queued) {
-    this.pending = pending;
-    this.queued = queued;
-  }
-
-  @JsonGetter(value = "pending")
-  public String getPending() {
-    return Quantity.create(pending);
-  }
-
-  @JsonGetter(value = "queued")
-  public String getQueued() {
-    return Quantity.create(queued);
+  @Override
+  protected Operation.OperationResult invoke(final MessageFrame frame) {
+    return AddOperationV2.staticOperation(frame, frame.stackDataV2());
   }
 }
