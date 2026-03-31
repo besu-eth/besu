@@ -1561,10 +1561,15 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     validateDataStorageOptions();
     validateGraphQlOptions();
     validatePluginOptions();
+    validateUnstableNetworkingOptions();
   }
 
   private void validatePluginOptions() {
     pluginsConfigurationOptions.validate(commandLine);
+  }
+
+  private void validateUnstableNetworkingOptions() {
+    unstableNetworkingOptions.validate(commandLine);
   }
 
   private void validateApiOptions() {

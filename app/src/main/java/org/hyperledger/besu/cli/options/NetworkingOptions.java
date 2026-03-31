@@ -97,8 +97,7 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
       names = DISCV5_DISCOVERY_INTERVAL_SECONDS,
       hidden = true,
       paramLabel = "<INTEGER>",
-      description =
-          "The interval (in seconds) between DiscV5 peer discovery cycles (default: ${DEFAULT-VALUE})",
+      description = "The interval (in seconds) between DiscV5 peer discovery cycles (default: 1)",
       converter = DurationSecondsConverter.class)
   private Duration discV5DiscoveryIntervalSeconds = Duration.ofSeconds(1);
 
@@ -107,7 +106,7 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
       hidden = true,
       paramLabel = "<INTEGER>",
       description =
-          "The timeout (in seconds) for each DiscV5 peer discovery operation (default: ${DEFAULT-VALUE})",
+          "The timeout (in seconds) for each DiscV5 peer discovery operation (default: 30)",
       converter = DurationSecondsConverter.class)
   private Duration discV5DiscoveryTimeoutSeconds = Duration.ofSeconds(30);
 
@@ -116,7 +115,7 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
       hidden = true,
       paramLabel = "<DOUBLE>",
       description =
-          "Minimum ratio of connected peers to max peers required to switch to slow DiscV5 discovery cadence (default: ${DEFAULT-VALUE})")
+          "Minimum ratio of connected peers to max peers required to switch to slow DiscV5 discovery cadence (default: 0.8)")
   private double discV5MinimumPeerRatio = 0.8;
 
   private NetworkingOptions() {}
@@ -147,16 +146,15 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
     return cliOptions;
   }
 
-  @Override
-  public NetworkingConfiguration toDomainObject() {
+  public void validate(final CommandLine commandLine) {
     if (discV5MinimumPeerRatio <= 0) {
       throw new CommandLine.ParameterException(
-          new CommandLine(this),
-          "Invalid value for option '"
-              + DISCV5_MINIMUM_PEER_RATIO
-              + "': value must be positive but was "
-              + discV5MinimumPeerRatio);
+          commandLine, DISCV5_MINIMUM_PEER_RATIO + " must be non-negative");
     }
+  }
+
+  @Override
+  public NetworkingConfiguration toDomainObject() {
     final var discovery = DiscoveryConfiguration.create();
     discovery.setDiscoveryV5Enabled(isPeerDiscoveryV5Enabled);
     discovery.setFilterOnEnrForkId(filterOnEnrForkId);
