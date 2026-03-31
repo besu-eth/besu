@@ -20,6 +20,7 @@ import static org.awaitility.Awaitility.await;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
@@ -62,6 +63,7 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
@@ -553,6 +555,34 @@ public class BackwardSyncContextTest {
             .contains("Max number of retries " + NUM_OF_RETRIES + " reached");
       }
     }
+  }
+
+  @Test
+  public void shouldCancelStalledSessionAndStartNewOneOnNextSyncRequest() throws Exception {
+    // Make every sync attempt return a future that never completes, so the session stays alive
+    // but makes no block import progress (recordProgress() is never called).
+    doAnswer(inv -> new CompletableFuture<Void>()).when(context).prepareBackwardSyncFuture();
+
+    final Hash hash = getRemoteBlockByNumber(REMOTE_HEIGHT).getHash();
+
+    // Start the first session
+    final CompletableFuture<Void> firstFuture = context.syncBackwardsUntil(hash);
+    final BackwardSyncContext.Status firstStatus = context.getStatus();
+    assertThat(firstStatus).isNotNull();
+    assertThat(firstFuture).isNotDone();
+
+    // Simulate a stall by backdating lastProgressMs to 6 minutes ago via reflection
+    final Field lastProgressField =
+        BackwardSyncContext.Status.class.getDeclaredField("lastProgressMs");
+    lastProgressField.setAccessible(true);
+    lastProgressField.setLong(firstStatus, System.currentTimeMillis() - (6 * 60_000L));
+
+    // A new sync request should detect the stall, cancel the old session, and start fresh
+    final CompletableFuture<Void> secondFuture = context.syncBackwardsUntil(hash);
+
+    assertThat(firstFuture).isCancelled();
+    assertThat(secondFuture).isNotSameAs(firstFuture);
+    assertThat(context.getStatus()).isNotSameAs(firstStatus);
   }
 
   @Test

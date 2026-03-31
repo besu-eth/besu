@@ -28,8 +28,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionCompleteResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionBaseResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPendingResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionWithMetadataResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
@@ -153,7 +154,7 @@ class EthGetTransactionByHashTest {
 
     final JsonRpcSuccessResponse expectedResponse =
         new JsonRpcSuccessResponse(
-            request.getId(), new TransactionCompleteResult(transactionWithMetadata));
+            request.getId(), new TransactionWithMetadataResult(transactionWithMetadata));
 
     final JsonRpcResponse actualResponse = method.response(context);
 
@@ -172,7 +173,7 @@ class EthGetTransactionByHashTest {
             new JsonRpcRequest(JSON_RPC_VERSION, ETH_METHOD, new Object[] {hash}));
 
     final JsonRpcSuccessResponse actualResponse = (JsonRpcSuccessResponse) method.response(request);
-    TransactionPendingResult result = (TransactionPendingResult) actualResponse.getResult();
+    TransactionBaseResult result = (TransactionBaseResult) actualResponse.getResult();
 
     assertThat(result.getBlockHash()).isNull();
     assertThat(result.getBlockNumber()).isNull();
@@ -184,8 +185,6 @@ class EthGetTransactionByHashTest {
     assertThat(result.getHash()).isNotNull();
     assertThat(result.getInput()).isNotNull();
     assertThat(result.getNonce()).isNotNull();
-    assertThat(result.getPublicKey()).isNotNull();
-    assertThat(result.getRaw()).isNotNull();
     assertThat(result.getTo()).isNotNull();
     assertThat(result.getValue()).isNotNull();
     switch (result.getType()) {

@@ -58,6 +58,7 @@ import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Suppliers;
 import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -72,15 +73,17 @@ import org.slf4j.LoggerFactory;
  */
 public class TransactionSimulator {
   private static final Logger LOG = LoggerFactory.getLogger(TransactionSimulator.class);
-  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
-      SignatureAlgorithmFactory.getInstance();
+  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
+      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
 
   // Dummy signature for transactions to not fail being processed.
   private static final SECPSignature FAKE_SIGNATURE =
-      SIGNATURE_ALGORITHM.createSignature(
-          SIGNATURE_ALGORITHM.getHalfCurveOrder(),
-          SIGNATURE_ALGORITHM.getHalfCurveOrder(),
-          (byte) 0);
+      SIGNATURE_ALGORITHM
+          .get()
+          .createSignature(
+              SIGNATURE_ALGORITHM.get().getHalfCurveOrder(),
+              SIGNATURE_ALGORITHM.get().getHalfCurveOrder(),
+              (byte) 0);
 
   // TODO: Identify a better default from account to use, such as the registered
   // coinbase or an account currently unlocked by the client.
@@ -366,7 +369,8 @@ public class TransactionSimulator {
 
     BiFunction<ProtocolSpec, Optional<BlockHeader>, Wei> blobGasPricePerGasSupplier =
         (protocolSpec, maybeParentHeader) -> {
-          if (transactionValidationParams.isAllowExceedingBalance()) {
+          if (transactionValidationParams.isAllowExceedingBalance()
+              && !transactionValidationParams.isPreserveCallerGasPricing()) {
             return Wei.ZERO;
           }
           return protocolSpec
@@ -419,6 +423,7 @@ public class TransactionSimulator {
 
     final ProcessableBlockHeader blockHeaderToProcess;
     if (transactionValidationParams.isAllowExceedingBalance()
+        && !transactionValidationParams.isPreserveCallerGasPricing()
         && processableHeader.getBaseFee().isPresent()) {
       blockHeaderToProcess =
           new BlockHeaderBuilder()
@@ -584,7 +589,15 @@ public class TransactionSimulator {
     final Wei maxFeePerGas;
     final Wei maxPriorityFeePerGas;
     final Wei maxFeePerBlobGas;
-    if (transactionValidationParams.isAllowExceedingBalance()) {
+    if (transactionValidationParams.isPreserveCallerGasPricing()) {
+      // eth_simulateV1: use caller-provided gas pricing so fees are charged from sender's balance,
+      // producing the correct stateRoot and block hash.
+      gasPrice = callParams.getGasPrice().orElse(Wei.ZERO);
+      maxFeePerGas = callParams.getMaxFeePerGas().orElse(Wei.ZERO);
+      maxPriorityFeePerGas = callParams.getMaxPriorityFeePerGas().orElse(Wei.ZERO);
+      maxFeePerBlobGas = callParams.getMaxFeePerBlobGas().orElse(Wei.ZERO);
+    } else if (transactionValidationParams.isAllowExceedingBalance()) {
+      // eth_call: zero gas prices so callers don't need sufficient balance for gas.
       gasPrice = Wei.ZERO;
       maxFeePerGas = Wei.ZERO;
       maxPriorityFeePerGas = Wei.ZERO;

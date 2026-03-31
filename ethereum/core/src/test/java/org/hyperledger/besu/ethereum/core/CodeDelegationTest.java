@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.core;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import org.hyperledger.besu.crypto.CodeDelegationSignature;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
@@ -32,6 +33,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 class CodeDelegationTest {
+
+  // secp256k1 curve order (n)
+  private static final BigInteger SECP256K1_N =
+      new BigInteger("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141", 16);
 
   private BigInteger chainId;
   private Address address;
@@ -140,6 +145,26 @@ class CodeDelegationTest {
     Optional<Address> authorizer = delegation.authorizer();
 
     assertThat(authorizer).isEmpty();
+  }
+
+  @Test
+  void shouldReturnEmptyAuthorizerWhenREqualsSecp256k1N() {
+    CodeDelegationSignature badSig =
+        CodeDelegationSignature.create(SECP256K1_N, BigInteger.ONE, (byte) 0);
+
+    CodeDelegation delegation = new CodeDelegation(chainId, address, nonce, badSig);
+
+    assertThat(delegation.authorizer()).isEmpty();
+  }
+
+  @Test
+  void shouldReturnEmptyAuthorizerWhenRIsZero() {
+    CodeDelegationSignature badSig =
+        CodeDelegationSignature.create(BigInteger.ZERO, BigInteger.ONE, (byte) 0);
+
+    CodeDelegation delegation = new CodeDelegation(chainId, address, nonce, badSig);
+
+    assertThat(delegation.authorizer()).isEmpty();
   }
 
   @Test

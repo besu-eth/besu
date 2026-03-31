@@ -51,9 +51,9 @@ public class TransactionAnnouncementDecoder {
    * @return the list of TransactionAnnouncement decoded from the message with size, type and hash
    */
   private static List<TransactionAnnouncement> decodeForEth68(final RLPInput input) {
-    input.enterList();
+    final int size = input.enterList();
 
-    final List<TransactionType> types = new ArrayList<>();
+    final List<TransactionType> types = new ArrayList<>(size);
     final byte[] bytes = input.readBytes().toArray();
     for (final byte b : bytes) {
       final var transactionType =
@@ -67,7 +67,8 @@ public class TransactionAnnouncementDecoder {
 
     final List<Long> sizes = input.readList(RLPInput::readUnsignedIntScalar);
 
-    final List<Hash> hashes = input.readList(rlp -> Hash.wrap(rlp.readBytes32()));
+    // use Bytes32::copy to avoid keeping reference to underlying RLP byte array
+    final List<Hash> hashes = input.readList(rlp -> Hash.wrap(rlp.readBytes32().copy()));
     input.leaveList();
     if (!(types.size() == hashes.size() && hashes.size() == sizes.size())) {
       throw new RLPException("Hashes, sizes and types must have the same number of elements");
