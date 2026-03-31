@@ -91,19 +91,6 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   /** RocksDb Time to roll a log file (1 day = 3600 * 24 seconds) */
   private static final long TIME_TO_ROLL_LOG_FILE = 86_400L;
 
-  /**
-   * Keys set by {@link #mergeBesuNativeColumnFamilyOptionsBeforeParse}; user CLI cannot override.
-   */
-  private static final Set<String> BESU_MERGED_NATIVE_COLUMN_FAMILY_KEYS =
-      Set.of(
-          "block_based_table_factory.index_type",
-          "block_based_table_factory.format_version",
-          "block_based_table_factory.filter_policy",
-          "block_based_table_factory.partition_filters",
-          "block_based_table_factory.cache_index_and_filter_blocks",
-          "block_based_table_factory.block_size",
-          "block_based_table_factory.block_cache");
-
   static {
     RocksDbUtil.loadNativeLibrary();
   }
@@ -198,13 +185,13 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
    * <p>Additional CF options from configuration are parsed into a scratch {@link Properties}; Besu
    * then builds {@link RocksDbNativeOptionStrings.InsertionOrderedProperties} by applying its
    * block-table keys in a fixed order (so {@code index_type} precedes {@code partition_filters} in
-   * the JNI option string), then copies remaining user keys. A single {@code
-   * getColumnFamilyOptionsFromProps} call follows, which unlocks any column-family or {@code
-   * block_based_table_factory.*} option the native RocksDB build accepts, even when rocksdbjni does
-   * not expose it on Java option classes. Compaction and blob options are still set in Java where
-   * needed. {@code level_compaction_dynamic_level_bytes} is taken from the latest on-disk {@code
-   * OPTIONS-*} file when present for this column family (existing deployments); otherwise it
-   * defaults to {@code true}.
+   * the JNI option string), then merges user keys (same key in user config overrides the Besu
+   * default). A single {@code getColumnFamilyOptionsFromProps} call follows, which unlocks any
+   * column-family or {@code block_based_table_factory.*} option the native RocksDB build accepts,
+   * even when rocksdbjni does not expose it on Java option classes. Compaction and blob options are
+   * still set in Java where needed. {@code level_compaction_dynamic_level_bytes} is taken from the
+   * latest on-disk {@code OPTIONS-*} file when present for this column family (existing
+   * deployments); otherwise it defaults to {@code true}.
    *
    * @param segment the segment identifier
    * @param configuration RocksDB configuration
@@ -222,9 +209,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         new RocksDbNativeOptionStrings.InsertionOrderedProperties();
     mergeBesuNativeColumnFamilyOptionsBeforeParse(cfProps, segment, configuration);
     for (final String key : userCfProps.stringPropertyNames()) {
-      if (!BESU_MERGED_NATIVE_COLUMN_FAMILY_KEYS.contains(key)) {
-        cfProps.setProperty(key, userCfProps.getProperty(key));
-      }
+      cfProps.setProperty(key, userCfProps.getProperty(key));
     }
 
     final ColumnFamilyOptions columnOpts = columnFamilyOptionsFromNativeProperties(cfProps);
