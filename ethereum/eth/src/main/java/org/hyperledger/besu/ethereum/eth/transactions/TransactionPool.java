@@ -555,6 +555,20 @@ public class TransactionPool implements BlockAddedObserver {
     return pendingTransactions.getPendingTransactions();
   }
 
+  /**
+   * Returns all pending transactions for the given sender, sorted by nonce in ascending order.
+   *
+   * @param sender the sender address
+   * @return transactions for the sender sorted by nonce ascending, or an empty list if none exist
+   */
+  public SenderPendingTransactionsData getPendingTransactionsFor(final Address sender) {
+    return pendingTransactions.getPendingTransactionsFor(sender);
+  }
+
+  public Map<Address, SenderPendingTransactionsData> getPendingTransactionsBySender() {
+    return pendingTransactions.getPendingTransactionsBySender();
+  }
+
   public OptionalLong getNextNonceForSender(final Address address) {
     return pendingTransactions.getNextNonceForSender(address);
   }

@@ -712,11 +712,21 @@ public class BlockSimulator {
                     newProtocolSpec
                         .getPreExecutionProcessor()
                         .createBlockHashLookup(blockchain, blockHeader));
+    // Fallback lookup using the real chain head, for when the primary lookup can't
+    // walk back past simulated blocks to reach real chain blocks.
+    var chainHeadFallback =
+        newProtocolSpec
+            .getPreExecutionProcessor()
+            .createBlockHashLookup(blockchain, blockchain.getChainHeadHeader());
     return (frame, blockNumber) -> {
       if (blockHashCache.containsKey(blockNumber)) {
         return blockHashCache.get(blockNumber);
       }
-      return blockCallBlockHashLookup.apply(frame, blockNumber);
+      Hash result = blockCallBlockHashLookup.apply(frame, blockNumber);
+      if (!result.equals(Hash.ZERO)) {
+        return result;
+      }
+      return chainHeadFallback.apply(frame, blockNumber);
     };
   }
 

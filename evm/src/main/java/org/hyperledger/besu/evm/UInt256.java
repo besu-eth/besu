@@ -25,10 +25,10 @@ import java.util.Arrays;
  *
  * <p>This class is an optimised version of BigInteger for fixed width 256-bits integers.
  *
- * @param u3 4th digit
+ * @param u3 4th digit = most significant limb
  * @param u2 3rd digit
  * @param u1 2nd digit
- * @param u0 1st digit
+ * @param u0 1st digit = least significant limb
  */
 public record UInt256(long u3, long u2, long u1, long u0) {
 
@@ -1366,7 +1366,7 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     }
 
     UInt256 mul(final UInt256 a, final UInt256 b) {
-      // multiply-reduce
+      // smaller allocation path: multiply-reduce with UInt256 prod
       if (a.isUInt128() && b.isUInt128()) {
         UInt256 prod = a.mul128(b);
         int cmp = compareTo(prod);
@@ -1374,16 +1374,11 @@ public record UInt256(long u3, long u2, long u1, long u0) {
         if (cmp > 0) return prod;
         return modReduce(prod);
       }
-      // reduce-multiply-reduce
+      // At least one input exceeds 128 bits: full multiply then single reduce with UInt512 prod
+      UInt512 prod = a.mul256(b);
       int shift = Long.numberOfLeadingZeros(u1);
       UInt128 m = shiftLeft(shift);
       long inv = reciprocal(m.u1);
-      UInt256 x = (a.isUInt128()) ? a : m.modReduceNormalised(a, shift, inv);
-      UInt256 y = (b.isUInt128()) ? b : m.modReduceNormalised(b, shift, inv);
-      UInt256 prod = x.mul128(y);
-      int cmp = compareTo(prod);
-      if (cmp == 0) return ZERO;
-      if (cmp > 0) return prod;
       return m.modReduceNormalised(prod, shift, inv);
     }
 
@@ -1489,6 +1484,43 @@ public record UInt256(long u3, long u2, long u1, long u0) {
       return new UInt256(0, 0, qr.r.u1, qr.r.u0).shiftRight(shift);
     }
 
+    private UInt256 modReduceNormalised(final UInt512 that, final int shift, final long inv) {
+      UInt576 v = that.shiftLeftWide(shift);
+      QR128 qr;
+      if (v.u8 != 0 || Long.compareUnsigned(v.u7, u1) >= 0) {
+        qr = reduceStep(v.u8, v.u7, v.u6, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u5, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u4, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u3, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u2, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u0, inv);
+      } else if (v.u7 != 0 || Long.compareUnsigned(v.u6, u1) >= 0) {
+        qr = reduceStep(v.u7, v.u6, v.u5, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u4, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u3, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u2, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u0, inv);
+      } else if (v.u6 != 0 || Long.compareUnsigned(v.u5, u1) >= 0) {
+        qr = reduceStep(v.u6, v.u5, v.u4, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u3, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u2, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u0, inv);
+      } else if (v.u5 != 0 || Long.compareUnsigned(v.u4, u1) >= 0) {
+        qr = reduceStep(v.u5, v.u4, v.u3, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u2, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u0, inv);
+      } else {
+        qr = reduceStep(v.u4, v.u3, v.u2, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u0, inv);
+      }
+      return new UInt256(0, 0, qr.r.u1, qr.r.u0).shiftRight(shift);
+    }
+
     UInt256 divReduce(final UInt256 that) {
       int cmp = compareTo(that);
       if (cmp == 0) return ONE;
@@ -1579,7 +1611,7 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     }
 
     UInt256 mul(final UInt256 a, final UInt256 b) {
-      // multiply-reduce
+      // smaller allocation path: multiply-reduce with UInt448 prod
       if (a.isUInt192() && b.isUInt192()) {
         UInt448 prod = a.mul192(b);
         int cmp = compareTo(prod);
@@ -1587,16 +1619,11 @@ public record UInt256(long u3, long u2, long u1, long u0) {
         if (cmp > 0) return prod.UInt256Value();
         return modReduce(prod);
       }
-      // reduce-multiply-reduce
+      // At least one input exceeds 192 bits: full multiply then single reduce with UInt512 prod
+      UInt512 prod = a.mul256(b);
       int shift = Long.numberOfLeadingZeros(u2);
       UInt192 m = shiftLeft(shift);
       long inv = reciprocal(m.u2);
-      UInt256 x = (a.isUInt192()) ? a : m.modReduceNormalised(a, shift, inv);
-      UInt256 y = (b.isUInt192()) ? b : m.modReduceNormalised(b, shift, inv);
-      UInt448 prod = x.mul192(y);
-      int cmp = compareTo(prod);
-      if (cmp == 0) return ZERO;
-      if (cmp > 0) return prod.UInt256Value();
       return m.modReduceNormalised(prod, shift, inv);
     }
 
@@ -1736,6 +1763,35 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     private UInt256 modReduceNormalisedSlowPath(final UInt512 v, final int shift, final long inv) {
       QR192 qr;
       if (v.u7 != 0 || Long.compareUnsigned(v.u6, u2) >= 0) {
+        qr = reduceStep(v.u7, v.u6, v.u5, v.u4, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u3, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u2, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+      } else if (v.u6 != 0 || Long.compareUnsigned(v.u5, u2) >= 0) {
+        qr = reduceStep(v.u6, v.u5, v.u4, v.u3, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u2, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+      } else {
+        qr = reduceStep(v.u5, v.u4, v.u3, v.u2, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+      }
+      return new UInt256(0, qr.r.u2, qr.r.u1, qr.r.u0).shiftRight(shift);
+    }
+
+    private UInt256 modReduceNormalised(final UInt512 that, final int shift, final long inv) {
+      UInt576 v = that.shiftLeftWide(shift);
+      QR192 qr;
+      if (v.u8 != 0 || Long.compareUnsigned(v.u7, u2) >= 0) {
+        qr = reduceStep(v.u8, v.u7, v.u6, v.u5, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u4, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u3, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u2, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+      } else if (v.u7 != 0 || Long.compareUnsigned(v.u6, u2) >= 0) {
         qr = reduceStep(v.u7, v.u6, v.u5, v.u4, inv);
         qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u3, inv);
         qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u2, inv);
