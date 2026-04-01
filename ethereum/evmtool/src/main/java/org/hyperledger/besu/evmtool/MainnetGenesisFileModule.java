@@ -17,7 +17,6 @@ package org.hyperledger.besu.evmtool;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
-import org.hyperledger.besu.crypto.SignatureAlgorithmType;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
@@ -58,17 +57,17 @@ class MainnetGenesisFileModule extends GenesisFileModule {
       @Named("RevertReasonEnabled") final boolean revertReasonEnabled,
       final EvmConfiguration evmConfiguration) {
 
-    final Optional<String> ecCurve = configOptions.getEcCurve();
-    if (ecCurve.isEmpty()) {
-      SignatureAlgorithmFactory.setDefaultInstance();
-    } else {
-      try {
-        SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create(ecCurve.get()));
-      } catch (final IllegalArgumentException e) {
-        throw new CommandLine.InitializationException(
-            "Invalid genesis file configuration for ecCurve. " + e.getMessage());
-      }
-    }
+    configOptions
+        .getEcCurve()
+        .ifPresent(
+            ecCurve -> {
+              try {
+                SignatureAlgorithmFactory.switchInstance(ecCurve);
+              } catch (final IllegalArgumentException e) {
+                throw new CommandLine.InitializationException(
+                    "Invalid genesis file configuration for ecCurve. " + e.getMessage());
+              }
+            });
 
     if (fork.isPresent()) {
       var schedules = createSchedules(configOptions.getChainId().orElse(BigInteger.valueOf(1337)));

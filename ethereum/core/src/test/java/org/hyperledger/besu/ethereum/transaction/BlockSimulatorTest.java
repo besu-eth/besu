@@ -235,6 +235,10 @@ public class BlockSimulatorTest {
 
   @Test
   public void shouldOverrideBlockHeaderCorrectly() {
+    FeeMarket feeMarket = mock(FeeMarket.class);
+    when(feeMarket.implementsBaseFee()).thenReturn(true);
+    when(protocolSpec.getFeeMarket()).thenReturn(feeMarket);
+    when(protocolSpec.isPoS()).thenReturn(true);
 
     var expectedTimestamp = 1L;
     var expectedBlockNumber = 2L;
