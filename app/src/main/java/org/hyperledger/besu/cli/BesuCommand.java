@@ -102,7 +102,6 @@ import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.KeyPairUtil;
 import org.hyperledger.besu.crypto.SECP256R1;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
-import org.hyperledger.besu.crypto.SignatureAlgorithmType;
 import org.hyperledger.besu.cryptoservices.KeyPairSecurityModule;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.datatypes.Address;
@@ -949,12 +948,12 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         System.exit(0); // Exit before any services are started
       }
 
+      logger.info("Starting Besu");
+
       // set merge config on the basis of genesis config
       setMergeConfigOptions();
 
       instantiateSignatureAlgorithmFactory();
-
-      logger.info("Starting Besu");
 
       // Need to create vertx after cmdline has been parsed, such that metricsSystem is configurable
       vertx = createVertx(besuComponent.getMetricsSystem());
@@ -1480,10 +1479,15 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     validateDataStorageOptions();
     validateGraphQlOptions();
     validatePluginOptions();
+    validateUnstableNetworkingOptions();
   }
 
   private void validatePluginOptions() {
     pluginsConfigurationOptions.validate(commandLine);
+  }
+
+  private void validateUnstableNetworkingOptions() {
+    unstableNetworkingOptions.validate(commandLine);
   }
 
   private void validateApiOptions() {
@@ -2718,23 +2722,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   }
 
   private void instantiateSignatureAlgorithmFactory() {
-    if (SignatureAlgorithmFactory.isInstanceSet()) {
-      return;
-    }
-
-    final Optional<String> ecCurve = getEcCurveFromGenesisFile();
-
-    if (ecCurve.isEmpty()) {
-      SignatureAlgorithmFactory.setDefaultInstance();
-      return;
-    }
-
-    try {
-      SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create(ecCurve.get()));
-    } catch (final IllegalArgumentException e) {
-      throw new CommandLine.InitializationException(
-          "Invalid genesis file configuration for ecCurve. " + e.getMessage());
-    }
+    getEcCurveFromGenesisFile()
+        .ifPresent(
+            ecCurve -> {
+              try {
+                SignatureAlgorithmFactory.switchInstance(ecCurve);
+              } catch (final IllegalArgumentException e) {
+                throw new CommandLine.InitializationException(
+                    "Invalid genesis file configuration for ecCurve. " + e.getMessage());
+              }
+            });
   }
 
   private Optional<String> getEcCurveFromGenesisFile() {

@@ -71,11 +71,6 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
 
   private static final Logger LOG = LoggerFactory.getLogger(PeerDiscoveryAgentV5.class);
 
-  /** Minimum ratio of connected peers required to switch to slow discovery cadence. */
-  private static final double MINIMUM_PEER_RATIO = 0.8;
-
-  public static final int DISCOVERY_TIMEOUT_SECONDS = 30;
-
   /**
    * Factory for creating a {@link MutableDiscoverySystem}. The default implementation uses {@link
    * org.ethereum.beacon.discovery.DiscoverySystemBuilder}; tests can inject a mock.
@@ -197,7 +192,11 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
             v -> {
               try {
                 if (!stopped.get()) {
-                  scheduler.scheduleAtFixedRate(this::discoveryTick, 0, 1, TimeUnit.SECONDS);
+                  scheduler.scheduleAtFixedRate(
+                      this::discoveryTick,
+                      0,
+                      discoveryConfig.getDiscV5DiscoveryIntervalSeconds(),
+                      TimeUnit.SECONDS);
                 }
               } catch (final RejectedExecutionException e) {
                 // Benign: stop() shut down the scheduler between the stopped check and the
@@ -410,7 +409,8 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
 
   /** Determines whether the RLPx agent has reached a sufficient number of connected peers. */
   private boolean hasSufficientPeers() {
-    return rlpxAgent.getConnectionCount() >= rlpxAgent.getMaxPeers() * MINIMUM_PEER_RATIO;
+    return rlpxAgent.getConnectionCount()
+        >= rlpxAgent.getMaxPeers() * discoveryConfig.getDiscV5MinimumPeerRatio();
   }
 
   /** Periodic discovery task that enforces adaptive cadence and triggers peer discovery. */
@@ -433,7 +433,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
     }
     system
         .searchForNewPeers()
-        .orTimeout(DISCOVERY_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .orTimeout(discoveryConfig.getDiscV5DiscoveryTimeoutSeconds(), TimeUnit.SECONDS)
         .whenComplete(
             (nodeRecords, error) -> {
               try {

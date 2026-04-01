@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.transaction;
 
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
 import org.hyperledger.besu.plugin.data.BlockOverrides;
@@ -31,6 +30,9 @@ import java.util.Optional;
 public class BlockStateCalls {
   private static final long MAX_BLOCK_CALL_SIZE = 256;
 
+  /** Standard Ethereum slot duration used for eth_simulateV1 timestamp auto-increment. */
+  private static final long SLOT_DURATION_SECONDS = 12;
+
   /**
    * Normalizes a list of BlockStateCalls by filling gaps and setting the correct block number and
    * timestamp.
@@ -40,9 +42,7 @@ public class BlockStateCalls {
    * @return a normalized list of BlockStateCalls
    */
   public static List<BlockStateCall> fillBlockStateCalls(
-      final ProtocolSpec protocolSpec,
-      final List<? extends BlockStateCall> blockStateCalls,
-      final BlockHeader header) {
+      final List<? extends BlockStateCall> blockStateCalls, final BlockHeader header) {
     long lastPresentBlockNumber = findLastBlockNumber(blockStateCalls);
     if (lastPresentBlockNumber > header.getNumber() + MAX_BLOCK_CALL_SIZE) {
       String errorMessage =
@@ -62,8 +62,7 @@ public class BlockStateCalls {
           blockStateCall.getBlockOverrides().getBlockNumber().orElse(currentBlock + 1);
       List<BlockStateCall> intermediateBlocks =
           new ArrayList<>(
-              generateIntermediateBlocks(
-                  protocolSpec, nextBlockNumber, currentBlock, currentTimestamp));
+              generateIntermediateBlocks(nextBlockNumber, currentBlock, currentTimestamp));
       // Add intermediate blocks
       for (BlockStateCall intermediateBlock : intermediateBlocks) {
         add(filledCalls, intermediateBlock, currentBlock, currentTimestamp);
@@ -75,9 +74,7 @@ public class BlockStateCalls {
         blockStateCall.getBlockOverrides().setBlockNumber(currentBlock + 1);
       }
       if (blockStateCall.getBlockOverrides().getTimestamp().isEmpty()) {
-        blockStateCall
-            .getBlockOverrides()
-            .setTimestamp(currentTimestamp + protocolSpec.getSlotDuration().toSeconds());
+        blockStateCall.getBlockOverrides().setTimestamp(currentTimestamp + SLOT_DURATION_SECONDS);
       }
       // Add the current block
       add(filledCalls, blockStateCall, currentBlock, currentTimestamp);
@@ -112,15 +109,12 @@ public class BlockStateCalls {
   }
 
   private static List<BlockStateCall> generateIntermediateBlocks(
-      final ProtocolSpec protocolSpec,
-      final long targetBlockNumber,
-      final long startBlockNumber,
-      final long startTimestamp) {
+      final long targetBlockNumber, final long startBlockNumber, final long startTimestamp) {
     List<BlockStateCall> intermediateBlocks = new ArrayList<>();
     long blockNumberDiff = targetBlockNumber - startBlockNumber;
     for (long i = 1; i < blockNumberDiff; i++) {
       long nextBlockNumber = startBlockNumber + i;
-      long nextTimestamp = startTimestamp + protocolSpec.getSlotDuration().toSeconds() * i;
+      long nextTimestamp = startTimestamp + SLOT_DURATION_SECONDS * i;
       var nextBlockOverrides =
           BlockOverrides.builder().blockNumber(nextBlockNumber).timestamp(nextTimestamp).build();
       intermediateBlocks.add(new BlockStateCall(nextBlockOverrides));
