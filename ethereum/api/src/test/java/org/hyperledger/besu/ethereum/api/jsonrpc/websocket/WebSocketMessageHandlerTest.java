@@ -22,7 +22,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.api.handlers.TimeoutOptions;
-import org.hyperledger.besu.ethereum.api.jsonrpc.execution.BaseJsonRpcProcessor;
+import org.hyperledger.besu.ethereum.api.jsonrpc.execution.CombinedJsonRpcProcessor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.execution.JsonRpcExecutor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.methods.WebSocketRpcRequest;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.HashMap;
 import java.util.List;
@@ -85,7 +86,7 @@ public class WebSocketMessageHandlerTest {
     handler =
         new WebSocketMessageHandler(
             vertx,
-            new JsonRpcExecutor(new BaseJsonRpcProcessor(), methods),
+            new JsonRpcExecutor(new CombinedJsonRpcProcessor(new NoOpMetricsSystem()), methods),
             mock(EthScheduler.class),
             TimeoutOptions.defaultOptions().getTimeoutSeconds());
   }
@@ -160,7 +161,7 @@ public class WebSocketMessageHandlerTest {
     WebSocketMessageHandler handleBadCalls =
         new WebSocketMessageHandler(
             vertx,
-            new JsonRpcExecutor(new BaseJsonRpcProcessor(), methods),
+            new JsonRpcExecutor(new CombinedJsonRpcProcessor(new NoOpMetricsSystem()), methods),
             mock(EthScheduler.class),
             TimeoutOptions.defaultOptions().getTimeoutSeconds());
 

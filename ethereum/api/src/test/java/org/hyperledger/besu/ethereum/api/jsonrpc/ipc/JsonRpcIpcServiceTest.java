@@ -19,7 +19,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.ethereum.api.jsonrpc.execution.BaseJsonRpcProcessor;
+import org.hyperledger.besu.ethereum.api.jsonrpc.execution.CombinedJsonRpcProcessor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.execution.JsonRpcExecutor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -85,7 +85,7 @@ class JsonRpcIpcServiceTest {
         new JsonRpcIpcService(
             vertx,
             socketPath,
-            new JsonRpcExecutor(new BaseJsonRpcProcessor(), Map.of("test_method", testMethod)));
+            new JsonRpcExecutor(new CombinedJsonRpcProcessor(new NoOpMetricsSystem()), Map.of("test_method", testMethod)));
     final String expectedResponse = "{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"TEST OK\"}\n";
 
     assertSocketCall(
@@ -107,7 +107,7 @@ class JsonRpcIpcServiceTest {
             vertx,
             socketPath,
             new JsonRpcExecutor(
-                new BaseJsonRpcProcessor(),
+                new CombinedJsonRpcProcessor(new NoOpMetricsSystem()),
                 Map.of("foo_method", fooMethod, "bar_method", barMethod)));
 
     assertSocketCall(
@@ -128,7 +128,7 @@ class JsonRpcIpcServiceTest {
         new JsonRpcIpcService(
             vertx,
             socketPath,
-            new JsonRpcExecutor(new BaseJsonRpcProcessor(), Collections.emptyMap()));
+            new JsonRpcExecutor(new CombinedJsonRpcProcessor(new NoOpMetricsSystem()), Collections.emptyMap()));
     final String expectedResponse =
         "{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32600,\"message\":\"Invalid Request\"}}\n";
 
@@ -160,7 +160,7 @@ class JsonRpcIpcServiceTest {
             vertx,
             socketPath,
             new JsonRpcExecutor(
-                new BaseJsonRpcProcessor(),
+                new CombinedJsonRpcProcessor(new NoOpMetricsSystem()),
                 Map.of("foo_method", fooMethod, "bar_method", barMethod, "baz_method", bazMethod)));
 
     // Simulate concurrent requests concatenated in a single buffer
@@ -280,7 +280,7 @@ class JsonRpcIpcServiceTest {
         new JsonRpcIpcService(
             vertx,
             socketPath,
-            new JsonRpcExecutor(new BaseJsonRpcProcessor(), methods),
+            new JsonRpcExecutor(new CombinedJsonRpcProcessor(new NoOpMetricsSystem()), methods),
             Optional.of(subscriptionManager));
 
     final String request = "{\"id\":1,\"method\":\"eth_subscribe\",\"params\":[\"newHeads\"]}\n";
@@ -326,7 +326,7 @@ class JsonRpcIpcServiceTest {
         new JsonRpcIpcService(
             vertx,
             socketPath,
-            new JsonRpcExecutor(new BaseJsonRpcProcessor(), methods),
+            new JsonRpcExecutor(new CombinedJsonRpcProcessor(new NoOpMetricsSystem()), methods),
             Optional.of(subscriptionManager));
 
     final String subscribeRequest =
@@ -383,7 +383,7 @@ class JsonRpcIpcServiceTest {
         new JsonRpcIpcService(
             vertx,
             socketPath,
-            new JsonRpcExecutor(new BaseJsonRpcProcessor(), methods),
+            new JsonRpcExecutor(new CombinedJsonRpcProcessor(new NoOpMetricsSystem()), methods),
             Optional.of(subscriptionManager));
 
     final String batchRequest =
