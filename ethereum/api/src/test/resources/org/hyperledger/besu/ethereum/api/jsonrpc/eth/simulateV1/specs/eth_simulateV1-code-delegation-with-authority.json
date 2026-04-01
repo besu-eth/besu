@@ -74,6 +74,7 @@
                 ]
               }
             ],
+            "maxUsedGas": "0x13b30",
             "returnData": "0x",
             "status": "0x1"
           }

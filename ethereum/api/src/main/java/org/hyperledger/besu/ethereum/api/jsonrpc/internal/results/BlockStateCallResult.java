@@ -111,7 +111,7 @@ public class BlockStateCallResult extends BlockResult {
                     block.getHash(),
                     i,
                     block.getHeader().getTimestamp()))
-        .map(TransactionCompleteResult::new)
+        .map(TransactionWithMetadataResult::new)
         .collect(Collectors.toList());
   }
 
@@ -147,7 +147,8 @@ public class BlockStateCallResult extends BlockResult {
     return new CallProcessingResult(
         result.isSuccessful() ? 1 : 0,
         result.getOutput(),
-        simulatorResult.getGasEstimate(),
+        result.getGasSpent(),
+        result.getEstimateGasUsedByTransaction(),
         getError(result),
         new LogsResult(transactionLogs));
   }

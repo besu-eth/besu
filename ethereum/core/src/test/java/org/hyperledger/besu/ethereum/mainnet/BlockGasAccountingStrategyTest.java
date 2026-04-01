@@ -26,11 +26,11 @@ import org.junit.jupiter.api.Test;
 /**
  * Tests for {@link BlockGasAccountingStrategy}.
  *
- * <p>EIP-7778 changes how gas is accounted for at the block level:
+ * <p>Amsterdam (EIP-7778 + EIP-8037) changes how gas is accounted for at the block level:
  *
  * <ul>
- *   <li>Pre-EIP-7778 (FRONTIER): Block gas = gasLimit - gasRemaining (post-refund)
- *   <li>EIP-7778 (Amsterdam+): Block gas = estimateGasUsedByTransaction (pre-refund)
+ *   <li>Pre-Amsterdam (FRONTIER): Block gas = gasLimit - gasRemaining (post-refund)
+ *   <li>Amsterdam: Block gas = pre-refund gas, split into regular and state dimensions
  * </ul>
  */
 public class BlockGasAccountingStrategyTest {
@@ -51,23 +51,26 @@ public class BlockGasAccountingStrategyTest {
     when(result.getEstimateGasUsedByTransaction()).thenReturn(PRE_REFUND_GAS);
 
     // Frontier strategy: gasLimit - gasRemaining = 100,000 - 30,000 = 70,000
-    final long blockGas = BlockGasAccountingStrategy.FRONTIER.calculateBlockGas(tx, result);
+    final long blockGas =
+        BlockGasAccountingStrategy.FRONTIER.calculateTransactionRegularGas(tx, result);
 
     assertThat(blockGas).isEqualTo(PRE_REFUND_GAS);
   }
 
   @Test
-  public void eip7778Strategy_usesPreRefundGas() {
-    // Setup: Transaction with gas limit 100k, processed with pre-refund gas of 70k
+  public void amsterdamStrategy_usesPreRefundGas() {
+    // Setup: Transaction with gas limit 100k, processed with pre-refund gas of 70k, no state gas
     final Transaction tx = mock(Transaction.class);
     when(tx.getGasLimit()).thenReturn(GAS_LIMIT);
 
     final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
     when(result.getGasRemaining()).thenReturn(GAS_REMAINING);
     when(result.getEstimateGasUsedByTransaction()).thenReturn(PRE_REFUND_GAS);
+    when(result.getStateGasUsed()).thenReturn(0L);
 
-    // EIP-7778 strategy: uses estimateGasUsedByTransaction directly = 70,000
-    final long blockGas = BlockGasAccountingStrategy.EIP7778.calculateBlockGas(tx, result);
+    // Amsterdam strategy: estimateGasUsedByTransaction - stateGasUsed = 70,000 - 0 = 70,000
+    final long blockGas =
+        BlockGasAccountingStrategy.AMSTERDAM.calculateTransactionRegularGas(tx, result);
 
     assertThat(blockGas).isEqualTo(PRE_REFUND_GAS);
   }
@@ -88,16 +91,19 @@ public class BlockGasAccountingStrategyTest {
     final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
     when(result.getGasRemaining()).thenReturn(gasRemainingAfterRefund);
     when(result.getEstimateGasUsedByTransaction()).thenReturn(preRefundGasUsed);
+    when(result.getStateGasUsed()).thenReturn(0L);
 
     // Frontier: 100,000 - 40,000 = 60,000 (benefits from refund)
-    final long frontierGas = BlockGasAccountingStrategy.FRONTIER.calculateBlockGas(tx, result);
-    // EIP-7778: 70,000 (no refund benefit for block accounting)
-    final long eip7778Gas = BlockGasAccountingStrategy.EIP7778.calculateBlockGas(tx, result);
+    final long frontierGas =
+        BlockGasAccountingStrategy.FRONTIER.calculateTransactionRegularGas(tx, result);
+    // Amsterdam: 70,000 (no refund benefit for block accounting)
+    final long amsterdamGas =
+        BlockGasAccountingStrategy.AMSTERDAM.calculateTransactionRegularGas(tx, result);
 
     assertThat(frontierGas).isEqualTo(60_000L);
-    assertThat(eip7778Gas).isEqualTo(70_000L);
-    // EIP-7778 accounts for more gas, preventing block gas limit circumvention
-    assertThat(eip7778Gas).isGreaterThan(frontierGas);
+    assertThat(amsterdamGas).isEqualTo(70_000L);
+    // Amsterdam accounts for more gas, preventing block gas limit circumvention
+    assertThat(amsterdamGas).isGreaterThan(frontierGas);
   }
 
   @Test
@@ -112,11 +118,80 @@ public class BlockGasAccountingStrategyTest {
     final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
     when(result.getGasRemaining()).thenReturn(gasRemaining);
     when(result.getEstimateGasUsedByTransaction()).thenReturn(gasUsed);
+    when(result.getStateGasUsed()).thenReturn(0L);
 
-    final long frontierGas = BlockGasAccountingStrategy.FRONTIER.calculateBlockGas(tx, result);
-    final long eip7778Gas = BlockGasAccountingStrategy.EIP7778.calculateBlockGas(tx, result);
+    final long frontierGas =
+        BlockGasAccountingStrategy.FRONTIER.calculateTransactionRegularGas(tx, result);
+    final long amsterdamGas =
+        BlockGasAccountingStrategy.AMSTERDAM.calculateTransactionRegularGas(tx, result);
 
     assertThat(frontierGas).isEqualTo(gasUsed);
-    assertThat(eip7778Gas).isEqualTo(gasUsed);
+    assertThat(amsterdamGas).isEqualTo(gasUsed);
+  }
+
+  @Test
+  public void amsterdamStrategy_subtractsStateGasFromBlockGas() {
+    final Transaction tx = mock(Transaction.class);
+    when(tx.getGasLimit()).thenReturn(GAS_LIMIT);
+
+    final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
+    when(result.getGasRemaining()).thenReturn(GAS_REMAINING);
+    // estimateGasUsedByTransaction = 70,000 (pre-refund), stateGas = 10,000
+    when(result.getEstimateGasUsedByTransaction()).thenReturn(PRE_REFUND_GAS);
+    when(result.getStateGasUsed()).thenReturn(10_000L);
+
+    // Amsterdam block gas = estimateGas - stateGas = 70,000 - 10,000 = 60,000
+    final long blockGas =
+        BlockGasAccountingStrategy.AMSTERDAM.calculateTransactionRegularGas(tx, result);
+    assertThat(blockGas).isEqualTo(60_000L);
+  }
+
+  @Test
+  public void amsterdamStrategy_effectiveGasUsedIsMaxOfDimensions() {
+    // max(regular=50k, state=80k) = 80k
+    assertThat(BlockGasAccountingStrategy.AMSTERDAM.effectiveGasUsed(50_000L, 80_000L))
+        .isEqualTo(80_000L);
+    // max(regular=80k, state=50k) = 80k
+    assertThat(BlockGasAccountingStrategy.AMSTERDAM.effectiveGasUsed(80_000L, 50_000L))
+        .isEqualTo(80_000L);
+    // Frontier always returns regular gas only
+    assertThat(BlockGasAccountingStrategy.FRONTIER.effectiveGasUsed(50_000L, 80_000L))
+        .isEqualTo(50_000L);
+  }
+
+  @Test
+  public void amsterdamStrategy_hasBlockCapacityPerDimension() {
+    final long blockGasLimit = 100_000L;
+    // Regular used: 60k, State used: 40k
+    // min(remaining_regular, remaining_state) = min(40k, 60k) = 40k
+    assertThat(
+            BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
+                40_000L, 60_000L, 40_000L, blockGasLimit))
+        .isTrue();
+    // txGasLimit=40001 > min(40k, 60k) = 40k — exceeds tighter dimension
+    assertThat(
+            BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
+                40_001L, 60_000L, 40_000L, blockGasLimit))
+        .isFalse();
+
+    // When state gas is 0, only regular headroom matters: 100k - 60k = 40k
+    assertThat(
+            BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
+                40_000L, 60_000L, 0L, blockGasLimit))
+        .isTrue();
+    assertThat(
+            BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
+                40_001L, 60_000L, 0L, blockGasLimit))
+        .isFalse();
+
+    // Frontier only checks regular dimension (same as Amsterdam when stateGas=0)
+    assertThat(
+            BlockGasAccountingStrategy.FRONTIER.hasBlockCapacity(
+                40_000L, 60_000L, 0L, blockGasLimit))
+        .isTrue();
+    assertThat(
+            BlockGasAccountingStrategy.FRONTIER.hasBlockCapacity(
+                40_001L, 60_000L, 0L, blockGasLimit))
+        .isFalse();
   }
 }

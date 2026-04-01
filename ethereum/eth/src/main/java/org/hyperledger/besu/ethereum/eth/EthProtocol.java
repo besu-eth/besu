@@ -32,6 +32,7 @@ public class EthProtocol implements SubProtocol {
   public static final Capability ETH68 = Capability.create(NAME, EthProtocolVersion.V68);
   public static final Capability ETH69 = Capability.create(NAME, EthProtocolVersion.V69);
   public static final Capability ETH70 = Capability.create(NAME, EthProtocolVersion.V70);
+  public static final Capability ETH71 = Capability.create(NAME, EthProtocolVersion.V71);
   public static final BitSet REQUEST_ID_MESSAGES;
 
   static {
@@ -46,14 +47,16 @@ public class EthProtocol implements SubProtocol {
             EthProtocolMessages.GET_NODE_DATA,
             EthProtocolMessages.NODE_DATA,
             EthProtocolMessages.GET_RECEIPTS,
-            EthProtocolMessages.RECEIPTS);
+            EthProtocolMessages.RECEIPTS,
+            EthProtocolMessages.GET_BLOCK_ACCESS_LISTS,
+            EthProtocolMessages.BLOCK_ACCESS_LISTS);
     REQUEST_ID_MESSAGES =
         new BitSet(requestIdMessages.stream().mapToInt(i -> i).max().getAsInt() + 1);
     requestIdMessages.forEach(REQUEST_ID_MESSAGES::set);
   }
 
   // Latest version of the Eth protocol
-  public static final Capability LATEST = ETH70;
+  public static final Capability LATEST = ETH71;
 
   public static boolean requestIdCompatible(final int code) {
     return REQUEST_ID_MESSAGES.get(code);
@@ -69,6 +72,7 @@ public class EthProtocol implements SubProtocol {
     return switch (protocolVersion) {
       case EthProtocolVersion.V68 -> 17;
       case EthProtocolVersion.V69, EthProtocolVersion.V70 -> 18;
+      case EthProtocolVersion.V71 -> 20;
       default -> 0;
     };
   }
@@ -96,6 +100,9 @@ public class EthProtocol implements SubProtocol {
       case EthProtocolMessages.NODE_DATA -> "NodeData";
       case EthProtocolMessages.GET_RECEIPTS -> "GetReceipts";
       case EthProtocolMessages.RECEIPTS -> "Receipts";
+      case EthProtocolMessages.BLOCK_RANGE_UPDATE -> "BlockRangeUpdate";
+      case EthProtocolMessages.GET_BLOCK_ACCESS_LISTS -> "GetBlockAccessLists";
+      case EthProtocolMessages.BLOCK_ACCESS_LISTS -> "BlockAccessLists";
       default -> INVALID_MESSAGE_NAME;
     };
   }
@@ -110,5 +117,9 @@ public class EthProtocol implements SubProtocol {
 
   public static boolean isEth70Compatible(final Capability capability) {
     return NAME.equals(capability.getName()) && capability.getVersion() >= ETH70.getVersion();
+  }
+
+  public static boolean isEth71Compatible(final Capability capability) {
+    return NAME.equals(capability.getName()) && capability.getVersion() >= ETH71.getVersion();
   }
 }

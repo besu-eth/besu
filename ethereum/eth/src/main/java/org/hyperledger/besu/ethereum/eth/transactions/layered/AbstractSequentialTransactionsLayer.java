@@ -22,6 +22,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
+import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemovalReason.PoolRemovalReason;
@@ -121,6 +122,13 @@ public abstract class AbstractSequentialTransactionsLayer extends AbstractTransa
       return OptionalLong.of(senderTxs.firstKey());
     }
     return nextLayer.getCurrentNonceFor(sender);
+  }
+
+  @Override
+  public PendingTransactions.Status getStatus() {
+    final PendingTransactions.Status nextLayerStatus = nextLayer.getStatus();
+    return new PendingTransactions.Status(
+        nextLayerStatus.pendingCount() + pendingTransactions.size(), nextLayerStatus.queuedCount());
   }
 
   @Override

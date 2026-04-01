@@ -683,7 +683,7 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
         blockSelectionContext
             .protocolSpec()
             .getBlockGasAccountingStrategy()
-            .calculateBlockGas(transaction, processingResult);
+            .calculateTransactionRegularGas(transaction, processingResult);
 
     // Receipt gas: Standard post-refund calculation (gasLimit - gasRemaining)
     // This is used for receipt cumulativeGasUsed field
@@ -882,7 +882,7 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
                   .ifPresent(blockAccessListBuilder::apply));
 
       transactionSelectionResults.updateSelected(
-          transaction, receipt, blockGasUsed, receiptGasUsed);
+          transaction, receipt, blockGasUsed, receiptGasUsed, processingResult.getStateGasUsed());
 
       notifySelected(evaluationContext, processingResult);
       LOG.atTrace()

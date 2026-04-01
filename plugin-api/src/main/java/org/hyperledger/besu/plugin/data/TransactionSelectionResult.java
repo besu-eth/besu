@@ -165,13 +165,6 @@ public class TransactionSelectionResult {
       new TransactionSelectionResult(BaseStatus.INVALID_TX_EVALUATION_TOO_LONG);
 
   /**
-   * The transaction has not been selected since too large and the occupancy of the block is enough
-   * to stop the selection.
-   */
-  public static final TransactionSelectionResult BLOCK_OCCUPANCY_ABOVE_THRESHOLD =
-      new TransactionSelectionResult(BaseStatus.BLOCK_OCCUPANCY_ABOVE_THRESHOLD);
-
-  /**
    * There was an unhandled exception during the evaluation of the transaction. If this occurs, it
    * indicates there is a bug somewhere.
    */

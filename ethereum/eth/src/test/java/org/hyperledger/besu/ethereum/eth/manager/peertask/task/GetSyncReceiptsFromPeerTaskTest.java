@@ -34,7 +34,9 @@ import org.hyperledger.besu.ethereum.core.SyncBlock;
 import org.hyperledger.besu.ethereum.core.SyncBlockBody;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptEncoder;
+import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.core.Utils;
@@ -422,6 +424,35 @@ public class GetSyncReceiptsFromPeerTaskTest {
                 // for the requested block, receipts returned are from another block
                 Map.of(mockedRequestedBlock.block, toResponseReceipts(anotherBlockReceipts)),
                 List.of())));
+  }
+
+  @Test
+  public void validateResultPassesForFrontierReceiptsAfterDecoderRoundTrip() {
+    // Regression test for eth/69 Frontier receipt root calculation.
+    // Exercises the full decode path (encodeForRootCalculation is invoked) rather than
+    // the single-arg constructor path used by toResponseReceipt() in other tests.
+    final MockedBlock block = mockBlock(1, 2);
+
+    final GetSyncReceiptsFromPeerTask task =
+        createTask(new Request(List.of(block.block), List.of()), protocolSchedule);
+
+    final SyncTransactionReceiptDecoder decoder = new SyncTransactionReceiptDecoder();
+    final List<SyncTransactionReceipt> decodedReceipts =
+        block.receipts.stream()
+            .map(
+                receipt -> {
+                  final BytesValueRLPOutput out = new BytesValueRLPOutput();
+                  TransactionReceiptEncoder.writeTo(
+                      receipt,
+                      out,
+                      TransactionReceiptEncodingConfiguration.ETH69_RECEIPT_CONFIGURATION);
+                  return decoder.decode(out.encoded());
+                })
+            .toList();
+
+    assertEquals(
+        PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD,
+        task.validateResult(new Response(Map.of(block.block, decodedReceipts), List.of())));
   }
 
   @Test

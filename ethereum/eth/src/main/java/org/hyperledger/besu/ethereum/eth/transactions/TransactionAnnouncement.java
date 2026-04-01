@@ -50,4 +50,13 @@ public record TransactionAnnouncement(Hash hash, TransactionType type, Long size
     }
     return transactions;
   }
+
+  public static List<TransactionAnnouncement> create(final List<Transaction> transactions) {
+    List<TransactionAnnouncement> list = new ArrayList<>(transactions.size());
+    for (Transaction transaction : transactions) {
+      TransactionAnnouncement announcement = new TransactionAnnouncement(transaction);
+      list.add(announcement);
+    }
+    return list;
+  }
 }

@@ -131,6 +131,7 @@ public abstract class AbstractTestTransactionSelectorPlugin implements BesuPlugi
 
                 @Override
                 public PluginTransactionSelector create(
+                    final ProcessableBlockHeader pendingBlockHeader,
                     final SelectorsStateManager selectorsStateManager) {
                   return new PluginTransactionSelector() {
 

@@ -21,23 +21,54 @@ import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
  * Strategy interface for calculating gas to add to a block's cumulative gas used. This allows
  * different hard forks to use different gas accounting methods.
  *
- * <p>Prior to EIP-7778: Block gas is calculated POST-refund (gasLimit - gasRemaining), which
+ * <p>Prior to Amsterdam: Block gas is calculated POST-refund (gasLimit - gasRemaining), which
  * includes the benefit of gas refunds from SSTORE operations.
  *
- * <p>EIP-7778 (Amsterdam+): Block gas is calculated PRE-refund (estimateGasUsedByTransaction),
- * preventing block gas limit circumvention through refund credits.
+ * <p>Amsterdam (EIP-7778 + EIP-8037): Block gas is calculated PRE-refund and split into regular and
+ * state dimensions, preventing block gas limit circumvention through refund credits.
  */
-@FunctionalInterface
 public interface BlockGasAccountingStrategy {
 
   /**
-   * Calculate the gas to add to the block's cumulative gas used for a transaction.
+   * Calculate a transaction's regular gas contribution to the block's cumulative gas used.
    *
    * @param transaction the transaction being processed
    * @param result the transaction processing result
-   * @return the gas amount to add to the block's cumulative gas used
+   * @return the regular gas used by the transaction for block accounting
    */
-  long calculateBlockGas(Transaction transaction, TransactionProcessingResult result);
+  long calculateTransactionRegularGas(Transaction transaction, TransactionProcessingResult result);
+
+  /**
+   * Check whether the block has capacity for a transaction with the given gas limit. For 1D gas
+   * (pre-EIP-8037), this checks regular gas only. For 2D gas (EIP-8037), the tx gas limit must fit
+   * within the remaining capacity of each dimension independently, since gas_metered =
+   * max(cumulative_regular, cumulative_state) must stay within the block gas limit.
+   *
+   * @param txGasLimit the gas limit of the candidate transaction
+   * @param cumulativeRegularGas cumulative regular gas used so far
+   * @param cumulativeStateGas cumulative state gas used so far
+   * @param blockGasLimit the block gas limit
+   * @return true if the block has capacity for this transaction
+   */
+  default boolean hasBlockCapacity(
+      final long txGasLimit,
+      final long cumulativeRegularGas,
+      final long cumulativeStateGas,
+      final long blockGasLimit) {
+    return txGasLimit <= blockGasLimit - cumulativeRegularGas;
+  }
+
+  /**
+   * Calculate the effective gas used for occupancy and fullness checks. For 1D gas, this is just
+   * the regular gas. For 2D gas (EIP-8037), this is max(regular, state).
+   *
+   * @param cumulativeRegularGas cumulative regular gas used
+   * @param cumulativeStateGas cumulative state gas used
+   * @return the effective gas used
+   */
+  default long effectiveGasUsed(final long cumulativeRegularGas, final long cumulativeStateGas) {
+    return cumulativeRegularGas;
+  }
 
   /**
    * Frontier through BPO5: Uses post-refund gas (gasLimit - gasRemaining). This is the traditional
@@ -46,10 +77,40 @@ public interface BlockGasAccountingStrategy {
   BlockGasAccountingStrategy FRONTIER = (tx, result) -> tx.getGasLimit() - result.getGasRemaining();
 
   /**
-   * EIP-7778 (Amsterdam+): Uses pre-refund gas (estimateGasUsedByTransaction). This prevents block
-   * gas limit circumvention by not crediting refunds back to the block's gas budget.
+   * Amsterdam (EIP-7778 + EIP-8037): Uses pre-refund gas split into regular and state dimensions.
+   *
+   * <p>EIP-7778: Block gas is calculated pre-refund (estimateGasUsedByTransaction), preventing
+   * block gas limit circumvention through refund credits.
+   *
+   * <p>EIP-8037: Gas is split into regular and state portions. Regular gas =
+   * estimateGasUsedByTransaction - stateGasUsed. Block gas_metered = max(cumulative_regular,
+   * cumulative_state).
    */
-  BlockGasAccountingStrategy EIP7778 = (tx, result) -> result.getEstimateGasUsedByTransaction();
+  BlockGasAccountingStrategy AMSTERDAM =
+      new BlockGasAccountingStrategy() {
+        @Override
+        public long calculateTransactionRegularGas(
+            final Transaction transaction, final TransactionProcessingResult result) {
+          return result.getEstimateGasUsedByTransaction() - result.getStateGasUsed();
+        }
+
+        @Override
+        public boolean hasBlockCapacity(
+            final long txGasLimit,
+            final long cumulativeRegularGas,
+            final long cumulativeStateGas,
+            final long blockGasLimit) {
+          final long remainingRegular = Math.max(0, blockGasLimit - cumulativeRegularGas);
+          final long remainingState = Math.max(0, blockGasLimit - cumulativeStateGas);
+          return txGasLimit <= Math.min(remainingRegular, remainingState);
+        }
+
+        @Override
+        public long effectiveGasUsed(
+            final long cumulativeRegularGas, final long cumulativeStateGas) {
+          return Math.max(cumulativeRegularGas, cumulativeStateGas);
+        }
+      };
 
   /**
    * Calculates the gas to be used in transaction receipts. This is always the standard post-refund

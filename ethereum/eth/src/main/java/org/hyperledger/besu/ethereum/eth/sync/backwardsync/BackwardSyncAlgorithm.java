@@ -63,6 +63,7 @@ public class BackwardSyncAlgorithm implements BesuEvents.InitialSyncCompletionLi
       return waitForReady();
     }
     if (firstHash.isPresent()) {
+      LOG.atDebug().setMessage("BWS step: processing hash {}").addArgument(firstHash.get()).log();
       return handleSyncStep(firstHash.get());
     }
     final Optional<BlockHeader> maybeFirstAncestorHeader =
@@ -79,6 +80,10 @@ public class BackwardSyncAlgorithm implements BesuEvents.InitialSyncCompletionLi
     final BlockHeader chainHeader = blockchain.getChainHeadHeader();
     if (blockchain.contains(firstAncestorHeader.getHash())
         && firstAncestorHeader.getNumber() <= chainHeader.getNumber()) {
+      LOG.atDebug()
+          .setMessage("BWS step: processing known ancestors from {}")
+          .addArgument(firstAncestorHeader::toLogString)
+          .log();
       return executeProcessKnownAncestors();
     }
 
@@ -92,12 +97,16 @@ public class BackwardSyncAlgorithm implements BesuEvents.InitialSyncCompletionLi
 
     if (finalBlockConfirmation.ancestorHeaderReached(firstAncestorHeader)) {
       LOG.atDebug()
-          .setMessage("Backward sync reached ancestor header with {}, starting forward sync")
+          .setMessage("BWS step: ancestor confirmed {}, starting forward sync")
           .addArgument(firstAncestorHeader::toLogString)
           .log();
       return executeForwardAsync();
     }
 
+    LOG.atDebug()
+        .setMessage("BWS step: fetching headers backward from {}")
+        .addArgument(firstAncestorHeader::toLogString)
+        .log();
     return executeBackwardAsync(firstAncestorHeader);
   }
 

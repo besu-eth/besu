@@ -39,7 +39,6 @@ import java.util.List;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes32;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 public class TestingBuildBlockJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
@@ -51,8 +50,7 @@ public class TestingBuildBlockJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpB
       Address.fromHexString("0x627306090abaB3A6e1400e9345bC60c78a8BEf57");
 
   @Override
-  @BeforeEach
-  public void setup() throws Exception {
+  protected void doSetup() throws Exception {
     blockchainSetupUtil = getBlockchainSetupUtil(DataStorageFormat.BONSAI);
     blockchainSetupUtil.importAllBlocks();
     startService();

@@ -222,7 +222,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
       final var pluginTransactionSelector =
           miningConfiguration
               .getTransactionSelectionService()
-              .createPluginTransactionSelector(selectorsStateManager);
+              .createPluginTransactionSelector(processableBlockHeader, selectorsStateManager);
       final var operationTracer = pluginTransactionSelector.getOperationTracer();
       operationTracer.traceStartBlock(
           disposableWorldState, processableBlockHeader, miningBeneficiary);
@@ -326,7 +326,10 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
                   BodyValidation.transactionsRoot(transactionResults.getSelectedTransactions()))
               .receiptsRoot(BodyValidation.receiptsRoot(transactionResults.getReceipts()))
               .logsBloom(BodyValidation.logsBloom(transactionResults.getReceipts()))
-              .gasUsed(transactionResults.getCumulativeGasUsed())
+              .gasUsed(
+                  Math.max(
+                      transactionResults.getCumulativeRegularGasUsed(),
+                      transactionResults.getCumulativeStateGasUsed()))
               .extraData(extraDataCalculator.get(parentHeader))
               .withdrawalsRoot(
                   withdrawalsCanBeProcessed

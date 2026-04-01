@@ -124,13 +124,6 @@ public class TransitionControllerBuilderTest {
   }
 
   @Test
-  public void assertCliqueMiningOverridePreMerge() {
-    assertThat(miningConfiguration.isMiningEnabled()).isFalse();
-    var transCoordinator = buildTransitionCoordinator(cliqueBuilder, postMergeBuilder);
-    assertThat(transCoordinator.isMiningBeforeMerge()).isTrue();
-  }
-
-  @Test
   public void assertPoWIsNotMiningPreMerge() {
     assertThat(miningConfiguration.isMiningEnabled()).isFalse();
     var transCoordinator = buildTransitionCoordinator(powBuilder, postMergeBuilder);

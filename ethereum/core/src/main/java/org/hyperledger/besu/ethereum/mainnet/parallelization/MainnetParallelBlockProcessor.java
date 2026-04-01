@@ -151,7 +151,6 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
             block,
             blockAccessList,
             new ParallelTransactionPreprocessing(transactionProcessor, executor, balConfiguration));
-
     if (blockProcessingResult.isFailed()) {
       // Fallback to non-parallel processing if there is a block processing exception .
       LOG.info(

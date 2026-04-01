@@ -15,10 +15,13 @@
 package org.hyperledger.besu.evm;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.InstanceOfAssertFactories.array;
 
 import java.math.BigInteger;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Random;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -389,7 +392,86 @@ public class UInt256Test {
         Arguments.of(
             "0x7effffff8000000000000000000000000000000000000000d900000000000001",
             "0x010000000000000000",
-            "0x7effffff800000007effffff800000008000ff00000100007effffff80000000"));
+            "0x7effffff800000007effffff800000008000ff00000100007effffff80000000"),
+        // UInt128 M-R path: modReduceNormalisedSlowPath(UInt576) branch coverage
+        // (128-bit modulus, at least one operand > 128 bits triggers multiply-then-reduce)
+        // Branch 5 (else, 3 reduceSteps): product ~258 bits
+        Arguments.of(
+            "0x0100000000000000010000000000000001",
+            "0x0100000000000000010000000000000001",
+            "0x80000000000000000000000000000001"),
+        // Branch 4 (4 reduceSteps): product ~321 bits
+        Arguments.of(
+            "0x01000000000000000000000000000000010000000000000001",
+            "0x0100000000000000010000000000000001",
+            "0x80000000000000000000000000000001"),
+        // Branch 3 (5 reduceSteps): product ~384 bits
+        Arguments.of(
+            "0x8000000000000000000000000000000000000000000000010000000000000001",
+            "0x0100000000000000010000000000000001",
+            "0x80000000000000000000000000000001"),
+        // Branch 2 (6 reduceSteps): product ~448 bits
+        Arguments.of(
+            "0x8000000000000000000000000000000000000000000000010000000000000001",
+            "0x01000000000000000000000000000000010000000000000001",
+            "0x80000000000000000000000000000001"),
+        // Branch 1 via v.u7 >= u1 (7 reduceSteps): product ~512 bits, shift=0
+        Arguments.of(
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "0x80000000000000000000000000000001"),
+        // Branch 1 via v.u8 != 0 (7 reduceSteps): shifted product > 512 bits, shift=1
+        Arguments.of(
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "0x40000000000000000000000000000001"),
+        // UInt128 mulSubOverflow through M-R: triggers v2 == u1 in reduceStep
+        Arguments.of(
+            "0x7effffff80000000000000000000000000000000000000000000000000000001",
+            "0x01000000000000000000000000000000000000000000000001",
+            "0x7effffff800000007fffffffffffffff"),
+        // Noisy: 256-bit x 64-bit operands, 128-bit modulus
+        Arguments.of(
+            "0xdeadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabe",
+            "0xcafebabedeadbeef",
+            "0x80000000000000000000000000000001"),
+        // UInt192 M-R path: modReduceNormalisedSlowPath(UInt576) branch coverage
+        // (192-bit modulus, at least one operand > 192 bits triggers multiply-then-reduce)
+        // Branch 4 (else, 3 reduceSteps): product ~321 bits
+        Arguments.of(
+            "0x01000000000000000000000000000000010000000000000001",
+            "0x0100000000000000010000000000000001",
+            "0x800000000000000000000000000000000000000000000001"),
+        // Branch 3 (4 reduceSteps): product ~384 bits
+        Arguments.of(
+            "0x8000000000000000000000000000000000000000000000010000000000000001",
+            "0x0100000000000000010000000000000001",
+            "0x800000000000000000000000000000000000000000000001"),
+        // Branch 2 (5 reduceSteps): product ~448 bits
+        Arguments.of(
+            "0x8000000000000000000000000000000000000000000000010000000000000001",
+            "0x01000000000000000000000000000000010000000000000001",
+            "0x800000000000000000000000000000000000000000000001"),
+        // Branch 1 via v.u7 >= u2 (6 reduceSteps): product ~512 bits, shift=0
+        Arguments.of(
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "0x800000000000000000000000000000000000000000000001"),
+        // Branch 1 via v.u8 != 0 (6 reduceSteps): shifted product > 512 bits, shift=1
+        Arguments.of(
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "0x400000000000000000000000000000000000000000000001"),
+        // UInt192 mulSubOverflow through M-R: triggers v3 == u2 in reduceStep
+        Arguments.of(
+            "0x8200000000000000000000000000000000000000000000000000000000000001",
+            "0x01000000000000000000000000000000000000000000000001",
+            "0x8200000000000000fe000004000000ffff000000fffff700"),
+        // Noisy: 256-bit x 128-bit operands, 192-bit modulus
+        Arguments.of(
+            "0xdeadbeefcafebabedeadbeefcafebabedeadbeefcafebabedeadbeefcafebabe",
+            "0xcafebabedeadbeefcafebabedeadbeef",
+            "0x800000000000000000000000000000000000000000000001"));
   }
 
   @Test
@@ -426,6 +508,50 @@ public class UInt256Test {
   }
 
   @Test
+  public void mulModRandomWideMR() {
+    // Targeted random test for the M-R (multiply-then-reduce) path in UInt128 and UInt192.
+    // Generates 128-bit or 192-bit moduli with a 256-bit first operand (always exceeds modulus
+    // width) and a varying-width second operand to exercise different branches of
+    // modReduceNormalisedSlowPath(UInt576).
+    final Random random = new Random(456789);
+    for (int i = 0; i < SAMPLE_SIZE; i++) {
+      // Generate modulus of 128-bit or 192-bit width
+      int modWidth = random.nextBoolean() ? 16 : 24;
+      final byte[] modArray = new byte[modWidth];
+      random.nextBytes(modArray);
+      modArray[0] |= (byte) 0x80; // ensure exact width (MSB set)
+
+      // First operand: always 256 bits (exceeds both 128 and 192 modulus width)
+      final byte[] aArray = new byte[32];
+      random.nextBytes(aArray);
+      aArray[0] |= (byte) 0x80; // ensure 256 bits
+
+      // Second operand: varying width to hit different slow-path branches
+      int bWidth = random.nextInt(1, 33);
+      final byte[] bArray = new byte[bWidth];
+      random.nextBytes(bArray);
+
+      BigInteger aInt = new BigInteger(1, aArray);
+      BigInteger bInt = new BigInteger(1, bArray);
+      BigInteger mInt = new BigInteger(1, modArray);
+      UInt256 a = UInt256.fromBytesBE(aArray);
+      UInt256 b = UInt256.fromBytesBE(bArray);
+      UInt256 m = UInt256.fromBytesBE(modArray);
+      Bytes32 remainder = Bytes32.leftPad(Bytes.wrap(a.mulMod(b, m).toBytesBE()));
+      Bytes32 expected =
+          BigInteger.ZERO.compareTo(mInt) == 0
+              ? Bytes32.ZERO
+              : bigIntTo32B(aInt.multiply(bInt).mod(mInt));
+      assertThat(remainder)
+          .withFailMessage(
+              String.format(
+                  "Failure detected:\n%s.MULMOD(%s, %s)\n",
+                  a.toHexString(), b.toHexString(), m.toHexString()))
+          .isEqualTo(expected);
+    }
+  }
+
+  @Test
   public void signedModRandom() {
     final Random random = new Random(432);
     for (int i = 0; i < SAMPLE_SIZE; i++) {
@@ -436,6 +562,10 @@ public class UInt256Test {
       byte[] bArray = new byte[bSize];
       random.nextBytes(aArray);
       random.nextBytes(bArray);
+
+      aArray = negate(aArray, random.nextBoolean());
+      bArray = negate(bArray, random.nextBoolean());
+
       if ((aSize < 32) && (neg)) {
         byte[] tmp = new byte[32];
         Arrays.fill(tmp, (byte) 0xFF);
@@ -465,5 +595,168 @@ public class UInt256Test {
               String.format("Failure detected:\n%s.SMOD(%s)\n", a.toHexString(), b.toHexString()))
           .isEqualTo(expected);
     }
+  }
+
+  @Test
+  public void divRandom() {
+    final Random random = new Random(45532);
+    for (int i = 0; i < SAMPLE_SIZE; i++) {
+      int aSize = random.nextInt(1, 33);
+      int bSize = random.nextInt(1, 33);
+      byte[] aArray = new byte[aSize];
+      byte[] bArray = new byte[bSize];
+      random.nextBytes(aArray);
+      random.nextBytes(bArray);
+      UInt256 a = UInt256.fromBytesBE(aArray);
+      UInt256 b = UInt256.fromBytesBE(bArray);
+      UInt256 q = a.div(b);
+      BigInteger aInt = new BigInteger(1, aArray);
+      BigInteger bInt = new BigInteger(1, bArray);
+      Bytes32 qBytes = Bytes32.leftPad(Bytes.wrap(q.toBytesBE()));
+      Bytes32 expected = Bytes32.ZERO;
+      if (BigInteger.ZERO.compareTo(bInt) != 0) {
+        BigInteger quotient = aInt.divide(bInt);
+        expected = bigIntTo32B(quotient, 1);
+      }
+      assertThat(qBytes)
+          .withFailMessage(
+              String.format("Failure detected:\n%s.DIV(%s)\n", a.toHexString(), b.toHexString()))
+          .isEqualTo(expected);
+    }
+  }
+
+  @Test
+  public void signedDivRandom() {
+    final Random random = new Random(957467);
+    for (int i = 0; i < SAMPLE_SIZE; i++) {
+      int aSize = random.nextInt(1, 33);
+      int bSize = random.nextInt(1, 33);
+      byte[] aArray = new byte[aSize];
+      byte[] bArray = new byte[bSize];
+      random.nextBytes(aArray);
+      random.nextBytes(bArray);
+
+      aArray = negate(aArray, random.nextBoolean());
+      bArray = negate(bArray, random.nextBoolean());
+
+      UInt256 a = UInt256.fromBytesBE(aArray);
+      UInt256 b = UInt256.fromBytesBE(bArray);
+      UInt256 q = a.signedDiv(b);
+      BigInteger aInt = a.isNegative() ? new BigInteger(aArray) : new BigInteger(1, aArray);
+      BigInteger bInt = b.isNegative() ? new BigInteger(bArray) : new BigInteger(1, bArray);
+      Bytes32 qBytes = Bytes32.leftPad(Bytes.wrap(q.toBytesBE()));
+      Bytes32 expected = Bytes32.ZERO;
+      if (BigInteger.ZERO.compareTo(bInt) != 0) {
+        BigInteger quotient = aInt.divide(bInt);
+        expected = bigIntTo32B(quotient, quotient.signum());
+      }
+      assertThat(qBytes)
+          .withFailMessage(
+              String.format("Failure detected:\n%s.SDIV(%s)\n", a.toHexString(), b.toHexString()))
+          .isEqualTo(expected);
+    }
+  }
+
+  private static byte[] negate(final byte[] array, final boolean negate) {
+    if (!negate || array.length >= 32) {
+      return array;
+    }
+    byte[] tmp = new byte[32];
+    Arrays.fill(tmp, (byte) 0xFF);
+    System.arraycopy(array, 0, tmp, 32 - array.length, array.length);
+    return tmp;
+  }
+
+  @ParameterizedTest
+  @MethodSource("testCases")
+  void div_sdiv(final String numerator, final String denominator, final int sign) {
+    byte[] aArray = Bytes32.leftPad(Bytes.fromHexString(numerator)).toArray();
+    byte[] bArray = Bytes32.leftPad(Bytes.fromHexString(denominator)).toArray();
+    final UInt256 a = UInt256.fromBytesBE(aArray);
+    final UInt256 b = UInt256.fromBytesBE(bArray);
+
+    BigInteger aInt = sign < 0 ? new BigInteger(aArray) : new BigInteger(1, aArray);
+    BigInteger bInt = sign < 0 ? new BigInteger(bArray) : new BigInteger(1, bArray);
+
+    final Bytes32 qBytes =
+        sign < 0
+            ? Bytes32.leftPad(Bytes.wrap(a.signedDiv(b).toBytesBE()))
+            : Bytes32.leftPad(Bytes.wrap(a.div(b).toBytesBE()));
+
+    Bytes32 expected = Bytes32.ZERO;
+    if (BigInteger.ZERO.compareTo(bInt) != 0) {
+      BigInteger quotient = aInt.divide(bInt);
+      expected = bigIntTo32B(quotient, quotient.signum());
+    }
+    assertThat(qBytes).isEqualTo(expected);
+  }
+
+  static Collection<Object[]> testCases() {
+    return Arrays.stream(
+            new Object[][] {
+              {"0x00", "0x01"},
+              {"0x50", "0x21"},
+              {
+                "0x120d7a733f5016ad9fae51cb9896e15a96147719fe0379d0cb2642a6951e0a5c",
+                "0x007cdab49aba612fb02bd738a74c76789bc9a911c90296502a35df43e939e6e2"
+              },
+              {"0xa7f576de3a6c", "0xfffffffffef1c296a4c6"},
+              {"0xffffffffffffffffffffffff6bacfb1469f9a4d5674a85b75f951d72d7a58e4a", "0x020000"},
+              {"0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "0x01"},
+              {"0x01", "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"},
+              {
+                "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+              },
+              {
+                "0x8000000000000000000000000000000000000000000000000000000000000000",
+                "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+              },
+              {"0x1598209296af93c13b2f5fde7d8e99", "0x09244c1368"},
+              {
+                "0xfffffffffffffff9309d38241af6a2545b52958d000000000000000000000000",
+                "0xb17217f7d1cf79abc9e3b398"
+              },
+              {"0xa7f576de3a6c", "0xa7f576de3a6c"},
+              {"0x9c2c35e6c180771cda86cde561fe7609b9e89e8e5b", "0x993951396a774e675e93bea2e77c"},
+              {
+                "0xa73fc792edbfb1038115f77a37613b8f5b64837e28768c9dd90828",
+                "0x0700b2d7adda7612da7f95"
+              },
+              {"0xbf1256135bb3f72de074d0f237", "0x8b63235ac1765530"},
+              {"0x5b35862b0027a502b1d4cbc4a09e25", "0x932542f4003763"},
+              {
+                // Multiply and subtract overflows and we need to decrement quotient estimation -
+                // UInt192 case
+                "0x8200000000000000000000000000000000000000000000000000000000000000",
+                "0x8200000000000000fe000004000000ffff000000fffff700"
+              },
+              {
+                // Multiply and subtract overflows and we need to decrement quotient estimation -
+                // UInt128 case
+                "0x820000000000000000000000000000000000000000000000",
+                "0x8200000000000000fe00000000000001"
+              },
+            })
+        .flatMap(
+            inputs ->
+                IntStream.of(-1, 1)
+                    .mapToObj(
+                        sign -> {
+                          Object[] newInputs = Arrays.copyOf(inputs, inputs.length + 1);
+                          newInputs[inputs.length] = sign;
+                          return newInputs;
+                        }))
+        .toList();
+  }
+
+  @Test
+  void compare() {
+    assertThat(UInt256.compare(null, UInt256.ONE)).isEqualTo(-1);
+    assertThat(UInt256.compare(null, null)).isEqualTo(0);
+    assertThat(UInt256.compare(UInt256.ONE, null)).isEqualTo(1);
+    assertThat(UInt256.compare(UInt256.ZERO, UInt256.ZERO)).isEqualTo(0);
+    assertThat(UInt256.compare(UInt256.ONE, UInt256.ZERO)).isEqualTo(1);
+    assertThat(UInt256.compare(UInt256.ZERO, UInt256.ONE)).isEqualTo(-1);
   }
 }

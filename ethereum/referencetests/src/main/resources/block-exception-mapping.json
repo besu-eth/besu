@@ -1,0 +1,97 @@
+{
+  "_comment": "Maps execution-spec-tests exception keys to Besu error-message patterns produced by validateAndProcessBlock (not the engine API). Organized by validation stage. Source: https://github.com/ethereum/execution-specs",
+
+  "substring": {
+
+    "_comment_header": "Header validation — DetachedBlockHeaderValidationRule failures (gas limit, timestamp, basefee, extra data, blob gas, etc.)",
+    "BlockException.BLOB_GAS_USED_ABOVE_LIMIT":                  "Header validation failed",
+    "BlockException.EXTRA_DATA_TOO_BIG":                         "Header validation failed",
+    "BlockException.GASLIMIT_TOO_BIG":                           "Header validation failed",
+    "BlockException.IMPORT_IMPOSSIBLE_DIFFICULTY_OVER_PARIS":    "Header validation failed",
+    "BlockException.IMPORT_IMPOSSIBLE_UNCLES_OVER_PARIS":        "Header validation failed",
+    "BlockException.INCORRECT_EXCESS_BLOB_GAS":                  "Header validation failed",
+    "BlockException.INVALID_BASEFEE_PER_GAS":                    "Header validation failed",
+    "BlockException.INVALID_BLOCK_NUMBER":                       "Header validation failed",
+    "BlockException.INVALID_BLOCK_TIMESTAMP_OLDER_THAN_PARENT":  "Header validation failed",
+    "BlockException.INVALID_GASLIMIT":                           "Header validation failed",
+
+    "_comment_body": "Block body validation — MainnetBlockBodyValidator failures (receipts root, tx root, log bloom, withdrawals root, etc.)",
+    "BlockException.INVALID_LOG_BLOOM":                          "failed to validate output of imported block",
+    "BlockException.INVALID_RECEIPTS_ROOT":                      "failed to validate output of imported block",
+    "BlockException.INVALID_TRANSACTIONS_ROOT":                  "failed to validate output of imported block",
+    "BlockException.INVALID_WITHDRAWALS_ROOT":                   "failed to validate output of imported block",
+    "BlockException.RLP_WITHDRAWALS_NOT_READ":                   "failed to validate output of imported block",
+
+    "_comment_state": "World state — state root mismatch after block execution",
+    "BlockException.INVALID_STATE_ROOT":                         "World State Root does not match expected value",
+
+    "_comment_bal": "Block Access List (BAL) — EIP-7928 block access list validation (keep even if unmatched, BAL is evolving)",
+    "BlockException.BLOCK_ACCESS_LIST_GAS_LIMIT_EXCEEDED":       "Block access list validation failed for block",
+    "BlockException.INCORRECT_BLOCK_FORMAT":                     "Block access list validation failed for block",
+    "BlockException.INVALID_BAL_EXTRA_ACCOUNT":                  "Block access list validation failed for block",
+    "BlockException.INVALID_BAL_MISSING_ACCOUNT":                "Block access list hash mismatch",
+
+    "_comment_tx_gas": "Transaction gas/fee errors — rejected by MainnetTransactionValidator",
+    "TransactionException.GASLIMIT_PRICE_PRODUCT_OVERFLOW":      "invalid Upfront gas cost cannot exceed 2^256 Wei",
+    "TransactionException.GAS_ALLOWANCE_EXCEEDED":               "provided gas insufficient",
+    "TransactionException.INSUFFICIENT_MAX_FEE_PER_BLOB_GAS":   "transaction invalid tx max fee per blob gas less than block blob gas fee",
+    "TransactionException.INSUFFICIENT_MAX_FEE_PER_GAS":        "transaction invalid gasPrice is less than the current BaseFee",
+    "TransactionException.NONCE_IS_MAX":                         "invalid Nonce must be less than",
+    "TransactionException.PRIORITY_GREATER_THAN_MAX_FEE_PER_GAS": "transaction invalid max priority fee per gas cannot be greater than max fee per gas",
+
+    "_comment_tx_type": "Transaction type errors — wrong tx type for the fork",
+    "TransactionException.TYPE_3_TX_CONTRACT_CREATION":          "transaction invalid transaction blob transactions must have a to address",
+    "TransactionException.TYPE_4_EMPTY_AUTHORIZATION_LIST":      "transaction invalid transaction code delegation transactions must have a non-empty code delegation list",
+    "TransactionException.TYPE_4_TX_CONTRACT_CREATION":          "transaction invalid transaction code delegation transactions must have a to address",
+    "TransactionException.TYPE_4_TX_PRE_FORK":                   "transaction invalid Transaction type DELEGATE_CODE is invalid"
+  },
+
+  "regex": {
+
+    "_comment_header_regex": "Header validation — when multiple error messages are possible depending on validation mode or fork",
+    "BlockException.EXTRA_DATA_INVALID_DAO":                     "Header validation failed|World State Root does not match",
+    "BlockException.GAS_USED_OVERFLOW":                          "provided gas insufficient|Header validation failed \\(",
+    "BlockException.INCORRECT_BLOB_GAS_USED":                    "block did not consume expected blob gas|Header validation failed \\(LIGHT\\)",
+
+    "_comment_body_regex": "Block body / output validation — multiple possible error paths",
+    "BlockException.INVALID_GAS_USED":                           "failed to validate output of imported block|World State Root does not match",
+    "BlockException.RLP_STRUCTURES_ENCODING":                    "failed to validate output of imported block|Header validation failed",
+
+    "_comment_rlp": "RLP / block structure errors",
+    "BlockException.RLP_BLOCK_LIMIT_EXCEEDED":                   "Block size of \\d+ bytes exceeds limit of \\d+ bytes",
+
+    "_comment_parent": "Block chain structure — missing or invalid parent",
+    "BlockException.UNKNOWN_PARENT":                             "Parent block with hash 0x[0-9a-f]+ not present",
+    "BlockException.UNKNOWN_PARENT_ZERO":                        "Parent block with hash 0x[0-9a-f]+ not present",
+
+    "_comment_system": "System contract errors — EIP-7002/7251 system call failures",
+    "BlockException.SYSTEM_CONTRACT_CALL_FAILED":                "System call halted|System call did not execute to completion",
+    "BlockException.SYSTEM_CONTRACT_EMPTY":                      "(Invalid system call, no code at address)|(Invalid system call address:)",
+
+    "_comment_deposit_request": "Deposit / request validation — EIP-6110 deposit events and EIP-7685 requests",
+    "BlockException.INVALID_DEPOSIT_EVENT_LAYOUT":               "Invalid (amount|index|pubKey|signature|withdrawalCred) (offset|size): expected (\\d+), but got (-?\\d+)|Invalid deposit log length\\. Must be \\d+ bytes, but is \\d+ bytes",
+    "BlockException.INVALID_REQUESTS":                           "Invalid execution requests|Requests hash mismatch, calculated: 0x[0-9a-f]+ header: 0x[0-9a-f]+",
+
+    "_comment_bal_regex": "Block Access List (BAL) — EIP-7928 (keep even if unmatched)",
+    "BlockException.INVALID_BLOCK_ACCESS_LIST":                  "Block access list validation failed for block 0x[0-9a-f]+|Block access list hash mismatch, calculated: 0x[0-9a-f]+ header: 0x[0-9a-f]+",
+
+    "_comment_tx_funds": "Transaction funds/gas errors — multiple error formats depending on the cause",
+    "TransactionException.GAS_LIMIT_EXCEEDS_MAXIMUM":            "transaction invalid Transaction gas limit must be at most \\d+",
+    "TransactionException.INITCODE_SIZE_EXCEEDED":               "transaction invalid Initcode size of \\d+ exceeds maximum size of \\d+",
+    "TransactionException.INSUFFICIENT_ACCOUNT_FUNDS":           "transaction invalid transaction up-front cost 0x[0-9a-f]+ exceeds transaction sender account balance 0x[0-9a-f]+|Header validation failed \\(LIGHT\\)",
+    "TransactionException.INTRINSIC_GAS_BELOW_FLOOR_GAS_COST":  "transaction invalid intrinsic gas cost \\d+ exceeds gas limit \\d+",
+    "TransactionException.INTRINSIC_GAS_TOO_LOW":                "transaction invalid intrinsic gas cost \\d+( \\(regular \\d+ \\+ state \\d+\\))? exceeds gas limit \\d+",
+
+    "_comment_tx_nonce": "Transaction nonce errors",
+    "TransactionException.NONCE_MISMATCH_TOO_HIGH":              "transaction invalid transaction nonce \\d+ does not match sender account nonce \\d+",
+    "TransactionException.NONCE_MISMATCH_TOO_LOW":               "transaction invalid transaction nonce \\d+ below sender account nonce \\d+",
+
+    "_comment_tx_sender": "Transaction sender errors",
+    "TransactionException.SENDER_NOT_EOA":                       "transaction invalid Sender 0x[0-9a-f]+ has deployed code and so is not authorized to send transactions",
+
+    "_comment_tx_blob": "Blob transaction (EIP-4844) errors — type 3 tx specific validations",
+    "TR_TypeNotSupportedBlob":                                   "Transaction type BLOB is invalid, accepted transaction types are|replay protected signatures is not supported",
+    "TransactionException.TYPE_3_TX_BLOB_COUNT_EXCEEDED":        "Blob transaction has too many blobs: \\d+|Invalid Blob Count: \\d+|Header validation failed \\(",
+    "TransactionException.TYPE_3_TX_MAX_BLOB_GAS_ALLOWANCE_EXCEEDED": "Blob transaction 0x[0-9a-f]+ exceeds block blob gas limit: \\d+ > \\d+|total blob gas \\d+ exceeds max blob gas per block \\d+|Header validation failed \\("
+  }
+}

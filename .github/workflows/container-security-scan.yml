@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
  
       # Shell parameter expansion does not support directly on a step
       # Adding a separate step to set the image tag. This allows running
@@ -34,7 +34,7 @@ jobs:
 
       - name: Vulnerability scanner
         id: trivy
-        uses: aquasecurity/trivy-action@595be6a0f6560a0a8fc419ddf630567fc623531d
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1 # v0.35.0
         with:
           image-ref: hyperledger/besu:${{ steps.tag.outputs.TAG }}
           format: sarif

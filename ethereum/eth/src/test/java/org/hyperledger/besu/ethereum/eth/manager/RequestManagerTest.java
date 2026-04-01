@@ -231,6 +231,20 @@ public class RequestManagerTest {
   }
 
   @Test
+  public void recordsUselessResponseWhenRequestIdDoesNotMatchOutstandingRequest() throws Exception {
+    final EthPeer peer = createPeer();
+    final RequestManager requestManager = new RequestManager(peer, EthProtocol.NAME);
+
+    // Dispatch responses with request IDs that were never issued - each should record a useless
+    // response. After USELESS_RESPONSE_THRESHOLD useless responses the peer should be disconnected.
+    for (int i = 0; i < PeerReputation.USELESS_RESPONSE_THRESHOLD; i++) {
+      requestManager.dispatchResponse(mockMessage(peer));
+    }
+
+    assertThat(peer.isDisconnected()).isTrue();
+  }
+
+  @Test
   public void disconnectsPeerOnBadMessage() throws Exception {
     final EthPeer peer = createPeer();
     final RequestManager requestManager = new RequestManager(peer, EthProtocol.NAME);
@@ -250,5 +264,68 @@ public class RequestManagerTest {
 
     requestManager.dispatchResponse(mockMessage);
     assertThat(peer.isDisconnected()).isTrue();
+  }
+
+  @Test
+  public void closingStreamWithoutResponseReleasesOutstandingRequest() throws Exception {
+    final EthPeer peer = createPeer();
+    final RequestManager requestManager = new RequestManager(peer, EthProtocol.NAME);
+
+    final RequestManager.RequestSender sender = __ -> {};
+    // Send a request - outstanding should go to 1
+    final RequestManager.ResponseStream stream =
+        requestManager.dispatchRequest(sender, new RawMessage(0x01, Bytes.EMPTY));
+    assertThat(requestManager.outstandingRequests()).isEqualTo(1);
+
+    // Close the stream without dispatching a response (simulates timeout)
+    stream.close();
+
+    // Outstanding requests should be released back to 0
+    assertThat(requestManager.outstandingRequests()).isEqualTo(0);
+  }
+
+  @Test
+  public void closingStreamAfterResponseDoesNotDoubleDecrement() throws Exception {
+    final EthPeer peer = createPeer();
+    final RequestManager requestManager = new RequestManager(peer, EthProtocol.NAME);
+
+    final RequestManager.RequestSender sender = __ -> {};
+    // Send a request
+    final RequestManager.ResponseStream stream =
+        requestManager.dispatchRequest(sender, new RawMessage(0x01, Bytes.EMPTY));
+    assertThat(requestManager.outstandingRequests()).isEqualTo(1);
+
+    // Dispatch response - outstanding should go to 0
+    final EthMessage mockMessage = mockMessage(peer);
+    requestManager.dispatchResponse(mockMessage);
+    assertThat(requestManager.outstandingRequests()).isEqualTo(0);
+
+    // Close the stream after response was received - should not go negative
+    stream.close();
+    assertThat(requestManager.outstandingRequests()).isEqualTo(0);
+  }
+
+  @Test
+  public void multipleTimedOutRequestsAllReleaseCapacity() throws Exception {
+    final EthPeer peer = createPeer();
+    final RequestManager requestManager = new RequestManager(peer, EthProtocol.NAME);
+
+    final RequestManager.RequestSender sender = __ -> {};
+    // Send 3 requests
+    final RequestManager.ResponseStream stream1 =
+        requestManager.dispatchRequest(sender, new RawMessage(0x01, Bytes.EMPTY));
+    final RequestManager.ResponseStream stream2 =
+        requestManager.dispatchRequest(sender, new RawMessage(0x01, Bytes.EMPTY));
+    final RequestManager.ResponseStream stream3 =
+        requestManager.dispatchRequest(sender, new RawMessage(0x01, Bytes.EMPTY));
+    assertThat(requestManager.outstandingRequests()).isEqualTo(3);
+
+    // Close all streams without responses (simulates 3 timeouts)
+    stream1.close();
+    assertThat(requestManager.outstandingRequests()).isEqualTo(2);
+    stream2.close();
+    assertThat(requestManager.outstandingRequests()).isEqualTo(1);
+    stream3.close();
+    assertThat(requestManager.outstandingRequests()).isEqualTo(0);
   }
 }

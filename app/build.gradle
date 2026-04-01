@@ -71,7 +71,7 @@ dependencies {
   implementation 'com.google.guava:guava'
   implementation 'com.google.dagger:dagger'
   implementation 'com.graphql-java:graphql-java'
-  implementation 'commons-net:commons-net'
+  implementation 'com.github.seancfoley:ipaddress'
   implementation 'info.picocli:picocli'
   implementation 'io.vertx:vertx-core'
   implementation 'io.vertx:vertx-web'
@@ -107,7 +107,7 @@ dependencies {
   testImplementation 'org.awaitility:awaitility'
   testImplementation 'org.junit.jupiter:junit-jupiter'
   testImplementation 'org.mockito:mockito-core'
-  testImplementation 'tech.pegasys.discovery:discovery'
+  testImplementation 'io.consensys.protocols:discovery'
   testImplementation 'com.google.dagger:dagger'
 
   annotationProcessor 'com.google.dagger:dagger-compiler'

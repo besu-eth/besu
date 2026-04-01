@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.core.Utils;
 import org.hyperledger.besu.ethereum.eth.manager.snap.SnapProtocolManager;
+import org.hyperledger.besu.ethereum.eth.messages.BlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.BlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.BlockHeadersMessage;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
@@ -329,6 +330,10 @@ public class RespondingEthPeer {
           response =
               EthServer.constructGetPooledTransactionsResponse(
                   transactionPool, peer, msg, 200, maxMsgSize);
+          break;
+        case EthProtocolMessages.GET_BLOCK_ACCESS_LISTS:
+          response =
+              EthServer.constructGetBlockAccessListsResponse(blockchain, msg, 200, maxMsgSize);
       }
       return Optional.ofNullable(response);
     };
@@ -437,6 +442,9 @@ public class RespondingEthPeer {
           break;
         case EthProtocolMessages.GET_POOLED_TRANSACTIONS:
           response = PooledTransactionsMessage.create(Collections.emptyList());
+          break;
+        case EthProtocolMessages.GET_BLOCK_ACCESS_LISTS:
+          response = BlockAccessListsMessage.create(Collections.emptyList());
           break;
       }
       return Optional.ofNullable(response);

@@ -130,6 +130,7 @@ public class TestBundlePlugin implements BesuPlugin {
 
                 @Override
                 public PluginTransactionSelector create(
+                    final ProcessableBlockHeader pendingBlockHeader,
                     final SelectorsStateManager selectorsStateManager) {
                   return new PluginTransactionSelector() {
 

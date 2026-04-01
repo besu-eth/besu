@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
@@ -29,9 +30,11 @@ import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEnc
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.ProtocolViolationException;
+import org.hyperledger.besu.ethereum.eth.messages.BlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.BlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.BlockHeadersMessage;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
+import org.hyperledger.besu.ethereum.eth.messages.GetBlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockHeadersMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetNodeDataMessage;
@@ -43,6 +46,7 @@ import org.hyperledger.besu.ethereum.eth.messages.PaginatedReceiptsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.PooledTransactionsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.ReceiptsMessage;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
@@ -133,6 +137,14 @@ class EthServer {
                 peer,
                 messageData,
                 ethereumWireProtocolConfiguration.getMaxGetPooledTransactions(),
+                maxMessageSize));
+    ethMessages.registerResponseConstructor(
+        EthProtocolMessages.GET_BLOCK_ACCESS_LISTS,
+        (peer, messageData, capability) ->
+            constructGetBlockAccessListsResponse(
+                blockchain,
+                messageData,
+                ethereumWireProtocolConfiguration.getMaxGetBlockAccessLists(),
                 maxMessageSize));
   }
 
@@ -308,7 +320,8 @@ class EthServer {
         "Paginated receipt request for {} blocks with first block receipt index {}",
         blockHashes.size(),
         skipBefore);
-    int responseSizeEstimate = RLP.MAX_PREFIX_SIZE;
+    // Account for the outer list header and the lastBlockIncomplete scalar (max 2 bytes).
+    int responseSizeEstimate = RLP.MAX_PREFIX_SIZE + 2;
     boolean lastBlockIncomplete = false;
 
     for (final Hash blockHash : blockHashes) {
@@ -335,6 +348,9 @@ class EthServer {
       } else {
         requestedReceipts = blockReceipts;
       }
+
+      // Account for this block's own list header before processing its receipts.
+      responseSizeEstimate += RLP.MAX_PREFIX_SIZE;
 
       final BytesValueRLPOutput encodedBlockReceipts = new BytesValueRLPOutput();
       encodedBlockReceipts.startList();
@@ -374,6 +390,48 @@ class EthServer {
         lastBlockIncomplete,
         encodedResponse.size());
     return PaginatedReceiptsMessage.createUnsafe(encodedResponse, lastBlockIncomplete);
+  }
+
+  static MessageData constructGetBlockAccessListsResponse(
+      final Blockchain blockchain,
+      final MessageData message,
+      final int requestLimit,
+      final int maxMessageSize) {
+    final GetBlockAccessListsMessage getBlockAccessLists =
+        GetBlockAccessListsMessage.readFrom(message);
+    final Iterable<Hash> blockHashes = getBlockAccessLists.blockHashes();
+
+    int responseSizeEstimate = RLP.MAX_PREFIX_SIZE;
+    final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
+    rlp.startList();
+    int count = 0;
+    for (final Hash blockHash : blockHashes) {
+      if (count >= requestLimit) {
+        break;
+      }
+      count++;
+
+      final Optional<BlockAccessList> maybeBlockAccessList =
+          blockchain.getBlockAccessList(blockHash);
+      final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
+      if (maybeBlockAccessList.isPresent()) {
+        BlockAccessListEncoder.encode(maybeBlockAccessList.get(), balOutput);
+      } else {
+        // EIP-8159: Empty lists are returned for blocks where the BAL is unavailable.
+        balOutput.startList();
+        balOutput.endList();
+      }
+
+      final int encodedSize = balOutput.encodedSize();
+      if (responseSizeEstimate + encodedSize > maxMessageSize) {
+        break;
+      }
+      responseSizeEstimate += encodedSize;
+      rlp.writeRaw(balOutput.encoded());
+    }
+    rlp.endList();
+
+    return BlockAccessListsMessage.createUnsafe(rlp.encoded());
   }
 
   static MessageData constructGetPooledTransactionsResponse(

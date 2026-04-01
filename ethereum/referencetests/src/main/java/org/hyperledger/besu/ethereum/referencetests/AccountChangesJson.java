@@ -162,20 +162,20 @@ public class AccountChangesJson {
   @JsonIgnoreProperties(ignoreUnknown = true)
   public static class CodeChangeJson {
     private final String blockAccessIndex;
-    private final String postCode;
+    private final String newCode;
 
     @JsonCreator
     public CodeChangeJson(
         @JsonProperty("blockAccessIndex") final String blockAccessIndex,
-        @JsonProperty("postCode") final String postCode) {
+        @JsonProperty("newCode") final String newCode) {
       this.blockAccessIndex = blockAccessIndex;
-      this.postCode = postCode;
+      this.newCode = newCode;
     }
 
     public CodeChange toCodeChange() {
       return new CodeChange(
           decodeIndex(blockAccessIndex),
-          postCode != null ? Bytes.fromHexString(postCode) : Bytes.EMPTY);
+          newCode != null ? Bytes.fromHexString(newCode) : Bytes.EMPTY);
     }
   }
 

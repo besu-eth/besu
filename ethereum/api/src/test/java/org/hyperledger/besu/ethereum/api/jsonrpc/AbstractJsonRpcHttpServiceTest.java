@@ -160,7 +160,6 @@ public abstract class AbstractJsonRpcHttpServiceTest {
             MutableInitValues.builder()
                 .extraData(Bytes.EMPTY)
                 .minTransactionGasPrice(Wei.ONE)
-                .minBlockOccupancyRatio(0d)
                 .coinbase(Address.ZERO)
                 .build())
         .build();

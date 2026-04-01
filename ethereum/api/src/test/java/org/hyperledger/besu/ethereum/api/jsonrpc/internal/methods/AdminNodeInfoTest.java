@@ -378,6 +378,123 @@ public class AdminNodeInfoTest {
     assertThat(response).usingRecursiveComparison().isEqualTo(expectedResponse);
   }
 
+  @Test
+  @SuppressWarnings("unchecked")
+  public void shouldReturnIPv6FieldsWhenDualStack() {
+    when(p2pNetwork.isP2pEnabled()).thenReturn(true);
+    when(p2pNetwork.getLocalEnode()).thenReturn(Optional.of(defaultPeer.getEnodeURL()));
+    when(p2pNetwork.getIPv6AddressInfo())
+        .thenReturn(
+            Optional.of(
+                new P2PNetwork.IPv6AddressInfo(
+                    "2001:db8::1", Optional.of(30304), Optional.of(30305))));
+
+    final JsonRpcResponse response = method.response(adminNodeInfo());
+    assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
+    final Map<String, Object> result =
+        (Map<String, Object>) ((JsonRpcSuccessResponse) response).getResult();
+
+    assertThat(result).containsEntry("ipv6", "2001:db8::1");
+    assertThat(result).containsEntry("listenAddrV6", "[2001:db8::1]:30304");
+
+    final Map<String, Integer> ports = (Map<String, Integer>) result.get("ports");
+    assertThat(ports).containsEntry("discoveryV6", 30305);
+    assertThat(ports).containsEntry("listenerV6", 30304);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void shouldNotReturnIPv6FieldsWhenIPv4Only() {
+    when(p2pNetwork.isP2pEnabled()).thenReturn(true);
+    when(p2pNetwork.getLocalEnode()).thenReturn(Optional.of(defaultPeer.getEnodeURL()));
+
+    final JsonRpcResponse response = method.response(adminNodeInfo());
+    assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
+    final Map<String, Object> result =
+        (Map<String, Object>) ((JsonRpcSuccessResponse) response).getResult();
+
+    assertThat(result).doesNotContainKey("ipv6");
+    assertThat(result).doesNotContainKey("listenAddrV6");
+
+    final Map<String, Integer> ports = (Map<String, Integer>) result.get("ports");
+    assertThat(ports).doesNotContainKey("discoveryV6");
+    assertThat(ports).doesNotContainKey("listenerV6");
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void shouldReturnIPv6AddressWithoutPortsWhenNoIPv6Ports() {
+    when(p2pNetwork.isP2pEnabled()).thenReturn(true);
+    when(p2pNetwork.getLocalEnode()).thenReturn(Optional.of(defaultPeer.getEnodeURL()));
+    when(p2pNetwork.getIPv6AddressInfo())
+        .thenReturn(
+            Optional.of(
+                new P2PNetwork.IPv6AddressInfo("2001:db8::1", Optional.empty(), Optional.empty())));
+
+    final JsonRpcResponse response = method.response(adminNodeInfo());
+    assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
+    final Map<String, Object> result =
+        (Map<String, Object>) ((JsonRpcSuccessResponse) response).getResult();
+
+    assertThat(result).containsEntry("ipv6", "2001:db8::1");
+    assertThat(result).doesNotContainKey("listenAddrV6");
+
+    final Map<String, Integer> ports = (Map<String, Integer>) result.get("ports");
+    assertThat(ports).doesNotContainKey("discoveryV6");
+    assertThat(ports).doesNotContainKey("listenerV6");
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void shouldReturnOnlyListenerV6WhenDiscoveryV6Absent() {
+    when(p2pNetwork.isP2pEnabled()).thenReturn(true);
+    when(p2pNetwork.getLocalEnode()).thenReturn(Optional.of(defaultPeer.getEnodeURL()));
+    when(p2pNetwork.getIPv6AddressInfo())
+        .thenReturn(
+            Optional.of(
+                new P2PNetwork.IPv6AddressInfo(
+                    "2001:db8::1", Optional.of(30304), Optional.empty())));
+
+    final JsonRpcResponse response = method.response(adminNodeInfo());
+    assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
+    final Map<String, Object> result =
+        (Map<String, Object>) ((JsonRpcSuccessResponse) response).getResult();
+
+    assertThat(result).containsEntry("ipv6", "2001:db8::1");
+    assertThat(result).containsEntry("listenAddrV6", "[2001:db8::1]:30304");
+
+    final Map<String, Integer> ports = (Map<String, Integer>) result.get("ports");
+    assertThat(ports).containsEntry("listenerV6", 30304);
+    assertThat(ports).doesNotContainKey("discoveryV6");
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void shouldBracketIPv6InListenAddr() {
+    final EnodeURLImpl ipv6Enode =
+        EnodeURLImpl.builder()
+            .nodeId(nodeId)
+            .ipAddress("2001:db8::1")
+            .discoveryAndListeningPorts(30303)
+            .build();
+
+    when(p2pNetwork.isP2pEnabled()).thenReturn(true);
+    when(p2pNetwork.getLocalEnode()).thenReturn(Optional.of(ipv6Enode));
+    // Override the default anyString() stub from setUp — NAT returns input unchanged for IPv6
+    when(natService.queryExternalIPAddress(anyString()))
+        .thenAnswer(invocation -> invocation.getArgument(0));
+
+    final JsonRpcResponse response = method.response(adminNodeInfo());
+    assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
+    final Map<String, Object> result =
+        (Map<String, Object>) ((JsonRpcSuccessResponse) response).getResult();
+
+    // InetAddress.getHostAddress() may return compressed or expanded IPv6 representation
+    assertThat(result.get("listenAddr").toString()).matches("\\[.+]:30303");
+    assertThat(result.get("ip").toString()).contains("2001:db8");
+    assertThat(result.get("enode").toString()).matches("enode://.*@\\[.+]:30303");
+  }
+
   private JsonRpcRequestContext adminNodeInfo() {
     return new JsonRpcRequestContext(new JsonRpcRequest("2.0", "admin_nodeInfo", new Object[] {}));
   }

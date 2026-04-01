@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedListener;
+import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemovalReason.PoolRemovalReason;
@@ -75,6 +76,11 @@ public class EndLayer implements TransactionsLayer {
   @Override
   public List<PendingTransaction> getAll() {
     return List.of();
+  }
+
+  @Override
+  public Map<Address, List<PendingTransaction>> getAllBySender() {
+    return Map.of();
   }
 
   @Override
@@ -181,6 +187,11 @@ public class EndLayer implements TransactionsLayer {
   @Override
   public String logStats() {
     return "Dropped: " + droppedCount;
+  }
+
+  @Override
+  public PendingTransactions.Status getStatus() {
+    return new PendingTransactions.Status(0, 0);
   }
 
   @Override

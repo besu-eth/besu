@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Besu.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -19,6 +19,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.ImmutableSnapSyncConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.tests.acceptance.dsl.AcceptanceTestBase;
 import org.hyperledger.besu.tests.acceptance.dsl.node.BesuNode;
@@ -89,6 +91,9 @@ public class CliqueToPoSTest extends AcceptanceTestBase {
   @Test
   public void blocksAreBuiltAndNodesSyncAfterSwitchingToPoS() throws Exception {
 
+    final SnapSyncConfiguration snapServerEnabledConfig =
+        ImmutableSnapSyncConfiguration.builder().isSnapServerEnabled(true).build();
+
     final BesuNode minerNode =
         besu.createNode(
             "miner",
@@ -102,6 +107,13 @@ public class CliqueToPoSTest extends AcceptanceTestBase {
                     .dataStorageConfiguration(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG)
                     .engineRpcEnabled(true)
                     .miningEnabled());
+
+    minerNode.setSynchronizerConfiguration(
+        SynchronizerConfiguration.builder()
+            .syncMode(SyncMode.FULL)
+            .syncMinimumPeerCount(1)
+            .snapSyncConfiguration(snapServerEnabledConfig)
+            .build());
 
     // First sync node uses full sync and starts fresh; it does not produce blocks
     final BesuNode syncNodeFull =
@@ -119,6 +131,7 @@ public class CliqueToPoSTest extends AcceptanceTestBase {
                         SynchronizerConfiguration.builder()
                             .syncMode(SyncMode.FULL)
                             .syncMinimumPeerCount(1)
+                            .snapSyncConfiguration(snapServerEnabledConfig)
                             .build())
                     .engineRpcEnabled(true));
 
@@ -140,6 +153,8 @@ public class CliqueToPoSTest extends AcceptanceTestBase {
         SynchronizerConfiguration.builder()
             .syncMode(SyncMode.SNAP)
             .syncMinimumPeerCount(1)
+            .syncPivotDistance(2)
+            .snapSyncConfiguration(snapServerEnabledConfig)
             .build());
 
     // Copy key files to the miner node datadir
@@ -161,36 +176,32 @@ public class CliqueToPoSTest extends AcceptanceTestBase {
     }
     minerNode.verify(blockchain.currentHeight(10));
 
-    final String block10Hash = latestPayload.get("blockHash").asText();
+    final String headHash = latestPayload.get("blockHash").asText();
 
     // Add the full sync node to the cluster so it peers with minerNode
     cluster.addNode(syncNodeFull);
 
     // ensure the node reached TTD first
-    syncNodeFull.verify(blockchain.minimumHeight(4, 10));
+    syncNodeFull.verify(blockchain.minimumHeight(4, 30));
 
-    // A single forkchoiceUpdatedV1 pointing at block 10 kicks off backward sync;
+    // A single forkchoiceUpdatedV1 pointing at head kicks off backward sync;
     // syncNodeFull does not have the block yet so it responds SYNCING and begins downloading
-    triggerSyncViaForkchoiceUpdate(syncNodeFull, block10Hash);
+    triggerSyncViaForkchoiceUpdate(syncNodeFull, headHash);
 
     // Wait for full sync to complete and verify the full chain is present
     syncNodeFull.verify(blockchain.minimumHeight(10, 30));
-
-    /* TODO: Uncomment when snap sync is fixed to work for small networks
 
     // Add the snap sync node to the cluster so it peers with minerNode
     cluster.addNode(syncNodeSnap);
 
     syncNodeSnap.awaitPeerDiscovery(net.awaitPeerCount(2));
 
-    // A single forkchoiceUpdatedV1 pointing at block 10 kicks off snap sync to pivot;
+    // A single forkchoiceUpdatedV1 pointing at head kicks off snap sync to pivot;
     // syncNodeSnap does not have the block yet so it responds SYNCING and begins downloading
-    triggerSyncViaForkchoiceUpdate(syncNodeSnap, block10Hash);
+    triggerSyncViaForkchoiceUpdate(syncNodeSnap, headHash);
 
     // Wait for snap sync to complete and verify the full chain is present
-    syncNodeSnap.verify(blockchain.minimumHeight(10, 60));
-
-    */
+    syncNodeSnap.verify(blockchain.minimumHeight(10, 120));
   }
 
   /**

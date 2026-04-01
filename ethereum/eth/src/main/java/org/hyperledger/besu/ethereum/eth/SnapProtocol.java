@@ -15,30 +15,19 @@
 package org.hyperledger.besu.ethereum.eth;
 
 import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV1;
+import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV2;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
-
-import java.util.List;
 
 /**
  * Snap protocol messages as defined in https://github.com/ethereum/devp2p/blob/master/caps/snap.md}
  */
 public class SnapProtocol implements SubProtocol {
   public static final String NAME = "snap";
-  public static final Capability SNAP1 = Capability.create(NAME, SnapVersion.V1);
+  public static final Capability SNAP1 = Capability.create(NAME, SnapProtocolVersion.V1);
+  public static final Capability SNAP2 = Capability.create(NAME, SnapProtocolVersion.V2);
 
   private static final SnapProtocol INSTANCE = new SnapProtocol();
-
-  private static final List<Integer> snap1Messages =
-      List.of(
-          SnapV1.GET_ACCOUNT_RANGE,
-          SnapV1.ACCOUNT_RANGE,
-          SnapV1.GET_STORAGE_RANGE,
-          SnapV1.STORAGE_RANGE,
-          SnapV1.GET_BYTECODES,
-          SnapV1.BYTECODES,
-          SnapV1.GET_TRIE_NODES,
-          SnapV1.TRIE_NODES);
 
   @Override
   public String getName() {
@@ -47,53 +36,55 @@ public class SnapProtocol implements SubProtocol {
 
   @Override
   public int messageSpace(final int protocolVersion) {
-    switch (protocolVersion) {
-      case SnapVersion.V1:
-        return 17;
-      default:
-        return 0;
-    }
+    return switch (protocolVersion) {
+      case SnapProtocolVersion.V1, SnapProtocolVersion.V2 -> 17;
+      default -> 0;
+    };
   }
 
   @Override
   public boolean isValidMessageCode(final int protocolVersion, final int code) {
-    switch (protocolVersion) {
-      case SnapVersion.V1:
-        return snap1Messages.contains(code);
-      default:
-        return false;
-    }
+    return SnapProtocolVersion.getSupportedMessages(protocolVersion).contains(code);
   }
 
   @Override
   public String messageName(final int protocolVersion, final int code) {
-    switch (code) {
-      case SnapV1.GET_ACCOUNT_RANGE:
-        return "GetAccountRange";
-      case SnapV1.ACCOUNT_RANGE:
-        return "AccountRange";
-      case SnapV1.GET_STORAGE_RANGE:
-        return "GetStorageRange";
-      case SnapV1.STORAGE_RANGE:
-        return "StorageRange";
-      case SnapV1.GET_BYTECODES:
-        return "GetBytecodes";
-      case SnapV1.BYTECODES:
-        return "Bytecodes";
-      case SnapV1.GET_TRIE_NODES:
-        return "GetTrieNodes";
-      case SnapV1.TRIE_NODES:
-        return "TrieNodes";
-      default:
-        return INVALID_MESSAGE_NAME;
-    }
+    return switch (protocolVersion) {
+      case SnapProtocolVersion.V1 -> messageNameV1(code);
+      case SnapProtocolVersion.V2 -> messageNameV2(code);
+      default -> INVALID_MESSAGE_NAME;
+    };
+  }
+
+  private String messageNameV1(final int code) {
+    return switch (code) {
+      case SnapV1.GET_ACCOUNT_RANGE -> "GetAccountRange";
+      case SnapV1.ACCOUNT_RANGE -> "AccountRange";
+      case SnapV1.GET_STORAGE_RANGE -> "GetStorageRange";
+      case SnapV1.STORAGE_RANGE -> "StorageRange";
+      case SnapV1.GET_BYTECODES -> "GetBytecodes";
+      case SnapV1.BYTECODES -> "Bytecodes";
+      case SnapV1.GET_TRIE_NODES -> "GetTrieNodes";
+      case SnapV1.TRIE_NODES -> "TrieNodes";
+      default -> INVALID_MESSAGE_NAME;
+    };
+  }
+
+  private String messageNameV2(final int code) {
+    return switch (code) {
+      case SnapV2.GET_ACCOUNT_RANGE -> "GetAccountRange";
+      case SnapV2.ACCOUNT_RANGE -> "AccountRange";
+      case SnapV2.GET_STORAGE_RANGE -> "GetStorageRange";
+      case SnapV2.STORAGE_RANGE -> "StorageRange";
+      case SnapV2.GET_BYTECODES -> "GetBytecodes";
+      case SnapV2.BYTECODES -> "Bytecodes";
+      case SnapV2.GET_BLOCK_ACCESS_LISTS -> "GetBlockAccessLists";
+      case SnapV2.BLOCK_ACCESS_LISTS -> "BlockAccessLists";
+      default -> INVALID_MESSAGE_NAME;
+    };
   }
 
   public static SnapProtocol get() {
     return INSTANCE;
-  }
-
-  public static class SnapVersion {
-    public static final int V1 = 1;
   }
 }

@@ -216,18 +216,21 @@ public class ParallelizedConcurrentTransactionProcessor extends ParallelBlockTra
           miningBeneficiaryAccount.incrementBalance(reward);
         }
 
-        final Wei miningBeneficiaryPostBalance = miningBeneficiaryAccount.getBalance();
-        transactionProcessingResult
-            .getPartialBlockAccessView()
-            .ifPresent(
-                partialBlockAccessView ->
-                    partialBlockAccessView.accountChanges().stream()
-                        .filter(
-                            accountChanges -> accountChanges.getAddress().equals(miningBeneficiary))
-                        .findFirst()
-                        .ifPresent(
-                            accountChanges ->
-                                accountChanges.setPostBalance(miningBeneficiaryPostBalance)));
+        if (!reward.isZero()) {
+          final Wei miningBeneficiaryPostBalance = miningBeneficiaryAccount.getBalance();
+          transactionProcessingResult
+              .getPartialBlockAccessView()
+              .ifPresent(
+                  partialBlockAccessView ->
+                      partialBlockAccessView.accountChanges().stream()
+                          .filter(
+                              accountChanges ->
+                                  accountChanges.getAddress().equals(miningBeneficiary))
+                          .findFirst()
+                          .ifPresent(
+                              accountChanges ->
+                                  accountChanges.setPostBalance(miningBeneficiaryPostBalance)));
+        }
 
         blockAccumulator.importStateChangesFromSource(transactionAccumulator);
 

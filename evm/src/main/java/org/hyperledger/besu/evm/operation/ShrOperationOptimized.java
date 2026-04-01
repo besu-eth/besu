@@ -14,7 +14,10 @@
  */
 package org.hyperledger.besu.evm.operation;
 
+import static org.hyperledger.besu.evm.operation.Shift256Operations.getLong;
 import static org.hyperledger.besu.evm.operation.Shift256Operations.isShiftOverflow;
+import static org.hyperledger.besu.evm.operation.Shift256Operations.putLong;
+import static org.hyperledger.besu.evm.operation.Shift256Operations.shiftRight;
 
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.MessageFrame;
@@ -93,24 +96,48 @@ public class ShrOperationOptimized extends AbstractFixedCostOperation {
       return Bytes.wrap(in);
     }
 
-    final int shiftBytes = shift >>> 3; // /8
-    final int shiftBits = shift & 7; // %8
+    long w0 = getLong(in, 0);
+    long w1 = getLong(in, 8);
+    long w2 = getLong(in, 16);
+    long w3 = getLong(in, 24);
 
-    final byte[] out = new byte[32];
+    // Number of whole 64-bit words to shift (shift / 64).
+    final int wordShift = shift >>> 6;
+    // Remaining intra-word bit shift (shift % 64).
+    final int bitShift = shift & 63;
 
-    // Shift right: bytes move to higher indices (towards index 31)
-    // Bytes below shiftBytes are guaranteed zero (already from new byte[32])
-    for (int i = 31; i >= shiftBytes; i--) {
-      final int srcIndex = i - shiftBytes;
-      final int curr = in[srcIndex] & 0xFF;
-      if (shiftBits == 0) {
-        out[i] = (byte) curr;
-      } else {
-        final int prev = (srcIndex - 1 >= 0) ? (in[srcIndex - 1] & 0xFF) : 0;
-        out[i] = (byte) ((curr >>> shiftBits) | (prev << (8 - shiftBits)));
-      }
+    switch (wordShift) {
+      case 0:
+        w3 = shiftRight(w3, w2, bitShift);
+        w2 = shiftRight(w2, w1, bitShift);
+        w1 = shiftRight(w1, w0, bitShift);
+        w0 = shiftRight(w0, 0, bitShift);
+        break;
+      case 1:
+        w3 = shiftRight(w2, w1, bitShift);
+        w2 = shiftRight(w1, w0, bitShift);
+        w1 = shiftRight(w0, 0, bitShift);
+        w0 = 0;
+        break;
+      case 2:
+        w3 = shiftRight(w1, w0, bitShift);
+        w2 = shiftRight(w0, 0, bitShift);
+        w1 = 0;
+        w0 = 0;
+        break;
+      case 3:
+        w3 = shiftRight(w0, 0, bitShift);
+        w2 = 0;
+        w1 = 0;
+        w0 = 0;
+        break;
     }
 
+    final byte[] out = new byte[32];
+    putLong(out, 0, w0);
+    putLong(out, 8, w1);
+    putLong(out, 16, w2);
+    putLong(out, 24, w3);
     return Bytes.wrap(out);
   }
 }

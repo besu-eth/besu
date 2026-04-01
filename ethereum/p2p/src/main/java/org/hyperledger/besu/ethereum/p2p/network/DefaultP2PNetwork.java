@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryAgentFactory;
 import org.hyperledger.besu.ethereum.p2p.discovery.RlpxAgentFactory;
 import org.hyperledger.besu.ethereum.p2p.discovery.dns.DNSDaemon;
 import org.hyperledger.besu.ethereum.p2p.discovery.dns.DNSDaemonListener;
+import org.hyperledger.besu.ethereum.p2p.discovery.dns.EthereumNodeRecord;
 import org.hyperledger.besu.ethereum.p2p.peers.DefaultPeerPrivileges;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.MaintainedPeers;
@@ -52,6 +53,7 @@ import org.hyperledger.besu.nat.core.domain.NetworkProtocol;
 import org.hyperledger.besu.nat.upnp.UpnpNatManager;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
+import java.net.InetAddress;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Collection;
@@ -513,6 +515,28 @@ public class DefaultP2PNetwork implements P2PNetwork {
   @Override
   public Optional<String> getLocalEnr() {
     return peerDiscoveryAgent.getLocalNodeRecord().map(NodeRecord::asEnr);
+  }
+
+  @Override
+  public Optional<IPv6AddressInfo> getIPv6AddressInfo() {
+    try {
+      return peerDiscoveryAgent
+          .getLocalNodeRecord()
+          .map(EthereumNodeRecord::fromNodeRecord)
+          .flatMap(
+              enr ->
+                  enr.getIpV6Address()
+                      .map(InetAddress::getHostAddress)
+                      .map(
+                          addr ->
+                              new IPv6AddressInfo(
+                                  addr,
+                                  enr.getIpV6TcpListeningPort(),
+                                  enr.getIpV6UdpDiscoveryPort())));
+    } catch (final IllegalArgumentException e) {
+      LOG.debug("Failed to parse local Ethereum Node Record; IPv6 fields will be unavailable", e);
+      return Optional.empty();
+    }
   }
 
   @Override

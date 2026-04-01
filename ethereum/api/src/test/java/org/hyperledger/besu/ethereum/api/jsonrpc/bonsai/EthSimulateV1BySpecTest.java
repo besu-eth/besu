@@ -24,7 +24,6 @@ import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -34,8 +33,7 @@ import org.junit.jupiter.api.Test;
 public class EthSimulateV1BySpecTest extends AbstractJsonRpcHttpBySpecTest {
 
   @Override
-  @BeforeEach
-  public void setup() throws Exception {
+  protected void doSetup() throws Exception {
     setupBonsaiBlockchain();
     startService();
   }

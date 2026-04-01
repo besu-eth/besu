@@ -14,15 +14,9 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
-import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.AccountChanges;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitter;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateKeyValueStorage;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
-import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
@@ -76,8 +70,8 @@ public class BlockProcessingMetrics {
             "Time taken by state root calculation");
   }
 
-  public StateRootCommitter wrapStateRootCommitter(final StateRootCommitter wrapped) {
-    return new TimedStateRootCommitter(wrapped, stateRootCalculationTimer);
+  public OperationTimer stateRootCalculationTimer() {
+    return stateRootCalculationTimer;
   }
 
   public void recordBlockAccessListMetrics(final BlockAccessList bal) {
@@ -114,36 +108,6 @@ public class BlockProcessingMetrics {
   }
 
   private boolean hasAnyChange(final AccountChanges accountChanges) {
-    return !accountChanges.balanceChanges().isEmpty()
-        || !accountChanges.nonceChanges().isEmpty()
-        || !accountChanges.codeChanges().isEmpty()
-        || !accountChanges.storageChanges().isEmpty();
-  }
-
-  private static class TimedStateRootCommitter implements StateRootCommitter {
-    private final StateRootCommitter wrapped;
-    private final OperationTimer operationTimer;
-
-    private TimedStateRootCommitter(
-        final StateRootCommitter wrapped, final OperationTimer operationTimer) {
-      this.wrapped = wrapped;
-      this.operationTimer = operationTimer;
-    }
-
-    @Override
-    public Hash computeRootAndCommit(
-        final MutableWorldState worldState,
-        final WorldStateKeyValueStorage.Updater stateUpdater,
-        final BlockHeader blockHeader,
-        final WorldStateConfig cfg) {
-      try (var timing = operationTimer.startTimer()) {
-        return wrapped.computeRootAndCommit(worldState, stateUpdater, blockHeader, cfg);
-      }
-    }
-
-    @Override
-    public void cancel() {
-      wrapped.cancel();
-    }
+    return accountChanges.hasAnyChange();
   }
 }

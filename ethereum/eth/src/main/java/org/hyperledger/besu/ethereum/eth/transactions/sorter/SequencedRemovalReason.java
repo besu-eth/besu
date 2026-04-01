@@ -20,17 +20,19 @@ import java.util.Locale;
 
 /** The reason why a pending tx has been removed */
 enum SequencedRemovalReason implements RemovalReason {
-  EVICTED(true),
-  TIMED_EVICTION(true),
-  REPLACED(false),
-  INVALID(false);
+  EVICTED(true, false),
+  TIMED_EVICTION(true, false),
+  REPLACED(false, true),
+  INVALID(false, true);
 
   private final String label;
   private final boolean stopTracking;
+  private final boolean stopBroadcasting;
 
-  SequencedRemovalReason(final boolean stopTracking) {
+  SequencedRemovalReason(final boolean stopTracking, final boolean stopBroadcasting) {
     this.label = name().toLowerCase(Locale.ROOT);
     this.stopTracking = stopTracking;
+    this.stopBroadcasting = stopBroadcasting;
   }
 
   @Override
@@ -41,5 +43,10 @@ enum SequencedRemovalReason implements RemovalReason {
   @Override
   public boolean stopTracking() {
     return stopTracking;
+  }
+
+  @Override
+  public boolean stopBroadcasting() {
+    return stopBroadcasting;
   }
 }

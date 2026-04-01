@@ -53,6 +53,16 @@ public interface PendingTransactions {
 
   Collection<PendingTransaction> getPendingTransactions();
 
+  /**
+   * Returns all pending transactions for the given sender, sorted by nonce in ascending order.
+   *
+   * @param sender the sender address
+   * @return transactions for the sender sorted by nonce ascending, or an empty list if none exist
+   */
+  SenderPendingTransactionsData getPendingTransactionsFor(Address sender);
+
+  Map<Address, SenderPendingTransactionsData> getPendingTransactionsBySender();
+
   long subscribePendingTransactions(PendingTransactionAddedListener listener);
 
   void unsubscribePendingTransactions(long id);
@@ -73,6 +83,8 @@ public interface PendingTransactions {
 
   String logStats();
 
+  Status getStatus();
+
   Optional<Transaction> restoreBlob(Transaction transaction);
 
   @FunctionalInterface
@@ -80,4 +92,6 @@ public interface PendingTransactions {
     Map<PendingTransaction, TransactionSelectionResult> evaluatePendingTransactions(
         List<PendingTransaction> candidatePendingTransactions);
   }
+
+  record Status(long pendingCount, long queuedCount) {}
 }

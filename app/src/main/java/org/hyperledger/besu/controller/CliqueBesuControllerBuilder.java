@@ -19,22 +19,17 @@ import org.hyperledger.besu.consensus.clique.CliqueBlockInterface;
 import org.hyperledger.besu.consensus.clique.CliqueContext;
 import org.hyperledger.besu.consensus.clique.CliqueForksSchedulesFactory;
 import org.hyperledger.besu.consensus.clique.CliqueHelpers;
-import org.hyperledger.besu.consensus.clique.CliqueMiningTracker;
 import org.hyperledger.besu.consensus.clique.CliqueProtocolSchedule;
-import org.hyperledger.besu.consensus.clique.blockcreation.CliqueBlockScheduler;
-import org.hyperledger.besu.consensus.clique.blockcreation.CliqueMinerExecutor;
-import org.hyperledger.besu.consensus.clique.blockcreation.CliqueMiningCoordinator;
 import org.hyperledger.besu.consensus.common.BlockInterface;
 import org.hyperledger.besu.consensus.common.EpochManager;
 import org.hyperledger.besu.consensus.common.ForksSchedule;
 import org.hyperledger.besu.consensus.common.validator.blockbased.BlockValidatorProvider;
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
+import org.hyperledger.besu.ethereum.blockcreation.NoopMiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.core.Util;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
@@ -49,7 +44,6 @@ public class CliqueBesuControllerBuilder extends BesuControllerBuilder {
 
   private static final Logger LOG = LoggerFactory.getLogger(CliqueBesuControllerBuilder.class);
 
-  private Address localAddress;
   private EpochManager epochManager;
   private final BlockInterface blockInterface = new CliqueBlockInterface();
   private ForksSchedule<CliqueConfigOptions> forksSchedule;
@@ -59,7 +53,6 @@ public class CliqueBesuControllerBuilder extends BesuControllerBuilder {
 
   @Override
   protected void prepForBuild() {
-    localAddress = Util.publicKeyToAddress(nodeKey.getPublicKey());
     final CliqueConfigOptions cliqueConfig = genesisConfigOptions.getCliqueConfigOptions();
     final long blocksPerEpoch = cliqueConfig.getEpochLength();
 
@@ -75,44 +68,7 @@ public class CliqueBesuControllerBuilder extends BesuControllerBuilder {
       final MiningConfiguration miningConfiguration,
       final SyncState syncState,
       final EthProtocolManager ethProtocolManager) {
-    final CliqueMinerExecutor miningExecutor =
-        new CliqueMinerExecutor(
-            protocolContext,
-            protocolSchedule,
-            transactionPool,
-            nodeKey,
-            miningConfiguration,
-            new CliqueBlockScheduler(
-                clock,
-                protocolContext.getConsensusContext(CliqueContext.class).getValidatorProvider(),
-                localAddress,
-                forksSchedule),
-            epochManager,
-            forksSchedule,
-            ethProtocolManager.ethContext().getScheduler());
-    final CliqueMiningCoordinator miningCoordinator =
-        new CliqueMiningCoordinator(
-            protocolContext.getBlockchain(),
-            miningExecutor,
-            syncState,
-            new CliqueMiningTracker(localAddress, protocolContext));
-
-    // Update the next block period in seconds according to the transition schedule
-    protocolContext
-        .getBlockchain()
-        .observeBlockAdded(
-            o ->
-                miningConfiguration.setBlockPeriodSeconds(
-                    forksSchedule
-                        .getFork(o.getHeader().getNumber() + 1, o.getHeader().getTimestamp())
-                        .getValue()
-                        .getBlockPeriodSeconds()));
-
-    miningCoordinator.addMinedBlockObserver(ethProtocolManager);
-
-    // Clique mining is implicitly enabled.
-    miningCoordinator.enable();
-    return miningCoordinator;
+    return new NoopMiningCoordinator();
   }
 
   @Override
@@ -159,20 +115,5 @@ public class CliqueBesuControllerBuilder extends BesuControllerBuilder {
     CliqueHelpers.setCliqueContext(cliqueContext);
     CliqueHelpers.installCliqueBlockChoiceRule(blockchain, cliqueContext);
     return cliqueContext;
-  }
-
-  @Override
-  public void overrideMiningConfiguration(final MiningConfiguration fromCli) {
-    // Clique ignores CLI mining options and enforces its own requirements:
-    // - Mining is always enabled (actual block production depends on validator status)
-    // - Coinbase is always the local validator address (not user-configurable)
-    // All other CLI configuration values are preserved
-    fromCli.setMiningEnabled(true);
-
-    final Address localValidatorAddress =
-        nodeKey != null ? Util.publicKeyToAddress(nodeKey.getPublicKey()) : null;
-    if (localValidatorAddress != null) {
-      fromCli.setCoinbase(localValidatorAddress);
-    }
   }
 }

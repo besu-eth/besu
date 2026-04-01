@@ -21,7 +21,7 @@ SPLIT_COUNT=$4
 SPLIT_INDEX=$5
 
 # extract tests time from Junit XML reports
-find "$REPORTS_DIR" -type f -name TEST-*.xml | xargs -I{} bash -c "xmlstarlet sel -t -v 'concat(sum(//testcase/@time), \" \", //testsuite/@name)' '{}'; echo '{}' | sed \"s#${REPORT_STRIP_PREFIX}/\(.*\)/${REPORT_STRIP_SUFFIX}.*# \1#\"" > tmp/timing.tsv
+find "$REPORTS_DIR" -type f -name TEST-*.xml | xargs -I{} bash -c "xmlstarlet sel -t -v 'concat(sum(//testcase/@time), \" \", //testsuite/testcase[1]/@classname)' '{}'; echo '{}' | sed \"s#${REPORT_STRIP_PREFIX}/\(.*\)/${REPORT_STRIP_SUFFIX}.*# \1#\"" > tmp/timing.tsv
 
 # Sort times in descending order
 IFS=$'\n' sorted=($(sort -nr tmp/timing.tsv))

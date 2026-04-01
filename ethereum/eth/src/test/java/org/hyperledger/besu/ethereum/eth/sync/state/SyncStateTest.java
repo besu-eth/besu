@@ -50,6 +50,7 @@ import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.ImmutableCheckpoint;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.data.SyncStatus;
 import org.hyperledger.besu.plugin.services.BesuEvents.InitialSyncCompletionListener;
 import org.hyperledger.besu.plugin.services.BesuEvents.SyncStatusListener;
@@ -69,7 +70,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 public class SyncStateTest {
 
   private static final Difficulty standardDifficultyPerBlock = Difficulty.ONE;
-  private static final long OUR_CHAIN_HEAD_NUMBER = 20;
+  private static final long OUR_CHAIN_HEAD_NUMBER = 3;
   private static final Difficulty OUR_CHAIN_DIFFICULTY =
       standardDifficultyPerBlock.multiply(OUR_CHAIN_HEAD_NUMBER);
   private static final long TARGET_CHAIN_DELTA = 20;
@@ -97,7 +98,11 @@ public class SyncStateTest {
 
   @BeforeEach
   public void setUp() {
-    ethProtocolManager = EthProtocolManagerTestBuilder.builder().setBlockchain(blockchain).build();
+    ethProtocolManager =
+        EthProtocolManagerTestBuilder.builder()
+            .setBlockchain(blockchain)
+            .setWorldStateArchive(mock(WorldStateArchive.class))
+            .build();
     ethPeers = spy(ethProtocolManager.ethContext().getEthPeers());
     syncTargetPeer = createPeer(TARGET_CHAIN_HEIGHT);
     otherPeer = createPeer(0);
@@ -547,7 +552,8 @@ public class SyncStateTest {
               BlockOptions.create()
                   .setDifficulty(standardDifficultyPerBlock)
                   .setParentHash(parent.getHash())
-                  .setBlockNumber(parent.getNumber() + 1L));
+                  .setBlockNumber(parent.getNumber() + 1L)
+                  .transactionCount(0));
       final List<TransactionReceipt> receipts = gen.receipts(block);
       blockchain.appendBlock(block, receipts);
     }

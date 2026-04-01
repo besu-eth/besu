@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -34,6 +35,8 @@ import java.util.Optional;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -142,5 +145,15 @@ class BonsaiWorldStateTest {
         Arguments.of(Bytes.EMPTY, null),
         Arguments.of(null, null),
         Arguments.of(Bytes.EMPTY, Bytes.EMPTY));
+  }
+
+  @Test
+  void incrementBytes32_returnsNextValue() {
+    assertThat(BonsaiWorldState.incrementBytes32(Bytes32.ZERO)).hasValue(UInt256.ONE);
+  }
+
+  @Test
+  void incrementBytes32_returnsEmpty_whenMaxValue() {
+    assertThat(BonsaiWorldState.incrementBytes32(UInt256.MAX_VALUE)).isEmpty();
   }
 }

@@ -19,7 +19,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage;
 import java.util.Optional;
 
 public enum PeerTaskValidationResponse {
-  NO_RESULTS_RETURNED(null, true),
+  NO_RESULTS_RETURNED(null, false),
   TOO_MANY_RESULTS_RETURNED(null, true),
   RESULTS_DO_NOT_MATCH_QUERY(null, true),
   NON_SEQUENTIAL_HEADERS_RETURNED(

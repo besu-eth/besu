@@ -143,9 +143,9 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import graphql.GraphQL;
+import inet.ipaddr.IPAddress;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
-import org.apache.commons.net.util.SubnetUtils.SubnetInfo;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
@@ -194,7 +194,7 @@ public class RunnerBuilder {
   private RpcEndpointServiceImpl rpcEndpointServiceImpl;
   private JsonRpcIpcConfiguration jsonRpcIpcConfiguration;
   private Optional<EnodeDnsConfiguration> enodeDnsConfiguration;
-  private List<SubnetInfo> allowedSubnets = new ArrayList<>();
+  private List<IPAddress> allowedSubnets = new ArrayList<>();
   private boolean poaDiscoveryRetryBootnodes = true;
   private TransactionValidatorServiceImpl transactionValidatorService;
 
@@ -610,7 +610,7 @@ public class RunnerBuilder {
    * @param allowedSubnets the allowedSubnets
    * @return the runner builder
    */
-  public RunnerBuilder allowedSubnets(final List<SubnetInfo> allowedSubnets) {
+  public RunnerBuilder allowedSubnets(final List<IPAddress> allowedSubnets) {
     this.allowedSubnets = allowedSubnets;
     return this;
   }
@@ -689,6 +689,12 @@ public class RunnerBuilder {
           networkingConfiguration.discoveryConfiguration().isDiscoveryV5Enabled());
       discoveryConfiguration.setFilterOnEnrForkId(
           networkingConfiguration.discoveryConfiguration().isFilterOnEnrForkIdEnabled());
+      discoveryConfiguration.setDiscV5DiscoveryIntervalSeconds(
+          networkingConfiguration.discoveryConfiguration().getDiscV5DiscoveryIntervalSeconds());
+      discoveryConfiguration.setDiscV5DiscoveryTimeoutSeconds(
+          networkingConfiguration.discoveryConfiguration().getDiscV5DiscoveryTimeoutSeconds());
+      discoveryConfiguration.setDiscV5MinimumPeerRatio(
+          networkingConfiguration.discoveryConfiguration().getDiscV5MinimumPeerRatio());
     } else {
       discoveryConfiguration.setEnabled(false);
     }

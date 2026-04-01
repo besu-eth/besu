@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.blockcreation.txselection.selectors;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.BlockSelectionContext;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.TransactionEvaluationContext;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.mainnet.BlockGasAccountingStrategy;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
@@ -28,16 +29,22 @@ import org.slf4j.LoggerFactory;
  * This class extends AbstractTransactionSelector and provides a specific implementation for
  * evaluating transactions based on block size. It checks if a transaction is too large for the
  * block and determines the selection result accordingly.
+ *
+ * <p>For EIP-8037 multidimensional gas, this selector tracks both regular and state gas dimensions.
+ * A transaction fits if its gasLimit does not exceed the remaining capacity of each dimension
+ * independently. Post-processing verifies the actual gas metered stays within limits.
  */
-public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSelector<Long> {
+public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSelector<GasState> {
   private static final Logger LOG = LoggerFactory.getLogger(BlockSizeTransactionSelector.class);
 
   private final long blockGasLimit;
+  private final BlockGasAccountingStrategy gasAccountingStrategy;
 
   public BlockSizeTransactionSelector(
       final BlockSelectionContext context, final SelectorsStateManager selectorsStateManager) {
-    super(context, selectorsStateManager, 0L, SelectorsStateManager.StateDuplicator::duplicateLong);
+    super(context, selectorsStateManager, GasState.ZERO, GasState::duplicate);
     this.blockGasLimit = context.pendingBlockHeader().getGasLimit();
+    this.gasAccountingStrategy = context.protocolSpec().getBlockGasAccountingStrategy();
   }
 
   /**
@@ -51,17 +58,14 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
   public TransactionSelectionResult evaluateTransactionPreProcessing(
       final TransactionEvaluationContext evaluationContext) {
 
-    final long cumulativeGasUsed = getWorkingState();
+    final GasState state = getWorkingState();
 
-    if (transactionTooLargeForBlock(evaluationContext.getTransaction(), cumulativeGasUsed)) {
+    if (transactionTooLargeForBlock(evaluationContext.getTransaction(), state)) {
       LOG.atTrace()
           .setMessage("Transaction {} too large to select for block creation")
           .addArgument(evaluationContext.getPendingTransaction()::toTraceLog)
           .log();
-      if (blockOccupancyAboveThreshold(cumulativeGasUsed)) {
-        LOG.trace("Block occupancy above threshold, completing operation");
-        return TransactionSelectionResult.BLOCK_OCCUPANCY_ABOVE_THRESHOLD;
-      } else if (blockFull(cumulativeGasUsed)) {
+      if (blockFull(state)) {
         LOG.trace("Block full, completing operation");
         return TransactionSelectionResult.BLOCK_FULL;
       } else {
@@ -75,61 +79,61 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
   public TransactionSelectionResult evaluateTransactionPostProcessing(
       final TransactionEvaluationContext evaluationContext,
       final TransactionProcessingResult processingResult) {
-    // EIP-7778: Use the protocol-specific gas accounting strategy
-    // Pre-Amsterdam: gasLimit - gasRemaining (post-refund)
-    // Amsterdam+: estimateGasUsedByTransaction (pre-refund, prevents block gas limit circumvention)
-    final long gasUsedByTransaction =
-        context
-            .protocolSpec()
-            .getBlockGasAccountingStrategy()
-            .calculateBlockGas(evaluationContext.getTransaction(), processingResult);
-    setWorkingState(getWorkingState() + gasUsedByTransaction);
+    final long txRegularGasUsed =
+        gasAccountingStrategy.calculateTransactionRegularGas(
+            evaluationContext.getTransaction(), processingResult);
+    final long stateGasUsed = processingResult.getStateGasUsed();
 
+    final GasState state = getWorkingState();
+    final GasState newState =
+        new GasState(state.regularGas() + txRegularGasUsed, state.stateGas() + stateGasUsed);
+    setWorkingState(newState);
+
+    final long gasMetered =
+        gasAccountingStrategy.effectiveGasUsed(newState.regularGas(), newState.stateGas());
+    if (gasMetered > blockGasLimit) {
+      LOG.atTrace()
+          .setMessage(
+              "Transaction {} exceeds block gas limit post-processing:"
+                  + " regularGas={}, stateGas={}, gasMetered={}, blockGasLimit={}")
+          .addArgument(evaluationContext.getPendingTransaction()::toTraceLog)
+          .addArgument(newState.regularGas())
+          .addArgument(newState.stateGas())
+          .addArgument(gasMetered)
+          .addArgument(blockGasLimit)
+          .log();
+      return TransactionSelectionResult.TX_TOO_LARGE_FOR_REMAINING_GAS;
+    }
     return TransactionSelectionResult.SELECTED;
   }
 
   /**
-   * Checks if the transaction is too large for the block.
+   * Checks if the transaction is too large for the block using the gas accounting strategy. For 1D
+   * gas, this checks regular gas only. For 2D gas (EIP-8037), the tx gas limit must fit within the
+   * remaining capacity of each dimension independently.
    *
-   * @param transaction The transaction to be checked. block.
-   * @param cumulativeGasUsed The cumulative gas used by previous txs.
+   * <p>The post-processing check verifies that gas metered (max of regular, state) stays within the
+   * block gas limit after processing reveals the actual regular/state gas split.
+   *
+   * @param transaction The transaction to be checked.
+   * @param state The current gas state with regular and state gas.
    * @return True if the transaction is too large for the block, false otherwise.
    */
-  private boolean transactionTooLargeForBlock(
-      final Transaction transaction, final long cumulativeGasUsed) {
-
-    return transaction.getGasLimit() > blockGasLimit - cumulativeGasUsed;
-  }
-
-  /**
-   * Checks if the block occupancy is above the threshold.
-   *
-   * @param cumulativeGasUsed The cumulative gas used by previous txs.
-   * @return True if the block occupancy is above the threshold, false otherwise.
-   */
-  private boolean blockOccupancyAboveThreshold(final long cumulativeGasUsed) {
-    final long gasRemaining = blockGasLimit - cumulativeGasUsed;
-    final double occupancyRatio = (double) cumulativeGasUsed / (double) blockGasLimit;
-
-    LOG.trace(
-        "Min block occupancy ratio {}, gas used {}, available {}, remaining {}, used/available {}",
-        context.miningConfiguration().getMinBlockOccupancyRatio(),
-        cumulativeGasUsed,
-        blockGasLimit,
-        gasRemaining,
-        occupancyRatio);
-
-    return occupancyRatio >= context.miningConfiguration().getMinBlockOccupancyRatio();
+  private boolean transactionTooLargeForBlock(final Transaction transaction, final GasState state) {
+    return !gasAccountingStrategy.hasBlockCapacity(
+        transaction.getGasLimit(), state.regularGas(), state.stateGas(), blockGasLimit);
   }
 
   /**
    * Checks if the block is full.
    *
-   * @param cumulativeGasUsed The cumulative gas used by previous txs.
+   * @param state The current gas state.
    * @return True if the block is full, false otherwise.
    */
-  private boolean blockFull(final long cumulativeGasUsed) {
-    final long gasRemaining = blockGasLimit - cumulativeGasUsed;
+  private boolean blockFull(final GasState state) {
+    final long gasUsed =
+        gasAccountingStrategy.effectiveGasUsed(state.regularGas(), state.stateGas());
+    final long gasRemaining = blockGasLimit - gasUsed;
 
     if (gasRemaining < context.gasCalculator().getMinimumTransactionCost()) {
       LOG.trace(

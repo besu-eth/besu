@@ -20,6 +20,7 @@ import org.hyperledger.besu.consensus.merge.ForkchoiceEvent;
 import org.hyperledger.besu.consensus.merge.UnverifiedForkchoiceListener;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.manager.ChainHeadEstimate;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
@@ -236,11 +237,24 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
       syncState.markInitialSyncPhaseAsDone();
     } else {
       fastSyncDownloader.ifPresent(PivotSyncDownloader::deletePivotSyncState);
-      result
-          .getPivotBlockHeader()
-          .ifPresent(
-              blockHeader ->
-                  protocolContext.getWorldStateArchive().resetArchiveStateTo(blockHeader));
+      final Optional<BlockHeader> maybePivotHeader = result.getPivotBlockHeader();
+      maybePivotHeader.ifPresent(
+          blockHeader -> protocolContext.getWorldStateArchive().resetArchiveStateTo(blockHeader));
+
+      if (maybePivotHeader
+          .map(
+              bh ->
+                  !protocolContext
+                      .getWorldStateArchive()
+                      .isWorldStateAvailable(bh.getStateRoot(), bh.getHash()))
+          .orElse(false)) {
+        LOG.warn(
+            "World state not available for pivot block {} after snap sync completion, resyncing",
+            maybePivotHeader.map(BlockHeader::toLogString).orElse("unknown"));
+        resyncWorldState();
+        return CompletableFuture.completedFuture(null);
+      }
+
       if (result.hasPivotBlockHash())
         LOG.info(
             "Sync completed successfully with pivot block {}",

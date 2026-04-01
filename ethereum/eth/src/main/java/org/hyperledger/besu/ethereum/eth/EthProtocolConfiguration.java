@@ -24,6 +24,7 @@ public interface EthProtocolConfiguration {
   int DEFAULT_MAX_TRANSACTIONS_MESSAGE_SIZE = ByteUnits.MEGABYTE;
   int DEFAULT_MAX_GET_BLOCK_HEADERS = 512;
   int DEFAULT_MAX_GET_BLOCK_BODIES = 128;
+  int DEFAULT_MAX_GET_BLOCK_ACCESS_LISTS = 128;
   int DEFAULT_MAX_GET_RECEIPTS = 256;
   int DEFAULT_MAX_GET_NODE_DATA = 384;
   int DEFAULT_MAX_GET_POOLED_TRANSACTIONS = 256;
@@ -50,6 +51,11 @@ public interface EthProtocolConfiguration {
   @Value.Default
   default int getMaxGetBlockBodies() {
     return DEFAULT_MAX_GET_BLOCK_BODIES;
+  }
+
+  @Value.Default
+  default int getMaxGetBlockAccessLists() {
+    return DEFAULT_MAX_GET_BLOCK_ACCESS_LISTS;
   }
 
   @Value.Default

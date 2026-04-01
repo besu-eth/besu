@@ -19,11 +19,12 @@ import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.ReferenceTestMergeBlockCreator;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
+import org.hyperledger.besu.ethereum.BlockValidator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.BlockImporter;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -42,11 +43,11 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolFactory;
 import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
-import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.referencetests.BlockchainReferenceTestCaseSpec;
+import org.hyperledger.besu.ethereum.referencetests.BlockExceptionMatcher;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
@@ -176,11 +177,53 @@ public class BlockchainReferenceTestTools {
                             "NoProof".equalsIgnoreCase(spec.getSealEngine())
                                     ? HeaderValidationMode.LIGHT
                                     : HeaderValidationMode.FULL;
-                    final BlockImporter blockImporter = protocolSpec.getBlockImporter();
-                    final BlockImportResult importResult =
-                            blockImporter.importBlock(protocolContext, block, validationMode, validationMode, candidateBlock.getBlockAccessList());
 
-                    assertThat(importResult.isImported()).isEqualTo(candidateBlock.isValid());
+                    // Use validateAndProcessBlock directly so we can access the error message and
+                    // verify it matches the expected exception from the fixture.
+                    final BlockValidator blockValidator = protocolSpec.getBlockValidator();
+                    final BlockProcessingResult processingResult =
+                            blockValidator.validateAndProcessBlock(
+                                    protocolContext,
+                                    block,
+                                    validationMode,
+                                    validationMode,
+                                    candidateBlock.getBlockAccessList(),
+                                    false);
+
+                    final boolean imported = processingResult.isSuccessful();
+                    if (imported) {
+                        // Block was accepted: persist and append it just like MainnetBlockImporter.
+                        processingResult.getYield().ifPresent(outputs -> {
+                            protocolContext.getBlockchain().appendBlock(block, outputs.getReceipts(), outputs.getBlockAccessList());
+                            protocolContext.getWorldStateArchive().getWorldState(
+                                    WorldStateQueryParams.newBuilder()
+                                            .withBlockHeader(block.getHeader())
+                                            .withShouldWorldStateUpdateHead(true)
+                                            .build());
+                        });
+                    }
+
+                    assertThat(imported)
+                            .as("Block import status for block %s", block.getHash())
+                            .isEqualTo(candidateBlock.isValid());
+
+                    // When the block is expected to be invalid, verify the rejection reason matches
+                    // the expected exception from the fixture.
+                    if (!candidateBlock.isValid()) {
+                        candidateBlock.getExpectedException().ifPresent(expectedExceptionKey -> {
+                            final String actualError = processingResult.errorMessage.orElse("");
+                            assertThat(BlockExceptionMatcher.matches(expectedExceptionKey, actualError))
+                                    .as(
+                                            "Block rejected for wrong reason.\n"
+                                                    + "  Expected exception : %s (%s)\n"
+                                                    + "  Actual error       : %s",
+                                            expectedExceptionKey,
+                                            BlockExceptionMatcher.describeExpected(expectedExceptionKey).orElse("unknown key"),
+                                            actualError)
+                                    .isTrue();
+                        });
+                    }
+
                 } catch (final RLPException e) {
                     assertThat(candidateBlock.isValid()).isFalse();
                 }

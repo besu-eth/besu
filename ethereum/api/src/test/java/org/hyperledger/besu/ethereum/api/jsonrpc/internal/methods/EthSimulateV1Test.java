@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.transaction.BlockSimulationParameter;
 import org.hyperledger.besu.ethereum.transaction.BlockSimulator;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
@@ -40,11 +41,14 @@ import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallExcept
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -133,6 +137,39 @@ public class EthSimulateV1Test {
     assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
     assertThat(((JsonRpcErrorResponse) response).getError().getCode())
         .isEqualTo(BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE.getCode());
+  }
+
+  @Test
+  public void shouldNotReturnInvalidParamsWhenInputAndDataHaveDifferentValues() {
+    setupMethodWithMockSimulator();
+    setupBlockchainForLatest();
+    when(blockSimulator.process(any(BlockHeader.class), any())).thenReturn(List.of());
+
+    // Reproduces issue #9960: both input and data provided with different values.
+    // Other EL clients (Geth, Nethermind, Reth, Erigon) accept this and use input.
+    final Map<String, Object> callObj =
+        Map.of(
+            "from", "0xc000000000000000000000000000000000000000",
+            "to", "0xd000000000000000000000000000000000000000",
+            "input", "0xDEADBEEF",
+            "data", "0xCAFEBABE");
+    final Map<String, Object> simulateParam =
+        Map.of("blockStateCalls", List.of(Map.of("calls", List.of(callObj))), "validation", false);
+
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", "eth_simulateV1", new Object[] {simulateParam, "latest"}));
+
+    final JsonRpcResponse response = method.response(request);
+
+    assertThat(response).isNotInstanceOf(JsonRpcErrorResponse.class);
+
+    final ArgumentCaptor<BlockSimulationParameter> captor =
+        ArgumentCaptor.forClass(BlockSimulationParameter.class);
+    verify(blockSimulator).process(any(BlockHeader.class), captor.capture());
+    final Bytes payload =
+        captor.getValue().getBlockStateCalls().get(0).getCalls().get(0).getPayload().orElseThrow();
+    assertThat(payload).isEqualTo(Bytes.fromHexString("0xDEADBEEF"));
   }
 
   @Test

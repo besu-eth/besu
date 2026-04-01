@@ -120,34 +120,51 @@ public class BonsaiWorldState extends PathBasedWorldState {
   public Hash calculateRootHash(
       final Optional<PathBasedWorldStateKeyValueStorage.Updater> maybeStateUpdater,
       final PathBasedWorldStateUpdateAccumulator<?> worldStateUpdater) {
-    return internalCalculateRootHash(
+    return applyUpdatesAndComputeRoot(
         maybeStateUpdater.map(BonsaiWorldStateKeyValueStorage.Updater.class::cast),
         (BonsaiWorldStateUpdateAccumulator) worldStateUpdater);
   }
 
-  private Hash internalCalculateRootHash(
+  /**
+   * Applies all pending state changes and computes the new state root hash.
+   *
+   * <p>The update proceeds in four ordered phases:
+   *
+   * <ol>
+   *   <li>Clear storage for self-destructed accounts
+   *   <li>Update per-account storage tries (must precede account updates to produce storage roots)
+   *   <li>Update contract code
+   *   <li>Update account trie and compute the new root hash
+   * </ol>
+   */
+  private Hash applyUpdatesAndComputeRoot(
       final Optional<BonsaiWorldStateKeyValueStorage.Updater> maybeStateUpdater,
       final BonsaiWorldStateUpdateAccumulator worldStateUpdater) {
 
+    // Phase 1 — clear storage for accounts that were self-destructed
     clearStorage(maybeStateUpdater, worldStateUpdater);
 
-    // This must be done before updating the accounts so
-    // that we can get the storage state hash
+    // Phase 2 — update every account's storage trie (must happen before account updates
+    //           because the storage root is embedded in the account node)
+    final boolean canParallelize = maybeStateUpdater.isEmpty();
     Stream<Map.Entry<Address, StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>>>>
         storageStream = worldStateUpdater.getStorageToUpdate().entrySet().stream();
-    if (maybeStateUpdater.isEmpty()) {
-      storageStream =
-          storageStream
-              .parallel(); // if we are not updating the state updater we can use parallel stream
+    if (canParallelize) {
+      storageStream = storageStream.parallel();
     }
     storageStream.forEach(
-        addressMapEntry ->
-            updateAccountStorageState(maybeStateUpdater, worldStateUpdater, addressMapEntry));
+        entry -> updateAccountStorageState(maybeStateUpdater, worldStateUpdater, entry));
 
-    // Third update the code.  This has the side effect of ensuring a code hash is calculated.
+    // Phase 3 — persist contract code changes (also computes code hashes)
     updateCode(maybeStateUpdater, worldStateUpdater);
 
-    // next walk the account trie
+    // Phase 4 — update the account trie, commit, and return the new root hash
+    return commitAccountTrieAndComputeRoot(maybeStateUpdater, worldStateUpdater);
+  }
+
+  private Hash commitAccountTrieAndComputeRoot(
+      final Optional<BonsaiWorldStateKeyValueStorage.Updater> maybeStateUpdater,
+      final BonsaiWorldStateUpdateAccumulator worldStateUpdater) {
     final MerkleTrie<Bytes, Bytes> accountTrie =
         createTrie(
             (location, hash) ->
@@ -155,15 +172,11 @@ public class BonsaiWorldState extends PathBasedWorldState {
                     getWorldStateStorage(), location, hash),
             Bytes32.wrap(worldStateRootHash.getBytes()));
 
-    // for manicured tries and composting, collect branches here (not implemented)
     updateTheAccounts(maybeStateUpdater, worldStateUpdater, accountTrie);
 
-    // TODO write to a cache and then generate a layer update from that and the
-    // DB tx updates.  Right now it is just DB updates.
     maybeStateUpdater.ifPresent(
         bonsaiUpdater -> accountTrie.commit(bonsaiUpdater::putAccountStateTrieNode));
-    final Bytes32 rootHash = accountTrie.getRootHash();
-    return Hash.wrap(rootHash);
+    return Hash.wrap(accountTrie.getRootHash());
   }
 
   private void updateTheAccounts(
@@ -323,8 +336,12 @@ public class BonsaiWorldState extends PathBasedWorldState {
               Bytes32.wrap(oldAccount.getStorageRoot().getBytes()));
       try {
         StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> storageToDelete = null;
-        Map<Bytes32, Bytes> entriesToDelete = storageTrie.entriesFrom(Bytes32.ZERO, 256);
-        while (!entriesToDelete.isEmpty()) {
+        Bytes32 nextKeyHash = Bytes32.ZERO;
+        while (true) {
+          final Map<Bytes32, Bytes> entriesToDelete = storageTrie.entriesFrom(nextKeyHash, 256);
+          if (entriesToDelete.isEmpty()) {
+            break;
+          }
           if (storageToDelete == null) {
             storageToDelete =
                 worldStateUpdater
@@ -337,6 +354,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
                                 new ConcurrentHashMap<>(),
                                 worldStateUpdater.getStoragePreloader()));
           }
+          Bytes32 lastKeyHash = null;
           for (Map.Entry<Bytes32, Bytes> slot : entriesToDelete.entrySet()) {
             final StorageSlotKey storageSlotKey =
                 new StorageSlotKey(Hash.wrap(slot.getKey()), Optional.empty());
@@ -349,13 +367,19 @@ public class BonsaiWorldState extends PathBasedWorldState {
             storageToDelete
                 .computeIfAbsent(storageSlotKey, key -> new PathBasedValue<>(slotValue, null, true))
                 .setPrior(slotValue);
+            lastKeyHash = slot.getKey();
           }
           entriesToDelete.keySet().forEach(storageTrie::remove);
-          if (entriesToDelete.size() == 256) {
-            entriesToDelete = storageTrie.entriesFrom(Bytes32.ZERO, 256);
-          } else {
+          if (entriesToDelete.size() < 256) {
             break;
           }
+          // entriesFrom() is inclusive, so continue from the next lexicographic key;
+          // reusing lastKeyHash would work only because the previous batch was already removed.
+          final Optional<Bytes32> maybeNextKeyHash = incrementBytes32(lastKeyHash);
+          if (maybeNextKeyHash.isEmpty()) {
+            break;
+          }
+          nextKeyHash = maybeNextKeyHash.get();
         }
       } catch (MerkleTrieException e) {
         // need to throw to trigger the heal
@@ -363,6 +387,11 @@ public class BonsaiWorldState extends PathBasedWorldState {
             e.getMessage(), Optional.of(address), e.getHash(), e.getLocation());
       }
     }
+  }
+
+  static Optional<Bytes32> incrementBytes32(final Bytes32 value) {
+    final UInt256 incremented = UInt256.fromBytes(value).add(UInt256.ONE);
+    return incremented.isZero() ? Optional.empty() : Optional.of(incremented);
   }
 
   @Override

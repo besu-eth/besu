@@ -547,7 +547,7 @@ public class SnapSyncChainDownloader
     chainSyncStateStorage.storeState(chainSyncState.get());
 
     if (shouldRetry(error)) {
-      LOG.warn("Chain sync encountered error, will retry from saved state", error);
+      LOG.debug("Chain sync encountered error, will retry from saved state", error);
 
       // Schedule next attempt without recursion
       // Use a small delay to avoid tight retry loops

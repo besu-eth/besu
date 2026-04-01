@@ -48,8 +48,10 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -102,9 +104,24 @@ public class DetermineCommonAncestorTaskParameterizedTest {
     final int[] requestSizes = {5, 12, chainHeight, chainHeight * 2};
     final Stream.Builder<Arguments> builder = Stream.builder();
     for (final int requestSize : requestSizes) {
-      for (int i = 0; i <= chainHeight; i++) {
-        builder.add(Arguments.of(requestSize, i));
+      // Test boundary-sensitive heights rather than every height 0..chainHeight.
+      // The algorithm batches headers in groups of requestSize, so only heights at
+      // batch boundaries (and their neighbours) exercise different code paths.
+      final Set<Integer> heights = new LinkedHashSet<>();
+      heights.add(0);
+      heights.add(1);
+      heights.add(chainHeight / 2);
+      heights.add(chainHeight - 1);
+      heights.add(chainHeight);
+      for (int boundary = requestSize; boundary < chainHeight; boundary += requestSize) {
+        heights.add(boundary - 1);
+        heights.add(boundary);
+        heights.add(boundary + 1);
       }
+      heights.stream()
+          .filter(h -> h >= 0 && h <= chainHeight)
+          .sorted()
+          .forEach(h -> builder.add(Arguments.of(requestSize, h)));
     }
     return builder.build();
   }

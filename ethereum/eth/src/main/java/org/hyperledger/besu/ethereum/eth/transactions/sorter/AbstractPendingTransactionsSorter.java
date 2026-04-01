@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
+import org.hyperledger.besu.ethereum.eth.transactions.SenderPendingTransactionsData;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolReplacementHandler;
@@ -392,6 +393,33 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   }
 
   @Override
+  public SenderPendingTransactionsData getPendingTransactionsFor(final Address sender) {
+    final PendingTransactionsForSender pendingTransactionsForSender =
+        transactionsBySender.get(sender);
+    if (pendingTransactionsForSender == null) {
+      return SenderPendingTransactionsData.empty(sender);
+    }
+
+    return new SenderPendingTransactionsData(
+        sender,
+        pendingTransactionsForSender.maybeCurrentNonce().orElse(0),
+        pendingTransactionsForSender.getPendingTransactions());
+  }
+
+  @Override
+  public Map<Address, SenderPendingTransactionsData> getPendingTransactionsBySender() {
+    return transactionsBySender.entrySet().stream()
+        .collect(
+            Collectors.toMap(
+                Map.Entry::getKey,
+                entry ->
+                    new SenderPendingTransactionsData(
+                        entry.getKey(),
+                        entry.getValue().maybeCurrentNonce().orElse(0),
+                        entry.getValue().getPendingTransactions())));
+  }
+
+  @Override
   public long subscribePendingTransactions(final PendingTransactionAddedListener listener) {
     return pendingTransactionSubscribers.subscribe(listener);
   }
@@ -505,6 +533,20 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   @Override
   public String logStats() {
     return "Pending " + pendingTransactions.size();
+  }
+
+  @Override
+  public Status getStatus() {
+    long pendingCount = 0;
+    long queuedCount = 0;
+    synchronized (lock) {
+      for (final PendingTransactionsForSender pendingTxsForSender : transactionsBySender.values()) {
+        final Status accountStatus = pendingTxsForSender.getStatus();
+        pendingCount += accountStatus.pendingCount();
+        queuedCount += accountStatus.queuedCount();
+      }
+    }
+    return new Status(pendingCount, queuedCount);
   }
 
   @Override

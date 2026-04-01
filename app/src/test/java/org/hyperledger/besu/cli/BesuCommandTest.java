@@ -103,6 +103,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import com.google.common.base.Splitter;
 import com.google.common.io.Resources;
 import io.vertx.core.json.JsonObject;
 import org.apache.tuweni.bytes.Bytes;
@@ -1315,22 +1316,23 @@ public class BesuCommandTest extends CommandTestAbstract {
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 
-  @Test
-  public void netRestrictParsedCorrectly() {
-    final String subnet1 = "127.0.0.1/24";
-    final String subnet2 = "10.0.0.1/24";
-    parseCommand("--net-restrict", String.join(",", subnet1, subnet2));
+  @ParameterizedTest
+  @ValueSource(
+      strings = {"127.0.0.0/24,10.0.0.0/24", "fd00::/64,fe80::/10", "127.0.0.0/24,fd00::/64"})
+  public void netRestrictParsedCorrectly(final String subnets) {
+    parseCommand("--net-restrict", subnets);
     verify(mockRunnerBuilder).allowedSubnets(allowedSubnetsArgumentCaptor.capture());
-    assertThat(allowedSubnetsArgumentCaptor.getValue().size()).isEqualTo(2);
-    assertThat(allowedSubnetsArgumentCaptor.getValue().get(0).getCidrSignature())
-        .isEqualTo(subnet1);
-    assertThat(allowedSubnetsArgumentCaptor.getValue().get(1).getCidrSignature())
-        .isEqualTo(subnet2);
+    final List<String> expected = Splitter.on(',').splitToList(subnets);
+    assertThat(allowedSubnetsArgumentCaptor.getValue()).hasSize(expected.size());
+    for (int i = 0; i < expected.size(); i++) {
+      assertThat(allowedSubnetsArgumentCaptor.getValue().get(i).toString())
+          .isEqualTo(expected.get(i));
+    }
   }
 
-  @Test
-  public void netRestrictInvalidShouldFail() {
-    final String subnet = "127.0.0.1/abc";
+  @ParameterizedTest
+  @ValueSource(strings = {"127.0.0.1/abc", "abc", ""})
+  public void netRestrictInvalidShouldFail(final String subnet) {
     parseCommand("--net-restrict", subnet);
     verifyNoInteractions(mockRunnerBuilder);
     assertThat(commandErrorOutput.toString(UTF_8))
@@ -2778,21 +2780,6 @@ public class BesuCommandTest extends CommandTestAbstract {
     assertThat(commandErrorOutput.toString(UTF_8))
         .contains(
             "--Xchain-pruning-blocks-retained must be >= " + CHAIN_DATA_PRUNING_RETAINED_MINIMUM);
-    commandErrorOutput.reset();
-
-    // for Clique
-    genesis.getJsonObject("config").put("clique", new JsonObject().put("epochlength", 10000));
-    genesis.getJsonObject("config").remove("ibft2");
-    final Path genesisFileClique = createFakeGenesisFile(genesis);
-    parseCommand(
-        "--genesis-file",
-        genesisFileClique.toString(),
-        "--Xchain-pruning-enabled=ALL",
-        "--Xchain-pruning-blocks-retained=7200",
-        "--version-compatibility-protection=false");
-    assertThat(commandErrorOutput.toString(UTF_8))
-        .contains(
-            "--Xchain-pruning-blocks-retained must be >= " + CHAIN_DATA_PRUNING_RETAINED_MINIMUM);
   }
 
   @Test
@@ -2824,20 +2811,6 @@ public class BesuCommandTest extends CommandTestAbstract {
         "--Xchain-pruning-blocks-retained=" + CHAIN_DATA_PRUNING_RETAINED_MINIMUM,
         "--version-compatibility-protection=false");
 
-    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
-
-    // for Clique
-    genesis
-        .getJsonObject("config")
-        .put("clique", new JsonObject().put("epochlength", CHAIN_DATA_PRUNING_RETAINED_MINIMUM));
-    genesis.getJsonObject("config").remove("ibft2");
-    final Path genesisFileClique = createFakeGenesisFile(genesis);
-    parseCommand(
-        "--genesis-file",
-        genesisFileClique.toString(),
-        "--Xchain-pruning-enabled=ALL",
-        "--Xchain-pruning-blocks-retained=" + CHAIN_DATA_PRUNING_RETAINED_MINIMUM,
-        "--version-compatibility-protection=false");
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 
