@@ -23,12 +23,12 @@ jobs:
     runs-on: besu-research-ubuntu-16 # more cores
     container: ghcr.io/todogroup/repolinter:v0.11.2
     steps:
-    - name: Checkout Code
-      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      with:
-        ref: ${{ github.event.pull_request.head.sha || github.ref }}
-    - name: Lint Repo
-      run: bundle exec /app/bin/repolinter.js --rulesetUrl https://raw.githubusercontent.com/hyperledger-labs/hyperledger-community-management-tools/main/repo_structure/repolint.json --format markdown
+      - name: Checkout Code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+      - name: Lint Repo
+        run: bundle exec /app/bin/repolinter.js --rulesetUrl https://raw.githubusercontent.com/hyperledger-labs/hyperledger-community-management-tools/main/repo_structure/repolint.json --format markdown
   gradle-wrapper:
     name: "Gradle Wrapper Validation"
     runs-on: ubuntu-latest
