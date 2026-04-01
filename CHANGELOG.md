@@ -37,6 +37,7 @@ are provided with different values, using input as per the execution-apis spec i
 - Wait for peers before starting chain download. Prevents an OutOfMemory (OOM) error when the node has zero peers [#9979](https://github.com/hyperledger/besu/pull/9979)
 - Detect stall in backward sync progress and restart session if stalled for 5 min [#10045](https://github.com/besu-eth/besu/pull/10045)
 - Upgrade besu-native libraries version to 1.5.0. This fixes the issue of besu-native/secp256r1 exporting OpenSSL symbols in JVM space. [besu-native #308](https://github.com/besu-eth/besu-native/pull/308)
+- Fix QBFT `xemptyblockperiodseconds` not working when transactions arrive before the timer expires, causing unnecessary delay in block production [#10153](https://github.com/besu-eth/besu/pull/10153)
 
 ### Additions and Improvements
 - `--net-restrict` now supports IPv6 CIDR notation (e.g. `fd00::/64`) in addition to IPv4, enabling subnet-based peer filtering in IPv6 and dual-stack deployments [#10028](https://github.com/besu-eth/besu/pull/10028)
