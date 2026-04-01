@@ -311,12 +311,6 @@ configure(allprojects - project(':platform')) {
       if (JavaVersion.current() > JavaVersion.VERSION_12) {
         check('TypeParameterUnusedInFormals', CheckSeverity.OFF)
       }
-      // NotJavadoc and InvalidParam crash on JDK 23+ due to removed internal API.
-      // See https://github.com/google/error-prone/issues/4593
-      if (JavaVersion.current() >= JavaVersion.VERSION_23) {
-        check('NotJavadoc', CheckSeverity.OFF)
-        check('InvalidParam', CheckSeverity.OFF)
-      }
 
       check('FieldCanBeFinal', CheckSeverity.WARN)
       check('InsecureCryptoUsage', CheckSeverity.WARN)

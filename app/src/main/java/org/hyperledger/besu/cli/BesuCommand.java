@@ -861,6 +861,10 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         // before the help or the version information
         suppressInfoLog();
       }
+      // MetricsSystem depends on CLI-parsed MetricsConfiguration, so it cannot be registered
+      // in preparePlugins() (which runs before argument parsing). Register it here, just before
+      // initialize(), so plugins can resolve it during their initialize() callback.
+      BesuPluginServiceRegistrar.registerMetricsSystem(besuPluginContext, getMetricsSystem());
       besuPluginContext.initialize(PluginsConfigurationOptions.fromCommandLine(commandLine));
       besuPluginContext.registerPlugins();
       commandLine.setExecutionStrategy(nextStep);
@@ -1260,7 +1264,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         storageService,
         securityModuleService,
         metricCategoryRegistry,
-        getMetricsSystem(),
         permissioningService,
         rpcEndpointServiceImpl,
         transactionSelectionServiceImpl,

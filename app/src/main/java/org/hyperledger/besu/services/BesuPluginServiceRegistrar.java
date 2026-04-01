@@ -71,13 +71,29 @@ public final class BesuPluginServiceRegistrar {
    *   <li>{@code BesuConfiguration} – constructed differently per path and registered by each
    *       caller.
    * </ul>
+   *
+   * <p>{@code MetricsSystem} is intentionally absent: in the CLI path ({@code BesuCommand}) it
+   * cannot be resolved until PicoCLI has parsed arguments (because its configuration comes from
+   * CLI flags). Callers must register {@code MetricsSystem} explicitly, just before calling {@code
+   * pluginContext.initialize()}, using {@link #registerMetricsSystem}.
+   *
+   * @param pluginContext the plugin context to register services into
+   * @param storageService the storage service
+   * @param securityModuleService the security module service
+   * @param metricCategoryRegistry the metric category registry
+   * @param permissioningService the permissioning service
+   * @param rpcEndpointService the RPC endpoint service
+   * @param transactionSelectionService the transaction selection service
+   * @param transactionPoolValidatorService the transaction pool validator service
+   * @param transactionSimulationService the transaction simulation service
+   * @param blockchainService the blockchain service
+   * @param transactionValidatorService the transaction validator service
    */
   public static void registerEarlyServices(
       final BesuPluginContextImpl pluginContext,
       final StorageService storageService,
       final SecurityModuleService securityModuleService,
       final MetricCategoryRegistry metricCategoryRegistry,
-      final MetricsSystem metricsSystem,
       final PermissioningService permissioningService,
       final RpcEndpointService rpcEndpointService,
       final TransactionSelectionService transactionSelectionService,
@@ -89,7 +105,6 @@ public final class BesuPluginServiceRegistrar {
     pluginContext.addService(StorageService.class, storageService);
     pluginContext.addService(SecurityModuleService.class, securityModuleService);
     pluginContext.addService(MetricCategoryRegistry.class, metricCategoryRegistry);
-    pluginContext.addService(MetricsSystem.class, metricsSystem);
     pluginContext.addService(PermissioningService.class, permissioningService);
     pluginContext.addService(RpcEndpointService.class, rpcEndpointService);
     pluginContext.addService(TransactionSelectionService.class, transactionSelectionService);
@@ -101,6 +116,22 @@ public final class BesuPluginServiceRegistrar {
   }
 
   /**
+   * Registers the {@link MetricsSystem} with the plugin context.
+   *
+   * <p>This must be called just before {@code pluginContext.initialize()} so that plugins can
+   * resolve {@code MetricsSystem} during their {@code initialize()} callback. It is kept separate
+   * from {@link #registerEarlyServices} because in the CLI path the metrics system cannot be
+   * created until PicoCLI has parsed the command-line arguments.
+   *
+   * @param pluginContext the plugin context to register the service into
+   * @param metricsSystem the fully configured metrics system
+   */
+  public static void registerMetricsSystem(
+      final BesuPluginContextImpl pluginContext, final MetricsSystem metricsSystem) {
+    pluginContext.addService(MetricsSystem.class, metricsSystem);
+  }
+
+  /**
    * Registers the runtime plugin services (phase 2 – after {@link BesuController} and {@link
    * Runner} are built).
    *
@@ -109,6 +140,11 @@ public final class BesuPluginServiceRegistrar {
    *
    * <p>Does <em>not</em> call {@code pluginContext.startPlugins()} – callers are responsible for
    * that after any additional post-registration initialisation they need.
+   *
+   * @param pluginContext the plugin context to register services into
+   * @param besuController the fully built Besu controller
+   * @param runner the fully built runner (provides P2P network and in-process RPC)
+   * @param miningConfiguration the active mining configuration
    */
   public static void registerRuntimeServices(
       final BesuPluginContextImpl pluginContext,

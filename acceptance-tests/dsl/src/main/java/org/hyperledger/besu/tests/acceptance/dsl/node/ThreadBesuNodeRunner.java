@@ -579,7 +579,6 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
           storageService,
           securityModuleService,
           metricCategoryRegistry,
-          metricsSystem,
           permissioningService,
           rpcEndpointServiceImpl,
           transactionSelectionServiceImpl,
@@ -601,6 +600,8 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         pluginsPath = Path.of(pluginDir);
       }
 
+      // MetricsSystem is resolved from the Dagger graph (not CLI args), so it is available here.
+      BesuPluginServiceRegistrar.registerMetricsSystem(besuPluginContext, metricsSystem);
       besuPluginContext.initialize(
           ImmutablePluginConfiguration.builder()
               .pluginsDir(pluginsPath)
