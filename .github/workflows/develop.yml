@@ -73,7 +73,7 @@ jobs:
         with:
           cache-disabled: true
       - name: login to ${{ env.registry }}
-        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
         with:
           registry: ${{ env.registry }}
           username: ${{ secrets.DOCKER_USER_RW }}
@@ -105,7 +105,7 @@ jobs:
         with:
           cache-disabled: true
       - name: login to ${{ env.registry }}
-        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
         with:
           registry: ${{ env.registry }}
           username: ${{ secrets.DOCKER_USER_RW }}
