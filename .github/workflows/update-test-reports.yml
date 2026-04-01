@@ -28,7 +28,7 @@ jobs:
         env:
           LATEST_MERGED_PR_NUMBER: ${{ steps.latest_merged_pr_number.outputs.PULL_REQUEST_NUMBER }}
       - name: Upload unit test results
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: unit-test-results
           path: 'unit-test-results/**/test-results/**/TEST-*.xml'
@@ -45,7 +45,7 @@ jobs:
         env:
           LATEST_MERGED_PR_NUMBER: ${{ steps.latest_merged_pr_number.outputs.PULL_REQUEST_NUMBER }}
       - name: Upload acceptance test results
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: acceptance-test-results
           path: 'acceptance-test-results/**/TEST-*.xml'
