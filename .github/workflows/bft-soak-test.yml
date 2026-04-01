@@ -41,7 +41,7 @@ jobs:
       checks: write
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.BESU_REF }}
           repository: ${{ env.BESU_REPO }}
@@ -51,7 +51,7 @@ jobs:
           distribution: temurin
           java-version: 21
       - name: setup gradle
-        uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
+        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
           cache-disabled: true
       - name: run BFT soak test
