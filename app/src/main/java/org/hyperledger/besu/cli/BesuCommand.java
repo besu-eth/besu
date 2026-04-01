@@ -1260,6 +1260,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         storageService,
         securityModuleService,
         metricCategoryRegistry,
+        getMetricsSystem(),
         permissioningService,
         rpcEndpointServiceImpl,
         transactionSelectionServiceImpl,
@@ -1328,11 +1329,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     rpcEndpointServiceImpl.init(runner.getInProcessRpcMethods());
 
     BesuPluginServiceRegistrar.registerRuntimeServices(
-        besuPluginContext,
-        besuController,
-        runner,
-        getMetricsSystem(),
-        miningParametersSupplier.get());
+        besuPluginContext, besuController, runner, miningParametersSupplier.get());
 
     besuPluginContext.startPlugins();
   }

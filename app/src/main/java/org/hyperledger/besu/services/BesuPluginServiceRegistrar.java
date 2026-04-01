@@ -77,6 +77,7 @@ public final class BesuPluginServiceRegistrar {
       final StorageService storageService,
       final SecurityModuleService securityModuleService,
       final MetricCategoryRegistry metricCategoryRegistry,
+      final MetricsSystem metricsSystem,
       final PermissioningService permissioningService,
       final RpcEndpointService rpcEndpointService,
       final TransactionSelectionService transactionSelectionService,
@@ -88,6 +89,7 @@ public final class BesuPluginServiceRegistrar {
     pluginContext.addService(StorageService.class, storageService);
     pluginContext.addService(SecurityModuleService.class, securityModuleService);
     pluginContext.addService(MetricCategoryRegistry.class, metricCategoryRegistry);
+    pluginContext.addService(MetricsSystem.class, metricsSystem);
     pluginContext.addService(PermissioningService.class, permissioningService);
     pluginContext.addService(RpcEndpointService.class, rpcEndpointService);
     pluginContext.addService(TransactionSelectionService.class, transactionSelectionService);
@@ -112,7 +114,6 @@ public final class BesuPluginServiceRegistrar {
       final BesuPluginContextImpl pluginContext,
       final BesuController besuController,
       final Runner runner,
-      final MetricsSystem metricsSystem,
       final MiningConfiguration miningConfiguration) {
 
     pluginContext.addService(
@@ -123,8 +124,6 @@ public final class BesuPluginServiceRegistrar {
             besuController.getTransactionPool(),
             besuController.getSyncState(),
             besuController.getProtocolContext().getBadBlockManager()));
-
-    pluginContext.addService(MetricsSystem.class, metricsSystem);
 
     pluginContext.addService(
         WorldStateService.class,

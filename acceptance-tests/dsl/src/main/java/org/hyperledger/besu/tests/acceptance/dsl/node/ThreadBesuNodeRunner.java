@@ -206,7 +206,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
 
     component.rpcEndpointService().init(runner.getInProcessRpcMethods());
 
-    loadAdditionalServices(besuController, besuPluginContext, runner, metricsSystem);
+    loadAdditionalServices(besuController, besuPluginContext, runner);
 
     besuPluginContext.startPlugins();
 
@@ -244,14 +244,9 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
   private void loadAdditionalServices(
       final BesuController besuController,
       final BesuPluginContextImpl besuPluginContext,
-      final Runner runner,
-      final MetricsSystem metricsSystem) {
+      final Runner runner) {
     BesuPluginServiceRegistrar.registerRuntimeServices(
-        besuPluginContext,
-        besuController,
-        runner,
-        metricsSystem,
-        besuController.getMiningParameters());
+        besuPluginContext, besuController, runner, besuController.getMiningParameters());
   }
 
   private void killRunner(final String name) {
@@ -521,6 +516,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
           transactionSimulationServiceImpl,
           metricsConfiguration,
           metricCategoryRegistry,
+          metricsSystem,
           extraCLIOptions,
           requestedPlugins,
           besuPluginContext);
@@ -570,6 +566,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         final TransactionSimulationServiceImpl transactionSimulationServiceImpl,
         final MetricsConfiguration metricsConfiguration,
         final MetricCategoryRegistryImpl metricCategoryRegistry,
+        final MetricsSystem metricsSystem,
         final @Named("ExtraCLIOptions") List<String> extraCLIOptions,
         final @Named("RequestedPlugins") List<String> requestedPlugins,
         final BesuPluginContextImpl besuPluginContext) {
@@ -582,6 +579,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
           storageService,
           securityModuleService,
           metricCategoryRegistry,
+          metricsSystem,
           permissioningService,
           rpcEndpointServiceImpl,
           transactionSelectionServiceImpl,
