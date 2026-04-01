@@ -382,6 +382,40 @@ public class BonsaiFlatDbToArchiveMigratorTest {
         .untilAsserted(() -> assertThat(getArchivedAccountKey(1L)).isPresent());
   }
 
+  @Test
+  public void ongoingMigrationCatchesUpMultipleBlocksBehind() throws Exception {
+    // head=3, boundaryDistance=1 → initial target=2; migrate blocks 1 and 2
+    appendBlocks(3);
+    final BonsaiFlatDbToArchiveMigrator migrator = createMigrator(1);
+    migrator.migrate().get(10, TimeUnit.SECONDS);
+    assertThat(migrator.getMigrationProgress()).hasValue(2L);
+
+    // blocks 4 and 5 arrive while executor is idle; block 6 triggers catch-up of 4-1=3 up to 5-1=4
+    appendBlocks(3);
+    Awaitility.await()
+        .atMost(5, TimeUnit.SECONDS)
+        .untilAsserted(() -> assertThat(getArchivedAccountKey(3L)).isPresent());
+    Awaitility.await()
+        .atMost(5, TimeUnit.SECONDS)
+        .untilAsserted(() -> assertThat(getArchivedAccountKey(4L)).isPresent());
+  }
+
+  @Test
+  public void ongoingMigrationUpdatesMetric() throws Exception {
+    appendBlocks(3);
+    final BonsaiFlatDbToArchiveMigrator migrator = createMigrator(1);
+    migrator.migrate().get(10, TimeUnit.SECONDS);
+    final long metricAfterMigration = migrator.migratedBlockNumber.get();
+
+    // block 4 arrives → observer migrates block 3; metric should increment
+    appendBlocks(1);
+    Awaitility.await()
+        .atMost(5, TimeUnit.SECONDS)
+        .untilAsserted(
+            () ->
+                assertThat(migrator.migratedBlockNumber.get()).isGreaterThan(metricAfterMigration));
+  }
+
   private BonsaiFlatDbToArchiveMigrator createMigrator() {
     return createMigrator(0);
   }

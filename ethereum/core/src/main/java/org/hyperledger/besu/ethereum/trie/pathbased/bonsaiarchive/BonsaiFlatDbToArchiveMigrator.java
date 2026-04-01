@@ -72,10 +72,10 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   private final ScheduledExecutorService executorService;
   private final BonsaiArchiveFlatDbStrategy archiveStrategy;
   private final long boundaryDistance;
-  private final AtomicLong migratedBlockNumber = new AtomicLong(0);
   private final AtomicBoolean shouldLogProgress = new AtomicBoolean(true);
+  protected final AtomicLong migratedBlockNumber = new AtomicLong(0);
   protected final AtomicBoolean migrationRunning = new AtomicBoolean(false);
-  @VisibleForTesting OptionalLong blockObserverId = OptionalLong.empty();
+  protected OptionalLong blockObserverId = OptionalLong.empty();
 
   /**
    * Creates a new BonsaiFlatDbToArchiveMigrator.
@@ -173,36 +173,28 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
         OptionalLong.of(
             blockchain.observeBlockAdded(
                 event -> {
-                  final long archiveBlock = archiveTarget(event.getHeader().getNumber());
-                  if (archiveBlock > 0) {
+                  final long target = archiveTarget(event.getHeader().getNumber());
+                  if (target > 0) {
                     try {
-                      executorService.submit(() -> processBlockFromObserver(archiveBlock));
+                      executorService.submit(() -> catchUp(target));
                     } catch (final RejectedExecutionException e) {
                       LOG.debug(
-                          "Bonsai migrator executor shut down; skipping migration of block {}",
-                          archiveBlock);
+                          "Bonsai migrator executor shut down; skipping migration up to block {}",
+                          target);
                     }
                   }
                 }));
   }
 
-  private long archiveTarget(final long blockNumber) {
-    return Math.max(0, blockNumber - boundaryDistance);
+  private void catchUp(final long target) {
+    final long startBlock = getMigrationProgress().orElse(-1L) + 1;
+    if (startBlock <= target) {
+      migrateBlocks(startBlock, new AtomicLong(target));
+    }
   }
 
-  private void processBlockFromObserver(final long blockNumber) {
-    blockchain
-        .getBlockHeader(blockNumber)
-        .flatMap(header -> trieLogManager.getTrieLogLayer(header.getHash()))
-        .ifPresentOrElse(
-            trieLog -> {
-              final SegmentedKeyValueStorageTransaction tx =
-                  worldStateStorage.getComposedWorldStateStorage().startTransaction();
-              processBlock(trieLog, blockNumber, tx);
-              saveProgress(blockNumber, tx);
-              tx.commit();
-            },
-            () -> LOG.error("No trie log found for block {}", blockNumber));
+  private long archiveTarget(final long blockNumber) {
+    return Math.max(0, blockNumber - boundaryDistance);
   }
 
   @Override
