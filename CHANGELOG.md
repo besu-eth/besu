@@ -24,6 +24,7 @@
 - Plugin API
   - `PluginTransactionSelectorFactory.create(final SelectorsStateManager selectorsStateManager)` is deprecated for removal
 - `--Xmax-tracked-seen-txs-per-peer` renamed to `--Xmax-tracked-seen-txs` (old name kept as deprecated alias will be removed in a future release)
+- Besu will require Java JDK 25 to build and run in a future release.
 
 ### Bug fixes
 - Fix eth/69 snap sync receipt root mismatch by correctly identifying Frontier transaction type in SyncTransactionReceiptEncoder [#9900](https://github.com/hyperledger/besu/pull/9900)
@@ -76,6 +77,7 @@ are provided with different values, using input as per the execution-apis spec i
 ### Discovery V5
 - Add IPv6 dual-stack support for DiscV5 peer discovery (enabled via `--Xv5-discovery-enabled`): new `--p2p-host-ipv6`, `--p2p-interface-ipv6`, and `--p2p-port-ipv6` CLI options enable a second UDP discovery socket; `--p2p-ipv6-outbound-enabled` controls whether IPv6 is preferred for outbound connections when a peer advertises both address families [#9763](https://github.com/hyperledger/besu/pull/9763); RLPx now also binds a second TCP socket on the IPv6 interface so IPv6-only peers can establish connections [#9873](https://github.com/hyperledger/besu/pull/9873)
 - Add DiscV5 discovery metrics (`discv5_live_nodes_current`, `discv5_total_nodes_current`) to track node counts in the routing table [#9692](https://github.com/besu-eth/besu/issues/9692)
+- Make DiscV5 discovery parameters externally configurable: `--Xv5-discovery-interval-seconds` (default: 1), `--Xv5-discovery-timeout-seconds` (default: 30), and `--Xv5-minimum-peer-ratio` (default: 0.8) allow tuning of the peer discovery cadence, per-round timeout, and peer saturation threshold without code changes [#10127](https://github.com/besu-eth/besu/pull/10127)
 
 ## 26.2.0
 

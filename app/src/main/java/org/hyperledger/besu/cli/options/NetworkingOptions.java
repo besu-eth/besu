@@ -40,6 +40,11 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
   /** The constant FILTER_ON_ENR_FORK_ID. */
   public static final String FILTER_ON_ENR_FORK_ID = "--filter-on-enr-fork-id";
 
+  private static final String DISCV5_DISCOVERY_INTERVAL_SECONDS =
+      "--Xv5-discovery-interval-seconds";
+  private static final String DISCV5_DISCOVERY_TIMEOUT_SECONDS = "--Xv5-discovery-timeout-seconds";
+  private static final String DISCV5_MINIMUM_PEER_RATIO = "--Xv5-minimum-peer-ratio";
+
   @CommandLine.Option(
       names = INITIATE_CONNECTIONS_FREQUENCY_FLAG,
       hidden = true,
@@ -88,6 +93,31 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
       description = "Whether to enable filtering of peers based on the ENR field ForkId)")
   private final Boolean filterOnEnrForkId = NetworkingConfiguration.DEFAULT_FILTER_ON_ENR_FORK_ID;
 
+  @CommandLine.Option(
+      names = DISCV5_DISCOVERY_INTERVAL_SECONDS,
+      hidden = true,
+      paramLabel = "<INTEGER>",
+      description = "The interval (in seconds) between DiscV5 peer discovery cycles (default: 1)",
+      converter = DurationSecondsConverter.class)
+  private Duration discV5DiscoveryIntervalSeconds = Duration.ofSeconds(1);
+
+  @CommandLine.Option(
+      names = DISCV5_DISCOVERY_TIMEOUT_SECONDS,
+      hidden = true,
+      paramLabel = "<INTEGER>",
+      description =
+          "The timeout (in seconds) for each DiscV5 peer discovery operation (default: 30)",
+      converter = DurationSecondsConverter.class)
+  private Duration discV5DiscoveryTimeoutSeconds = Duration.ofSeconds(30);
+
+  @CommandLine.Option(
+      names = DISCV5_MINIMUM_PEER_RATIO,
+      hidden = true,
+      paramLabel = "<DOUBLE>",
+      description =
+          "Minimum ratio of connected peers to max peers required to switch to slow DiscV5 discovery cadence (default: 0.8)")
+  private double discV5MinimumPeerRatio = 0.8;
+
   private NetworkingOptions() {}
 
   /**
@@ -116,11 +146,26 @@ public class NetworkingOptions implements CLIOptions<NetworkingConfiguration> {
     return cliOptions;
   }
 
+  /**
+   * Validates networking-related CLI options.
+   *
+   * @param commandLine the parsed command line input
+   */
+  public void validate(final CommandLine commandLine) {
+    if (discV5MinimumPeerRatio <= 0) {
+      throw new CommandLine.ParameterException(
+          commandLine, DISCV5_MINIMUM_PEER_RATIO + " must be non-negative");
+    }
+  }
+
   @Override
   public NetworkingConfiguration toDomainObject() {
     final var discovery = DiscoveryConfiguration.create();
     discovery.setDiscoveryV5Enabled(isPeerDiscoveryV5Enabled);
     discovery.setFilterOnEnrForkId(filterOnEnrForkId);
+    discovery.setDiscV5DiscoveryIntervalSeconds((int) discV5DiscoveryIntervalSeconds.toSeconds());
+    discovery.setDiscV5DiscoveryTimeoutSeconds((int) discV5DiscoveryTimeoutSeconds.toSeconds());
+    discovery.setDiscV5MinimumPeerRatio(discV5MinimumPeerRatio);
 
     return ImmutableNetworkingConfiguration.builder()
         .checkMaintainedConnectionsFrequency(checkMaintainedConnectionsFrequency)
