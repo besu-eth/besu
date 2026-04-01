@@ -323,18 +323,26 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
     final Optional<BlockHeader> maybeFirstPivotHeader = snapSyncState.getFirstPivotBlockHeader();
     final Optional<BlockHeader> maybeLastPivotHeader = snapSyncState.getPivotBlockHeader();
 
+    LOG.debug("Starting BAL apply attempt");
+
     if (maybeFirstPivotHeader.isEmpty() || maybeLastPivotHeader.isEmpty()) {
+      LOG.debug(
+          "Skipping BAL apply - firstPivotHeader={}, lastPivotHeader={}",
+          maybeFirstPivotHeader,
+          maybeLastPivotHeader);
       return false;
     }
 
     final BlockHeader firstPivotHeader = maybeFirstPivotHeader.get();
     if (!protocolSchedule.getByBlockHeader(firstPivotHeader).isBlockAccessListEnabled()) {
+      LOG.debug("Skipping BAL apply - BALs not enabled on first pivot {}", firstPivotHeader);
       return false;
     }
 
     final long fromBlock = firstPivotHeader.getNumber();
     final long toBlock = maybeLastPivotHeader.get().getNumber();
     if (toBlock < fromBlock) {
+      LOG.error("Attempted to apply BALs with fromBlock {} > {} toBlock", fromBlock, toBlock);
       return false;
     }
 
