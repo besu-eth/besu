@@ -416,6 +416,21 @@ public class BonsaiFlatDbToArchiveMigratorTest {
                 assertThat(migrator.migratedBlockNumber.get()).isGreaterThan(metricAfterMigration));
   }
 
+  @Test
+  public void startOngoingMigrationInitializesMetricFromSavedProgress() throws Exception {
+    appendBlocks(5);
+    final BonsaiFlatDbToArchiveMigrator firstMigrator = createMigrator(0);
+    firstMigrator.migrate().get(10, TimeUnit.SECONDS);
+    firstMigrator.close();
+
+    // Second migrator simulates a restart — metric should be initialized from saved progress
+    final BonsaiFlatDbToArchiveMigrator secondMigrator = createMigrator(0);
+    assertThat(secondMigrator.migratedBlockNumber.get()).isEqualTo(0L);
+    secondMigrator.startOngoingMigration();
+    assertThat(secondMigrator.migratedBlockNumber.get()).isEqualTo(5L);
+    secondMigrator.close();
+  }
+
   private BonsaiFlatDbToArchiveMigrator createMigrator() {
     return createMigrator(0);
   }

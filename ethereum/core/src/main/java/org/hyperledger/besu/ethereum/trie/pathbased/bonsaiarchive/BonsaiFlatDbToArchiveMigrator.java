@@ -169,6 +169,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   }
 
   public void startOngoingMigration() {
+    migratedBlockNumber.set(getMigrationProgress().orElse(0L));
     blockObserverId =
         OptionalLong.of(
             blockchain.observeBlockAdded(
