@@ -55,11 +55,10 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.tuweni.units.bigints.UInt256;
-import org.junit.jupiter.api.AfterEach;
+import org.awaitility.Awaitility;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -78,24 +77,17 @@ public class BonsaiFlatDbToArchiveMigratorTest {
   @Mock private BonsaiWorldStateKeyValueStorage worldStateStorage;
   @Mock private TrieLogManager trieLogManager;
   private MutableBlockchain blockchain;
-  private ScheduledExecutorService executorService;
   private SegmentedKeyValueStorage storage;
   private BlockDataGenerator blockDataGenerator;
 
   @BeforeEach
   public void setup() {
     storage = new SegmentedInMemoryKeyValueStorage();
-    executorService = Executors.newScheduledThreadPool(1);
     blockDataGenerator = new BlockDataGenerator();
     blockchain = createInMemoryBlockchain(blockDataGenerator.genesisBlock());
     when(worldStateStorage.getComposedWorldStateStorage()).thenReturn(storage);
     when(trieLogManager.getTrieLogLayer(any()))
         .thenReturn(Optional.of(createAccountTrieLog(Wei.ONE)));
-  }
-
-  @AfterEach
-  public void tearDown() {
-    executorService.shutdownNow();
   }
 
   @Test
@@ -287,6 +279,7 @@ public class BonsaiFlatDbToArchiveMigratorTest {
     final BonsaiFlatDbToArchiveMigrator firstMigrator = createMigrator();
     firstMigrator.migrate().get(10, TimeUnit.SECONDS);
     assertThat(firstMigrator.getMigrationProgress()).hasValue(3L);
+    firstMigrator.close(); // simulate node restart — deregisters ongoing observer
 
     // Append a new block and run a second migrator (simulating a restart)
     appendBlocks(1);
@@ -347,7 +340,53 @@ public class BonsaiFlatDbToArchiveMigratorTest {
     }
   }
 
+  @Test
+  public void migrationStopsAtHeadMinusBoundaryDistance() throws Exception {
+    // head=5, boundaryDistance=3 → target = 5-3 = 2; blocks 1 and 2 migrated, 3 not
+    appendBlocks(5);
+    final BonsaiFlatDbToArchiveMigrator migrator = createMigrator(3);
+    migrator.migrate().get(10, TimeUnit.SECONDS);
+
+    assertThat(getArchivedAccountKey(2L)).isPresent();
+    assertThat(getArchivedAccountKey(3L)).isEmpty();
+  }
+
+  @Test
+  public void blockObserverPersistsAndMigratesBlockAtBoundary() throws Exception {
+    // head=3, boundaryDistance=3 → initial target=0, nothing migrated initially
+    appendBlocks(3);
+    final BonsaiFlatDbToArchiveMigrator migrator = createMigrator(3);
+    migrator.migrate().get(10, TimeUnit.SECONDS);
+    assertThat(getArchivedAccountKey(1L)).isEmpty();
+
+    // block 4 arrives → observer submits migration of block 4-3=1
+    appendBlocks(1);
+    Awaitility.await()
+        .atMost(5, TimeUnit.SECONDS)
+        .untilAsserted(() -> assertThat(getArchivedAccountKey(1L)).isPresent());
+  }
+
+  @Test
+  public void startOngoingMigrationRegistersObserverAndMigratesBlocks() {
+    appendBlocks(3);
+    final BonsaiFlatDbToArchiveMigrator migrator = createMigrator(3);
+    assertThat(migrator.blockObserverId).isEmpty();
+
+    migrator.startOngoingMigration();
+    assertThat(migrator.blockObserverId).isPresent();
+
+    // block 4 arrives → observer migrates block 4-3=1
+    appendBlocks(1);
+    Awaitility.await()
+        .atMost(5, TimeUnit.SECONDS)
+        .untilAsserted(() -> assertThat(getArchivedAccountKey(1L)).isPresent());
+  }
+
   private BonsaiFlatDbToArchiveMigrator createMigrator() {
+    return createMigrator(0);
+  }
+
+  private BonsaiFlatDbToArchiveMigrator createMigrator(final long boundaryDistance) {
     final NoOpMetricsSystem metricsSystem = new NoOpMetricsSystem();
     final BonsaiArchiveFlatDbStrategy archiveStrategy =
         new BonsaiArchiveFlatDbStrategy(metricsSystem, new CodeHashCodeStorageStrategy());
@@ -355,9 +394,10 @@ public class BonsaiFlatDbToArchiveMigratorTest {
         worldStateStorage,
         trieLogManager,
         blockchain,
-        executorService,
+        Executors.newScheduledThreadPool(1),
         metricsSystem,
-        archiveStrategy);
+        archiveStrategy,
+        boundaryDistance);
   }
 
   private TrieLogLayer createAccountTrieLog(final Wei balance) {

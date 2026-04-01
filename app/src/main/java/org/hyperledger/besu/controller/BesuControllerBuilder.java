@@ -937,6 +937,11 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
                 },
                 0));
       } else {
+        // Already in ARCHIVE mode (restart after migration): register ongoing migration
+        final BonsaiFlatDbToArchiveMigrator archiveMigrator =
+            createArchiveMigrator(worldStateStorageCoordinator, worldStateArchive, blockchain);
+        archiveMigrator.startOngoingMigration();
+        closeables.add(archiveMigrator);
         blockchain.observeBlockAdded(archiver);
       }
     }
@@ -1065,7 +1070,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         blockchain,
         migrationExecutor,
         metricsSystem,
-        archiveStrategy);
+        archiveStrategy,
+        dataStorageConfiguration.getPathBasedExtraStorageConfiguration().getMaxLayersToLoad());
   }
 
   /**
@@ -1367,12 +1373,13 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         yield new BonsaiArchiveWorldStateProvider(
             worldStateKeyValueStorage,
             blockchain,
-            dataStorageConfiguration.getPathBasedExtraStorageConfiguration(),
+            dataStorageConfiguration,
             bonsaiCachedMerkleTrieLoader,
             besuComponent.map(BesuComponent::getBesuPluginContext).orElse(null),
             evmConfiguration,
             worldStateHealerSupplier,
-            codeCache);
+            codeCache,
+            metricsSystem);
       }
       case FOREST -> {
         final WorldStatePreimageStorage preimageStorage =

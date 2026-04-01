@@ -33,8 +33,10 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -67,11 +69,13 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   private final BonsaiWorldStateKeyValueStorage worldStateStorage;
   private final TrieLogManager trieLogManager;
   private final Blockchain blockchain;
-  private final ExecutorService executorService;
+  private final ScheduledExecutorService executorService;
   private final BonsaiArchiveFlatDbStrategy archiveStrategy;
+  private final long boundaryDistance;
   private final AtomicLong migratedBlockNumber = new AtomicLong(0);
   private final AtomicBoolean shouldLogProgress = new AtomicBoolean(true);
   protected final AtomicBoolean migrationRunning = new AtomicBoolean(false);
+  @VisibleForTesting OptionalLong blockObserverId = OptionalLong.empty();
 
   /**
    * Creates a new BonsaiFlatDbToArchiveMigrator.
@@ -87,14 +91,16 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
       final BonsaiWorldStateKeyValueStorage worldStateStorage,
       final TrieLogManager trieLogManager,
       final Blockchain blockchain,
-      final ExecutorService executorService,
+      final ScheduledExecutorService executorService,
       final MetricsSystem metricsSystem,
-      final BonsaiArchiveFlatDbStrategy archiveStrategy) {
+      final BonsaiArchiveFlatDbStrategy archiveStrategy,
+      final long boundaryDistance) {
     this.worldStateStorage = worldStateStorage;
     this.trieLogManager = trieLogManager;
     this.blockchain = blockchain;
     this.executorService = executorService;
     this.archiveStrategy = archiveStrategy;
+    this.boundaryDistance = boundaryDistance;
     metricsSystem.createLongGauge(
         BesuMetricCategory.BLOCKCHAIN,
         "bonsai_archive_migration_block",
@@ -118,9 +124,10 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
     final long startBlock = lastProcessedBlock + 1;
     migratedBlockNumber.set(Math.max(0, lastProcessedBlock));
 
-    final AtomicLong target = new AtomicLong(blockchain.getChainHeadBlockNumber());
+    final AtomicLong target = new AtomicLong(archiveTarget(blockchain.getChainHeadBlockNumber()));
     final long blockObserverId =
-        blockchain.observeBlockAdded(event -> target.set(event.getHeader().getNumber()));
+        blockchain.observeBlockAdded(
+            event -> target.set(archiveTarget(event.getHeader().getNumber())));
 
     LOG.info("Starting Bonsai Archive migration from block {}", startBlock);
     return CompletableFuture.runAsync(() -> migrateBlocks(startBlock, target), executorService)
@@ -137,6 +144,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
               worldStateStorage.upgradeToArchiveFlatDbMode();
               logCompletion(startBlock, target.get(), migrationStartTime);
               migrationRunning.set(false);
+              startOngoingMigration();
             });
   }
 
@@ -160,8 +168,46 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
     }
   }
 
+  public void startOngoingMigration() {
+    blockObserverId =
+        OptionalLong.of(
+            blockchain.observeBlockAdded(
+                event -> {
+                  final long archiveBlock = archiveTarget(event.getHeader().getNumber());
+                  if (archiveBlock > 0) {
+                    try {
+                      executorService.submit(() -> processBlockFromObserver(archiveBlock));
+                    } catch (final RejectedExecutionException e) {
+                      LOG.debug(
+                          "Bonsai migrator executor shut down; skipping migration of block {}",
+                          archiveBlock);
+                    }
+                  }
+                }));
+  }
+
+  private long archiveTarget(final long blockNumber) {
+    return Math.max(0, blockNumber - boundaryDistance);
+  }
+
+  private void processBlockFromObserver(final long blockNumber) {
+    blockchain
+        .getBlockHeader(blockNumber)
+        .flatMap(header -> trieLogManager.getTrieLogLayer(header.getHash()))
+        .ifPresentOrElse(
+            trieLog -> {
+              final SegmentedKeyValueStorageTransaction tx =
+                  worldStateStorage.getComposedWorldStateStorage().startTransaction();
+              processBlock(trieLog, blockNumber, tx);
+              saveProgress(blockNumber, tx);
+              tx.commit();
+            },
+            () -> LOG.error("No trie log found for block {}", blockNumber));
+  }
+
   @Override
   public void close() {
+    blockObserverId.ifPresent(blockchain::removeObserver);
     executorService.shutdownNow();
     try {
       if (!executorService.awaitTermination(10, TimeUnit.SECONDS)) {
