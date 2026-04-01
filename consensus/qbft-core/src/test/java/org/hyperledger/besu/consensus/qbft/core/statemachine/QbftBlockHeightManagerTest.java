@@ -63,6 +63,8 @@ import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Util;
+import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.util.Subscribers;
 
@@ -109,6 +111,7 @@ public class QbftBlockHeightManagerTest {
   @Mock private QbftBlockInterface blockInterface;
   @Mock private QbftValidatorProvider validatorProvider;
   @Mock private QbftBlockImporter blockImporter;
+  @Mock private TransactionPool transactionPool;
 
   @Captor private ArgumentCaptor<MessageData> sentMessageArgCaptor;
 
@@ -137,6 +140,9 @@ public class QbftBlockHeightManagerTest {
     when(finalState.getQuorum()).thenReturn(3);
     when(finalState.getValidatorMulticaster()).thenReturn(validatorMulticaster);
     when(finalState.getClock()).thenReturn(clock);
+    when(finalState.getTransactionPool()).thenReturn(transactionPool);
+    when(transactionPool.subscribePendingTransactions(any(PendingTransactionAddedListener.class)))
+        .thenReturn(1L);
     when(blockCreator.createBlock(anyLong(), any()))
         .thenReturn(new QbftBlockCreator.BlockCreationResult(createdBlock, Optional.empty()));
 

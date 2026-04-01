@@ -15,6 +15,7 @@
 package org.hyperledger.besu.consensus.qbft.core.statemachine;
 
 import org.hyperledger.besu.consensus.common.bft.ConsensusRoundIdentifier;
+import org.hyperledger.besu.consensus.common.bft.events.BlockTimerExpiry;
 import org.hyperledger.besu.consensus.common.bft.events.RoundExpiry;
 import org.hyperledger.besu.consensus.common.bft.messagewrappers.BftMessage;
 import org.hyperledger.besu.consensus.common.bft.payload.Payload;
@@ -32,6 +33,7 @@ import org.hyperledger.besu.consensus.qbft.core.types.QbftValidatorProvider;
 import org.hyperledger.besu.consensus.qbft.core.validation.FutureRoundProposalMessageValidator;
 import org.hyperledger.besu.consensus.qbft.core.validation.MessageValidatorFactory;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModuleException;
 
@@ -70,6 +72,7 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
   private final Clock clock;
   private final Function<ConsensusRoundIdentifier, RoundState> roundStateCreator;
   private final QbftFinalState finalState;
+  private final ConsensusRoundIdentifier nextBlockRoundId;
 
   private Optional<PreparedCertificate> latestPreparedCertificate = Optional.empty();
   private Optional<QbftRound> currentRound = Optional.empty();
@@ -118,10 +121,10 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
                 messageValidatorFactory.createMessageValidator(roundIdentifier, parentHeader));
 
     final long nextBlockHeight = parentHeader.getNumber() + 1;
-    final ConsensusRoundIdentifier roundIdentifier =
-        new ConsensusRoundIdentifier(nextBlockHeight, 0);
+    this.nextBlockRoundId = new ConsensusRoundIdentifier(nextBlockHeight, 0);
 
-    finalState.getBlockTimer().startTimer(roundIdentifier, parentHeader::getTimestamp);
+    finalState.getBlockTimer().startTimer(nextBlockRoundId, parentHeader::getTimestamp);
+    finalState.getTransactionPool().subscribePendingTransactions(this::onTransactionAdded);
   }
 
   /**
@@ -494,6 +497,14 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
   @Override
   public Optional<RoundChangeManager> getRoundChangeManager() {
     return Optional.of(roundChangeManager);
+  }
+
+  private synchronized void onTransactionAdded(final Transaction tx) {
+    if (currentRound.isEmpty()
+        && finalState.isLocalNodeProposerForRound(nextBlockRoundId)) {
+      finalState.getBlockTimer().cancelTimer();
+      finalState.getBlockTimer().getQueue().add(new BlockTimerExpiry(nextBlockRoundId));
+    }
   }
 
   /** The enum Message age. */

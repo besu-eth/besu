@@ -202,6 +202,15 @@ public class BftBlockCreatorFactory<T extends BftConfigOptions> {
     return localAddress;
   }
 
+  /**
+   * Gets the transaction pool.
+   *
+   * @return the transaction pool
+   */
+  public TransactionPool getTransactionPool() {
+    return transactionPool;
+  }
+
   private static Optional<Vote> toVote(final Optional<ValidatorVote> input) {
     return input.map(v -> new Vote(v.getRecipient(), v.getVotePolarity()));
   }

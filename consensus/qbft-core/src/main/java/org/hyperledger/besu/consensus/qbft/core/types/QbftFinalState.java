@@ -20,6 +20,7 @@ import org.hyperledger.besu.consensus.common.bft.RoundTimer;
 import org.hyperledger.besu.consensus.common.bft.network.ValidatorMulticaster;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
 import java.time.Clock;
 import java.util.Collection;
@@ -104,4 +105,11 @@ public interface QbftFinalState {
    * @return true if the local node is the proposer for the given round, false otherwise
    */
   boolean isLocalNodeProposerForRound(ConsensusRoundIdentifier roundIdentifier);
+
+  /**
+   * Gets the transaction pool.
+   *
+   * @return the transaction pool
+   */
+  TransactionPool getTransactionPool();
 }

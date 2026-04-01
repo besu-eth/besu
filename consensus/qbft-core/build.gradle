@@ -32,6 +32,7 @@ dependencies {
   implementation project(':consensus:common')
   implementation project(':crypto:services')
   implementation project(':ethereum:core')
+  implementation project(':ethereum:eth')
   implementation project(':util')
   implementation project(':ethereum:p2p')
   implementation project(':ethereum:rlp')

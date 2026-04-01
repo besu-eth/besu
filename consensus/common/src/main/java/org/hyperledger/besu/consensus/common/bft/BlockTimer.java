@@ -205,4 +205,13 @@ public class BlockTimer {
   public synchronized long getEmptyBlockPeriodSeconds() {
     return emptyBlockPeriodSeconds;
   }
+
+  /**
+   * Gets the event queue.
+   *
+   * @return the event queue
+   */
+  public BftEventQueue getQueue() {
+    return queue;
+  }
 }
