@@ -57,8 +57,7 @@ public class BonsaiArchiveReadFlatDbStrategyProviderTest {
         new BonsaiArchiveReadFlatDbStrategyProvider(new NoOpMetricsSystem(), CONFIG);
     provider.loadFlatDbStrategy(storage);
 
-    assertThat(provider.getFlatDbStrategy(storage))
-        .isInstanceOf(BonsaiArchiveFlatDbStrategy.class);
+    assertThat(provider.getFlatDbStrategy(storage)).isInstanceOf(BonsaiArchiveFlatDbStrategy.class);
   }
 
   @Test
@@ -80,8 +79,10 @@ public class BonsaiArchiveReadFlatDbStrategyProviderTest {
     // Write FULL mode to the DB
     final var tx = storage.startTransaction();
     tx.put(
-        org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE,
-        org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbStrategyProvider.FLAT_DB_MODE,
+        org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier
+            .TRIE_BRANCH_STORAGE,
+        org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbStrategyProvider
+            .FLAT_DB_MODE,
         FlatDbMode.FULL.getVersion().toArrayUnsafe());
     tx.commit();
 
@@ -89,7 +90,6 @@ public class BonsaiArchiveReadFlatDbStrategyProviderTest {
         new BonsaiArchiveReadFlatDbStrategyProvider(new NoOpMetricsSystem(), CONFIG);
     provider.loadFlatDbStrategy(storage);
 
-    assertThat(provider.getFlatDbStrategy(storage))
-        .isInstanceOf(BonsaiArchiveFlatDbStrategy.class);
+    assertThat(provider.getFlatDbStrategy(storage)).isInstanceOf(BonsaiArchiveFlatDbStrategy.class);
   }
 }
