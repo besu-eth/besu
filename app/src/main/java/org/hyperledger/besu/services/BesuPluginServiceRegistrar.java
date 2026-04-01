@@ -73,8 +73,8 @@ public final class BesuPluginServiceRegistrar {
    * </ul>
    *
    * <p>{@code MetricsSystem} is intentionally absent: in the CLI path ({@code BesuCommand}) it
-   * cannot be resolved until PicoCLI has parsed arguments (because its configuration comes from
-   * CLI flags). Callers must register {@code MetricsSystem} explicitly, just before calling {@code
+   * cannot be resolved until PicoCLI has parsed arguments (because its configuration comes from CLI
+   * flags). Callers must register {@code MetricsSystem} explicitly, just before calling {@code
    * pluginContext.initialize()}, using {@link #registerMetricsSystem}.
    *
    * @param pluginContext the plugin context to register services into
