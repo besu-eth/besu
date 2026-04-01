@@ -21,7 +21,7 @@ jobs:
           distribution: temurin
           java-version: 21
       - name: Cache SonarCloud packages
-        uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: ~/.sonar/cache
           key: ${{ runner.os }}-sonar

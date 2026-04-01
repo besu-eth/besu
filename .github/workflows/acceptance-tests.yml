@@ -63,19 +63,19 @@ jobs:
         # we do not need the module task here
         run:  cat testList.txt | cut -f 2- -d ' ' | tee gradleArgs.txt
       - name: Upload Timing
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: matrix.runner_index == 0
         with:
           name: acceptance-tests-timing
           path: 'tmp/timing.tsv'
       - name: Upload Lists
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: matrix.runner_index == 0
         with:
           name: acceptance-tests-lists
           path: 'tmp/*.list'
       - name: Upload gradle test tasks
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: test-args-${{ matrix.runner_index }}.txt
           path: '*.txt'
@@ -84,12 +84,12 @@ jobs:
       - name: Remove downloaded test results
         run: rm -rf tmp/junit-xml-reports-downloaded
       - name: Upload Acceptance Test Results
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           name: acceptance-node-${{matrix.runner_index}}-test-results
           path: 'acceptance-tests/tests/build/test-results/**/TEST-*.xml'
       - name: Upload Acceptance Test HTML Reports
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: success() || failure()
         with:
           name: acceptance-node-${{matrix.runner_index}}-test-html-reports

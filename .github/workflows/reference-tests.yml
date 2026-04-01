@@ -71,7 +71,7 @@ jobs:
             exit 1
           fi
       - name: Upload Test Report
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always() # always run even if the previous step fails
         with:
           name: reference-test-node-${{matrix.runner_index}}-results
