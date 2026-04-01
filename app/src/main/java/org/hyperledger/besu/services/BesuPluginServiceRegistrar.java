@@ -78,8 +78,8 @@ public final class BesuPluginServiceRegistrar {
    * pluginContext.initialize()}, using {@link #registerMetricsSystem}.
    *
    * @param pluginContext the plugin context to register services into
-   * @param storageService the storage service
    * @param securityModuleService the security module service
+   * @param storageService the storage service
    * @param metricCategoryRegistry the metric category registry
    * @param permissioningService the permissioning service
    * @param rpcEndpointService the RPC endpoint service
@@ -91,8 +91,8 @@ public final class BesuPluginServiceRegistrar {
    */
   public static void registerEarlyServices(
       final BesuPluginContextImpl pluginContext,
-      final StorageService storageService,
       final SecurityModuleService securityModuleService,
+      final StorageService storageService,
       final MetricCategoryRegistry metricCategoryRegistry,
       final PermissioningService permissioningService,
       final RpcEndpointService rpcEndpointService,
@@ -102,8 +102,8 @@ public final class BesuPluginServiceRegistrar {
       final BlockchainService blockchainService,
       final TransactionValidatorService transactionValidatorService) {
 
-    pluginContext.addService(StorageService.class, storageService);
     pluginContext.addService(SecurityModuleService.class, securityModuleService);
+    pluginContext.addService(StorageService.class, storageService);
     pluginContext.addService(MetricCategoryRegistry.class, metricCategoryRegistry);
     pluginContext.addService(PermissioningService.class, permissioningService);
     pluginContext.addService(RpcEndpointService.class, rpcEndpointService);

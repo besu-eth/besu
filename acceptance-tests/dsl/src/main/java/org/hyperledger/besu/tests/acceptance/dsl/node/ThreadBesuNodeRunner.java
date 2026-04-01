@@ -576,8 +576,8 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
       metricCategoryRegistry.setMetricsConfiguration(metricsConfiguration);
       BesuPluginServiceRegistrar.registerEarlyServices(
           besuPluginContext,
-          storageService,
           securityModuleService,
+          storageService,
           metricCategoryRegistry,
           permissioningService,
           rpcEndpointServiceImpl,

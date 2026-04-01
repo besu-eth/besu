@@ -1261,8 +1261,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
     BesuPluginServiceRegistrar.registerEarlyServices(
         besuPluginContext,
-        storageService,
         securityModuleService,
+        storageService,
         metricCategoryRegistry,
         permissioningService,
         rpcEndpointServiceImpl,
