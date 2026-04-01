@@ -500,8 +500,7 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
   }
 
   private synchronized void onTransactionAdded(final Transaction tx) {
-    if (currentRound.isEmpty()
-        && finalState.isLocalNodeProposerForRound(nextBlockRoundId)) {
+    if (currentRound.isEmpty() && finalState.isLocalNodeProposerForRound(nextBlockRoundId)) {
       finalState.getBlockTimer().cancelTimer();
       finalState.getBlockTimer().getQueue().add(new BlockTimerExpiry(nextBlockRoundId));
     }
