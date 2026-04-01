@@ -317,10 +317,11 @@ configure(allprojects - project(':platform')) {
       // Standard Immutables pattern: interface with static fields referencing generated subclass
       // e.g. org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration
       check('ClassInitializationDeadlock', CheckSeverity.OFF)
+      // EvmSpecVersion was designed for ordinal comparison, e.g EVM.java
+      // Changing this would require deeper refactoring across the codebase
       check('EnumOrdinal', CheckSeverity.OFF)
+      // necessary for usages of CompletableFuture<Void> e.g WorldDownloadState.java
       check('VoidUsed', CheckSeverity.OFF)
-
-      check('UnnecessaryMethodReference', CheckSeverity.OFF)
       check('FieldCanBeFinal', CheckSeverity.WARN)
       check('InsecureCryptoUsage', CheckSeverity.WARN)
       check('WildcardImport', CheckSeverity.WARN)
