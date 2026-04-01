@@ -114,7 +114,7 @@ public class MockExecutorService implements ExecutorService {
 
   @Override
   public <T> Future<T> submit(final Callable<T> task) {
-    ExecutorTask<T> execTask = new ExecutorTask<>(task::call);
+    ExecutorTask<T> execTask = new ExecutorTask<>(task);
     tasks.add(execTask);
     if (autoRun) {
       execTask.run();

@@ -132,13 +132,13 @@ public class PivotSyncDownloader {
     } else if (rootCause instanceof NoAvailablePeersException) {
       LOG.debug(
           "No peers available for sync. Restarting sync in {} seconds",
-          FAST_SYNC_RETRY_DELAY.getSeconds());
+          FAST_SYNC_RETRY_DELAY.toSeconds());
       return fastSyncActions.scheduleFutureTask(
           () -> start(PivotSyncState.EMPTY_SYNC_STATE), FAST_SYNC_RETRY_DELAY);
     } else {
       LOG.error(
           "Encountered an unexpected error during sync. Restarting sync in "
-              + FAST_SYNC_RETRY_DELAY.getSeconds()
+              + FAST_SYNC_RETRY_DELAY.toSeconds()
               + " seconds.",
           error);
       return fastSyncActions.scheduleFutureTask(

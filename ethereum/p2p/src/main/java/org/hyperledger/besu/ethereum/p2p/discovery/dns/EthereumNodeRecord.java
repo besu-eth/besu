@@ -16,8 +16,8 @@
 // Adapted from https://github.com/tmio/tuweni and licensed under Apache 2.0
 package org.hyperledger.besu.ethereum.p2p.discovery.dns;
 
+import org.hyperledger.besu.crypto.SECP256K1;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
-import org.hyperledger.besu.crypto.SignatureAlgorithmType;
 import org.hyperledger.besu.ethereum.p2p.discovery.NodeIdentifier;
 
 import java.net.InetAddress;
@@ -48,8 +48,7 @@ public record EthereumNodeRecord(
     implements NodeIdentifier {
 
   // ENR identity scheme v4 always uses secp256k1, independent of the node's signature algorithm
-  private static final SignatureAlgorithm SECP256K1 =
-      SignatureAlgorithmType.create("secp256k1").getInstance();
+  private static final SignatureAlgorithm SECP256K1 = new SECP256K1();
 
   @SuppressWarnings(
       "MethodInputParametersMustBeFinal") // needed since record constructors are not yet supported
