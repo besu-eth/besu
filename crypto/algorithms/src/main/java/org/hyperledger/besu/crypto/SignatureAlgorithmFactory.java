@@ -40,10 +40,10 @@ public class SignatureAlgorithmFactory {
    * @param ecCurve the ec curve name
    * @throws IllegalArgumentException if the curve name is not supported
    */
-  public static void setInstance(final String ecCurve) {
+  public static void switchInstance(final String ecCurve) {
     instance =
         switch (ecCurve) {
-          case DEFAULT_EC_CURVE_NAME -> new SECP256K1();
+          case DEFAULT_EC_CURVE_NAME -> DEFAULT_INSTANCE;
           case SECP_256_R1_CURVE_NAME -> new SECP256R1();
           default ->
               throw new IllegalArgumentException(

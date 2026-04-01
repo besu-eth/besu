@@ -36,7 +36,7 @@ public class SignatureAlgorithmFactoryTest {
 
   @Test
   public void shouldReturnSECP256K1InstanceWhenSet() {
-    SignatureAlgorithmFactory.setInstance("secp256k1");
+    SignatureAlgorithmFactory.switchInstance("secp256k1");
 
     SignatureAlgorithm signatureAlgorithm = SignatureAlgorithmFactory.getInstance();
     assertThat(signatureAlgorithm.getClass().getSimpleName())
@@ -45,8 +45,8 @@ public class SignatureAlgorithmFactoryTest {
 
   @Test
   public void shouldAllowOverridingInstance() {
-    SignatureAlgorithmFactory.setInstance("secp256k1");
-    SignatureAlgorithmFactory.setInstance("secp256k1");
+    SignatureAlgorithmFactory.switchInstance("secp256k1");
+    SignatureAlgorithmFactory.switchInstance("secp256k1");
 
     assertThat(SignatureAlgorithmFactory.getInstance().getClass().getSimpleName())
         .isEqualTo(SECP256K1.class.getSimpleName());
@@ -54,7 +54,7 @@ public class SignatureAlgorithmFactoryTest {
 
   @Test
   public void shouldRestoreDefaultAfterReset() {
-    SignatureAlgorithmFactory.setInstance("secp256r1");
+    SignatureAlgorithmFactory.switchInstance("secp256r1");
     SignatureAlgorithmFactory.resetInstance();
 
     assertThat(SignatureAlgorithmFactory.getInstance().getClass().getSimpleName())
@@ -63,7 +63,7 @@ public class SignatureAlgorithmFactoryTest {
 
   @Test
   public void shouldThrowExceptionWhenInvalidCurveNameGiven() {
-    assertThatThrownBy(() -> SignatureAlgorithmFactory.setInstance("abcd"))
+    assertThatThrownBy(() -> SignatureAlgorithmFactory.switchInstance("abcd"))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("abcd is not in the list of valid elliptic curves");
   }

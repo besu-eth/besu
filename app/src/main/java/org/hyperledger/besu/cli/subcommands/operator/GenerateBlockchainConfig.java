@@ -286,7 +286,7 @@ class GenerateBlockchainConfig implements Runnable {
         .ifPresent(
             ecCurve -> {
               try {
-                SignatureAlgorithmFactory.setInstance(ecCurve);
+                SignatureAlgorithmFactory.switchInstance(ecCurve);
               } catch (IllegalArgumentException e) {
                 throw new IllegalArgumentException(
                     "Invalid parameter for ecCurve in genesis config: " + e.getMessage());

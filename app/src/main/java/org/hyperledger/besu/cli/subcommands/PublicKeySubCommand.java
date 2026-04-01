@@ -214,7 +214,7 @@ public class PublicKeySubCommand implements Runnable {
     protected static void configureEcCurve(final String ecCurve, final CommandLine commandLine) {
       if (ecCurve != null) {
         try {
-          SignatureAlgorithmFactory.setInstance(ecCurve);
+          SignatureAlgorithmFactory.switchInstance(ecCurve);
         } catch (IllegalArgumentException e) {
           throw new CommandLine.ParameterException(commandLine, e.getMessage(), e);
         }
