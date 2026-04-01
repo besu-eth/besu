@@ -72,11 +72,6 @@ public final class BesuPluginServiceRegistrar {
    *       caller.
    * </ul>
    *
-   * <p>{@code MetricsSystem} is intentionally absent: in the CLI path ({@code BesuCommand}) it
-   * cannot be resolved until PicoCLI has parsed arguments (because its configuration comes from CLI
-   * flags). Callers must register {@code MetricsSystem} explicitly, just before calling {@code
-   * pluginContext.initialize()}, using {@link #registerMetricsSystem}.
-   *
    * @param pluginContext the plugin context to register services into
    * @param securityModuleService the security module service
    * @param storageService the storage service
@@ -116,22 +111,6 @@ public final class BesuPluginServiceRegistrar {
   }
 
   /**
-   * Registers the {@link MetricsSystem} with the plugin context.
-   *
-   * <p>This must be called just before {@code pluginContext.initialize()} so that plugins can
-   * resolve {@code MetricsSystem} during their {@code initialize()} callback. It is kept separate
-   * from {@link #registerEarlyServices} because in the CLI path the metrics system cannot be
-   * created until PicoCLI has parsed the command-line arguments.
-   *
-   * @param pluginContext the plugin context to register the service into
-   * @param metricsSystem the fully configured metrics system
-   */
-  public static void registerMetricsSystem(
-      final BesuPluginContextImpl pluginContext, final MetricsSystem metricsSystem) {
-    pluginContext.addService(MetricsSystem.class, metricsSystem);
-  }
-
-  /**
    * Registers the runtime plugin services (phase 2 – after {@link BesuController} and {@link
    * Runner} are built).
    *
@@ -141,15 +120,41 @@ public final class BesuPluginServiceRegistrar {
    * <p>Does <em>not</em> call {@code pluginContext.startPlugins()} – callers are responsible for
    * that after any additional post-registration initialisation they need.
    *
+   * <p><strong>Why {@link MetricsSystem} is in phase 2, not phase 1:</strong>
+   *
+   * <p>There are two independent constraints that together force {@code MetricsSystem} into the
+   * runtime phase when running via {@code BesuCommand}:
+   *
+   * <ol>
+   *   <li><em>Parsed configuration.</em> {@code MetricsSystem} is created from {@code
+   *       MetricsConfiguration}, which is built from PicoCLI-parsed CLI flags (e.g. {@code
+   *       --metrics-enabled}, {@code --metrics-category}). {@code preparePlugins()} (phase 1) runs
+   *       before PicoCLI has parsed those flags, so the configuration is not yet available there.
+   *   <li><em>Plugin-registered categories.</em> {@code MetricsConfiguration.validate()} rejects
+   *       any {@code --metrics-category} values that are not present in the {@link
+   *       MetricCategoryRegistry}. Plugins register their custom categories during {@code
+   *       registerPlugins()}, which also runs in phase 1. Resolving the {@code MetricsSystem} (and
+   *       thus calling {@code validate()}) before {@code registerPlugins()} has completed would
+   *       therefore throw a {@code ParameterException} for any plugin-defined category passed on
+   *       the command line (e.g. {@code --metrics-category TEST_METRIC_CATEGORY}).
+   * </ol>
+   *
+   * <p>Both constraints are absent in the {@code ThreadBesuNodeRunner} path used by acceptance
+   * tests: {@code MetricsConfiguration} is constructed directly in the test (no CLI parsing) and
+   * there is no {@code validate()} call. The runtime-phase placement is nevertheless kept for
+   * consistency between the two paths.
+   *
    * @param pluginContext the plugin context to register services into
    * @param besuController the fully built Besu controller
    * @param runner the fully built runner (provides P2P network and in-process RPC)
+   * @param metricsSystem the fully configured metrics system
    * @param miningConfiguration the active mining configuration
    */
   public static void registerRuntimeServices(
       final BesuPluginContextImpl pluginContext,
       final BesuController besuController,
       final Runner runner,
+      final MetricsSystem metricsSystem,
       final MiningConfiguration miningConfiguration) {
 
     pluginContext.addService(
@@ -160,6 +165,8 @@ public final class BesuPluginServiceRegistrar {
             besuController.getTransactionPool(),
             besuController.getSyncState(),
             besuController.getProtocolContext().getBadBlockManager()));
+
+    pluginContext.addService(MetricsSystem.class, metricsSystem);
 
     pluginContext.addService(
         WorldStateService.class,

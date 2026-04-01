@@ -206,7 +206,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
 
     component.rpcEndpointService().init(runner.getInProcessRpcMethods());
 
-    loadAdditionalServices(besuController, besuPluginContext, runner);
+    loadAdditionalServices(besuController, besuPluginContext, runner, metricsSystem);
 
     besuPluginContext.startPlugins();
 
@@ -244,9 +244,14 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
   private void loadAdditionalServices(
       final BesuController besuController,
       final BesuPluginContextImpl besuPluginContext,
-      final Runner runner) {
+      final Runner runner,
+      final MetricsSystem metricsSystem) {
     BesuPluginServiceRegistrar.registerRuntimeServices(
-        besuPluginContext, besuController, runner, besuController.getMiningParameters());
+        besuPluginContext,
+        besuController,
+        runner,
+        metricsSystem,
+        besuController.getMiningParameters());
   }
 
   private void killRunner(final String name) {
@@ -516,7 +521,6 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
           transactionSimulationServiceImpl,
           metricsConfiguration,
           metricCategoryRegistry,
-          metricsSystem,
           extraCLIOptions,
           requestedPlugins,
           besuPluginContext);
@@ -566,7 +570,6 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         final TransactionSimulationServiceImpl transactionSimulationServiceImpl,
         final MetricsConfiguration metricsConfiguration,
         final MetricCategoryRegistryImpl metricCategoryRegistry,
-        final MetricsSystem metricsSystem,
         final @Named("ExtraCLIOptions") List<String> extraCLIOptions,
         final @Named("RequestedPlugins") List<String> requestedPlugins,
         final BesuPluginContextImpl besuPluginContext) {
@@ -600,8 +603,6 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         pluginsPath = Path.of(pluginDir);
       }
 
-      // MetricsSystem is resolved from the Dagger graph (not CLI args), so it is available here.
-      BesuPluginServiceRegistrar.registerMetricsSystem(besuPluginContext, metricsSystem);
       besuPluginContext.initialize(
           ImmutablePluginConfiguration.builder()
               .pluginsDir(pluginsPath)
