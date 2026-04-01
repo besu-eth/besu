@@ -23,6 +23,7 @@
 | Matilda Clerke   | Matilda-Clerke   | MatildaClerke    |
 | Karim Taam       | matkt            | matkt            |
 | Matthew Whitehead| matthew1001      | matthew.whitehead      |
+| Miroslav Kovář   | mirgee           | mirgee           |
 | Stefan Pingel    | pinges           | pinges           |
 | Simon Dudley     | siladu           | siladu           |
 | Usman Saleem     | usmansaleem      | usmansaleem      |
