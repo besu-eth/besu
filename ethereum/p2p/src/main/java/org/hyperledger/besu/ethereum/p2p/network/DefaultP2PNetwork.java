@@ -322,12 +322,12 @@ public class DefaultP2PNetwork implements P2PNetwork {
   public void awaitStop() {
     try {
       if (!peerConnectionScheduler.awaitTermination(
-          shutdownTimeout.getSeconds(), TimeUnit.SECONDS)) {
+          shutdownTimeout.toSeconds(), TimeUnit.SECONDS)) {
         LOG.error(
             "{} did not shutdown cleanly: peerConnectionScheduler executor did not fully terminate.",
             this.getClass().getSimpleName());
       }
-      if (!shutdownLatch.await(shutdownTimeout.getSeconds(), TimeUnit.SECONDS)) {
+      if (!shutdownLatch.await(shutdownTimeout.toSeconds(), TimeUnit.SECONDS)) {
         LOG.error(
             "{} did not shutdown cleanly: some internal services failed to fully terminate.",
             this.getClass().getSimpleName());
