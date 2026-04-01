@@ -398,7 +398,6 @@ jobs:
         with:
           ref: ${{ env.RELEASE_VERSION }}
 
-      # actions/setup-python@5.3 
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.13'
