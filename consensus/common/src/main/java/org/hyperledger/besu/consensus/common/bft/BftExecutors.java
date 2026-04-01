@@ -111,10 +111,10 @@ public class BftExecutors {
    * @throws InterruptedException the interrupted exception
    */
   public void awaitStop() throws InterruptedException {
-    if (!timerExecutor.awaitTermination(shutdownTimeout.getSeconds(), TimeUnit.SECONDS)) {
+    if (!timerExecutor.awaitTermination(shutdownTimeout.toSeconds(), TimeUnit.SECONDS)) {
       LOG.error("{} timer executor did not shutdown cleanly.", getClass().getSimpleName());
     }
-    if (!bftProcessorExecutor.awaitTermination(shutdownTimeout.getSeconds(), TimeUnit.SECONDS)) {
+    if (!bftProcessorExecutor.awaitTermination(shutdownTimeout.toSeconds(), TimeUnit.SECONDS)) {
       LOG.error("{} bftProcessor executor did not shutdown cleanly.", getClass().getSimpleName());
     }
   }
