@@ -426,6 +426,7 @@
               "gas":16754830,
               "gasCost":5000,
               "depth":1,
+              "refund":15000,
               "stack":[
                 "0x0",
                 "0x1"
@@ -440,6 +441,7 @@
               "gas":16749830,
               "gasCost":0,
               "depth":1,
+              "refund":15000,
               "stack":[
 
               ],

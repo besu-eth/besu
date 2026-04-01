@@ -29,7 +29,7 @@
     "result": {
       "gas": 21009,
       "failed": false,
-      "returnValue": "00",
+      "returnValue": "0x00",
       "structLogs": [
         {
           "pc": 0,

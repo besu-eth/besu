@@ -81,7 +81,7 @@ public class IbftBlockHeaderValidationRulesetFactory {
     // an experimental 'xblockperiodmilliseconds' option for BFT chains. If this is enabled
     // we cannot apply the TimestampMoreRecentThanParent validation rule so we do not add it
     if (minimumTimeBetweenBlocks.compareTo(Duration.ofSeconds(1)) >= 0) {
-      ruleBuilder.addRule(new TimestampMoreRecentThanParent(minimumTimeBetweenBlocks.getSeconds()));
+      ruleBuilder.addRule(new TimestampMoreRecentThanParent(minimumTimeBetweenBlocks.toSeconds()));
     }
     return ruleBuilder;
   }

@@ -253,8 +253,7 @@ public class VertxPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
   @Override
   protected void handleOutgoingPacketError(
       final Throwable err, final DiscoveryPeerV4 peer, final Packet packet) {
-    if (err instanceof NativeIoException) {
-      final var nativeErr = (NativeIoException) err;
+    if (err instanceof NativeIoException nativeErr) {
       if (nativeErr.expectedErr() == Errors.ERROR_ENETUNREACH_NEGATIVE) {
         LOG.atDebug()
             .setMessage("Peer {} is unreachable, native error code {}, packet: {}, stacktrace: {}")

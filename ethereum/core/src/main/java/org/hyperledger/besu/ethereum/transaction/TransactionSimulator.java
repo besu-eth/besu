@@ -180,7 +180,7 @@ public class TransactionSimulator {
         currentProtocolSpec
             .getSlotDuration()
             .plusSeconds(chainHeadHeader.getTimestamp())
-            .getSeconds();
+            .toSeconds();
 
     final ProtocolSpec protocolSpec =
         protocolSchedule.getForNextBlockHeader(chainHeadHeader, timestamp);
