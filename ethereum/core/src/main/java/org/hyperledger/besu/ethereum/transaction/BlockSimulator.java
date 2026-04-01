@@ -235,9 +235,18 @@ public class BlockSimulator {
       final OperationTracer operationTracer) {
 
     BlockOverrides blockOverrides = blockStateCall.getBlockOverrides();
-    ProtocolSpec protocolSpec =
-        protocolSchedule.getForNextBlockHeader(
-            baseBlockHeader, blockOverrides.getTimestamp().orElseThrow());
+    // Use the parent's actual difficulty (not Difficulty.ZERO) so that
+    // TransitionProtocolSchedule correctly identifies pre-merge blocks: it dispatches
+    // to the post-merge schedule when isPostMerge()=true AND difficulty==0, so a PoW
+    // parent must preserve its non-zero difficulty to select the pre-merge spec.
+    final BlockHeader syntheticNextBlockHeader =
+        BlockHeaderBuilder.fromHeader(baseBlockHeader)
+            .number(baseBlockHeader.getNumber() + 1)
+            .timestamp(blockOverrides.getTimestamp().orElseThrow())
+            .parentHash(baseBlockHeader.getBlockHash())
+            .blockHeaderFunctions(new MainnetBlockHeaderFunctions())
+            .buildBlockHeader();
+    ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(syntheticNextBlockHeader);
 
     BlockHeader overridenBaseBlockHeader =
         overrideBlockHeader(baseBlockHeader, protocolSpec, blockOverrides, shouldValidate);
@@ -318,6 +327,18 @@ public class BlockSimulator {
         tracker ->
             blockAccessListBuilder.ifPresent(
                 builder -> builder.apply(tracker, ws.updater().updater())));
+
+    // Apply block reward for PoW blocks, matching geth's FinalizeAndAssemble behaviour.
+    // Post-merge specs have blockReward=ZERO and skipZeroBlockRewards=true, so no reward is
+    // applied for them.
+    Wei blockReward = protocolSpec.getBlockReward();
+    if (!(protocolSpec.isSkipZeroBlockRewards() && blockReward.isZero())) {
+      Address miner = overridenBaseBlockHeader.getCoinbase();
+      WorldUpdater rewardUpdater = ws.updater();
+      MutableAccount minerAccount = rewardUpdater.getOrCreate(miner);
+      minerAccount.incrementBalance(blockReward);
+      rewardUpdater.commit();
+    }
 
     return createFinalBlock(
         overridenBaseBlockHeader,
@@ -626,8 +647,9 @@ public class BlockSimulator {
                           : Wei.ZERO));
     }
 
-    // Merge+: parentBeaconBlockRoot
-    if (newProtocolSpec.isPoS()) {
+    // Cancun+: parentBeaconBlockRoot (set for all Cancun-timestamp blocks, not just PoS,
+    // matching geth's eth_simulateV1 behaviour where EIP-4788 runs based on timestamp)
+    if (newProtocolSpec.getFeeMarket().implementsBlobFee()) {
       builder.parentBeaconBlockRoot(blockOverrides.getParentBeaconBlockRoot().orElse(Bytes32.ZERO));
     } else {
       builder.parentBeaconBlockRoot(null);
