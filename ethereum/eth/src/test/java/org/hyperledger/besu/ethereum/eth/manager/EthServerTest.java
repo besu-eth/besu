@@ -413,12 +413,18 @@ public class EthServerTest {
     when(blockchain.getTxReceipts(block1Hash)).thenReturn(Optional.of(List.of(receipt1)));
 
     // Size limit: exactly fits receipt0 from block 0 but not receipt1 from block 1.
-    // The server check is: responseSizeEstimate + receiptSize + MAX_PREFIX_SIZE > maxMessageSize.
-    // With sizeLimit = 2*MAX_PREFIX + size(receipt0):
-    //   receipt0 check: MAX_PREFIX + size(receipt0) + MAX_PREFIX = sizeLimit → passes (not >)
-    //   receipt1 check: MAX_PREFIX + size(receipt0) + size(receipt1) + MAX_PREFIX > sizeLimit
-    //                 = size(receipt1) > 0 → always true → lastBlockIncomplete = true
-    final int sizeLimit = 2 * RLP.MAX_PREFIX_SIZE + calculatePaginatedReceiptEncodedSize(receipt0);
+    // The server initialises responseSizeEstimate = MAX_PREFIX + 2 (outer list + scalar), then adds
+    // MAX_PREFIX per block (block list header), and checks:
+    //   responseSizeEstimate + receiptSize + MAX_PREFIX_SIZE > maxMessageSize.
+    // With sizeLimit = 3*MAX_PREFIX + 2 + size(receipt0):
+    //   block0 header added → estimate = 2*MAX_PREFIX + 2
+    //   receipt0 check: 2*MAX_PREFIX + 2 + size(receipt0) + MAX_PREFIX = sizeLimit → not > → FITS
+    //   after receipt0: estimate = 2*MAX_PREFIX + 2 + size(receipt0)
+    //   block1 header added → estimate = 3*MAX_PREFIX + 2 + size(receipt0)
+    //   receipt1 check: 3*MAX_PREFIX + 2 + size(receipt0) + size(receipt1) + MAX_PREFIX > sizeLimit
+    //                 = size(receipt1) + MAX_PREFIX > 0 → always true → lastBlockIncomplete = true
+    final int sizeLimit =
+        3 * RLP.MAX_PREFIX_SIZE + 2 + calculatePaginatedReceiptEncodedSize(receipt0);
     setupEthServer(b -> b.maxMessageSize(sizeLimit));
 
     final List<Hash> hashes = List.of(block0Hash, block1Hash);
@@ -544,7 +550,9 @@ public class EthServerTest {
     when(blockchain.getTxReceipts(block1Hash)).thenReturn(Optional.of(List.of(r2)));
 
     // Size limit: fits only r1 (from block 0 after skipping r0); r2 from block 1 won't fit.
-    final int sizeLimit = 2 * RLP.MAX_PREFIX_SIZE + calculatePaginatedReceiptEncodedSize(r1);
+    // Uses the same accounting as shouldLimitPaginatedReceiptsByMessageSize:
+    //   3*MAX_PREFIX + 2 + size(r1) is exactly the boundary where r1 fits but r2 doesn't.
+    final int sizeLimit = 3 * RLP.MAX_PREFIX_SIZE + 2 + calculatePaginatedReceiptEncodedSize(r1);
     setupEthServer(b -> b.maxMessageSize(sizeLimit));
 
     final GetPaginatedReceiptsMessage msg =

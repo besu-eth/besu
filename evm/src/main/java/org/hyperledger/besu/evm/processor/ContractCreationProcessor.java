@@ -169,8 +169,26 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
     final Bytes contractCode =
         frame.getCreatedCode() == null ? frame.getOutputData() : frame.getCreatedCode().getBytes();
 
-    final long depositFee = evm.getGasCalculator().codeDepositGasCost(contractCode.size());
+    // Oversized contracts must fail without charging code deposit gas or state gas.
+    // We must check this first.
+    final Optional<ExceptionalHaltReason> firstValidationFailure =
+        contractValidationRules.stream()
+            .map(rule -> rule.validate(contractCode, frame, evm))
+            .flatMap(Optional::stream)
+            .findFirst();
+    if (firstValidationFailure.isPresent()) {
+      if (frame.getDepth() == 0) {
+        failCodeDepositWithoutRollback(frame, operationTracer, firstValidationFailure);
+      } else {
+        frame.setExceptionalHaltReason(firstValidationFailure);
+        frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
+        operationTracer.traceAccountCreationResult(frame, firstValidationFailure);
+      }
+      return;
+    }
 
+    // Check and charge code deposit gas (regular gas) before state gas
+    final long depositFee = evm.getGasCalculator().codeDepositGasCost(contractCode.size());
     if (frame.getRemainingGas() < depositFee) {
       LOG.trace(
           "Not enough gas to pay the code deposit fee for {}: "
@@ -187,80 +205,41 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
       } else {
         frame.setState(MessageFrame.State.COMPLETED_SUCCESS);
       }
-    } else {
-      final var invalidReason =
-          contractValidationRules.stream()
-              .map(rule -> rule.validate(contractCode, frame, evm))
-              .filter(Optional::isPresent)
-              .findFirst();
-      if (invalidReason.isEmpty()) {
-        frame.decrementRemainingGas(depositFee);
+      return;
+    }
+    frame.decrementRemainingGas(depositFee);
 
-        // EIP-8037: Charge state gas for code deposit (cpsb * codeSize)
-        if (!evm.getGasCalculator()
-            .stateGasCostCalculator()
-            .chargeCodeDepositStateGas(frame, contractCode.size())) {
-          LOG.trace("Contract creation error: insufficient state gas for code deposit");
-          // EIP-8037: For depth-0 (initial tx) frames, use forced charge + no-rollback failure so
-          // that stateGasUsed is preserved for block gas accounting (e.g. short_one_gas test).
-          if (frame.getDepth() == 0) {
-            final long stateGasAmount =
-                evm.getGasCalculator()
-                    .stateGasCostCalculator()
-                    .codeDepositStateGas(contractCode.size(), frame.getBlockValues().getGasLimit());
-            if (stateGasAmount > 0) {
-              frame.consumeStateGasForced(stateGasAmount);
-            }
-            failCodeDepositWithoutRollback(
-                frame, operationTracer, Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
-          } else {
-            frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
-            frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
-            operationTracer.traceAccountCreationResult(
-                frame, Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
-          }
-          return;
-        }
-
-        // Finalize contract creation, setting the contract code.
-        final MutableAccount contract =
-            frame.getWorldUpdater().getOrCreate(frame.getContractAddress());
-        contract.setCode(contractCode);
-        LOG.trace(
-            "Successful creation of contract {} with code of size {} (Gas remaining: {})",
-            frame.getContractAddress(),
-            contractCode.size(),
-            frame.getRemainingGas());
-        frame.setState(MessageFrame.State.COMPLETED_SUCCESS);
-        if (operationTracer.isExtendedTracing()) {
-          operationTracer.traceAccountCreationResult(frame, Optional.empty());
-        }
+    // Only now charge state gas for code deposit (cpsb * codeSize).
+    if (!evm.getGasCalculator()
+        .stateGasCostCalculator()
+        .chargeCodeDepositStateGas(frame, contractCode.size())) {
+      LOG.trace("Contract creation error: insufficient state gas for code deposit");
+      if (frame.getDepth() == 0) {
+        // Do NOT force-charge state gas here. The spec's charge_state_gas raises
+        // OutOfGasError without modifying anything (no reservoir drain, no stateGasUsed
+        // increment). failCodeDepositWithoutRollback clears remaining gas, matching
+        // the spec's exception handler behavior of burning gas_left.
+        failCodeDepositWithoutRollback(
+            frame, operationTracer, Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
       } else {
-        // EIP-8037: For depth-0 (initial tx) frames with code that fails validation (e.g.
-        // CODE_TOO_LARGE), charge the code deposit state gas before failing so the charge is
-        // preserved in stateGasUsed for block gas accounting (e.g. over_max test).
-        // Use consumeStateGas (not forced) — it returns false without modifying on failure, so
-        // we can safely fall through to EXCEPTIONAL_HALT if gas is insufficient.
-        if (frame.getDepth() == 0) {
-          final long stateGasAmount =
-              evm.getGasCalculator()
-                  .stateGasCostCalculator()
-                  .codeDepositStateGas(contractCode.size(), frame.getBlockValues().getGasLimit());
-          if (stateGasAmount > 0 && frame.consumeStateGas(stateGasAmount)) {
-            // Sufficient state gas: charge succeeded, fail without rollback so stateGasUsed
-            // is preserved for block accounting.
-            final Optional<ExceptionalHaltReason> haltReason = invalidReason.get();
-            failCodeDepositWithoutRollback(frame, operationTracer, haltReason);
-            return;
-          }
-          // Insufficient state gas or no state gas (non-EIP-8037): fall through to
-          // EXCEPTIONAL_HALT.
-        }
-        final Optional<ExceptionalHaltReason> exceptionalHaltReason = invalidReason.get();
-        frame.setExceptionalHaltReason(exceptionalHaltReason);
+        frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
         frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
-        operationTracer.traceAccountCreationResult(frame, exceptionalHaltReason);
+        operationTracer.traceAccountCreationResult(
+            frame, Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
       }
+      return;
+    }
+
+    final MutableAccount contract = frame.getWorldUpdater().getOrCreate(frame.getContractAddress());
+    contract.setCode(contractCode);
+    LOG.trace(
+        "Successful creation of contract {} with code of size {} (Gas remaining: {})",
+        frame.getContractAddress(),
+        contractCode.size(),
+        frame.getRemainingGas());
+    frame.setState(MessageFrame.State.COMPLETED_SUCCESS);
+    if (operationTracer.isExtendedTracing()) {
+      operationTracer.traceAccountCreationResult(frame, Optional.empty());
     }
   }
 

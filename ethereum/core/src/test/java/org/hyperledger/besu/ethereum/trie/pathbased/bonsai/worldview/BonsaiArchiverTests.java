@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.trie.pathbased.common.trielog;
+package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -41,8 +41,8 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiPreImageProxy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiArchiver;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogLayer;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -66,7 +66,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-public class ArchiverTests {
+public class BonsaiArchiverTests {
 
   // Number of blocks in the chain. This is different to the number of blocks
   // we have successfully archived state for
@@ -109,7 +109,7 @@ public class ArchiverTests {
   @SuppressWarnings("BannedMethod")
   @BeforeEach
   public void setup() {
-    Configurator.setLevel(LogManager.getLogger(ArchiverTests.class).getName(), Level.TRACE);
+    Configurator.setLevel(LogManager.getLogger(BonsaiArchiverTests.class).getName(), Level.TRACE);
     worldStateStorage = Mockito.mock(BonsaiWorldStateKeyValueStorage.class);
     blockchain = Mockito.mock(Blockchain.class);
     trieLogManager = Mockito.mock(TrieLogManager.class);
@@ -705,8 +705,8 @@ public class ArchiverTests {
 
     // Generate some trie logs to return for a specific block
 
-    // For state to be moved from the primary DB segment to the archive DB segment, we need the
-    // primary DB segment to have the account in already
+    // For state to be moved from the archive DB segment to the archive freezer DB segment, we need
+    // the archive DB segment to have the account in already
     SegmentedKeyValueStorageTransaction tx =
         testWorldStateStorage.getComposedWorldStateStorage().startTransaction();
     final BonsaiAccount block150Account =
@@ -747,7 +747,7 @@ public class ArchiverTests {
     BytesValueRLPOutput out = new BytesValueRLPOutput();
     block150Account.writeTo(out);
     tx.put(
-        KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE,
+        KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE,
         Arrays.concatenate(
             address.addressHash().getBytes().toArrayUnsafe(),
             Bytes.fromHexString("0x0000000000000096").toArrayUnsafe()),
@@ -755,7 +755,7 @@ public class ArchiverTests {
     out = new BytesValueRLPOutput();
     block151Account.writeTo(out);
     tx.put(
-        KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE,
+        KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE,
         Arrays.concatenate(
             address.addressHash().getBytes().toArrayUnsafe(),
             Bytes.fromHexString("0x0000000000000097").toArrayUnsafe()),
@@ -763,7 +763,7 @@ public class ArchiverTests {
     out = new BytesValueRLPOutput();
     block152Account.writeTo(out);
     tx.put(
-        KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE,
+        KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE,
         Arrays.concatenate(
             address.addressHash().getBytes().toArrayUnsafe(),
             Bytes.fromHexString("0x0000000000000098").toArrayUnsafe()),
@@ -852,18 +852,18 @@ public class ArchiverTests {
     // We should have marked up to block 200 as archived
     assertThat(testWorldStateStorage.getLatestArchivedBlock().get()).isEqualTo(200);
 
-    // Only the latest/current state of the account should be in the primary DB segment
-    assertThat(
-            testWorldStateStorage.getComposedWorldStateStorage().stream(
-                    KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE)
-                .count())
-        .isEqualTo(1);
-
-    // Both the previous account states should be in the archive segment, plus the special key that
-    // records the latest archived block
+    // Only the latest/current state of the account should be in the archive DB segment
     assertThat(
             testWorldStateStorage.getComposedWorldStateStorage().stream(
                     KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE)
+                .count())
+        .isEqualTo(1);
+
+    // Both the previous account states should be in the archive freezer segment, plus the special
+    // key that records the latest archived block
+    assertThat(
+            testWorldStateStorage.getComposedWorldStateStorage().stream(
+                    KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_FREEZER)
                 .count())
         .isEqualTo(3);
 
@@ -872,7 +872,7 @@ public class ArchiverTests {
             testWorldStateStorage
                 .getComposedWorldStateStorage()
                 .containsKey(
-                    KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE,
+                    KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_FREEZER,
                     Arrays.concatenate(
                         address.addressHash().getBytes().toArrayUnsafe(),
                         Bytes.fromHexString("0x0000000000000096").toArrayUnsafe())))
@@ -881,7 +881,7 @@ public class ArchiverTests {
             testWorldStateStorage
                 .getComposedWorldStateStorage()
                 .containsKey(
-                    KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE,
+                    KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_FREEZER,
                     Arrays.concatenate(
                         address.addressHash().getBytes().toArrayUnsafe(),
                         Bytes.fromHexString("0x0000000000000097").toArrayUnsafe())))
@@ -890,7 +890,7 @@ public class ArchiverTests {
             testWorldStateStorage
                 .getComposedWorldStateStorage()
                 .containsKey(
-                    KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE,
+                    KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE,
                     Arrays.concatenate(
                         address.addressHash().getBytes().toArrayUnsafe(),
                         Bytes.fromHexString("0x0000000000000098").toArrayUnsafe())))
@@ -945,36 +945,36 @@ public class ArchiverTests {
 
     // Generate some trie logs to return for a specific block
 
-    // For storage to be moved from the primary DB segment to the archive DB segment, we need the
-    // primary DB segment to have the storage in already
+    // For storage to be moved from the archive DB segment to the archive freezer DB segment, we
+    // need the archive DB segment to have the storage in already
     SegmentedKeyValueStorageTransaction tx =
         testWorldStateStorage.getComposedWorldStateStorage().startTransaction();
     StorageSlotKey slotKey = new StorageSlotKey(UInt256.fromHexString("0x1"));
     // The key for a bonsai-archive flat DB storage entry is suffixed with the block number where
     // that state change took place, hence the "0x0000000000000096" suffix to the address hash below
     tx.put(
-        KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE,
+        KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE,
         Arrays.concatenate(
             address.addressHash().getBytes().toArrayUnsafe(),
             slotKey.getSlotHash().getBytes().toArrayUnsafe(),
             Bytes.fromHexString("0x0000000000000096").toArrayUnsafe()),
         Bytes.fromHexString("0x0123").toArrayUnsafe());
     tx.put(
-        KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE,
+        KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE,
         Arrays.concatenate(
             address.addressHash().getBytes().toArrayUnsafe(),
             slotKey.getSlotHash().getBytes().toArrayUnsafe(),
             Bytes.fromHexString("0x0000000000000097").toArrayUnsafe()),
         Bytes.fromHexString("0x0234").toArrayUnsafe());
     tx.put(
-        KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE,
+        KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE,
         Arrays.concatenate(
             address.addressHash().getBytes().toArrayUnsafe(),
             slotKey.getSlotHash().getBytes().toArrayUnsafe(),
             Bytes.fromHexString("0x0000000000000098").toArrayUnsafe()),
         Bytes.fromHexString("0x0345").toArrayUnsafe());
     tx.put(
-        KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE,
+        KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE,
         Arrays.concatenate(
             address.addressHash().getBytes().toArrayUnsafe(),
             slotKey.getSlotHash().getBytes().toArrayUnsafe(),
@@ -1080,17 +1080,17 @@ public class ArchiverTests {
     // We should have marked up to block 200 as archived
     assertThat(testWorldStateStorage.getLatestArchivedBlock().get()).isEqualTo(200);
 
-    // Only the latest/current state of the account should be in the primary DB segment
-    assertThat(
-            testWorldStateStorage.getComposedWorldStateStorage().stream(
-                    KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE)
-                .count())
-        .isEqualTo(1);
-
-    // All 3 previous storage states should be in the storage archiver
+    // Only the latest/current state of the account should be in the archive DB segment
     assertThat(
             testWorldStateStorage.getComposedWorldStateStorage().stream(
                     KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE)
+                .count())
+        .isEqualTo(1);
+
+    // All 3 previous storage states should be in the storage archive freezer
+    assertThat(
+            testWorldStateStorage.getComposedWorldStateStorage().stream(
+                    KeyValueSegmentIdentifier.ACCOUNT_STORAGE_FREEZER)
                 .count())
         .isEqualTo(3);
 
@@ -1099,7 +1099,7 @@ public class ArchiverTests {
             testWorldStateStorage
                 .getComposedWorldStateStorage()
                 .containsKey(
-                    KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE,
+                    KeyValueSegmentIdentifier.ACCOUNT_STORAGE_FREEZER,
                     Arrays.concatenate(
                         address.addressHash().getBytes().toArrayUnsafe(),
                         slotKey.getSlotHash().getBytes().toArrayUnsafe(),
@@ -1109,7 +1109,7 @@ public class ArchiverTests {
             testWorldStateStorage
                 .getComposedWorldStateStorage()
                 .containsKey(
-                    KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE,
+                    KeyValueSegmentIdentifier.ACCOUNT_STORAGE_FREEZER,
                     Arrays.concatenate(
                         address.addressHash().getBytes().toArrayUnsafe(),
                         slotKey.getSlotHash().getBytes().toArrayUnsafe(),
@@ -1119,7 +1119,7 @@ public class ArchiverTests {
             testWorldStateStorage
                 .getComposedWorldStateStorage()
                 .containsKey(
-                    KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE,
+                    KeyValueSegmentIdentifier.ACCOUNT_STORAGE_FREEZER,
                     Arrays.concatenate(
                         address.addressHash().getBytes().toArrayUnsafe(),
                         slotKey.getSlotHash().getBytes().toArrayUnsafe(),
@@ -1129,7 +1129,7 @@ public class ArchiverTests {
             testWorldStateStorage
                 .getComposedWorldStateStorage()
                 .containsKey(
-                    KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE,
+                    KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE,
                     Arrays.concatenate(
                         address.addressHash().getBytes().toArrayUnsafe(),
                         slotKey.getSlotHash().getBytes().toArrayUnsafe(),

@@ -208,6 +208,7 @@ public class MainnetTransactionValidator implements TransactionValidator {
     if (maybeBaseFee.isPresent()) {
       final Wei price = feeMarket.getTransactionPriceCalculator().price(transaction, maybeBaseFee);
       if (!transactionValidationParams.allowUnderpriced()
+          && !transactionValidationParams.isPreserveCallerGasPricing()
           && price.compareTo(maybeBaseFee.orElseThrow()) < 0) {
         return ValidationResult.invalid(
             TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE,

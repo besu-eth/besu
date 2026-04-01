@@ -236,6 +236,64 @@ public class EthFeeHistoryTest {
     assertThat(rewards).isEqualTo(expectedBoundedRewards);
   }
 
+  @Test
+  public void shouldNotUnderflowWhenNextBaseFeeExceedsGasPriceLowerBound() {
+    // gasPriceLowerBound = 10, nextBaseFee = 50: lowerBoundPriorityFee = ZERO (not negative).
+    // forcedMinPriorityFee = max(minPriorityFee=1, 0) = 1 → lowerBound=1, upperBound=2.
+    List<Double> rewardPercentiles =
+        Arrays.asList(0.0, 5.0, 10.0, 27.50, 31.0, 59.0, 60.0, 61.0, 100.0);
+
+    Block block = mock(Block.class);
+    Blockchain blockchain = mockBlockchainTransactionsWithPriorityFee(block);
+
+    ApiConfiguration apiConfiguration =
+        ImmutableApiConfiguration.builder()
+            .isGasAndPriorityFeeLimitingEnabled(true)
+            .lowerBoundGasAndPriorityFeeCoefficient(100L)
+            .upperBoundGasAndPriorityFeeCoefficient(200L)
+            .build();
+
+    final var blockchainQueries = mockBlockchainQueries(blockchain, Wei.of(10));
+    when(miningCoordinator.getMinPriorityFeePerGas()).thenReturn(Wei.ONE);
+
+    EthFeeHistory ethFeeHistory =
+        new EthFeeHistory(null, blockchainQueries, miningCoordinator, apiConfiguration);
+
+    List<Wei> rewards = ethFeeHistory.computeRewards(rewardPercentiles, block, Wei.of(50));
+
+    List<Wei> expectedBoundedRewards = Stream.of(1, 1, 2, 2, 2, 2, 2, 2, 2).map(Wei::of).toList();
+    assertThat(rewards).isEqualTo(expectedBoundedRewards);
+  }
+
+  @Test
+  public void shouldReturnZeroLowerBoundPriorityFeeWhenNextBaseFeeEqualsGasPriceLowerBound() {
+    // Equal case: nextBaseFee == lowerBoundGasPrice → lowerBoundPriorityFee must be ZERO,
+    // not a wraparound. forcedMinPriorityFee = max(1, 0) = 1 → lowerBound=1, upperBound=2.
+    List<Double> rewardPercentiles =
+        Arrays.asList(0.0, 5.0, 10.0, 27.50, 31.0, 59.0, 60.0, 61.0, 100.0);
+
+    Block block = mock(Block.class);
+    Blockchain blockchain = mockBlockchainTransactionsWithPriorityFee(block);
+
+    ApiConfiguration apiConfiguration =
+        ImmutableApiConfiguration.builder()
+            .isGasAndPriorityFeeLimitingEnabled(true)
+            .lowerBoundGasAndPriorityFeeCoefficient(100L)
+            .upperBoundGasAndPriorityFeeCoefficient(200L)
+            .build();
+
+    final var blockchainQueries = mockBlockchainQueries(blockchain, Wei.of(50));
+    when(miningCoordinator.getMinPriorityFeePerGas()).thenReturn(Wei.ONE);
+
+    EthFeeHistory ethFeeHistory =
+        new EthFeeHistory(null, blockchainQueries, miningCoordinator, apiConfiguration);
+
+    List<Wei> rewards = ethFeeHistory.computeRewards(rewardPercentiles, block, Wei.of(50));
+
+    List<Wei> expectedBoundedRewards = Stream.of(1, 1, 2, 2, 2, 2, 2, 2, 2).map(Wei::of).toList();
+    assertThat(rewards).isEqualTo(expectedBoundedRewards);
+  }
+
   private Blockchain mockBlockchainTransactionsWithPriorityFee(final Block block) {
     final Blockchain blockchain = mock(Blockchain.class);
 

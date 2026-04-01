@@ -282,38 +282,35 @@ public class Framer {
     final int id = idbv.isZero() || idbv.size() == 0 ? 0 : idbv.get(0);
 
     // Write message data to ByteBuf, decompressing as necessary
-    final Bytes data;
     if (compressionEnabled) {
       final byte[] compressedMessageData = Arrays.copyOfRange(frameData, 1, frameData.length - pad);
       final int uncompressedLength = compressor.uncompressedLength(compressedMessageData);
       if (uncompressedLength >= LENGTH_MAX_MESSAGE_FRAME) {
         throw error("Message size %s in excess of maximum length.", uncompressedLength);
       }
-      Bytes _data;
-      try {
-        final byte[] decompressedMessageData = compressor.decompress(compressedMessageData);
-        _data = Bytes.wrap(decompressedMessageData);
-        compressionSuccessful = true;
-      } catch (final FramingException fe) {
-        if (compressionSuccessful) {
-          throw fe;
-        } else {
-          // OpenEthereum/Parity does not implement EIP-706
-          // If failing on the first packet downgrade to uncompressed
+
+      if (!compressionSuccessful) {
+        // First compressed message: decompress eagerly to validate and handle
+        // the OpenEthereum/Parity fallback (non-Snappy peer detection via EIP-706)
+        try {
+          final byte[] decompressedMessageData = compressor.decompress(compressedMessageData);
+          compressionSuccessful = true;
+          return new RawMessage(id, Bytes.wrap(decompressedMessageData));
+        } catch (final FramingException fe) {
           compressionEnabled = false;
           LOG.debug("Snappy decompression failed: downgrading to uncompressed");
           final int messageLength = frameSize - LENGTH_MESSAGE_ID;
-          _data = Bytes.wrap(frameData, 1, messageLength);
+          return new RawMessage(id, Bytes.wrap(frameData, 1, messageLength));
         }
+      } else {
+        // Subsequent messages: store compressed, decompress lazily on getData()
+        return new RawMessage(id, compressedMessageData);
       }
-      data = _data;
     } else {
-      // Move data to a ByteBuf
       final int messageLength = frameSize - LENGTH_MESSAGE_ID;
-      data = Bytes.wrap(frameData, 1, messageLength);
+      final Bytes data = Bytes.wrap(frameData, 1, messageLength);
+      return new RawMessage(id, data);
     }
-
-    return new RawMessage(id, data);
   }
 
   private void validateMac(final byte[] candidateMac, final byte[] expectedMac) {

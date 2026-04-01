@@ -15,7 +15,9 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.bouncycastle.util.Arrays.concatenate;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_ROOT_HASH_KEY;
@@ -78,18 +80,17 @@ public class BonsaiWorldStateKeyValueStorageTest {
         new Object[][] {{FlatDbMode.FULL}, {FlatDbMode.PARTIAL}, {FlatDbMode.ARCHIVE}});
   }
 
-  public static Stream<Arguments> flatDbModeAndKeyMapper() {
+  public static Stream<Arguments> flatDbModeKeyMapperAndSegment() {
     Function<byte[], byte[]> flatDBKey = (key) -> key; // No-op
 
     // For archive we want <32-byte-hex>000000000000000n where n is the current archive block number
     Function<byte[], byte[]> flatDBArchiveKey =
-        (key) ->
-            org.bouncycastle.util.Arrays.concatenate(key, Bytes.ofUnsignedLong(2).toArrayUnsafe());
+        (key) -> concatenate(key, Bytes.ofUnsignedLong(2).toArrayUnsafe());
 
     return Stream.of(
-        Arguments.of(FlatDbMode.FULL, flatDBKey),
-        Arguments.of(FlatDbMode.PARTIAL, flatDBKey),
-        Arguments.of(FlatDbMode.ARCHIVE, flatDBArchiveKey));
+        Arguments.of(FlatDbMode.FULL, flatDBKey, ACCOUNT_INFO_STATE),
+        Arguments.of(FlatDbMode.PARTIAL, flatDBKey, ACCOUNT_INFO_STATE),
+        Arguments.of(FlatDbMode.ARCHIVE, flatDBArchiveKey, ACCOUNT_INFO_STATE_ARCHIVE));
   }
 
   public static Collection<Object[]> flatDbModeAndCodeStorageMode() {
@@ -461,9 +462,11 @@ public class BonsaiWorldStateKeyValueStorageTest {
   }
 
   @ParameterizedTest
-  @MethodSource("flatDbModeAndKeyMapper")
+  @MethodSource("flatDbModeKeyMapperAndSegment")
   void clear_putGetAccountFlatDbStrategy(
-      final FlatDbMode flatDbMode, final Function<byte[], byte[]> keyMapper) {
+      final FlatDbMode flatDbMode,
+      final Function<byte[], byte[]> keyMapper,
+      final KeyValueSegmentIdentifier segment) {
     final BonsaiWorldStateKeyValueStorage storage = spy(setUp(flatDbMode));
 
     // save world state root hash
@@ -493,9 +496,7 @@ public class BonsaiWorldStateKeyValueStorageTest {
     // and flat archive DB
     // and we want to ensure keys put to the archive DB include the archive block context/suffix
     byte[] lookupKey = keyMapper.apply(account.addressHash().getBytes().toArrayUnsafe());
-    assertThat(
-            Bytes.wrap(
-                storage.getComposedWorldStateStorage().get(ACCOUNT_INFO_STATE, lookupKey).get()))
+    assertThat(Bytes.wrap(storage.getComposedWorldStateStorage().get(segment, lookupKey).get()))
         .isEqualTo(
             Bytes.fromHexString(
                 "0xF84E823D98887B5E41A364EA8BFCA056E81F171BCC55A6FF8345E692C0F86E5B48E01B996CADC001622FB5E363B421A0C5D2460186F7233C927E7DB2DCC703C0E500B653CA82273B7BFAD8045D85A470"));
@@ -518,9 +519,11 @@ public class BonsaiWorldStateKeyValueStorageTest {
   }
 
   @ParameterizedTest
-  @MethodSource({"flatDbModeAndKeyMapper"})
+  @MethodSource({"flatDbModeKeyMapperAndSegment"})
   void clear_streamFlatAccounts(
-      final FlatDbMode flatDbMode, final Function<byte[], byte[]> keyMapper) {
+      final FlatDbMode flatDbMode,
+      final Function<byte[], byte[]> keyMapper,
+      final KeyValueSegmentIdentifier segment) {
     final BonsaiWorldStateKeyValueStorage storage = spy(setUp(flatDbMode));
 
     // save world state root hash
@@ -549,19 +552,13 @@ public class BonsaiWorldStateKeyValueStorageTest {
     // Convert the key to lookup the entry we expect to find in K/V storage. No-op for everything
     // except ARCHIVE, which needs to append the 000000000000000x suffix to the key
     byte[] lookupKey = keyMapper.apply(account1.addressHash().getBytes().toArrayUnsafe());
-    assertThat(
-            Bytes32.wrap(
-                storage.getComposedWorldStateStorage().get(ACCOUNT_INFO_STATE, lookupKey).get()))
+    assertThat(Bytes32.wrap(storage.getComposedWorldStateStorage().get(segment, lookupKey).get()))
         .isEqualTo(account1Value);
     lookupKey = keyMapper.apply(account2.addressHash().getBytes().toArrayUnsafe());
-    assertThat(
-            Bytes32.wrap(
-                storage.getComposedWorldStateStorage().get(ACCOUNT_INFO_STATE, lookupKey).get()))
+    assertThat(Bytes32.wrap(storage.getComposedWorldStateStorage().get(segment, lookupKey).get()))
         .isEqualTo(account2Value);
     lookupKey = keyMapper.apply(account3.addressHash().getBytes().toArrayUnsafe());
-    assertThat(
-            Bytes32.wrap(
-                storage.getComposedWorldStateStorage().get(ACCOUNT_INFO_STATE, lookupKey).get()))
+    assertThat(Bytes32.wrap(storage.getComposedWorldStateStorage().get(segment, lookupKey).get()))
         .isEqualTo(account3Value);
 
     // Streaming the entire range to ensure we get all 3 accounts back

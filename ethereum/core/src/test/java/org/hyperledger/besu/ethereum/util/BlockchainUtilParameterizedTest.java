@@ -33,6 +33,7 @@ import java.util.Random;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -44,7 +45,13 @@ public class BlockchainUtilParameterizedTest {
 
   private static final int chainHeight = 89;
   private static Block genesisBlock;
-  private static MutableBlockchain localBlockchain;
+  // Pre-generated canonical chain data (crypto happens once in @BeforeAll)
+  private static final List<Block> canonicalBlocks = new ArrayList<>(chainHeight);
+  private static final List<List<TransactionReceipt>> canonicalReceipts =
+      new ArrayList<>(chainHeight);
+
+  // Rebuilt cheaply from canonical data before each test — never accumulates fork chains
+  private MutableBlockchain localBlockchain;
 
   private MutableBlockchain remoteBlockchain;
 
@@ -54,16 +61,27 @@ public class BlockchainUtilParameterizedTest {
   @BeforeAll
   public static void setupClass() {
     genesisBlock = blockDataGenerator.genesisBlock();
-    localBlockchain = InMemoryKeyValueStorageProvider.createInMemoryBlockchain(genesisBlock);
-    // Setup local chain.
+    // Use a temporary chain only to thread parent hashes; store blocks for reuse
+    final MutableBlockchain tempChain =
+        InMemoryKeyValueStorageProvider.createInMemoryBlockchain(genesisBlock);
     for (int i = 1; i <= chainHeight; i++) {
       final BlockDataGenerator.BlockOptions options =
           new BlockDataGenerator.BlockOptions()
               .setBlockNumber(i)
-              .setParentHash(localBlockchain.getBlockHashByNumber(i - 1).get());
+              .setParentHash(tempChain.getBlockHashByNumber(i - 1).get());
       final Block block = blockDataGenerator.block(options);
       final List<TransactionReceipt> receipts = blockDataGenerator.receipts(block);
-      localBlockchain.appendBlock(block, receipts);
+      tempChain.appendBlock(block, receipts);
+      canonicalBlocks.add(block);
+      canonicalReceipts.add(receipts);
+    }
+  }
+
+  @BeforeEach
+  public void setupInstance() {
+    localBlockchain = InMemoryKeyValueStorageProvider.createInMemoryBlockchain(genesisBlock);
+    for (int i = 0; i < canonicalBlocks.size(); i++) {
+      localBlockchain.appendBlock(canonicalBlocks.get(i), canonicalReceipts.get(i));
     }
   }
 
@@ -78,16 +96,9 @@ public class BlockchainUtilParameterizedTest {
       final BlockBody commonBody = localBlockchain.getBlockBody(commonHeader.getHash()).get();
       remoteBlockchain.appendBlock(new Block(commonHeader, commonBody), receipts);
     }
-    // Remaining blocks are disparate.
+    // Remaining blocks are disparate on the remote chain only.
+    // Local canonical chain already has blocks up to chainHeight from @BeforeEach.
     for (long i = commonAncestorHeight + 1L; i <= chainHeight; i++) {
-      final BlockDataGenerator.BlockOptions localOptions =
-          new BlockDataGenerator.BlockOptions()
-              .setBlockNumber(i)
-              .setParentHash(localBlockchain.getBlockHashByNumber(i - 1).get());
-      final Block localBlock = blockDataGenerator.block(localOptions);
-      final List<TransactionReceipt> localReceipts = blockDataGenerator.receipts(localBlock);
-      localBlockchain.appendBlock(localBlock, localReceipts);
-
       final BlockDataGenerator.BlockOptions remoteOptions =
           new BlockDataGenerator.BlockOptions()
               .setDifficulty(Difficulty.ONE) // differentiator
@@ -97,7 +108,7 @@ public class BlockchainUtilParameterizedTest {
       final List<TransactionReceipt> remoteReceipts = blockDataGenerator.receipts(remoteBlock);
       remoteBlockchain.appendBlock(remoteBlock, remoteReceipts);
     }
-    headers = new ArrayList<>();
+    headers = new ArrayList<>(chainHeight + 1);
     for (long i = 0L; i <= remoteBlockchain.getChainHeadBlockNumber(); i++) {
       headers.add(remoteBlockchain.getBlockHeader(i).get());
     }

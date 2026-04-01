@@ -536,7 +536,6 @@ public class MainnetTransactionProcessor {
               .stateGasUsed(initialFrame.getStateGasUsed())
               .initialFrameStateGasSpill(initialFrameStateGasSpill)
               .stateGasSpillBurned(initialFrame.getStateGasSpillBurned())
-              .regularGasCollisionBurned(initialFrame.getRegularGasCollisionBurned())
               .refundedGas(refundedGas)
               .floorCost(floorCost)
               .regularGasLimitExceeded(regularGasLimitExceeded)
@@ -549,7 +548,8 @@ public class MainnetTransactionProcessor {
       if (blockHeader.getBaseFee().isPresent()) {
         final Wei baseFee = blockHeader.getBaseFee().get();
         final boolean gasPriceBelowBaseFee = transactionGasPrice.compareTo(baseFee) < 0;
-        if (transactionValidationParams.allowUnderpriced()) {
+        if (transactionValidationParams.allowUnderpriced()
+            || transactionValidationParams.isPreserveCallerGasPricing()) {
           coinbaseCalculator =
               gasPriceBelowBaseFee ? (a, b, c) -> Wei.ZERO : coinbaseFeePriceCalculator;
         } else {

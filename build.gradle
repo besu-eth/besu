@@ -230,6 +230,9 @@ configure(allprojects - project(':platform')) {
     exclude group: 'io.tmio', module: 'tuweni-crypto'
     exclude group: 'io.tmio', module: 'tuweni-rlp'
     exclude group: 'io.tmio', module: 'tuweni-units'
+
+    // discovery library coordinates moved to io.consensys.protocols
+    exclude group: 'tech.pegasys.discovery', module: 'discovery'
   }
 
 

@@ -25,10 +25,10 @@ import java.util.Arrays;
  *
  * <p>This class is an optimised version of BigInteger for fixed width 256-bits integers.
  *
- * @param u3 4th digit
+ * @param u3 4th digit = most significant limb
  * @param u2 3rd digit
  * @param u1 2nd digit
- * @param u0 1st digit
+ * @param u0 1st digit = least significant limb
  */
 public record UInt256(long u3, long u2, long u1, long u0) {
 
@@ -44,6 +44,8 @@ public record UInt256(long u3, long u2, long u1, long u0) {
 
   /** The constant 0. */
   public static final UInt256 ZERO = new UInt256(0, 0, 0, 0);
+
+  public static final UInt256 ONE = new UInt256(0, 0, 0, 1);
 
   private static final byte[] ZERO_BYTES = new byte[BYTESIZE];
 
@@ -223,20 +225,16 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     return new UInt320(0, u3, u2, u1, u0);
   }
 
-  private Modulus64 asModulus64() {
-    return new Modulus64(u0);
+  private UInt64 asUInt64() {
+    return new UInt64(u0);
   }
 
-  private Modulus128 asModulus128() {
-    return new Modulus128(u1, u0);
+  private UInt128 asUInt128() {
+    return new UInt128(u1, u0);
   }
 
-  private Modulus192 asModulus192() {
-    return new Modulus192(u2, u1, u0);
-  }
-
-  private Modulus256 asModulus256() {
-    return new Modulus256(u3, u2, u1, u0);
+  private UInt192 asUInt192() {
+    return new UInt192(u2, u1, u0);
   }
 
   // --------------------------------------------------------------------------
@@ -309,17 +307,38 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   }
 
   /**
-   * Compares two UInt256.
+   * Compares two UInt256. If any of the values is `null` it is considered smaller than the other.
    *
-   * @param a left UInt256
-   * @param b right UInt256
-   * @return 0 if a == b, negative if a &lt; b and positive if a &gt; b.
+   * @param u1 UInt256 value
+   * @param u2 UInt256 value
+   * @return 0 if this == that, negative if this &lt; that and positive if this &gt; that.
    */
-  public static int compare(final UInt256 a, final UInt256 b) {
-    if (a.u3 != b.u3) return Long.compareUnsigned(a.u3, b.u3);
-    if (a.u2 != b.u2) return Long.compareUnsigned(a.u2, b.u2);
-    if (a.u1 != b.u1) return Long.compareUnsigned(a.u1, b.u1);
-    return Long.compareUnsigned(a.u0, b.u0);
+  public static int compare(final UInt256 u1, final UInt256 u2) {
+    if (u1 == null || u2 == null) {
+      return Boolean.compare(u2 == null, u1 == null);
+    }
+    return u1.compareTo(u2);
+  }
+
+  private int compareTo(final UInt256 that) {
+    if (u3 != that.u3) return Long.compareUnsigned(u3, that.u3);
+    if (u2 != that.u2) return Long.compareUnsigned(u2, that.u2);
+    if (u1 != that.u1) return Long.compareUnsigned(u1, that.u1);
+    return Long.compareUnsigned(u0, that.u0);
+  }
+
+  /**
+   * Compares a UInt256 value with a UInt512 value.
+   *
+   * @param that UInt512 value
+   * @return 0 if this == that, negative if this &lt; that and positive if this &gt; that.
+   */
+  private int compareTo(final UInt512 that) {
+    if ((that.u7 | that.u6 | that.u5 | that.u4) != 0) return -1;
+    if (that.u3 != u3) return Long.compareUnsigned(u3, that.u3);
+    if (that.u2 != u2) return Long.compareUnsigned(u2, that.u2);
+    if (that.u1 != u1) return Long.compareUnsigned(u1, that.u1);
+    return Long.compareUnsigned(u0, that.u0);
   }
 
   // --------------------------------------------------------------------------
@@ -474,11 +493,11 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    */
   public UInt256 mod(final UInt256 modulus) {
     if (isZero()) return ZERO;
-    if (modulus.u3 != 0) return modulus.asModulus256().reduce(this);
-    if (modulus.u2 != 0) return modulus.asModulus192().reduce(this);
-    if (modulus.u1 != 0) return modulus.asModulus128().reduce(this);
+    if (modulus.u3 != 0) return modulus.modReduce(this);
+    if (modulus.u2 != 0) return modulus.asUInt192().modReduce(this);
+    if (modulus.u1 != 0) return modulus.asUInt128().modReduce(this);
     if ((modulus.u0 == 0) || (modulus.u0 == 1)) return ZERO;
-    return modulus.asModulus64().reduce(this);
+    return modulus.asUInt64().modReduce(this);
   }
 
   /**
@@ -500,6 +519,41 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   }
 
   /**
+   * Unsigned division.
+   *
+   * <p>Compute this / divisor as unsigned big-endian integer.
+   *
+   * @param divisor The divisor.
+   * @return The quotient.
+   */
+  public UInt256 div(final UInt256 divisor) {
+    if (isZero()) return ZERO;
+    if (divisor.u3 != 0) return divisor.divReduce(this);
+    if (divisor.u2 != 0) return divisor.asUInt192().divReduce(this);
+    if (divisor.u1 != 0) return divisor.asUInt128().divReduce(this);
+    if ((divisor.u0 == 0) || (divisor.u0 == 1)) return (divisor.u0 == 1) ? this : ZERO;
+    return divisor.asUInt64().divReduce(this);
+  }
+
+  /**
+   * Signed division.
+   *
+   * <p>In signed division, integers are interpreted as fixed 256 bits width two's complement signed
+   * integers.
+   *
+   * @param divisor The divisor.
+   * @return The quotient.
+   */
+  public UInt256 signedDiv(final UInt256 divisor) {
+    if (isZero() || divisor.isZero()) return ZERO;
+    UInt256 a = abs();
+    UInt256 d = divisor.abs();
+    UInt256 q = a.div(d);
+    if (isNegative() != divisor.isNegative()) q = q.neg();
+    return q;
+  }
+
+  /**
    * Modular addition.
    *
    * @param other The integer to add to this.
@@ -510,10 +564,10 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     if (isZero()) return other.mod(modulus);
     if (other.isZero()) return this.mod(modulus);
     if (modulus.isZeroOrOne()) return ZERO;
-    if (modulus.u3 != 0) return modulus.asModulus256().sum(this, other);
-    if (modulus.u2 != 0) return modulus.asModulus192().sum(this, other);
-    if (modulus.u1 != 0) return modulus.asModulus128().sum(this, other);
-    return modulus.asModulus64().sum(this, other);
+    if (modulus.u3 != 0) return modulus.sum(this, other);
+    if (modulus.u2 != 0) return modulus.asUInt192().sum(this, other);
+    if (modulus.u1 != 0) return modulus.asUInt128().sum(this, other);
+    return modulus.asUInt64().sum(this, other);
   }
 
   /**
@@ -527,10 +581,10 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     if (this.isZero() || other.isZero() || modulus.isZeroOrOne()) return ZERO;
     if (this.isOne()) return other.mod(modulus);
     if (other.isOne()) return this.mod(modulus);
-    if (modulus.u3 != 0) return modulus.asModulus256().mul(this, other);
-    if (modulus.u2 != 0) return modulus.asModulus192().mul(this, other);
-    if (modulus.u1 != 0) return modulus.asModulus128().mul(this, other);
-    return modulus.asModulus64().mul(this, other);
+    if (modulus.u3 != 0) return modulus.mul(this, other);
+    if (modulus.u2 != 0) return modulus.asUInt192().mul(this, other);
+    if (modulus.u1 != 0) return modulus.asUInt128().mul(this, other);
+    return modulus.asUInt64().mul(this, other);
   }
 
   // --------------------------------------------------------------------------
@@ -830,8 +884,224 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   // --------------------------------------------------------------------------
   // endregion
 
-  // region private quotient estimation
+  // region private division
   // --------------------------------------------------------------------------
+  private UInt256 modReduce(final UInt256 that) {
+    int cmp = compareTo(that);
+    if (cmp == 0) return ZERO;
+    if (cmp > 0) return that;
+    int shift = Long.numberOfLeadingZeros(u3);
+    UInt256 m = shiftLeft(shift);
+    long inv = reciprocal(m.u3);
+    return m.modReduceNormalised(that, shift, inv);
+  }
+
+  private UInt256 modReduce(final UInt512 that) {
+    int cmp = compareTo(that);
+    if (cmp == 0) return ZERO;
+    if (cmp > 0) return that.UInt256Value();
+    int shift = Long.numberOfLeadingZeros(u3);
+    UInt256 m = shiftLeft(shift);
+    long inv = reciprocal(m.u3);
+    return m.modReduceNormalised(that, shift, inv);
+  }
+
+  private UInt256 sum(final UInt256 a, final UInt256 b) {
+    UInt257 sum = a.adc(b);
+    if (!sum.carry()) {
+      int cmp = compareTo(sum.UInt256Value());
+      if (cmp == 0) return ZERO;
+      if (cmp > 0) return sum.UInt256Value();
+    }
+    int shift = Long.numberOfLeadingZeros(u3);
+    UInt256 m = shiftLeft(shift);
+    long inv = reciprocal(m.u3);
+    return m.modReduceNormalised(sum, shift, inv);
+  }
+
+  private UInt256 mul(final UInt256 a, final UInt256 b) {
+    // multiply-reduce
+    UInt512 prod = a.mul256(b);
+    int cmp = compareTo(prod);
+    if (cmp == 0) return ZERO;
+    if (cmp > 0) return prod.UInt256Value();
+    return modReduce(prod);
+  }
+
+  private QR256 addBack(final long v3, final long v2, final long v1, final long v0, final long q) {
+    // Add back
+    long z0 = v0 + u0;
+    long carry = ((v0 & u0) | ((v0 | u0) & ~z0)) >>> 63;
+
+    long z1 = v1 + u1 + carry;
+    long overflow1 = (Long.compareUnsigned(z1, v1) < 0) ? 1 : 0;
+    long overflow2 = (Long.compareUnsigned(z1, v1) == 0) ? 1 : 0;
+    carry = overflow1 | (overflow2 & carry);
+
+    long z2 = v2 + u2 + carry;
+    overflow1 = (Long.compareUnsigned(z2, v2) < 0) ? 1 : 0;
+    overflow2 = (Long.compareUnsigned(z2, v2) == 0) ? 1 : 0;
+    carry = overflow1 | (overflow2 & carry);
+
+    long z3 = v3 + u3 + carry;
+    overflow1 = (Long.compareUnsigned(z3, v3) < 0) ? 1 : 0;
+    overflow2 = (Long.compareUnsigned(z3, v3) == 0) ? 1 : 0;
+    carry = overflow1 | (overflow2 & carry);
+
+    if (carry == 0) { // unlikely: add back again
+      // Proper quotient estimation guarantees recursion max-depth <= 2
+      // Unbounded recursion only if there's a bug - fail fast is better than give wrong result
+      return addBack(z3, z2, z1, z0, q - 1);
+    }
+    return new QR256(q, new UInt256(z3, z2, z1, z0));
+  }
+
+  private QR256 mulSub(final long v3, final long v2, final long v1, final long v0, final long q) {
+    // Multiply-subtract: already have highest 1 limbs
+    // <z4, z3, z2, z1, z0>  =  <u3, u2, u1, u0> * q
+    long p0 = u0 * q;
+    long p1 = Math.unsignedMultiplyHigh(u0, q);
+    long z0 = v0 - p0;
+    long carry = p1 + (((Long.compareUnsigned(v0, z0) < 0) ? 1 : 0));
+
+    p0 = u1 * q;
+    p1 = Math.unsignedMultiplyHigh(u1, q);
+    long res = v1 - p0;
+    long z1 = res - carry;
+    long borrow = (Long.compareUnsigned(res, z1) < 0) ? 1 : 0;
+    carry = p1 + ((Long.compareUnsigned(v1, res) < 0) ? 1 : 0);
+
+    p0 = u2 * q;
+    p1 = Math.unsignedMultiplyHigh(u2, q);
+    long t2 = v2 - p0;
+    res = t2 - borrow;
+    long z2 = res - carry;
+    borrow = (Long.compareUnsigned(res, z2) < 0) ? 1 : 0;
+    carry =
+        p1
+            + ((Long.compareUnsigned(v2, t2) < 0) ? 1 : 0)
+            + ((Long.compareUnsigned(t2, res) < 0) ? 1 : 0);
+
+    // Propagate overflows (borrows)
+    long t3 = v3 - carry;
+    long z3 = t3 - borrow;
+    borrow =
+        ((Long.compareUnsigned(v3, t3) < 0) ? 1 : 0) | ((Long.compareUnsigned(t3, z3) < 0) ? 1 : 0);
+
+    if (borrow != 0) return addBack(z3, z2, z1, z0, q - 1);
+    return new QR256(q, new UInt256(z3, z2, z1, z0));
+  }
+
+  private QR256 mulSubOverflow(final long v3, final long v2, final long v1, final long v0) {
+    // Overflow case: div2by1 quotient would be <1, 0>, but adjusts to <0, -1>
+    // <p1, p0> = -1 * u0 = <u0 - 1, -u0>
+    long res, borrow;
+
+    long z0 = v0 + u0;
+    long carry = u0 - 1 + ((Long.compareUnsigned(v0, z0) <= 0) ? 1 : 0);
+
+    res = v1 - carry;
+    long z1 = res + u1;
+    borrow = (Long.compareUnsigned(res, z1) <= 0) ? 1 : 0;
+    carry = u1 - 1 + ((Long.compareUnsigned(v1, res) < 0) ? 1 : 0);
+
+    res = v2 - carry - borrow;
+    long z2 = res + u2;
+    borrow = (Long.compareUnsigned(res, z2) <= 0) ? 1 : 0;
+    carry = u2 - 1 + ((Long.compareUnsigned(v2, res) < 0) ? 1 : 0);
+
+    long z3 = v3 + u3 - carry - borrow;
+    // q = MAX may still be 1 too high - need to pass q - 1 (-2L) to addBack; check if result >=
+    // modulus (i.e. negative wrapped)
+    if (Long.compareUnsigned(z3, u3) > 0
+        || (z3 == u3
+            && (Long.compareUnsigned(z2, u2) > 0
+                || (z2 == u2
+                    && (Long.compareUnsigned(z1, u1) > 0
+                        || (z1 == u1 && Long.compareUnsigned(z0, u0) >= 0)))))) {
+      return addBack(z3, z2, z1, z0, -2L);
+    }
+    return new QR256(-1L, new UInt256(z3, z2, z1, z0));
+  }
+
+  private QR256 reduceStep(
+      final long v4, final long v3, final long v2, final long v1, final long v0, final long inv) {
+    if (v4 == u3) return mulSubOverflow(v3, v2, v1, v0);
+    QR64 qr = div2by1(v4, v3, u3, inv);
+    if (qr.q != 0) return mulSub(qr.r, v2, v1, v0, qr.q);
+    return new QR256(0, new UInt256(v3, v2, v1, v0));
+  }
+
+  private UInt256 modReduceNormalised(final UInt256 that, final int shift, final long inv) {
+    UInt320 v = that.shiftLeftWide(shift);
+    QR256 qr;
+    if (Long.compareUnsigned(v.u4, u3) >= 0) {
+      qr = reduceStep(0, v.u4, v.u3, v.u2, v.u1, inv);
+      qr = reduceStep(qr.r.u3, qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+    } else {
+      qr = reduceStep(v.u4, v.u3, v.u2, v.u1, v.u0, inv);
+    }
+    return qr.r.shiftRight(shift);
+  }
+
+  private UInt256 modReduceNormalised(final UInt257 that, final int shift, final long inv) {
+    UInt320 v = that.shiftLeftWide(shift);
+    QR256 qr;
+    if (Long.compareUnsigned(v.u4, u3) >= 0) {
+      qr = reduceStep(0, v.u4, v.u3, v.u2, v.u1, inv);
+      qr = reduceStep(qr.r.u3, qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+    } else {
+      qr = reduceStep(v.u4, v.u3, v.u2, v.u1, v.u0, inv);
+    }
+    return qr.r.shiftRight(shift);
+  }
+
+  private UInt256 modReduceNormalised(final UInt512 that, final int shift, final long inv) {
+    UInt576 v = that.shiftLeftWide(shift);
+    if ((v.u8 | v.u7 | v.u6) == 0 && Long.compareUnsigned(v.u5, u3) < 0) {
+      QR256 qr;
+      if (v.u5 != 0 || Long.compareUnsigned(v.u4, u3) >= 0) {
+        qr = reduceStep(v.u5, v.u4, v.u3, v.u2, v.u1, inv);
+        qr = reduceStep(qr.r.u3, qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+      } else {
+        qr = reduceStep(v.u4, v.u3, v.u2, v.u1, v.u0, inv);
+      }
+      return qr.r.shiftRight(shift);
+    }
+    return modReduceNormalisedSlowPath(v, shift, inv);
+  }
+
+  private UInt256 modReduceNormalisedSlowPath(final UInt576 v, final int shift, final long inv) {
+    QR256 qr;
+    if (v.u8 != 0 || Long.compareUnsigned(v.u7, u3) >= 0) {
+      qr = reduceStep(v.u8, v.u7, v.u6, v.u5, v.u4, inv);
+      qr = reduceStep(qr.r.u3, qr.r.u2, qr.r.u1, qr.r.u0, v.u3, inv);
+      qr = reduceStep(qr.r.u3, qr.r.u2, qr.r.u1, qr.r.u0, v.u2, inv);
+      qr = reduceStep(qr.r.u3, qr.r.u2, qr.r.u1, qr.r.u0, v.u1, inv);
+      qr = reduceStep(qr.r.u3, qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+    } else if (v.u7 != 0 || Long.compareUnsigned(v.u6, u3) >= 0) {
+      qr = reduceStep(v.u7, v.u6, v.u5, v.u4, v.u3, inv);
+      qr = reduceStep(qr.r.u3, qr.r.u2, qr.r.u1, qr.r.u0, v.u2, inv);
+      qr = reduceStep(qr.r.u3, qr.r.u2, qr.r.u1, qr.r.u0, v.u1, inv);
+      qr = reduceStep(qr.r.u3, qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+    } else {
+      qr = reduceStep(v.u6, v.u5, v.u4, v.u3, v.u2, inv);
+      qr = reduceStep(qr.r.u3, qr.r.u2, qr.r.u1, qr.r.u0, v.u1, inv);
+      qr = reduceStep(qr.r.u3, qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+    }
+    return qr.r.shiftRight(shift);
+  }
+
+  private UInt256 divReduce(final UInt256 that) {
+    int cmp = compareTo(that);
+    if (cmp == 0) return ONE;
+    if (cmp > 0) return ZERO;
+    int shift = Long.numberOfLeadingZeros(u3);
+    UInt256 m = shiftLeft(shift);
+    long inv = reciprocal(m.u3);
+    UInt320 v = that.shiftLeftWide(shift);
+    return fromLong(m.reduceStep(v.u4, v.u3, v.u2, v.u1, v.u0, inv).q);
+  }
 
   // Lookup table for $\floor{\frac{2^{19} -3 ⋅ 2^8}{d_9 - 256}}$
   private static final short[] LUT =
@@ -876,11 +1146,10 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     t0 += x;
     t1 += Long.compareUnsigned(t0, x) < 0 ? 1 : 0;
     t1 += x;
-    long v4 = v3 - t1;
-    return v4;
+    return v3 - t1;
   }
 
-  private static DivEstimate div2by1(final long x1, final long x0, final long y, final long yInv) {
+  private static QR64 div2by1(final long x1, final long x0, final long y, final long yInv) {
     // wrapping umul z1 * yInv
     long q0 = x1 * yInv;
     long q1 = Math.unsignedMultiplyHigh(x1, yInv);
@@ -901,36 +1170,672 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     q1 += adjust;
     r -= y * adjust;
 
-    return new DivEstimate(q1, r);
-  }
-
-  private static long mod2by1(final long x1, final long x0, final long y, final long yInv) {
-    // wrapping umul z1 * yInv
-    long q0 = x1 * yInv;
-    long q1 = Math.unsignedMultiplyHigh(x1, yInv);
-
-    // wrapping uadd <q1, q0> + <z1, z0> + <1, 0>
-    long sum = q0 + x0;
-    long carry = ((q0 & x0) | ((q0 | x0) & ~sum)) >>> 63;
-    q0 = sum;
-    q1 += x1 + carry + 1;
-
-    long r = x0 - q1 * y;
-
-    long adjust = Long.compareUnsigned(q0, r) < 0 ? 1 : 0;
-    r += y * adjust;
-
-    adjust = Long.compareUnsigned(y, r) <= 0 ? 1 : 0;
-    r -= y * adjust;
-
-    return r;
+    return new QR64(q1, r);
   }
 
   // --------------------------------------------------------------------------
   // endregion
 
-  // region Records
+  // region Quotient / Remainder types
+  // These types are used to store the result of division. Due to the nature of the algorithm
+  // (div2by1) quotient (q) can't
+  // ever exceed 64 bits while remainder (r) can range from 64 to 256 bits.
+  private record QR64(long q, long r) {}
+
+  private record QR128(long q, UInt128 r) {}
+
+  private record QR192(long q, UInt192 r) {}
+
+  private record QR256(long q, UInt256 r) {}
+
   // --------------------------------------------------------------------------
+  // endregion
+
+  // region UInt* types
+  // --------------------------------------------------------------------------
+  record UInt64(long u0) {
+    UInt64 shiftLeft(final int shift) {
+      return (shift == 0) ? this : new UInt64(u0 << shift);
+    }
+
+    UInt256 modReduce(final UInt256 that) {
+      if (that.isUInt64()) {
+        return UInt256.fromLong(Long.remainderUnsigned(that.u0, u0));
+      }
+      int shift = Long.numberOfLeadingZeros(u0);
+      UInt64 m = shiftLeft(shift);
+      long inv = reciprocal(m.u0);
+      return m.modReduceNormalised(that, shift, inv);
+    }
+
+    UInt256 sum(final UInt256 a, final UInt256 b) {
+      UInt257 sum = a.adc(b);
+      if (sum.isUInt64()) return UInt256.fromLong(Long.remainderUnsigned(sum.u().u0, u0));
+      int shift = Long.numberOfLeadingZeros(u0);
+      UInt64 m = shiftLeft(shift);
+      long inv = reciprocal(m.u0);
+      return m.modReduceNormalised(sum, shift, inv);
+    }
+
+    UInt256 mul(final UInt256 a, final UInt256 b) {
+      // multiply-reduce
+      if (a.isUInt64() && b.isUInt64()) {
+        UInt256 prod = a.mul64(b);
+        if (prod.isUInt64()) return UInt256.fromLong(Long.remainderUnsigned(prod.u0, u0));
+        return modReduce(prod);
+      }
+      // reduce-multiply-reduce
+      int shift = Long.numberOfLeadingZeros(u0);
+      UInt64 m = shiftLeft(shift);
+      long inv = reciprocal(m.u0);
+      UInt256 x = (a.isUInt64()) ? a : m.modReduceNormalised(a, shift, inv);
+      UInt256 y = (b.isUInt64()) ? b : m.modReduceNormalised(b, shift, inv);
+      UInt256 prod = x.mul64(y);
+      return prod.isUInt64()
+          ? UInt256.fromLong(Long.remainderUnsigned(prod.u0, u0))
+          : m.modReduceNormalised(prod, shift, inv);
+    }
+
+    private QR64 reduceStep(final long v1, final long v0, final long inv) {
+      return div2by1(v1, v0, u0, inv);
+    }
+
+    private UInt256 modReduceNormalised(final UInt256 that, final int shift, final long inv) {
+      UInt320 v = that.shiftLeftWide(shift);
+      if ((v.u4 | v.u3) == 0 && Long.compareUnsigned(v.u2, u0) < 0) {
+        QR64 qr;
+        if (v.u2 != 0 || Long.compareUnsigned(v.u1, u0) >= 0) {
+          qr = reduceStep(v.u2, v.u1, inv);
+          qr = reduceStep(qr.r, v.u0, inv);
+        } else {
+          qr = reduceStep(v.u1, v.u0, inv);
+        }
+        return UInt256.fromLong(qr.r >>> shift);
+      }
+      return reduceNormalisedSlowPath(v, shift, inv);
+    }
+
+    private UInt256 modReduceNormalised(final UInt257 that, final int shift, final long inv) {
+      UInt320 v = that.shiftLeftWide(shift);
+      if ((v.u4 | v.u3) == 0 && Long.compareUnsigned(v.u2, u0) < 0) {
+        QR64 qr;
+        if (v.u2 != 0 || Long.compareUnsigned(v.u1, u0) >= 0) {
+          qr = reduceStep(v.u2, v.u1, inv);
+          qr = reduceStep(qr.r, v.u0, inv);
+        } else {
+          qr = reduceStep(v.u1, v.u0, inv);
+        }
+        return UInt256.fromLong(qr.r >>> shift);
+      }
+      return reduceNormalisedSlowPath(v, shift, inv);
+    }
+
+    private UInt256 reduceNormalisedSlowPath(final UInt320 v, final int shift, final long inv) {
+      QR64 qr;
+      if (Long.compareUnsigned(v.u4, u0) >= 0) {
+        qr = reduceStep(0, v.u4, inv);
+        qr = reduceStep(qr.r, v.u3, inv);
+        qr = reduceStep(qr.r, v.u2, inv);
+        qr = reduceStep(qr.r, v.u1, inv);
+        qr = reduceStep(qr.r, v.u0, inv);
+      } else if (v.u4 != 0 || Long.compareUnsigned(v.u3, u0) >= 0) {
+        qr = reduceStep(v.u4, v.u3, inv);
+        qr = reduceStep(qr.r, v.u2, inv);
+        qr = reduceStep(qr.r, v.u1, inv);
+        qr = reduceStep(qr.r, v.u0, inv);
+      } else {
+        qr = reduceStep(v.u3, v.u2, inv);
+        qr = reduceStep(qr.r, v.u1, inv);
+        qr = reduceStep(qr.r, v.u0, inv);
+      }
+      return UInt256.fromLong(qr.r >>> shift);
+    }
+
+    UInt256 divReduce(final UInt256 that) {
+      if (that.isUInt64()) {
+        return UInt256.fromLong(Long.divideUnsigned(that.u0, u0));
+      }
+      int shift = Long.numberOfLeadingZeros(u0);
+      UInt64 m = shiftLeft(shift);
+      long inv = reciprocal(m.u0);
+      return m.divReduceNormalised(that, shift, inv);
+    }
+
+    private UInt256 divReduceNormalised(final UInt256 that, final int shift, final long inv) {
+      UInt320 v = that.shiftLeftWide(shift);
+      if ((v.u4 | v.u3) == 0 && Long.compareUnsigned(v.u2, u0) < 0) {
+        if (v.u2 != 0 || Long.compareUnsigned(v.u1, u0) >= 0) {
+          QR64 qr1 = reduceStep(v.u2, v.u1, inv);
+          QR64 qr0 = reduceStep(qr1.r, v.u0, inv);
+          return new UInt256(0, 0, qr1.q, qr0.q);
+        } else {
+          QR64 qr0 = reduceStep(v.u1, v.u0, inv);
+          return new UInt256(0, 0, 0, qr0.q);
+        }
+      }
+      return divReduceNormalisedSlowPath(v, inv);
+    }
+
+    private UInt256 divReduceNormalisedSlowPath(final UInt320 v, final long inv) {
+      if (v.u4 == 0 && Long.compareUnsigned(v.u3, u0) < 0) {
+        QR64 qr2 = reduceStep(v.u3, v.u2, inv);
+        QR64 qr1 = reduceStep(qr2.r, v.u1, inv);
+        QR64 qr0 = reduceStep(qr1.r, v.u0, inv);
+        return new UInt256(0, qr2.q, qr1.q, qr0.q);
+      }
+      QR64 qr3 = reduceStep(v.u4, v.u3, inv);
+      QR64 qr2 = reduceStep(qr3.r, v.u2, inv);
+      QR64 qr1 = reduceStep(qr2.r, v.u1, inv);
+      QR64 qr0 = reduceStep(qr1.r, v.u0, inv);
+      return new UInt256(qr3.q, qr2.q, qr1.q, qr0.q);
+    }
+  }
+
+  record UInt128(long u1, long u0) {
+    UInt128 shiftLeft(final int shift) {
+      if (shift == 0) return this;
+      int invShift = N_BITS_PER_LIMB - shift;
+      return new UInt128((u1 << shift) | (u0 >>> invShift), u0 << shift);
+    }
+
+    int compareTo(final UInt256 v) {
+      if ((v.u3 | v.u2) != 0) return -1;
+      if (v.u1 != u1) return Long.compareUnsigned(u1, v.u1);
+      return Long.compareUnsigned(u0, v.u0);
+    }
+
+    UInt256 modReduce(final UInt256 that) {
+      int cmp = compareTo(that);
+      if (cmp == 0) return ZERO;
+      if (cmp > 0) return that;
+      int shift = Long.numberOfLeadingZeros(u1);
+      UInt128 m = shiftLeft(shift);
+      long inv = reciprocal(m.u1);
+      return m.modReduceNormalised(that, shift, inv);
+    }
+
+    UInt256 sum(final UInt256 a, final UInt256 b) {
+      UInt257 sum = a.adc(b);
+      int cmp = sum.isUInt256() ? compareTo(sum.UInt256Value()) : -1;
+      if (cmp == 0) return ZERO;
+      if (cmp > 0) return sum.UInt256Value();
+      int shift = Long.numberOfLeadingZeros(u1);
+      UInt128 m = shiftLeft(shift);
+      long inv = reciprocal(m.u1);
+      return m.modReduceNormalised(sum, shift, inv);
+    }
+
+    UInt256 mul(final UInt256 a, final UInt256 b) {
+      // smaller allocation path: multiply-reduce with UInt256 prod
+      if (a.isUInt128() && b.isUInt128()) {
+        UInt256 prod = a.mul128(b);
+        int cmp = compareTo(prod);
+        if (cmp == 0) return ZERO;
+        if (cmp > 0) return prod;
+        return modReduce(prod);
+      }
+      // At least one input exceeds 128 bits: full multiply then single reduce with UInt512 prod
+      UInt512 prod = a.mul256(b);
+      int shift = Long.numberOfLeadingZeros(u1);
+      UInt128 m = shiftLeft(shift);
+      long inv = reciprocal(m.u1);
+      return m.modReduceNormalised(prod, shift, inv);
+    }
+
+    private QR128 addBack(final long v1, final long v0, final long q) {
+      // Quotient estimate could be 0, +1, +2 of real quotient.
+      // Add back step in case estimate is off.
+      long z0 = v0 + u0;
+      long carry = (Long.compareUnsigned(z0, v0) < 0) ? 1 : 0;
+
+      long z1 = v1 + u1 + carry;
+      long overflow1 = (Long.compareUnsigned(z1, v1) < 0) ? 1 : 0;
+      long overflow2 = (Long.compareUnsigned(z1, v1) == 0) ? 1 : 0;
+      carry = overflow1 | (overflow2 & carry);
+
+      if (carry == 0) { // unlikely: add back again
+        // Proper quotient estimation guarantees recursion max-depth <= 2
+        // Unbounded recursion only if there's a bug - fail fast is better than give wrong result
+        return addBack(z1, z0, q - 1);
+      }
+      return new QR128(q, new UInt128(z1, z0));
+    }
+
+    private QR128 mulSub(final long x1, final long x0, final long q) {
+      // Multiply-subtract: highest limb is already substracted
+      // <v2, v1, v0>  =  <u1, u0> * q
+      long p0 = u0 * q;
+      long p1 = Math.unsignedMultiplyHigh(u0, q);
+      long z0 = x0 - p0;
+      long carry = p1 + ((Long.compareUnsigned(x0, z0) < 0) ? 1 : 0);
+
+      // Propagate overflows (borrows)
+      long z1 = x1 - carry;
+      long borrow = (Long.compareUnsigned(x1, z1) < 0) ? 1 : 0;
+
+      if (borrow != 0) return addBack(z1, z0, q - 1); // less likely
+      return new QR128(q, new UInt128(z1, z0));
+    }
+
+    private QR128 mulSubOverflow(final long v1, final long v0) {
+      // Overflow case: div2by1 quotient would be <1, 0>, but adjusts to <0, MAX>
+      // <p1, p0> = -1 * u0 = <u0 - 1, -u0>
+      long z0 = v0 + u0;
+      long carry = u0 - 1 + ((Long.compareUnsigned(v0, z0) <= 0) ? 1 : 0);
+
+      long z1 = v1 + u1 - carry;
+      // q = MAX may still be 1 too high - need to pass q - 1 (-2L) to addBack; check if result >=
+      // modulus (i.e. negative wrapped)
+      if (Long.compareUnsigned(z1, u1) > 0 || (z1 == u1 && Long.compareUnsigned(z0, u0) >= 0)) {
+        return addBack(z1, z0, -2L);
+      }
+      return new QR128(-1L, new UInt128(z1, z0));
+    }
+
+    private QR128 reduceStep(final long v2, final long v1, final long v0, final long inv) {
+      if (v2 == u1) return mulSubOverflow(v1, v0);
+      QR64 qr = div2by1(v2, v1, u1, inv);
+      if (qr.q != 0) return mulSub(qr.r, v0, qr.q);
+      return new QR128(0, new UInt128(qr.r, v0));
+    }
+
+    private UInt256 modReduceNormalised(final UInt256 that, final int shift, final long inv) {
+      UInt320 v = that.shiftLeftWide(shift);
+      if (v.u4 == 0 && Long.compareUnsigned(v.u3, u1) < 0) {
+        QR128 qr;
+        if (v.u3 != 0 || Long.compareUnsigned(v.u2, u1) >= 0) {
+          qr = reduceStep(v.u3, v.u2, v.u1, inv);
+          qr = reduceStep(qr.r.u1, qr.r.u0, v.u0, inv);
+        } else {
+          qr = reduceStep(v.u2, v.u1, v.u0, inv);
+        }
+        return new UInt256(0, 0, qr.r.u1, qr.r.u0).shiftRight(shift);
+      }
+      return modReduceNormalisedSlowPath(v, shift, inv);
+    }
+
+    private UInt256 modReduceNormalised(final UInt257 that, final int shift, final long inv) {
+      UInt320 v = that.shiftLeftWide(shift);
+      if (v.u4 == 0 && Long.compareUnsigned(v.u3, u1) < 0) {
+        QR128 qr;
+        if (v.u3 != 0 || Long.compareUnsigned(v.u2, u1) >= 0) {
+          qr = reduceStep(v.u3, v.u2, v.u1, inv);
+          qr = reduceStep(qr.r.u1, qr.r.u0, v.u0, inv);
+        } else {
+          qr = reduceStep(v.u2, v.u1, v.u0, inv);
+        }
+        return new UInt256(0, 0, qr.r.u1, qr.r.u0).shiftRight(shift);
+      }
+      return modReduceNormalisedSlowPath(v, shift, inv);
+    }
+
+    private UInt256 modReduceNormalisedSlowPath(final UInt320 v, final int shift, final long inv) {
+      QR128 qr;
+      if (Long.compareUnsigned(v.u4, u1) >= 0) {
+        qr = reduceStep(0, v.u4, v.u3, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u2, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u0, inv);
+      } else {
+        qr = reduceStep(v.u4, v.u3, v.u2, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u0, inv);
+      }
+      return new UInt256(0, 0, qr.r.u1, qr.r.u0).shiftRight(shift);
+    }
+
+    private UInt256 modReduceNormalised(final UInt512 that, final int shift, final long inv) {
+      UInt576 v = that.shiftLeftWide(shift);
+      QR128 qr;
+      if (v.u8 != 0 || Long.compareUnsigned(v.u7, u1) >= 0) {
+        qr = reduceStep(v.u8, v.u7, v.u6, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u5, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u4, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u3, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u2, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u0, inv);
+      } else if (v.u7 != 0 || Long.compareUnsigned(v.u6, u1) >= 0) {
+        qr = reduceStep(v.u7, v.u6, v.u5, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u4, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u3, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u2, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u0, inv);
+      } else if (v.u6 != 0 || Long.compareUnsigned(v.u5, u1) >= 0) {
+        qr = reduceStep(v.u6, v.u5, v.u4, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u3, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u2, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u0, inv);
+      } else if (v.u5 != 0 || Long.compareUnsigned(v.u4, u1) >= 0) {
+        qr = reduceStep(v.u5, v.u4, v.u3, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u2, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u0, inv);
+      } else {
+        qr = reduceStep(v.u4, v.u3, v.u2, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u1, qr.r.u0, v.u0, inv);
+      }
+      return new UInt256(0, 0, qr.r.u1, qr.r.u0).shiftRight(shift);
+    }
+
+    UInt256 divReduce(final UInt256 that) {
+      int cmp = compareTo(that);
+      if (cmp == 0) return ONE;
+      if (cmp > 0) return ZERO;
+      int shift = Long.numberOfLeadingZeros(u1);
+      UInt128 m = shiftLeft(shift);
+      long inv = reciprocal(m.u1);
+      return m.divReduceNormalised(that, shift, inv);
+    }
+
+    private UInt256 divReduceNormalised(final UInt256 that, final int shift, final long inv) {
+      UInt320 v = that.shiftLeftWide(shift);
+      if (v.u4 == 0 && Long.compareUnsigned(v.u3, u1) < 0) {
+        if (v.u3 != 0 || Long.compareUnsigned(v.u2, u1) >= 0) {
+          QR128 qr1 = reduceStep(v.u3, v.u2, v.u1, inv);
+          QR128 qr0 = reduceStep(qr1.r.u1, qr1.r.u0, v.u0, inv);
+          return new UInt256(0, 0, qr1.q, qr0.q);
+        }
+        QR128 qr0 = reduceStep(v.u2, v.u1, v.u0, inv);
+        return new UInt256(0, 0, 0, qr0.q);
+      }
+      return divReduceNormalisedSlowPath(v, inv);
+    }
+
+    private UInt256 divReduceNormalisedSlowPath(final UInt320 v, final long inv) {
+      QR128 qr2 = reduceStep(v.u4, v.u3, v.u2, inv);
+      QR128 qr1 = reduceStep(qr2.r.u1, qr2.r.u0, v.u1, inv);
+      QR128 qr0 = reduceStep(qr1.r.u1, qr1.r.u0, v.u0, inv);
+      return new UInt256(0, qr2.q, qr1.q, qr0.q);
+    }
+  }
+
+  record UInt192(long u2, long u1, long u0) {
+    UInt192 shiftLeft(final int shift) {
+      if (shift == 0) return this;
+      int invShift = N_BITS_PER_LIMB - shift;
+      long z0 = u0 << shift;
+      long z1 = (u1 << shift) | (u0 >>> invShift);
+      long z2 = (u2 << shift) | (u1 >>> invShift);
+      return new UInt192(z2, z1, z0);
+    }
+
+    int compareTo(final UInt256 v) {
+      if (v.u3 != 0) return -1;
+      if (v.u2 != u2) return Long.compareUnsigned(u2, v.u2);
+      if (v.u1 != u1) return Long.compareUnsigned(u1, v.u1);
+      return Long.compareUnsigned(u0, v.u0);
+    }
+
+    int compareTo(final UInt448 v) {
+      if ((v.u6 | v.u5 | v.u4 | v.u3) != 0) return -1;
+      if (v.u2 != u2) return Long.compareUnsigned(u2, v.u2);
+      if (v.u1 != u1) return Long.compareUnsigned(u1, v.u1);
+      return Long.compareUnsigned(u0, v.u0);
+    }
+
+    UInt256 modReduce(final UInt256 that) {
+      int cmp = compareTo(that);
+      if (cmp == 0) return ZERO;
+      if (cmp > 0) return that;
+      int shift = Long.numberOfLeadingZeros(u2);
+      UInt192 m = shiftLeft(shift);
+      long inv = reciprocal(m.u2);
+      return m.modReduceNormalised(that, shift, inv);
+    }
+
+    UInt256 modReduce(final UInt448 that) {
+      int cmp = compareTo(that);
+      if (cmp == 0) return ZERO;
+      if (cmp > 0) return that.UInt256Value();
+      int shift = Long.numberOfLeadingZeros(u2);
+      UInt192 m = shiftLeft(shift);
+      long inv = reciprocal(m.u2);
+      return m.modReduceNormalised(that, shift, inv);
+    }
+
+    UInt256 sum(final UInt256 a, final UInt256 b) {
+      UInt257 sum = a.adc(b);
+      if (!sum.carry()) {
+        int cmp = compareTo(sum.UInt256Value());
+        if (cmp == 0) return ZERO;
+        if (cmp > 0) return sum.UInt256Value();
+      }
+      int shift = Long.numberOfLeadingZeros(u2);
+      UInt192 m = shiftLeft(shift);
+      long inv = reciprocal(m.u2);
+      return m.modReduceNormalised(sum, shift, inv);
+    }
+
+    UInt256 mul(final UInt256 a, final UInt256 b) {
+      // smaller allocation path: multiply-reduce with UInt448 prod
+      if (a.isUInt192() && b.isUInt192()) {
+        UInt448 prod = a.mul192(b);
+        int cmp = compareTo(prod);
+        if (cmp == 0) return ZERO;
+        if (cmp > 0) return prod.UInt256Value();
+        return modReduce(prod);
+      }
+      // At least one input exceeds 192 bits: full multiply then single reduce with UInt512 prod
+      UInt512 prod = a.mul256(b);
+      int shift = Long.numberOfLeadingZeros(u2);
+      UInt192 m = shiftLeft(shift);
+      long inv = reciprocal(m.u2);
+      return m.modReduceNormalised(prod, shift, inv);
+    }
+
+    private QR192 addBack(final long v2, final long v1, final long v0, final long q) {
+      // Add back
+      long z0 = v0 + u0;
+      long carry = ((v0 & u0) | ((v0 | u0) & ~z0)) >>> 63;
+
+      long z1 = v1 + u1 + carry;
+      long overflow1 = (Long.compareUnsigned(z1, v1) < 0) ? 1 : 0;
+      long overflow2 = (Long.compareUnsigned(z1, v1) == 0) ? 1 : 0;
+      carry = overflow1 | (overflow2 & carry);
+
+      long z2 = v2 + u2 + carry;
+      overflow1 = (Long.compareUnsigned(z2, v2) < 0) ? 1 : 0;
+      overflow2 = (Long.compareUnsigned(z2, v2) == 0) ? 1 : 0;
+      carry = overflow1 | (overflow2 & carry);
+
+      if (carry == 0) { // unlikely: add back again
+        // Proper quotient estimation guarantees recursion max-depth <= 2
+        // Unbounded recursion only if there's a bug - fail fast is better than give wrong result
+        return addBack(z2, z1, z0, q - 1);
+      }
+      return new QR192(q, new UInt192(z2, z1, z0));
+    }
+
+    private QR192 mulSub(final long v2, final long v1, final long v0, final long q) {
+      // Multiply-subtract: already have highest 2 limbs
+      // <u4, u3, u2, u1>  =  <u2, u1, u0> * q
+      long p0 = u0 * q;
+      long p1 = Math.unsignedMultiplyHigh(u0, q);
+      long z0 = v0 - p0;
+      long carry = p1 + (((Long.compareUnsigned(v0, z0) < 0) ? 1 : 0));
+
+      p0 = u1 * q;
+      p1 = Math.unsignedMultiplyHigh(u1, q);
+      long res = v1 - p0;
+      long z1 = res - carry;
+      long borrow = (Long.compareUnsigned(res, z1) < 0) ? 1 : 0;
+      carry = p1 + ((Long.compareUnsigned(v1, res) < 0) ? 1 : 0);
+
+      // Propagate overflows (borrows)
+      long t2 = v2 - carry;
+      long z2 = t2 - borrow;
+      borrow =
+          ((Long.compareUnsigned(v2, t2) < 0) ? 1 : 0)
+              | ((Long.compareUnsigned(t2, z2) < 0) ? 1 : 0);
+
+      if (borrow != 0) return addBack(z2, z1, z0, q - 1); // unlikely
+      return new QR192(q, new UInt192(z2, z1, z0));
+    }
+
+    private QR192 mulSubOverflow(final long v2, final long v1, final long v0) {
+      // Overflow case: div2by1 quotient would be <1, 0>, but adjusts to <0, -1>
+      // <p1, p0> = -1 * u0 = <u0 - 1, -u0>
+      long z0 = v0 + u0;
+      long carry = u0 - 1 + ((Long.compareUnsigned(v0, z0) <= 0) ? 1 : 0);
+
+      long res = v1 - carry;
+      long z1 = res + u1;
+      long borrow = (Long.compareUnsigned(res, z1) <= 0) ? 1 : 0;
+      carry = u1 - 1 + ((Long.compareUnsigned(v1, res) < 0) ? 1 : 0);
+
+      long z2 = v2 - carry + u2 - borrow;
+      // q = MAX may still be 1 too high - need to pass q - 1 (-2L) to addBack; check if result >=
+      // modulus (i.e. negative wrapped)
+      if (Long.compareUnsigned(z2, u2) > 0
+          || (z2 == u2
+              && (Long.compareUnsigned(z1, u1) > 0
+                  || (z1 == u1 && Long.compareUnsigned(z0, u0) >= 0)))) {
+
+        return addBack(z2, z1, z0, -2L);
+      }
+      return new QR192(-1L, new UInt192(z2, z1, z0));
+    }
+
+    private QR192 reduceStep(
+        final long v3, final long v2, final long v1, final long v0, final long inv) {
+      if (v3 == u2) return mulSubOverflow(v2, v1, v0);
+      QR64 qr = div2by1(v3, v2, u2, inv);
+      if (qr.q != 0) return mulSub(qr.r, v1, v0, qr.q);
+      return new QR192(0, new UInt192(v2, v1, v0));
+    }
+
+    private UInt256 modReduceNormalised(final UInt256 that, final int shift, final long inv) {
+      UInt320 v = that.shiftLeftWide(shift);
+      if (Long.compareUnsigned(v.u4, u2) < 0) {
+        QR192 qr;
+        if (v.u4 != 0 || Long.compareUnsigned(v.u3, u2) >= 0) {
+          qr = reduceStep(v.u4, v.u3, v.u2, v.u1, inv);
+          qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+        } else {
+          qr = reduceStep(v.u3, v.u2, v.u1, v.u0, inv);
+        }
+        return new UInt256(0, qr.r.u2, qr.r.u1, qr.r.u0).shiftRight(shift);
+      }
+      return reduceNormalisedSlowPath(v, shift, inv);
+    }
+
+    private UInt256 modReduceNormalised(final UInt257 that, final int shift, final long inv) {
+      UInt320 v = that.shiftLeftWide(shift);
+      if (Long.compareUnsigned(v.u4, u2) < 0) {
+        QR192 qr;
+        if (v.u4 != 0 || Long.compareUnsigned(v.u3, u2) >= 0) {
+          qr = reduceStep(v.u4, v.u3, v.u2, v.u1, inv);
+          qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+        } else {
+          qr = reduceStep(v.u3, v.u2, v.u1, v.u0, inv);
+        }
+        return new UInt256(0, qr.r.u2, qr.r.u1, qr.r.u0).shiftRight(shift);
+      }
+      return reduceNormalisedSlowPath(v, shift, inv);
+    }
+
+    private UInt256 reduceNormalisedSlowPath(final UInt320 v, final int shift, final long inv) {
+      QR192 qr = reduceStep(0, v.u4, v.u3, v.u2, inv);
+      qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u1, inv);
+      qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+      return new UInt256(0, qr.r.u2, qr.r.u1, qr.r.u0).shiftRight(shift);
+    }
+
+    private UInt256 modReduceNormalised(final UInt448 that, final int shift, final long inv) {
+      UInt512 v = that.shiftLeftWide(shift);
+      if ((v.u7 | v.u6 | v.u5) == 0 && Long.compareUnsigned(v.u4, u2) < 0) {
+        QR192 qr;
+        if (v.u4 != 0 || Long.compareUnsigned(v.u3, u2) >= 0) {
+          qr = reduceStep(v.u4, v.u3, v.u2, v.u1, inv);
+          qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+        } else {
+          qr = reduceStep(v.u3, v.u2, v.u1, v.u0, inv);
+        }
+        return new UInt256(0, qr.r.u2, qr.r.u1, qr.r.u0).shiftRight(shift);
+      }
+      return modReduceNormalisedSlowPath(v, shift, inv);
+    }
+
+    private UInt256 modReduceNormalisedSlowPath(final UInt512 v, final int shift, final long inv) {
+      QR192 qr;
+      if (v.u7 != 0 || Long.compareUnsigned(v.u6, u2) >= 0) {
+        qr = reduceStep(v.u7, v.u6, v.u5, v.u4, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u3, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u2, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+      } else if (v.u6 != 0 || Long.compareUnsigned(v.u5, u2) >= 0) {
+        qr = reduceStep(v.u6, v.u5, v.u4, v.u3, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u2, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+      } else {
+        qr = reduceStep(v.u5, v.u4, v.u3, v.u2, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+      }
+      return new UInt256(0, qr.r.u2, qr.r.u1, qr.r.u0).shiftRight(shift);
+    }
+
+    private UInt256 modReduceNormalised(final UInt512 that, final int shift, final long inv) {
+      UInt576 v = that.shiftLeftWide(shift);
+      QR192 qr;
+      if (v.u8 != 0 || Long.compareUnsigned(v.u7, u2) >= 0) {
+        qr = reduceStep(v.u8, v.u7, v.u6, v.u5, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u4, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u3, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u2, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+      } else if (v.u7 != 0 || Long.compareUnsigned(v.u6, u2) >= 0) {
+        qr = reduceStep(v.u7, v.u6, v.u5, v.u4, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u3, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u2, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+      } else if (v.u6 != 0 || Long.compareUnsigned(v.u5, u2) >= 0) {
+        qr = reduceStep(v.u6, v.u5, v.u4, v.u3, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u2, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+      } else {
+        qr = reduceStep(v.u5, v.u4, v.u3, v.u2, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u1, inv);
+        qr = reduceStep(qr.r.u2, qr.r.u1, qr.r.u0, v.u0, inv);
+      }
+      return new UInt256(0, qr.r.u2, qr.r.u1, qr.r.u0).shiftRight(shift);
+    }
+
+    UInt256 divReduce(final UInt256 that) {
+      int cmp = compareTo(that);
+      if (cmp == 0) return ONE;
+      if (cmp > 0) return ZERO;
+      int shift = Long.numberOfLeadingZeros(u2);
+      UInt192 m = shiftLeft(shift);
+      long inv = reciprocal(m.u2);
+      return m.divReduceNormalised(that, shift, inv);
+    }
+
+    private UInt256 divReduceNormalised(final UInt256 that, final int shift, final long inv) {
+      UInt320 v = that.shiftLeftWide(shift);
+      if (v.u4 == 0 && Long.compareUnsigned(v.u3, u2) < 0) {
+        QR192 qr0 = reduceStep(v.u3, v.u2, v.u1, v.u0, inv);
+        return new UInt256(0, 0, 0, qr0.q);
+      }
+      return divReduceNormalisedSlowPath(v, inv);
+    }
+
+    private UInt256 divReduceNormalisedSlowPath(final UInt320 v, final long inv) {
+      QR192 qr1 = reduceStep(v.u4, v.u3, v.u2, v.u1, inv);
+      QR192 qr0 = reduceStep(qr1.r.u2, qr1.r.u1, qr1.r.u0, v.u0, inv);
+      return new UInt256(0, 0, qr1.q, qr0.q);
+    }
+  }
+
   record UInt257(boolean carry, UInt256 u) {
     boolean isUInt64() {
       return !carry && u.isUInt64();
@@ -956,10 +1861,6 @@ public record UInt256(long u3, long u2, long u1, long u0) {
       return new UInt320(z4, z3, z2, z1, z0);
     }
   }
-
-  record UInt128(long u1, long u0) {}
-
-  record UInt192(long u2, long u1, long u0) {}
 
   record UInt320(long u4, long u3, long u2, long u1, long u0) {
     static final UInt320 ZERO = new UInt320(0, 0, 0, 0, 0);
@@ -989,7 +1890,7 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     }
   }
 
-  record UInt512(long u7, long u6, long u5, long u4, long u3, long u2, long u1, long u0) {
+  private record UInt512(long u7, long u6, long u5, long u4, long u3, long u2, long u1, long u0) {
     UInt256 UInt256Value() {
       return new UInt256(u3, u2, u1, u0);
     }
@@ -1012,751 +1913,6 @@ public record UInt256(long u3, long u2, long u1, long u0) {
 
   record UInt576(long u8, long u7, long u6, long u5, long u4, long u3, long u2, long u1, long u0) {}
 
-  private record DivEstimate(long q, long r) {}
-
   // --------------------------------------------------------------------------
   // endregion
-
-  // region 64bits Modulus
-  // --------------------------------------------------------------------------
-  record Modulus64(long u0) {
-    Modulus64 shiftLeft(final int shift) {
-      return (shift == 0) ? this : new Modulus64(u0 << shift);
-    }
-
-    UInt256 reduce(final UInt256 that) {
-      if (that.isUInt64()) {
-        return UInt256.fromLong(Long.remainderUnsigned(that.u0, u0));
-      }
-      int shift = Long.numberOfLeadingZeros(u0);
-      Modulus64 m = shiftLeft(shift);
-      long inv = reciprocal(m.u0);
-      return m.reduceNormalised(that, shift, inv);
-    }
-
-    UInt256 sum(final UInt256 a, final UInt256 b) {
-      UInt257 sum = a.adc(b);
-      if (sum.isUInt64()) return UInt256.fromLong(Long.remainderUnsigned(sum.u().u0, u0));
-      int shift = Long.numberOfLeadingZeros(u0);
-      Modulus64 m = shiftLeft(shift);
-      long inv = reciprocal(m.u0);
-      return m.reduceNormalised(sum, shift, inv);
-    }
-
-    UInt256 mul(final UInt256 a, final UInt256 b) {
-      // multiply-reduce
-      if (a.isUInt64() && b.isUInt64()) {
-        UInt256 prod = a.mul64(b);
-        if (prod.isUInt64()) return UInt256.fromLong(Long.remainderUnsigned(prod.u0, u0));
-        return reduce(prod);
-      }
-      // reduce-multiply-reduce
-      int shift = Long.numberOfLeadingZeros(u0);
-      Modulus64 m = shiftLeft(shift);
-      long inv = reciprocal(m.u0);
-      UInt256 x = (a.isUInt64()) ? a : m.reduceNormalised(a, shift, inv);
-      UInt256 y = (b.isUInt64()) ? b : m.reduceNormalised(b, shift, inv);
-      UInt256 prod = x.mul64(y);
-      return prod.isUInt64()
-          ? UInt256.fromLong(Long.remainderUnsigned(prod.u0, u0))
-          : m.reduceNormalised(prod, shift, inv);
-    }
-
-    private long reduceStep(final long v1, final long v0, final long inv) {
-      return mod2by1(v1, v0, u0, inv);
-    }
-
-    private UInt256 reduceNormalised(final UInt256 that, final int shift, final long inv) {
-      UInt320 v = that.shiftLeftWide(shift);
-      if ((v.u4 | v.u3) == 0 && Long.compareUnsigned(v.u2, u0) < 0) {
-        long r;
-        if (v.u2 != 0 || Long.compareUnsigned(v.u1, u0) >= 0) {
-          r = reduceStep(v.u2, v.u1, inv);
-          r = reduceStep(r, v.u0, inv);
-        } else {
-          r = reduceStep(v.u1, v.u0, inv);
-        }
-        return UInt256.fromLong(r >>> shift);
-      }
-      return reduceNormalisedSlowPath(v, shift, inv);
-    }
-
-    private UInt256 reduceNormalised(final UInt257 that, final int shift, final long inv) {
-      UInt320 v = that.shiftLeftWide(shift);
-      if ((v.u4 | v.u3) == 0 && Long.compareUnsigned(v.u2, u0) < 0) {
-        long r;
-        if (v.u2 != 0 || Long.compareUnsigned(v.u1, u0) >= 0) {
-          r = reduceStep(v.u2, v.u1, inv);
-          r = reduceStep(r, v.u0, inv);
-        } else {
-          r = reduceStep(v.u1, v.u0, inv);
-        }
-        return UInt256.fromLong(r >>> shift);
-      }
-      return reduceNormalisedSlowPath(v, shift, inv);
-    }
-
-    private UInt256 reduceNormalisedSlowPath(final UInt320 v, final int shift, final long inv) {
-      long r;
-      if (Long.compareUnsigned(v.u4, u0) >= 0) {
-        r = reduceStep(0, v.u4, inv);
-        r = reduceStep(r, v.u3, inv);
-        r = reduceStep(r, v.u2, inv);
-        r = reduceStep(r, v.u1, inv);
-        r = reduceStep(r, v.u0, inv);
-
-      } else if (v.u4 != 0 || Long.compareUnsigned(v.u3, u0) >= 0) {
-        r = reduceStep(v.u4, v.u3, inv);
-        r = reduceStep(r, v.u2, inv);
-        r = reduceStep(r, v.u1, inv);
-        r = reduceStep(r, v.u0, inv);
-      } else {
-        r = reduceStep(v.u3, v.u2, inv);
-        r = reduceStep(r, v.u1, inv);
-        r = reduceStep(r, v.u0, inv);
-      }
-      return UInt256.fromLong(r >>> shift);
-    }
-  }
-
-  // --------------------------------------------------------------------------
-  // endregion 64bits Modulus
-
-  // region 128bits Modulus
-  // --------------------------------------------------------------------------
-  record Modulus128(long u1, long u0) {
-    Modulus128 shiftLeft(final int shift) {
-      if (shift == 0) return this;
-      int invShift = N_BITS_PER_LIMB - shift;
-      return new Modulus128((u1 << shift) | (u0 >>> invShift), u0 << shift);
-    }
-
-    int compareTo(final UInt256 v) {
-      if ((v.u3 | v.u2) != 0) return -1;
-      if (v.u1 != u1) return Long.compareUnsigned(u1, v.u1);
-      return Long.compareUnsigned(u0, v.u0);
-    }
-
-    UInt256 reduce(final UInt256 that) {
-      int cmp = compareTo(that);
-      if (cmp == 0) return ZERO;
-      if (cmp > 0) return that;
-      int shift = Long.numberOfLeadingZeros(u1);
-      Modulus128 m = shiftLeft(shift);
-      long inv = reciprocal(m.u1);
-      return m.reduceNormalised(that, shift, inv);
-    }
-
-    UInt256 sum(final UInt256 a, final UInt256 b) {
-      UInt257 sum = a.adc(b);
-      int cmp = sum.isUInt256() ? compareTo(sum.UInt256Value()) : -1;
-      if (cmp == 0) return ZERO;
-      if (cmp > 0) return sum.UInt256Value();
-      int shift = Long.numberOfLeadingZeros(u1);
-      Modulus128 m = shiftLeft(shift);
-      long inv = reciprocal(m.u1);
-      return m.reduceNormalised(sum, shift, inv);
-    }
-
-    UInt256 mul(final UInt256 a, final UInt256 b) {
-      // multiply-reduce
-      if (a.isUInt128() && b.isUInt128()) {
-        UInt256 prod = a.mul128(b);
-        int cmp = compareTo(prod);
-        if (cmp == 0) return ZERO;
-        if (cmp > 0) return prod;
-        return reduce(prod);
-      }
-      // reduce-multiply-reduce
-      int shift = Long.numberOfLeadingZeros(u1);
-      Modulus128 m = shiftLeft(shift);
-      long inv = reciprocal(m.u1);
-      UInt256 x = (a.isUInt128()) ? a : m.reduceNormalised(a, shift, inv);
-      UInt256 y = (b.isUInt128()) ? b : m.reduceNormalised(b, shift, inv);
-      UInt256 prod = x.mul128(y);
-      int cmp = compareTo(prod);
-      if (cmp == 0) return ZERO;
-      if (cmp > 0) return prod;
-      return m.reduceNormalised(prod, shift, inv);
-    }
-
-    private UInt128 addBack(final long v1, final long v0) {
-      // Quotient estimate could be 0, +1, +2 of real quotient.
-      // Add back step in case estimate is off.
-      long z0 = v0 + u0;
-      long carry = (Long.compareUnsigned(z0, v0) < 0) ? 1 : 0;
-
-      long z1 = v1 + u1 + carry;
-      long overflow1 = (Long.compareUnsigned(z1, v1) < 0) ? 1 : 0;
-      long overflow2 = (Long.compareUnsigned(z1, v1) == 0) ? 1 : 0;
-      carry = overflow1 | (overflow2 & carry);
-
-      if (carry == 0) { // unlikely: add back again
-        // Proper quotient estimation guarantees recursion max-depth <= 2
-        // Unbounded recursion only if there's a bug - fail fast is better than give wrong result
-        return addBack(z1, z0);
-      }
-      return new UInt128(z1, z0);
-    }
-
-    private UInt128 mulSub(final long x1, final long x0, final long q) {
-      // Multiply-subtract: highest limb is already substracted
-      // <v2, v1, v0>  =  <u1, u0> * q
-      long p0 = u0 * q;
-      long p1 = Math.unsignedMultiplyHigh(u0, q);
-      long z0 = x0 - p0;
-      long carry = p1 + ((Long.compareUnsigned(x0, z0) < 0) ? 1 : 0);
-
-      // Propagate overflows (borrows)
-      long z1 = x1 - carry;
-      long borrow = (Long.compareUnsigned(x1, z1) < 0) ? 1 : 0;
-
-      if (borrow != 0) return addBack(z1, z0); // less likely
-      return new UInt128(z1, z0);
-    }
-
-    private UInt128 mulSubOverflow(final long v1, final long v0) {
-      // Overflow case: div2by1 quotient would be <1, 0>, but adjusts to <0, MAX>
-      // <p1, p0> = -1 * u0 = <u0 - 1, -u0>
-      long z0 = v0 + u0;
-      long carry = u0 - 1 + ((Long.compareUnsigned(v0, z0) <= 0) ? 1 : 0);
-
-      long z1 = v1 + u1 - carry;
-      // q = MAX may still be 1 too high; check if result >= modulus (i.e. negative wrapped)
-      if (Long.compareUnsigned(z1, u1) > 0 || (z1 == u1 && Long.compareUnsigned(z0, u0) >= 0)) {
-        return addBack(z1, z0);
-      }
-      return new UInt128(z1, z0);
-    }
-
-    private UInt128 reduceStep(final long v2, final long v1, final long v0, final long inv) {
-      if (v2 == u1) return mulSubOverflow(v1, v0);
-      DivEstimate qr = div2by1(v2, v1, u1, inv);
-      if (qr.q != 0) return mulSub(qr.r, v0, qr.q);
-      return new UInt128(qr.r, v0);
-    }
-
-    private UInt256 reduceNormalised(final UInt256 that, final int shift, final long inv) {
-      UInt320 v = that.shiftLeftWide(shift);
-      if (v.u4 == 0 && Long.compareUnsigned(v.u3, u1) < 0) {
-        UInt128 r;
-        if (v.u3 != 0 || Long.compareUnsigned(v.u2, u1) >= 0) {
-          r = reduceStep(v.u3, v.u2, v.u1, inv);
-          r = reduceStep(r.u1, r.u0, v.u0, inv);
-        } else {
-          r = reduceStep(v.u2, v.u1, v.u0, inv);
-        }
-        return new UInt256(0, 0, r.u1, r.u0).shiftRight(shift);
-      }
-      return reduceNormalisedSlowPath(v, shift, inv);
-    }
-
-    private UInt256 reduceNormalised(final UInt257 that, final int shift, final long inv) {
-      UInt320 v = that.shiftLeftWide(shift);
-      if (v.u4 == 0 && Long.compareUnsigned(v.u3, u1) < 0) {
-        UInt128 r;
-        if (v.u3 != 0 || Long.compareUnsigned(v.u2, u1) >= 0) {
-          r = reduceStep(v.u3, v.u2, v.u1, inv);
-          r = reduceStep(r.u1, r.u0, v.u0, inv);
-        } else {
-          r = reduceStep(v.u2, v.u1, v.u0, inv);
-        }
-        return new UInt256(0, 0, r.u1, r.u0).shiftRight(shift);
-      }
-      return reduceNormalisedSlowPath(v, shift, inv);
-    }
-
-    private UInt256 reduceNormalisedSlowPath(final UInt320 v, final int shift, final long inv) {
-      UInt128 r;
-      if (Long.compareUnsigned(v.u4, u1) >= 0) {
-        r = reduceStep(0, v.u4, v.u3, inv);
-        r = reduceStep(r.u1, r.u0, v.u2, inv);
-        r = reduceStep(r.u1, r.u0, v.u1, inv);
-        r = reduceStep(r.u1, r.u0, v.u0, inv);
-      } else {
-        r = reduceStep(v.u4, v.u3, v.u2, inv);
-        r = reduceStep(r.u1, r.u0, v.u1, inv);
-        r = reduceStep(r.u1, r.u0, v.u0, inv);
-      }
-      return new UInt256(0, 0, r.u1, r.u0).shiftRight(shift);
-    }
-  }
-
-  // --------------------------------------------------------------------------
-  // endregion 128bits Modulus
-
-  // region 192bits Modulus
-  // --------------------------------------------------------------------------
-  record Modulus192(long u2, long u1, long u0) {
-    Modulus192 shiftLeft(final int shift) {
-      if (shift == 0) return this;
-      int invShift = N_BITS_PER_LIMB - shift;
-      long z0 = u0 << shift;
-      long z1 = (u1 << shift) | (u0 >>> invShift);
-      long z2 = (u2 << shift) | (u1 >>> invShift);
-      return new Modulus192(z2, z1, z0);
-    }
-
-    int compareTo(final UInt256 v) {
-      if (v.u3 != 0) return -1;
-      if (v.u2 != u2) return Long.compareUnsigned(u2, v.u2);
-      if (v.u1 != u1) return Long.compareUnsigned(u1, v.u1);
-      return Long.compareUnsigned(u0, v.u0);
-    }
-
-    int compareTo(final UInt448 v) {
-      if ((v.u6 | v.u5 | v.u4 | v.u3) != 0) return -1;
-      if (v.u2 != u2) return Long.compareUnsigned(u2, v.u2);
-      if (v.u1 != u1) return Long.compareUnsigned(u1, v.u1);
-      return Long.compareUnsigned(u0, v.u0);
-    }
-
-    UInt256 reduce(final UInt256 that) {
-      int cmp = compareTo(that);
-      if (cmp == 0) return ZERO;
-      if (cmp > 0) return that;
-      int shift = Long.numberOfLeadingZeros(u2);
-      Modulus192 m = shiftLeft(shift);
-      long inv = reciprocal(m.u2);
-      return m.reduceNormalised(that, shift, inv);
-    }
-
-    UInt256 reduce(final UInt448 that) {
-      int cmp = compareTo(that);
-      if (cmp == 0) return ZERO;
-      if (cmp > 0) return that.UInt256Value();
-      int shift = Long.numberOfLeadingZeros(u2);
-      Modulus192 m = shiftLeft(shift);
-      long inv = reciprocal(m.u2);
-      return m.reduceNormalised(that, shift, inv);
-    }
-
-    UInt256 sum(final UInt256 a, final UInt256 b) {
-      UInt257 sum = a.adc(b);
-      if (!sum.carry()) {
-        int cmp = compareTo(sum.UInt256Value());
-        if (cmp == 0) return ZERO;
-        if (cmp > 0) return sum.UInt256Value();
-      }
-      int shift = Long.numberOfLeadingZeros(u2);
-      Modulus192 m = shiftLeft(shift);
-      long inv = reciprocal(m.u2);
-      return m.reduceNormalised(sum, shift, inv);
-    }
-
-    UInt256 mul(final UInt256 a, final UInt256 b) {
-      // multiply-reduce
-      if (a.isUInt192() && b.isUInt192()) {
-        UInt448 prod = a.mul192(b);
-        int cmp = compareTo(prod);
-        if (cmp == 0) return ZERO;
-        if (cmp > 0) return prod.UInt256Value();
-        return reduce(prod);
-      }
-      // reduce-multiply-reduce
-      int shift = Long.numberOfLeadingZeros(u2);
-      Modulus192 m = shiftLeft(shift);
-      long inv = reciprocal(m.u2);
-      UInt256 x = (a.isUInt192()) ? a : m.reduceNormalised(a, shift, inv);
-      UInt256 y = (b.isUInt192()) ? b : m.reduceNormalised(b, shift, inv);
-      UInt448 prod = x.mul192(y);
-      int cmp = compareTo(prod);
-      if (cmp == 0) return ZERO;
-      if (cmp > 0) return prod.UInt256Value();
-      return m.reduceNormalised(prod, shift, inv);
-    }
-
-    private UInt192 addBack(final long v2, final long v1, final long v0) {
-      // Add back
-      long z0 = v0 + u0;
-      long carry = ((v0 & u0) | ((v0 | u0) & ~z0)) >>> 63;
-
-      long z1 = v1 + u1 + carry;
-      long overflow1 = (Long.compareUnsigned(z1, v1) < 0) ? 1 : 0;
-      long overflow2 = (Long.compareUnsigned(z1, v1) == 0) ? 1 : 0;
-      carry = overflow1 | (overflow2 & carry);
-
-      long z2 = v2 + u2 + carry;
-      overflow1 = (Long.compareUnsigned(z2, v2) < 0) ? 1 : 0;
-      overflow2 = (Long.compareUnsigned(z2, v2) == 0) ? 1 : 0;
-      carry = overflow1 | (overflow2 & carry);
-
-      if (carry == 0) { // unlikely: add back again
-        // Proper quotient estimation guarantees recursion max-depth <= 2
-        // Unbounded recursion only if there's a bug - fail fast is better than give wrong result
-        return addBack(z2, z1, z0);
-      }
-      return new UInt192(z2, z1, z0);
-    }
-
-    private UInt192 mulSub(final long v2, final long v1, final long v0, final long q) {
-      // Multiply-subtract: already have highest 2 limbs
-      // <u4, u3, u2, u1>  =  <u2, u1, u0> * q
-      long p0 = u0 * q;
-      long p1 = Math.unsignedMultiplyHigh(u0, q);
-      long z0 = v0 - p0;
-      long carry = p1 + (((Long.compareUnsigned(v0, z0) < 0) ? 1 : 0));
-
-      p0 = u1 * q;
-      p1 = Math.unsignedMultiplyHigh(u1, q);
-      long res = v1 - p0;
-      long z1 = res - carry;
-      long borrow = (Long.compareUnsigned(res, z1) < 0) ? 1 : 0;
-      carry = p1 + ((Long.compareUnsigned(v1, res) < 0) ? 1 : 0);
-
-      // Propagate overflows (borrows)
-      long t2 = v2 - carry;
-      long z2 = t2 - borrow;
-      borrow =
-          ((Long.compareUnsigned(v2, t2) < 0) ? 1 : 0)
-              | ((Long.compareUnsigned(t2, z2) < 0) ? 1 : 0);
-
-      if (borrow != 0) return addBack(z2, z1, z0); // unlikely
-      return new UInt192(z2, z1, z0);
-    }
-
-    private UInt192 mulSubOverflow(final long v2, final long v1, final long v0) {
-      // Overflow case: div2by1 quotient would be <1, 0>, but adjusts to <0, -1>
-      // <p1, p0> = -1 * u0 = <u0 - 1, -u0>
-      long z0 = v0 + u0;
-      long carry = u0 - 1 + ((Long.compareUnsigned(v0, z0) <= 0) ? 1 : 0);
-
-      long res = v1 - carry;
-      long z1 = res + u1;
-      long borrow = (Long.compareUnsigned(res, z1) <= 0) ? 1 : 0;
-      carry = u1 - 1 + ((Long.compareUnsigned(v1, res) < 0) ? 1 : 0);
-
-      long z2 = v2 - carry + u2 - borrow;
-      // q = MAX may still be 1 too high; check if result >= modulus (i.e. negative wrapped)
-      if (Long.compareUnsigned(z2, u2) > 0
-          || (z2 == u2
-              && (Long.compareUnsigned(z1, u1) > 0
-                  || (z1 == u1 && Long.compareUnsigned(z0, u0) >= 0)))) {
-        return addBack(z2, z1, z0);
-      }
-      return new UInt192(z2, z1, z0);
-    }
-
-    private UInt192 reduceStep(
-        final long v3, final long v2, final long v1, final long v0, final long inv) {
-      if (v3 == u2) return mulSubOverflow(v2, v1, v0);
-      DivEstimate qr = div2by1(v3, v2, u2, inv);
-      if (qr.q != 0) return mulSub(qr.r, v1, v0, qr.q);
-      return new UInt192(v2, v1, v0);
-    }
-
-    private UInt256 reduceNormalised(final UInt256 that, final int shift, final long inv) {
-      UInt320 v = that.shiftLeftWide(shift);
-      if (Long.compareUnsigned(v.u4, u2) < 0) {
-        UInt192 r;
-        if (v.u4 != 0 || Long.compareUnsigned(v.u3, u2) >= 0) {
-          r = reduceStep(v.u4, v.u3, v.u2, v.u1, inv);
-          r = reduceStep(r.u2, r.u1, r.u0, v.u0, inv);
-        } else {
-          r = reduceStep(v.u3, v.u2, v.u1, v.u0, inv);
-        }
-        return new UInt256(0, r.u2, r.u1, r.u0).shiftRight(shift);
-      }
-      return reduceNormalisedSlowPath(v, shift, inv);
-    }
-
-    private UInt256 reduceNormalised(final UInt257 that, final int shift, final long inv) {
-      UInt320 v = that.shiftLeftWide(shift);
-      if (Long.compareUnsigned(v.u4, u2) < 0) {
-        UInt192 r;
-        if (v.u4 != 0 || Long.compareUnsigned(v.u3, u2) >= 0) {
-          r = reduceStep(v.u4, v.u3, v.u2, v.u1, inv);
-          r = reduceStep(r.u2, r.u1, r.u0, v.u0, inv);
-        } else {
-          r = reduceStep(v.u3, v.u2, v.u1, v.u0, inv);
-        }
-        return new UInt256(0, r.u2, r.u1, r.u0).shiftRight(shift);
-      }
-      return reduceNormalisedSlowPath(v, shift, inv);
-    }
-
-    private UInt256 reduceNormalisedSlowPath(final UInt320 v, final int shift, final long inv) {
-      UInt192 r = reduceStep(0, v.u4, v.u3, v.u2, inv);
-      r = reduceStep(r.u2, r.u1, r.u0, v.u1, inv);
-      r = reduceStep(r.u2, r.u1, r.u0, v.u0, inv);
-      return new UInt256(0, r.u2, r.u1, r.u0).shiftRight(shift);
-    }
-
-    private UInt256 reduceNormalised(final UInt448 that, final int shift, final long inv) {
-      UInt512 v = that.shiftLeftWide(shift);
-      if ((v.u7 | v.u6 | v.u5) == 0 && Long.compareUnsigned(v.u4, u2) < 0) {
-        UInt192 r;
-        if (v.u4 != 0 || Long.compareUnsigned(v.u3, u2) >= 0) {
-          r = reduceStep(v.u4, v.u3, v.u2, v.u1, inv);
-          r = reduceStep(r.u2, r.u1, r.u0, v.u0, inv);
-        } else {
-          r = reduceStep(v.u3, v.u2, v.u1, v.u0, inv);
-        }
-        return new UInt256(0, r.u2, r.u1, r.u0).shiftRight(shift);
-      }
-      return reduceNormalisedSlowPath(v, shift, inv);
-    }
-
-    private UInt256 reduceNormalisedSlowPath(final UInt512 v, final int shift, final long inv) {
-      UInt192 r;
-      if (v.u7 != 0 || Long.compareUnsigned(v.u6, u2) >= 0) {
-        r = reduceStep(v.u7, v.u6, v.u5, v.u4, inv);
-        r = reduceStep(r.u2, r.u1, r.u0, v.u3, inv);
-        r = reduceStep(r.u2, r.u1, r.u0, v.u2, inv);
-        r = reduceStep(r.u2, r.u1, r.u0, v.u1, inv);
-        r = reduceStep(r.u2, r.u1, r.u0, v.u0, inv);
-      } else if (v.u6 != 0 || Long.compareUnsigned(v.u5, u2) >= 0) {
-        r = reduceStep(v.u6, v.u5, v.u4, v.u3, inv);
-        r = reduceStep(r.u2, r.u1, r.u0, v.u2, inv);
-        r = reduceStep(r.u2, r.u1, r.u0, v.u1, inv);
-        r = reduceStep(r.u2, r.u1, r.u0, v.u0, inv);
-      } else {
-        r = reduceStep(v.u5, v.u4, v.u3, v.u2, inv);
-        r = reduceStep(r.u2, r.u1, r.u0, v.u1, inv);
-        r = reduceStep(r.u2, r.u1, r.u0, v.u0, inv);
-      }
-      return new UInt256(0, r.u2, r.u1, r.u0).shiftRight(shift);
-    }
-  }
-
-  // --------------------------------------------------------------------------
-  // endregion 192bits Modulus
-
-  // region 256bits Modulus
-  // --------------------------------------------------------------------------
-  record Modulus256(long u3, long u2, long u1, long u0) {
-    Modulus256 shiftLeft(final int shift) {
-      if (shift == 0) return this;
-      int invShift = N_BITS_PER_LIMB - shift;
-      long z0 = u0 << shift;
-      long z1 = (u1 << shift) | (u0 >>> invShift);
-      long z2 = (u2 << shift) | (u1 >>> invShift);
-      long z3 = (u3 << shift) | (u2 >>> invShift);
-      return new Modulus256(z3, z2, z1, z0);
-    }
-
-    int compareTo(final UInt256 v) {
-      if (v.u3 != u3) return Long.compareUnsigned(u3, v.u3);
-      if (v.u2 != u2) return Long.compareUnsigned(u2, v.u2);
-      if (v.u1 != u1) return Long.compareUnsigned(u1, v.u1);
-      return Long.compareUnsigned(u0, v.u0);
-    }
-
-    int compareTo(final UInt512 v) {
-      if ((v.u7 | v.u6 | v.u5 | v.u4) != 0) return -1;
-      if (v.u3 != u3) return Long.compareUnsigned(u3, v.u3);
-      if (v.u2 != u2) return Long.compareUnsigned(u2, v.u2);
-      if (v.u1 != u1) return Long.compareUnsigned(u1, v.u1);
-      return Long.compareUnsigned(u0, v.u0);
-    }
-
-    UInt256 reduce(final UInt256 that) {
-      int cmp = compareTo(that);
-      if (cmp == 0) return ZERO;
-      if (cmp > 0) return that;
-      int shift = Long.numberOfLeadingZeros(u3);
-      Modulus256 m = shiftLeft(shift);
-      long inv = reciprocal(m.u3);
-      return m.reduceNormalised(that, shift, inv);
-    }
-
-    UInt256 reduce(final UInt512 that) {
-      int cmp = compareTo(that);
-      if (cmp == 0) return ZERO;
-      if (cmp > 0) return that.UInt256Value();
-      int shift = Long.numberOfLeadingZeros(u3);
-      Modulus256 m = shiftLeft(shift);
-      long inv = reciprocal(m.u3);
-      return m.reduceNormalised(that, shift, inv);
-    }
-
-    UInt256 sum(final UInt256 a, final UInt256 b) {
-      UInt257 sum = a.adc(b);
-      if (!sum.carry()) {
-        int cmp = compareTo(sum.UInt256Value());
-        if (cmp == 0) return ZERO;
-        if (cmp > 0) return sum.UInt256Value();
-      }
-      int shift = Long.numberOfLeadingZeros(u3);
-      Modulus256 m = shiftLeft(shift);
-      long inv = reciprocal(m.u3);
-      return m.reduceNormalised(sum, shift, inv);
-    }
-
-    UInt256 mul(final UInt256 a, final UInt256 b) {
-      // multiply-reduce
-      UInt512 prod = a.mul256(b);
-      int cmp = compareTo(prod);
-      if (cmp == 0) return ZERO;
-      if (cmp > 0) return prod.UInt256Value();
-      return reduce(prod);
-    }
-
-    private UInt256 addBack(final long v3, final long v2, final long v1, final long v0) {
-      // Add back
-      long z0 = v0 + u0;
-      long carry = ((v0 & u0) | ((v0 | u0) & ~z0)) >>> 63;
-
-      long z1 = v1 + u1 + carry;
-      long overflow1 = (Long.compareUnsigned(z1, v1) < 0) ? 1 : 0;
-      long overflow2 = (Long.compareUnsigned(z1, v1) == 0) ? 1 : 0;
-      carry = overflow1 | (overflow2 & carry);
-
-      long z2 = v2 + u2 + carry;
-      overflow1 = (Long.compareUnsigned(z2, v2) < 0) ? 1 : 0;
-      overflow2 = (Long.compareUnsigned(z2, v2) == 0) ? 1 : 0;
-      carry = overflow1 | (overflow2 & carry);
-
-      long z3 = v3 + u3 + carry;
-      overflow1 = (Long.compareUnsigned(z3, v3) < 0) ? 1 : 0;
-      overflow2 = (Long.compareUnsigned(z3, v3) == 0) ? 1 : 0;
-      carry = overflow1 | (overflow2 & carry);
-
-      if (carry == 0) { // unlikely: add back again
-        // Proper quotient estimation guarantees recursion max-depth <= 2
-        // Unbounded recursion only if there's a bug - fail fast is better than give wrong result
-        return addBack(z3, z2, z1, z0);
-      }
-      return new UInt256(z3, z2, z1, z0);
-    }
-
-    private UInt256 mulSub(
-        final long v3, final long v2, final long v1, final long v0, final long q) {
-      // Multiply-subtract: already have highest 1 limbs
-      // <z4, z3, z2, z1, z0>  =  <u3, u2, u1, u0> * q
-      long p0 = u0 * q;
-      long p1 = Math.unsignedMultiplyHigh(u0, q);
-      long z0 = v0 - p0;
-      long carry = p1 + (((Long.compareUnsigned(v0, z0) < 0) ? 1 : 0));
-
-      p0 = u1 * q;
-      p1 = Math.unsignedMultiplyHigh(u1, q);
-      long res = v1 - p0;
-      long z1 = res - carry;
-      long borrow = (Long.compareUnsigned(res, z1) < 0) ? 1 : 0;
-      carry = p1 + ((Long.compareUnsigned(v1, res) < 0) ? 1 : 0);
-
-      p0 = u2 * q;
-      p1 = Math.unsignedMultiplyHigh(u2, q);
-      long t2 = v2 - p0;
-      res = t2 - borrow;
-      long z2 = res - carry;
-      borrow = (Long.compareUnsigned(res, z2) < 0) ? 1 : 0;
-      carry =
-          p1
-              + ((Long.compareUnsigned(v2, t2) < 0) ? 1 : 0)
-              + ((Long.compareUnsigned(t2, res) < 0) ? 1 : 0);
-
-      // Propagate overflows (borrows)
-      long t3 = v3 - carry;
-      long z3 = t3 - borrow;
-      borrow =
-          ((Long.compareUnsigned(v3, t3) < 0) ? 1 : 0)
-              | ((Long.compareUnsigned(t3, z3) < 0) ? 1 : 0);
-
-      if (borrow != 0) return addBack(z3, z2, z1, z0);
-      return new UInt256(z3, z2, z1, z0);
-    }
-
-    private UInt256 mulSubOverflow(final long v3, final long v2, final long v1, final long v0) {
-      // Overflow case: div2by1 quotient would be <1, 0>, but adjusts to <0, -1>
-      // <p1, p0> = -1 * u0 = <u0 - 1, -u0>
-      long res, borrow;
-
-      long z0 = v0 + u0;
-      long carry = u0 - 1 + ((Long.compareUnsigned(v0, z0) <= 0) ? 1 : 0);
-
-      res = v1 - carry;
-      long z1 = res + u1;
-      borrow = (Long.compareUnsigned(res, z1) <= 0) ? 1 : 0;
-      carry = u1 - 1 + ((Long.compareUnsigned(v1, res) < 0) ? 1 : 0);
-
-      res = v2 - carry - borrow;
-      long z2 = res + u2;
-      borrow = (Long.compareUnsigned(res, z2) <= 0) ? 1 : 0;
-      carry = u2 - 1 + ((Long.compareUnsigned(v2, res) < 0) ? 1 : 0);
-
-      long z3 = v3 + u3 - carry - borrow;
-      // q = MAX may still be 1 too high; check if result >= modulus (i.e. negative wrapped)
-      if (Long.compareUnsigned(z3, u3) > 0
-          || (z3 == u3
-              && (Long.compareUnsigned(z2, u2) > 0
-                  || (z2 == u2
-                      && (Long.compareUnsigned(z1, u1) > 0
-                          || (z1 == u1 && Long.compareUnsigned(z0, u0) >= 0)))))) {
-        return addBack(z3, z2, z1, z0);
-      }
-      return new UInt256(z3, z2, z1, z0);
-    }
-
-    private UInt256 reduceStep(
-        final long v4, final long v3, final long v2, final long v1, final long v0, final long inv) {
-      if (v4 == u3) return mulSubOverflow(v3, v2, v1, v0);
-      DivEstimate qr = div2by1(v4, v3, u3, inv);
-      if (qr.q != 0) return mulSub(qr.r, v2, v1, v0, qr.q);
-      return new UInt256(v3, v2, v1, v0);
-    }
-
-    private UInt256 reduceNormalised(final UInt256 that, final int shift, final long inv) {
-      UInt320 v = that.shiftLeftWide(shift);
-      UInt256 r;
-      if (Long.compareUnsigned(v.u4, u3) >= 0) {
-        r = reduceStep(0, v.u4, v.u3, v.u2, v.u1, inv);
-        r = reduceStep(r.u3, r.u2, r.u1, r.u0, v.u0, inv);
-      } else {
-        r = reduceStep(v.u4, v.u3, v.u2, v.u1, v.u0, inv);
-      }
-      return r.shiftRight(shift);
-    }
-
-    private UInt256 reduceNormalised(final UInt257 that, final int shift, final long inv) {
-      UInt320 v = that.shiftLeftWide(shift);
-      UInt256 r;
-      if (Long.compareUnsigned(v.u4, u3) >= 0) {
-        r = reduceStep(0, v.u4, v.u3, v.u2, v.u1, inv);
-        r = reduceStep(r.u3, r.u2, r.u1, r.u0, v.u0, inv);
-      } else {
-        r = reduceStep(v.u4, v.u3, v.u2, v.u1, v.u0, inv);
-      }
-      return r.shiftRight(shift);
-    }
-
-    private UInt256 reduceNormalised(final UInt512 that, final int shift, final long inv) {
-      UInt576 v = that.shiftLeftWide(shift);
-      if ((v.u8 | v.u7 | v.u6) == 0 && Long.compareUnsigned(v.u5, u3) < 0) {
-        UInt256 r;
-        if (v.u5 != 0 || Long.compareUnsigned(v.u4, u3) >= 0) {
-          r = reduceStep(v.u5, v.u4, v.u3, v.u2, v.u1, inv);
-          r = reduceStep(r.u3, r.u2, r.u1, r.u0, v.u0, inv);
-        } else {
-          r = reduceStep(v.u4, v.u3, v.u2, v.u1, v.u0, inv);
-        }
-        return r.shiftRight(shift);
-      }
-      return reduceNormalisedSlowPath(v, shift, inv);
-    }
-
-    private UInt256 reduceNormalisedSlowPath(final UInt576 v, final int shift, final long inv) {
-      UInt256 r;
-      if (v.u8 != 0 || Long.compareUnsigned(v.u7, u3) >= 0) {
-        r = reduceStep(v.u8, v.u7, v.u6, v.u5, v.u4, inv);
-        r = reduceStep(r.u3, r.u2, r.u1, r.u0, v.u3, inv);
-        r = reduceStep(r.u3, r.u2, r.u1, r.u0, v.u2, inv);
-        r = reduceStep(r.u3, r.u2, r.u1, r.u0, v.u1, inv);
-        r = reduceStep(r.u3, r.u2, r.u1, r.u0, v.u0, inv);
-      } else if (v.u7 != 0 || Long.compareUnsigned(v.u6, u3) >= 0) {
-        r = reduceStep(v.u7, v.u6, v.u5, v.u4, v.u3, inv);
-        r = reduceStep(r.u3, r.u2, r.u1, r.u0, v.u2, inv);
-        r = reduceStep(r.u3, r.u2, r.u1, r.u0, v.u1, inv);
-        r = reduceStep(r.u3, r.u2, r.u1, r.u0, v.u0, inv);
-      } else {
-        r = reduceStep(v.u6, v.u5, v.u4, v.u3, v.u2, inv);
-        r = reduceStep(r.u3, r.u2, r.u1, r.u0, v.u1, inv);
-        r = reduceStep(r.u3, r.u2, r.u1, r.u0, v.u0, inv);
-      }
-      return r.shiftRight(shift);
-    }
-  }
-  // --------------------------------------------------------------------------
-  // endregion 256bits Modulus
 }

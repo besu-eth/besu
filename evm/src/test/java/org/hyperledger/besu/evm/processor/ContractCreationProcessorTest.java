@@ -15,15 +15,14 @@
 package org.hyperledger.besu.evm.processor;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.evm.frame.MessageFrame.State.COMPLETED_FAILED;
 import static org.hyperledger.besu.evm.frame.MessageFrame.State.COMPLETED_SUCCESS;
-import static org.hyperledger.besu.evm.frame.MessageFrame.State.EXCEPTIONAL_HALT;
 
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.MainnetEVMs;
 import org.hyperledger.besu.evm.contractvalidation.MaxCodeSizeRule;
 import org.hyperledger.besu.evm.contractvalidation.PrefixCodeRule;
-import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.testutils.TestMessageFrameBuilder;
@@ -56,9 +55,10 @@ class ContractCreationProcessorTest
     messageFrame.setGasRemaining(10600L);
 
     processor.codeSuccess(messageFrame, OperationTracer.NO_TRACING);
-    assertThat(messageFrame.getState()).isEqualTo(EXCEPTIONAL_HALT);
-    assertThat(messageFrame.getExceptionalHaltReason())
-        .contains(ExceptionalHaltReason.INVALID_CODE);
+    // At depth 0, validation failures use COMPLETED_FAILED to preserve state gas reservoir
+    assertThat(messageFrame.getState()).isEqualTo(COMPLETED_FAILED);
+    // Gas should be cleared — failCodeDepositWithoutRollback burns all remaining gas
+    assertThat(messageFrame.getRemainingGas()).isEqualTo(0L);
   }
 
   @Test
@@ -102,9 +102,10 @@ class ContractCreationProcessorTest
     messageFrame.setGasRemaining(10_000_000L);
 
     processor.codeSuccess(messageFrame, OperationTracer.NO_TRACING);
-    assertThat(messageFrame.getState()).isEqualTo(EXCEPTIONAL_HALT);
-    assertThat(messageFrame.getExceptionalHaltReason())
-        .contains(ExceptionalHaltReason.CODE_TOO_LARGE);
+    // At depth 0, validation failures use COMPLETED_FAILED to preserve state gas reservoir
+    assertThat(messageFrame.getState()).isEqualTo(COMPLETED_FAILED);
+    // Gas should be cleared — failCodeDepositWithoutRollback burns all remaining gas
+    assertThat(messageFrame.getRemainingGas()).isEqualTo(0L);
   }
 
   @Test
@@ -142,9 +143,10 @@ class ContractCreationProcessorTest
     messageFrame.setGasRemaining(10_000_000L);
 
     processor.codeSuccess(messageFrame, OperationTracer.NO_TRACING);
-    assertThat(messageFrame.getState()).isEqualTo(EXCEPTIONAL_HALT);
-    assertThat(messageFrame.getExceptionalHaltReason())
-        .contains(ExceptionalHaltReason.CODE_TOO_LARGE);
+    // At depth 0, validation failures use COMPLETED_FAILED to preserve state gas reservoir
+    assertThat(messageFrame.getState()).isEqualTo(COMPLETED_FAILED);
+    // Gas should be cleared — failCodeDepositWithoutRollback burns all remaining gas
+    assertThat(messageFrame.getRemainingGas()).isEqualTo(0L);
   }
 
   @Test

@@ -341,6 +341,10 @@ public abstract class AbstractSECP256 implements SignatureAlgorithm {
     // example the additive inverse of 3 modulo 11 is 8 because 3 + 8 mod 11 = 0, and
     // -3 mod 11 = 8.
     final BigInteger eInv = BigInteger.ZERO.subtract(e).mod(n);
+    // r must be invertible mod n; r == 0 or r == n (or any multiple) has no inverse
+    if (r.mod(n).signum() == 0) {
+      return null;
+    }
     final BigInteger rInv = r.modInverse(n);
     final BigInteger srInv = rInv.multiply(s).mod(n);
     final BigInteger eInvrInv = rInv.multiply(eInv).mod(n);

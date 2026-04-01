@@ -48,8 +48,11 @@ import java.util.function.Predicate;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class GetSyncReceiptsFromPeerTask implements PeerTask<GetSyncReceiptsFromPeerTask.Response> {
+  private static final Logger LOG = LoggerFactory.getLogger(GetSyncReceiptsFromPeerTask.class);
   private final Request request;
   protected final ProtocolSchedule protocolSchedule;
   private final List<BlockHeader> requestedHeaders;
@@ -276,7 +279,16 @@ public class GetSyncReceiptsFromPeerTask implements PeerTask<GetSyncReceiptsFrom
                     })
                 .toList());
 
-    return calculatedReceiptsRoot.equals(blockHeader.getReceiptsRoot());
+    final boolean matches = calculatedReceiptsRoot.equals(blockHeader.getReceiptsRoot());
+    if (!matches) {
+      LOG.debug(
+          "Receipts root mismatch for block {} ({}): expected={} calculated={}",
+          blockHeader.getNumber(),
+          blockHeader.getHash(),
+          blockHeader.getReceiptsRoot(),
+          calculatedReceiptsRoot);
+    }
+    return matches;
   }
 
   @VisibleForTesting

@@ -314,7 +314,7 @@ dependencies {
     )
   devnetTarConfig(
     group: 'ethereum', name: 'execution-spec-tests',
-    version: 'bal@v5.3.0', classifier: 'fixtures_bal', ext: 'tar.gz'
+    version: 'bal@v5.5.1', classifier: 'fixtures_bal', ext: 'tar.gz'
     )
   referenceTestImplementation 'com.fasterxml.jackson.core:jackson-databind'
   referenceTestImplementation 'com.google.guava:guava'
@@ -367,14 +367,14 @@ tasks.register('validateReferenceTestSubmodule') {
 
     if (!result.toString().contains(expectedHash)) {
       throw new GradleException("""For the Ethereum Reference Tests the git commit did not match what was expected.
-  
-If this is a deliberate change where you are updating the reference tests 
-then update "expectedHash" in `ethereum/referencetests/build.gradle` as the 
+
+If this is a deliberate change where you are updating the reference tests
+then update "expectedHash" in `ethereum/referencetests/build.gradle` as the
 commit hash for this task.
 Expected hash   :  ${expectedHash}
 Full git output : ${result}
 
-If this is accidental you can correct the reference test versions with the 
+If this is accidental you can correct the reference test versions with the
 following commands:
     pushd ${submodulePath}
     git fetch

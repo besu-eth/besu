@@ -40,7 +40,8 @@ public interface TransactionPoolConfiguration {
   interface Unstable {
     Duration ETH65_TRX_ANNOUNCED_BUFFERING_PERIOD = Duration.ofMillis(500);
     int DEFAULT_TX_MSG_KEEP_ALIVE = 60;
-    int DEFAULT_MAX_TRACKED_SEEN_TXS_PER_PEER = 200_000;
+    int DEFAULT_MAX_TRACKED_SEEN_TXS = 300_000;
+    int DEFAULT_MAX_SEND_QUEUE_SIZE_PER_PEER = 100_000;
     boolean DEFAULT_PEER_TRACKER_FORGET_EVICTED_TXS = false;
     Duration DEFAULT_SAVE_RESTORE_TIMEOUT = Duration.ofMinutes(1);
 
@@ -58,8 +59,13 @@ public interface TransactionPoolConfiguration {
     }
 
     @Value.Default
-    default int getMaxTrackedSeenTxsPerPeer() {
-      return DEFAULT_MAX_TRACKED_SEEN_TXS_PER_PEER;
+    default int getMaxTrackedSeenTxs() {
+      return DEFAULT_MAX_TRACKED_SEEN_TXS;
+    }
+
+    @Value.Default
+    default int getMaxSendQueueSizePerPeer() {
+      return DEFAULT_MAX_SEND_QUEUE_SIZE_PER_PEER;
     }
 
     @Value.Default
@@ -90,8 +96,9 @@ public interface TransactionPoolConfiguration {
   boolean DEFAULT_NO_LOCAL_PRIORITY = false;
   boolean DEFAULT_ENABLE_SAVE_RESTORE = false;
   File DEFAULT_SAVE_FILE = new File(DEFAULT_SAVE_FILE_NAME);
-  long DEFAULT_PENDING_TRANSACTIONS_LAYER_MAX_CAPACITY_BYTES = 25_000_000L;
-  int DEFAULT_MAX_PRIORITIZED_TRANSACTIONS = 4000;
+  // 50 MB expressed in decimal bytes (50 * 10^6), not 50 MiB
+  long DEFAULT_PENDING_TRANSACTIONS_LAYER_MAX_CAPACITY_BYTES = 50L * 1_000_000L;
+  int DEFAULT_MAX_PRIORITIZED_TRANSACTIONS = 5000;
   EnumMap<TransactionType, Integer> DEFAULT_MAX_PRIORITIZED_TRANSACTIONS_BY_TYPE =
       new EnumMap<>(Map.of(TransactionType.BLOB, 72));
   int DEFAULT_MAX_FUTURE_BY_SENDER = 200;

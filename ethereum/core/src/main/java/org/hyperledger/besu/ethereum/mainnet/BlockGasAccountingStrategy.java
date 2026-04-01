@@ -40,8 +40,9 @@ public interface BlockGasAccountingStrategy {
 
   /**
    * Check whether the block has capacity for a transaction with the given gas limit. For 1D gas
-   * (pre-EIP-8037), this checks regular gas only. For 2D gas (EIP-8037), this considers the sum of
-   * remaining capacity in both regular and state dimensions.
+   * (pre-EIP-8037), this checks regular gas only. For 2D gas (EIP-8037), the tx gas limit must fit
+   * within the remaining capacity of each dimension independently, since gas_metered =
+   * max(cumulative_regular, cumulative_state) must stay within the block gas limit.
    *
    * @param txGasLimit the gas limit of the candidate transaction
    * @param cumulativeRegularGas cumulative regular gas used so far
@@ -99,10 +100,9 @@ public interface BlockGasAccountingStrategy {
             final long cumulativeRegularGas,
             final long cumulativeStateGas,
             final long blockGasLimit) {
-          final long headroom =
-              Math.max(0, blockGasLimit - cumulativeRegularGas)
-                  + Math.max(0, blockGasLimit - cumulativeStateGas);
-          return txGasLimit <= headroom;
+          final long remainingRegular = Math.max(0, blockGasLimit - cumulativeRegularGas);
+          final long remainingState = Math.max(0, blockGasLimit - cumulativeStateGas);
+          return txGasLimit <= Math.min(remainingRegular, remainingState);
         }
 
         @Override

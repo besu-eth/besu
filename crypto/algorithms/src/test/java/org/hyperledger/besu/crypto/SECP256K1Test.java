@@ -84,6 +84,16 @@ public class SECP256K1Test {
   }
 
   @Test
+  public void recoverPublicKeyFromSignatureWithREqualsNCurveOrderReturnsEmpty() {
+    secp256K1.disableNative();
+    final BigInteger n = secp256K1.getHalfCurveOrder().multiply(BigInteger.TWO).add(BigInteger.ONE);
+    final Bytes32 dataHash = keccak256(Bytes.wrap("test".getBytes(UTF_8)));
+    final SECPSignature badSig = new SECPSignature(n, BigInteger.ONE, (byte) 0);
+
+    assertThat(secp256K1.recoverPublicKeyFromSignature(dataHash, badSig)).isEmpty();
+  }
+
+  @Test
   public void signatureGeneration() {
     final SECPPrivateKey privateKey =
         secp256K1.createPrivateKey(
