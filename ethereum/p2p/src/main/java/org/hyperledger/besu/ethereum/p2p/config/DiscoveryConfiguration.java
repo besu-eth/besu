@@ -42,6 +42,9 @@ public class DiscoveryConfiguration {
   private int bindPortIpv6 = EnodeURLImpl.DEFAULT_LISTENING_PORT_IPV6;
   private Optional<String> advertisedHostIpv6 = Optional.empty();
   private boolean preferIpv6Outbound = false;
+  private int discV5DiscoveryIntervalSeconds = 1;
+  private int discV5DiscoveryTimeoutSeconds = 30;
+  private double discV5MinimumPeerRatio = 0.8;
 
   public static DiscoveryConfiguration create() {
     return new DiscoveryConfiguration();
@@ -203,6 +206,35 @@ public class DiscoveryConfiguration {
 
   public DiscoveryConfiguration setPreferIpv6Outbound(final boolean preferIpv6Outbound) {
     this.preferIpv6Outbound = preferIpv6Outbound;
+    return this;
+  }
+
+  public int getDiscV5DiscoveryIntervalSeconds() {
+    return discV5DiscoveryIntervalSeconds;
+  }
+
+  public DiscoveryConfiguration setDiscV5DiscoveryIntervalSeconds(
+      final int discV5DiscoveryIntervalSeconds) {
+    this.discV5DiscoveryIntervalSeconds = discV5DiscoveryIntervalSeconds;
+    return this;
+  }
+
+  public int getDiscV5DiscoveryTimeoutSeconds() {
+    return discV5DiscoveryTimeoutSeconds;
+  }
+
+  public DiscoveryConfiguration setDiscV5DiscoveryTimeoutSeconds(
+      final int discV5DiscoveryTimeoutSeconds) {
+    this.discV5DiscoveryTimeoutSeconds = discV5DiscoveryTimeoutSeconds;
+    return this;
+  }
+
+  public double getDiscV5MinimumPeerRatio() {
+    return discV5MinimumPeerRatio;
+  }
+
+  public DiscoveryConfiguration setDiscV5MinimumPeerRatio(final double discV5MinimumPeerRatio) {
+    this.discV5MinimumPeerRatio = discV5MinimumPeerRatio;
     return this;
   }
 

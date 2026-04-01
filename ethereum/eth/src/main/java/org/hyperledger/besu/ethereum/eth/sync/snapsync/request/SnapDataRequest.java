@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.sync.snapsync.request;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.RequestType;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
@@ -114,6 +115,11 @@ public abstract class SnapDataRequest implements TasksPriorityProvider {
   public static BytecodeRequest createBytecodeRequest(
       final Bytes32 accountHash, final Hash rootHash, final Bytes32 codeHash) {
     return new BytecodeRequest(rootHash, accountHash, codeHash);
+  }
+
+  public static BlockAccessListDataRequest createBlockAccessListDataRequest(
+      final Hash rootHash, final BlockHeader blockHeader) {
+    return new BlockAccessListDataRequest(rootHash, blockHeader);
   }
 
   public int persist(
