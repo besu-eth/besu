@@ -146,17 +146,17 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
           blockchain
               .getBlockHeader(blockNumber)
               .flatMap(header -> trieLogManager.getTrieLogLayer(header.getHash()));
-      final SegmentedKeyValueStorageTransaction tx =
-          worldStateStorage.getComposedWorldStateStorage().startLowPriorityTransaction();
       if (maybeTrieLog.isPresent()) {
+        final SegmentedKeyValueStorageTransaction tx =
+            worldStateStorage.getComposedWorldStateStorage().startLowPriorityTransaction();
         processBlock(maybeTrieLog.get(), blockNumber, tx);
         migratedBlockNumber.incrementAndGet();
+        saveProgress(blockNumber, tx);
+        tx.commit();
+        logProgress(blockNumber, target.get());
       } else if (blockNumber > 0) {
         throw new IllegalStateException("No trie log found for block " + blockNumber);
       }
-      saveProgress(blockNumber, tx);
-      tx.commit();
-      logProgress(blockNumber, target.get());
     }
   }
 
