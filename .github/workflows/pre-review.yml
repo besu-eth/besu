@@ -15,12 +15,11 @@ concurrency:
 
 env:
   GRADLE_OPTS: "-Xmx6g -Dorg.gradle.parallel=true"
-  total-runners: 14
 
 jobs:
   repolint:
     name: "Repository Linting"
-    runs-on: besu-research-ubuntu-16 # more cores
+    runs-on: ubuntu-latest
     container: ghcr.io/todogroup/repolinter:v0.11.2
     steps:
       - name: Checkout Code
@@ -84,17 +83,13 @@ jobs:
       - name: Gradle Compile
         run: ./gradlew build -x test -x spotlessCheck
   unitTests:
-    env:
-        GRADLEW_UNIT_TEST_ARGS: ${{matrix.gradle_args}}
-    runs-on: ubuntu-latest
+    runs-on: besu-research-ubuntu-16 # more cores
     needs: [spotless-checkLicense, gradle-wrapper, repolint]
     permissions:
       checks: write
       statuses: write
     strategy:
       fail-fast: true
-      matrix:
-        runner_index: [0,1,2,3,4,5,6,7,8,9,10,11,12,13]
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -112,52 +107,21 @@ jobs:
         with:
           cache-disabled: true
           add-job-summary: on-failure
-      - name: List unit tests
-        run: ./gradlew test --test-dry-run -Dorg.gradle.parallel=true -Dorg.gradle.caching=true
-      - name: Extract current test list
-        run: mkdir tmp; find . -type f -name TEST-*.xml | xargs -I{} bash -c "xmlstarlet sel -t -v '/testsuite/testcase[1]/@classname' '{}'; echo '{}' | sed 's#\./\(.*\)/build/test-results/.*# \1#'" | tee tmp/currentTests.list
-      - name: Get unit test reports
-        uses: dawidd6/action-download-artifact@e7466d1a7587ed14867642c2ca74b5bcc1e19a2d
-        continue-on-error: true
-        with:
-          branch: main
-          workflow: update-test-reports.yml
-          name: unit-test-results
-          path: tmp/junit-xml-reports-downloaded
-          if_no_artifact_found: ignore
-      - name: Split tests
-        run: .github/workflows/splitTestsByTime.sh tmp/junit-xml-reports-downloaded "tmp/junit-xml-reports-downloaded/unit-.*-test-results" "build/test-results" ${{env.total-runners}} ${{ matrix.runner_index }} > testList.txt
-      - name: Upload Timing
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        if: matrix.runner_index == 0
-        with:
-          name: unit-tests-timing
-          path: 'tmp/timing.tsv'
-      - name: Upload Lists
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        if: matrix.runner_index == 0
-        with:
-          name: unit-tests-lists
-          path: 'tmp/*.list'
-      - name: Upload gradle test tasks
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          name: testList-${{ matrix.runner_index }}.txt
-          path: testList.txt
       - name: run unit tests
-        run: cat testList.txt | xargs -P 1 ./gradlew -Dorg.gradle.parallel=true -Dorg.gradle.caching=true
-      - name: Remove downloaded test results
-        run: rm -rf tmp/junit-xml-reports-downloaded
+        env:
+          # reducing JVM forks to increase reuse of setup code such as SignatureAlgorithm
+          GRADLE_MAX_TEST_FORKS: 2 # besu-research-ubuntu-16 will use 8 by default
+        run: ./gradlew -Dorg.gradle.parallel=true -Dorg.gradle.caching=true test
       - name: Upload Unit Test Results
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
-          name: unit-${{matrix.runner_index}}-test-results
+          name: unit-test-results
           path: '**/test-results/**/TEST-*.xml'
       - name: Upload Unit Test HTML Reports
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: success() || failure()
         with:
-          name: unit-${{matrix.runner_index}}-test-html-reports
+          name: unit-test-html-reports
           path: '**/build/reports/tests/test/**'
   unittests-passed:
     name: "unittests-passed"
@@ -187,7 +151,7 @@ jobs:
         if: always()
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: unit-*-test-results
+          pattern: unit-test-results
           merge-multiple: true
       - name: Report 10 slowest tests
         if: always()
