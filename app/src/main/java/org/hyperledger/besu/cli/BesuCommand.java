@@ -160,6 +160,8 @@ import org.hyperledger.besu.plugin.services.BesuConfiguration;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
+import org.hyperledger.besu.plugin.services.health.LivenessCheckPlugin;
+import org.hyperledger.besu.plugin.services.health.ReadinessCheckPlugin;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModule;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBPlugin;
@@ -341,6 +343,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       Suppliers.memoize(this::getApiConfiguration);
 
   private RocksDBPlugin rocksDBPlugin;
+  private LivenessCheckPlugin livenessCheckPlugin;
+  private ReadinessCheckPlugin readinessCheckPlugin;
 
   private int maxPeers;
   private int maxRemoteInitiatedPeers;
@@ -1271,6 +1275,10 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     rocksDBPlugin = new RocksDBPlugin();
     rocksDBPlugin.register(besuPluginContext);
     new InMemoryStoragePlugin().register(besuPluginContext);
+    livenessCheckPlugin = new LivenessCheckPlugin();
+    livenessCheckPlugin.register(besuPluginContext);
+    readinessCheckPlugin = new ReadinessCheckPlugin();
+    readinessCheckPlugin.register(besuPluginContext);
 
     // register default security module
     securityModuleService.register(

@@ -118,6 +118,7 @@ import org.hyperledger.besu.nat.docker.DockerNatManager;
 import org.hyperledger.besu.nat.upnp.UpnpNatManager;
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.data.EnodeURL;
+import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
 import org.hyperledger.besu.services.PermissioningServiceImpl;
 import org.hyperledger.besu.services.RpcEndpointServiceImpl;
@@ -919,8 +920,8 @@ public class RunnerBuilder {
                   metricsSystem,
                   natService,
                   nonEngineMethods,
-                  new HealthService(new LivenessCheck()),
-                  new HealthService(new ReadinessCheck(peerNetwork, synchronizer))));
+                  createLivenessHealthService(besuPluginContext),
+                  createReadinessHealthService(besuPluginContext, peerNetwork, synchronizer)));
     }
 
     final SubscriptionManager subscriptionManager =
@@ -996,8 +997,8 @@ public class RunnerBuilder {
                   Optional.ofNullable(engineSocketConfig),
                   besuController.getProtocolManager().ethContext().getScheduler(),
                   authToUse,
-                  new HealthService(new LivenessCheck()),
-                  new HealthService(new ReadinessCheck(peerNetwork, synchronizer))));
+                  createLivenessHealthService(besuPluginContext),
+                  createReadinessHealthService(besuPluginContext, peerNetwork, synchronizer)));
     }
 
     Optional<GraphQLHttpService> graphQLHttpService = Optional.empty();
@@ -1476,5 +1477,36 @@ public class RunnerBuilder {
 
   private Optional<MetricsService> createMetricsService(final MetricsConfiguration configuration) {
     return MetricsService.create(configuration, metricsSystem);
+  }
+
+  private HealthService createLivenessHealthService(final BesuPluginContextImpl pluginContext) {
+    return pluginContext
+        .getService(HealthCheckService.class)
+        .flatMap(HealthCheckService::getLivenessCheck)
+        .map(provider -> new HealthService(adaptProvider(provider)))
+        .orElseGet(() -> new HealthService(new LivenessCheck()));
+  }
+
+  private HealthService createReadinessHealthService(
+      final BesuPluginContextImpl pluginContext,
+      final Object peerNetwork,
+      final Object synchronizer) {
+    return pluginContext
+        .getService(HealthCheckService.class)
+        .flatMap(HealthCheckService::getReadinessCheck)
+        .map(provider -> new HealthService(adaptProvider(provider)))
+        .orElseGet(
+            () ->
+                new HealthService(
+                    new ReadinessCheck(
+                        (org.hyperledger.besu.ethereum.p2p.network.P2PNetwork) peerNetwork,
+                        (org.hyperledger.besu.ethereum.core.Synchronizer) synchronizer)));
+  }
+
+  private HealthService.HealthCheck adaptProvider(
+      final HealthCheckService.HealthCheckProvider provider) {
+    return healthServiceParams ->
+        provider.isHealthy(
+            (HealthCheckService.ParamSource) name -> healthServiceParams.getParam(name));
   }
 }
