@@ -24,6 +24,9 @@ package org.hyperledger.besu.evm.v2;
  */
 public class StackArithmetic {
 
+  // region SHL (Shift Left)
+  // ---------------------------------------------------------------------------
+
   /**
    * Performs EVM SHL (shift left) on the two top stack items.
    *
@@ -118,6 +121,11 @@ public class StackArithmetic {
     return (value << bitShift) | (nextValue >>> (64 - bitShift));
   }
 
+  // endregion
+
+  // region SHR (Shift Right)
+  // ---------------------------------------------------------------------------
+
   /**
    * Performs EVM SHR (logical shift right) on the two top stack items.
    *
@@ -196,6 +204,11 @@ public class StackArithmetic {
     s[valueOffset + 2] = w2;
     s[valueOffset + 3] = w3;
   }
+
+  // endregion
+
+  // region SAR (Shift Arithmetic Right)
+  // ---------------------------------------------------------------------------
 
   /**
    * Performs EVM SAR (arithmetic shift right) on the two top stack items.
@@ -293,4 +306,7 @@ public class StackArithmetic {
     if (bitShift == 0) return value;
     return (value >>> bitShift) | (prevValue << (64 - bitShift));
   }
+
+  // endregion
+
 }
