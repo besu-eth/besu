@@ -127,8 +127,8 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
         .whenComplete(
             (result, ex) -> {
               blockchain.removeObserver(blockObserverId);
-              migrationRunning.set(false);
               if (ex != null) {
+                migrationRunning.set(false);
                 LOG.error("Bonsai to Bonsai archive migration failed", ex);
               }
             })
@@ -136,6 +136,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
             () -> {
               worldStateStorage.upgradeToArchiveFlatDbMode();
               logCompletion(startBlock, target.get(), migrationStartTime);
+              migrationRunning.set(false);
             });
   }
 
