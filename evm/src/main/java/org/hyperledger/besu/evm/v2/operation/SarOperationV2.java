@@ -43,6 +43,7 @@ public class SarOperationV2 extends AbstractFixedCostOperationV2 {
    * Performs sar operation.
    *
    * @param frame the frame
+   * @param stack the v2 operand stack ({@code long[]} in big-endian limb order)
    * @return the operation result
    */
   public static OperationResult staticOperation(final MessageFrame frame) {
