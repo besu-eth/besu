@@ -23,7 +23,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
@@ -117,7 +116,6 @@ public class ReplayTest {
   @Test
   @Disabled("Provide a replay file to run the test on demand")
   public void replay() throws IOException {
-    SignatureAlgorithmFactory.setDefaultInstance();
     try (BufferedReader br =
         new BufferedReader(
             new InputStreamReader(

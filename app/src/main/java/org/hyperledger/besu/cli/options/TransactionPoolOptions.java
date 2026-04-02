@@ -247,7 +247,12 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         "--Xincoming-tx-messages-keep-alive-seconds";
     private static final String ETH65_TX_ANNOUNCED_BUFFERING_PERIOD_FLAG =
         "--Xeth65-tx-announced-buffering-period-milliseconds";
+
+    @Deprecated(forRemoval = true) // alias of MAX_TRACKED_SEEN_TXS
     private static final String MAX_TRACKED_SEEN_TXS_PER_PEER = "--Xmax-tracked-seen-txs-per-peer";
+
+    private static final String MAX_TRACKED_SEEN_TXS = "--Xmax-tracked-seen-txs";
+    private static final String MAX_SEND_QUEUE_SIZE_PER_PEER = "--Xmax-send-queue-size-per-peer";
     private static final String PEER_TRACKER_FORGET_EVICTED_TXS_FLAG =
         "--Xpeer-tracker-forget-evicted-txs";
     private static final String TX_POOL_SAVE_RESTORE_TIMEOUT_FLAG =
@@ -273,13 +278,22 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         TransactionPoolConfiguration.Unstable.ETH65_TRX_ANNOUNCED_BUFFERING_PERIOD;
 
     @CommandLine.Option(
-        names = {MAX_TRACKED_SEEN_TXS_PER_PEER},
+        names = {MAX_TRACKED_SEEN_TXS, /*Deprecated*/ MAX_TRACKED_SEEN_TXS_PER_PEER},
         paramLabel = "<LONG>",
         hidden = true,
         description =
-            "The number of exchanged txs that are remembered with each peer, to minimize broadcasting duplicates (default: ${DEFAULT-VALUE})")
-    private int maxTrackedSeenTxsPerPeer =
-        TransactionPoolConfiguration.Unstable.DEFAULT_MAX_TRACKED_SEEN_TXS_PER_PEER;
+            "The max number of exchanged txs that are remembered, to minimize broadcasting duplicates (default: ${DEFAULT-VALUE})")
+    private int maxTrackedSeenTxs =
+        TransactionPoolConfiguration.Unstable.DEFAULT_MAX_TRACKED_SEEN_TXS;
+
+    @CommandLine.Option(
+        names = {MAX_SEND_QUEUE_SIZE_PER_PEER},
+        paramLabel = "<LONG>",
+        hidden = true,
+        description =
+            "The max number of transactions, or hashes, kept in the send queue for a single peer (default: ${DEFAULT-VALUE})")
+    private int maxSendQueueSizePerPeer =
+        TransactionPoolConfiguration.Unstable.DEFAULT_MAX_SEND_QUEUE_SIZE_PER_PEER;
 
     @CommandLine.Option(
         names = {PEER_TRACKER_FORGET_EVICTED_TXS_FLAG},
@@ -361,8 +375,9 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         config.getUnstable().getTxMessageKeepAliveSeconds();
     options.unstableOptions.eth65TrxAnnouncedBufferingPeriod =
         config.getUnstable().getEth65TrxAnnouncedBufferingPeriod();
-    options.unstableOptions.maxTrackedSeenTxsPerPeer =
-        config.getUnstable().getMaxTrackedSeenTxsPerPeer();
+    options.unstableOptions.maxTrackedSeenTxs = config.getUnstable().getMaxTrackedSeenTxs();
+    options.unstableOptions.maxSendQueueSizePerPeer =
+        config.getUnstable().getMaxSendQueueSizePerPeer();
     options.unstableOptions.peerTrackerForgetEvictedTxs =
         config.getUnstable().getPeerTrackerForgetEvictedTxs();
     options.unstableOptions.saveRestoreTimeout = config.getUnstable().getSaveRestoreTimeout();
@@ -424,7 +439,8 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
             ImmutableTransactionPoolConfiguration.Unstable.builder()
                 .txMessageKeepAliveSeconds(unstableOptions.txMessageKeepAliveSeconds)
                 .eth65TrxAnnouncedBufferingPeriod(unstableOptions.eth65TrxAnnouncedBufferingPeriod)
-                .maxTrackedSeenTxsPerPeer(unstableOptions.maxTrackedSeenTxsPerPeer)
+                .maxTrackedSeenTxs(unstableOptions.maxTrackedSeenTxs)
+                .maxSendQueueSizePerPeer(unstableOptions.maxSendQueueSizePerPeer)
                 .peerTrackerForgetEvictedTxs(
                     Optional.ofNullable(unstableOptions.peerTrackerForgetEvictedTxs)
                         .orElse(deriveDefaultPeersTrackerForgetEvictedTxs(txPoolImplementation)))

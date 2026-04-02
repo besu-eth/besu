@@ -326,7 +326,13 @@ public class EvmToolCommand implements Runnable {
     addForkHelp(commandLine.getSubcommands().get("t8n"));
     addForkHelp(commandLine.getSubcommands().get("t8n-server"));
 
-    commandLine.setExecutionStrategy(new CommandLine.RunLast());
+    commandLine.setExecutionStrategy(
+        parseResult -> {
+          if (daggerOptions.isEvmV2Enabled()) {
+            out.println("EVM v2 (long[] stack) enabled");
+          }
+          return new CommandLine.RunLast().execute(parseResult);
+        });
     commandLine.execute(args);
   }
 

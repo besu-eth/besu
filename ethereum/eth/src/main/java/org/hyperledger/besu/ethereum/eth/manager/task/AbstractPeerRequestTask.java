@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.eth.manager.PeerRequest;
 import org.hyperledger.besu.ethereum.eth.manager.PendingPeerRequest;
 import org.hyperledger.besu.ethereum.eth.manager.RequestManager;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.PeerBreachedProtocolException;
+import org.hyperledger.besu.ethereum.eth.manager.exceptions.ProtocolViolationException;
 import org.hyperledger.besu.ethereum.p2p.rlpx.framing.FramingException;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
@@ -130,6 +131,15 @@ public abstract class AbstractPeerRequestTask<R> extends AbstractPeerTask<R> {
           e);
       LOG.trace("Peer {} Malformed message data: {}", peer, message.getData());
       peer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+      promise.completeExceptionally(new PeerBreachedProtocolException());
+    } catch (final ProtocolViolationException e) {
+      LOG.atDebug()
+          .setMessage("Invalid response from peer {}: {}")
+          .addArgument(peer::getLoggableId)
+          .addArgument(e::getMessage)
+          .setCause(e)
+          .log();
+      peer.recordUselessResponse(e.getMessage());
       promise.completeExceptionally(new PeerBreachedProtocolException());
     }
   }

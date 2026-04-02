@@ -14,12 +14,10 @@
  */
 package org.hyperledger.besu.evm.precompile;
 
-import static org.hyperledger.besu.crypto.SignatureAlgorithmType.SECP_256_R1_CURVE_NAME;
-
+import org.hyperledger.besu.crypto.SECP256R1;
 import org.hyperledger.besu.crypto.SECPPublicKey;
 import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
-import org.hyperledger.besu.crypto.SignatureAlgorithmType;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.nativelib.boringssl.BoringSSLPrecompiles;
@@ -55,8 +53,7 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
 
   static {
     maybeEnableNativeBoringSSL();
-    SECP256R1_SIGNATURE_ALGORITHM_INSTANCE =
-        SignatureAlgorithmType.create(SECP_256_R1_CURVE_NAME).getInstance();
+    SECP256R1_SIGNATURE_ALGORITHM_INSTANCE = new SECP256R1();
   }
 
   /**

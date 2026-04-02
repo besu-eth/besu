@@ -18,7 +18,8 @@ public enum RequestType {
   ACCOUNT_RANGE((byte) 1),
   STORAGE_RANGE((byte) 2),
   BYTECODES((byte) 3),
-  TRIE_NODE((byte) 4);
+  TRIE_NODE((byte) 4),
+  BLOCK_ACCESS_LIST((byte) 5);
 
   private final byte value;
 
@@ -40,6 +41,8 @@ public enum RequestType {
         return BYTECODES;
       case (byte) 4:
         return TRIE_NODE;
+      case (byte) 5:
+        return BLOCK_ACCESS_LIST;
       default:
         throw new IllegalArgumentException("Invalid value supplied");
     }

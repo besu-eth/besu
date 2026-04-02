@@ -150,8 +150,7 @@ public class TransactionBroadcaster
     if (!transactions.isEmpty()) {
       fullTransactionPeers.forEach(
           peer -> {
-            transactions.forEach(
-                transaction -> transactionTracker.addToPeerSendQueue(peer, transaction));
+            transactionTracker.addToPeerSendQueue(peer, transactions);
             ethContext
                 .getScheduler()
                 .scheduleSyncWorkerTask(
@@ -166,14 +165,13 @@ public class TransactionBroadcaster
       transactionHashPeers.stream()
           .forEach(
               peer -> {
-                transactions.forEach(
-                    transaction -> transactionTracker.addToPeerHashSendQueue(peer, transaction));
+                transactionTracker.addToPeerAnnouncementsSendQueue(peer, transactions);
                 ethContext
                     .getScheduler()
                     .scheduleSyncWorkerTask(
                         () ->
-                            newPooledTransactionHashesMessageSender.sendTransactionHashesToPeer(
-                                peer));
+                            newPooledTransactionHashesMessageSender
+                                .sendTransactionAnnouncementsToPeer(peer));
               });
     }
   }

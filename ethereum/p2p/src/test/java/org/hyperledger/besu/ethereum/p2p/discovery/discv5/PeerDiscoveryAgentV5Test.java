@@ -321,6 +321,51 @@ class PeerDiscoveryAgentV5Test {
   }
 
   @Test
+  void discoveryRunsWhenPeerCountBelowConfiguredMinimumRatio() throws Exception {
+    // With 20 connections out of 25 max peers:
+    //   default ratio 0.8 → 20 >= 20 → hasSufficientPeers() is true → discovery stops
+    //   custom  ratio 0.9 → 20 >= 22.5 → hasSufficientPeers() is false → discovery runs
+    // This verifies that the config value is actually read rather than the old hard-coded 0.8.
+    when(rlpxAgent.getConnectionCount()).thenReturn(20);
+    when(rlpxAgent.getMaxPeers()).thenReturn(25);
+
+    final NetworkingConfiguration customConfig =
+        ImmutableNetworkingConfiguration.builder()
+            .discoveryConfiguration(
+                DiscoveryConfiguration.create()
+                    .setEnabled(true)
+                    .setAdvertisedHost("127.0.0.1")
+                    .setBindHost("0.0.0.0")
+                    .setBindPort(0)
+                    .setDiscV5MinimumPeerRatio(0.9))
+            .build();
+
+    when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
+
+    final PeerDiscoveryAgentV5 customAgent =
+        new PeerDiscoveryAgentV5(
+            customConfig,
+            PeerPermissions.NOOP,
+            forkIdManager,
+            nodeRecordManager,
+            rlpxAgent,
+            new NoOpMetricsSystem(),
+            false,
+            (nodeRecord, listener) -> mockSystem);
+
+    try {
+      customAgent.start(1234).get();
+
+      Awaitility.await()
+          .pollInterval(50, TimeUnit.MILLISECONDS)
+          .atMost(3, TimeUnit.SECONDS)
+          .untilAsserted(() -> verify(mockSystem, atLeastOnce()).searchForNewPeers());
+    } finally {
+      customAgent.stop();
+    }
+  }
+
+  @Test
   void metricsReflectDiscoverySystemBucketStats() throws Exception {
     final StubMetricsSystem stubMetrics = new StubMetricsSystem();
 

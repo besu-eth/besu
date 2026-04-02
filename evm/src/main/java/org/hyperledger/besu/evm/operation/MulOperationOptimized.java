@@ -1,5 +1,5 @@
-/**
- * Copyright ConsenSys AG.
+/*
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -32,7 +32,7 @@ public class MulOperationOptimized extends AbstractFixedCostOperation {
    *
    * @param gasCalculator the gas calculator
    */
-  public MulOperation(final GasCalculator gasCalculator) {
+  public MulOperationOptimized(final GasCalculator gasCalculator) {
     super(0x02, "MUL", 2, 1, gasCalculator, gasCalculator.getLowTierGasCost());
   }
 
@@ -57,6 +57,6 @@ public class MulOperationOptimized extends AbstractFixedCostOperation {
     Bytes resultBytes = Bytes.wrap(u0.mul(u1).toBytesBE());
 
     frame.pushStackItem(resultBytes);
-    return mulModSuccess;
+    return mulSuccess;
   }
 }

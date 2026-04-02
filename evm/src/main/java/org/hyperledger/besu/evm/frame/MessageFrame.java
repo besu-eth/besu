@@ -204,6 +204,10 @@ public class MessageFrame {
   private int pc;
   private final Memory memory = new Memory();
   private final OperandStack stack;
+  // EVM v2 stack: 4 longs per 256-bit word (index 0 = most significant, index 3 = least
+  // significant)
+  private final long[] stackDataV2;
+  private int stackTopV2;
   private Bytes output = Bytes.EMPTY;
   private Bytes returnData = Bytes.EMPTY;
   private Code createdCode = null;
@@ -249,6 +253,7 @@ public class MessageFrame {
   }
 
   private MessageFrame(
+      final boolean enableEvmV2,
       final Type type,
       final WorldUpdater worldUpdater,
       final long initialGas,
@@ -271,6 +276,8 @@ public class MessageFrame {
     this.worldUpdater = worldUpdater;
     this.gasRemaining = initialGas;
     this.stack = new OperandStack(txValues.maxStackSize());
+    this.stackDataV2 = enableEvmV2 ? new long[txValues.maxStackSize() * 4] : null;
+    this.stackTopV2 = 0;
     this.pc = 0;
     this.recipient = recipient;
     this.contract = contract;
@@ -470,6 +477,49 @@ public class MessageFrame {
   public int stackSize() {
     return stack.size();
   }
+
+  // region --- EVM v2 long[] stack operations ---
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Returns the backing long[] array of the operand stack.
+   *
+   * @return the raw data array
+   */
+  public long[] stackDataV2() {
+    return stackDataV2;
+  }
+
+  /**
+   * Returns the current stack top (item count, 0 = empty).
+   *
+   * @return the item count
+   */
+  public int stackTopV2() {
+    return stackTopV2;
+  }
+
+  /**
+   * Sets the stack top (item count). Used after StackMath operations.
+   *
+   * @param newTop the new item count
+   */
+  public void setTopV2(final int newTop) {
+    this.stackTopV2 = newTop;
+  }
+
+  /**
+   * Returns true if the stack has at least {@code n} items.
+   *
+   * @param n the number of items required
+   * @return true if the stack contains at least n items
+   */
+  public boolean stackHasItems(final int n) {
+    return stackTopV2 >= n;
+  }
+
+  // ---------------------------------------------------------------------------
+  // endregion
 
   /**
    * Returns whether the message frame is static or not.
@@ -1424,6 +1474,8 @@ public class MessageFrame {
 
     private Optional<List<VersionedHash>> versionedHashes = Optional.empty();
 
+    private boolean enableEvmV2 = false;
+
     /** Instantiates a new Builder. */
     public Builder() {
       // constructor added to deal with JavaDoc linting rules.
@@ -1717,6 +1769,17 @@ public class MessageFrame {
       return this;
     }
 
+    /**
+     * Sets whether the experimental EVM v2 (long[] stack) is enabled.
+     *
+     * @param enableEvmV2 true to enable EVM v2
+     * @return the builder
+     */
+    public Builder enableEvmV2(final boolean enableEvmV2) {
+      this.enableEvmV2 = enableEvmV2;
+      return this;
+    }
+
     private void validate() {
       if (parentMessageFrame == null) {
         checkState(worldUpdater != null, "Missing message frame world updater");
@@ -1776,6 +1839,7 @@ public class MessageFrame {
 
       MessageFrame messageFrame =
           new MessageFrame(
+              enableEvmV2,
               type,
               updater,
               initialGas,

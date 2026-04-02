@@ -14,29 +14,25 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
-import java.util.SequencedMap;
-
 import com.fasterxml.jackson.annotation.JsonGetter;
 
-public class TransactionPoolContentFromResult {
+public class TransactionPoolResult<T> {
 
-  private final SequencedMap<String, TransactionPendingResult> pending;
-  private final SequencedMap<String, TransactionPendingResult> queued;
+  private final T pending;
+  private final T queued;
 
-  public TransactionPoolContentFromResult(
-      final SequencedMap<String, TransactionPendingResult> pending,
-      final SequencedMap<String, TransactionPendingResult> queued) {
+  public TransactionPoolResult(final T pending, final T queued) {
     this.pending = pending;
     this.queued = queued;
   }
 
   @JsonGetter(value = "pending")
-  public SequencedMap<String, TransactionPendingResult> getPending() {
+  public T getPending() {
     return pending;
   }
 
   @JsonGetter(value = "queued")
-  public SequencedMap<String, TransactionPendingResult> getQueued() {
+  public T getQueued() {
     return queued;
   }
 }
