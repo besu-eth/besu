@@ -26,7 +26,6 @@ import org.hyperledger.besu.cli.subcommands.PublicKeySubCommand.ExportSubCommand
 import org.hyperledger.besu.cli.util.VersionProvider;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
-import org.hyperledger.besu.crypto.SignatureAlgorithmType;
 import org.hyperledger.besu.ethereum.core.Util;
 
 import java.io.BufferedWriter;
@@ -159,7 +158,7 @@ public class PublicKeySubCommand implements Runnable {
         paramLabel = "<NAME>",
         description =
             "Elliptic curve to use when creating a new key (default: "
-                + SignatureAlgorithmType.DEFAULT_EC_CURVE_NAME
+                + SignatureAlgorithmFactory.DEFAULT_EC_CURVE_NAME
                 + ")",
         arity = "0..1")
     @SuppressWarnings("FieldCanBeFinal")
@@ -215,7 +214,7 @@ public class PublicKeySubCommand implements Runnable {
     protected static void configureEcCurve(final String ecCurve, final CommandLine commandLine) {
       if (ecCurve != null) {
         try {
-          SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create(ecCurve));
+          SignatureAlgorithmFactory.switchInstance(ecCurve);
         } catch (IllegalArgumentException e) {
           throw new CommandLine.ParameterException(commandLine, e.getMessage(), e);
         }

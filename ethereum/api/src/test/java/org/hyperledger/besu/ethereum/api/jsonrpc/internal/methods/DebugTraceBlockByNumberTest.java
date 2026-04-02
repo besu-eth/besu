@@ -26,8 +26,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.OpCodeLoggerTracerResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -115,6 +117,19 @@ public class DebugTraceBlockByNumberTest {
   @SuppressWarnings("unchecked")
   private Collection<OpCodeLoggerTracerResult> getResult(final JsonRpcSuccessResponse response) {
     return (Collection<OpCodeLoggerTracerResult>) response.getResult();
+  }
+
+  @Test
+  public void shouldReturnErrorForGenesisBlock() {
+    final Object[] params = new Object[] {"0x0"};
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceBlockByNumber", params));
+
+    final JsonRpcResponse jsonRpcResponse = debugTraceBlockByNumber.response(request);
+    assertThat(jsonRpcResponse).isInstanceOf(JsonRpcErrorResponse.class);
+    final JsonRpcErrorResponse errorResponse = (JsonRpcErrorResponse) jsonRpcResponse;
+    assertThat(errorResponse.getErrorType())
+        .isEqualByComparingTo(RpcErrorType.GENESIS_BLOCK_NOT_TRACEABLE);
   }
 
   @Test

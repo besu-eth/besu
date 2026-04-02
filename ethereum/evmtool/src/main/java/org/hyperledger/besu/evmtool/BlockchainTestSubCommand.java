@@ -17,7 +17,6 @@ package org.hyperledger.besu.evmtool;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hyperledger.besu.evmtool.BlockchainTestSubCommand.COMMAND_NAME;
 
-import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.Wei;
@@ -169,8 +168,6 @@ public class BlockchainTestSubCommand implements Runnable {
 
   @Override
   public void run() {
-    // presume ethereum mainnet for reference and state tests
-    SignatureAlgorithmFactory.setDefaultInstance();
     final ObjectMapper blockchainTestMapper = JsonUtils.createObjectMapper();
     final TestResults results = new TestResults();
 
