@@ -98,7 +98,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
   private static final EngineForkchoiceUpdatedParameter mockFcuParam =
       new EngineForkchoiceUpdatedParameter(mockHash, mockHash, mockHash);
 
-  protected static final BlockHeaderTestFixture blockHeaderBuilder =
+  protected final BlockHeaderTestFixture blockHeaderBuilder =
       new BlockHeaderTestFixture().baseFeePerGas(Wei.ONE);
 
   @Mock private ProtocolSpec protocolSpec;

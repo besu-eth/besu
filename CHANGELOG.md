@@ -12,6 +12,8 @@
   - Removed `TransactionSelectionResult.BLOCK_OCCUPANCY_ABOVE_THRESHOLD`, in general it could be replaced with `BLOCK_FULL`
 - Experimental Bonsai Archive column families have changed to improve performance during bonsai to archive migration. If you are using the Bonsai archive you will need to do a full resync [#10058](https://github.com/besu-eth/besu/pull/10058/changes)
 - `debug_traceTransaction` and `debug_traceBlockByNumber`: the `error` field in `StructLog` entries is now serialized as a plain string (e.g. `"INVALID_JUMP_DESTINATION"`) instead of an array of strings, aligning with the execution-apis opcode tracer spec. [#10117](https://github.com/besu-eth/besu/pull/10117)
+- `debug_traceTransaction` now returns a JSON-RPC error response (`-32000: Transaction not found`) instead of a success response with `null` result when the transaction hash is unknown [#10150](https://github.com/besu-eth/besu/pull/10150) 
+- `debug_traceBlockByNumber` now returns a JSON-RPC error response (`-32000: genesis is not traceable`) instead of a success response with `null` result when tracing the genesis block [#10133](https://github.com/besu-eth/besu/pull/10133)
 
 ### Upcoming Breaking Changes
 - RPC changes to enhance compatibility with other ELs
@@ -56,12 +58,13 @@ are provided with different values, using input as per the execution-apis spec i
 - Add `HealthCheckService` plugin API enabling custom health check implementations [#7704](https://github.com/hyperledger/besu/issues/7704)
 
 ### RPCs
-- Add blockTimestamp to transaction RPC results [#9887](https://github.com/hyperledger/besu/pull/9887)
+- Add `blockTimestamp` to transaction RPC results [#9887](https://github.com/hyperledger/besu/pull/9887)
 - Add `txpool_status` RPC method [#10002](https://github.com/hyperledger/besu/pull/10002)
 - Add `txpool_contentFrom` JSON-RPC method [#10111](https://github.com/besu-eth/besu/pull/10111)
 - Add `txpool_content` JSON-RPC method [#10120](https://github.com/besu-eth/besu/pull/10120) 
 - Add `txpool_inspect` JSON-RPC method [#10121](https://github.com/besu-eth/besu/pull/10121) 
-- Add maxUsedGas field to eth_simulateV1 results [#10066](https://github.com/besu-eth/besu/pull/10066)
+- Add `maxUsedGas` field to eth_simulateV1 results [#10066](https://github.com/besu-eth/besu/pull/10066)
+- Add `latestBlock` field to admin_peers result [#10163](https://github.com/besu-eth/besu/pull/10163)
 
 ### Performance
 - UInt256 arithmetics with long limbs [#9677](https://github.com/besu-eth/besu/pull/9677)
