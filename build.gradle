@@ -474,6 +474,76 @@ configure(allprojects - project(':platform')) {
   }
 }
 
+task resolveSourceArtifacts {
+  group = 'verification'
+  description = 'Resolves source artifacts for all configurations so they can be included in dependency verification metadata'
+  doLast {
+    def componentIds = new HashSet()
+    def unresolvedConfigs = 0
+
+    def collectComponentIds = { configs, String label ->
+      configs.matching { it.canBeResolved }.each { config ->
+        try {
+          config.incoming.resolutionResult.allComponents.each { component ->
+            componentIds.add(component.id)
+          }
+        } catch (Exception e) {
+          unresolvedConfigs++
+          logger.info("Could not resolve ${label} '${config.name}': ${e.message}")
+        }
+      }
+    }
+
+    allprojects.each { proj ->
+      collectComponentIds(proj.configurations, "${proj.path} config")
+      collectComponentIds(proj.buildscript.configurations, "${proj.path} buildscript config")
+    }
+
+    if (unresolvedConfigs > 0) {
+      logger.warn("${unresolvedConfigs} configurations could not be resolved (run with --info for details)")
+    }
+
+    def externalIds = componentIds.findAll { it instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier }
+    logger.lifecycle("Resolving sources for ${externalIds.size()} external dependencies...")
+
+    // Populated by resolveSources across both project and buildscript repository calls
+    def resolvedComponentIds = new HashSet()
+    def resolveSources = { depHandler, componentIdsToResolve, String label ->
+      def sizeBefore = resolvedComponentIds.size()
+      def result = depHandler.createArtifactResolutionQuery()
+        .forComponents(componentIdsToResolve)
+        .withArtifacts(JvmLibrary, SourcesArtifact)
+        .execute()
+      result.resolvedComponents.each { component ->
+        component.getArtifacts(SourcesArtifact).each { source ->
+          if (source instanceof ResolvedArtifactResult) {
+            source.file // access .file to trigger download and register with verification metadata
+            resolvedComponentIds.add(component.id)
+          } else {
+            logger.warn("Could not download sources for ${component.id}: ${source}")
+          }
+        }
+      }
+      def count = resolvedComponentIds.size() - sizeBefore
+      logger.lifecycle("Resolved sources for ${count} components from ${label}")
+    }
+
+    resolveSources(dependencies, externalIds, "project repositories")
+
+    // Retry unresolved sources using buildscript repositories (includes Gradle Plugin Portal)
+    def unresolvedIds = externalIds.findAll { !resolvedComponentIds.contains(it) }
+    if (!unresolvedIds.isEmpty()) {
+      resolveSources(buildscript.dependencies, unresolvedIds, "buildscript repositories")
+    }
+
+    def finalUnresolved = externalIds.size() - resolvedComponentIds.size()
+    if (finalUnresolved > 0) {
+      logger.warn("${finalUnresolved} dependencies have no published source artifacts")
+    }
+    logger.lifecycle("Total: sources resolved for ${resolvedComponentIds.size()}/${externalIds.size()} components")
+  }
+}
+
 task deploy() {}
 
 task checkMavenCoordinateCollisions {
