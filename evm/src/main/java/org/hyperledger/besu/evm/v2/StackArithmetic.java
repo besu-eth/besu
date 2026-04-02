@@ -24,6 +24,9 @@ package org.hyperledger.besu.evm.v2;
  */
 public class StackArithmetic {
 
+  /** Utility class — not instantiable. */
+  private StackArithmetic() {}
+
   // region SHL (Shift Left)
   // ---------------------------------------------------------------------------
 
@@ -291,6 +294,11 @@ public class StackArithmetic {
     stack[valueOffset + 3] = w3;
   }
 
+  // endregion
+
+  // region Private Helpers
+  // ---------------------------------------------------------------------------
+
   /**
    * Shifts a 64-bit word right and carries in bits from the previous more-significant word.
    *
@@ -308,5 +316,4 @@ public class StackArithmetic {
   }
 
   // endregion
-
 }
