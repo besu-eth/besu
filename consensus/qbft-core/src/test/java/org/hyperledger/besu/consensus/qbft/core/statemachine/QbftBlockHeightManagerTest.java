@@ -30,11 +30,9 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.consensus.common.bft.BftEventQueue;
 import org.hyperledger.besu.consensus.common.bft.BlockTimer;
 import org.hyperledger.besu.consensus.common.bft.ConsensusRoundIdentifier;
 import org.hyperledger.besu.consensus.common.bft.RoundTimer;
-import org.hyperledger.besu.consensus.common.bft.events.BlockTimerExpiry;
 import org.hyperledger.besu.consensus.common.bft.events.RoundExpiry;
 import org.hyperledger.besu.consensus.common.bft.network.ValidatorMulticaster;
 import org.hyperledger.besu.consensus.qbft.core.QbftBlockTestFixture;
@@ -64,10 +62,7 @@ import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Util;
-import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
-import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.util.Subscribers;
 
@@ -114,11 +109,8 @@ public class QbftBlockHeightManagerTest {
   @Mock private QbftBlockInterface blockInterface;
   @Mock private QbftValidatorProvider validatorProvider;
   @Mock private QbftBlockImporter blockImporter;
-  @Mock private TransactionPool transactionPool;
-  @Mock private BftEventQueue blockTimerEventQueue;
 
   @Captor private ArgumentCaptor<MessageData> sentMessageArgCaptor;
-  @Captor private ArgumentCaptor<PendingTransactionAddedListener> transactionListenerCaptor;
 
   private final List<Address> validators = Lists.newArrayList();
   private final List<MessageFactory> validatorMessageFactory = Lists.newArrayList();
@@ -141,14 +133,10 @@ public class QbftBlockHeightManagerTest {
     when(messageValidator.validateCommit(any())).thenReturn(true);
     when(messageValidator.validatePrepare(any())).thenReturn(true);
     when(finalState.getBlockTimer()).thenReturn(blockTimer);
-    when(blockTimer.getQueue()).thenReturn(blockTimerEventQueue);
     when(finalState.getRoundTimer()).thenReturn(roundTimer);
     when(finalState.getQuorum()).thenReturn(3);
     when(finalState.getValidatorMulticaster()).thenReturn(validatorMulticaster);
     when(finalState.getClock()).thenReturn(clock);
-    when(finalState.getTransactionPool()).thenReturn(transactionPool);
-    when(transactionPool.subscribePendingTransactions(any(PendingTransactionAddedListener.class)))
-        .thenReturn(1L);
     when(blockCreator.createBlock(anyLong(), any()))
         .thenReturn(new QbftBlockCreator.BlockCreationResult(createdBlock, Optional.empty()));
 
@@ -345,6 +333,8 @@ public class QbftBlockHeightManagerTest {
 
   @Test
   public void onRoundTimerExpiryANewRoundIsCreatedWithAnIncrementedRoundNumber() {
+    when(blockTimer.checkEmptyBlockExpired(any(), anyLong())).thenReturn(true);
+
     final QbftBlockHeightManager manager =
         new QbftBlockHeightManager(
             headerTestFixture.buildHeader(),
@@ -636,104 +626,5 @@ public class QbftBlockHeightManagerTest {
 
     verify(roundFactory, times(1))
         .createNewRound(any(), eq(futureRoundIdentifier1.getRoundNumber()));
-  }
-
-  @Test
-  public void onTransactionAddedCancelsBlockTimerAndEnqueuesExpiryWhenProposerAndEmptyRound() {
-    // We are the proposer for the next block round and it's an empty round
-    when(finalState.isLocalNodeProposerForRound(any())).thenReturn(false);
-    when(finalState.isLocalNodeProposerForRound(roundIdentifier)).thenReturn(true);
-
-    // Capture the transaction listener so we can trigger it
-    when(transactionPool.subscribePendingTransactions(transactionListenerCaptor.capture()))
-        .thenReturn(1L);
-
-    new QbftBlockHeightManager(
-        headerTestFixture.buildHeader(),
-        finalState,
-        roundChangeManager,
-        roundFactory,
-        clock,
-        messageValidatorFactory,
-        messageFactory,
-        validatorProvider);
-
-    // Verify timer was started initially
-    verify(blockTimer, times(1)).startTimer(any(), any());
-
-    // Trigger the transaction listener (simulating a transaction arriving)
-    PendingTransactionAddedListener listener = transactionListenerCaptor.getValue();
-    Transaction mockTx = mock(Transaction.class);
-    listener.onTransactionAdded(mockTx);
-
-    // Verify block timer was cancelled and BlockTimerExpiry was enqueued
-    verify(blockTimer, times(1)).cancelTimer();
-    verify(blockTimerEventQueue, times(1)).add(any(BlockTimerExpiry.class));
-  }
-
-  @Test
-  public void onTransactionAddedDoesNothingWhenNotProposer() {
-    // We are NOT the proposer for the next block round and it's an empty round
-    when(finalState.isLocalNodeProposerForRound(any())).thenReturn(false);
-
-    // Capture the transaction listener so we can trigger it
-    when(transactionPool.subscribePendingTransactions(transactionListenerCaptor.capture()))
-        .thenReturn(1L);
-
-    new QbftBlockHeightManager(
-        headerTestFixture.buildHeader(),
-        finalState,
-        roundChangeManager,
-        roundFactory,
-        clock,
-        messageValidatorFactory,
-        messageFactory,
-        validatorProvider);
-
-    // Trigger the transaction listener (simulating a transaction arriving)
-    PendingTransactionAddedListener listener = transactionListenerCaptor.getValue();
-    Transaction mockTx = mock(Transaction.class);
-    listener.onTransactionAdded(mockTx);
-
-    // Verify block timer was NOT cancelled and no expiry was enqueued
-    verify(blockTimer, never()).cancelTimer();
-    verify(blockTimerEventQueue, never()).add(any(BlockTimerExpiry.class));
-  }
-
-  @Test
-  public void onTransactionAddedDoesNothingWhenRoundAlreadyStarted() {
-    // We are the proposer for round 0, but we'll start the round first
-    when(finalState.isLocalNodeProposerForRound(any())).thenReturn(true);
-    when(blockTimer.checkEmptyBlockExpired(any(), eq(0L))).thenReturn(true);
-    when(blockInterface.replaceRoundForCommitBlock(eq(createdBlock), eq(0)))
-        .thenReturn(createdBlock);
-
-    // Capture the transaction listener so we can trigger it
-    when(transactionPool.subscribePendingTransactions(transactionListenerCaptor.capture()))
-        .thenReturn(1L);
-
-    final QbftBlockHeightManager manager =
-        new QbftBlockHeightManager(
-            headerTestFixture.buildHeader(),
-            finalState,
-            roundChangeManager,
-            roundFactory,
-            clock,
-            messageValidatorFactory,
-            messageFactory,
-            validatorProvider);
-
-    // Start the round by triggering block timer expiry
-    manager.handleBlockTimerExpiry(roundIdentifier);
-
-    // At this point, currentRound is present (round has started)
-    // Now trigger the transaction listener
-    PendingTransactionAddedListener listener = transactionListenerCaptor.getValue();
-    Transaction mockTx = mock(Transaction.class);
-    listener.onTransactionAdded(mockTx);
-
-    // Verify block timer was NOT cancelled and no expiry was enqueued (round already started)
-    verify(blockTimer, never()).cancelTimer();
-    verify(blockTimerEventQueue, never()).add(any(BlockTimerExpiry.class));
   }
 }

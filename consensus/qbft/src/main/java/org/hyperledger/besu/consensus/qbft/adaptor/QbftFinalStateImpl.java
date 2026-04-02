@@ -25,7 +25,6 @@ import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockCreatorFactory;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftFinalState;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
 import java.time.Clock;
 import java.util.Collection;
@@ -41,7 +40,6 @@ public class QbftFinalStateImpl implements QbftFinalState {
   private final BlockTimer blockTimer;
   private final QbftBlockCreatorFactory blockCreatorFactory;
   private final Clock clock;
-  private final TransactionPool transactionPool;
 
   /**
    * Constructs a new QBFT final state.
@@ -75,7 +73,6 @@ public class QbftFinalStateImpl implements QbftFinalState {
     this.blockTimer = blockTimer;
     this.blockCreatorFactory = blockCreatorFactory;
     this.clock = clock;
-    this.transactionPool = blockCreatorFactory.getTransactionPool();
   }
 
   /**
@@ -187,10 +184,5 @@ public class QbftFinalStateImpl implements QbftFinalState {
   @Override
   public Clock getClock() {
     return clock;
-  }
-
-  @Override
-  public TransactionPool getTransactionPool() {
-    return transactionPool;
   }
 }

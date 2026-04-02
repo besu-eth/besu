@@ -19,7 +19,6 @@ import org.hyperledger.besu.consensus.common.bft.BftExtraDataCodec;
 import org.hyperledger.besu.consensus.common.bft.blockcreation.BftBlockCreatorFactory;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockCreator;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockCreatorFactory;
-import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
 /**
  * Adaptor class to allow a {@link BftBlockCreatorFactory} to be used as a {@link
@@ -47,10 +46,5 @@ public class QbftBlockCreatorFactoryAdaptor implements QbftBlockCreatorFactory {
   public QbftBlockCreator create(final int roundNumber) {
     return new QbftBlockCreatorAdaptor(
         qbftBlockCreatorFactory.create(roundNumber), bftExtraDataCodec);
-  }
-
-  @Override
-  public TransactionPool getTransactionPool() {
-    return qbftBlockCreatorFactory.getTransactionPool();
   }
 }

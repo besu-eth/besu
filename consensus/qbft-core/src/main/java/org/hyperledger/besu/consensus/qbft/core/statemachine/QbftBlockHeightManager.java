@@ -15,7 +15,6 @@
 package org.hyperledger.besu.consensus.qbft.core.statemachine;
 
 import org.hyperledger.besu.consensus.common.bft.ConsensusRoundIdentifier;
-import org.hyperledger.besu.consensus.common.bft.events.BlockTimerExpiry;
 import org.hyperledger.besu.consensus.common.bft.events.RoundExpiry;
 import org.hyperledger.besu.consensus.common.bft.messagewrappers.BftMessage;
 import org.hyperledger.besu.consensus.common.bft.payload.Payload;
@@ -33,7 +32,6 @@ import org.hyperledger.besu.consensus.qbft.core.types.QbftValidatorProvider;
 import org.hyperledger.besu.consensus.qbft.core.validation.FutureRoundProposalMessageValidator;
 import org.hyperledger.besu.consensus.qbft.core.validation.MessageValidatorFactory;
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModuleException;
 
@@ -124,7 +122,6 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
     this.nextBlockRoundId = new ConsensusRoundIdentifier(nextBlockHeight, 0);
 
     finalState.getBlockTimer().startTimer(nextBlockRoundId, parentHeader::getTimestamp);
-    finalState.getTransactionPool().subscribePendingTransactions(this::onTransactionAdded);
   }
 
   /**
@@ -197,7 +194,18 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
         finalState.isLocalNodeProposerForRound(qbftRound.getRoundIdentifier());
 
     if (!isProposer) {
-      // nothing to do here...
+      final long currentTimeInMillis = finalState.getClock().millis();
+      if (!finalState
+          .getBlockTimer()
+          .checkEmptyBlockExpired(parentHeader::getTimestamp, currentTimeInMillis)) {
+        // Mirror the proposer: reset timer, kill round timer, go idle
+        finalState
+            .getBlockTimer()
+            .resetTimerForEmptyBlock(
+                roundIdentifier, parentHeader::getTimestamp, currentTimeInMillis);
+        finalState.getRoundTimer().cancelTimer();
+        currentRound = Optional.empty();
+      }
       LOG.trace("This node is not a proposer so it will not send a proposal: " + roundIdentifier);
       return;
     }
@@ -497,13 +505,6 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
   @Override
   public Optional<RoundChangeManager> getRoundChangeManager() {
     return Optional.of(roundChangeManager);
-  }
-
-  private synchronized void onTransactionAdded(final Transaction tx) {
-    if (currentRound.isEmpty() && finalState.isLocalNodeProposerForRound(nextBlockRoundId)) {
-      finalState.getBlockTimer().cancelTimer();
-      finalState.getBlockTimer().getQueue().add(new BlockTimerExpiry(nextBlockRoundId));
-    }
   }
 
   /** The enum Message age. */

@@ -14,8 +14,6 @@
  */
 package org.hyperledger.besu.consensus.qbft.core.types;
 
-import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
-
 /** Factory for creating a {@link QbftBlockCreator} for a specific round. */
 public interface QbftBlockCreatorFactory {
 
@@ -26,11 +24,4 @@ public interface QbftBlockCreatorFactory {
    * @return A block creator for the specified round.
    */
   QbftBlockCreator create(int roundNumber);
-
-  /**
-   * Gets the transaction pool.
-   *
-   * @return the transaction pool
-   */
-  TransactionPool getTransactionPool();
 }
