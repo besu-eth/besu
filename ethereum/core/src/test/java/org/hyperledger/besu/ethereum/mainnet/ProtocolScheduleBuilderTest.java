@@ -35,10 +35,14 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PARIS;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
+import org.hyperledger.besu.config.BlobSchedule;
+import org.hyperledger.besu.config.BlobScheduleOptions;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.BlockValidator;
@@ -526,5 +530,49 @@ class ProtocolScheduleBuilderTest {
     final Field field = MainnetBlockValidator.class.getDeclaredField("blockAccessListValidator");
     field.setAccessible(true);
     return (BlockAccessListValidator) field.get(blockValidator);
+  }
+
+  @Test
+  void inactiveBpoForkBlobScheduleIsNotApplied() {
+    // Activate all forks through BPO2, skip BPO3-BPO5 (no timestamps), activate Amsterdam.
+    // BPO3-BPO5 have blob schedule entries but should NOT be applied since they lack timestamps.
+    when(configOptions.getHomesteadBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getByzantiumBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getConstantinopleBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getPetersburgBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getIstanbulBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBerlinBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getLondonBlockNumber()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getShanghaiTime()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getCancunTime()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getPragueTime()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getOsakaTime()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBpo1Time()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getBpo2Time()).thenReturn(OptionalLong.of(0));
+    // BPO3, BPO4, BPO5 are NOT activated (Mockito returns OptionalLong.empty() by default)
+    when(configOptions.getAmsterdamTime()).thenReturn(OptionalLong.of(0));
+    when(configOptions.getDepositContractAddress()).thenReturn(Optional.of(Address.ZERO));
+    when(configOptions.getConsolidationRequestContractAddress())
+        .thenReturn(Optional.of(Address.ZERO));
+    when(configOptions.getWithdrawalRequestContractAddress()).thenReturn(Optional.of(Address.ZERO));
+
+    // Set up blob schedule: BPO2 has max=21, BPO3-5 have max=9 (deliberately different)
+    final BlobScheduleOptions blobScheduleOptions =
+        mock(BlobScheduleOptions.class, withSettings().lenient());
+    when(blobScheduleOptions.getBpo2()).thenReturn(Optional.of(BlobSchedule.BPO2_DEFAULT));
+    when(blobScheduleOptions.getBpo3()).thenReturn(Optional.of(BlobSchedule.PRAGUE_DEFAULT));
+    when(blobScheduleOptions.getBpo4()).thenReturn(Optional.of(BlobSchedule.PRAGUE_DEFAULT));
+    when(blobScheduleOptions.getBpo5()).thenReturn(Optional.of(BlobSchedule.PRAGUE_DEFAULT));
+    when(configOptions.getBlobScheduleOptions()).thenReturn(Optional.of(blobScheduleOptions));
+
+    final ProtocolSchedule protocolSchedule = builder.createProtocolSchedule();
+    final ProtocolSpec amsterdamSpec = protocolSchedule.getByBlockHeader(blockHeader(1, 1));
+    assertThat(amsterdamSpec.getHardforkId()).isEqualTo(AMSTERDAM);
+
+    // BPO2_DEFAULT has max=21, so blob gas limit = 21 * 131072 = 2,752,512.
+    // If inactive BPO5's PRAGUE_DEFAULT (max=9) were applied, this would be 9 * 131072 = 1,179,648.
+    assertThat(amsterdamSpec.getGasLimitCalculator().currentBlobGasLimit())
+        .as("Amsterdam should use BPO2 blob schedule (max=21) since BPO3-BPO5 are inactive")
+        .isEqualTo(21L * 131072L);
   }
 }

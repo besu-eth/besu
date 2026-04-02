@@ -118,6 +118,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.IntStream;
@@ -1065,7 +1066,12 @@ public abstract class MainnetProtocolSpecs {
             isParallelTxProcessingEnabled,
             balConfiguration,
             metricsSystem);
-    return applyBlobSchedule(builder, genesisConfigOptions, BlobScheduleOptions::getBpo1, BPO1);
+    return applyBlobSchedule(
+        builder,
+        genesisConfigOptions,
+        BlobScheduleOptions::getBpo1,
+        GenesisConfigOptions::getBpo1Time,
+        BPO1);
   }
 
   static ProtocolSpecBuilder bpo2Definition(
@@ -1087,7 +1093,12 @@ public abstract class MainnetProtocolSpecs {
             isParallelTxProcessingEnabled,
             balConfiguration,
             metricsSystem);
-    return applyBlobSchedule(builder, genesisConfigOptions, BlobScheduleOptions::getBpo2, BPO2);
+    return applyBlobSchedule(
+        builder,
+        genesisConfigOptions,
+        BlobScheduleOptions::getBpo2,
+        GenesisConfigOptions::getBpo2Time,
+        BPO2);
   }
 
   static ProtocolSpecBuilder bpo3Definition(
@@ -1109,7 +1120,12 @@ public abstract class MainnetProtocolSpecs {
             isParallelTxProcessingEnabled,
             balConfiguration,
             metricsSystem);
-    return applyBlobSchedule(builder, genesisConfigOptions, BlobScheduleOptions::getBpo3, BPO3);
+    return applyBlobSchedule(
+        builder,
+        genesisConfigOptions,
+        BlobScheduleOptions::getBpo3,
+        GenesisConfigOptions::getBpo3Time,
+        BPO3);
   }
 
   static ProtocolSpecBuilder bpo4Definition(
@@ -1131,7 +1147,12 @@ public abstract class MainnetProtocolSpecs {
             isParallelTxProcessingEnabled,
             balConfiguration,
             metricsSystem);
-    return applyBlobSchedule(builder, genesisConfigOptions, BlobScheduleOptions::getBpo4, BPO4);
+    return applyBlobSchedule(
+        builder,
+        genesisConfigOptions,
+        BlobScheduleOptions::getBpo4,
+        GenesisConfigOptions::getBpo4Time,
+        BPO4);
   }
 
   static ProtocolSpecBuilder bpo5Definition(
@@ -1153,7 +1174,12 @@ public abstract class MainnetProtocolSpecs {
             isParallelTxProcessingEnabled,
             balConfiguration,
             metricsSystem);
-    return applyBlobSchedule(builder, genesisConfigOptions, BlobScheduleOptions::getBpo5, BPO5);
+    return applyBlobSchedule(
+        builder,
+        genesisConfigOptions,
+        BlobScheduleOptions::getBpo5,
+        GenesisConfigOptions::getBpo5Time,
+        BPO5);
   }
 
   static ProtocolSpecBuilder amsterdamDefinition(
@@ -1253,11 +1279,17 @@ public abstract class MainnetProtocolSpecs {
       final ProtocolSpecBuilder builder,
       final GenesisConfigOptions genesisConfigOptions,
       final Function<BlobScheduleOptions, Optional<BlobSchedule>> blobGetter,
+      final Function<GenesisConfigOptions, OptionalLong> forkTimestampGetter,
       final HardforkId hardforkId) {
-    genesisConfigOptions
-        .getBlobScheduleOptions()
-        .flatMap(blobGetter)
-        .ifPresent(builder::blobSchedule);
+    // Only apply a fork's blob schedule if the fork is actually activated (has a timestamp).
+    // This prevents inactive BPO forks from overriding the blob schedule with stale values
+    // from the genesis config.
+    if (forkTimestampGetter.apply(genesisConfigOptions).isPresent()) {
+      genesisConfigOptions
+          .getBlobScheduleOptions()
+          .flatMap(blobGetter)
+          .ifPresent(builder::blobSchedule);
+    }
     return builder.hardforkId(hardforkId);
   }
 
