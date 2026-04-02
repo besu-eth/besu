@@ -916,23 +916,26 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         closeables.add(archiveMigrator);
 
         final AtomicBoolean migrationStarted = new AtomicBoolean(false);
-        synchronizer.subscribeInSync(
-            (inSync) -> {
-              if (inSync && migrationStarted.compareAndSet(false, true)) {
-                LOG.info("Node is in sync, starting Bonsai archive migration");
-                archiveMigrator
-                    .migrate()
-                    .thenRun(() -> blockchain.observeBlockAdded(archiver))
-                    .exceptionally(
-                        error -> {
-                          LOG.error(
-                              "Archive migration failed, archiver will remain disabled until restart",
-                              error);
-                          return null;
-                        });
-              }
-            },
-            0);
+        final AtomicLong syncSubscriptionId = new AtomicLong();
+        syncSubscriptionId.set(
+            synchronizer.subscribeInSync(
+                (inSync) -> {
+                  if (inSync && migrationStarted.compareAndSet(false, true)) {
+                    synchronizer.unsubscribeInSync(syncSubscriptionId.get());
+                    LOG.info("Node is in sync, starting Bonsai archive migration");
+                    archiveMigrator
+                        .migrate()
+                        .thenRun(() -> blockchain.observeBlockAdded(archiver))
+                        .exceptionally(
+                            error -> {
+                              LOG.error(
+                                  "Archive migration failed, archiver will remain disabled until restart",
+                                  error);
+                              return null;
+                            });
+                  }
+                },
+                0));
       } else {
         blockchain.observeBlockAdded(archiver);
       }
