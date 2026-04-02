@@ -36,15 +36,6 @@ public enum NetworkDefinition {
       true, // can snap sync
       true, // native required
       60_000_000L), // target gas limit
-  /** Holešky network name. */
-  HOLESKY(
-      "/holesky.json",
-      17000, // chain id
-      17000, // network id
-      true, // can snap sync
-      true, // native required
-      60_000_000L, // target gas limit
-      "November 2025"),
   /** Hoodi network name. */
   HOODI(
       "/hoodi.json",
@@ -121,7 +112,6 @@ public enum NetworkDefinition {
   private final long chainId;
   private final long networkId;
   private final boolean canSnapSync;
-  private final String deprecationDate;
   private final boolean nativeRequired;
   private final long targetGasLimit;
 
@@ -132,24 +122,12 @@ public enum NetworkDefinition {
       final boolean canSnapSync,
       final boolean nativeRequired,
       final long targetGasLimit) {
-    this(genesisFile, chainId, networkId, canSnapSync, nativeRequired, targetGasLimit, null);
-  }
-
-  NetworkDefinition(
-      final String genesisFile,
-      final long chainId,
-      final long networkId,
-      final boolean canSnapSync,
-      final boolean nativeRequired,
-      final long targetGasLimit,
-      final String deprecationDate) {
     this.genesisFile = genesisFile;
     this.chainId = chainId;
     this.networkId = networkId;
     this.canSnapSync = canSnapSync;
     this.nativeRequired = nativeRequired;
     this.targetGasLimit = targetGasLimit;
-    this.deprecationDate = deprecationDate;
   }
 
   /**
@@ -196,24 +174,6 @@ public enum NetworkDefinition {
   public String normalize() {
     String n = name().toLowerCase(Locale.ROOT);
     return n.substring(0, 1).toUpperCase(Locale.ROOT) + n.substring(1);
-  }
-
-  /**
-   * Is deprecated boolean.
-   *
-   * @return the boolean
-   */
-  public boolean isDeprecated() {
-    return deprecationDate != null;
-  }
-
-  /**
-   * Gets deprecation date.
-   *
-   * @return the deprecation date
-   */
-  public Optional<String> getDeprecationDate() {
-    return Optional.ofNullable(deprecationDate);
   }
 
   /**
