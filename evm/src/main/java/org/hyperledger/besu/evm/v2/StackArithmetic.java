@@ -24,232 +24,273 @@ package org.hyperledger.besu.evm.v2;
  */
 public class StackArithmetic {
 
-  /** SHL: s[top-2] = s[top-2] << s[top-1], return top-1. */
-  public static int shl(final long[] s, final int top) {
-    final int a = (top - 1) << 2; // shift amount
-    final int b = (top - 2) << 2; // value
+  /**
+   * Performs EVM SHL (shift left) on the two top stack items.
+   *
+   * <p>Pops the shift amount (unsigned) and the value, pushes {@code value << shift}. Shifts >= 256
+   * or a zero value produce 0.
+   *
+   * @param stack the flat limb array
+   * @param top current stack-top (item count)
+   * @return the new stack-top after consuming one item
+   */
+  public static int shl(final long[] stack, final int top) {
+    final int shiftOffset = (top - 1) << 2;
+    final int valueOffset = (top - 2) << 2;
     // If shift amount > 255 or value is zero, result is zero
-    if (s[a] != 0
-        || s[a + 1] != 0
-        || s[a + 2] != 0
-        || Long.compareUnsigned(s[a + 3], 256) >= 0
-        || (s[b] == 0 && s[b + 1] == 0 && s[b + 2] == 0 && s[b + 3] == 0)) {
-      s[b] = 0;
-      s[b + 1] = 0;
-      s[b + 2] = 0;
-      s[b + 3] = 0;
+    if (stack[shiftOffset] != 0
+        || stack[shiftOffset + 1] != 0
+        || stack[shiftOffset + 2] != 0
+        || Long.compareUnsigned(stack[shiftOffset + 3], 256) >= 0
+        || (stack[valueOffset] == 0
+            && stack[valueOffset + 1] == 0
+            && stack[valueOffset + 2] == 0
+            && stack[valueOffset + 3] == 0)) {
+      stack[valueOffset] = 0;
+      stack[valueOffset + 1] = 0;
+      stack[valueOffset + 2] = 0;
+      stack[valueOffset + 3] = 0;
       return top - 1;
     }
-    int shift = (int) s[a + 3];
-    shiftLeftInPlace(s, b, shift);
+    int shift = (int) stack[shiftOffset + 3];
+    shiftLeftInPlace(stack, valueOffset, shift);
     return top - 1;
   }
 
-  /** Shift left in place. shift must be 0..255. */
-  private static void shiftLeftInPlace(final long[] s, final int off, final int shift) {
+  /**
+   * Left-shifts a 256-bit value in place by 1..255 bits, zero-filling from the right.
+   *
+   * @param stack the flat limb array
+   * @param valueOffset index of the value's most-significant limb
+   * @param shift number of bits to shift (must be in [1, 255])
+   */
+  private static void shiftLeftInPlace(final long[] stack, final int valueOffset, final int shift) {
     if (shift == 0) return;
-    int limbShift = shift >>> 6;
-    int bitShift = shift & 63;
-
-    // Move limbs (stored as [u3, u2, u1, u0] at [off, off+1, off+2, off+3])
-    // u3=off, u2=off+1, u1=off+2, u0=off+3
-    long u0 = s[off + 3], u1 = s[off + 2], u2 = s[off + 1], u3 = s[off];
-    long a0, a1, a2, a3;
-    switch (limbShift) {
+    long w0 = stack[valueOffset],
+        w1 = stack[valueOffset + 1],
+        w2 = stack[valueOffset + 2],
+        w3 = stack[valueOffset + 3];
+    final int wordShift = shift >>> 6;
+    final int bitShift = shift & 63;
+    switch (wordShift) {
       case 0:
-        a0 = u0;
-        a1 = u1;
-        a2 = u2;
-        a3 = u3;
+        w0 = shiftLeftWord(w0, w1, bitShift);
+        w1 = shiftLeftWord(w1, w2, bitShift);
+        w2 = shiftLeftWord(w2, w3, bitShift);
+        w3 = shiftLeftWord(w3, 0, bitShift);
         break;
       case 1:
-        a0 = 0;
-        a1 = u0;
-        a2 = u1;
-        a3 = u2;
+        w0 = shiftLeftWord(w1, w2, bitShift);
+        w1 = shiftLeftWord(w2, w3, bitShift);
+        w2 = shiftLeftWord(w3, 0, bitShift);
+        w3 = 0;
         break;
       case 2:
-        a0 = 0;
-        a1 = 0;
-        a2 = u0;
-        a3 = u1;
+        w0 = shiftLeftWord(w2, w3, bitShift);
+        w1 = shiftLeftWord(w3, 0, bitShift);
+        w2 = 0;
+        w3 = 0;
         break;
       case 3:
-        a0 = 0;
-        a1 = 0;
-        a2 = 0;
-        a3 = u0;
+        w0 = shiftLeftWord(w3, 0, bitShift);
+        w1 = 0;
+        w2 = 0;
+        w3 = 0;
         break;
-      default:
-        s[off] = 0;
-        s[off + 1] = 0;
-        s[off + 2] = 0;
-        s[off + 3] = 0;
-        return;
     }
-
-    if (bitShift == 0) {
-      s[off] = a3;
-      s[off + 1] = a2;
-      s[off + 2] = a1;
-      s[off + 3] = a0;
-    } else {
-      int inv = 64 - bitShift;
-      s[off + 3] = a0 << bitShift;
-      s[off + 2] = (a1 << bitShift) | (a0 >>> inv);
-      s[off + 1] = (a2 << bitShift) | (a1 >>> inv);
-      s[off] = (a3 << bitShift) | (a2 >>> inv);
-    }
+    stack[valueOffset] = w0;
+    stack[valueOffset + 1] = w1;
+    stack[valueOffset + 2] = w2;
+    stack[valueOffset + 3] = w3;
   }
 
-  /** SHR: s[top-2] = s[top-2] >>> s[top-1], return top-1. */
-  public static int shr(final long[] s, final int top) {
-    final int a = (top - 1) << 2; // shift amount
-    final int b = (top - 2) << 2; // value
-    if (s[a] != 0
-        || s[a + 1] != 0
-        || s[a + 2] != 0
-        || Long.compareUnsigned(s[a + 3], 256) >= 0
-        || (s[b] == 0 && s[b + 1] == 0 && s[b + 2] == 0 && s[b + 3] == 0)) {
-      s[b] = 0;
-      s[b + 1] = 0;
-      s[b + 2] = 0;
-      s[b + 3] = 0;
+  /**
+   * Shifts a 64-bit word left and carries in bits from the next less-significant word.
+   *
+   * @param value the current word
+   * @param nextValue the next less-significant word (bits carry in from its top)
+   * @param bitShift the intra-word shift amount in [0, 63]; 0 returns {@code value} unchanged to
+   *     avoid Java's mod-64 shift semantics on {@code nextValue >>> 64}
+   * @return the shifted word
+   */
+  private static long shiftLeftWord(final long value, final long nextValue, final int bitShift) {
+    if (bitShift == 0) return value;
+    return (value << bitShift) | (nextValue >>> (64 - bitShift));
+  }
+
+  /**
+   * Performs EVM SHR (logical shift right) on the two top stack items.
+   *
+   * <p>Pops the shift amount (unsigned) and the value, pushes {@code value >>> shift}. Shifts >=
+   * 256 or a zero value produce 0.
+   *
+   * @param stack the flat limb array
+   * @param top current stack-top (item count)
+   * @return the new stack-top after consuming one item
+   */
+  public static int shr(final long[] stack, final int top) {
+    final int shiftOffset = (top - 1) << 2;
+    final int valueOffset = (top - 2) << 2;
+    if (stack[shiftOffset] != 0
+        || stack[shiftOffset + 1] != 0
+        || stack[shiftOffset + 2] != 0
+        || Long.compareUnsigned(stack[shiftOffset + 3], 256) >= 0
+        || (stack[valueOffset] == 0
+            && stack[valueOffset + 1] == 0
+            && stack[valueOffset + 2] == 0
+            && stack[valueOffset + 3] == 0)) {
+      stack[valueOffset] = 0;
+      stack[valueOffset + 1] = 0;
+      stack[valueOffset + 2] = 0;
+      stack[valueOffset + 3] = 0;
       return top - 1;
     }
-    int shift = (int) s[a + 3];
-    shiftRightInPlace(s, b, shift);
+    int shift = (int) stack[shiftOffset + 3];
+    shiftRightInPlace(stack, valueOffset, shift);
     return top - 1;
   }
 
-  /** Logical shift right in place. shift must be 0..255. */
-  private static void shiftRightInPlace(final long[] s, final int off, final int shift) {
+  /**
+   * Logically right-shifts a 256-bit value in place by 1..255 bits, zero-filling from the left.
+   *
+   * @param s the flat limb array
+   * @param valueOffset index of the value's most-significant limb
+   * @param shift number of bits to shift (must be in [1, 255])
+   */
+  private static void shiftRightInPlace(final long[] s, final int valueOffset, final int shift) {
     if (shift == 0) return;
-    int limbShift = shift >>> 6;
-    int bitShift = shift & 63;
-
-    long u0 = s[off + 3], u1 = s[off + 2], u2 = s[off + 1], u3 = s[off];
-    long a0, a1, a2, a3;
-    switch (limbShift) {
+    long w0 = s[valueOffset],
+        w1 = s[valueOffset + 1],
+        w2 = s[valueOffset + 2],
+        w3 = s[valueOffset + 3];
+    final int wordShift = shift >>> 6;
+    final int bitShift = shift & 63;
+    switch (wordShift) {
       case 0:
-        a0 = u0;
-        a1 = u1;
-        a2 = u2;
-        a3 = u3;
+        w3 = shiftRightWord(w3, w2, bitShift);
+        w2 = shiftRightWord(w2, w1, bitShift);
+        w1 = shiftRightWord(w1, w0, bitShift);
+        w0 = shiftRightWord(w0, 0, bitShift);
         break;
       case 1:
-        a0 = u1;
-        a1 = u2;
-        a2 = u3;
-        a3 = 0;
+        w3 = shiftRightWord(w2, w1, bitShift);
+        w2 = shiftRightWord(w1, w0, bitShift);
+        w1 = shiftRightWord(w0, 0, bitShift);
+        w0 = 0;
         break;
       case 2:
-        a0 = u2;
-        a1 = u3;
-        a2 = 0;
-        a3 = 0;
+        w3 = shiftRightWord(w1, w0, bitShift);
+        w2 = shiftRightWord(w0, 0, bitShift);
+        w1 = 0;
+        w0 = 0;
         break;
       case 3:
-        a0 = u3;
-        a1 = 0;
-        a2 = 0;
-        a3 = 0;
+        w3 = shiftRightWord(w0, 0, bitShift);
+        w2 = 0;
+        w1 = 0;
+        w0 = 0;
         break;
-      default:
-        s[off] = 0;
-        s[off + 1] = 0;
-        s[off + 2] = 0;
-        s[off + 3] = 0;
-        return;
     }
-
-    if (bitShift == 0) {
-      s[off] = a3;
-      s[off + 1] = a2;
-      s[off + 2] = a1;
-      s[off + 3] = a0;
-    } else {
-      int inv = 64 - bitShift;
-      s[off] = a3 >>> bitShift;
-      s[off + 1] = (a2 >>> bitShift) | (a3 << inv);
-      s[off + 2] = (a1 >>> bitShift) | (a2 << inv);
-      s[off + 3] = (a0 >>> bitShift) | (a1 << inv);
-    }
+    s[valueOffset] = w0;
+    s[valueOffset + 1] = w1;
+    s[valueOffset + 2] = w2;
+    s[valueOffset + 3] = w3;
   }
 
-  /** SAR: s[top-2] = s[top-2] >> s[top-1] (arithmetic), return top-1. */
-  public static int sar(final long[] s, final int top) {
-    final int a = (top - 1) << 2; // shift amount
-    final int b = (top - 2) << 2; // value
-    boolean negative = s[b] < 0; // MSB of u3
-
-    if (s[a] != 0 || s[a + 1] != 0 || s[a + 2] != 0 || Long.compareUnsigned(s[a + 3], 256) >= 0) {
+  /**
+   * Performs EVM SAR (arithmetic shift right) on the two top stack items.
+   *
+   * <p>Pops the shift amount (unsigned) and the value (signed), pushes {@code value >> shift}.
+   * Shifts >= 256 produce 0 for positive values and -1 for negative values.
+   *
+   * @param stack the flat limb array
+   * @param top current stack-top (item count)
+   * @return the new stack-top after consuming one item
+   */
+  public static int sar(final long[] stack, final int top) {
+    final int shiftOffset = (top - 1) << 2;
+    final int valueOffset = (top - 2) << 2;
+    boolean negative = stack[valueOffset] < 0;
+    if (stack[shiftOffset] != 0
+        || stack[shiftOffset + 1] != 0
+        || stack[shiftOffset + 2] != 0
+        || Long.compareUnsigned(stack[shiftOffset + 3], 256) >= 0) {
       long fill = negative ? -1L : 0L;
-      s[b] = fill;
-      s[b + 1] = fill;
-      s[b + 2] = fill;
-      s[b + 3] = fill;
+      stack[valueOffset] = fill;
+      stack[valueOffset + 1] = fill;
+      stack[valueOffset + 2] = fill;
+      stack[valueOffset + 3] = fill;
       return top - 1;
     }
-    int shift = (int) s[a + 3];
-    sarInPlace(s, b, shift, negative);
+    int shift = (int) stack[shiftOffset + 3];
+    sarInPlace(stack, valueOffset, shift, negative);
     return top - 1;
   }
 
-  /** Arithmetic shift right in place. shift must be 0..255. */
+  /**
+   * Arithmetic right-shifts a 256-bit value in place by 0..255 bits, sign-extending with {@code
+   * fill}.
+   *
+   * @param stack the flat limb array
+   * @param valueOffset index of the value's most-significant limb
+   * @param shift number of bits to shift (must be in [0, 255])
+   * @param negative true if the original value is negative (fill = -1)
+   */
   private static void sarInPlace(
-      final long[] s, final int off, final int shift, final boolean negative) {
+      final long[] stack, final int valueOffset, final int shift, final boolean negative) {
     if (shift == 0) return;
-    int limbShift = shift >>> 6;
-    int bitShift = shift & 63;
-    long fill = negative ? -1L : 0L;
-
-    long u0 = s[off + 3], u1 = s[off + 2], u2 = s[off + 1], u3 = s[off];
-    long a0, a1, a2, a3;
-    switch (limbShift) {
+    long w0 = stack[valueOffset],
+        w1 = stack[valueOffset + 1],
+        w2 = stack[valueOffset + 2],
+        w3 = stack[valueOffset + 3];
+    final long fill = negative ? -1L : 0L;
+    final int wordShift = shift >>> 6;
+    final int bitShift = shift & 63;
+    switch (wordShift) {
       case 0:
-        a0 = u0;
-        a1 = u1;
-        a2 = u2;
-        a3 = u3;
+        w3 = shiftRightWord(w3, w2, bitShift);
+        w2 = shiftRightWord(w2, w1, bitShift);
+        w1 = shiftRightWord(w1, w0, bitShift);
+        w0 = shiftRightWord(w0, fill, bitShift);
         break;
       case 1:
-        a0 = u1;
-        a1 = u2;
-        a2 = u3;
-        a3 = fill;
+        w3 = shiftRightWord(w2, w1, bitShift);
+        w2 = shiftRightWord(w1, w0, bitShift);
+        w1 = shiftRightWord(w0, fill, bitShift);
+        w0 = fill;
         break;
       case 2:
-        a0 = u2;
-        a1 = u3;
-        a2 = fill;
-        a3 = fill;
+        w3 = shiftRightWord(w1, w0, bitShift);
+        w2 = shiftRightWord(w0, fill, bitShift);
+        w1 = fill;
+        w0 = fill;
         break;
       case 3:
-        a0 = u3;
-        a1 = fill;
-        a2 = fill;
-        a3 = fill;
+        w3 = shiftRightWord(w0, fill, bitShift);
+        w2 = fill;
+        w1 = fill;
+        w0 = fill;
         break;
-      default:
-        s[off] = fill;
-        s[off + 1] = fill;
-        s[off + 2] = fill;
-        s[off + 3] = fill;
-        return;
     }
+    stack[valueOffset] = w0;
+    stack[valueOffset + 1] = w1;
+    stack[valueOffset + 2] = w2;
+    stack[valueOffset + 3] = w3;
+  }
 
-    if (bitShift == 0) {
-      s[off] = a3;
-      s[off + 1] = a2;
-      s[off + 2] = a1;
-      s[off + 3] = a0;
-    } else {
-      int inv = 64 - bitShift;
-      s[off] = a3 >> bitShift; // arithmetic shift for MSB
-      s[off + 1] = (a2 >>> bitShift) | (a3 << inv);
-      s[off + 2] = (a1 >>> bitShift) | (a2 << inv);
-      s[off + 3] = (a0 >>> bitShift) | (a1 << inv);
-    }
+  /**
+   * Shifts a 64-bit word right and carries in bits from the previous more-significant word.
+   *
+   * <p>The {@code bitShift == 0} fast path avoids Java long-shift masking, where a shift by 64 is
+   * treated as a shift by 0.
+   *
+   * @param value the current word
+   * @param prevValue the previous more-significant word
+   * @param bitShift the intra-word shift amount in the range {@code [0..63]}
+   * @return the shifted word
+   */
+  private static long shiftRightWord(final long value, final long prevValue, final int bitShift) {
+    if (bitShift == 0) return value;
+    return (value >>> bitShift) | (prevValue << (64 - bitShift));
   }
 }
