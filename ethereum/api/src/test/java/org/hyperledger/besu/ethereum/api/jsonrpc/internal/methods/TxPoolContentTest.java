@@ -25,7 +25,8 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPoolContentResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPendingResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPoolResult;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
@@ -34,6 +35,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
 import java.util.List;
 import java.util.Map;
+import java.util.SequencedMap;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -70,7 +72,8 @@ public class TxPoolContentTest {
   public void shouldReturnEmptyResultWhenPoolIsEmpty() {
     when(transactionPool.getPendingTransactionsBySender()).thenReturn(Map.of());
 
-    final TransactionPoolContentResult result = invokeMethod();
+    final TransactionPoolResult<Map<String, SequencedMap<String, TransactionPendingResult>>>
+        result = invokeMethod();
 
     assertThat(result.getPending()).isEmpty();
     assertThat(result.getQueued()).isEmpty();
@@ -88,7 +91,8 @@ public class TxPoolContentTest {
             Map.of(
                 SENDER_A, new SenderPendingTransactionsData(SENDER_A, 0L, List.of(tx0, tx1, tx2))));
 
-    final TransactionPoolContentResult result = invokeMethod();
+    final TransactionPoolResult<Map<String, SequencedMap<String, TransactionPendingResult>>>
+        result = invokeMethod();
 
     assertThat(result.getPending()).containsOnlyKeys(SENDER_A.toString());
     assertThat(result.getPending().get(SENDER_A.toString())).containsOnlyKeys("0", "1", "2");
@@ -105,7 +109,8 @@ public class TxPoolContentTest {
         .thenReturn(
             Map.of(SENDER_A, new SenderPendingTransactionsData(SENDER_A, 0L, List.of(tx2, tx3))));
 
-    final TransactionPoolContentResult result = invokeMethod();
+    final TransactionPoolResult<Map<String, SequencedMap<String, TransactionPendingResult>>>
+        result = invokeMethod();
 
     assertThat(result.getPending()).isEmpty();
     assertThat(result.getQueued()).containsOnlyKeys(SENDER_A.toString());
@@ -126,7 +131,8 @@ public class TxPoolContentTest {
                 SENDER_A,
                 new SenderPendingTransactionsData(SENDER_A, 0L, List.of(tx0, tx1, tx3, tx4))));
 
-    final TransactionPoolContentResult result = invokeMethod();
+    final TransactionPoolResult<Map<String, SequencedMap<String, TransactionPendingResult>>>
+        result = invokeMethod();
 
     assertThat(result.getPending()).containsOnlyKeys(SENDER_A.toString());
     assertThat(result.getPending().get(SENDER_A.toString())).containsOnlyKeys("0", "1");
@@ -151,7 +157,8 @@ public class TxPoolContentTest {
                     new SenderPendingTransactionsData(SENDER_A, 0L, List.of(txA0, txA1, txA3)),
                 SENDER_B, new SenderPendingTransactionsData(SENDER_B, 5L, List.of(txB5, txB6))));
 
-    final TransactionPoolContentResult result = invokeMethod();
+    final TransactionPoolResult<Map<String, SequencedMap<String, TransactionPendingResult>>>
+        result = invokeMethod();
 
     assertThat(result.getPending()).containsOnlyKeys(SENDER_A.toString(), SENDER_B.toString());
     assertThat(result.getPending().get(SENDER_A.toString())).containsOnlyKeys("0", "1");
@@ -169,7 +176,8 @@ public class TxPoolContentTest {
         .thenReturn(
             Map.of(SENDER_A, new SenderPendingTransactionsData(SENDER_A, 0L, List.of(tx0))));
 
-    final TransactionPoolContentResult result = invokeMethod();
+    final TransactionPoolResult<Map<String, SequencedMap<String, TransactionPendingResult>>>
+        result = invokeMethod();
 
     assertThat(result.getPending().get(SENDER_A.toString())).containsOnlyKeys("0");
     assertThat(result.getQueued()).isEmpty();
@@ -184,7 +192,8 @@ public class TxPoolContentTest {
         .thenReturn(
             Map.of(SENDER_A, new SenderPendingTransactionsData(SENDER_A, 0L, List.of(tx5))));
 
-    final TransactionPoolContentResult result = invokeMethod();
+    final TransactionPoolResult<Map<String, SequencedMap<String, TransactionPendingResult>>>
+        result = invokeMethod();
 
     assertThat(result.getPending()).doesNotContainKey(SENDER_A.toString());
     assertThat(result.getQueued()).containsOnlyKeys(SENDER_A.toString());
@@ -203,19 +212,23 @@ public class TxPoolContentTest {
             Map.of(
                 SENDER_A, new SenderPendingTransactionsData(SENDER_A, 0L, List.of(tx0, tx1, tx2))));
 
-    final TransactionPoolContentResult result = invokeMethod();
+    final TransactionPoolResult<Map<String, SequencedMap<String, TransactionPendingResult>>>
+        result = invokeMethod();
 
     assertThat(result.getPending().get(SENDER_A.toString()).sequencedKeySet())
         .containsExactly("0", "1", "2");
   }
 
-  private TransactionPoolContentResult invokeMethod() {
+  @SuppressWarnings("unchecked")
+  private TransactionPoolResult<Map<String, SequencedMap<String, TransactionPendingResult>>>
+      invokeMethod() {
     final JsonRpcSuccessResponse response =
         (JsonRpcSuccessResponse)
             method.response(
                 new JsonRpcRequestContext(
                     new JsonRpcRequest(JSON_RPC_VERSION, METHOD_NAME, new Object[] {})));
-    return (TransactionPoolContentResult) response.getResult();
+    return (TransactionPoolResult<Map<String, SequencedMap<String, TransactionPendingResult>>>)
+        response.getResult();
   }
 
   private PendingTransaction pendingTx(final Address sender, final long nonce) {

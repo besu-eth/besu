@@ -27,13 +27,14 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
-@JsonPropertyOrder({"pc", "op", "gas", "gasCost", "depth", "stack", "memory", "storage"})
+@JsonPropertyOrder({"pc", "op", "gas", "gasCost", "depth", "refund", "stack", "memory", "storage"})
 public class StructLog {
 
   private static final char[] hexChars = "0123456789abcdef".toCharArray();
   private final int depth;
   private final long gas;
   private final long gasCost;
+  private final long refund;
   private final String[] memory;
   private final String op;
   private final int pc;
@@ -45,12 +46,11 @@ public class StructLog {
     depth = traceFrame.getDepth() + 1;
     gas = traceFrame.getGasRemaining();
     gasCost = traceFrame.getGasCost().orElse(0L);
+    refund = traceFrame.getGasRefund();
     memory =
         traceFrame
             .getMemory()
-            .map(
-                a ->
-                    Arrays.stream(a).map(bytes -> toCompactHex(bytes, true)).toArray(String[]::new))
+            .map(a -> Arrays.stream(a).map(StructLog::toBytes32Hex).toArray(String[]::new))
             .orElse(null);
     op = traceFrame.getOpcode();
     pc = traceFrame.getPc();
@@ -103,6 +103,12 @@ public class StructLog {
   @JsonGetter("gasCost")
   public long gasCost() {
     return gasCost;
+  }
+
+  @JsonGetter("refund")
+  @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+  public long refund() {
+    return refund;
   }
 
   @JsonGetter("memory")
