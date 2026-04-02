@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.evm.v2;
 
+import org.hyperledger.besu.evm.UInt256;
+
 /**
  * Static utility operating directly on the flat {@code long[]} operand stack. Each slot occupies 4
  * consecutive longs in big-endian limb order: {@code [u3, u2, u1, u0]} where u3 is the most
@@ -315,5 +317,25 @@ public class StackArithmetic {
     return (value >>> bitShift) | (prevValue << (64 - bitShift));
   }
 
-  // endregion
+  // region Arithmetic Operations
+  // --------------------------------------------------------------------------
+
+  /** MULMOD: s[top-3] = (s[top-1] * s[top-2]) mod s[top-3], return top-2. */
+  public static int mulMod(final long[] s, final int top) {
+    final int a = (top - 1) << 2;
+    final int b = (top - 2) << 2;
+    final int c = (top - 3) << 2;
+    UInt256 va = new UInt256(s[a], s[a + 1], s[a + 2], s[a + 3]);
+    UInt256 vb = new UInt256(s[b], s[b + 1], s[b + 2], s[b + 3]);
+    UInt256 vc = new UInt256(s[c], s[c + 1], s[c + 2], s[c + 3]);
+    UInt256 r = vc.isZero() ? UInt256.ZERO : va.mulMod(vb, vc);
+    s[c] = r.u3();
+    s[c + 1] = r.u2();
+    s[c + 2] = r.u1();
+    s[c + 3] = r.u0();
+    return top - 2;
+  }
+
+  // --------------------------------------------------------------------------
+  // end region
 }
