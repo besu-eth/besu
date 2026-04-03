@@ -43,6 +43,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
   private TraceFrame lastFrame;
 
   private Bytes inputData;
+  private int stepCount;
 
   /**
    * Creates the operation tracer.
@@ -57,10 +58,11 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
 
   @Override
   protected void capturePreExecutionState(final MessageFrame frame) {
-    if (options.limit() > 0 && traceFrames.size() >= options.limit()) {
+    if (options.limit() > 0 && stepCount >= options.limit()) {
       traceOpcode = false;
       return;
     }
+    stepCount++;
     if (lastFrame != null && frame.getDepth() > lastFrame.getDepth())
       inputData = frame.getInputData().copy();
     else inputData = frame.getInputData();
@@ -68,9 +70,6 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
 
   @Override
   public void tracePostExecution(final MessageFrame frame, final OperationResult operationResult) {
-    if (!traceOpcode) {
-      return;
-    }
     final Operation currentOperation = frame.getCurrentOperation();
     final String opcode = currentOperation.getName();
     final int opcodeNumber = (opcode != null) ? currentOperation.getOpcode() : Integer.MAX_VALUE;
@@ -92,6 +91,9 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
       final TraceFrame updatedLast =
           TraceFrame.from(lastTraceFrame).setGasRemainingPostExecution(gasRemaining).build();
       traceFrames.add(updatedLast);
+    }
+    if (!traceOpcode) {
+      return;
     }
 
     final Optional<Map<UInt256, UInt256>> storage = captureStorage(frame);
@@ -279,6 +281,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
   public void reset() {
     traceFrames = new ArrayList<>();
     lastFrame = null;
+    stepCount = 0;
   }
 
   public List<TraceFrame> copyTraceFrames() {
