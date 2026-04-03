@@ -371,8 +371,8 @@ public class TraceFrame {
     /**
      * Sets the storage entry touched by this operation.
      *
-     * <p>Per the execution-apis spec, this field is only populated for SLOAD and SSTORE
-     * opcodes and contains solely the single slot accessed or written by that operation.
+     * <p>Per the execution-apis spec, this field is only populated for SLOAD and SSTORE opcodes and
+     * contains solely the single slot accessed or written by that operation.
      *
      * @param storage the storage slot touched, as an optional single-entry map of slot key to
      *     value; empty for all opcodes other than SLOAD and SSTORE
@@ -718,9 +718,9 @@ public class TraceFrame {
   /**
    * Returns the storage slot touched by this operation.
    *
-   * <p>Per the execution-apis spec, this field is only populated for SLOAD and SSTORE opcodes
-   * and contains solely the single slot accessed or written by that operation. Empty for all
-   * other opcodes.
+   * <p>Per the execution-apis spec, this field is only populated for SLOAD and SSTORE opcodes and
+   * contains solely the single slot accessed or written by that operation. Empty for all other
+   * opcodes.
    *
    * @return an optional single-entry map of slot key to value, present only for SLOAD/SSTORE
    */

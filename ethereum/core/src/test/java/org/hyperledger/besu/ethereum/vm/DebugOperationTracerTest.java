@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.vm;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
 
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -37,9 +36,7 @@ import org.hyperledger.besu.evm.tracing.TraceFrame;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.List;
-import java.util.Map;
 import java.util.OptionalLong;
-import java.util.TreeMap;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -219,7 +216,7 @@ class DebugOperationTracerTest {
     final UInt256 storageKey = UInt256.fromHexString("0x01");
     final UInt256 storageValue = UInt256.fromHexString("0xdeadbeef");
     frame.pushStackItem(storageValue); // value (popped second by SSTORE)
-    frame.pushStackItem(storageKey);   // key   (popped first  by SSTORE)
+    frame.pushStackItem(storageKey); // key   (popped first  by SSTORE)
     final DebugOperationTracer tracer =
         new DebugOperationTracer(
             OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
