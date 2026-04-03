@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.vm;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -25,7 +24,6 @@ import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.MessageFrameTestFixture;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestBlockchain;
 import org.hyperledger.besu.evm.EVM;
-import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
@@ -82,6 +80,30 @@ class DebugOperationTracerTest {
       };
 
   private final CallOperation callOperation = new CallOperation(new CancunGasCalculator());
+
+  private static final UInt256 SLOAD_RETURNED_VALUE =
+      UInt256.fromHexString("0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc");
+
+  private final Operation SSTORE_OPERATION =
+      new AbstractOperation(0x55, "SSTORE", 2, 0, null) {
+        @Override
+        public OperationResult execute(final MessageFrame frame, final EVM evm) {
+          final UInt256 key = UInt256.fromBytes(frame.popStackItem());
+          final UInt256 value = UInt256.fromBytes(frame.popStackItem());
+          frame.storageWasUpdated(key, value);
+          return new OperationResult(5000L, null);
+        }
+      };
+
+  private final Operation SLOAD_OPERATION =
+      new AbstractOperation(0x54, "SLOAD", 1, 1, null) {
+        @Override
+        public OperationResult execute(final MessageFrame frame, final EVM evm) {
+          frame.popStackItem(); // consume the key
+          frame.pushStackItem(SLOAD_RETURNED_VALUE); // push the loaded value
+          return new OperationResult(2100L, null);
+        }
+      };
 
   @Test
   void shouldRecordProgramCounter() {
@@ -192,20 +214,60 @@ class DebugOperationTracerTest {
   }
 
   @Test
-  void shouldRecordStorageWhenEnabled() {
+  void shouldRecordStorageForSstoreWhenEnabled() {
     final MessageFrame frame = validMessageFrame();
-    final Map<UInt256, UInt256> updatedStorage = setupStorageForCapture(frame);
-    final TraceFrame traceFrame =
-        traceFrame(
-            frame,
+    final UInt256 storageKey = UInt256.fromHexString("0x01");
+    final UInt256 storageValue = UInt256.fromHexString("0xdeadbeef");
+    frame.pushStackItem(storageValue); // value (popped second by SSTORE)
+    frame.pushStackItem(storageKey);   // key   (popped first  by SSTORE)
+    final DebugOperationTracer tracer =
+        new DebugOperationTracer(
             OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
                 .traceStorage(true)
                 .traceMemory(false)
                 .traceStack(false)
                 .build(),
             false);
+    traceFrame(frame, tracer, SSTORE_OPERATION);
+    final TraceFrame traceFrame = getOnlyTraceFrame(tracer);
     assertThat(traceFrame.getStorage()).isPresent();
-    assertThat(traceFrame.getStorage()).contains(updatedStorage);
+    assertThat(traceFrame.getStorage().get()).hasSize(1);
+    assertThat(traceFrame.getStorage().get()).containsEntry(storageKey, storageValue);
+  }
+
+  @Test
+  void shouldRecordStorageForSloadWhenEnabled() {
+    final MessageFrame frame = validMessageFrame();
+    final UInt256 storageKey = UInt256.fromHexString("0x02");
+    frame.pushStackItem(storageKey); // key (popped by SLOAD)
+    final DebugOperationTracer tracer =
+        new DebugOperationTracer(
+            OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+                .traceStorage(true)
+                .traceMemory(false)
+                .traceStack(false)
+                .build(),
+            false);
+    traceFrame(frame, tracer, SLOAD_OPERATION);
+    final TraceFrame traceFrame = getOnlyTraceFrame(tracer);
+    assertThat(traceFrame.getStorage()).isPresent();
+    assertThat(traceFrame.getStorage().get()).hasSize(1);
+    assertThat(traceFrame.getStorage().get()).containsEntry(storageKey, SLOAD_RETURNED_VALUE);
+  }
+
+  @Test
+  void shouldNotRecordStorageForNonStorageOpcodeWhenEnabled() {
+    // storage is only emitted for SLOAD/SSTORE; non-storage opcodes produce empty storage
+    final TraceFrame traceFrame =
+        traceFrame(
+            validMessageFrame(),
+            OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+                .traceStorage(true)
+                .traceMemory(false)
+                .traceStack(false)
+                .build(),
+            false);
+    assertThat(traceFrame.getStorage()).isEmpty();
   }
 
   @Test
@@ -277,7 +339,6 @@ class DebugOperationTracerTest {
   @Test
   void shouldCaptureFrameWhenExceptionalHaltOccurs() {
     final MessageFrame frame = validMessageFrame();
-    final Map<UInt256, UInt256> updatedStorage = setupStorageForCapture(frame);
 
     final DebugOperationTracer tracer =
         new DebugOperationTracer(
@@ -294,7 +355,7 @@ class DebugOperationTracerTest {
     final TraceFrame traceFrame = getOnlyTraceFrame(tracer);
     assertThat(traceFrame.getExceptionalHaltReason())
         .contains(ExceptionalHaltReason.INSUFFICIENT_GAS);
-    assertThat(traceFrame.getStorage()).contains(updatedStorage);
+    assertThat(traceFrame.getStorage()).isEmpty();
   }
 
   @Test
@@ -483,23 +544,6 @@ class DebugOperationTracerTest {
     frame.writeMemory(0L, 32, initiatedMemory);
 
     return frame;
-  }
-
-  private Map<UInt256, UInt256> setupStorageForCapture(final MessageFrame frame) {
-    final MutableAccount account = mock(MutableAccount.class);
-    when(worldUpdater.getAccount(frame.getRecipientAddress())).thenReturn(account);
-
-    final Map<UInt256, UInt256> updatedStorage = new TreeMap<>();
-    updatedStorage.put(UInt256.ZERO, UInt256.valueOf(233));
-    updatedStorage.put(UInt256.ONE, UInt256.valueOf(2424));
-    when(account.getUpdatedStorage()).thenReturn(updatedStorage);
-    final Bytes32 word1 = Bytes32.fromHexString("0x01");
-    final Bytes32 word2 = Bytes32.fromHexString("0x02");
-    final Bytes32 word3 = Bytes32.fromHexString("0x03");
-    frame.writeMemory(0, 32, word1);
-    frame.writeMemory(32, 32, word2);
-    frame.writeMemory(64, 32, word3);
-    return updatedStorage;
   }
 
   private static DebugOperationTracer createDebugOperationTracerWithMemory() {
