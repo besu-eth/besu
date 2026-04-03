@@ -417,6 +417,44 @@ class DebugOperationTracerTest {
         .isEqualTo(WORD_1);
   }
 
+  @Test
+  void shouldCaptureAtMostLimitFrames() {
+    final OpCodeTracerConfig config =
+        OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+            .traceStorage(false)
+            .traceMemory(false)
+            .traceStack(false)
+            .limit(2)
+            .build();
+    final DebugOperationTracer tracer = new DebugOperationTracer(config, false);
+    final MessageFrame frame = validMessageFrame();
+
+    for (int i = 0; i < 5; i++) {
+      traceFrame(frame, tracer, anOperation);
+    }
+
+    assertThat(tracer.getTraceFrames()).hasSize(2);
+  }
+
+  @Test
+  void shouldBackfillGasRemainingPostExecutionOnLastCapturedFrameAtLimit() {
+    final OpCodeTracerConfig config =
+        OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+            .traceStorage(false)
+            .traceMemory(false)
+            .traceStack(false)
+            .limit(1)
+            .build();
+    final DebugOperationTracer tracer = new DebugOperationTracer(config, false);
+    final MessageFrame frame = validMessageFrame();
+
+    traceFrame(frame, tracer, anOperation);
+    traceFrame(frame, tracer, anOperation);
+
+    assertThat(tracer.getTraceFrames()).hasSize(1);
+    assertThat(tracer.getTraceFrames().get(0).getGasRemainingPostExecution()).isGreaterThan(0);
+  }
+
   private TraceFrame traceFrame(final MessageFrame frame) {
     return traceFrame(
         frame,
