@@ -35,11 +35,11 @@ import org.jspecify.annotations.Nullable;
     elementType = "filter",
     printObject = true)
 public class StackTraceMatchFilter extends AbstractFilter {
-  private final @Nullable String stackContains;
+  private final String stackContains;
   private final @Nullable String messageEquals;
 
   private StackTraceMatchFilter(
-      final @Nullable String stackContains,
+      final String stackContains,
       final @Nullable String messageEquals,
       final Result onMatch,
       final Result onMismatch) {
@@ -76,7 +76,6 @@ public class StackTraceMatchFilter extends AbstractFilter {
   private Result filter(final Throwable t) {
     if (t != null) {
       return (messageEquals == null || Objects.equals(t.getMessage(), messageEquals))
-              && stackContains != null
               && Arrays.stream(t.getStackTrace())
                   .map(StackTraceElement::getClassName)
                   .anyMatch(cn -> cn.contains(stackContains))
@@ -137,8 +136,11 @@ public class StackTraceMatchFilter extends AbstractFilter {
 
     @Override
     public StackTraceMatchFilter build() {
+      final String nonNullStackContains =
+          Objects.requireNonNull(stackContains, "stackContains must be provided");
+
       return new StackTraceMatchFilter(
-          this.stackContains, this.messageEquals, this.getOnMatch(), this.getOnMismatch());
+          nonNullStackContains, this.messageEquals, this.getOnMatch(), this.getOnMismatch());
     }
   }
 }

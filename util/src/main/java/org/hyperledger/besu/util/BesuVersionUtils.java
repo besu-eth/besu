@@ -24,7 +24,6 @@ import java.util.jar.Attributes;
 import java.util.jar.Manifest;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,11 +33,15 @@ import org.slf4j.LoggerFactory;
  */
 public final class BesuVersionUtils {
   private static final Logger LOG = LoggerFactory.getLogger(BesuVersionUtils.class);
+
+  /** Sentinel value used when the version or commit metadata is not available. */
+  public static final String UNKNOWN = "UNKNOWN";
+
   private static final String CLIENT = "besu";
-  private static final @Nullable String VERSION;
+  private static final String VERSION;
   private static final String OS = PlatformDetector.getOS();
   private static final String VM = PlatformDetector.getVM();
-  private static final @Nullable String COMMIT;
+  private static final String COMMIT;
 
   static {
     String className = BesuVersionUtils.class.getSimpleName() + ".class";
@@ -67,8 +70,8 @@ public final class BesuVersionUtils {
             Optional.ofNullable(implVersion).orElse("NONE/null"));
       }
     }
-    COMMIT = commit;
-    VERSION = implVersion;
+    COMMIT = commit != null ? commit : UNKNOWN;
+    VERSION = implVersion != null ? implVersion : UNKNOWN;
   }
 
   private BesuVersionUtils() {}
@@ -76,9 +79,10 @@ public final class BesuVersionUtils {
   /**
    * Generate version-only Besu version
    *
-   * @return Besu version in format such as "v23.1.0" or "v23.1.1-dev-ac23d311"
+   * @return Besu version in format such as "v23.1.0" or "v23.1.1-dev-ac23d311", or {@value UNKNOWN}
+   *     if not available
    */
-  public static @Nullable String shortVersion() {
+  public static String shortVersion() {
     return VERSION;
   }
 
@@ -118,9 +122,9 @@ public final class BesuVersionUtils {
   /**
    * Generate the commit hash for this besu version
    *
-   * @return the commit hash for this besu version
+   * @return the commit hash for this besu version, or {@value UNKNOWN} if not available
    */
-  public static @Nullable String commit() {
+  public static String commit() {
     return COMMIT;
   }
 }

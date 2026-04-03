@@ -58,7 +58,7 @@ public class OutdatedPluginTest extends AcceptanceTestBase {
                 line ->
                     line.contains(
                         "is built against Besu version 25.12.0 while current running Besu version is "
-                            + BesuVersionUtils.shortVersion())));
+                            + BesuVersionUtils.shortVersion().orElse("unknown"))));
   }
 
   @Test
@@ -92,6 +92,6 @@ public class OutdatedPluginTest extends AcceptanceTestBase {
                 line ->
                     line.contains(
                         "is built against Besu version 25.12.0 while current running Besu version is "
-                            + BesuVersionUtils.shortVersion())));
+                            + BesuVersionUtils.shortVersion().orElse("unknown"))));
   }
 }
