@@ -21,7 +21,7 @@ Besu is an Apache 2.0 licensed, MainNet compatible, Ethereum client written in J
 
 ## Issues 
 
-Besu issues are tracked [in the github issues tab][Besu Issues].
+Besu issues are tracked [in the GitHub issues tab][Besu Issues].
 See our [guidelines](https://lf-hyperledger.atlassian.net/wiki/spaces/BESU/pages/22154243/Issues) for more details on searching and creating issues.
 
 If you have any questions, queries or comments, [Besu channel on Discord] is the place to find us.
