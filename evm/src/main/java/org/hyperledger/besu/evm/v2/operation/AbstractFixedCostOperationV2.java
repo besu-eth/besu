@@ -22,6 +22,10 @@ import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 /** The Abstract fixed cost operation for V2 (long[] stack) operations. */
 abstract class AbstractFixedCostOperationV2 extends AbstractOperationV2 {
 
+  /** Shared overflow response for static operation methods. */
+  static final OperationResult OVERFLOW_RESPONSE =
+      new OperationResult(0L, ExceptionalHaltReason.TOO_MANY_STACK_ITEMS);
+
   /** The Success response. */
   protected final OperationResult successResponse;
 
