@@ -18,8 +18,10 @@ import static java.util.stream.Collectors.toUnmodifiableSet;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.BLOCKCHAIN;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.DEFAULT;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
+import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
@@ -93,6 +95,24 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   /** RocksDb Time to roll a log file (1 day = 3600 * 24 seconds) */
   private static final long TIME_TO_ROLL_LOG_FILE = 86_400L;
+
+  /**
+   * {@link OptimisticTransactionDB#open} and {@link org.rocksdb.TransactionDB#open} require the
+   * default column family in {@code columnFamilyDescriptors}. Full Besu segment lists include
+   * {@link KeyValueSegmentIdentifier#DEFAULT}; split databases (e.g. state-only) must inject it.
+   */
+  private static void ensureDefaultColumnFamilyPresent(
+      final List<SegmentIdentifier> trimmedSegments) {
+    if (trimmedSegments.isEmpty()) {
+      return;
+    }
+    final boolean hasDefault =
+        trimmedSegments.stream()
+            .anyMatch(seg -> Arrays.equals(seg.getId(), RocksDB.DEFAULT_COLUMN_FAMILY));
+    if (!hasDefault) {
+      trimmedSegments.add(0, DEFAULT);
+    }
+  }
 
   /**
    * Default RocksDB {@code target_file_size_base} is 64 MiB; larger SSTs reduce file count and open
@@ -174,6 +194,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
                   existingColumnFamilies.stream()
                       .noneMatch(existed -> Arrays.equals(existed, ignorableSegment.getId())))
           .forEach(trimmedSegments::remove);
+      ensureDefaultColumnFamilyPresent(trimmedSegments);
       columnDescriptors =
           trimmedSegments.stream()
               .map(segment -> createColumnDescriptor(segment, configuration))
