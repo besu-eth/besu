@@ -237,7 +237,6 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     traceFrames.add(traceFrame);
   }
 
-
   private Optional<Bytes> captureReturnData(final MessageFrame frame) {
     if (!options.traceReturnData()) {
       return Optional.empty();
