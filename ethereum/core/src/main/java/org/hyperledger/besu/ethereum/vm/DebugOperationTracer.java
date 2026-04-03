@@ -57,6 +57,10 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
 
   @Override
   protected void capturePreExecutionState(final MessageFrame frame) {
+    if (options.limit() > 0 && traceFrames.size() >= options.limit()) {
+      traceOpcode = false;
+      return;
+    }
     if (lastFrame != null && frame.getDepth() > lastFrame.getDepth())
       inputData = frame.getInputData().copy();
     else inputData = frame.getInputData();

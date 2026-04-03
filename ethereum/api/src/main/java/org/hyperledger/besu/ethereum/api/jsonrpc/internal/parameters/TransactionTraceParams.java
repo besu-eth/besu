@@ -69,6 +69,9 @@ public interface TransactionTraceParams {
     return Boolean.TRUE.equals(disableStackNullable());
   }
 
+  @JsonProperty(value = "limit")
+  @Nullable Integer limit();
+
   @JsonProperty("tracer")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   @Nullable String tracer();
@@ -121,6 +124,9 @@ public interface TransactionTraceParams {
     }
     if (disableStackNullable() != null) {
       builder.traceStack(!disableStack());
+    }
+    if (limit() != null) {
+      builder.limit(limit());
     }
     var opCodeTracerConfig = builder.traceOpcodes(opcodes()).build();
 

@@ -27,6 +27,7 @@ public final class OpCodeTracerConfigBuilder {
   private boolean traceReturnData;
   private Set<String> traceOpcodes;
   private boolean eip3155Strict;
+  private int limit;
 
   /**
    * Create an OpcodeTracerConfig builder from a previous built config.
@@ -57,6 +58,7 @@ public final class OpCodeTracerConfigBuilder {
     this.traceReturnData = opCodeTracerConfig.traceReturnData();
     this.traceOpcodes = opCodeTracerConfig.traceOpcodes();
     this.eip3155Strict = opCodeTracerConfig.eip3155Strict();
+    this.limit = opCodeTracerConfig.limit();
   }
 
   /**
@@ -113,6 +115,16 @@ public final class OpCodeTracerConfigBuilder {
     this.traceOpcodes = traceOpcodes.stream().map(String::toLowerCase).collect(Collectors.toSet());
     return this;
   }
+  /**
+   * Set the maximum number of steps to trace. Zero means unlimited.
+   *
+   * @param n maximum number of steps, or 0 for unlimited
+   * @return the current builder
+   */
+  public OpCodeTracerConfigBuilder limit(final int n) {
+    limit = n;
+    return this;
+  }
 
   /**
    * Set eip3155Strict flag.
@@ -132,7 +144,7 @@ public final class OpCodeTracerConfigBuilder {
    */
   public OpCodeTracerConfig build() {
     return new Config(
-        traceStorage, traceMemory, traceStack, traceReturnData, traceOpcodes, eip3155Strict);
+        traceStorage, traceMemory, traceStack, traceReturnData, traceOpcodes, eip3155Strict, limit);
   }
 
   /**
@@ -144,7 +156,7 @@ public final class OpCodeTracerConfigBuilder {
   public sealed interface OpCodeTracerConfig permits Config {
     /** static default OpcodeTracerConfig which can be accessed externally */
     OpCodeTracerConfig DEFAULT =
-        new Config(true, false, true, false, Collections.emptySet(), false);
+        new Config(true, false, true, false, Collections.emptySet(), false, 0);
 
     /**
      * Check if tracing of storage is enabled.
@@ -188,6 +200,13 @@ public final class OpCodeTracerConfigBuilder {
      * @return true if enabled, false otherwise
      */
     boolean eip3155Strict();
+
+    /**
+     * Maximum number of steps to trace. Zero means unlimited.
+     *
+     * @return the step limit, or 0 for unlimited
+     */
+    int limit();
   }
 
   private record Config(
@@ -196,6 +215,7 @@ public final class OpCodeTracerConfigBuilder {
       boolean traceStack,
       boolean traceReturnData,
       Set<String> traceOpcodes,
-      boolean eip3155Strict)
+      boolean eip3155Strict,
+      int limit)
       implements OpCodeTracerConfig {}
 }
