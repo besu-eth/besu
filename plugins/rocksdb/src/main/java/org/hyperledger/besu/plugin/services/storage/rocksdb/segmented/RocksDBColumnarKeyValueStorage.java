@@ -254,8 +254,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     cfProps.setProperty("block_based_table_factory.block_size", Long.toString(ROCKSDB_BLOCK_SIZE));
     cfProps.setProperty("block_based_table_factory.block_cache", Long.toString(blockCacheBytes));
     if (segment.getName().equals(ACCOUNT_STORAGE_STORAGE.getName())
-            || segment.getName().equals(ACCOUNT_INFO_STATE.getName())
-            || segment.getName().equals(TRIE_BRANCH_STORAGE.getName())) {
+        || segment.getName().equals(ACCOUNT_INFO_STATE.getName())
+        || segment.getName().equals(TRIE_BRANCH_STORAGE.getName())) {
       cfProps.setProperty(
           "target_file_size_base", Long.toString(BONSAI_LARGE_TARGET_FILE_SIZE_BYTES));
     }
