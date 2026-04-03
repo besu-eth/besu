@@ -15,7 +15,10 @@
 package org.hyperledger.besu.plugin.services.storage.rocksdb.segmented;
 
 import static java.util.stream.Collectors.toUnmodifiableSet;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.BLOCKCHAIN;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -90,6 +93,13 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   /** RocksDb Time to roll a log file (1 day = 3600 * 24 seconds) */
   private static final long TIME_TO_ROLL_LOG_FILE = 86_400L;
+
+  /**
+   * Default RocksDB {@code target_file_size_base} is 64 MiB; larger SSTs reduce file count and open
+   * FD pressure for high-volume Bonsai columns. User {@code
+   * --Xplugin-rocksdb-additional-column-family-options} may override per deployment.
+   */
+  private static final long BONSAI_LARGE_TARGET_FILE_SIZE_BYTES = 256L * 1024 * 1024;
 
   static {
     RocksDbUtil.loadNativeLibrary();
@@ -243,6 +253,12 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     cfProps.setProperty("block_based_table_factory.cache_index_and_filter_blocks", "false");
     cfProps.setProperty("block_based_table_factory.block_size", Long.toString(ROCKSDB_BLOCK_SIZE));
     cfProps.setProperty("block_based_table_factory.block_cache", Long.toString(blockCacheBytes));
+    if (segment.getName().equals(ACCOUNT_STORAGE_STORAGE.getName())
+            || segment.getName().equals(ACCOUNT_INFO_STATE.getName())
+            || segment.getName().equals(TRIE_BRANCH_STORAGE.getName())) {
+      cfProps.setProperty(
+          "target_file_size_base", Long.toString(BONSAI_LARGE_TARGET_FILE_SIZE_BYTES));
+    }
   }
 
   /**
