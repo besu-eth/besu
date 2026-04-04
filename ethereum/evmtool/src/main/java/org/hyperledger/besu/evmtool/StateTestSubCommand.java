@@ -96,9 +96,15 @@ public class StateTestSubCommand implements Runnable {
   private String fork = null;
 
   @Option(
-      names = {"--test-name"},
-      description = "Limit execution to one named test.")
+      names = {"--test-name", "--run"},
+      description = "Limit execution to one named test, or match a glob pattern (using * and ?).")
   private String testName = null;
+
+  @Option(
+      names = {"--workers"},
+      description = "Number of parallel workers for processing fixture files.",
+      defaultValue = "1")
+  private int workers = 1;
 
   @Option(
       names = {"--data-index"},
@@ -149,14 +155,15 @@ public class StateTestSubCommand implements Runnable {
             .getTypeFactory()
             .constructParametricType(Map.class, String.class, GeneralStateTestCaseSpec.class);
     try {
-      if (stateTestFiles.isEmpty()) {
+      final List<Path> collectedFiles = BlockchainTestSubCommand.collectFiles(stateTestFiles);
+
+      if (collectedFiles.isEmpty()) {
         // if no state tests were specified use standard input to get filenames
         final BufferedReader in =
             new BufferedReader(new InputStreamReader(parentCommand.in, UTF_8));
         while (true) {
           final String fileName = in.readLine();
           if (fileName == null) {
-            // reached end of file.  Stop the loop.
             break;
           }
           final File file = new File(fileName);
@@ -168,21 +175,49 @@ public class StateTestSubCommand implements Runnable {
             parentCommand.out.println("File not found: " + fileName);
           }
         }
+      } else if (workers > 1 && collectedFiles.size() > 1) {
+        // Parallel execution
+        final var executor = java.util.concurrent.Executors.newFixedThreadPool(workers);
+        final var futures = new ArrayList<java.util.concurrent.Future<?>>();
+        for (final Path file : collectedFiles) {
+          futures.add(executor.submit(() -> {
+            try {
+              final Map<String, GeneralStateTestCaseSpec> generalStateTests =
+                  stateTestMapper.readValue(file.toFile(), javaType);
+              executeStateTest(generalStateTests);
+            } catch (final Exception e) {
+              // Skip files that fail to parse
+            }
+          }));
+        }
+        for (final var future : futures) {
+          future.get();
+        }
+        executor.shutdown();
       } else {
-        for (final Path stateTestFile : stateTestFiles) {
-          final Map<String, GeneralStateTestCaseSpec> generalStateTests;
-          if ("stdin".equals(stateTestFile.toString())) {
-            generalStateTests = stateTestMapper.readValue(parentCommand.in, javaType);
-          } else {
-            generalStateTests = stateTestMapper.readValue(stateTestFile.toFile(), javaType);
+        for (final Path stateTestFile : collectedFiles) {
+          try {
+            if ("stdin".equals(stateTestFile.toString())) {
+              final Map<String, GeneralStateTestCaseSpec> generalStateTests =
+                  stateTestMapper.readValue(parentCommand.in, javaType);
+              executeStateTest(generalStateTests);
+            } else {
+              final Map<String, GeneralStateTestCaseSpec> generalStateTests =
+                  stateTestMapper.readValue(stateTestFile.toFile(), javaType);
+              executeStateTest(generalStateTests);
+            }
+          } catch (final Exception e) {
+            // Skip files that fail to parse
           }
-          executeStateTest(generalStateTests);
         }
       }
     } catch (final JsonProcessingException jpe) {
       parentCommand.out.println("File content error: " + jpe);
     } catch (final IOException e) {
       System.err.println("Unable to read state file");
+      e.printStackTrace(System.err);
+    } catch (final Exception e) {
+      System.err.println("Error: " + e.getMessage());
       e.printStackTrace(System.err);
     }
   }
