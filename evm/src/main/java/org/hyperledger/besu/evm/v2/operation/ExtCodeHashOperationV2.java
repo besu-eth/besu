@@ -58,7 +58,7 @@ public class ExtCodeHashOperationV2 extends AbstractOperation {
     return staticOperation(frame, frame.stackDataV2(), gasCalculator());
   }
 
-  /*
+  /**
    * Execute EXTCODEHASH on the v2 long[] stack.
    *
    * @param frame the message frame

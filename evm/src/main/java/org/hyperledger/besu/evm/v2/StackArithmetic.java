@@ -314,7 +314,13 @@ public class StackArithmetic {
   // region Binary Arithmetic (pop 2, push 1, return top-1)
   // ---------------------------------------------------------------------------
 
-  /** ADD: s[top-2] = s[top-1] + s[top-2], return top-1. */
+  /**
+   * ADD: s[top-2] = s[top-1] + s[top-2], return top-1.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int add(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     final int b = (top - 2) << 2;
@@ -345,7 +351,13 @@ public class StackArithmetic {
     return top - 1;
   }
 
-  /** SUB: s[top-2] = s[top-1] - s[top-2], return top-1. */
+  /**
+   * SUB: s[top-2] = s[top-1] - s[top-2], return top-1.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int sub(final long[] s, final int top) {
     final int a = (top - 1) << 2; // first operand (top)
     final int b = (top - 2) << 2; // second operand
@@ -381,7 +393,13 @@ public class StackArithmetic {
     return top - 1;
   }
 
-  /** MUL: s[top-2] = s[top-1] * s[top-2], return top-1. Delegates to UInt256 for now. */
+  /**
+   * MUL: s[top-2] = s[top-1] * s[top-2], return top-1. Delegates to UInt256 for now.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int mul(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     final int b = (top - 2) << 2;
@@ -395,7 +413,13 @@ public class StackArithmetic {
     return top - 1;
   }
 
-  /** DIV: s[top-2] = s[top-1] / s[top-2], return top-1. Delegates to UInt256. */
+  /**
+   * DIV: s[top-2] = s[top-1] / s[top-2], return top-1. Delegates to UInt256.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int div(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     final int b = (top - 2) << 2;
@@ -409,7 +433,13 @@ public class StackArithmetic {
     return top - 1;
   }
 
-  /** SDIV: s[top-2] = s[top-1] sdiv s[top-2], return top-1. Delegates to UInt256. */
+  /**
+   * SDIV: s[top-2] = s[top-1] sdiv s[top-2], return top-1. Delegates to UInt256.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int signedDiv(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     final int b = (top - 2) << 2;
@@ -423,7 +453,13 @@ public class StackArithmetic {
     return top - 1;
   }
 
-  /** MOD: s[top-2] = s[top-1] mod s[top-2], return top-1. Delegates to UInt256. */
+  /**
+   * MOD: s[top-2] = s[top-1] mod s[top-2], return top-1. Delegates to UInt256.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int mod(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     final int b = (top - 2) << 2;
@@ -437,7 +473,13 @@ public class StackArithmetic {
     return top - 1;
   }
 
-  /** SMOD: s[top-2] = s[top-1] smod s[top-2], return top-1. Delegates to UInt256. */
+  /**
+   * SMOD: s[top-2] = s[top-1] smod s[top-2], return top-1. Delegates to UInt256.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int signedMod(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     final int b = (top - 2) << 2;
@@ -451,7 +493,13 @@ public class StackArithmetic {
     return top - 1;
   }
 
-  /** EXP: s[top-2] = s[top-1] ** s[top-2] mod 2^256, return top-1. */
+  /**
+   * EXP: s[top-2] = s[top-1] ** s[top-2] mod 2^256, return top-1.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int exp(final long[] s, final int top) {
     final int a = (top - 1) << 2; // base
     final int b = (top - 2) << 2; // exponent
@@ -479,7 +527,13 @@ public class StackArithmetic {
   // region Bitwise Binary (pop 2, push 1, return top-1)
   // ---------------------------------------------------------------------------
 
-  /** AND: s[top-2] = s[top-1] & s[top-2], return top-1. */
+  /**
+   * AND: s[top-2] = s[top-1] &amp; s[top-2], return top-1.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int and(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     final int b = (top - 2) << 2;
@@ -490,7 +544,13 @@ public class StackArithmetic {
     return top - 1;
   }
 
-  /** OR: s[top-2] = s[top-1] | s[top-2], return top-1. */
+  /**
+   * OR: s[top-2] = s[top-1] | s[top-2], return top-1.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int or(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     final int b = (top - 2) << 2;
@@ -501,7 +561,13 @@ public class StackArithmetic {
     return top - 1;
   }
 
-  /** XOR: s[top-2] = s[top-1] ^ s[top-2], return top-1. */
+  /**
+   * XOR: s[top-2] = s[top-1] ^ s[top-2], return top-1.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int xor(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     final int b = (top - 2) << 2;
@@ -512,7 +578,13 @@ public class StackArithmetic {
     return top - 1;
   }
 
-  /** BYTE: s[top-2] = byte at offset s[top-1] of s[top-2], return top-1. */
+  /**
+   * BYTE: s[top-2] = byte at offset s[top-1] of s[top-2], return top-1.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int byte_(final long[] s, final int top) {
     final int a = (top - 1) << 2; // offset
     final int b = (top - 2) << 2; // value
@@ -538,7 +610,13 @@ public class StackArithmetic {
     return top - 1;
   }
 
-  /** SIGNEXTEND: sign-extend s[top-2] from byte s[top-1], return top-1. */
+  /**
+   * SIGNEXTEND: sign-extend s[top-2] from byte s[top-1], return top-1.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int signExtend(final long[] s, final int top) {
     final int a = (top - 1) << 2; // byte index b
     final int b = (top - 2) << 2; // value
@@ -578,7 +656,13 @@ public class StackArithmetic {
   // region Unary Operations (pop 1, push 1, return top)
   // ---------------------------------------------------------------------------
 
-  /** NOT: s[top-1] = ~s[top-1], return top. */
+  /**
+   * NOT: s[top-1] = ~s[top-1], return top.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int not(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     s[a] = ~s[a];
@@ -588,7 +672,13 @@ public class StackArithmetic {
     return top;
   }
 
-  /** ISZERO: s[top-1] = (s[top-1] == 0) ? 1 : 0, return top. */
+  /**
+   * ISZERO: s[top-1] = (s[top-1] == 0) ? 1 : 0, return top.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int isZero(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     boolean zero = (s[a] | s[a + 1] | s[a + 2] | s[a + 3]) == 0;
@@ -599,7 +689,13 @@ public class StackArithmetic {
     return top;
   }
 
-  /** CLZ: s[top-1] = count leading zeros of s[top-1], return top. */
+  /**
+   * CLZ: s[top-1] = count leading zeros of s[top-1], return top.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int clz(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     int result;
@@ -624,7 +720,13 @@ public class StackArithmetic {
   // region Comparison Operations (pop 2, push 1, return top-1)
   // ---------------------------------------------------------------------------
 
-  /** LT: s[top-2] = (s[top-1] < s[top-2]) ? 1 : 0, return top-1. Unsigned. */
+  /**
+   * LT: s[top-2] = (s[top-1] &lt; s[top-2]) ? 1 : 0, return top-1. Unsigned.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int lt(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     final int b = (top - 2) << 2;
@@ -636,7 +738,13 @@ public class StackArithmetic {
     return top - 1;
   }
 
-  /** GT: s[top-2] = (s[top-1] > s[top-2]) ? 1 : 0, return top-1. Unsigned. */
+  /**
+   * GT: s[top-2] = (s[top-1] &gt; s[top-2]) ? 1 : 0, return top-1. Unsigned.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int gt(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     final int b = (top - 2) << 2;
@@ -648,7 +756,13 @@ public class StackArithmetic {
     return top - 1;
   }
 
-  /** SLT: s[top-2] = (s[top-1] <s s[top-2]) ? 1 : 0, return top-1. Signed. */
+  /**
+   * SLT: s[top-2] = (s[top-1] &lt;s s[top-2]) ? 1 : 0, return top-1. Signed.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int slt(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     final int b = (top - 2) << 2;
@@ -660,7 +774,13 @@ public class StackArithmetic {
     return top - 1;
   }
 
-  /** SGT: s[top-2] = (s[top-1] >s s[top-2]) ? 1 : 0, return top-1. Signed. */
+  /**
+   * SGT: s[top-2] = (s[top-1] &gt;s s[top-2]) ? 1 : 0, return top-1. Signed.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int sgt(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     final int b = (top - 2) << 2;
@@ -672,7 +792,13 @@ public class StackArithmetic {
     return top - 1;
   }
 
-  /** EQ: s[top-2] = (s[top-1] == s[top-2]) ? 1 : 0, return top-1. */
+  /**
+   * EQ: s[top-2] = (s[top-1] == s[top-2]) ? 1 : 0, return top-1.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int eq(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     final int b = (top - 2) << 2;
@@ -690,7 +816,13 @@ public class StackArithmetic {
   // region Ternary Operations (pop 3, push 1, return top-2)
   // ---------------------------------------------------------------------------
 
-  /** ADDMOD: s[top-3] = (s[top-1] + s[top-2]) mod s[top-3], return top-2. */
+  /**
+   * ADDMOD: s[top-3] = (s[top-1] + s[top-2]) mod s[top-3], return top-2.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int addMod(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     final int b = (top - 2) << 2;
@@ -706,7 +838,13 @@ public class StackArithmetic {
     return top - 2;
   }
 
-  /** MULMOD: s[top-3] = (s[top-1] * s[top-2]) mod s[top-3], return top-2. */
+  /**
+   * MULMOD: s[top-3] = (s[top-1] * s[top-2]) mod s[top-3], return top-2.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int mulMod(final long[] s, final int top) {
     final int a = (top - 1) << 2;
     final int b = (top - 2) << 2;
@@ -727,7 +865,14 @@ public class StackArithmetic {
   // region Stack Manipulation
   // ---------------------------------------------------------------------------
 
-  /** DUP: copy slot at depth → new top, return top+1. depth is 1-based (DUP1 = depth 1). */
+  /**
+   * DUP: copy slot at depth to new top, return top+1. depth is 1-based (DUP1 = depth 1).
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param depth the 1-based depth of the slot to duplicate
+   * @return the new top index
+   */
   public static int dup(final long[] s, final int top, final int depth) {
     final int src = (top - depth) << 2;
     final int dst = top << 2;
@@ -738,7 +883,14 @@ public class StackArithmetic {
     return top + 1;
   }
 
-  /** SWAP: swap top ↔ slot at depth, return top. depth is 1-based (SWAP1 = depth 1). */
+  /**
+   * SWAP: swap top with slot at depth, return top. depth is 1-based (SWAP1 = depth 1).
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param depth the 1-based depth of the slot to swap with the top
+   * @return the new top index
+   */
   public static int swap(final long[] s, final int top, final int depth) {
     final int a = (top - 1) << 2;
     final int b = (top - 1 - depth) << 2;
@@ -758,7 +910,15 @@ public class StackArithmetic {
     return top;
   }
 
-  /** EXCHANGE: swap slot at n ↔ slot at m (both 0-indexed from top), return top. */
+  /**
+   * EXCHANGE: swap slot at n with slot at m (both 0-indexed from top), return top.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param n the 0-based index of the first slot (from top)
+   * @param m the 0-based index of the second slot (from top)
+   * @return the new top index
+   */
   public static int exchange(final long[] s, final int top, final int n, final int m) {
     final int a = (top - 1 - n) << 2;
     final int b = (top - 1 - m) << 2;
@@ -778,7 +938,13 @@ public class StackArithmetic {
     return top;
   }
 
-  /** PUSH0: push zero, return top+1. */
+  /**
+   * PUSH0: push zero, return top+1.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @return the new top index
+   */
   public static int pushZero(final long[] s, final int top) {
     final int dst = top << 2;
     s[dst] = 0;
@@ -788,7 +954,16 @@ public class StackArithmetic {
     return top + 1;
   }
 
-  /** PUSH1..PUSH32: decode bytes from code into a new top slot, return top+1. */
+  /**
+   * PUSH1..PUSH32: decode bytes from code into a new top slot, return top+1.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param code the bytecode array
+   * @param start the start offset within the code array
+   * @param len the number of bytes to push (1-32)
+   * @return the new top index
+   */
   public static int pushFromBytes(
       final long[] s, final int top, final byte[] code, final int start, final int len) {
     final int dst = top << 2;
@@ -840,7 +1015,14 @@ public class StackArithmetic {
     return top + 1;
   }
 
-  /** Push a long value (GAS, NUMBER, etc.), return top+1. */
+  /**
+   * Push a long value (GAS, NUMBER, etc.), return top+1.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param value the long value to push
+   * @return the new top index
+   */
   public static int pushLong(final long[] s, final int top, final long value) {
     final int dst = top << 2;
     s[dst] = 0;
@@ -850,7 +1032,14 @@ public class StackArithmetic {
     return top + 1;
   }
 
-  /** Push a Wei value onto the stack, return top+1. */
+  /**
+   * Push a Wei value onto the stack, return top+1.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param value the Wei value to push
+   * @return the new top index
+   */
   public static int pushWei(final long[] s, final int top, final Wei value) {
     final int dst = top << 2;
     final byte[] bytes = value.toArrayUnsafe();
@@ -861,7 +1050,14 @@ public class StackArithmetic {
     return top + 1;
   }
 
-  /** Push an Address (20 bytes), return top+1. */
+  /**
+   * Push an Address (20 bytes), return top+1.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param addr the address to push
+   * @return the new top index
+   */
   public static int pushAddress(final long[] s, final int top, final Address addr) {
     final int dst = top << 2;
     byte[] bytes = addr.getBytes().toArrayUnsafe();
@@ -878,18 +1074,39 @@ public class StackArithmetic {
   // region Boundary Helpers (read/write slots without changing top)
   // ---------------------------------------------------------------------------
 
-  /** Extract u0 (LSB limb) of slot at depth from top. */
+  /**
+   * Extract u0 (LSB limb) of slot at depth from top.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param depth the 0-based depth from the top
+   * @return the least-significant limb of the slot
+   */
   public static long longAt(final long[] s, final int top, final int depth) {
     return s[((top - 1 - depth) << 2) + 3];
   }
 
-  /** Check if slot at depth is zero. */
+  /**
+   * Check if slot at depth is zero.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param depth the 0-based depth from the top
+   * @return true if the slot is zero
+   */
   public static boolean isZeroAt(final long[] s, final int top, final int depth) {
     final int off = (top - 1 - depth) << 2;
     return (s[off] | s[off + 1] | s[off + 2] | s[off + 3]) == 0;
   }
 
-  /** Check if slot at depth fits in a non-negative int. */
+  /**
+   * Check if slot at depth fits in a non-negative int.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param depth the 0-based depth from the top
+   * @return true if the slot value fits in a non-negative int
+   */
   public static boolean fitsInInt(final long[] s, final int top, final int depth) {
     final int off = (top - 1 - depth) << 2;
     return s[off] == 0
@@ -899,7 +1116,14 @@ public class StackArithmetic {
         && s[off + 3] <= Integer.MAX_VALUE;
   }
 
-  /** Check if slot at depth fits in a non-negative long. */
+  /**
+   * Check if slot at depth fits in a non-negative long.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param depth the 0-based depth from the top
+   * @return true if the slot value fits in a non-negative long
+   */
   public static boolean fitsInLong(final long[] s, final int top, final int depth) {
     final int off = (top - 1 - depth) << 2;
     return s[off] == 0 && s[off + 1] == 0 && s[off + 2] == 0 && s[off + 3] >= 0;
@@ -907,6 +1131,11 @@ public class StackArithmetic {
 
   /**
    * Clamp slot at depth to long, returning Long.MAX_VALUE if it doesn't fit in a non-negative long.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param depth the 0-based depth from the top
+   * @return the slot value as a long, or Long.MAX_VALUE if it does not fit
    */
   public static long clampedToLong(final long[] s, final int top, final int depth) {
     final int off = (top - 1 - depth) << 2;
@@ -919,6 +1148,11 @@ public class StackArithmetic {
   /**
    * Clamp slot at depth to int, returning Integer.MAX_VALUE if it doesn't fit in a non-negative
    * int.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param depth the 0-based depth from the top
+   * @return the slot value as an int, or Integer.MAX_VALUE if it does not fit
    */
   public static int clampedToInt(final long[] s, final int top, final int depth) {
     final int off = (top - 1 - depth) << 2;
@@ -932,7 +1166,14 @@ public class StackArithmetic {
     return (int) s[off + 3];
   }
 
-  /** Write 32 big-endian bytes from slot at depth into dst. */
+  /**
+   * Write 32 big-endian bytes from slot at depth into dst.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param depth the 0-based depth from the top
+   * @param dst the destination byte array (must have at least 32 bytes)
+   */
   public static void toBytesAt(final long[] s, final int top, final int depth, final byte[] dst) {
     final int off = (top - 1 - depth) << 2;
     longIntoBytes(dst, 0, s[off]);
@@ -941,7 +1182,16 @@ public class StackArithmetic {
     longIntoBytes(dst, 24, s[off + 3]);
   }
 
-  /** Read bytes into slot at depth from src[srcOff..srcOff+len). Pads with zeros. */
+  /**
+   * Read bytes into slot at depth from src[srcOff..srcOff+len). Pads with zeros.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param depth the 0-based depth from the top
+   * @param src the source byte array
+   * @param srcOff the start offset within the source array
+   * @param len the number of bytes to read (up to 32)
+   */
   public static void fromBytesAt(
       final long[] s,
       final int top,
@@ -973,7 +1223,14 @@ public class StackArithmetic {
     }
   }
 
-  /** Extract 20-byte Address from slot at depth. */
+  /**
+   * Extract 20-byte Address from slot at depth.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param depth the 0-based depth from the top
+   * @return the address stored in the slot
+   */
   public static Address toAddressAt(final long[] s, final int top, final int depth) {
     final int off = (top - 1 - depth) << 2;
     byte[] bytes = new byte[20];
@@ -984,13 +1241,27 @@ public class StackArithmetic {
     return Address.wrap(org.apache.tuweni.bytes.Bytes.wrap(bytes));
   }
 
-  /** Materialize UInt256 record from slot at depth (boundary only). */
+  /**
+   * Materialize UInt256 record from slot at depth (boundary only).
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param depth the 0-based depth from the top
+   * @return the UInt256 value at the slot
+   */
   public static UInt256 getAt(final long[] s, final int top, final int depth) {
     final int off = (top - 1 - depth) << 2;
     return new UInt256(s[off], s[off + 1], s[off + 2], s[off + 3]);
   }
 
-  /** Write a Wei value into slot at depth. */
+  /**
+   * Write a Wei value into slot at depth.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param depth the 0-based depth from the top
+   * @param value the Wei value to write
+   */
   public static void putWeiAt(final long[] s, final int top, final int depth, final Wei value) {
     final int off = (top - 1 - depth) << 2;
     final byte[] bytes = value.toArrayUnsafe();
@@ -1000,7 +1271,14 @@ public class StackArithmetic {
     s[off + 3] = getLong(bytes, 24);
   }
 
-  /** Write UInt256 record into slot at depth. */
+  /**
+   * Write UInt256 record into slot at depth.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param depth the 0-based depth from the top
+   * @param val the UInt256 value to write
+   */
   public static void putAt(final long[] s, final int top, final int depth, final UInt256 val) {
     final int off = (top - 1 - depth) << 2;
     s[off] = val.u3();
@@ -1009,7 +1287,17 @@ public class StackArithmetic {
     s[off + 3] = val.u0();
   }
 
-  /** Write raw limbs into slot at depth. */
+  /**
+   * Write raw limbs into slot at depth.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param depth the 0-based depth from the top
+   * @param u3 the most-significant limb
+   * @param u2 the second limb
+   * @param u1 the third limb
+   * @param u0 the least-significant limb
+   */
   public static void putAt(
       final long[] s,
       final int top,
@@ -1025,7 +1313,14 @@ public class StackArithmetic {
     s[off + 3] = u0;
   }
 
-  /** Number of significant bytes in slot at depth. Used by EXP gas calculation. */
+  /**
+   * Number of significant bytes in slot at depth. Used by EXP gas calculation.
+   *
+   * @param s the stack array
+   * @param top the current top index
+   * @param depth the 0-based depth from the top
+   * @return the number of significant bytes in the slot
+   */
   public static int byteLengthAt(final long[] s, final int top, final int depth) {
     final int off = (top - 1 - depth) << 2;
     if (s[off] != 0) return 24 + byteLen(s[off]);
