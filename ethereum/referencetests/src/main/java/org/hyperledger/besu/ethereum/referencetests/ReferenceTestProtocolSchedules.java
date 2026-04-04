@@ -138,6 +138,11 @@ public class ReferenceTestProtocolSchedules {
                     "Paris",
                     createSchedule(genesisStub.clone().mergeNetSplitBlock(0), evmConfiguration)),
                 Map.entry(
+                    "ParisToShanghaiAtTime15k",
+                    createSchedule(
+                        genesisStub.clone().mergeNetSplitBlock(0).shanghaiTime(15000),
+                        evmConfiguration)),
+                Map.entry(
                     "Shanghai",
                     createSchedule(genesisStub.clone().shanghaiTime(0), evmConfiguration)),
                 Map.entry(
