@@ -1280,7 +1280,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             ethScheduler,
             protocolSchedule,
             protocolContext,
-            synchronizer));
+            synchronizer,
+            syncConfig.getSyncMode()));
   }
 
   WorldStateArchive createWorldStateArchive(
