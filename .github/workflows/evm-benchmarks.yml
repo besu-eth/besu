@@ -84,26 +84,7 @@ jobs:
           mkdir -p /tmp/benchmark-results/data/runs/${SHA}
           cp benchmark-output/jmh-results.json /tmp/benchmark-results/data/runs/${SHA}/results.json
           cp benchmark-output/metadata.json /tmp/benchmark-results/data/runs/${SHA}/metadata.json
-          python3 - << 'PYEOF'
-import json, os
-sha = os.environ["SHA"]
-index_path = "/tmp/benchmark-results/data/runs/index.json"
-runs = json.load(open(index_path)) if os.path.exists(index_path) else []
-meta = json.load(open(f"/tmp/benchmark-results/data/runs/{sha}/metadata.json"))
-data = json.load(open(f"/tmp/benchmark-results/data/runs/{sha}/results.json"))
-if not any(r.get("sha") == sha for r in runs):
-    runs.append({
-        "sha": meta["sha"],
-        "ref": meta["ref"],
-        "date": meta["date"],
-        "run_id": meta["run_id"],
-        "benchmark_filter": meta["benchmark_filter"],
-        "runner_os": meta["runner_os"],
-        "runner_arch": meta["runner_arch"],
-        "benchmark_count": len(data)
-    })
-    json.dump(runs, open(index_path, "w"), indent=2)
-PYEOF
+          BENCHMARK_RESULTS=/tmp/benchmark-results python3 scripts/update_benchmark_index.py
           cd /tmp/benchmark-results
           git add .
           git commit -m "data: add benchmark run ${SHA}"
