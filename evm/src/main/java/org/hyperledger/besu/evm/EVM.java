@@ -287,6 +287,7 @@ public class EVM {
     assert operationTracer.isEnabled() || operationTracer == OperationTracer.NO_TRACING;
 
     if (evmConfiguration.enableEvmV2()) {
+      frame.ensureV2Stack();
       runToHaltV2(frame, operationTracer);
       return;
     }
