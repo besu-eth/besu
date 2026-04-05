@@ -25,12 +25,12 @@ import org.apache.tuweni.bytes.Bytes32;
 /**
  * EVM v2 TSTORE operation (EIP-1153) using long[] stack representation.
  *
- * <p>Pops a slot key and value from the stack, then writes the value to transient storage. Fixed
- * gas cost equal to veryLow tier.
+ * <p>Pops a slot key and value from the stack, then writes the value to transient storage. Gas cost
+ * is WARM_STORAGE_READ_COST (100) per EIP-1153.
  */
 public class TStoreOperationV2 extends AbstractFixedCostOperationV2 {
 
-  private static final long GAS_COST = 3L;
+  private static final long GAS_COST = 100L;
   private static final OperationResult TSTORE_SUCCESS = new OperationResult(GAS_COST, null);
   private static final OperationResult TSTORE_OUT_OF_GAS =
       new OperationResult(GAS_COST, ExceptionalHaltReason.INSUFFICIENT_GAS);
@@ -63,13 +63,11 @@ public class TStoreOperationV2 extends AbstractFixedCostOperationV2 {
 
     final int top = frame.stackTopV2();
 
-    // Extract key (depth 0) and value (depth 1) as 32-byte arrays
     final byte[] keyBytes = new byte[32];
     final byte[] valueBytes = new byte[32];
     StackArithmetic.toBytesAt(s, top, 0, keyBytes);
     StackArithmetic.toBytesAt(s, top, 1, valueBytes);
 
-    // Pop 2
     frame.setTopV2(top - 2);
 
     final long remainingGas = frame.getRemainingGas();

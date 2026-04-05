@@ -249,6 +249,14 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
     frame.decrementRemainingGas(cost);
+
+    // EIP-8037: Charge state gas for new account creation in CALL
+    if (!gasCalculator()
+        .stateGasCostCalculator()
+        .chargeCallNewAccountStateGas(frame, recipientAddress, transferValue)) {
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+
     final long gasForChild = gasAvailableForChildCall(frame, s, top);
 
     frame.clearReturnData();

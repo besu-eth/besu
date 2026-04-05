@@ -114,6 +114,7 @@ import org.hyperledger.besu.evm.v2.operation.CoinbaseOperationV2;
 import org.hyperledger.besu.evm.v2.operation.Create2OperationV2;
 import org.hyperledger.besu.evm.v2.operation.CreateOperationV2;
 import org.hyperledger.besu.evm.v2.operation.DelegateCallOperationV2;
+import org.hyperledger.besu.evm.v2.operation.DifficultyOperationV2;
 import org.hyperledger.besu.evm.v2.operation.DivOperationV2;
 import org.hyperledger.besu.evm.v2.operation.DupNOperationV2;
 import org.hyperledger.besu.evm.v2.operation.DupOperationV2;
@@ -207,8 +208,11 @@ public class EVM {
   private final EvmSpecVersion evmSpecVersion;
 
   // Optimized operation flags
+  private final boolean enableByzantium;
   private final boolean enableConstantinople;
+  private final boolean enableIstanbul;
   private final boolean enableLondon;
+  private final boolean enableParis;
   private final boolean enableShanghai;
   private final boolean enableCancun;
   private final boolean enableAmsterdam;
@@ -240,8 +244,11 @@ public class EVM {
     this.evmSpecVersion = evmSpecVersion;
     this.jumpDestOnlyCodeCache = new JumpDestOnlyCodeCache(evmConfiguration);
 
+    enableByzantium = EvmSpecVersion.BYZANTIUM.ordinal() <= evmSpecVersion.ordinal();
     enableConstantinople = EvmSpecVersion.CONSTANTINOPLE.ordinal() <= evmSpecVersion.ordinal();
+    enableIstanbul = EvmSpecVersion.ISTANBUL.ordinal() <= evmSpecVersion.ordinal();
     enableLondon = EvmSpecVersion.LONDON.ordinal() <= evmSpecVersion.ordinal();
+    enableParis = EvmSpecVersion.PARIS.ordinal() <= evmSpecVersion.ordinal();
     enableShanghai = EvmSpecVersion.SHANGHAI.ordinal() <= evmSpecVersion.ordinal();
     enableCancun = EvmSpecVersion.CANCUN.ordinal() <= evmSpecVersion.ordinal();
     enableAmsterdam = EvmSpecVersion.AMSTERDAM.ordinal() <= evmSpecVersion.ordinal();
@@ -777,8 +784,10 @@ public class EVM {
               case 0x3c ->
                   ExtCodeCopyOperationV2.staticOperation(frame, frame.stackDataV2(), gasCalculator);
               case 0x3e ->
-                  ReturnDataCopyOperationV2.staticOperation(
-                      frame, frame.stackDataV2(), gasCalculator);
+                  enableByzantium
+                      ? ReturnDataCopyOperationV2.staticOperation(
+                          frame, frame.stackDataV2(), gasCalculator)
+                      : InvalidOperation.invalidOperationResult(opcode);
               case 0x3f ->
                   enableConstantinople
                       ? ExtCodeHashOperationV2.staticOperation(
@@ -786,7 +795,7 @@ public class EVM {
                       : InvalidOperation.invalidOperationResult(opcode);
               case 0x40 -> BlockHashOperationV2.staticOperation(frame, frame.stackDataV2());
               case 0x47 ->
-                  enableConstantinople
+                  enableIstanbul
                       ? SelfBalanceOperationV2.staticOperation(frame, frame.stackDataV2())
                       : InvalidOperation.invalidOperationResult(opcode);
               case 0x49 ->
@@ -801,11 +810,17 @@ public class EVM {
               case 0x36 -> CallDataSizeOperationV2.staticOperation(frame, frame.stackDataV2());
               case 0x38 -> CodeSizeOperationV2.staticOperation(frame, frame.stackDataV2());
               case 0x3a -> GasPriceOperationV2.staticOperation(frame, frame.stackDataV2());
-              case 0x3d -> ReturnDataSizeOperationV2.staticOperation(frame, frame.stackDataV2());
+              case 0x3d ->
+                  enableByzantium
+                      ? ReturnDataSizeOperationV2.staticOperation(frame, frame.stackDataV2())
+                      : InvalidOperation.invalidOperationResult(opcode);
               case 0x41 -> CoinbaseOperationV2.staticOperation(frame, frame.stackDataV2());
               case 0x42 -> TimestampOperationV2.staticOperation(frame, frame.stackDataV2());
               case 0x43 -> NumberOperationV2.staticOperation(frame, frame.stackDataV2());
-              case 0x44 -> PrevRandaoOperationV2.staticOperation(frame, frame.stackDataV2());
+              case 0x44 ->
+                  enableParis
+                      ? PrevRandaoOperationV2.staticOperation(frame, frame.stackDataV2())
+                      : DifficultyOperationV2.staticOperation(frame, frame.stackDataV2());
               case 0x45 -> GasLimitOperationV2.staticOperation(frame, frame.stackDataV2());
               case 0x46 -> // CHAINID (Istanbul+)
                   chainIdOperationV2 != null

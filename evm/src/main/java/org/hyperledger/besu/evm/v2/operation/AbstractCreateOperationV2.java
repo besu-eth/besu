@@ -116,6 +116,12 @@ public abstract class AbstractCreateOperationV2 extends AbstractOperationV2 {
 
     account.incrementNonce();
     frame.decrementRemainingGas(cost);
+
+    // EIP-8037: Charge state gas for CREATE
+    if (!gasCalculator().stateGasCostCalculator().chargeCreateStateGas(frame)) {
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+
     spawnChildMessage(frame, s, top, value, code);
     frame.incrementRemainingGas(cost);
 

@@ -26,11 +26,11 @@ import org.apache.tuweni.bytes.Bytes32;
  * EVM v2 TLOAD operation (EIP-1153) using long[] stack representation.
  *
  * <p>Pops a slot key from the stack, loads the value from transient storage, and pushes the result
- * back. Fixed gas cost equal to veryLow tier.
+ * back. Gas cost is WARM_STORAGE_READ_COST (100) per EIP-1153.
  */
 public class TLoadOperationV2 extends AbstractFixedCostOperationV2 {
 
-  private static final long GAS_COST = 3L;
+  private static final long GAS_COST = 100L;
   private static final OperationResult TLOAD_SUCCESS = new OperationResult(GAS_COST, null);
   private static final OperationResult TLOAD_OUT_OF_GAS =
       new OperationResult(GAS_COST, ExceptionalHaltReason.INSUFFICIENT_GAS);
@@ -67,12 +67,10 @@ public class TLoadOperationV2 extends AbstractFixedCostOperationV2 {
 
     final int top = frame.stackTopV2();
 
-    // Extract the 32-byte slot key from the stack
     final byte[] keyBytes = new byte[32];
     StackArithmetic.toBytesAt(s, top, 0, keyBytes);
     final Bytes32 slot = Bytes32.wrap(keyBytes);
 
-    // Load from transient storage and overwrite top slot in place
     final byte[] result =
         frame.getTransientStorageValue(frame.getRecipientAddress(), slot).toArrayUnsafe();
     StackArithmetic.fromBytesAt(s, top, 0, result, 0, result.length);
