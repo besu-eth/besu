@@ -126,7 +126,17 @@ public class StateTestSubCommand implements Runnable {
       description = "Limit execution to one fork.")
   private String forkIndex = null;
 
+  @Option(
+      names = {"--json-array"},
+      description =
+          "Output results as a JSON array with standard schema: name, pass, fork, stateRoot, error.")
+  private boolean jsonArray = false;
+
   @ParentCommand private final EvmToolCommand parentCommand;
+
+  // Collected results for --json-array mode
+  private final List<ObjectNode> jsonArrayResults =
+      Collections.synchronizedList(new ArrayList<>());
 
   // Cache protocol schedules across all tests — creating all 30+ schedules is very expensive
   private volatile ReferenceTestProtocolSchedules cachedSchedules;
@@ -225,6 +235,14 @@ public class StateTestSubCommand implements Runnable {
     } catch (final Exception e) {
       System.err.println("Error: " + e.getMessage());
       e.printStackTrace(System.err);
+    }
+
+    if (jsonArray) {
+      try {
+        parentCommand.out.println(SHARED_OBJECT_MAPPER.writeValueAsString(jsonArrayResults));
+      } catch (final JsonProcessingException e) {
+        parentCommand.out.println("[]");
+      }
     }
   }
 
@@ -397,7 +415,23 @@ public class StateTestSubCommand implements Runnable {
       }
 
       if (isLastIteration) {
-        parentCommand.out.println(summaryLine);
+        if (jsonArray) {
+          final ObjectNode standardResult = SHARED_OBJECT_MAPPER.createObjectNode();
+          standardResult.put("name", summaryLine.has("test") ? summaryLine.get("test").asText() : "");
+          standardResult.put("pass", summaryLine.has("pass") && summaryLine.get("pass").asBoolean());
+          standardResult.put("fork", summaryLine.has("fork") ? summaryLine.get("fork").asText() : "");
+          standardResult.put("stateRoot", summaryLine.has("stateRoot") ? summaryLine.get("stateRoot").asText() : "");
+          String error = "";
+          if (summaryLine.has("validationError")) {
+            error = summaryLine.get("validationError").asText();
+          } else if (summaryLine.has("error")) {
+            error = summaryLine.get("error").asText();
+          }
+          standardResult.put("error", error);
+          jsonArrayResults.add(standardResult);
+        } else {
+          parentCommand.out.println(summaryLine);
+        }
       }
     }
   }
