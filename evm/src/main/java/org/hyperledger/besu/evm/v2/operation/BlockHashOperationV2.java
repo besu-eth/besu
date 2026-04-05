@@ -21,7 +21,6 @@ import org.hyperledger.besu.evm.frame.BlockValues;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 /**
@@ -30,7 +29,7 @@ import org.hyperledger.besu.evm.v2.StackArithmetic;
  * <p>Pops a block number from the stack and pushes its hash, or zero if the block is out of the
  * lookback window (up to 256 blocks prior to the current block).
  */
-public class BlockHashOperationV2 extends AbstractOperation {
+public class BlockHashOperationV2 extends AbstractOperationV2 {
 
   /**
    * Instantiates a new BlockHash operation.

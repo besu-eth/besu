@@ -27,7 +27,6 @@ import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.frame.SoftFailureReason;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 import java.util.Optional;
@@ -43,7 +42,7 @@ import org.apache.tuweni.bytes.Bytes;
  * {@code enableEvmV2(true)}, suspends the parent, and writes the result back when the child
  * completes.
  */
-public abstract class AbstractCreateOperationV2 extends AbstractOperation {
+public abstract class AbstractCreateOperationV2 extends AbstractOperationV2 {
 
   /** Underflow response returned when the stack does not have enough items. */
   protected static final OperationResult UNDERFLOW_RESPONSE =

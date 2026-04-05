@@ -20,7 +20,6 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 /**
@@ -29,7 +28,7 @@ import org.hyperledger.besu.evm.v2.StackArithmetic;
  * <p>Pops an address from the stack and replaces it with the Keccak-256 hash of the external
  * account's code. Returns zero for empty or non-existent accounts. Applies warm/cold access cost.
  */
-public class ExtCodeHashOperationV2 extends AbstractOperation {
+public class ExtCodeHashOperationV2 extends AbstractOperationV2 {
 
   /**
    * Instantiates a new ExtCodeHash operation.
@@ -84,7 +83,7 @@ public class ExtCodeHashOperationV2 extends AbstractOperation {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    final Account account = frame.getWorldUpdater().getAccount(address);
+    final Account account = getAccount(address, frame);
 
     // Overwrite in place (pop 1, push 1)
     if (account == null || account.isEmpty()) {

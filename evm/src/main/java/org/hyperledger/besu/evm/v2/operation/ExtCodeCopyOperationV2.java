@@ -22,7 +22,6 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -33,7 +32,7 @@ import org.apache.tuweni.bytes.Bytes;
  * <p>Pops address, destOffset, sourceOffset, and size from the stack, applies warm/cold account
  * access cost, and copies the external contract's code into memory.
  */
-public class ExtCodeCopyOperationV2 extends AbstractOperation {
+public class ExtCodeCopyOperationV2 extends AbstractOperationV2 {
 
   /**
    * Instantiates a new ExtCodeCopy operation.
@@ -103,7 +102,7 @@ public class ExtCodeCopyOperationV2 extends AbstractOperation {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    final Account account = frame.getWorldUpdater().getAccount(address);
+    final Account account = getAccount(address, frame);
     final Bytes code = account != null ? account.getCode() : Bytes.EMPTY;
 
     frame.writeMemory(memOffset, sourceOffset, numBytes, code);

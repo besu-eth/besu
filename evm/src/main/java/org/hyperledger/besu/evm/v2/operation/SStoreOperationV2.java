@@ -19,7 +19,6 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 import java.util.function.Supplier;
@@ -35,7 +34,7 @@ import org.apache.tuweni.units.bigints.UInt256;
  * <p>Pops a storage key and new value from the stack, then writes the value to contract storage.
  * Applies EIP-2200 gas costs and refund accounting.
  */
-public class SStoreOperationV2 extends AbstractOperation {
+public class SStoreOperationV2 extends AbstractOperationV2 {
 
   /** Minimum gas remaining for Frontier (no minimum). */
   public static final long FRONTIER_MINIMUM = 0L;

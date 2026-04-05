@@ -18,10 +18,9 @@ import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 
 /** EVM v2 INVALID operation. Always halts with INVALID_OPERATION. */
-public class InvalidOperationV2 extends AbstractOperation {
+public class InvalidOperationV2 extends AbstractOperationV2 {
 
   /** The constant OPCODE. */
   public static final int OPCODE = 0xFE;

@@ -18,7 +18,6 @@ import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 /**
@@ -27,7 +26,7 @@ import org.hyperledger.besu.evm.v2.StackArithmetic;
  * <p>Pops destOffset, sourceOffset, and size from the stack, then copies {@code size} bytes of the
  * current executing contract's code into memory at {@code destOffset}.
  */
-public class CodeCopyOperationV2 extends AbstractOperation {
+public class CodeCopyOperationV2 extends AbstractOperationV2 {
 
   /**
    * Instantiates a new CodeCopy operation.

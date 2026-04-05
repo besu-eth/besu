@@ -20,7 +20,6 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 /**
@@ -29,7 +28,7 @@ import org.hyperledger.besu.evm.v2.StackArithmetic;
  * <p>Pops an address from the stack and replaces it with the external account's code size. Applies
  * warm/cold account access cost.
  */
-public class ExtCodeSizeOperationV2 extends AbstractOperation {
+public class ExtCodeSizeOperationV2 extends AbstractOperationV2 {
 
   /**
    * Instantiates a new ExtCodeSize operation.
@@ -83,7 +82,7 @@ public class ExtCodeSizeOperationV2 extends AbstractOperation {
     if (frame.getRemainingGas() < cost) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
-    final Account account = frame.getWorldUpdater().getAccount(address);
+    final Account account = getAccount(address, frame);
     // Overwrite in place (pop 1, push 1)
     final long codeSize = account == null ? 0L : account.getCode().size();
     StackArithmetic.putAt(s, top, 0, 0L, 0L, 0L, codeSize);

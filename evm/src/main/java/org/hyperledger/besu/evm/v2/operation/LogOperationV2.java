@@ -21,7 +21,6 @@ import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 import com.google.common.collect.ImmutableList;
@@ -31,7 +30,7 @@ import org.apache.tuweni.bytes.Bytes32;
 /**
  * EVM v2 LOG operation (LOG0-LOG4) using long[] stack representation. Parameterized by topic count.
  */
-public class LogOperationV2 extends AbstractOperation {
+public class LogOperationV2 extends AbstractOperationV2 {
 
   private final int numTopics;
 

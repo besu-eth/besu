@@ -18,12 +18,11 @@ import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 /** The MLOAD operation for EVM v2. */
-public class MloadOperationV2 extends AbstractOperation {
+public class MloadOperationV2 extends AbstractOperationV2 {
 
   /**
    * Instantiates a new MLOAD operation.

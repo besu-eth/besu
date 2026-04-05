@@ -19,7 +19,6 @@ import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 import java.util.List;
@@ -30,7 +29,7 @@ import java.util.List;
  * <p>Reads an index from the top of the stack and replaces it with the versioned hash at that index
  * in the transaction's blob versioned hashes list, or zero if the index is out of range.
  */
-public class BlobHashOperationV2 extends AbstractOperation {
+public class BlobHashOperationV2 extends AbstractOperationV2 {
 
   /** BLOBHASH opcode number */
   public static final int OPCODE = 0x49;

@@ -20,7 +20,6 @@ import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -31,7 +30,7 @@ import org.apache.tuweni.bytes.Bytes;
  * <p>Pops offset and size from the stack, hashes the corresponding memory region with Keccak-256,
  * and pushes the 32-byte hash result. Net stack effect: 2 popped, 1 pushed (top - 1).
  */
-public class Keccak256OperationV2 extends AbstractOperation {
+public class Keccak256OperationV2 extends AbstractOperationV2 {
 
   /**
    * Instantiates a new Keccak256 operation.

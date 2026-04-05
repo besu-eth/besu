@@ -18,12 +18,11 @@ import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 /** The MSTORE8 operation for EVM v2. */
-public class Mstore8OperationV2 extends AbstractOperation {
+public class Mstore8OperationV2 extends AbstractOperationV2 {
 
   /**
    * Instantiates a new MSTORE8 operation.

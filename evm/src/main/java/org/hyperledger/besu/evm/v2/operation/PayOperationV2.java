@@ -24,7 +24,6 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 import java.util.Objects;
@@ -32,7 +31,7 @@ import java.util.Objects;
 import org.apache.tuweni.bytes.Bytes;
 
 /** EVM v2 PAY operation (EIP-7708) using long[] stack representation. */
-public class PayOperationV2 extends AbstractOperation {
+public class PayOperationV2 extends AbstractOperationV2 {
 
   /**
    * Instantiates a new Pay operation.

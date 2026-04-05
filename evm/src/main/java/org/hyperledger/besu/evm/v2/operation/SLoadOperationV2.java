@@ -19,7 +19,6 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 import org.apache.tuweni.bytes.Bytes32;
@@ -31,7 +30,7 @@ import org.apache.tuweni.units.bigints.UInt256;
  * <p>Pops a storage key from the stack, loads the value from the contract's storage, and pushes the
  * result back. Applies warm/cold access costs per EIP-2929.
  */
-public class SLoadOperationV2 extends AbstractOperation {
+public class SLoadOperationV2 extends AbstractOperationV2 {
 
   private final long warmCost;
   private final long coldCost;

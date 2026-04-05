@@ -18,7 +18,6 @@ import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -30,7 +29,7 @@ import org.apache.tuweni.bytes.Bytes;
  * return data buffer into memory at {@code destOffset}. Halts with
  * INVALID_RETURN_DATA_BUFFER_ACCESS if the source range exceeds the buffer.
  */
-public class ReturnDataCopyOperationV2 extends AbstractOperation {
+public class ReturnDataCopyOperationV2 extends AbstractOperationV2 {
 
   private static final OperationResult INVALID_RETURN_DATA_BUFFER_ACCESS =
       new OperationResult(0L, ExceptionalHaltReason.INVALID_RETURN_DATA_BUFFER_ACCESS);

@@ -23,11 +23,10 @@ import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.log.TransferLogEmitter;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 /** EVM v2 SELFDESTRUCT operation using long[] stack representation. */
-public class SelfDestructOperationV2 extends AbstractOperation {
+public class SelfDestructOperationV2 extends AbstractOperationV2 {
 
   private final boolean eip6780Semantics;
   private final TransferLogEmitter transferLogEmitter;

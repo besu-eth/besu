@@ -18,13 +18,12 @@ import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 import org.apache.tuweni.bytes.Bytes;
 
 /** EVM v2 REVERT operation using long[] stack representation. */
-public class RevertOperationV2 extends AbstractOperation {
+public class RevertOperationV2 extends AbstractOperationV2 {
 
   /** REVERT opcode number */
   public static final int OPCODE = 0xFD;
