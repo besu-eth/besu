@@ -67,6 +67,21 @@ import org.apache.tuweni.bytes.Bytes32;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class BlockchainReferenceTestCaseSpec {
 
+  // Shared no-op ServiceManager — avoids anonymous class allocation per test
+  private static final ServiceManager SHARED_SERVICE_MANAGER = new ServiceManager() {
+    @Override
+    public <T extends BesuService> void addService(
+        final Class<T> serviceType, final T service) {}
+    @Override
+    public <T extends BesuService> Optional<T> getService(final Class<T> serviceType) {
+      return Optional.empty();
+    }
+  };
+
+  // Shared no-op trie loader — stateless, safe to reuse
+  private static final NoopBonsaiCachedMerkleTrieLoader SHARED_TRIE_LOADER =
+      new NoopBonsaiCachedMerkleTrieLoader();
+
   private final String network;
 
   private final CandidateBlock[] candidateBlocks;
@@ -92,17 +107,8 @@ public class BlockchainReferenceTestCaseSpec {
             ImmutablePathBasedExtraStorageConfiguration.builder()
                 .maxLayersToLoad(cacheSize)
                 .build(),
-            new NoopBonsaiCachedMerkleTrieLoader(),
-            new ServiceManager() {
-              @Override
-              public <T extends BesuService> void addService(
-                  final Class<T> serviceType, final T service) {}
-
-              @Override
-              public <T extends BesuService> Optional<T> getService(final Class<T> serviceType) {
-                return Optional.empty();
-              }
-            },
+            SHARED_TRIE_LOADER,
+            SHARED_SERVICE_MANAGER,
             EvmConfiguration.DEFAULT,
             () -> (__, ___) -> {},
             new CodeCache());

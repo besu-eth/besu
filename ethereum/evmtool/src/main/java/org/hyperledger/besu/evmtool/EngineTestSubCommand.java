@@ -18,8 +18,6 @@ package org.hyperledger.besu.evmtool;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.hyperledger.besu.evmtool.EngineTestSubCommand.COMMAND_NAME;
 
-import org.hyperledger.besu.consensus.merge.MergeContext;
-import org.hyperledger.besu.consensus.merge.PostMergeContext;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -35,13 +33,11 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineF
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EngineForkchoiceUpdatedParameter;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineUpdateForkchoiceResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePayloadStatusResult;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
-import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.referencetests.EngineTestCaseSpec;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
@@ -224,6 +220,13 @@ public class EngineTestSubCommand implements Runnable {
           SHARED_METRICS);
   private static final org.hyperledger.besu.ethereum.eth.manager.EthPeers SHARED_PEERS =
       org.mockito.Mockito.mock(org.hyperledger.besu.ethereum.eth.manager.EthPeers.class);
+  // Shared no-op listener — avoids creating anonymous class per test
+  private static final EngineCallListener SHARED_LISTENER = new EngineCallListener() {
+    @Override public void executionEngineCalled() {}
+    @Override public void stop() {}
+  };
+  // Cached ObjectMapper for params deserialization — ObjectMapper is thread-safe for reads
+  private static final ObjectMapper SHARED_PARAMS_MAPPER = JsonUtils.createObjectMapper();
   private volatile ReferenceTestProtocolSchedules cachedSchedules;
 
   private void executeEngineTests(
@@ -264,25 +267,29 @@ public class EngineTestSubCommand implements Runnable {
     // Use shared static instances to avoid thread exhaustion across tests
     final EvmToolMergeCoordinator coordinator =
         new EvmToolMergeCoordinator(context, schedule, SHARED_SCHEDULER);
-    final EngineCallListener listener = new EngineCallListener() {
-      @Override public void executionEngineCalled() {}
-      @Override public void stop() {}
-    };
 
-    // Create engine newPayload methods (V1-V5)
+    // Lazily create engine methods — most tests use only 1-2 versions, not all 9
     final Map<Integer, ExecutionEngineJsonRpcMethod> newPayloadMethods = new HashMap<>();
-    newPayloadMethods.put(1, new EngineNewPayloadV1(SHARED_VERTX, schedule, context, coordinator, SHARED_PEERS, listener, SHARED_METRICS));
-    newPayloadMethods.put(2, new EngineNewPayloadV2(SHARED_VERTX, schedule, context, coordinator, SHARED_PEERS, listener, SHARED_METRICS));
-    newPayloadMethods.put(3, new EngineNewPayloadV3(SHARED_VERTX, schedule, context, coordinator, SHARED_PEERS, listener, SHARED_METRICS));
-    newPayloadMethods.put(4, new EngineNewPayloadV4(SHARED_VERTX, schedule, context, coordinator, SHARED_PEERS, listener, SHARED_METRICS));
-    newPayloadMethods.put(5, new EngineNewPayloadV5(SHARED_VERTX, schedule, context, coordinator, SHARED_PEERS, listener, SHARED_METRICS));
-
-    // Create engine forkchoiceUpdated methods (V1-V4)
     final Map<Integer, ExecutionEngineJsonRpcMethod> fcuMethods = new HashMap<>();
-    fcuMethods.put(1, new EngineForkchoiceUpdatedV1(SHARED_VERTX, schedule, context, coordinator, listener));
-    fcuMethods.put(2, new EngineForkchoiceUpdatedV2(SHARED_VERTX, schedule, context, coordinator, listener));
-    fcuMethods.put(3, new EngineForkchoiceUpdatedV3(SHARED_VERTX, schedule, context, coordinator, listener));
-    fcuMethods.put(4, new EngineForkchoiceUpdatedV4(SHARED_VERTX, schedule, context, coordinator, listener));
+
+    // Factory lambdas for lazy creation of engine methods
+    final java.util.function.IntFunction<ExecutionEngineJsonRpcMethod> getNewPayload = v ->
+        newPayloadMethods.computeIfAbsent(v, ver -> switch (ver) {
+          case 1 -> new EngineNewPayloadV1(SHARED_VERTX, schedule, context, coordinator, SHARED_PEERS, SHARED_LISTENER, SHARED_METRICS);
+          case 2 -> new EngineNewPayloadV2(SHARED_VERTX, schedule, context, coordinator, SHARED_PEERS, SHARED_LISTENER, SHARED_METRICS);
+          case 3 -> new EngineNewPayloadV3(SHARED_VERTX, schedule, context, coordinator, SHARED_PEERS, SHARED_LISTENER, SHARED_METRICS);
+          case 4 -> new EngineNewPayloadV4(SHARED_VERTX, schedule, context, coordinator, SHARED_PEERS, SHARED_LISTENER, SHARED_METRICS);
+          case 5 -> new EngineNewPayloadV5(SHARED_VERTX, schedule, context, coordinator, SHARED_PEERS, SHARED_LISTENER, SHARED_METRICS);
+          default -> null;
+        });
+    final java.util.function.IntFunction<ExecutionEngineJsonRpcMethod> getFcu = v ->
+        fcuMethods.computeIfAbsent(v, ver -> switch (ver) {
+          case 1 -> new EngineForkchoiceUpdatedV1(SHARED_VERTX, schedule, context, coordinator, SHARED_LISTENER);
+          case 2 -> new EngineForkchoiceUpdatedV2(SHARED_VERTX, schedule, context, coordinator, SHARED_LISTENER);
+          case 3 -> new EngineForkchoiceUpdatedV3(SHARED_VERTX, schedule, context, coordinator, SHARED_LISTENER);
+          case 4 -> new EngineForkchoiceUpdatedV4(SHARED_VERTX, schedule, context, coordinator, SHARED_LISTENER);
+          default -> null;
+        });
 
     boolean testPassed = true;
     String failureReason = "";
@@ -295,7 +302,7 @@ public class EngineTestSubCommand implements Runnable {
 
     // Send initial forkchoiceUpdated to genesis (matching consume engine behavior)
     final int initialFcuVersion = payloads[0].getForkchoiceUpdatedVersion();
-    final ExecutionEngineJsonRpcMethod initialFcu = fcuMethods.getOrDefault(initialFcuVersion, fcuMethods.get(1));
+    final ExecutionEngineJsonRpcMethod initialFcu = getFcu.apply(initialFcuVersion);
     try {
       final var fcuParam = new EngineForkchoiceUpdatedParameter(
           spec.getGenesisBlockHeader().getHash(),
@@ -329,7 +336,7 @@ public class EngineTestSubCommand implements Runnable {
       final EngineTestCaseSpec.EngineNewPayload payload = payloads[i];
       final int version = payload.getNewPayloadVersion();
 
-      final ExecutionEngineJsonRpcMethod method = newPayloadMethods.get(version);
+      final ExecutionEngineJsonRpcMethod method = getNewPayload.apply(version);
       if (method == null) {
         testPassed = false;
         failureReason = String.format("payload %d: unsupported newPayload version %d", i, version);
@@ -338,17 +345,16 @@ public class EngineTestSubCommand implements Runnable {
 
       // Build JSON-RPC request params — convert JsonNode to types the engine methods expect
       final JsonNode[] fixtureParams = payload.getParams();
-      final ObjectMapper paramsMapper = JsonUtils.createObjectMapper();
       final Object[] rpcParams = new Object[fixtureParams.length];
       try {
         // params[0] = ExecutionPayload (as EnginePayloadParameter)
-        rpcParams[0] = paramsMapper.treeToValue(
+        rpcParams[0] = SHARED_PARAMS_MAPPER.treeToValue(
             fixtureParams[0],
             org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadParameter.class);
         // params[1] = versioned hashes (V3+) as List<String>
         if (fixtureParams.length > 1) {
           rpcParams[1] = fixtureParams[1].isArray()
-              ? paramsMapper.treeToValue(fixtureParams[1], List.class)
+              ? SHARED_PARAMS_MAPPER.treeToValue(fixtureParams[1], List.class)
               : null;
         }
         // params[2] = beacon root (V3+) as String
@@ -358,7 +364,7 @@ public class EngineTestSubCommand implements Runnable {
         // params[3] = execution requests (V4+) as List<String>
         if (fixtureParams.length > 3) {
           rpcParams[3] = fixtureParams[3].isArray()
-              ? paramsMapper.treeToValue(fixtureParams[3], List.class)
+              ? SHARED_PARAMS_MAPPER.treeToValue(fixtureParams[3], List.class)
               : null;
         }
       } catch (final JsonProcessingException e) {
@@ -418,7 +424,7 @@ public class EngineTestSubCommand implements Runnable {
           // Send real forkchoiceUpdated to advance head (matching consume engine)
           final String blockHash = payload.getParams()[0].get("blockHash").asText();
           final int fcuVersion = payload.getForkchoiceUpdatedVersion();
-          final ExecutionEngineJsonRpcMethod fcuMethod = fcuMethods.getOrDefault(fcuVersion, fcuMethods.get(1));
+          final ExecutionEngineJsonRpcMethod fcuMethod = getFcu.apply(fcuVersion);
           final var fcuParam = new EngineForkchoiceUpdatedParameter(
               org.hyperledger.besu.datatypes.Hash.fromHexString(blockHash),
               org.hyperledger.besu.datatypes.Hash.fromHexString(blockHash),

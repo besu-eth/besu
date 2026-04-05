@@ -53,6 +53,33 @@ import com.fasterxml.jackson.databind.JsonNode;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class EngineTestCaseSpec {
 
+  // Shared no-op ServiceManager — avoids anonymous class allocation per test
+  private static final ServiceManager SHARED_SERVICE_MANAGER = new ServiceManager() {
+    @Override
+    public <T extends BesuService> void addService(
+        final Class<T> serviceType, final T service) {}
+    @Override
+    public <T extends BesuService> Optional<T> getService(final Class<T> serviceType) {
+      return Optional.empty();
+    }
+  };
+
+  // Shared no-op trie loader — stateless, safe to reuse
+  private static final NoopBonsaiCachedMerkleTrieLoader SHARED_TRIE_LOADER =
+      new NoopBonsaiCachedMerkleTrieLoader();
+
+  // Shared PostMergeContext singleton for engine tests — always post-merge, never syncing
+  private static final org.hyperledger.besu.consensus.merge.PostMergeContext SHARED_MERGE_CONTEXT;
+  static {
+    SHARED_MERGE_CONTEXT = new org.hyperledger.besu.consensus.merge.PostMergeContext() {
+      @Override
+      public boolean isSyncing() {
+        return false;
+      }
+    };
+    SHARED_MERGE_CONTEXT.setIsPostMerge(Difficulty.ZERO);
+  }
+
   private final String network;
   private final BlockchainReferenceTestCaseSpec.ReferenceTestBlockHeader genesisBlockHeader;
   private final Map<String, ReferenceTestWorldState.AccountMock> pre;
@@ -120,20 +147,10 @@ public class EngineTestCaseSpec {
    * terminal total difficulty and merge status.
    */
   public ProtocolContext buildProtocolContextForEngine(final MutableBlockchain blockchain) {
-    // Create a PostMergeContext that reports not syncing (no SyncState needed)
-    final org.hyperledger.besu.consensus.merge.PostMergeContext mergeContext =
-        new org.hyperledger.besu.consensus.merge.PostMergeContext() {
-          @Override
-          public boolean isSyncing() {
-            return false;
-          }
-        };
-    mergeContext.setIsPostMerge(Difficulty.ZERO);
-
     return new ProtocolContext.Builder()
         .withBlockchain(blockchain)
         .withWorldStateArchive(buildWorldStateArchive(blockchain))
-        .withConsensusContext(mergeContext)
+        .withConsensusContext(SHARED_MERGE_CONTEXT)
         .build();
   }
 
@@ -151,17 +168,8 @@ public class EngineTestCaseSpec {
                 .maxLayersToLoad(
                     engineNewPayloads != null ? (long) engineNewPayloads.length : 0L)
                 .build(),
-            new NoopBonsaiCachedMerkleTrieLoader(),
-            new ServiceManager() {
-              @Override
-              public <T extends BesuService> void addService(
-                  final Class<T> serviceType, final T service) {}
-
-              @Override
-              public <T extends BesuService> Optional<T> getService(final Class<T> serviceType) {
-                return Optional.empty();
-              }
-            },
+            SHARED_TRIE_LOADER,
+            SHARED_SERVICE_MANAGER,
             EvmConfiguration.DEFAULT,
             () -> (__, ___) -> {},
             new CodeCache());
