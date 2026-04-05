@@ -128,6 +128,12 @@ public class StateTestSubCommand implements Runnable {
 
   @ParentCommand private final EvmToolCommand parentCommand;
 
+  // Cache protocol schedules across all tests — creating all 30+ schedules is very expensive
+  private volatile ReferenceTestProtocolSchedules cachedSchedules;
+
+  // Cached ObjectMapper for summary output — thread-safe for createObjectNode()
+  private static final ObjectMapper SHARED_OBJECT_MAPPER = JsonUtils.createObjectMapper();
+
   // picocli does it magically
   @Parameters private final List<Path> stateTestFiles = new ArrayList<>();
 
@@ -258,7 +264,6 @@ public class StateTestSubCommand implements Runnable {
                     .build())
             : OperationTracer.NO_TRACING;
 
-    final ObjectMapper objectMapper = JsonUtils.createObjectMapper();
     for (final GeneralStateTestCaseEipSpec spec : specs) {
       if (dataIndex != null && spec.getDataIndex() != dataIndex) {
         continue;
@@ -275,7 +280,7 @@ public class StateTestSubCommand implements Runnable {
 
       final BlockHeader blockHeader = spec.getBlockHeader();
       final Transaction transaction = spec.getTransaction(0);
-      final ObjectNode summaryLine = objectMapper.createObjectNode();
+      final ObjectNode summaryLine = SHARED_OBJECT_MAPPER.createObjectNode();
       if (transaction == null) {
         if ((parentCommand.showJsonAlloc || parentCommand.showJsonResults) && isLastIteration) {
           parentCommand.out.println(
@@ -299,9 +304,10 @@ public class StateTestSubCommand implements Runnable {
         }
 
         final String forkName = fork == null ? spec.getFork() : fork;
-        final ProtocolSchedule protocolSchedule =
-            ReferenceTestProtocolSchedules.create(parentCommand.getEvmConfiguration())
-                .getByName(forkName);
+        if (cachedSchedules == null) {
+          cachedSchedules = ReferenceTestProtocolSchedules.create(parentCommand.getEvmConfiguration());
+        }
+        final ProtocolSchedule protocolSchedule = cachedSchedules.getByName(forkName);
         if (protocolSchedule == null) {
           throw new UnsupportedForkException(forkName);
         }

@@ -120,12 +120,16 @@ public class BlockchainTestSubCommand implements Runnable {
   // picocli does it magically
   @Parameters private final List<Path> blockchainTestFiles = new ArrayList<>();
 
+  // Cache protocol schedules across all tests — creating all 30+ schedules is very expensive
+  private volatile ReferenceTestProtocolSchedules cachedSchedules;
+
   /** Helper class to track test execution results for summary reporting. */
   private static class TestResults {
     private static final String SEPARATOR = "=".repeat(80);
     private final AtomicInteger passedTests = new AtomicInteger(0);
     private final AtomicInteger failedTests = new AtomicInteger(0);
-    private final Map<String, String> failures = new LinkedHashMap<>();
+    private final Map<String, String> failures =
+        java.util.Collections.synchronizedMap(new LinkedHashMap<>());
 
     void recordPass() {
       passedTests.incrementAndGet();
@@ -333,9 +337,10 @@ public class BlockchainTestSubCommand implements Runnable {
                     genesisBlockHeader.getStateRoot(), genesisBlockHeader.getHash()))
             .orElseThrow();
 
-    final ProtocolSchedule schedule =
-        ReferenceTestProtocolSchedules.create(parentCommand.getEvmConfiguration())
-            .getByName(spec.getNetwork());
+    if (cachedSchedules == null) {
+      cachedSchedules = ReferenceTestProtocolSchedules.create(parentCommand.getEvmConfiguration());
+    }
+    final ProtocolSchedule schedule = cachedSchedules.getByName(spec.getNetwork());
 
     BlockTestTracerManager tracerManager = null;
     PrintStream traceWriter;
