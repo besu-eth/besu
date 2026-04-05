@@ -113,9 +113,9 @@ public class SelfDestructOperationV2 extends AbstractOperationV2 {
       return new OperationResult(staticCost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    final Account beneficiaryNullable = frame.getWorldUpdater().get(beneficiaryAddress);
+    final Account beneficiaryNullable = getAccount(beneficiaryAddress, frame);
     final Address originatorAddress = frame.getRecipientAddress();
-    final MutableAccount originatorAccount = frame.getWorldUpdater().getOrCreate(originatorAddress);
+    final MutableAccount originatorAccount = getMutableAccount(originatorAddress, frame);
     final Wei originatorBalance = originatorAccount.getBalance();
 
     final long cost =
@@ -126,8 +126,7 @@ public class SelfDestructOperationV2 extends AbstractOperationV2 {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    final MutableAccount beneficiaryAccount =
-        frame.getWorldUpdater().getOrCreate(beneficiaryAddress);
+    final MutableAccount beneficiaryAccount = getOrCreateAccount(beneficiaryAddress, frame);
 
     final boolean willBeDestroyed =
         !eip6780Semantics || frame.wasCreatedInTransaction(originatorAccount.getAddress());
