@@ -86,7 +86,16 @@ public class SStoreOperationV2 extends AbstractOperationV2 {
     return staticOperation(frame, s, gasCalculator, FRONTIER_MINIMUM);
   }
 
-  private static OperationResult staticOperation(
+  /**
+   * Execute the SSTORE opcode with an explicit minimum-gas-remaining check.
+   *
+   * @param frame the message frame
+   * @param s the stack as a long[] array
+   * @param gasCalculator the gas calculator
+   * @param minimumGasRemaining minimum gas required before executing (EIP-1706: 2300 for Istanbul+)
+   * @return the operation result
+   */
+  public static OperationResult staticOperation(
       final MessageFrame frame,
       final long[] s,
       final GasCalculator gasCalculator,

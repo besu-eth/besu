@@ -748,7 +748,11 @@ public class EVM {
               case 0x54 ->
                   SLoadOperationV2.staticOperation(frame, frame.stackDataV2(), gasCalculator);
               case 0x55 ->
-                  SStoreOperationV2.staticOperation(frame, frame.stackDataV2(), gasCalculator);
+                  SStoreOperationV2.staticOperation(
+                      frame,
+                      frame.stackDataV2(),
+                      gasCalculator,
+                      SStoreOperationV2.EIP_1706_MINIMUM);
               case 0x5c ->
                   enableCancun
                       ? TLoadOperationV2.staticOperation(frame, frame.stackDataV2())
