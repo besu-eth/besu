@@ -62,7 +62,7 @@ public class CallDataLoadOperationV2 extends AbstractFixedCostOperationV2 {
     final int off = (top - 1) << 2;
 
     // If the offset doesn't fit in a non-negative int, result is zero
-    if (s[off] != 0 || s[off + 1] != 0 || s[off + 2] != 0 || s[off + 3] < 0) {
+    if (s[off] != 0 || s[off + 1] != 0 || s[off + 2] != 0 || (s[off + 3] >>> 31) != 0) {
       s[off] = 0;
       s[off + 1] = 0;
       s[off + 2] = 0;
