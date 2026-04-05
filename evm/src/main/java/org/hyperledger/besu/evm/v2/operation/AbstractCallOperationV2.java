@@ -207,7 +207,6 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
     final long outputLength = outputDataLength(s, top);
     final Wei transferValue = value(s, top);
     final Address recipientAddress = address(frame, s, top);
-    final long gasForChild = gasAvailableForChildCall(frame, s, top);
 
     final long staticCost =
         gasCalculator()
@@ -250,6 +249,7 @@ public abstract class AbstractCallOperationV2 extends AbstractOperationV2 {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
     frame.decrementRemainingGas(cost);
+    final long gasForChild = gasAvailableForChildCall(frame, s, top);
 
     frame.clearReturnData();
 
