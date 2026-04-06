@@ -834,8 +834,8 @@ public class EVM {
                   enableCancun
                       ? BlobBaseFeeOperationV2.staticOperation(frame, frame.stackDataV2())
                       : InvalidOperation.invalidOperationResult(opcode);
-              case 0x4b -> // SLOTNUM (Osaka+)
-                  enableOsaka
+              case 0x4b -> // SLOTNUM (Amsterdam+)
+                  enableAmsterdam
                       ? SlotNumOperationV2.staticOperation(frame, frame.stackDataV2())
                       : InvalidOperation.invalidOperationResult(opcode);
               case 0x58 -> PcOperationV2.staticOperation(frame, frame.stackDataV2());
@@ -848,8 +848,10 @@ public class EVM {
               case 0x5b -> JumpDestOperationV2.staticOperation(frame);
               case 0xf3 ->
                   ReturnOperationV2.staticOperation(frame, frame.stackDataV2(), gasCalculator);
-              case 0xfd ->
-                  RevertOperationV2.staticOperation(frame, frame.stackDataV2(), gasCalculator);
+              case 0xfd -> // REVERT (Byzantium+)
+                  enableByzantium
+                      ? RevertOperationV2.staticOperation(frame, frame.stackDataV2(), gasCalculator)
+                      : InvalidOperation.invalidOperationResult(opcode);
               case 0xfe -> InvalidOperationV2.INVALID_RESULT;
               case 0xa0, 0xa1, 0xa2, 0xa3, 0xa4 -> {
                 int topicCount = opcode - 0xa0;
