@@ -115,6 +115,15 @@ public class BlockchainTestSubCommand implements Runnable {
       defaultValue = "1")
   private int workers = 1;
 
+  @Option(
+      names = {"--json-array"},
+      description =
+          "Output results as a JSON array: name, pass, fork, lastBlockHash, error.")
+  private boolean jsonArray = false;
+
+  private final List<com.fasterxml.jackson.databind.node.ObjectNode> jsonArrayResults =
+      java.util.Collections.synchronizedList(new ArrayList<>());
+
   @ParentCommand private final EvmToolCommand parentCommand;
 
   // picocli does it magically
@@ -254,7 +263,15 @@ public class BlockchainTestSubCommand implements Runnable {
       System.err.println("Error: " + e.getMessage());
       e.printStackTrace(System.err);
     } finally {
-      if (results.hasTests()) {
+      if (jsonArray) {
+        try {
+          parentCommand.out.println(
+              new com.fasterxml.jackson.databind.ObjectMapper()
+                  .writeValueAsString(jsonArrayResults));
+        } catch (final com.fasterxml.jackson.core.JsonProcessingException e) {
+          parentCommand.out.println("[]");
+        }
+      } else if (results.hasTests()) {
         results.printSummary(parentCommand.out);
       }
     }
@@ -485,6 +502,17 @@ public class BlockchainTestSubCommand implements Runnable {
       results.recordFailure(test, failureReason);
     } else {
       results.recordPass();
+    }
+
+    if (jsonArray) {
+      final com.fasterxml.jackson.databind.node.ObjectNode result =
+          new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+      result.put("name", test);
+      result.put("pass", testPassed);
+      result.put("fork", spec.getNetwork());
+      result.put("lastBlockHash", blockchain.getChainHeadHash().toHexString());
+      result.put("error", failureReason);
+      jsonArrayResults.add(result);
     }
   }
 

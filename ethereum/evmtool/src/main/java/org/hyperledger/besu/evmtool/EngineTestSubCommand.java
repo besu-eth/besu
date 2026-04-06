@@ -58,6 +58,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -95,6 +96,15 @@ public class EngineTestSubCommand implements Runnable {
       description = "Number of parallel workers for processing fixture files.",
       defaultValue = "1")
   private int workers = 1;
+
+  @Option(
+      names = {"--json-array"},
+      description =
+          "Output results as a JSON array: name, pass, fork, lastBlockHash, lastPayloadStatus, error.")
+  private boolean jsonArray = false;
+
+  private final List<ObjectNode> jsonArrayResults =
+      Collections.synchronizedList(new ArrayList<>());
 
   @ParentCommand private final EvmToolCommand parentCommand;
 
@@ -203,7 +213,14 @@ public class EngineTestSubCommand implements Runnable {
     } catch (final Exception e) {
       System.err.println("Error: " + e.getMessage());
     } finally {
-      if (results.hasTests()) {
+      if (jsonArray) {
+        try {
+          parentCommand.out.println(
+              JsonUtils.createObjectMapper().writeValueAsString(jsonArrayResults));
+        } catch (final JsonProcessingException e) {
+          parentCommand.out.println("[]");
+        }
+      } else if (results.hasTests()) {
         results.printSummary(parentCommand.out);
       }
     }
@@ -293,6 +310,8 @@ public class EngineTestSubCommand implements Runnable {
 
     boolean testPassed = true;
     String failureReason = "";
+    String lastPayloadStatus = "";
+    String lastValidationError = "";
 
     final EngineTestCaseSpec.EngineNewPayload[] payloads = spec.getEngineNewPayloads();
     if (payloads == null || payloads.length == 0) {
@@ -407,6 +426,10 @@ public class EngineTestSubCommand implements Runnable {
         // Get payload status from successful response
         final EnginePayloadStatusResult status =
             (EnginePayloadStatusResult) ((JsonRpcSuccessResponse) response).getResult();
+        lastPayloadStatus = status.getStatusAsString();
+        if (status.getError() != null && !status.getError().isEmpty()) {
+          lastValidationError = status.getError();
+        }
 
         if (payload.expectsValid()) {
           if (!"VALID".equals(status.getStatusAsString())) {
@@ -480,6 +503,17 @@ public class EngineTestSubCommand implements Runnable {
     } else {
       parentCommand.out.println("FAIL: " + test + " - " + failureReason);
       results.recordFailure(test, failureReason);
+    }
+
+    if (jsonArray) {
+      final ObjectNode result = SHARED_PARAMS_MAPPER.createObjectNode();
+      result.put("name", test);
+      result.put("pass", testPassed);
+      result.put("fork", spec.getNetwork());
+      result.put("lastBlockHash", blockchain.getChainHeadHash().toHexString());
+      result.put("lastPayloadStatus", lastPayloadStatus);
+      result.put("error", testPassed ? lastValidationError : failureReason);
+      jsonArrayResults.add(result);
     }
 
     // Cleanup resources to prevent thread/memory exhaustion across tests
