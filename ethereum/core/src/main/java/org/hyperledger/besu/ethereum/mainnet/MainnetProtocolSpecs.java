@@ -1256,15 +1256,14 @@ public abstract class MainnetProtocolSpecs {
         .gasLimitCalculatorBuilder(
             (feeMarket, gasCalculator, blobSchedule) -> {
               final long londonForkBlock = genesisConfigOptions.getLondonBlockNumber().orElse(0L);
-              return new OsakaTargetingGasLimitCalculator(
+              return new AmsterdamTargetingGasLimitCalculator(
                   londonForkBlock,
                   (BaseFeeMarket) feeMarket,
                   gasCalculator,
                   blobSchedule.getMax(),
                   blobSchedule.getTarget(),
                   miningConfiguration.getMaxBlobsPerTransaction(),
-                  miningConfiguration.getMaxBlobsPerBlock(),
-                  Long.MAX_VALUE);
+                  miningConfiguration.getMaxBlobsPerBlock());
             })
         // EIP-8037: Amsterdam gas calculator with state gas cost support
         .gasCalculator(AmsterdamGasCalculator::new)

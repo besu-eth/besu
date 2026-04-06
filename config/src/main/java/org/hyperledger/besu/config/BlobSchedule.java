@@ -26,7 +26,7 @@ public class BlobSchedule {
   /** The constant PRAGUE_DEFAULT. */
   public static final BlobSchedule PRAGUE_DEFAULT = BlobSchedule.create(6, 9, 5007716);
 
-  /** The constant BPO2_DEFAULT. BPO2 through BPO5 and Amsterdam share these values. */
+  /** The constant BPO2_DEFAULT. */
   public static final BlobSchedule BPO2_DEFAULT = BlobSchedule.create(14, 21, 11684671);
 
   private final int target;

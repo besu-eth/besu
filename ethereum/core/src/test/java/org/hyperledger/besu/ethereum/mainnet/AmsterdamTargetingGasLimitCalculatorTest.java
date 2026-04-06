@@ -25,7 +25,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 
-import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -40,8 +39,8 @@ class AmsterdamTargetingGasLimitCalculatorTest {
   private static final int TARGET_BLOBS = 14;
   private static final int MAX_BLOBS = 21;
   private static final AmsterdamGasCalculator gasCalculator = new AmsterdamGasCalculator();
-  private final OsakaTargetingGasLimitCalculator gasLimitCalculator =
-      new OsakaTargetingGasLimitCalculator(
+  private final AmsterdamTargetingGasLimitCalculator gasLimitCalculator =
+      new AmsterdamTargetingGasLimitCalculator(
           0L,
           FeeMarket.cancun(0L, Optional.empty(), BlobSchedule.BPO2_DEFAULT),
           gasCalculator,
@@ -62,7 +61,7 @@ class AmsterdamTargetingGasLimitCalculatorTest {
    * where parent_excess_blobs=18 (=(21+14)//2+1), parent_blobs=0, block_base_fee_per_gas=7
    */
   @ParameterizedTest(name = "{index} - parent excess {0}, used gas {1}, base fee {2}")
-  @MethodSource("standardBranchBlobGasses")
+  @MethodSource("standardBranchBlobGases")
   public void shouldCalculateExcessBlobGasCorrectly_standardBranch(
       final long parentExcess,
       final long parentBlobGasUsed,
@@ -72,7 +71,7 @@ class AmsterdamTargetingGasLimitCalculatorTest {
         .isEqualTo(expected);
   }
 
-  Iterable<Arguments> standardBranchBlobGasses() {
+  Iterable<Arguments> standardBranchBlobGases() {
     return List.of(
         // zero + zero: below target → 0
         Arguments.of(0L, 0L, 7L, 0L),
@@ -103,7 +102,7 @@ class AmsterdamTargetingGasLimitCalculatorTest {
    * 14 = 7, so: excess = parentExcess + parentBlobGasUsed * 7 / 21
    */
   @ParameterizedTest(name = "{index} - parent excess {0}, used gas {1}, base fee {2}")
-  @MethodSource("eip7918BranchBlobGasses")
+  @MethodSource("eip7918BranchBlobGases")
   public void shouldCalculateExcessBlobGasCorrectly_eip7918Branch(
       final long parentExcess,
       final long parentBlobGasUsed,
@@ -113,7 +112,7 @@ class AmsterdamTargetingGasLimitCalculatorTest {
         .isEqualTo(expected);
   }
 
-  Iterable<Arguments> eip7918BranchBlobGasses() {
+  Iterable<Arguments> eip7918BranchBlobGases() {
     // parentExcess = TARGET_GAS + 1 = 1835009, just above target so not clamped to 0
     // With base_fee=17: 17*8192=139264 > 1*131072=131072 → EIP-7918 branch
     // excess = 1835009 + parentBlobGasUsed * 7 / 21
@@ -131,7 +130,7 @@ class AmsterdamTargetingGasLimitCalculatorTest {
   @Test
   void defaultGasLimit() {
     GasLimitCalculator calculator =
-        new OsakaTargetingGasLimitCalculator(
+        new AmsterdamTargetingGasLimitCalculator(
             0L,
             FeeMarket.cancun(0L, Optional.empty(), BlobSchedule.BPO2_DEFAULT),
             new AmsterdamGasCalculator(),
@@ -143,12 +142,5 @@ class AmsterdamTargetingGasLimitCalculatorTest {
     assertThat(calculator.currentBlobGasLimit()).isEqualTo(0x2A0000);
     // per-tx cap: DEFAULT_MAX_BLOBS_PER_TRANSACTION (6) * 131072 = 0xC0000
     assertThat(calculator.transactionBlobGasLimitCap()).isEqualTo(0xC0000);
-  }
-
-  @Test
-  void dryRunDetector() {
-    Assertions.assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

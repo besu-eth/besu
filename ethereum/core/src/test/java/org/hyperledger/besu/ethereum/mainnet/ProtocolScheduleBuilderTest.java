@@ -35,11 +35,11 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PARIS;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.withSettings;
 
 import org.hyperledger.besu.config.BlobSchedule;
 import org.hyperledger.besu.config.BlobScheduleOptions;
@@ -557,12 +557,19 @@ class ProtocolScheduleBuilderTest {
     when(configOptions.getWithdrawalRequestContractAddress()).thenReturn(Optional.of(Address.ZERO));
 
     // Set up blob schedule: BPO2 has max=21, BPO3-5 have max=9 (deliberately different)
-    final BlobScheduleOptions blobScheduleOptions =
-        mock(BlobScheduleOptions.class, withSettings().lenient());
+    final BlobScheduleOptions blobScheduleOptions = mock(BlobScheduleOptions.class);
     when(blobScheduleOptions.getBpo2()).thenReturn(Optional.of(BlobSchedule.BPO2_DEFAULT));
-    when(blobScheduleOptions.getBpo3()).thenReturn(Optional.of(BlobSchedule.PRAGUE_DEFAULT));
-    when(blobScheduleOptions.getBpo4()).thenReturn(Optional.of(BlobSchedule.PRAGUE_DEFAULT));
-    when(blobScheduleOptions.getBpo5()).thenReturn(Optional.of(BlobSchedule.PRAGUE_DEFAULT));
+    // BPO3-5 stubs are lenient because these forks lack timestamps, so the production code
+    // never calls getBpo3/4/5 — but we set them up to verify they are NOT applied.
+    lenient()
+        .when(blobScheduleOptions.getBpo3())
+        .thenReturn(Optional.of(BlobSchedule.PRAGUE_DEFAULT));
+    lenient()
+        .when(blobScheduleOptions.getBpo4())
+        .thenReturn(Optional.of(BlobSchedule.PRAGUE_DEFAULT));
+    lenient()
+        .when(blobScheduleOptions.getBpo5())
+        .thenReturn(Optional.of(BlobSchedule.PRAGUE_DEFAULT));
     when(configOptions.getBlobScheduleOptions()).thenReturn(Optional.of(blobScheduleOptions));
 
     final ProtocolSchedule protocolSchedule = builder.createProtocolSchedule();
