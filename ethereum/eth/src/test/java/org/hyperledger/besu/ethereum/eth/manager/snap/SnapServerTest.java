@@ -159,7 +159,8 @@ public class SnapServerTest {
               }
             });
 
-    snapServer = new SnapServer(new EthMessages(), storageCoordinator, spyProvider).start();
+    snapServer =
+        new SnapServer(new EthMessages(), storageCoordinator, spyProvider, Long.MAX_VALUE).start();
     snapServer.start();
 
     acct1 = createTestAccount("10");

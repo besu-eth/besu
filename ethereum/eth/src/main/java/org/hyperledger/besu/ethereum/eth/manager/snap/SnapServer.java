@@ -97,6 +97,9 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
   // whether snap server is enabled
   private final boolean snapServerEnabled;
 
+  // max time per snap request
+  private final long maxMillisPerRequest;
+
   // provide worldstate storage by root hash
   private Function<Hash, Optional<BonsaiWorldStateKeyValueStorage>> worldStateStorageProvider =
       __ -> Optional.empty();
@@ -114,6 +117,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
     this.snapMessages = snapMessages;
     this.worldStateStorageCoordinator = worldStateStorageCoordinator;
     this.protocolContext = Optional.of(protocolContext);
+    this.maxMillisPerRequest = ResponseSizePredicate.DEFAULT_MAX_MILLIS_PER_REQUEST;
     registerResponseConstructors();
 
     // subscribe to initial sync completed events to start/stop snap server,
@@ -130,11 +134,25 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
       final EthMessages snapMessages,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final Function<Hash, Optional<BonsaiWorldStateKeyValueStorage>> worldStateStorageProvider) {
+    this(
+        snapMessages,
+        worldStateStorageCoordinator,
+        worldStateStorageProvider,
+        ResponseSizePredicate.DEFAULT_MAX_MILLIS_PER_REQUEST);
+  }
+
+  @VisibleForTesting
+  SnapServer(
+      final EthMessages snapMessages,
+      final WorldStateStorageCoordinator worldStateStorageCoordinator,
+      final Function<Hash, Optional<BonsaiWorldStateKeyValueStorage>> worldStateStorageProvider,
+      final long maxMillisPerRequest) {
     this.snapServerEnabled = true;
     this.snapMessages = snapMessages;
     this.worldStateStorageCoordinator = worldStateStorageCoordinator;
     this.worldStateStorageProvider = worldStateStorageProvider;
     this.protocolContext = Optional.empty();
+    this.maxMillisPerRequest = maxMillisPerRequest;
   }
 
   @Override
@@ -297,6 +315,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                         "account",
                         stopWatch,
                         maxResponseBytes,
+                        maxMillisPerRequest,
                         (pair) -> {
                           Bytes bytes =
                               AccountRangeMessage.toSlimAccount(RLP.input(pair.getSecond()));
@@ -404,6 +423,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                         "storage",
                         stopWatch,
                         maxResponseBytes,
+                        maxMillisPerRequest,
                         (pair) -> {
                           var slotRlpOutput = new BytesValueRLPOutput();
                           slotRlpOutput.startList();
@@ -538,7 +558,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
           if (optCode.isPresent()) {
             if (!codeBytes.isEmpty()
                 && (sumListBytes(codeBytes) + optCode.get().size() > maxResponseBytes
-                    || stopWatch.getTime() > ResponseSizePredicate.MAX_MILLIS_PER_REQUEST)) {
+                    || stopWatch.getTime() > maxMillisPerRequest)) {
               break;
             }
             codeBytes.add(optCode.get());
@@ -598,7 +618,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                     if (!trieNodes.isEmpty()
                         && (sumListBytes(trieNodes) + trieNode.size() > maxResponseBytes
                             || stopWatch.getTime(TimeUnit.MILLISECONDS)
-                                > ResponseSizePredicate.MAX_MILLIS_PER_REQUEST)) {
+                                > maxMillisPerRequest)) {
                       break;
                     }
                     trieNodes.add(trieNode);
@@ -689,7 +709,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
 
   static class ResponseSizePredicate implements Predicate<Pair<Bytes32, Bytes>> {
     // default to a max of 4 seconds per request
-    static final long MAX_MILLIS_PER_REQUEST = 4000;
+    static final long DEFAULT_MAX_MILLIS_PER_REQUEST = 4000;
 
     final AtomicInteger byteLimit = new AtomicInteger(0);
     final AtomicInteger recordLimit = new AtomicInteger(0);
@@ -697,15 +717,18 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
     final Function<Pair<Bytes32, Bytes>, Integer> encodingSizeAccumulator;
     final StopWatch stopWatch;
     final int maxResponseBytes;
+    final long maxMillisPerRequest;
     final String forWhat;
 
     ResponseSizePredicate(
         final String forWhat,
         final StopWatch stopWatch,
         final int maxResponseBytes,
+        final long maxMillisPerRequest,
         final Function<Pair<Bytes32, Bytes>, Integer> encodingSizeAccumulator) {
       this.stopWatch = stopWatch;
       this.maxResponseBytes = maxResponseBytes;
+      this.maxMillisPerRequest = maxMillisPerRequest;
       this.forWhat = forWhat;
       this.encodingSizeAccumulator = encodingSizeAccumulator;
     }
@@ -719,7 +742,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
           .addArgument(byteLimit::get)
           .addArgument(recordLimit::get)
           .log();
-      if (stopWatch.getTime() > MAX_MILLIS_PER_REQUEST) {
+      if (stopWatch.getTime() > maxMillisPerRequest) {
         shouldContinue.set(false);
         LOGGER.warn(
             "{} took too long, stopped at {} ms with {} records and {} bytes",
