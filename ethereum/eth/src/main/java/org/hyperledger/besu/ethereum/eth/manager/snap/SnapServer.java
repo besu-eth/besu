@@ -617,8 +617,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                     var trieNode = optStorage.orElse(Bytes.EMPTY);
                     if (!trieNodes.isEmpty()
                         && (sumListBytes(trieNodes) + trieNode.size() > maxResponseBytes
-                            || stopWatch.getTime(TimeUnit.MILLISECONDS)
-                                > maxMillisPerRequest)) {
+                            || stopWatch.getTime(TimeUnit.MILLISECONDS) > maxMillisPerRequest)) {
                       break;
                     }
                     trieNodes.add(trieNode);
