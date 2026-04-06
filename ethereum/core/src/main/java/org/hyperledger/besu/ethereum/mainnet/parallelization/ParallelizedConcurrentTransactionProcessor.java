@@ -238,6 +238,7 @@ public class ParallelizedConcurrentTransactionProcessor extends ParallelBlockTra
         }
         return Optional.of(transactionProcessingResult);
       } else {
+        blockAccumulator.importPriorStateFromSource(transactionAccumulator);
         if (conflictingButCachedTransactionCounter.isPresent())
           conflictingButCachedTransactionCounter.get().inc();
         // If there is a conflict, we return an empty result to signal the block processor to

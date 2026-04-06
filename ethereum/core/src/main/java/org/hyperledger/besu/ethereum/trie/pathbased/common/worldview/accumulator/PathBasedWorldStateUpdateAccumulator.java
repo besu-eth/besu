@@ -112,56 +112,105 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
    */
   public void importStateChangesFromSource(
       final PathBasedWorldStateUpdateAccumulator<ACCOUNT> source) {
+    importFrom(source, ImportMode.UPSERT);
+    storageToClear.addAll(source.storageToClear);
+  }
+
+  /**
+   * Imports unchanged (prior-only) state data from an external source. Only data not already
+   * present in this accumulator is imported — existing entries are never overwritten. Both prior
+   * and updated values are set to the source's prior value (i.e. read-only snapshot).
+   *
+   * @param source The source accumulator to import prior state from
+   */
+  public void importPriorStateFromSource(
+      final PathBasedWorldStateUpdateAccumulator<ACCOUNT> source) {
+    importFrom(source, ImportMode.INSERT);
+  }
+
+  private enum ImportMode {
+    /** Insert new entries and update existing ones with values from the source. */
+    UPSERT,
+    /** Insert new entries only, existing entries are left untouched. */
+    INSERT
+  }
+
+  private void importFrom(
+      final PathBasedWorldStateUpdateAccumulator<ACCOUNT> source, final ImportMode mode) {
+    final boolean priorOnly = mode == ImportMode.INSERT;
+
     source
         .getAccountsToUpdate()
         .forEach(
-            (address, pathBasedValue) -> {
-              ACCOUNT copyPrior =
-                  pathBasedValue.getPrior() != null
-                      ? copyAccount(pathBasedValue.getPrior(), this, false)
+            (address, srcValue) -> {
+              final ACCOUNT copyPrior =
+                  srcValue.getPrior() != null
+                      ? copyAccount(srcValue.getPrior(), this, false)
                       : null;
-              ACCOUNT copyUpdated =
-                  pathBasedValue.getUpdated() != null
-                      ? copyAccount(pathBasedValue.getUpdated(), this, true)
-                      : null;
-              accountsToUpdate.put(
-                  address,
-                  new PathBasedValue<>(copyPrior, copyUpdated, pathBasedValue.isLastStepCleared()));
+              final ACCOUNT copyUpdated =
+                  priorOnly
+                      ? (srcValue.getPrior() != null
+                          ? copyAccount(srcValue.getPrior(), this, true)
+                          : null)
+                      : (srcValue.getUpdated() != null
+                          ? copyAccount(srcValue.getUpdated(), this, true)
+                          : null);
+              final PathBasedValue<ACCOUNT> newValue =
+                  priorOnly
+                      ? new PathBasedValue<>(copyPrior, copyUpdated)
+                      : new PathBasedValue<>(copyPrior, copyUpdated, srcValue.isLastStepCleared());
+              if (priorOnly) {
+                accountsToUpdate.putIfAbsent(address, newValue);
+              } else {
+                accountsToUpdate.put(address, newValue);
+              }
             });
+
     source
         .getCodeToUpdate()
         .forEach(
-            (address, pathBasedValue) -> {
-              codeToUpdate.put(
-                  address,
-                  new PathBasedValue<>(
-                      pathBasedValue.getPrior(),
-                      pathBasedValue.getUpdated(),
-                      pathBasedValue.isLastStepCleared()));
+            (address, srcValue) -> {
+              final Bytes prior = srcValue.getPrior();
+              final Bytes updated = priorOnly ? prior : srcValue.getUpdated();
+              final PathBasedValue<Bytes> newValue =
+                  priorOnly
+                      ? new PathBasedValue<>(prior, updated)
+                      : new PathBasedValue<>(prior, updated, srcValue.isLastStepCleared());
+              if (priorOnly) {
+                codeToUpdate.putIfAbsent(address, newValue);
+              } else {
+                codeToUpdate.put(address, newValue);
+              }
             });
+
     source
         .getStorageToUpdate()
         .forEach(
             (address, slots) -> {
-              StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> storageConsumingMap =
+              final StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> targetSlots =
                   storageToUpdate.computeIfAbsent(
                       address,
                       k ->
                           new StorageConsumingMap<>(
                               address, new ConcurrentHashMap<>(), storagePreloader));
               slots.forEach(
-                  (storageSlotKey, uInt256PathBasedValue) -> {
-                    storageConsumingMap.put(
-                        storageSlotKey,
-                        new PathBasedValue<>(
-                            uInt256PathBasedValue.getPrior(),
-                            uInt256PathBasedValue.getUpdated(),
-                            uInt256PathBasedValue.isLastStepCleared()));
+                  (slotKey, srcSlot) -> {
+                    final UInt256 slotPrior = srcSlot.getPrior();
+                    final UInt256 slotUpdated = priorOnly ? slotPrior : srcSlot.getUpdated();
+                    final PathBasedValue<UInt256> newSlotValue =
+                        priorOnly
+                            ? new PathBasedValue<>(slotPrior, slotUpdated)
+                            : new PathBasedValue<>(
+                                slotPrior, slotUpdated, srcSlot.isLastStepCleared());
+                    if (priorOnly) {
+                      targetSlots.putIfAbsent(slotKey, newSlotValue);
+                    } else {
+                      targetSlots.put(slotKey, newSlotValue);
+                    }
                   });
             });
-    storageToClear.addAll(source.storageToClear);
-    storageKeyHashLookup.putAll(source.storageKeyHashLookup);
 
+    storageKeyHashLookup.putAll(source.storageKeyHashLookup);
     this.isAccumulatorStateChanged = true;
   }
 
@@ -357,7 +406,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       accountValue.setUpdated(null);
     }
 
-    getUpdatedAccounts()
+    getUpdatedAccounts().parallelStream()
         .forEach(
             tracked -> {
               final Address updatedAddress = tracked.getAddress();

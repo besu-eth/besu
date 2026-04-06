@@ -248,11 +248,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             .getBlockAccessListFactory()
             .map(BlockAccessListFactory::newBlockAccessListBuilder);
 
-    // disabled preload after BAL fork
-    if (blockAccessListBuilder.isPresent() && worldState instanceof BonsaiWorldState) {
-      ((BonsaiWorldState) worldState).disableCacheMerkleTrieLoader();
-    }
-
     try {
       final Optional<AccessLocationTracker> preExecutionAccessLocationTracker =
           blockAccessListBuilder.map(
