@@ -18,6 +18,8 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_FREEZER;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_FREEZER;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ARCHIVE_ACCOUNT_INDEX;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ARCHIVE_STORAGE_INDEX;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
 
@@ -123,6 +125,36 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
       final SegmentedKeyValueStorage storage) {
 
     getAccountCounter.inc();
+
+    // --- Index-based fast path (skips seekForPrev for indexed ranges) ---
+    final Optional<BonsaiContext> accountReadCtx = getStateArchiveContextForRead(storage);
+    if (accountReadCtx.isPresent()) {
+      final long accountTargetBlock = accountReadCtx.get().getBlockNumber().orElse(-1L);
+      if (accountTargetBlock >= 0
+          && ArchiveIndexReader.isIndexComplete(storage, accountTargetBlock)) {
+        final Optional<Long> exactAccountBlock =
+            ArchiveIndexReader.findExactAccountBlock(
+                storage, accountHash.getBytes().toArrayUnsafe(), accountTargetBlock);
+        if (exactAccountBlock.isPresent()) {
+          final byte[] directKey =
+              calculateArchiveKeyWithMinSuffix(
+                  new BonsaiContext(exactAccountBlock.get()),
+                  accountHash.getBytes().toArrayUnsafe());
+          final Optional<byte[]> directValue =
+              storage
+                  .get(ACCOUNT_INFO_STATE_ARCHIVE, directKey)
+                  .or(() -> storage.get(ACCOUNT_INFO_STATE_FREEZER, directKey));
+          getAccountFoundInFlatDatabaseCounter.inc();
+          return directValue
+              .filter(v -> !Arrays.areEqual(DELETED_ACCOUNT_VALUE, v))
+              .map(Bytes::wrap);
+        }
+        // Index complete, no entry in this range -> account did not exist at this block
+        getAccountNotFoundInFlatDatabaseCounter.inc();
+        return Optional.empty();
+      }
+    }
+
     Optional<SegmentedKeyValueStorage.NearestKeyValue> accountFound;
 
     // keyNearest, use MAX_BLOCK_SUFFIX in the absence of a block context:
@@ -296,6 +328,12 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
             getStateArchiveContextForWrite(storage).get(), accountHash.getBytes().toArrayUnsafe());
 
     transaction.put(ACCOUNT_INFO_STATE_ARCHIVE, keySuffixed, accountValue.toArrayUnsafe());
+    getStateArchiveContextForWrite(storage)
+        .flatMap(BonsaiContext::getBlockNumber)
+        .ifPresent(
+            blockNum ->
+                ArchiveIndexWriter.appendAccountToIndex(
+                    storage, transaction, accountHash.getBytes().toArrayUnsafe(), blockNum));
   }
 
   @Override
@@ -330,6 +368,36 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
 
     Optional<SegmentedKeyValueStorage.NearestKeyValue> storageFound;
     getStorageValueCounter.inc();
+
+    // --- Index-based fast path (skips seekForPrev for indexed ranges) ---
+    final Optional<BonsaiContext> storageReadCtx = getStateArchiveContextForRead(storage);
+    if (storageReadCtx.isPresent()) {
+      final long storageTargetBlock = storageReadCtx.get().getBlockNumber().orElse(-1L);
+      if (storageTargetBlock >= 0
+          && ArchiveIndexReader.isIndexComplete(storage, storageTargetBlock)) {
+        final byte[] naturalKeyForIndex =
+            calculateNaturalSlotKey(accountHash, storageSlotKey.getSlotHash());
+        final Optional<Long> exactStorageBlock =
+            ArchiveIndexReader.findExactStorageBlock(
+                storage, naturalKeyForIndex, storageTargetBlock);
+        if (exactStorageBlock.isPresent()) {
+          final byte[] directKey =
+              calculateArchiveKeyWithMinSuffix(
+                  new BonsaiContext(exactStorageBlock.get()), naturalKeyForIndex);
+          final Optional<byte[]> directValue =
+              storage
+                  .get(ACCOUNT_STORAGE_ARCHIVE, directKey)
+                  .or(() -> storage.get(ACCOUNT_STORAGE_FREEZER, directKey));
+          getStorageValueFlatDatabaseCounter.inc();
+          return directValue
+              .filter(v -> !Arrays.areEqual(DELETED_STORAGE_VALUE, v))
+              .map(Bytes::wrap);
+        }
+        // Index complete, no entry in this range -> slot did not exist at this block
+        getStorageValueNotFoundInFlatDatabaseCounter.inc();
+        return Optional.empty();
+      }
+    }
 
     // get natural key from account hash and slot key
     byte[] naturalKey = calculateNaturalSlotKey(accountHash, storageSlotKey.getSlotHash());
@@ -398,6 +466,12 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
         calculateArchiveKeyWithMinSuffix(getStateArchiveContextForWrite(storage).get(), naturalKey);
 
     transaction.put(ACCOUNT_STORAGE_ARCHIVE, keyNearest, storageValue.toArrayUnsafe());
+    getStateArchiveContextForWrite(storage)
+        .flatMap(BonsaiContext::getBlockNumber)
+        .ifPresent(
+            blockNum ->
+                ArchiveIndexWriter.appendStorageToIndex(
+                    storage, transaction, naturalKey, blockNum));
   }
 
   /*
@@ -460,6 +534,8 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
     storage.clear(ACCOUNT_STORAGE_ARCHIVE);
     storage.clear(ACCOUNT_INFO_STATE_FREEZER);
     storage.clear(ACCOUNT_STORAGE_FREEZER);
+    storage.clear(ARCHIVE_ACCOUNT_INDEX);
+    storage.clear(ARCHIVE_STORAGE_INDEX);
   }
 
   // TODO JF: move this out of this class so can be used with ArchiveCodeStorageStrategy without
