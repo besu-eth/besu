@@ -25,28 +25,10 @@ import java.util.List;
  * (ETH)</a>}
  */
 public class EthProtocolVersion {
-  public static final int V66 = 66;
   public static final int V68 = 68;
   public static final int V69 = 69;
-
-  /** eth/66 */
-  private static final List<Integer> eth66Messages =
-      List.of(
-          EthProtocolMessages.STATUS,
-          EthProtocolMessages.NEW_BLOCK_HASHES,
-          EthProtocolMessages.TRANSACTIONS,
-          EthProtocolMessages.GET_BLOCK_HEADERS,
-          EthProtocolMessages.BLOCK_HEADERS,
-          EthProtocolMessages.GET_BLOCK_BODIES,
-          EthProtocolMessages.BLOCK_BODIES,
-          EthProtocolMessages.NEW_BLOCK,
-          EthProtocolMessages.GET_NODE_DATA,
-          EthProtocolMessages.NODE_DATA,
-          EthProtocolMessages.GET_RECEIPTS,
-          EthProtocolMessages.RECEIPTS,
-          EthProtocolMessages.NEW_POOLED_TRANSACTION_HASHES,
-          EthProtocolMessages.GET_POOLED_TRANSACTIONS,
-          EthProtocolMessages.POOLED_TRANSACTIONS);
+  public static final int V70 = 70;
+  public static final int V71 = 71;
 
   /** eth/68 */
   private static final List<Integer> eth68Messages =
@@ -87,6 +69,26 @@ public class EthProtocolVersion {
           EthProtocolMessages.POOLED_TRANSACTIONS,
           EthProtocolMessages.BLOCK_RANGE_UPDATE);
 
+  /** eth/71 */
+  private static final List<Integer> eth71Messages =
+      List.of(
+          EthProtocolMessages.STATUS,
+          EthProtocolMessages.NEW_BLOCK_HASHES,
+          EthProtocolMessages.TRANSACTIONS,
+          EthProtocolMessages.GET_BLOCK_HEADERS,
+          EthProtocolMessages.BLOCK_HEADERS,
+          EthProtocolMessages.GET_BLOCK_BODIES,
+          EthProtocolMessages.BLOCK_BODIES,
+          EthProtocolMessages.NEW_BLOCK,
+          EthProtocolMessages.GET_RECEIPTS,
+          EthProtocolMessages.RECEIPTS,
+          EthProtocolMessages.NEW_POOLED_TRANSACTION_HASHES,
+          EthProtocolMessages.GET_POOLED_TRANSACTIONS,
+          EthProtocolMessages.POOLED_TRANSACTIONS,
+          EthProtocolMessages.BLOCK_RANGE_UPDATE,
+          EthProtocolMessages.GET_BLOCK_ACCESS_LISTS,
+          EthProtocolMessages.BLOCK_ACCESS_LISTS);
+
   /**
    * Returns a list of integers containing the supported messages given the protocol version
    *
@@ -94,15 +96,11 @@ public class EthProtocolVersion {
    * @return a list containing the codes of supported messages
    */
   public static List<Integer> getSupportedMessages(final int protocolVersion) {
-    switch (protocolVersion) {
-      case EthProtocolVersion.V66:
-        return eth66Messages;
-      case EthProtocolVersion.V68:
-        return eth68Messages;
-      case EthProtocolVersion.V69:
-        return eth69Messages;
-      default:
-        return Collections.emptyList();
-    }
+    return switch (protocolVersion) {
+      case EthProtocolVersion.V68 -> eth68Messages;
+      case EthProtocolVersion.V69, EthProtocolVersion.V70 -> eth69Messages;
+      case EthProtocolVersion.V71 -> eth71Messages;
+      default -> Collections.emptyList();
+    };
   }
 }

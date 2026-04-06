@@ -31,6 +31,9 @@ jar {
 dependencies {
   api 'org.slf4j:slf4j-api'
   api 'org.web3j:core'
+
+  compileOnly 'org.jspecify:jspecify'
+
   implementation project(path: ':util')
 
   annotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess'

@@ -43,6 +43,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 public class SyncTargetRangeSourceTest {
@@ -54,6 +55,13 @@ public class SyncTargetRangeSourceTest {
   private final SyncTargetRangeSource.SyncTargetChecker syncTargetChecker =
       mock(SyncTargetRangeSource.SyncTargetChecker.class);
   private final EthScheduler ethScheduler = mock(EthScheduler.class);
+
+  @BeforeEach
+  @SuppressWarnings("unchecked")
+  void setUp() {
+    when(ethScheduler.scheduleFutureTask(any(Supplier.class), any(Duration.class)))
+        .thenReturn(CompletableFuture.completedFuture(emptyList()));
+  }
 
   private final BlockHeader commonAncestor = header(10);
   private final SyncTargetRangeSource source =

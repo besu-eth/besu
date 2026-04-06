@@ -24,12 +24,12 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
-import javax.annotation.Nullable;
 
 import kotlin.collections.ArrayDeque;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.immutables.value.Value;
+import org.jspecify.annotations.Nullable;
 
 public final class GetStorageRangeMessage extends AbstractSnapMessageData {
 
@@ -134,8 +134,7 @@ public final class GetStorageRangeMessage extends AbstractSnapMessageData {
 
     Hash startKeyHash();
 
-    @Nullable
-    Hash endKeyHash();
+    @Nullable Hash endKeyHash();
 
     BigInteger responseBytes();
   }

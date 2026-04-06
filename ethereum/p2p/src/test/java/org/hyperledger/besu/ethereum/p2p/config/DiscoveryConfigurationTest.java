@@ -18,7 +18,6 @@ import static org.assertj.core.api.Java6Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 
 import java.util.Collections;
 
@@ -27,8 +26,8 @@ import org.junit.jupiter.api.Test;
 public class DiscoveryConfigurationTest {
 
   @Test
-  public void setBootnodes_withDiscoveryDisabled() {
-    final EnodeURL invalidBootnode =
+  public void setEnodeBootnodes_withDiscoveryDisabled() {
+    final EnodeURLImpl invalidBootnode =
         EnodeURLImpl.builder()
             .nodeId(Peer.randomId())
             .ipAddress("127.0.0.1")
@@ -38,15 +37,15 @@ public class DiscoveryConfigurationTest {
 
     DiscoveryConfiguration config = DiscoveryConfiguration.create();
 
-    assertThatThrownBy(() -> config.setBootnodes(Collections.singletonList(invalidBootnode)))
+    assertThatThrownBy(() -> config.setEnodeBootnodes(Collections.singletonList(invalidBootnode)))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("Invalid bootnodes")
         .hasMessageContaining("Bootnodes must have discovery enabled");
   }
 
   @Test
-  public void setBootnodes_withListeningDisabled() {
-    final EnodeURL invalidBootnode =
+  public void setEnodeBootnodes_withListeningDisabled() {
+    final EnodeURLImpl invalidBootnode =
         EnodeURLImpl.builder()
             .nodeId(Peer.randomId())
             .ipAddress("127.0.0.1")
@@ -55,7 +54,7 @@ public class DiscoveryConfigurationTest {
 
     DiscoveryConfiguration config = DiscoveryConfiguration.create();
 
-    assertThatThrownBy(() -> config.setBootnodes(Collections.singletonList(invalidBootnode)))
+    assertThatThrownBy(() -> config.setEnodeBootnodes(Collections.singletonList(invalidBootnode)))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("Invalid bootnodes")
         .hasMessageContaining("Bootnodes must have discovery enabled");

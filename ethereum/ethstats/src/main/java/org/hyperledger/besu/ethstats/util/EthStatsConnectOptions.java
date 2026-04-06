@@ -18,9 +18,9 @@ import static com.google.common.base.Preconditions.checkArgument;
 
 import java.net.URI;
 import java.nio.file.Path;
-import javax.annotation.Nullable;
 
 import org.immutables.value.Value;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.LoggerFactory;
 
 /**
@@ -34,8 +34,7 @@ public interface EthStatsConnectOptions {
    *
    * @return the scheme of the connection.
    */
-  @Nullable
-  String getScheme();
+  @Nullable String getScheme();
 
   /**
    * Gets the node name of the connection.
@@ -77,8 +76,7 @@ public interface EthStatsConnectOptions {
    *
    * @return the CA certificate of the connection.
    */
-  @Nullable
-  Path getCaCert();
+  @Nullable Path getCaCert();
 
   /**
    * Gets the ethstats report interval.

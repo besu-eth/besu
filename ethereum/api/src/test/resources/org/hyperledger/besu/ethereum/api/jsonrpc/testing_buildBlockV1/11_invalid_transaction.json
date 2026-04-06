@@ -1,0 +1,32 @@
+{
+  "description": "Build a block with an invalid raw transaction. The transaction hex is malformed and should fail to decode.",
+  "request": {
+    "id": 13,
+    "jsonrpc": "2.0",
+    "method": "testing_buildBlockV1",
+    "params": [
+      "0x937c8f382f4945fc6122652239426484d97b400d66c122aea45f2dd4a8afeab6",
+      {
+        "timestamp": "0x1",
+        "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "suggestedFeeRecipient": "0x0000000000000000000000000000000000000000",
+        "withdrawals": [],
+        "parentBeaconBlockRoot": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      [
+        "0xdeadbeef"
+      ],
+      "0x"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 13,
+    "error": {
+      "code": -32602,
+      "message": "Invalid transaction params (missing or incorrect)",
+      "data": "Failed to decode transaction: Invalid RLP in raw transaction hex"
+    }
+  },
+  "statusCode": 200
+}

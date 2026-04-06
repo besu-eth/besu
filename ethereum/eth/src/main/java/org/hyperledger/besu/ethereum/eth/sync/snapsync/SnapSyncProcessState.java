@@ -15,7 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import org.hyperledger.besu.ethereum.core.SealableBlockHeader;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncState;
+import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 
 import org.slf4j.Logger;
@@ -25,14 +25,14 @@ import org.slf4j.LoggerFactory;
  * Represents the state of the SnapSync process, including the current progress, healing status, and
  * other relevant information.
  */
-public class SnapSyncProcessState extends FastSyncState {
+public class SnapSyncProcessState extends PivotSyncState {
   private static final Logger LOG = LoggerFactory.getLogger(SnapSyncProcessState.class);
 
   private boolean isHealTrieInProgress;
   private boolean isHealFlatDatabaseInProgress;
   private boolean isWaitingBlockchain;
 
-  public SnapSyncProcessState(final FastSyncState fastSyncState) {
+  public SnapSyncProcessState(final PivotSyncState fastSyncState) {
     super(
         fastSyncState.getPivotBlockNumber(),
         fastSyncState.getPivotBlockHash(),

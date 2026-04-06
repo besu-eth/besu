@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal;
 
 import org.hyperledger.besu.ethereum.p2p.discovery.DiscoveryPeer;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.Endpoint;
+import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
@@ -38,12 +39,12 @@ public class DiscoveryPeerV4 extends DiscoveryPeer {
   // Timestamps.
   private final AtomicLong firstDiscovered = new AtomicLong(0L);
 
-  private DiscoveryPeerV4(final EnodeURL enode, final Endpoint endpoint) {
+  private DiscoveryPeerV4(final EnodeURLImpl enode, final Endpoint endpoint) {
     super(enode);
     this.endpoint = endpoint;
   }
 
-  public static DiscoveryPeerV4 fromEnode(final EnodeURL enode) {
+  public static DiscoveryPeerV4 fromEnode(final EnodeURLImpl enode) {
     return new DiscoveryPeerV4(enode, Endpoint.fromEnode(enode));
   }
 

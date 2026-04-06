@@ -360,6 +360,13 @@ public class BesuController implements java.io.Closeable {
       } else if (configOptions.isQbft()) {
         builder = new QbftBesuControllerBuilder();
       } else if (configOptions.isClique()) {
+        if (configOptions.getTerminalTotalDifficulty().isEmpty()) {
+          throw new IllegalStateException(
+              """
+                 Clique Block Production (mining) is no longer supported.
+                 It is still possible to sync existing Clique networks if they are migrated to PoS.
+                 """);
+        }
         builder = new CliqueBesuControllerBuilder();
       } else {
         throw new IllegalArgumentException("Unknown consensus mechanism defined");

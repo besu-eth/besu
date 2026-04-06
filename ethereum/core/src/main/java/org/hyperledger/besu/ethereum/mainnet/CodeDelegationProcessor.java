@@ -156,14 +156,6 @@ public class CodeDelegationProcessor {
       authorityDoesAlreadyExist = true;
     }
 
-    if (!authorityDoesAlreadyExist && codeDelegation.nonce() != authority.getNonce()) {
-      LOG.trace(
-          "Invalid nonce for code delegation. Expected: {}, Actual: {}",
-          authority.getNonce(),
-          codeDelegation.nonce());
-      return;
-    }
-
     if (authorityDoesAlreadyExist) {
       result.incrementAlreadyExistingDelegators();
     }

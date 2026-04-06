@@ -19,6 +19,7 @@ import static java.util.Collections.emptyList;
 import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.fail;
+import static org.hyperledger.besu.ethereum.eth.core.Utils.serializeReceiptsList;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.mock;
@@ -122,7 +123,11 @@ public class EthPeerTest {
     assertThat(peer.hasAvailableRequestCapacity()).isFalse();
     assertThat(peer.outstandingRequests()).isEqualTo(5);
 
-    peer.dispatch(new EthMessage(peer, BlockBodiesMessage.create(emptyList())));
+    peer.dispatch(
+        new EthMessage(
+            peer,
+            BlockBodiesMessage.create(emptyList())
+                .wrapMessageData(java.math.BigInteger.valueOf(1))));
     assertThat(peer.hasAvailableRequestCapacity()).isTrue();
     assertThat(peer.outstandingRequests()).isEqualTo(4);
   }
@@ -208,9 +213,10 @@ public class EthPeerTest {
     final EthMessage otherMessage =
         new EthMessage(
             peer,
-            ReceiptsMessage.create(
-                    singletonList(gen.receipts(gen.block())),
-                    TransactionReceiptEncodingConfiguration.DEFAULT_NETWORK_CONFIGURATION)
+            ReceiptsMessage.createUnsafe(
+                    serializeReceiptsList(
+                        singletonList(gen.receipts(gen.block())),
+                        TransactionReceiptEncodingConfiguration.DEFAULT_NETWORK_CONFIGURATION))
                 .wrapMessageData(BigInteger.ONE));
 
     // Set up stream for headers
@@ -422,7 +428,7 @@ public class EthPeerTest {
 
     // Dispatch unrelated message and check that it is not process
     EthMessage otherEthMessage =
-        new EthMessage(peer, otherMessage.wrapMessageData(BigInteger.valueOf(requestIdCounter++)));
+        new EthMessage(peer, otherMessage.wrapMessageData(BigInteger.valueOf(999)));
     peer.dispatch(otherEthMessage);
     assertThat(messageCount.get()).isEqualTo(1);
     assertThat(closedCount.get()).isEqualTo(0);
@@ -431,7 +437,7 @@ public class EthPeerTest {
         new EthMessage(peer, targetMessage.wrapMessageData(BigInteger.valueOf(requestIdCounter++)));
     // Dispatch last outstanding message and check that streams are closed
     peer.dispatch(targetEthMessage);
-    assertThat(messageCount.get()).isEqualTo(1);
+    assertThat(messageCount.get()).isEqualTo(2);
     assertThat(closedCount.get()).isEqualTo(2);
 
     targetEthMessage =
@@ -439,7 +445,7 @@ public class EthPeerTest {
     // Check that no new messages are delivered
     getStream.get(peer);
     peer.dispatch(targetEthMessage);
-    assertThat(messageCount.get()).isEqualTo(1);
+    assertThat(messageCount.get()).isEqualTo(2);
     assertThat(closedCount.get()).isEqualTo(2);
 
     targetEthMessage =

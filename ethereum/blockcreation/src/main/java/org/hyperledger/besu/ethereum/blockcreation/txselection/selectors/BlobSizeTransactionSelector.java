@@ -56,7 +56,7 @@ public class BlobSizeTransactionSelector extends AbstractStatefulTransactionSele
       final var cumulativeBlobGasUsed = getWorkingState();
 
       final var remainingBlobGas =
-          context.gasLimitCalculator().currentBlobGasLimit() - cumulativeBlobGasUsed;
+          context.gasLimitCalculator().blockBuilderBlobGasLimit() - cumulativeBlobGasUsed;
 
       if (remainingBlobGas == 0) {
         LOG.atTrace()

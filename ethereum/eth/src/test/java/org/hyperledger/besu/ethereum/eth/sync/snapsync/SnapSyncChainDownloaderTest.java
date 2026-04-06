@@ -17,24 +17,32 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
+import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.ChainSyncState;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.ChainSyncStateStorage;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.SingleBlockHeaderDownloader;
+import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
+import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncStateStorage;
+import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,6 +58,7 @@ public class SnapSyncChainDownloaderTest {
   @Mock private ProtocolSchedule protocolSchedule;
   @Mock private ProtocolContext protocolContext;
   @Mock private EthContext ethContext;
+  @Mock private EthPeers ethPeers;
   @Mock private SyncState syncState;
   @Mock private SyncDurationMetrics syncDurationMetrics;
   @Mock private MutableBlockchain blockchain;
@@ -72,6 +81,7 @@ public class SnapSyncChainDownloaderTest {
     lenient().when(blockchain.getChainHeadBlockNumber()).thenReturn(500L);
     lenient().when(blockchain.getChainHeadHeader()).thenReturn(checkpointBlockHeader);
     lenient().when(ethContext.getScheduler()).thenReturn(scheduler);
+    lenient().when(ethContext.getEthPeers()).thenReturn(ethPeers);
     lenient()
         .when(blockchain.getGenesisBlockHeader())
         .thenReturn(new BlockHeaderTestFixture().number(0).buildHeader());
@@ -150,6 +160,36 @@ public class SnapSyncChainDownloaderTest {
 
     // Verify world state heal signal is accepted without error
     assertThatCode(downloader::onWorldStateHealFinished).doesNotThrowAnyException();
+  }
+
+  @Test
+  public void shouldDeferPipelineStartWhenNoPeersAvailable() {
+    when(ethPeers.peerCount()).thenReturn(0);
+    when(scheduler.scheduleFutureTask(any(Runnable.class), any(Duration.class)))
+        .thenReturn(CompletableFuture.completedFuture(null));
+
+    SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            pivotBlockHeader,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    downloader.start();
+
+    // No pipeline should be created when there are no peers
+    verify(pipelineFactory, never()).createBackwardHeaderDownloadPipeline(any());
+
+    // A retry should be scheduled with the no-peer delay, not the fast retry delay
+    verify(scheduler)
+        .scheduleFutureTask(
+            any(Runnable.class),
+            eq(Duration.ofMillis(SnapSyncChainDownloader.NO_PEER_RETRY_DELAY_MILLISECONDS)));
   }
 
   @Test

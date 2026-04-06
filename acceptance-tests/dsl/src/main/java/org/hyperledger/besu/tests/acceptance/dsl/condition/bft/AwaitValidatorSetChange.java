@@ -15,7 +15,6 @@
 package org.hyperledger.besu.tests.acceptance.dsl.condition.bft;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.tests.acceptance.dsl.transaction.clique.CliqueTransactions.LATEST;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.tests.acceptance.dsl.WaitUtils;
@@ -40,6 +39,7 @@ public class AwaitValidatorSetChange implements Condition {
     WaitUtils.waitFor(
         60,
         () ->
-            assertThat(node.execute(bft.createGetValidators(LATEST))).isNotEqualTo(initialSigners));
+            assertThat(node.execute(bft.createGetValidators("latest")))
+                .isNotEqualTo(initialSigners));
   }
 }

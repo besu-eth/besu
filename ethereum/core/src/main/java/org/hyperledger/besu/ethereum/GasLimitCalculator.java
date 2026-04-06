@@ -97,4 +97,16 @@ public interface GasLimitCalculator {
   default long transactionBlobGasLimitCap() {
     return BLOB_GAS_LIMIT;
   }
+
+  /**
+   * Returns the blob gas limit to use when building blocks. This may be lower than {@link
+   * #currentBlobGasLimit()} when the user has configured {@code --max-blobs-per-block} to
+   * self-limit block building. Validation of incoming blocks from peers always uses {@link
+   * #currentBlobGasLimit()}.
+   *
+   * @return the blob gas limit for block building
+   */
+  default long blockBuilderBlobGasLimit() {
+    return currentBlobGasLimit();
+  }
 }

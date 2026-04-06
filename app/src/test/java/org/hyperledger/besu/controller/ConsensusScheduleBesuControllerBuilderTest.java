@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManager;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
@@ -129,7 +130,9 @@ public class ConsensusScheduleBesuControllerBuilderTest {
     when(besuControllerBuilder2.createMiningCoordinator(any(), any(), any(), any(), any(), any()))
         .thenReturn(miningCoordinator2);
     final ProtocolContext mockProtocolContext = mock(ProtocolContext.class);
-    when(mockProtocolContext.getBlockchain()).thenReturn(mock(MutableBlockchain.class));
+    final MutableBlockchain blockchain = mock(MutableBlockchain.class);
+    when(mockProtocolContext.getBlockchain()).thenReturn(blockchain);
+    when(blockchain.getChainHeadHeader()).thenReturn(mock(BlockHeader.class));
 
     final ConsensusScheduleBesuControllerBuilder builder =
         new ConsensusScheduleBesuControllerBuilder(consensusSchedule);
@@ -150,19 +153,31 @@ public class ConsensusScheduleBesuControllerBuilderTest {
         (softly) -> {
           softly
               .assertThat(
-                  migratingMiningCoordinator.getMiningCoordinatorSchedule().getFork(0L).getValue())
+                  migratingMiningCoordinator
+                      .getMiningCoordinatorSchedule()
+                      .getFork(0L, 0)
+                      .getValue())
               .isSameAs(miningCoordinator1);
           softly
               .assertThat(
-                  migratingMiningCoordinator.getMiningCoordinatorSchedule().getFork(4L).getValue())
+                  migratingMiningCoordinator
+                      .getMiningCoordinatorSchedule()
+                      .getFork(4L, 0)
+                      .getValue())
               .isSameAs(miningCoordinator1);
           softly
               .assertThat(
-                  migratingMiningCoordinator.getMiningCoordinatorSchedule().getFork(5L).getValue())
+                  migratingMiningCoordinator
+                      .getMiningCoordinatorSchedule()
+                      .getFork(5L, 0)
+                      .getValue())
               .isSameAs(miningCoordinator2);
           softly
               .assertThat(
-                  migratingMiningCoordinator.getMiningCoordinatorSchedule().getFork(6L).getValue())
+                  migratingMiningCoordinator
+                      .getMiningCoordinatorSchedule()
+                      .getFork(6L, 0)
+                      .getValue())
               .isSameAs(miningCoordinator2);
         });
   }
@@ -198,11 +213,11 @@ public class ConsensusScheduleBesuControllerBuilderTest {
     expectedConsensusContextSpecs.add(new ForkSpec<>(10L, context2));
     assertThat(contextSchedule.getForks()).isEqualTo(expectedConsensusContextSpecs);
 
-    assertThat(contextSchedule.getFork(0).getValue()).isSameAs(context1);
-    assertThat(contextSchedule.getFork(1).getValue()).isSameAs(context1);
-    assertThat(contextSchedule.getFork(9).getValue()).isSameAs(context1);
-    assertThat(contextSchedule.getFork(10).getValue()).isSameAs(context2);
-    assertThat(contextSchedule.getFork(11).getValue()).isSameAs(context2);
+    assertThat(contextSchedule.getFork(0, 0).getValue()).isSameAs(context1);
+    assertThat(contextSchedule.getFork(1, 0).getValue()).isSameAs(context1);
+    assertThat(contextSchedule.getFork(9, 0).getValue()).isSameAs(context1);
+    assertThat(contextSchedule.getFork(10, 0).getValue()).isSameAs(context2);
+    assertThat(contextSchedule.getFork(11, 0).getValue()).isSameAs(context2);
   }
 
   @Test

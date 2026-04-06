@@ -45,19 +45,19 @@ import org.mockito.quality.Strictness;
 @MockitoSettings(strictness = Strictness.LENIENT)
 public class InsufficientPeersPermissioningProviderTest {
   @Mock private P2PNetwork p2pNetwork;
-  private final EnodeURL SELF_ENODE =
+  private final EnodeURLImpl SELF_ENODE =
       EnodeURLImpl.fromString(
           "enode://00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000001@192.168.0.1:30303");
-  private final EnodeURL ENODE_2 =
+  private final EnodeURLImpl ENODE_2 =
       EnodeURLImpl.fromString(
           "enode://00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000002@192.168.0.2:30303");
-  private final EnodeURL ENODE_3 =
+  private final EnodeURLImpl ENODE_3 =
       EnodeURLImpl.fromString(
           "enode://00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003@192.168.0.3:30303");
-  private final EnodeURL ENODE_4 =
+  private final EnodeURLImpl ENODE_4 =
       EnodeURLImpl.fromString(
           "enode://00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004@192.168.0.4:30303");
-  private final EnodeURL ENODE_5 =
+  private final EnodeURLImpl ENODE_5 =
       EnodeURLImpl.fromString(
           "enode://00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000005@192.168.0.5:30303");
 
@@ -68,7 +68,7 @@ public class InsufficientPeersPermissioningProviderTest {
 
   @Test
   public void noResultWhenNoBootnodes() {
-    final Collection<EnodeURL> bootnodes = Collections.emptyList();
+    final Collection<EnodeURLImpl> bootnodes = Collections.emptyList();
 
     when(p2pNetwork.getPeers()).thenReturn(Collections.emptyList());
 
@@ -84,7 +84,7 @@ public class InsufficientPeersPermissioningProviderTest {
     when(neverMatchPeerConnection.getRemoteEnode()).thenReturn(ENODE_5);
     when(p2pNetwork.getPeers()).thenReturn(Collections.singletonList(neverMatchPeerConnection));
 
-    final Collection<EnodeURL> bootnodes = Collections.singletonList(ENODE_2);
+    final Collection<EnodeURLImpl> bootnodes = Collections.singletonList(ENODE_2);
 
     final InsufficientPeersPermissioningProvider provider =
         new InsufficientPeersPermissioningProvider(p2pNetwork, bootnodes);
@@ -95,7 +95,7 @@ public class InsufficientPeersPermissioningProviderTest {
 
   @Test
   public void allowsConnectionIfBootnodeAndNoConnections() {
-    final Collection<EnodeURL> bootnodes = Collections.singletonList(ENODE_2);
+    final Collection<EnodeURLImpl> bootnodes = Collections.singletonList(ENODE_2);
 
     when(p2pNetwork.getPeers()).thenReturn(Collections.emptyList());
 
@@ -108,7 +108,7 @@ public class InsufficientPeersPermissioningProviderTest {
 
   @Test
   public void noResultWhenLocalNodeNotReady() {
-    final Collection<EnodeURL> bootnodes = Collections.singletonList(ENODE_2);
+    final Collection<EnodeURLImpl> bootnodes = Collections.singletonList(ENODE_2);
 
     when(p2pNetwork.getPeers()).thenReturn(Collections.emptyList());
     when(p2pNetwork.getLocalEnode()).thenReturn(Optional.empty());
@@ -122,7 +122,7 @@ public class InsufficientPeersPermissioningProviderTest {
 
   @Test
   public void allowsConnectionIfBootnodeAndOnlyBootnodesConnected() {
-    final Collection<EnodeURL> bootnodes = Collections.singletonList(ENODE_2);
+    final Collection<EnodeURLImpl> bootnodes = Collections.singletonList(ENODE_2);
 
     final PeerConnection bootnodeMatchPeerConnection = mock(PeerConnection.class);
     when(bootnodeMatchPeerConnection.getRemoteEnode()).thenReturn(ENODE_2);
@@ -143,7 +143,7 @@ public class InsufficientPeersPermissioningProviderTest {
 
   @Test
   public void firesUpdateWhenDisconnectLastNonBootnode() {
-    final Collection<EnodeURL> bootnodes = Collections.singletonList(ENODE_2);
+    final Collection<EnodeURLImpl> bootnodes = Collections.singletonList(ENODE_2);
     final Collection<PeerConnection> pcs =
         Arrays.asList(
             peerConnectionMatching(ENODE_2),
@@ -173,7 +173,7 @@ public class InsufficientPeersPermissioningProviderTest {
 
   @Test
   public void firesUpdateWhenNonBootnodeConnects() {
-    final Collection<EnodeURL> bootnodes = Arrays.asList(ENODE_2, ENODE_3);
+    final Collection<EnodeURLImpl> bootnodes = Arrays.asList(ENODE_2, ENODE_3);
     final Collection<PeerConnection> pcs = Collections.emptyList();
 
     when(p2pNetwork.getPeers()).thenReturn(pcs);
@@ -206,7 +206,7 @@ public class InsufficientPeersPermissioningProviderTest {
 
   @Test
   public void firesUpdateWhenGettingAndLosingConnection() {
-    final Collection<EnodeURL> bootnodes = Arrays.asList(ENODE_2, ENODE_3);
+    final Collection<EnodeURLImpl> bootnodes = Arrays.asList(ENODE_2, ENODE_3);
     final Collection<PeerConnection> pcs = Collections.emptyList();
 
     when(p2pNetwork.getPeers()).thenReturn(pcs);

@@ -32,6 +32,7 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 import com.google.common.net.InetAddresses;
@@ -50,7 +51,7 @@ public class NettyConnectionInitializerTest {
   }
 
   @Test
-  public void start_bindsIpv4Address() throws Exception {
+  public void startBindsIpv4Address() throws Exception {
     initializer = createInitializer(ipv4OnlyConfig());
 
     final ListeningAddresses addrs = initializer.start().get(10, TimeUnit.SECONDS);
@@ -66,7 +67,7 @@ public class NettyConnectionInitializerTest {
   }
 
   @Test
-  public void start_dualStack_bindsBothAddresses() throws Exception {
+  public void startDualStackBindsBothAddresses() throws Exception {
     assumeTrue(NetworkUtility.isIPv6Available(), "IPv6 not available on this host");
 
     initializer = createInitializer(dualStackConfig());
@@ -93,7 +94,7 @@ public class NettyConnectionInitializerTest {
   }
 
   @Test
-  public void start_dualStack_degradesToIpv4WhenIpv6BindFails() throws Exception {
+  public void startDualStackDegradesToIpv4WhenIpv6BindFails() throws Exception {
     assumeTrue(NetworkUtility.isIPv6Available(), "IPv6 not available on this host");
 
     // Pre-bind a port on ::1 to force the IPv6 bind to fail.
@@ -127,7 +128,7 @@ public class NettyConnectionInitializerTest {
   }
 
   @Test
-  public void start_dualStack_ipv4AndIpv6PortsAreIndependent() throws Exception {
+  public void startDualStackIpv4AndIpv6PortsAreIndependent() throws Exception {
     assumeTrue(NetworkUtility.isIPv6Available(), "IPv6 not available on this host");
 
     initializer = createInitializer(dualStackConfig());
@@ -142,6 +143,47 @@ public class NettyConnectionInitializerTest {
     // only assert each is non-zero rather than testing inequality.
     assertThat(addrs.ipv4Address().getPort()).isGreaterThan(0);
     assertThat(addrs.ipv6Address().get().getPort()).isGreaterThan(0);
+  }
+
+  @Test
+  public void stopImmediatelyAfterStartCompletesWithoutHanging() throws Exception {
+    initializer = createInitializer(ipv4OnlyConfig());
+
+    // Call start() but do NOT wait for it to complete — immediately stop.
+    final var startFuture = initializer.start();
+    final var stopFuture = initializer.stop();
+
+    // Both futures must resolve within the timeout. Before the fix, stop() could hang
+    // indefinitely when the bind had not yet completed.
+    stopFuture.get(10, TimeUnit.SECONDS);
+    // start() should also complete (exceptionally is fine — it was interrupted by stop).
+    try {
+      startFuture.get(10, TimeUnit.SECONDS);
+    } catch (final ExecutionException ignored) {
+      // Expected — stop() may have completed start()'s future exceptionally.
+    }
+
+    // Prevent double-stop in @AfterEach.
+    initializer = null;
+  }
+
+  @Test
+  public void stopImmediatelyAfterStartDualStackCompletesWithoutHanging() throws Exception {
+    assumeTrue(NetworkUtility.isIPv6Available(), "IPv6 not available on this host");
+
+    initializer = createInitializer(dualStackConfig());
+
+    final var startFuture = initializer.start();
+    final var stopFuture = initializer.stop();
+
+    stopFuture.get(10, TimeUnit.SECONDS);
+    try {
+      startFuture.get(10, TimeUnit.SECONDS);
+    } catch (final ExecutionException ignored) {
+      // Expected — stop() may have completed start()'s future exceptionally.
+    }
+
+    initializer = null;
   }
 
   private static RlpxConfiguration ipv4OnlyConfig() {

@@ -16,11 +16,10 @@ package org.hyperledger.besu.cli.options;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static java.util.Collections.singletonList;
-import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_NON_POA_BLOCK_TXS_SELECTION_MAX_TIME;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_PLUGIN_BLOCK_TXS_SELECTION_MAX_TIME;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_POA_BLOCK_TXS_SELECTION_MAX_TIME;
+import static org.hyperledger.besu.ethereum.core.MiningConfiguration.DEFAULT_POS_BLOCK_TXS_SELECTION_MAX_TIME;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.MutableInitValues.DEFAULT_EXTRA_DATA;
-import static org.hyperledger.besu.ethereum.core.MiningConfiguration.MutableInitValues.DEFAULT_MIN_BLOCK_OCCUPANCY_RATIO;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.MutableInitValues.DEFAULT_MIN_PRIORITY_FEE_PER_GAS;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.MutableInitValues.DEFAULT_MIN_TRANSACTION_GAS_PRICE;
 import static org.hyperledger.besu.ethereum.core.MiningConfiguration.Unstable.DEFAULT_POS_BLOCK_CREATION_MAX_TIME;
@@ -39,6 +38,7 @@ import org.hyperledger.besu.plugin.services.TransactionSelectionService;
 import org.hyperledger.besu.util.number.PositiveNumber;
 
 import java.util.List;
+import java.util.OptionalInt;
 
 import jakarta.validation.constraints.Positive;
 import org.apache.tuweni.bytes.Bytes;
@@ -62,8 +62,13 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
 
   @Option(
       names = {"--min-block-occupancy-ratio"},
-      description = "Minimum occupancy ratio for a mined block (default: ${DEFAULT-VALUE})")
-  private Double minBlockOccupancyRatio = DEFAULT_MIN_BLOCK_OCCUPANCY_RATIO;
+      hidden = true,
+      description =
+          DEPRECATION_PREFIX
+              + "Minimum occupancy ratio for a mined block (default: ${DEFAULT-VALUE})")
+  @SuppressWarnings("UnusedVariable")
+  @Deprecated
+  private Double minBlockOccupancyRatio = null;
 
   @Option(
       names = {"--min-gas-price"},
@@ -90,18 +95,16 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
       names = {"--block-txs-selection-max-time"},
       converter = PositiveNumberConverter.class,
       description =
-          DEPRECATION_PREFIX
-              + "Specifies the maximum time, in milliseconds, that could be spent selecting transactions to be included in the block."
+          "Specifies the maximum time, in milliseconds, that could be spent selecting transactions to be included in the block on PoS networks."
               + " Not compatible with PoA networks, see poa-block-txs-selection-max-time. (default: ${DEFAULT-VALUE})")
-  private PositiveNumber nonPoaBlockTxsSelectionMaxTime =
-      DEFAULT_NON_POA_BLOCK_TXS_SELECTION_MAX_TIME;
+  private PositiveNumber posBlockTxsSelectionMaxTime = DEFAULT_POS_BLOCK_TXS_SELECTION_MAX_TIME;
 
   @Option(
       names = {"--poa-block-txs-selection-max-time"},
       converter = PositiveNumberConverter.class,
       description =
           "Specifies the maximum time that could be spent selecting transactions to be included in the block, as a percentage of the fixed block time of the PoA network."
-              + " To be only used on PoA networks, for other networks see block-txs-selection-max-time."
+              + " To be only used on PoA networks, for PoS networks see block-txs-selection-max-time."
               + " (default: ${DEFAULT-VALUE})")
   private PositiveNumber poaBlockTxsSelectionMaxTime = DEFAULT_POA_BLOCK_TXS_SELECTION_MAX_TIME;
 
@@ -113,6 +116,22 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
               + " (default: ${DEFAULT-VALUE})")
   private PositiveNumber pluginBlockTxsSelectionMaxTime =
       DEFAULT_PLUGIN_BLOCK_TXS_SELECTION_MAX_TIME;
+
+  @Option(
+      names = {"--max-blobs-per-transaction"},
+      description =
+          "Maximum number of blobs allowed per transaction. "
+              + "Only applies from Osaka hardfork onwards. (default: 6)",
+      arity = "1")
+  private Integer maxBlobsPerTransaction = null;
+
+  @Option(
+      names = {"--max-blobs-per-block"},
+      description =
+          "Maximum number of blobs allowed per block when building blocks. "
+              + "Only applies from Osaka hardfork onwards. Values above the protocol maximum are clamped. (default: protocol maximum)",
+      arity = "1")
+  private Integer maxBlobsPerBlock = null;
 
   @CommandLine.ArgGroup(validate = false)
   private final Unstable unstableOptions = new Unstable();
@@ -221,6 +240,26 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
             + " see --block-txs-selection-max-time instead",
         genesisConfigOptions.isPoa(),
         singletonList("--poa-block-txs-selection-max-time"));
+
+    if (maxBlobsPerTransaction != null && maxBlobsPerTransaction < 0) {
+      throw new ParameterException(
+          commandLine, "--max-blobs-per-transaction must be a non-negative value");
+    }
+
+    if (maxBlobsPerBlock != null && maxBlobsPerBlock < 0) {
+      throw new ParameterException(
+          commandLine, "--max-blobs-per-block must be a non-negative value");
+    }
+
+    if (maxBlobsPerBlock != null
+        && maxBlobsPerTransaction != null
+        && maxBlobsPerBlock < maxBlobsPerTransaction) {
+      logger.warn(
+          "--max-blobs-per-block ({}) is less than --max-blobs-per-transaction ({}). "
+              + "The block limit will be the binding constraint during block building.",
+          maxBlobsPerBlock,
+          maxBlobsPerTransaction);
+    }
   }
 
   static MiningOptions fromConfig(final MiningConfiguration miningConfiguration) {
@@ -230,13 +269,16 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
     miningOptions.extraData = miningConfiguration.getExtraData();
     miningOptions.minTransactionGasPrice = miningConfiguration.getMinTransactionGasPrice();
     miningOptions.minPriorityFeePerGas = miningConfiguration.getMinPriorityFeePerGas();
-    miningOptions.minBlockOccupancyRatio = miningConfiguration.getMinBlockOccupancyRatio();
-    miningOptions.nonPoaBlockTxsSelectionMaxTime =
-        miningConfiguration.getNonPoaBlockTxsSelectionMaxTime();
+    miningOptions.posBlockTxsSelectionMaxTime =
+        miningConfiguration.getPosBlockTxsSelectionMaxTime();
     miningOptions.poaBlockTxsSelectionMaxTime =
         miningConfiguration.getPoaBlockTxsSelectionMaxTime();
     miningOptions.pluginBlockTxsSelectionMaxTime =
         miningConfiguration.getPluginBlockTxsSelectionMaxTime();
+    miningConfiguration
+        .getMaxBlobsPerTransaction()
+        .ifPresent(v -> miningOptions.maxBlobsPerTransaction = v);
+    miningConfiguration.getMaxBlobsPerBlock().ifPresent(v -> miningOptions.maxBlobsPerBlock = v);
 
     miningOptions.unstableOptions.posBlockCreationMaxTime =
         miningConfiguration.getUnstable().getPosBlockCreationMaxTime();
@@ -261,8 +303,11 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
         MutableInitValues.builder()
             .extraData(extraData)
             .minTransactionGasPrice(minTransactionGasPrice)
-            .minPriorityFeePerGas(minPriorityFeePerGas)
-            .minBlockOccupancyRatio(minBlockOccupancyRatio);
+            .minPriorityFeePerGas(minPriorityFeePerGas);
+
+    if (maxBlobsPerTransaction != null) {
+      updatableInitValuesBuilder.maxBlobsPerTransaction(maxBlobsPerTransaction);
+    }
 
     if (targetGasLimit != null) {
       updatableInitValuesBuilder.targetGasLimit(targetGasLimit);
@@ -271,7 +316,9 @@ public class MiningOptions implements CLIOptions<MiningConfiguration> {
     return ImmutableMiningConfiguration.builder()
         .transactionSelectionService(transactionSelectionService)
         .mutableInitValues(updatableInitValuesBuilder.build())
-        .nonPoaBlockTxsSelectionMaxTime(nonPoaBlockTxsSelectionMaxTime)
+        .maxBlobsPerBlock(
+            maxBlobsPerBlock != null ? OptionalInt.of(maxBlobsPerBlock) : OptionalInt.empty())
+        .posBlockTxsSelectionMaxTime(posBlockTxsSelectionMaxTime)
         .poaBlockTxsSelectionMaxTime(poaBlockTxsSelectionMaxTime)
         .pluginBlockTxsSelectionMaxTime(pluginBlockTxsSelectionMaxTime)
         .unstable(

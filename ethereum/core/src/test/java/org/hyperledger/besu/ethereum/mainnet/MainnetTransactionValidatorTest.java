@@ -56,11 +56,10 @@ import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
-import java.util.function.Supplier;
 import java.util.stream.Stream;
 
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes48;
 import org.junit.jupiter.api.Test;
@@ -78,9 +77,9 @@ import org.mockito.quality.Strictness;
 @MockitoSettings(strictness = Strictness.LENIENT)
 public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExtension {
 
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
-  protected static final KeyPair senderKeys = SIGNATURE_ALGORITHM.get().generateKeyPair();
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
+  protected static final KeyPair senderKeys = SIGNATURE_ALGORITHM.generateKeyPair();
 
   private static final TransactionValidationParams transactionProcessingParams =
       processingBlockParams;
@@ -299,7 +298,7 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
             gasCalculator, GasLimitCalculator.constant(), false, Optional.of(BigInteger.ONE));
 
     final TransactionTestFixture builder = new TransactionTestFixture();
-    final KeyPair senderKeyPair = SIGNATURE_ALGORITHM.get().generateKeyPair();
+    final KeyPair senderKeyPair = SIGNATURE_ALGORITHM.generateKeyPair();
     final Address arbitrarySender = Address.fromHexString("1");
     builder.gasPrice(Wei.ZERO).nonce(0).sender(arbitrarySender).value(Wei.ZERO);
 
@@ -763,13 +762,12 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
       final ValidationParamsVariant validationParamsVariant,
       final long txGasLimit,
       final boolean valid) {
-    final long gasLimitCap = 16_777_216L;
     final var feeMarket = FeeMarket.london(0L);
     final TransactionValidator validator =
         createTransactionValidator(
             gasCalculator,
             new OsakaTargetingGasLimitCalculator(
-                0L, feeMarket, gasCalculator, 6, 3, 6, gasLimitCap),
+                0L, feeMarket, gasCalculator, 6, 3, OptionalInt.of(6), OptionalInt.empty()),
             feeMarket,
             false,
             Optional.of(BigInteger.ONE),

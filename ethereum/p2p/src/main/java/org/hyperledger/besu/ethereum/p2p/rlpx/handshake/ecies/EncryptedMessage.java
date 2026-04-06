@@ -23,8 +23,6 @@ import org.hyperledger.besu.cryptoservices.NodeKey;
 import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.MutableBytes;
 import org.bouncycastle.crypto.InvalidCipherTextException;
@@ -34,8 +32,8 @@ final class EncryptedMessage {
   private static final int IV_SIZE = 16;
 
   private static final SecureRandom RANDOM = SecureRandomProvider.createSecureRandom();
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
 
   private EncryptedMessage() {
     // Utility Class
@@ -54,8 +52,7 @@ final class EncryptedMessage {
 
     // Extract the ephemeral public key, stripping off the first byte (0x04), which designates it's
     // an uncompressed key.
-    final SECPPublicKey ephPubKey =
-        SIGNATURE_ALGORITHM.get().createPublicKey(msgBytes.slice(1, 64));
+    final SECPPublicKey ephPubKey = SIGNATURE_ALGORITHM.createPublicKey(msgBytes.slice(1, 64));
 
     // Strip off the IV to use.
     final Bytes iv = msgBytes.slice(65, IV_SIZE);
@@ -79,8 +76,7 @@ final class EncryptedMessage {
    */
   public static Bytes decryptMsgEIP8(final Bytes msgBytes, final NodeKey nodeKey)
       throws InvalidCipherTextException {
-    final SECPPublicKey ephPubKey =
-        SIGNATURE_ALGORITHM.get().createPublicKey(msgBytes.slice(3, 64));
+    final SECPPublicKey ephPubKey = SIGNATURE_ALGORITHM.createPublicKey(msgBytes.slice(3, 64));
 
     // Strip off the IV to use.
     final Bytes iv = msgBytes.slice(3 + 64, IV_SIZE);

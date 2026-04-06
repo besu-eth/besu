@@ -33,6 +33,8 @@ import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.core.Util;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.rlp.RLPInput;
+import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
 import java.util.List;
 import java.util.Optional;
@@ -102,6 +104,54 @@ public class ProposalTest {
     return SignedData.create(
         roundChangePayload,
         nodeKey.sign(Bytes32.wrap(roundChangePayload.hashForSignature().getBytes())));
+  }
+
+  @Test
+  public void canDecodeProposalMessageFromLegacyNodeWithoutBlockAccessList() {
+    // Simulate a pre-26.1.0 validator that encodes ProposalPayload WITHOUT the blockAccessList
+    // field.
+    // Old format payload list: [seqNum, roundNum, block]       (3 items)
+    // New format payload list: [seqNum, roundNum, block, null] (4 items)
+
+    // The mock must consume the block bytes written by the legacy writeTo override, otherwise the
+    // RLP cursor remains on the block hash and readBlockAccessList sees it instead of end-of-list.
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.<RLPInput>getArgument(0).skipNext();
+              return BLOCK;
+            });
+
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final ConsensusRoundIdentifier roundIdentifier = new ConsensusRoundIdentifier(1, 1);
+
+    // ProposalPayload subclass that overrides writeTo() to omit the blockAccessList field,
+    // reproducing the pre-26.1.0 wire format
+    final ProposalPayload oldFormatPayload =
+        new ProposalPayload(roundIdentifier, BLOCK, blockEncoder) {
+          @Override
+          public void writeTo(final RLPOutput output) {
+            output.startList();
+            writeConsensusRound(output);
+            output.writeBytes(BLOCK.getHash().getBytes());
+            // No blockAccessList field — simulates pre-26.1.0 encoding
+            output.endList();
+          }
+        };
+
+    final SignedData<ProposalPayload> signedPayload =
+        SignedData.create(
+            oldFormatPayload,
+            nodeKey.sign(Bytes32.wrap(oldFormatPayload.hashForSignature().getBytes())));
+
+    final Proposal proposal =
+        Proposal.decode(new Proposal(signedPayload, List.of(), List.of()).encode(), blockEncoder);
+
+    assertThat(proposal.getBlockAccessList()).isEmpty();
+    assertThat(proposal.getSignedPayload().getPayload().getRoundIdentifier())
+        .isEqualTo(roundIdentifier);
+    assertThat(proposal.getSignedPayload().getPayload().getProposedBlock().getHash())
+        .isEqualTo(BLOCK.getHash());
   }
 
   private void assertProposal(

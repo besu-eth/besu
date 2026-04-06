@@ -43,6 +43,13 @@ public class BesuEventsPluginTest extends AcceptanceTestBase {
             PluginConfiguration.DEFAULT,
             Collections.emptyList());
     cluster.start(pluginNode, minerNode);
+
+    // Ensure nodes are connected before starting test
+    minerNode.awaitPeerDiscovery(net.awaitPeerCount(1));
+    pluginNode.awaitPeerDiscovery(net.awaitPeerCount(1));
+
+    // Wait for initial block production to stabilize
+    waitForBlockHeight(minerNode, 1);
   }
 
   @Test

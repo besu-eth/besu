@@ -72,6 +72,8 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
       "--Xsynchronizer-receipts-download-step-timeout-millis";
   private static final String BACKWARD_HEADERS_DOWNLOAD_STEP_TIMEOUT_MILLIS_FLAG =
       "--Xsynchronizer-backward-headers-download-step-timeout-millis";
+  private static final String BODIES_DOWNLOAD_STEP_TIMEOUT_MILLIS_FLAG =
+      "--Xsynchronizer-bodies-download-step-timeout-millis";
 
   // Regular (stable) flag
   private static final String SNAP_SERVER_ENABLED_FLAG = "--snapsync-server-enabled";
@@ -279,6 +281,15 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
           "Maximum time in milliseconds to wait for backward headers download step including all retries (default: ${DEFAULT-VALUE})")
   private long backwardHeadersDownloadStepTimeoutMillis =
       SynchronizerConfiguration.DEFAULT_BACKWARD_HEADERS_DOWNLOAD_STEP_TIMEOUT_MILLIS;
+
+  @CommandLine.Option(
+      names = BODIES_DOWNLOAD_STEP_TIMEOUT_MILLIS_FLAG,
+      hidden = true,
+      paramLabel = "<LONG>",
+      description =
+          "Maximum time in milliseconds to wait for bodies download step including all retries (default: ${DEFAULT-VALUE})")
+  private long bodiesDownloadStepTimeoutMillis =
+      SynchronizerConfiguration.DEFAULT_BODIES_DOWNLOAD_STEP_TIMEOUT_MILLIS;
 
   @CommandLine.Option(
       names = SNAP_PIVOT_BLOCK_WINDOW_VALIDITY_FLAG,
@@ -495,6 +506,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     options.receiptsDownloadStepTimeoutMillis = config.getReceiptsDownloadStepTimeoutMillis();
     options.backwardHeadersDownloadStepTimeoutMillis =
         config.getBackwardHeadersDownloadStepTimeoutMillis();
+    options.bodiesDownloadStepTimeoutMillis = config.getBodiesDownloadStepTimeoutMillis();
     return options;
   }
 
@@ -536,6 +548,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
         snapSyncSavePreCheckpointHeadersOnlyEnabled);
     builder.receiptsDownloadStepTimeoutMillis(receiptsDownloadStepTimeoutMillis);
     builder.backwardHeadersDownloadStepTimeoutMillis(backwardHeadersDownloadStepTimeoutMillis);
+    builder.bodiesDownloadStepTimeoutMillis(bodiesDownloadStepTimeoutMillis);
     builder.era1ImportPrepipelineEnabled(era1ImportPrepipelineEnabled);
     builder.era1DataUri(era1DataUri);
     builder.era1ImportPrepipelineConcurrency(era1ImportPrepipelineConcurrency);
@@ -584,6 +597,8 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             OptionParser.format(receiptsDownloadStepTimeoutMillis),
             BACKWARD_HEADERS_DOWNLOAD_STEP_TIMEOUT_MILLIS_FLAG,
             OptionParser.format(backwardHeadersDownloadStepTimeoutMillis),
+            BODIES_DOWNLOAD_STEP_TIMEOUT_MILLIS_FLAG,
+            OptionParser.format(bodiesDownloadStepTimeoutMillis),
             SNAP_PIVOT_BLOCK_WINDOW_VALIDITY_FLAG,
             OptionParser.format(snapsyncPivotBlockWindowValidity),
             SNAP_PIVOT_BLOCK_DISTANCE_BEFORE_CACHING_FLAG,

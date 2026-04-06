@@ -1,0 +1,30 @@
+{
+  "description": "Error case: timestamp is 0 in payloadAttributes. Expects INVALID_PARAMS with 'Missing or invalid timestamp field'. Note: with amsterdamTime=0 in genesis, fork validation passes (0>=0), then attribute validation rejects timestamp=0.",
+  "request": {
+    "id": 8,
+    "jsonrpc": "2.0",
+    "method": "testing_buildBlockV1",
+    "params": [
+      "0x937c8f382f4945fc6122652239426484d97b400d66c122aea45f2dd4a8afeab6",
+      {
+        "timestamp": "0x0",
+        "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "suggestedFeeRecipient": "0x0000000000000000000000000000000000000000",
+        "withdrawals": [],
+        "parentBeaconBlockRoot": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      [],
+      "0x"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 8,
+    "error": {
+      "code": -32602,
+      "message": "Invalid params",
+      "data": "Missing or invalid timestamp field"
+    }
+  },
+  "statusCode": 200
+}

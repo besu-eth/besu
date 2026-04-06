@@ -49,6 +49,7 @@ import java.util.stream.Stream;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.net.InetAddresses;
 import org.apache.tuweni.bytes.Bytes;
+import org.ethereum.beacon.discovery.schema.NodeRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -102,7 +103,9 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
 
     this.peerPermissions = peerPermissions;
     this.bootstrapPeers =
-        config.getBootnodes().stream().map(DiscoveryPeerV4::fromEnode).collect(Collectors.toList());
+        config.getEnodeBootnodes().stream()
+            .map(DiscoveryPeerV4::fromEnode)
+            .collect(Collectors.toList());
 
     this.config = config;
     this.nodeKey = nodeKey;
@@ -324,7 +327,7 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
     checkArgument(
         config.getBindPort() == 0 || NetworkUtility.isValidPort(config.getBindPort()),
         "valid port number required");
-    checkArgument(config.getBootnodes() != null, "bootstrapPeers cannot be null");
+    checkArgument(config.getEnodeBootnodes() != null, "bootstrapPeers cannot be null");
     checkArgument(config.getBucketSize() > 0, "bucket size cannot be negative nor zero");
   }
 
@@ -357,6 +360,11 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
   @Override
   public void addPeer(final Peer peer) {
     controller.ifPresent(c -> DiscoveryPeerV4.from(peer).ifPresent(c::handleBondingRequest));
+  }
+
+  @Override
+  public Optional<NodeRecord> getLocalNodeRecord() {
+    return nodeRecordManager.getLocalNode().flatMap(DiscoveryPeerV4::getNodeRecord);
   }
 
   @VisibleForTesting

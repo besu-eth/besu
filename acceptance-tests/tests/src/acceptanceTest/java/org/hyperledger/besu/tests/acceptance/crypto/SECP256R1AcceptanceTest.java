@@ -40,8 +40,6 @@ public class SECP256R1AcceptanceTest extends AcceptanceTestBase {
   private Node otherNode;
   private Cluster noDiscoveryCluster;
 
-  private static final String GENESIS_FILE = "/crypto/secp256r1.json";
-
   private static final String MINER_NODE_PRIVATE_KEY =
       "8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63";
   private static final String OTHER_NODE_PRIVATE_KEY =
@@ -59,13 +57,12 @@ public class SECP256R1AcceptanceTest extends AcceptanceTestBase {
     noDiscoveryCluster = new Cluster(clusterConfiguration, net);
 
     minerNode =
-        besu.createNodeWithNonDefaultSignatureAlgorithm(
-            "minerNode", GENESIS_FILE, minerNodeKeyPair, List.of());
+        besu.createNodeWithNonDefaultSignatureAlgorithm("minerNode", minerNodeKeyPair, List.of());
     noDiscoveryCluster.start(minerNode);
 
     otherNode =
         besu.createNodeWithNonDefaultSignatureAlgorithm(
-            "otherNode", GENESIS_FILE, otherNodeKeyPair, List.of(minerNode));
+            "otherNode", otherNodeKeyPair, List.of(minerNode));
     noDiscoveryCluster.addNode(otherNode);
 
     minerNode.verify(net.awaitPeerCount(1));

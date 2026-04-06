@@ -21,20 +21,32 @@ import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions.Action;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 public class PeerPermissionsDenylistTest {
 
   private final Peer localNode = createPeer();
 
+  public PeerPermissionsDenylistTest() throws UnknownHostException {}
+
+  private int ipModifier = 1;
+
+  @BeforeEach
+  public void beforeTest() {
+    ipModifier = 1;
+  }
+
   @Test
-  public void add_peer() {
+  public void add_peer() throws UnknownHostException {
     PeerPermissionsDenylist denylist = PeerPermissionsDenylist.create();
     Peer peer = createPeer();
 
@@ -53,7 +65,7 @@ public class PeerPermissionsDenylistTest {
   }
 
   @Test
-  public void remove_peer() {
+  public void remove_peer() throws UnknownHostException {
     PeerPermissionsDenylist denylist = PeerPermissionsDenylist.create();
     Peer peer = createPeer();
     denylist.add(peer);
@@ -73,7 +85,7 @@ public class PeerPermissionsDenylistTest {
   }
 
   @Test
-  public void add_id() {
+  public void add_id() throws UnknownHostException {
     PeerPermissionsDenylist denylist = PeerPermissionsDenylist.create();
     Peer peer = createPeer();
 
@@ -92,7 +104,7 @@ public class PeerPermissionsDenylistTest {
   }
 
   @Test
-  public void remove_id() {
+  public void remove_id() throws UnknownHostException {
     PeerPermissionsDenylist denylist = PeerPermissionsDenylist.create();
     Peer peer = createPeer();
     denylist.add(peer);
@@ -112,7 +124,7 @@ public class PeerPermissionsDenylistTest {
   }
 
   @Test
-  public void trackedPeerIsNotPermitted() {
+  public void trackedPeerIsNotPermitted() throws UnknownHostException {
     PeerPermissionsDenylist denylist = PeerPermissionsDenylist.create();
 
     Peer peer = createPeer();
@@ -133,7 +145,7 @@ public class PeerPermissionsDenylistTest {
   }
 
   @Test
-  public void subscribeUpdate() {
+  public void subscribeUpdate() throws UnknownHostException {
     PeerPermissionsDenylist denylist = PeerPermissionsDenylist.create();
     final AtomicInteger callbackCount = new AtomicInteger(0);
     final AtomicInteger restrictedCallbackCount = new AtomicInteger(0);
@@ -173,7 +185,7 @@ public class PeerPermissionsDenylistTest {
   }
 
   @Test
-  public void createWithLimitedCapacity() {
+  public void createWithLimitedCapacity() throws UnknownHostException {
     final PeerPermissionsDenylist denylist = PeerPermissionsDenylist.create(2);
     Peer peerA = createPeer();
     Peer peerB = createPeer();
@@ -216,7 +228,16 @@ public class PeerPermissionsDenylistTest {
     final PeerPermissionsDenylist denylist = PeerPermissionsDenylist.create();
     final int peerCount = 200;
     final List<Peer> peers =
-        Stream.generate(this::createPeer).limit(peerCount).collect(Collectors.toList());
+        Stream.generate(
+                () -> {
+                  try {
+                    return createPeer();
+                  } catch (UnknownHostException e) {
+                    throw new RuntimeException(e);
+                  }
+                })
+            .limit(peerCount)
+            .collect(Collectors.toList());
 
     peers.forEach(p -> checkPermissions(denylist, p, true));
     peers.forEach(denylist::add);
@@ -226,11 +247,11 @@ public class PeerPermissionsDenylistTest {
     peers.forEach(p -> checkPermissions(denylist, p, true));
   }
 
-  private Peer createPeer() {
+  private Peer createPeer() throws UnknownHostException {
     return DefaultPeer.fromEnodeURL(
         EnodeURLImpl.builder()
             .nodeId(Peer.randomId())
-            .ipAddress("127.0.0.1")
+            .ipAddress(InetAddress.getByName("10.0.0." + ipModifier))
             .discoveryAndListeningPorts(EnodeURLImpl.DEFAULT_LISTENING_PORT)
             .build());
   }

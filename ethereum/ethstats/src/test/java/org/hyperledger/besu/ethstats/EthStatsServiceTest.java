@@ -41,7 +41,6 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethstats.request.EthStatsRequest;
 import org.hyperledger.besu.ethstats.util.EthStatsConnectOptions;
 import org.hyperledger.besu.ethstats.util.ImmutableEthStatsConnectOptions;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 
 import java.math.BigInteger;
 import java.time.Duration;
@@ -96,7 +95,7 @@ public class EthStatsServiceTest {
           .ethStatsReportInterval(5)
           .build();
 
-  final EnodeURL node =
+  final EnodeURLImpl node =
       EnodeURLImpl.builder()
           .nodeId(
               "50203c6bfca6874370e71aecc8958529fd723feb05013dc1abca8fc1fff845c5259faba05852e9dfe5ce172a7d6e7c2a3a5eaa8b541c8af15ea5518bbff5f2fa")
@@ -443,5 +442,23 @@ public class EthStatsServiceTest {
     assertThat(intervalCaptor.getValue()).isEqualTo(Duration.ofSeconds(5));
     // Verify initial delay is 0 seconds
     assertThat(initialDelayCaptor.getValue()).isEqualTo(Duration.ofSeconds(0));
+  }
+
+  @Test
+  public void shouldGenerateNonEmptyHistoryBlockRange() {
+    final List<Long> blocks = EthStatsService.buildHistoryBlockList(100L);
+
+    assertThat(blocks).hasSize(51);
+    assertThat(blocks).startsWith(50L);
+    assertThat(blocks).endsWith(100L);
+  }
+
+  @Test
+  public void shouldHandleChainHeadSmallerThanHistoryRange() {
+    final List<Long> blocks = EthStatsService.buildHistoryBlockList(30L);
+
+    assertThat(blocks).hasSize(31);
+    assertThat(blocks).startsWith(0L);
+    assertThat(blocks).endsWith(30L);
   }
 }

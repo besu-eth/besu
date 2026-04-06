@@ -10,10 +10,10 @@ assignees: ''
 <!-- Have you done the following? -->
 <!--   * read the Code of Conduct? By filing an Issue, you are expected to -->  
 <!--     comply with it, including treating everyone with respect: -->
-<!--     https://github.com/hyperledger/besu/blob/main/CODE_OF_CONDUCT.md -->
+<!--     https://github.com/besu-eth/besu/blob/main/CODE_OF_CONDUCT.md -->
 <!--   * Reproduced the issue in the latest version of the software -->
 <!--   * Read the debugging docs: https://besu.hyperledger.org/private-networks/how-to -->
-<!--   * Duplicate Issue check:  https://github.com/search?q=+is%3Aissue+repo%3Ahyperledger/Besu -->
+<!--   * Duplicate Issue check:  https://github.com/search?q=+is%3Aissue+repo%3Abesu-eth/besu -->
 
 ### Steps to Reproduce
 1. [Step 1]

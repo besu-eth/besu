@@ -1,8 +1,8 @@
 <!-- Have you done the following? -->
 <!--   * read the Code of Conduct? By filing an Issue, you are expected to -->  
 <!--     comply with it, including treating everyone with respect: -->
-<!--     https://github.com/hyperledger/besu/blob/main/CODE_OF_CONDUCT.md -->
-<!--   * Duplicate Issue check:  https://github.com/search?q=+is%3Aissue+repo%3Ahyperledger/Besu -->
+<!--     https://github.com/besu-eth/besu/blob/main/CODE_OF_CONDUCT.md -->
+<!--   * Duplicate Issue check:  https://github.com/search?q=+is%3Aissue+repo%3Abesu-eth/besu -->
 <!--   * Considered using a specific template for submitting a Bug or Feature Request? -->
 
 

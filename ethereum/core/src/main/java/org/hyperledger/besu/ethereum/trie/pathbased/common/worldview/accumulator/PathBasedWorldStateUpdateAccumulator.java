@@ -108,7 +108,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
    * the modification from the source will be taken. This approach ensures that the source's state
    * changes are prioritized and overrides any conflicting changes in the current state.
    *
-   * @param source The source accumulator
+   * @param source The source accumulator whose changes take priority
    */
   public void importStateChangesFromSource(
       final PathBasedWorldStateUpdateAccumulator<ACCOUNT> source) {

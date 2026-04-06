@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.p2p.peers;
 
 import org.hyperledger.besu.crypto.SecureRandomProvider;
 import org.hyperledger.besu.ethereum.forkid.ForkId;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 
 import java.util.Optional;
 
@@ -31,7 +30,7 @@ public interface Peer extends org.hyperledger.besu.plugin.data.p2p.Peer, PeerId 
    * @return The enode representing the location of this peer.
    */
   @Override
-  EnodeURL getEnodeURL();
+  EnodeURLImpl getEnodeURL();
 
   /**
    * Generates a random peer ID in a secure manner.

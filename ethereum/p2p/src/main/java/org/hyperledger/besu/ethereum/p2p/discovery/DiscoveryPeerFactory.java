@@ -17,7 +17,6 @@ package org.hyperledger.besu.ethereum.p2p.discovery;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.DiscoveryPeerV4;
 import org.hyperledger.besu.ethereum.p2p.discovery.dns.EthereumNodeRecord;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 
 import org.ethereum.beacon.discovery.schema.NodeRecord;
 
@@ -27,7 +26,7 @@ public class DiscoveryPeerFactory {
     // utility class
   }
 
-  public static DiscoveryPeer fromEnode(final EnodeURL enode) {
+  public static DiscoveryPeer fromEnode(final EnodeURLImpl enode) {
     return DiscoveryPeerV4.fromEnode(enode);
   }
 
@@ -48,15 +47,15 @@ public class DiscoveryPeerFactory {
     return peer;
   }
 
-  private static EnodeURL buildEnodeUrl(
+  private static EnodeURLImpl buildEnodeUrl(
       final EthereumNodeRecord enr, final boolean preferIpv6Outbound) {
-    final boolean hasIpv4 = enr.ip() != null;
-    final boolean hasIpv6 = enr.ipv6().isPresent();
+    final boolean hasIpv4 = enr.ip().isPresent();
+    final boolean hasIpv6 = enr.ipV6().isPresent();
 
     if (hasIpv6 && (!hasIpv4 || preferIpv6Outbound)) {
       return EnodeURLImpl.builder()
           .ipAddress(
-              enr.ipv6()
+              enr.ipV6()
                   .orElseThrow(
                       () ->
                           new IllegalStateException(
@@ -67,7 +66,7 @@ public class DiscoveryPeerFactory {
           .build();
     }
     return EnodeURLImpl.builder()
-        .ipAddress(enr.ip())
+        .ipAddress(enr.ip().get())
         .nodeId(enr.publicKey())
         .discoveryPort(enr.udp())
         .listeningPort(enr.tcp())

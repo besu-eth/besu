@@ -20,7 +20,6 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.Bytes32;
 
 /** The Mod operation. */
 public class ModOperationOptimized extends AbstractFixedCostOperation {
@@ -51,14 +50,11 @@ public class ModOperationOptimized extends AbstractFixedCostOperation {
   public static OperationResult staticOperation(final MessageFrame frame) {
     final Bytes value0 = frame.popStackItem();
     final Bytes value1 = frame.popStackItem();
-    Bytes resultBytes;
-    if (value1.isZero()) {
-      resultBytes = (Bytes) Bytes32.ZERO;
-    } else {
-      UInt256 b0 = UInt256.fromBytesBE(value0.toArrayUnsafe());
-      UInt256 b1 = UInt256.fromBytesBE(value1.toArrayUnsafe());
-      resultBytes = Bytes.wrap(b0.mod(b1).toBytesBE());
-    }
+
+    UInt256 b0 = UInt256.fromBytesBE(value0.toArrayUnsafe());
+    UInt256 b1 = UInt256.fromBytesBE(value1.toArrayUnsafe());
+    Bytes resultBytes = Bytes.wrap(b0.mod(b1).toBytesBE());
+
     frame.pushStackItem(resultBytes);
     return modSuccess;
   }

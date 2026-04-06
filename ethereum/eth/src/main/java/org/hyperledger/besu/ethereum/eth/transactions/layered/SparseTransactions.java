@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
+import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
@@ -216,6 +217,23 @@ public class SparseTransactions extends AbstractTransactionsLayer {
     return promotedTxs;
   }
 
+  @Override
+  public PendingTransactions.Status getStatus() {
+    final PendingTransactions.Status nextLayerStatus = nextLayer.getStatus();
+    long pendingCount = nextLayerStatus.pendingCount();
+    long queueCount = nextLayerStatus.queuedCount();
+    for (final Map.Entry<Address, Integer> entry : gapBySender.entrySet()) {
+      final Address sender = entry.getKey();
+      final int gap = entry.getValue();
+      if (gap == 0) {
+        pendingCount += txsBySender.get(sender).size();
+      } else {
+        queueCount += txsBySender.get(sender).size();
+      }
+    }
+    return new PendingTransactions.Status(pendingCount, queueCount);
+  }
+
   private NavigableMap<Long, PendingTransaction> getSequentialSubset(
       final NavigableMap<Long, PendingTransaction> senderTxs) {
     long lastSequentialNonce = senderTxs.firstKey();
@@ -339,15 +357,12 @@ public class SparseTransactions extends AbstractTransactionsLayer {
    * @return a list of sender pending txs
    */
   @Override
-  public List<SenderPendingTransactions> getBySender() {
+  public List<List<PendingTransaction>> getBySender() {
     final var sendersToAdd = new HashSet<>(txsBySender.keySet());
     return sparseEvictionOrder.descendingSet().stream()
         .map(PendingTransaction::getSender)
         .filter(sendersToAdd::remove)
-        .map(
-            sender ->
-                new SenderPendingTransactions(
-                    sender, List.copyOf(txsBySender.get(sender).values())))
+        .map(sender -> List.copyOf(txsBySender.get(sender).values()))
         .toList();
   }
 

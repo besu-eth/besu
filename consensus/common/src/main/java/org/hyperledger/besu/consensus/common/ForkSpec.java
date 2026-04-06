@@ -27,7 +27,16 @@ public class ForkSpec<C> {
   /** The constant COMPARATOR. */
   public static final Comparator<ForkSpec<?>> COMPARATOR = Comparator.comparing(ForkSpec::getBlock);
 
+  /** Fork schedule type (block or time) */
+  public enum ForkScheduleType {
+    /** Block fork type (i.e pre-Shanghai) */
+    BLOCK,
+    /** Time fork type (i.e. Shanghai and beyond) */
+    TIME
+  }
+
   private final long block;
+  private ForkScheduleType forkType = ForkScheduleType.BLOCK; // Default type
   private final C value;
 
   /**
@@ -48,6 +57,24 @@ public class ForkSpec<C> {
    */
   public long getBlock() {
     return block;
+  }
+
+  /**
+   * Gets the fork type (block number or timestamp).
+   *
+   * @param forkType the fork type
+   */
+  public void setForkType(final ForkScheduleType forkType) {
+    this.forkType = forkType;
+  }
+
+  /**
+   * Gets the fork type (block number or timestamp).
+   *
+   * @return the fork type
+   */
+  public ForkScheduleType getForkType() {
+    return forkType;
   }
 
   /**

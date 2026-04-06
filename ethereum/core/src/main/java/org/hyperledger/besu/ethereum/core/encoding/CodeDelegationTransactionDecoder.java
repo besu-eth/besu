@@ -28,14 +28,12 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
-import java.util.function.Supplier;
 
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 
 public class CodeDelegationTransactionDecoder {
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
 
   private CodeDelegationTransactionDecoder() {
     // private constructor
@@ -79,7 +77,7 @@ public class CodeDelegationTransactionDecoder {
 
     txRlp.leaveList();
 
-    return builder.signature(SIGNATURE_ALGORITHM.get().createSignature(r, s, recId)).build();
+    return builder.signature(SIGNATURE_ALGORITHM.createSignature(r, s, recId)).build();
   }
 
   public static CodeDelegation decodeInnerPayload(final RLPInput input) {
@@ -96,7 +94,7 @@ public class CodeDelegationTransactionDecoder {
     input.leaveList();
 
     final SECPSignature signature =
-        SIGNATURE_ALGORITHM.get().createCodeDelegationSignature(r, s, yParity);
+        SIGNATURE_ALGORITHM.createCodeDelegationSignature(r, s, yParity);
 
     return new org.hyperledger.besu.ethereum.core.CodeDelegation(
         chainId, address, nonce, signature);

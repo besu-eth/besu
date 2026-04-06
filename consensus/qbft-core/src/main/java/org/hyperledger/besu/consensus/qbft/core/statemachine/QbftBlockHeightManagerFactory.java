@@ -124,8 +124,7 @@ public class QbftBlockHeightManagerFactory {
               finalState.getClock(),
               messageValidatorFactory,
               messageFactory,
-              validatorProvider,
-              true);
+              validatorProvider);
     } else {
       roundChangeManager =
           new RoundChangeManager(

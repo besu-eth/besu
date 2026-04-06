@@ -75,7 +75,7 @@ class DNSDaemonTest {
                     try {
                       // make sure enode url can be built from record
                       EnodeURLImpl.builder()
-                          .ipAddress(enr.ip())
+                          .ipAddress(enr.ip().get())
                           .nodeId(enr.publicKey())
                           .discoveryPort(enr.udp())
                           .listeningPort(enr.tcp())
@@ -121,7 +121,7 @@ class DNSDaemonTest {
                     try {
                       // make sure enode url can be built from record
                       EnodeURLImpl.builder()
-                          .ipAddress(enr.ip())
+                          .ipAddress(enr.ip().get())
                           .nodeId(enr.publicKey())
                           .discoveryPort(enr.udp())
                           .listeningPort(enr.tcp())

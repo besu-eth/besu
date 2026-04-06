@@ -20,13 +20,14 @@ import org.hyperledger.besu.consensus.merge.ForkchoiceEvent;
 import org.hyperledger.besu.consensus.merge.UnverifiedForkchoiceListener;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.manager.ChainHeadEstimate;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncDownloader;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncState;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.NoSyncRequiredState;
+import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredState;
+import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncDownloader;
+import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.FullSyncDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.SyncTerminationCondition;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapDownloaderFactory;
@@ -67,9 +68,9 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
   private final SyncState syncState;
   private final AtomicBoolean running = new AtomicBoolean(false);
   private final Optional<BlockPropagationManager> blockPropagationManager;
-  private final Supplier<Optional<FastSyncDownloader<?>>> fastSyncFactory;
+  private final Supplier<Optional<PivotSyncDownloader>> fastSyncFactory;
   private final SyncDurationMetrics syncDurationMetrics;
-  private Optional<FastSyncDownloader<?>> fastSyncDownloader;
+  private Optional<PivotSyncDownloader> fastSyncDownloader;
   private final Optional<FullSyncDownloader> fullSyncDownloader;
   private final ProtocolContext protocolContext;
   private final PivotBlockSelector pivotBlockSelector;
@@ -173,7 +174,7 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
 
   public TrailingPeerRequirements calculateTrailingPeerRequirements() {
     return fastSyncDownloader
-        .flatMap(FastSyncDownloader::calculateTrailingPeerRequirements)
+        .flatMap(PivotSyncDownloader::calculateTrailingPeerRequirements)
         .orElse(
             fullSyncDownloader
                 .map(FullSyncDownloader::calculateTrailingPeerRequirements)
@@ -211,7 +212,7 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
   public void stop() {
     if (running.compareAndSet(true, false)) {
       LOG.info("Stopping synchronizer");
-      fastSyncDownloader.ifPresent(FastSyncDownloader::stop);
+      fastSyncDownloader.ifPresent(PivotSyncDownloader::stop);
       fullSyncDownloader.ifPresent(FullSyncDownloader::stop);
       blockPropagationManager.ifPresent(
           manager -> {
@@ -225,7 +226,7 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
   @Override
   public void awaitStop() {}
 
-  private CompletableFuture<Void> handleSyncResult(final FastSyncState result) {
+  private CompletableFuture<Void> handleSyncResult(final PivotSyncState result) {
     if (!running.get()) {
       // We've been shutdown which will have triggered the fast sync future to complete
       return CompletableFuture.completedFuture(null);
@@ -235,12 +236,25 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
       LOG.info("Sync ended (no sync required)");
       syncState.markInitialSyncPhaseAsDone();
     } else {
-      fastSyncDownloader.ifPresent(FastSyncDownloader::deleteFastSyncState);
-      result
-          .getPivotBlockHeader()
-          .ifPresent(
-              blockHeader ->
-                  protocolContext.getWorldStateArchive().resetArchiveStateTo(blockHeader));
+      fastSyncDownloader.ifPresent(PivotSyncDownloader::deletePivotSyncState);
+      final Optional<BlockHeader> maybePivotHeader = result.getPivotBlockHeader();
+      maybePivotHeader.ifPresent(
+          blockHeader -> protocolContext.getWorldStateArchive().resetArchiveStateTo(blockHeader));
+
+      if (maybePivotHeader
+          .map(
+              bh ->
+                  !protocolContext
+                      .getWorldStateArchive()
+                      .isWorldStateAvailable(bh.getStateRoot(), bh.getHash()))
+          .orElse(false)) {
+        LOG.warn(
+            "World state not available for pivot block {} after snap sync completion, resyncing",
+            maybePivotHeader.map(BlockHeader::toLogString).orElse("unknown"));
+        resyncWorldState();
+        return CompletableFuture.completedFuture(null);
+      }
+
       if (result.hasPivotBlockHash())
         LOG.info(
             "Sync completed successfully with pivot block {}",
@@ -302,7 +316,7 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
     // if sync is running currently, stop it and delete the fast sync state
     if (fastSyncDownloader.isPresent() && running.get()) {
       stop();
-      fastSyncDownloader.get().deleteFastSyncState();
+      fastSyncDownloader.get().deletePivotSyncState();
     }
     // recreate fast sync with resync and start
     this.syncState.markInitialSyncRestart();
@@ -318,7 +332,7 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
     // recreate fast sync with resync and start
     if (fastSyncDownloader.isPresent() && running.get()) {
       stop();
-      fastSyncDownloader.get().deleteFastSyncState();
+      fastSyncDownloader.get().deletePivotSyncState();
     }
 
     LOG.atDebug()

@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.p2p.peers;
 
 import org.hyperledger.besu.ethereum.forkid.ForkId;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 
 import java.net.URI;
 import java.util.Objects;
@@ -24,15 +23,15 @@ import java.util.Optional;
 /** The default, basic representation of an Ethereum {@link Peer}. */
 public class DefaultPeer extends DefaultPeerId implements Peer {
 
-  private final EnodeURL enodeURL;
+  private final EnodeURLImpl enodeURL;
   private ForkId forkId;
 
-  protected DefaultPeer(final EnodeURL enodeURL) {
+  protected DefaultPeer(final EnodeURLImpl enodeURL) {
     super(enodeURL.getNodeId());
     this.enodeURL = enodeURL;
   }
 
-  public static DefaultPeer fromEnodeURL(final EnodeURL enodeURL) {
+  public static DefaultPeer fromEnodeURL(final EnodeURLImpl enodeURL) {
     return new DefaultPeer(enodeURL);
   }
 
@@ -59,7 +58,7 @@ public class DefaultPeer extends DefaultPeerId implements Peer {
   }
 
   @Override
-  public EnodeURL getEnodeURL() {
+  public EnodeURLImpl getEnodeURL() {
     return enodeURL;
   }
 

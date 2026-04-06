@@ -21,10 +21,12 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.InvalidPeerTaskRespons
 import org.hyperledger.besu.ethereum.eth.manager.task.BodyIdentifier;
 import org.hyperledger.besu.ethereum.eth.messages.BlockBodiesMessage;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,7 +56,8 @@ public class GetBodiesFromPeerTask extends AbstractGetBodiesFromPeerTask<Block> 
   }
 
   @Override
-  public List<Block> processResponse(final MessageData messageData)
+  public List<Block> processResponse(
+      final MessageData messageData, final Set<Capability> agreedCapabilities)
       throws InvalidPeerTaskResponseException {
     // Blocks returned by this method are in the same order as the headers, but might not be
     // complete

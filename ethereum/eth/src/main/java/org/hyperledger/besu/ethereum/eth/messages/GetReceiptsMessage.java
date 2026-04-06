@@ -26,7 +26,13 @@ import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes;
 
-public final class GetReceiptsMessage extends AbstractMessageData {
+public class GetReceiptsMessage extends AbstractMessageData {
+  private final List<Hash> blockHashes;
+
+  protected GetReceiptsMessage(final Bytes data, final List<Hash> blockHashes) {
+    super(data);
+    this.blockHashes = blockHashes;
+  }
 
   public static GetReceiptsMessage readFrom(final MessageData message) {
     if (message instanceof GetReceiptsMessage) {
@@ -37,19 +43,16 @@ public final class GetReceiptsMessage extends AbstractMessageData {
       throw new IllegalArgumentException(
           String.format("Message has code %d and thus is not a GetReceipts.", code));
     }
-    return new GetReceiptsMessage(message.getData());
+    final RLPInput input = new BytesValueRLPInput(message.getData(), false);
+    return new GetReceiptsMessage(message.getData(), parseBlockHashes(input));
   }
 
-  public static GetReceiptsMessage create(final Iterable<Hash> hashes) {
+  public static GetReceiptsMessage create(final List<Hash> blockHashes) {
     final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
     tmp.startList();
-    hashes.forEach(hash -> tmp.writeBytes(hash.getBytes()));
+    blockHashes.forEach(hash -> tmp.writeBytes(hash.getBytes()));
     tmp.endList();
-    return new GetReceiptsMessage(tmp.encoded());
-  }
-
-  private GetReceiptsMessage(final Bytes data) {
-    super(data);
+    return new GetReceiptsMessage(tmp.encoded(), blockHashes);
   }
 
   @Override
@@ -57,10 +60,12 @@ public final class GetReceiptsMessage extends AbstractMessageData {
     return EthProtocolMessages.GET_RECEIPTS;
   }
 
-  public List<Hash> hashes() {
-    final RLPInput input = new BytesValueRLPInput(data, false);
-    input.enterList();
-    final List<Hash> hashes = new ArrayList<>();
+  public List<Hash> blockHashes() {
+    return blockHashes;
+  }
+
+  protected static List<Hash> parseBlockHashes(final RLPInput input) {
+    final List<Hash> hashes = new ArrayList<>(input.enterList());
     while (!input.isEndOfCurrentList()) {
       hashes.add(Hash.wrap(input.readBytes32()));
     }

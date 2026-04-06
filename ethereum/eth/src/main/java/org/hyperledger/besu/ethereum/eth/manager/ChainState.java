@@ -91,6 +91,7 @@ public class ChainState implements ChainHeadEstimate {
       this.bestBlock.hash = bestBlockHash;
       this.bestBlock.number = bestBlockNumber;
       this.earliestBlockHeight = earliestBlockHeight;
+      updateHeightEstimate(bestBlockNumber);
     }
   }
 

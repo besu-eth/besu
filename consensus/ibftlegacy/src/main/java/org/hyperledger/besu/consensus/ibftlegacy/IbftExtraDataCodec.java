@@ -28,8 +28,6 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.util.Collection;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,8 +41,8 @@ public class IbftExtraDataCodec extends BftExtraDataCodec {
   /** The constant EXTRA_VANITY_LENGTH. */
   public static final int EXTRA_VANITY_LENGTH = 32;
 
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
 
   private static final Logger LOG = LoggerFactory.getLogger(IbftExtraDataCodec.class);
 
@@ -90,7 +88,7 @@ public class IbftExtraDataCodec extends BftExtraDataCodec {
     final Collection<Address> validators = rlpInput.readList(Address::readFrom);
     final SECPSignature proposerSeal = parseProposerSeal(rlpInput);
     final Collection<SECPSignature> seals =
-        rlpInput.readList(rlp -> SIGNATURE_ALGORITHM.get().decodeSignature(rlp.readBytes()));
+        rlpInput.readList(rlp -> SIGNATURE_ALGORITHM.decodeSignature(rlp.readBytes()));
     rlpInput.leaveList();
 
     return new IbftLegacyExtraData(vanityData, seals, proposerSeal, validators);
@@ -98,7 +96,7 @@ public class IbftExtraDataCodec extends BftExtraDataCodec {
 
   private static SECPSignature parseProposerSeal(final RLPInput rlpInput) {
     final Bytes data = rlpInput.readBytes();
-    return data.isZero() ? null : SIGNATURE_ALGORITHM.get().decodeSignature(data);
+    return data.isZero() ? null : SIGNATURE_ALGORITHM.decodeSignature(data);
   }
 
   /**

@@ -54,6 +54,7 @@ dependencies {
   implementation 'io.consensys.protocols:jc-kzg-4844'
 
   compileOnly 'com.fasterxml.jackson.core:jackson-databind'
+  compileOnly 'org.jspecify:jspecify'
   compileOnly 'io.vertx:vertx-core'
 
   testImplementation 'com.fasterxml.jackson.core:jackson-databind'

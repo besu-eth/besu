@@ -36,8 +36,6 @@ import java.math.BigInteger;
 import java.util.Collections;
 import java.util.Optional;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import org.assertj.core.util.Lists;
 import org.junit.jupiter.api.Test;
 
@@ -45,10 +43,10 @@ public class RoundChangePayloadTest {
 
   private static final ConsensusRoundIdentifier ROUND_IDENTIFIER =
       new ConsensusRoundIdentifier(0x1234567890ABCDEFL, 0xFEDCBA98);
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
   private static final SECPSignature SIGNATURE =
-      SIGNATURE_ALGORITHM.get().createSignature(BigInteger.ONE, BigInteger.TEN, (byte) 0);
+      SIGNATURE_ALGORITHM.createSignature(BigInteger.ONE, BigInteger.TEN, (byte) 0);
 
   @Test
   public void roundTripRlpWithNoPreparedCertificate() {
@@ -113,7 +111,7 @@ public class RoundChangePayloadTest {
             singletonList(AddressHelpers.ofValue(1)), ROUND_IDENTIFIER);
     final ProposalPayload proposalPayload = new ProposalPayload(ROUND_IDENTIFIER, block.getHash());
     final SECPSignature signature =
-        SIGNATURE_ALGORITHM.get().createSignature(BigInteger.ONE, BigInteger.TEN, (byte) 0);
+        SIGNATURE_ALGORITHM.createSignature(BigInteger.ONE, BigInteger.TEN, (byte) 0);
     return PayloadDeserializers.from(proposalPayload, signature);
   }
 }

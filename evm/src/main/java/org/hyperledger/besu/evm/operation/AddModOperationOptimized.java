@@ -54,14 +54,10 @@ public class AddModOperationOptimized extends AbstractFixedCostOperation {
     final Bytes value1 = frame.popStackItem();
     final Bytes value2 = frame.popStackItem();
 
-    if (value2.isZero()) {
-      resultBytes = Bytes.EMPTY;
-    } else {
-      UInt256 b0 = UInt256.fromBytesBE(value0.toArrayUnsafe());
-      UInt256 b1 = UInt256.fromBytesBE(value1.toArrayUnsafe());
-      UInt256 b2 = UInt256.fromBytesBE(value2.toArrayUnsafe());
-      resultBytes = Bytes.wrap(b0.addMod(b1, b2).toBytesBE());
-    }
+    UInt256 b0 = UInt256.fromBytesBE(value0.toArrayUnsafe());
+    UInt256 b1 = UInt256.fromBytesBE(value1.toArrayUnsafe());
+    UInt256 b2 = UInt256.fromBytesBE(value2.toArrayUnsafe());
+    resultBytes = Bytes.wrap(b0.addMod(b1, b2).toBytesBE());
 
     frame.pushStackItem(resultBytes);
     return addModSuccess;

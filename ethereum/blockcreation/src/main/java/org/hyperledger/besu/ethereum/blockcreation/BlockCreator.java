@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.blockcreation;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.TransactionSelectionResults;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
@@ -29,16 +30,27 @@ public interface BlockCreator {
     private final TransactionSelectionResults transactionSelectionResults;
     private final BlockCreationTiming blockCreationTiming;
     private final Optional<BlockAccessList> blockAccessList;
+    private final Optional<List<Request>> requests;
 
     public BlockCreationResult(
         final Block block,
         final TransactionSelectionResults transactionSelectionResults,
         final BlockCreationTiming timings,
         final Optional<BlockAccessList> blockAccessList) {
+      this(block, transactionSelectionResults, timings, blockAccessList, Optional.empty());
+    }
+
+    public BlockCreationResult(
+        final Block block,
+        final TransactionSelectionResults transactionSelectionResults,
+        final BlockCreationTiming timings,
+        final Optional<BlockAccessList> blockAccessList,
+        final Optional<List<Request>> requests) {
       this.block = block;
       this.transactionSelectionResults = transactionSelectionResults;
       this.blockCreationTiming = timings;
       this.blockAccessList = blockAccessList;
+      this.requests = requests;
     }
 
     public Block getBlock() {
@@ -55,6 +67,10 @@ public interface BlockCreator {
 
     public Optional<BlockAccessList> getBlockAccessList() {
       return blockAccessList;
+    }
+
+    public Optional<List<Request>> getRequests() {
+      return requests;
     }
   }
 

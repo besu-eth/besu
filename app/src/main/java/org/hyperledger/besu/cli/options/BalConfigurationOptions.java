@@ -27,12 +27,6 @@ public class BalConfigurationOptions {
   public BalConfigurationOptions() {}
 
   @CommandLine.Option(
-      names = {"--Xbal-optimization-enabled"},
-      hidden = true,
-      description = "Allows disabling BAL-based optimizations.")
-  boolean balOptimizationEnabled = true;
-
-  @CommandLine.Option(
       names = {"--Xbal-perfect-parallelization-enabled"},
       hidden = true,
       description =
@@ -98,7 +92,6 @@ public class BalConfigurationOptions {
    */
   public BalConfiguration toDomainObject() {
     return ImmutableBalConfiguration.builder()
-        .isBalOptimisationEnabled(balOptimizationEnabled)
         .isPerfectParallelizationEnabled(balPerfectParallelizationEnabled)
         .shouldLogBalsOnMismatch(balLogBalsOnMismatch)
         .isBalLenientOnStateRootMismatch(balLenientOnStateRootMismatch)

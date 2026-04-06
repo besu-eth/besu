@@ -154,6 +154,10 @@ public class ProposalPayload extends QbftPayload {
   }
 
   private static Optional<BlockAccessList> readBlockAccessList(final RLPInput rlpInput) {
+    if (rlpInput.isEndOfCurrentList()) {
+      // Backward compatibility: pre-26.1.0 messages do not include blockAccessList
+      return Optional.empty();
+    }
     if (!rlpInput.nextIsNull()) {
       return Optional.of(BlockAccessListDecoder.decode(rlpInput));
     }

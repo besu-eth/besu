@@ -16,9 +16,9 @@ package org.hyperledger.besu.ethereum.permissioning;
 
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
+import org.hyperledger.besu.ethereum.p2p.discovery.NodeIdentifier;
 import org.hyperledger.besu.ethereum.permissioning.node.NodePermissioningController;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.permissioning.NodeConnectionPermissioningProvider;
 
@@ -34,7 +34,7 @@ public class NodePermissioningControllerFactory {
   public NodePermissioningController create(
       final PermissioningConfiguration permissioningConfiguration,
       final Synchronizer synchronizer,
-      final Collection<EnodeURL> fixedNodes,
+      final Collection<NodeIdentifier> fixedNodes,
       final Bytes localNodeId,
       final TransactionSimulator transactionSimulator,
       final MetricsSystem metricsSystem,

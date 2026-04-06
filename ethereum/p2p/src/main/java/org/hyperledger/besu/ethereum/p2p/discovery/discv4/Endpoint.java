@@ -66,7 +66,7 @@ public class Endpoint {
     return new Endpoint(enode.getIp().getHostAddress(), discoveryPort.get(), listeningPort);
   }
 
-  public EnodeURL toEnode(final Bytes nodeId) {
+  public EnodeURLImpl toEnode(final Bytes nodeId) {
     return EnodeURLImpl.builder()
         .nodeId(nodeId)
         .ipAddress(host.orElse(""))

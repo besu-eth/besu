@@ -1,0 +1,56 @@
+{
+  "description": "Build an empty block on top of the genesis block. No transactions are included (gasUsed=0). Verifies that the block is correctly assembled with the genesis stateRoot as parent and that Amsterdam fork is active (baseFeePerGas=0x7).",
+  "request": {
+    "id": 6,
+    "jsonrpc": "2.0",
+    "method": "testing_buildBlockV1",
+    "params": [
+      "0x937c8f382f4945fc6122652239426484d97b400d66c122aea45f2dd4a8afeab6",
+      {
+        "timestamp": "0x1",
+        "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "suggestedFeeRecipient": "0x0000000000000000000000000000000000000000",
+        "withdrawals": [],
+        "parentBeaconBlockRoot": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      [],
+      "0x"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 6,
+    "result": {
+      "executionPayload": {
+        "parentHash": "0x937c8f382f4945fc6122652239426484d97b400d66c122aea45f2dd4a8afeab6",
+        "feeRecipient": "0x0000000000000000000000000000000000000000",
+        "stateRoot": "0x2e71e705fe1545f51b471f7f19e1209d42fb5a2d831835fb203ec71b04b4c0e1",
+        "receiptsRoot": "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
+        "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
+        "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "gasLimit": "0x47e7c40",
+        "gasUsed": "0x0",
+        "timestamp": "0x1",
+        "extraData": "0x",
+        "baseFeePerGas": "0x7",
+        "excessBlobGas": "0x0",
+        "blobGasUsed": "0x0",
+        "blockAccessList": "0xf8a4de9400000961ef480eb55e80d19ad83579a64c007002c0c480010203c0c0c0de940000bbddc7ce488642fb579f8b00f3a590007251c0c480010203c0c0c0f840940000f90827f1c53a10cb7a02335b175320002935e6e580e3e280a0937c8f382f4945fc6122652239426484d97b400d66c122aea45f2dd4a8afeab6c0c0c0c0e394000f3df6d732807ef1319fb7b8bb8522d0beac02c6c501c3c28001c3822000c0c0c0",
+        "slotNumber": null,
+        "transactions": [],
+        "withdrawals": [],
+        "blockNumber": "0x1",
+        "blockHash": "0x7b4e4ab65d3ad3791d91eeccffdbb9e5ae1fa5063727eb5ede51b3a82dfd445c"
+      },
+      "blockValue": "0x0",
+      "blobsBundle": {
+        "commitments": [],
+        "proofs": [],
+        "blobs": []
+      },
+      "shouldOverrideBuilder": false,
+      "executionRequests": []
+    }
+  },
+  "statusCode": 200
+}

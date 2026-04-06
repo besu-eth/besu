@@ -51,6 +51,11 @@ public final class EthProtocolMessages {
   // Eth69 messages
   public static final int BLOCK_RANGE_UPDATE = 0x11;
 
+  // Eth71 messages
+  public static final int GET_BLOCK_ACCESS_LISTS = 0x12;
+
+  public static final int BLOCK_ACCESS_LISTS = 0x13;
+
   private EthProtocolMessages() {
     // Holder for constants only
   }

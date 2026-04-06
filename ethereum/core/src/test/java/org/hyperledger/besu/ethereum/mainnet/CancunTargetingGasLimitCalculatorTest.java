@@ -25,6 +25,7 @@ import org.hyperledger.besu.evm.gascalculator.PragueGasCalculator;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -156,7 +157,9 @@ class CancunTargetingGasLimitCalculatorTest {
           FeeMarket.cancunDefault(0L, Optional.empty()),
           osakaGasCalculator,
           BlobSchedule.PRAGUE_DEFAULT.getMax(),
-          newTargetCount);
+          newTargetCount,
+          OptionalInt.empty(),
+          OptionalInt.empty());
 
   private static final long TARGET_BLOB_GAS_PER_BLOCK_OSAKA = 0x120000;
 

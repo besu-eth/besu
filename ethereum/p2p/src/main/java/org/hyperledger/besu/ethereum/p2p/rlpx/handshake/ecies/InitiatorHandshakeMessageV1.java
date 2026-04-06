@@ -24,8 +24,6 @@ import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.bytes.MutableBytes;
@@ -68,8 +66,8 @@ public final class InitiatorHandshakeMessageV1 implements InitiatorHandshakeMess
   private final Bytes32 nonce;
   private final boolean token;
 
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
 
   InitiatorHandshakeMessageV1(
       final SECPPublicKey pubKey,
@@ -96,7 +94,7 @@ public final class InitiatorHandshakeMessageV1 implements InitiatorHandshakeMess
 
     // XOR of the static shared secret and the generated nonce.
     final SECPSignature signature =
-        SIGNATURE_ALGORITHM.get().sign(staticSharedSecret.xor(nonce), ephKeyPair);
+        SIGNATURE_ALGORITHM.sign(staticSharedSecret.xor(nonce), ephKeyPair);
     return new InitiatorHandshakeMessageV1(
         ourPubKey, signature, ephKeyPair.getPublicKey(), ephPubKeyHash, nonce, token);
   }
@@ -113,21 +111,16 @@ public final class InitiatorHandshakeMessageV1 implements InitiatorHandshakeMess
 
     int offset = 0;
     final SECPSignature signature =
-        SIGNATURE_ALGORITHM
-            .get()
-            .decodeSignature(bytes.slice(offset, ECIESHandshaker.SIGNATURE_LENGTH));
+        SIGNATURE_ALGORITHM.decodeSignature(bytes.slice(offset, ECIESHandshaker.SIGNATURE_LENGTH));
     final Bytes32 ephPubKeyHash =
         Bytes32.wrap(
             bytes.slice(
                 offset += ECIESHandshaker.SIGNATURE_LENGTH, ECIESHandshaker.HASH_EPH_PUBKEY_LENGTH),
             0);
     final SECPPublicKey pubKey =
-        SIGNATURE_ALGORITHM
-            .get()
-            .createPublicKey(
-                bytes.slice(
-                    offset += ECIESHandshaker.HASH_EPH_PUBKEY_LENGTH,
-                    ECIESHandshaker.PUBKEY_LENGTH));
+        SIGNATURE_ALGORITHM.createPublicKey(
+            bytes.slice(
+                offset += ECIESHandshaker.HASH_EPH_PUBKEY_LENGTH, ECIESHandshaker.PUBKEY_LENGTH));
     final Bytes32 nonce =
         Bytes32.wrap(
             bytes.slice(offset += ECIESHandshaker.PUBKEY_LENGTH, ECIESHandshaker.NONCE_LENGTH), 0);
@@ -136,7 +129,6 @@ public final class InitiatorHandshakeMessageV1 implements InitiatorHandshakeMess
     final Bytes32 staticSharedSecret = nodeKey.calculateECDHKeyAgreement(pubKey);
     final SECPPublicKey ephPubKey =
         SIGNATURE_ALGORITHM
-            .get()
             .recoverPublicKeyFromSignature(staticSharedSecret.xor(nonce), signature)
             .orElseThrow(() -> new RuntimeException("Could not recover public key from signature"));
 

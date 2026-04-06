@@ -14,11 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.core;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitter;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterImplSync;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateKeyValueStorage;
 import org.hyperledger.besu.evm.worldstate.MutableWorldView;
 import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.plugin.data.BlockHeader;
@@ -37,14 +33,7 @@ public interface MutableWorldState extends WorldState, MutableWorldView {
   void persist(BlockHeader blockHeader, StateRootCommitter committer);
 
   default void persist(final BlockHeader blockHeader) {
-    persist(blockHeader, new StateRootCommitterImplSync());
-  }
-
-  default Hash calculateOrReadRootHash(
-      final WorldStateKeyValueStorage.Updater stateUpdater,
-      final BlockHeader blockHeader,
-      final WorldStateConfig cfg) {
-    throw new UnsupportedOperationException("calculateOrReadRootHash is not supported");
+    persist(blockHeader, StateRootCommitter.SYNCHRONOUS);
   }
 
   default MutableWorldState freezeStorage() {

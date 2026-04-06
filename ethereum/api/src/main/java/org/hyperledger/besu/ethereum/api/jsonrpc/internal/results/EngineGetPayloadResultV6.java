@@ -83,6 +83,27 @@ public class EngineGetPayloadResultV6 {
     return executionRequests;
   }
 
+  @JsonPropertyOrder({
+    "parentHash",
+    "feeRecipient",
+    "stateRoot",
+    "receiptsRoot",
+    "logsBloom",
+    "prevRandao",
+    "gasLimit",
+    "gasUsed",
+    "timestamp",
+    "extraData",
+    "baseFeePerGas",
+    "excessBlobGas",
+    "blobGasUsed",
+    "blockAccessList",
+    "slotNumber",
+    "transactions",
+    "withdrawals",
+    "blockNumber",
+    "blockHash"
+  })
   public static class PayloadResult {
 
     protected final String blockHash;

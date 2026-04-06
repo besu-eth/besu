@@ -16,7 +16,7 @@ package org.hyperledger.besu.ethereum.p2p.discovery;
 
 import org.hyperledger.besu.ethereum.forkid.ForkId;
 import org.hyperledger.besu.ethereum.p2p.peers.DefaultPeer;
-import org.hyperledger.besu.plugin.data.EnodeURL;
+import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 
 import java.util.Optional;
 
@@ -27,7 +27,7 @@ public class DiscoveryPeer extends DefaultPeer {
   private NodeRecord nodeRecord;
   private Optional<ForkId> forkId = Optional.empty();
 
-  protected DiscoveryPeer(final EnodeURL enodeURL) {
+  protected DiscoveryPeer(final EnodeURLImpl enodeURL) {
     super(enodeURL);
   }
 

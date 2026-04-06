@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.eth.encoding;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
-import org.hyperledger.besu.ethereum.eth.EthProtocolVersion;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAnnouncement;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
@@ -24,9 +23,6 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
-
-import org.apache.tuweni.bytes.Bytes;
 
 public class TransactionAnnouncementDecoder {
 
@@ -44,24 +40,7 @@ public class TransactionAnnouncementDecoder {
    * @return the correct decoder
    */
   public static Decoder getDecoder(final Capability capability) {
-    if (capability.getVersion() >= EthProtocolVersion.V68) {
-      return TransactionAnnouncementDecoder::decodeForEth68;
-    } else {
-      return TransactionAnnouncementDecoder::decodeForEth66;
-    }
-  }
-
-  /**
-   * Decode the list of transactions in the NewPooledTransactionHashesMessage
-   *
-   * @param input input used to decode the NewPooledTransactionHashesMessage before Eth/68
-   *     <p>format: [hash_0: B_32, hash_1: B_32, ...]
-   * @return the list of TransactionAnnouncement decoded from the message. Only hash is present.
-   *     size and type will return an Optional.empty()
-   */
-  private static List<TransactionAnnouncement> decodeForEth66(final RLPInput input) {
-    final List<Hash> hashes = input.readList(rlp -> Hash.wrap(rlp.readBytes32()));
-    return hashes.stream().map(TransactionAnnouncement::new).collect(Collectors.toList());
+    return TransactionAnnouncementDecoder::decodeForEth68;
   }
 
   /**
@@ -72,35 +51,24 @@ public class TransactionAnnouncementDecoder {
    * @return the list of TransactionAnnouncement decoded from the message with size, type and hash
    */
   private static List<TransactionAnnouncement> decodeForEth68(final RLPInput input) {
-    input.enterList();
+    final int size = input.enterList();
 
-    final List<TransactionType> types = new ArrayList<>();
+    final List<TransactionType> types = new ArrayList<>(size);
     final byte[] bytes = input.readBytes().toArray();
     for (final byte b : bytes) {
       final var transactionType =
           TransactionType.fromEthSerializedType(b)
               .orElseThrow(
-                  () -> new IllegalArgumentException("Invalid transaction type %x".formatted(b)));
+                  () ->
+                      new RLPException(
+                          "Invalid transaction type 0x%02x".formatted(Byte.toUnsignedInt(b))));
       types.add(transactionType);
     }
 
-    List<Long> sizes =
-        input.readList(
-            in -> {
-              // for backward compatibility with previous Besu implementation be lenient and support
-              // also unsigned int with leading zeros.
-              // ToDo: this could be replaced with the simpler `RLPInput::readUnsignedIntScalar`
-              // after some months it has been released, since most of the Besus
-              // will be using the new implementation.
-              final Bytes intBytes = in.readBytes();
-              if (intBytes.size() > 4) {
-                throw new RLPException(
-                    "Expected max 4 bytes for unsigned int, but got " + intBytes.size() + " bytes");
-              }
-              return intBytes.toLong();
-            });
+    final List<Long> sizes = input.readList(RLPInput::readUnsignedIntScalar);
 
-    final List<Hash> hashes = input.readList(rlp -> Hash.wrap(rlp.readBytes32()));
+    // use Bytes32::copy to avoid keeping reference to underlying RLP byte array
+    final List<Hash> hashes = input.readList(rlp -> Hash.wrap(rlp.readBytes32().copy()));
     input.leaveList();
     if (!(types.size() == hashes.size() && hashes.size() == sizes.size())) {
       throw new RLPException("Hashes, sizes and types must have the same number of elements");

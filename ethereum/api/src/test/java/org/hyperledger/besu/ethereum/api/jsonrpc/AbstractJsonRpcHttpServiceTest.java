@@ -22,6 +22,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
@@ -37,6 +38,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguratio
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.blockcreation.NoopMiningCoordinator;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
+import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
+import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration.MutableInitValues;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -71,6 +74,7 @@ import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
 import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.io.TempDir;
@@ -90,7 +94,8 @@ public abstract class AbstractJsonRpcHttpServiceTest {
           RpcApis.NET.name(),
           RpcApis.WEB3.name(),
           RpcApis.DEBUG.name(),
-          RpcApis.TRACE.name());
+          RpcApis.TRACE.name(),
+          RpcApis.TESTING.name());
 
   protected final Vertx vertx = Vertx.vertx();
   protected final Vertx syncVertx = Vertx.vertx(new VertxOptions().setWorkerPoolSize(1));
@@ -139,22 +144,38 @@ public abstract class AbstractJsonRpcHttpServiceTest {
     return ImmutableApiConfiguration.builder().gasCap(0L).build();
   }
 
-  protected Map<String, JsonRpcMethod> getRpcMethods(
-      final JsonRpcConfiguration config, final BlockchainSetupUtil blockchainSetupUtil) {
-    final ProtocolContext protocolContext = mock(ProtocolContext.class);
-    final Synchronizer synchronizerMock = mock(Synchronizer.class);
-    final P2PNetwork peerDiscoveryMock = mock(P2PNetwork.class);
+  protected TransactionPool createTransactionPoolMock() {
     final TransactionPool transactionPoolMock = mock(TransactionPool.class);
-    final MiningConfiguration miningConfiguration = mock(MiningConfiguration.class);
-    final ApiConfiguration apiConfiguration = createApiConfiguration();
     when(transactionPoolMock.addTransactionViaApi(any(Transaction.class)))
         .thenReturn(ValidationResult.valid());
     // nonce too low tests uses a tx with nonce=16
     when(transactionPoolMock.addTransactionViaApi(argThat(tx -> tx.getNonce() == 16)))
         .thenReturn(ValidationResult.invalid(TransactionInvalidReason.NONCE_TOO_LOW));
+    return transactionPoolMock;
+  }
 
-    when(miningConfiguration.getCoinbase()).thenReturn(Optional.of(Address.ZERO));
+  protected MiningConfiguration createMiningConfiguration() {
+    return ImmutableMiningConfiguration.builder()
+        .mutableInitValues(
+            MutableInitValues.builder()
+                .extraData(Bytes.EMPTY)
+                .minTransactionGasPrice(Wei.ONE)
+                .coinbase(Address.ZERO)
+                .build())
+        .build();
+  }
 
+  protected Map<String, JsonRpcMethod> getRpcMethods(
+      final JsonRpcConfiguration config, final BlockchainSetupUtil blockchainSetupUtil) {
+    final ProtocolContext protocolContext = mock(ProtocolContext.class);
+    final Synchronizer synchronizerMock = mock(Synchronizer.class);
+    final P2PNetwork peerDiscoveryMock = mock(P2PNetwork.class);
+    final TransactionPool transactionPoolMock = createTransactionPoolMock();
+    final MiningConfiguration miningConfiguration = createMiningConfiguration();
+    final ApiConfiguration apiConfiguration = createApiConfiguration();
+
+    when(protocolContext.getBlockchain()).thenReturn(blockchainSetupUtil.getBlockchain());
+    when(protocolContext.getWorldStateArchive()).thenReturn(blockchainSetupUtil.getWorldArchive());
     final BlockchainQueries blockchainQueries =
         new BlockchainQueries(
             blockchainSetupUtil.getProtocolSchedule(),

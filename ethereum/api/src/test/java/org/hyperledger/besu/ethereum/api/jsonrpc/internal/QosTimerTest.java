@@ -69,6 +69,16 @@ public class QosTimerTest {
   }
 
   @Test
+  public void shouldNotRescheduleAfterStop() throws InterruptedException {
+    final long TEST_QOS_TIMEOUT = 50L;
+    final CountDownLatch latch = new CountDownLatch(1);
+    final var timer = new QosTimer(vertx, TEST_QOS_TIMEOUT, z -> latch.countDown());
+    timer.stop();
+    // wait long enough for the timer to have fired if it weren't stopped
+    assertThat(latch.await(200L, TimeUnit.MILLISECONDS)).isFalse();
+  }
+
+  @Test
   public void shouldNotExecuteWhenReset() throws InterruptedException {
     final long TEST_QOS_TIMEOUT = 50L;
     final CountDownLatch latch = new CountDownLatch(1);

@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.core.SyncBlockBody;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptEncoder;
+import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.DefaultProtocolSchedule;
@@ -31,6 +32,8 @@ import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes;
+
 public class Utils {
   private static final SyncTransactionReceiptEncoder SYNC_RECEIPT_ENCODER =
       new SyncTransactionReceiptEncoder(new SimpleNoCopyRlpEncoder());
@@ -40,7 +43,13 @@ public class Utils {
       final TransactionReceiptEncodingConfiguration receiptEncodingConfiguration) {
     BytesValueRLPOutput rlpOutput = new BytesValueRLPOutput();
     TransactionReceiptEncoder.writeTo(receipt, rlpOutput, receiptEncodingConfiguration);
-    return new SyncTransactionReceipt(rlpOutput.encoded());
+    // Read back the encoded item so the bytes match what the decoder extracts from wire messages:
+    // list items (FRONTIER / eth69) → currentListAsBytes(); bytes items (typed eth68) →
+    // readBytes().
+    final BytesValueRLPInput rlpInput = new BytesValueRLPInput(rlpOutput.encoded(), false);
+    final Bytes rawBytes =
+        rlpInput.nextIsList() ? rlpInput.currentListAsBytes() : rlpInput.readBytes();
+    return new SyncTransactionReceipt(rawBytes);
   }
 
   public static List<SyncTransactionReceipt> receiptsToSyncReceipts(
@@ -50,6 +59,27 @@ public class Utils {
     return receipts.stream()
         .map(receipt -> Utils.receiptToSyncReceipt(receipt, receiptEncodingConfiguration))
         .toList();
+  }
+
+  public static TransactionReceipt syncReceiptToReceipt(final SyncTransactionReceipt syncReceipt) {
+    final Bytes rlpBytes = syncReceipt.getRlpBytes();
+    // Flat receipts (Frontier / eth69): rlpBytes is a complete RLP list, usable directly.
+    // Typed receipts (EIP-2718+): rlpBytes is type || RLP(fields) and must be re-wrapped
+    // as an RLP bytes item so that TransactionReceiptDecoder.decodeTypedReceipt can call
+    // readBytes() to obtain the full typed-receipt payload.
+    if ((rlpBytes.get(0) & 0xFF) >= 0xC0) {
+      return TransactionReceiptDecoder.readFrom(new BytesValueRLPInput(rlpBytes, false), true);
+    } else {
+      final BytesValueRLPOutput wrapper = new BytesValueRLPOutput();
+      wrapper.writeBytes(rlpBytes);
+      return TransactionReceiptDecoder.readFrom(
+          new BytesValueRLPInput(wrapper.encoded(), false), true);
+    }
+  }
+
+  public static List<TransactionReceipt> syncReceiptsToReceipts(
+      final List<SyncTransactionReceipt> syncReceipts) {
+    return syncReceipts.stream().map(Utils::syncReceiptToReceipt).toList();
   }
 
   public static SyncBlock blockToSyncBlock(final Block block) {
@@ -85,5 +115,20 @@ public class Utils {
           .encodeForRootCalculation(receipt1)
           .compareTo(SYNC_RECEIPT_ENCODER.encodeForRootCalculation(receipt2));
     }
+  }
+
+  public static Bytes serializeReceiptsList(
+      final List<List<TransactionReceipt>> receipts,
+      final TransactionReceiptEncodingConfiguration encodingConfiguration) {
+    final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
+    tmp.startList();
+    receipts.forEach(
+        (receiptSet) -> {
+          tmp.startList();
+          receiptSet.forEach(r -> TransactionReceiptEncoder.writeTo(r, tmp, encodingConfiguration));
+          tmp.endList();
+        });
+    tmp.endList();
+    return tmp.encoded();
   }
 }

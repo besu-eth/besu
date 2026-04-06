@@ -18,13 +18,12 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
-import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncActions;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncDownloader;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncState;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncStateStorage;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.worldstate.FastDownloaderFactory;
+import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
+import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncStateStorage;
+import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
+import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncDownloader;
+import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePersistenceManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
@@ -44,11 +43,12 @@ import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class SnapDownloaderFactory extends FastDownloaderFactory {
+public class SnapDownloaderFactory {
 
   private static final Logger LOG = LoggerFactory.getLogger(SnapDownloaderFactory.class);
+  protected static final String SYNC_FOLDER = "syncFolder";
 
-  public static Optional<FastSyncDownloader<?>> createSnapDownloader(
+  public static Optional<PivotSyncDownloader> createSnapDownloader(
       final SnapSyncStatePersistenceManager snapContext,
       final PivotBlockSelector pivotBlockSelector,
       final SynchronizerConfiguration syncConfig,
@@ -62,23 +62,16 @@ public class SnapDownloaderFactory extends FastDownloaderFactory {
       final Clock clock,
       final SyncDurationMetrics syncDurationMetrics) {
 
-    final Path fastSyncDataDirectory = dataDirectory.resolve(FAST_SYNC_FOLDER);
-    final FastSyncStateStorage fastSyncStateStorage =
-        new FastSyncStateStorage(fastSyncDataDirectory);
+    final Path syncDataDirectory = dataDirectory.resolve(SYNC_FOLDER);
 
-    if (syncConfig.getSyncMode() == SyncMode.FULL) {
-      if (fastSyncStateStorage.isFastSyncInProgress()) {
-        throw new IllegalStateException(
-            "Unable to change the sync mode when snap sync is incomplete, please restart with snap sync mode");
-      } else {
-        return Optional.empty();
-      }
-    }
+    ensureDirectoryExists(syncDataDirectory.toFile());
 
-    ensureDirectoryExists(fastSyncDataDirectory.toFile());
-
-    final FastSyncState fastSyncState =
-        fastSyncStateStorage.loadState(ScheduleBasedBlockHeaderFunctions.create(protocolSchedule));
+    final ChainSyncState chainSyncState =
+        new ChainSyncStateStorage(syncDataDirectory)
+            .loadState(
+                rlpInput ->
+                    BlockHeader.readFrom(
+                        rlpInput, ScheduleBasedBlockHeaderFunctions.create(protocolSchedule)));
     if (syncState.isResyncNeeded()) {
       snapContext.clear();
       syncState
@@ -87,7 +80,7 @@ public class SnapDownloaderFactory extends FastDownloaderFactory {
               address ->
                   snapContext.addAccountToHealingList(
                       CompactEncoding.bytesToPath(address.addressHash().getBytes())));
-    } else if (fastSyncState.getPivotBlockHeader().isEmpty()
+    } else if (chainSyncState == null
         && protocolContext.getBlockchain().getChainHeadBlockNumber()
             != BlockHeader.GENESIS_BLOCK_NUMBER) {
       LOG.info(
@@ -95,7 +88,11 @@ public class SnapDownloaderFactory extends FastDownloaderFactory {
       return Optional.empty();
     }
 
-    final SnapSyncProcessState snapSyncState = new SnapSyncProcessState(fastSyncState);
+    final PivotSyncState pivotSyncState =
+        chainSyncState != null
+            ? new PivotSyncState(chainSyncState.pivotBlockHeader(), false)
+            : PivotSyncState.EMPTY_SYNC_STATE;
+    final SnapSyncProcessState snapSyncState = new SnapSyncProcessState(pivotSyncState);
 
     final InMemoryTasksPriorityQueues<SnapDataRequest> snapTaskCollection =
         createSnapWorldStateDownloaderTaskCollection();
@@ -113,9 +110,9 @@ public class SnapDownloaderFactory extends FastDownloaderFactory {
             clock,
             metricsSystem,
             syncDurationMetrics);
-    final FastSyncDownloader<SnapDataRequest> fastSyncDownloader =
+    final PivotSyncDownloader fastSyncDownloader =
         new SnapSyncDownloader(
-            new FastSyncActions(
+            new PivotSyncActions(
                 syncConfig,
                 worldStateStorageCoordinator,
                 protocolSchedule,
@@ -124,13 +121,10 @@ public class SnapDownloaderFactory extends FastDownloaderFactory {
                 syncState,
                 pivotBlockSelector,
                 metricsSystem,
-                fastSyncStateStorage,
-                fastSyncDataDirectory),
+                syncDataDirectory),
             worldStateStorageCoordinator,
             snapWorldStateDownloader,
-            fastSyncStateStorage,
-            snapTaskCollection,
-            fastSyncDataDirectory,
+            syncDataDirectory,
             snapSyncState,
             syncDurationMetrics);
     syncState.setWorldStateDownloadStatus(snapWorldStateDownloader);
@@ -140,5 +134,11 @@ public class SnapDownloaderFactory extends FastDownloaderFactory {
   protected static InMemoryTasksPriorityQueues<SnapDataRequest>
       createSnapWorldStateDownloaderTaskCollection() {
     return new InMemoryTasksPriorityQueues<>();
+  }
+
+  protected static void ensureDirectoryExists(final java.io.File dir) {
+    if (!dir.mkdirs() && !dir.isDirectory()) {
+      throw new IllegalStateException("Unable to create directory: " + dir.getAbsolutePath());
+    }
   }
 }

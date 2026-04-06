@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.execution.TimedJsonRpcProcessor
 import org.hyperledger.besu.ethereum.api.jsonrpc.execution.TracedJsonRpcProcessor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.health.HealthService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.Logging403ErrorHandler;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketMessageHandler;
@@ -58,7 +59,6 @@ import java.util.Optional;
 import java.util.StringJoiner;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
-import javax.annotation.Nullable;
 
 import com.google.common.annotations.VisibleForTesting;
 import io.opentelemetry.api.OpenTelemetry;
@@ -95,6 +95,7 @@ import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.BodyHandler;
 import io.vertx.ext.web.handler.CorsHandler;
 import jakarta.validation.constraints.NotNull;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -276,6 +277,8 @@ public class EngineJsonRpcService {
   }
 
   public CompletableFuture<Void> stop() {
+    stopEngineCallListener();
+
     if (httpServer == null) {
       return CompletableFuture.completedFuture(null);
     }
@@ -291,6 +294,15 @@ public class EngineJsonRpcService {
           }
         });
     return resultFuture;
+  }
+
+  private void stopEngineCallListener() {
+    // all engine rpc methods share one listener interface
+    rpcMethods.values().stream()
+        .filter(ExecutionEngineJsonRpcMethod.class::isInstance)
+        .map(ExecutionEngineJsonRpcMethod.class::cast)
+        .findFirst()
+        .ifPresent(method -> method.getEngineCallListener().stop());
   }
 
   private Handler<HttpConnection> connectionHandler() {

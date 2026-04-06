@@ -20,7 +20,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
-import org.apache.commons.net.util.SubnetUtils;
+import inet.ipaddr.IPAddress;
 import org.apache.tuweni.bytes.Bytes;
 
 public record P2PDiscoveryConfiguration(
@@ -37,7 +37,7 @@ public record P2PDiscoveryConfiguration(
     Percentage maxRemoteConnectionsPercentage,
     Boolean randomPeerPriority,
     Collection<Bytes> bannedNodeIds,
-    List<SubnetUtils.SubnetInfo> allowedSubnets,
+    List<IPAddress> allowedSubnets,
     Boolean poaDiscoveryRetryBootnodes,
     List<String> bootNodes,
     String discoveryDnsUrl,

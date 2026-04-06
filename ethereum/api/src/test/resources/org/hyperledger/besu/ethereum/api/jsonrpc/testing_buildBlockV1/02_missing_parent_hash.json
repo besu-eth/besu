@@ -1,0 +1,29 @@
+{
+  "description": "Error case: parentBlockHash (index 0) is null. Expects INVALID_PARAMS error.",
+  "request": {
+    "id": 2,
+    "jsonrpc": "2.0",
+    "method": "testing_buildBlockV1",
+    "params": [
+      null,
+      {
+        "timestamp": "0x6705D918",
+        "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "suggestedFeeRecipient": "0x0000000000000000000000000000000000000000",
+        "withdrawals": [],
+        "parentBeaconBlockRoot": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884365149a42212e8822"
+      },
+      [],
+      "0x"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "error": {
+      "code": -32602,
+      "message": "Invalid params"
+    }
+  },
+  "statusCode": 200
+}

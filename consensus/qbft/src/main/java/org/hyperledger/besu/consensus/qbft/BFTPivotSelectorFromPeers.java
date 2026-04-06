@@ -23,9 +23,9 @@ import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncState;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.NoSyncRequiredException;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.PivotSelectorFromPeers;
+import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredException;
+import org.hyperledger.besu.ethereum.eth.sync.common.PivotSelectorFromPeers;
+import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 
 import java.util.Optional;
@@ -86,7 +86,7 @@ public class BFTPivotSelectorFromPeers extends PivotSelectorFromPeers {
   }
 
   @Override
-  public CompletableFuture<FastSyncState> selectNewPivotBlock() {
+  public CompletableFuture<PivotSyncState> selectNewPivotBlock() {
 
     final BftContext bftContext = protocolContext.getConsensusContext(BftContext.class);
     final ValidatorProvider validatorProvider = bftContext.getValidatorProvider();

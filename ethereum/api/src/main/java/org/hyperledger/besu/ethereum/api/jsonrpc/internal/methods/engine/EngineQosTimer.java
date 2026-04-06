@@ -43,6 +43,11 @@ public class EngineQosTimer implements EngineCallListener {
         QOS_TIMEOUT_MILLIS / 1000L);
   }
 
+  @Override
+  public void stop() {
+    qosTimer.stop();
+  }
+
   @VisibleForTesting
   public QosTimer getQosTimer() {
     return qosTimer;

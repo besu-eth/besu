@@ -16,7 +16,9 @@ package org.hyperledger.besu.ethereum.trie.pathbased.common.storage;
 
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_FREEZER;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_FREEZER;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.CODE_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
@@ -30,7 +32,6 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.BonsaiContext;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.StorageSubscriber;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbStrategy;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateKeyValueStorage;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
@@ -38,6 +39,7 @@ import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
+import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.nio.charset.StandardCharsets;
@@ -216,9 +218,9 @@ public abstract class PathBasedWorldStateKeyValueStorage
   }
 
   /**
-   * Move old account state from the primary DB segment to the archive segment that will only be
-   * used for historic state queries. This prevents performance degradation over time for writes to
-   * the primary DB segments.
+   * Move old account state from the primary DB archive segment to the archive freezer segment that
+   * will only be used for historic state queries. This prevents performance degradation over time
+   * for writes to the primary archive DB segments.
    *
    * @param previousBlockHeader the block header for the previous block, used to get the "nearest
    *     before" state
@@ -243,7 +245,7 @@ public abstract class PathBasedWorldStateKeyValueStorage
         // Move all entries that match this address hash to the archive DB segment
         while ((nextMatch =
                 composedWorldStateStorage
-                    .getNearestBefore(ACCOUNT_INFO_STATE, previousKey)
+                    .getNearestBefore(ACCOUNT_INFO_STATE_ARCHIVE, previousKey)
                     .filter(
                         found ->
                             found.value().isPresent()
@@ -254,8 +256,8 @@ public abstract class PathBasedWorldStateKeyValueStorage
               .forEach(
                   (nearestKey) -> {
                     moveDBEntry(
-                        ACCOUNT_INFO_STATE,
                         ACCOUNT_INFO_STATE_ARCHIVE,
+                        ACCOUNT_INFO_STATE_FREEZER,
                         nearestKey.key().toArrayUnsafe(),
                         nearestKey.value().get());
                     archivedStateCount.getAndIncrement();
@@ -287,9 +289,9 @@ public abstract class PathBasedWorldStateKeyValueStorage
   }
 
   /**
-   * Move old storage state from the primary DB segment to the archive segment that will only be
-   * used for historic state queries. This prevents performance degradation over time for writes to
-   * the primary DB segments.
+   * Move old storage state from the primary archive DB segment to the archive freezer segment that
+   * will only be used for historic state queries. This prevents performance degradation over time
+   * for writes to the primary DB segments.
    *
    * @param previousBlockHeader the block header for the previous block, used to get the "nearest
    *     before" state
@@ -315,7 +317,7 @@ public abstract class PathBasedWorldStateKeyValueStorage
         // to the archive DB segment
         while ((nextMatch =
                 composedWorldStateStorage
-                    .getNearestBefore(ACCOUNT_STORAGE_STORAGE, previousKey)
+                    .getNearestBefore(ACCOUNT_STORAGE_ARCHIVE, previousKey)
                     .filter(
                         found ->
                             found.value().isPresent()
@@ -338,8 +340,8 @@ public abstract class PathBasedWorldStateKeyValueStorage
                           .log();
                     }
                     moveDBEntry(
-                        ACCOUNT_STORAGE_STORAGE,
                         ACCOUNT_STORAGE_ARCHIVE,
+                        ACCOUNT_STORAGE_FREEZER,
                         nearestKey.key().toArrayUnsafe(),
                         nearestKey.value().get());
                     archivedStorageCount.getAndIncrement();
@@ -395,7 +397,7 @@ public abstract class PathBasedWorldStateKeyValueStorage
 
   public Optional<Long> getLatestArchivedBlock() {
     return composedWorldStateStorage
-        .get(ACCOUNT_INFO_STATE_ARCHIVE, ARCHIVED_BLOCKS)
+        .get(ACCOUNT_INFO_STATE_FREEZER, ARCHIVED_BLOCKS)
         .map(Bytes::wrap)
         .map(Bytes::toLong);
   }
@@ -403,7 +405,7 @@ public abstract class PathBasedWorldStateKeyValueStorage
   public void setLatestArchivedBlock(final Long blockNumber) {
     SegmentedKeyValueStorageTransaction tx = composedWorldStateStorage.startTransaction();
     tx.put(
-        ACCOUNT_INFO_STATE_ARCHIVE,
+        ACCOUNT_INFO_STATE_FREEZER,
         ARCHIVED_BLOCKS,
         Bytes.ofUnsignedLong(blockNumber).toArrayUnsafe());
     tx.commit();

@@ -23,13 +23,13 @@ import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.ChainSyncState;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.ChainSyncStateStorage;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncState;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.PivotUpdateListener;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.SingleBlockHeaderDownloader;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.WorldStateHealFinishedListener;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.checkpoint.Checkpoint;
+import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
+import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncStateStorage;
+import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
+import org.hyperledger.besu.ethereum.eth.sync.common.PivotUpdateListener;
+import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader;
+import org.hyperledger.besu.ethereum.eth.sync.common.WorldStateHealFinishedListener;
+import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
@@ -66,6 +66,7 @@ public class SnapSyncChainDownloader
     implements ChainDownloader, PivotUpdateListener, WorldStateHealFinishedListener {
   private static final Logger LOG = LoggerFactory.getLogger(SnapSyncChainDownloader.class);
   public static final int SMALL_DELAY_MILLISECONDS = 100;
+  static final int NO_PEER_RETRY_DELAY_MILLISECONDS = 5_000;
 
   private final SnapSyncChainDownloadPipelineFactory pipelineFactory;
   private final ProtocolSchedule protocolSchedule;
@@ -144,7 +145,7 @@ public class SnapSyncChainDownloader
       final EthContext ethContext,
       final SyncState syncState,
       final MetricsSystem metricsSystem,
-      final FastSyncState fastSyncState,
+      final PivotSyncState fastSyncState,
       final SyncDurationMetrics syncDurationMetrics,
       final Path fastSyncDataDirectory) {
 
@@ -243,7 +244,7 @@ public class SnapSyncChainDownloader
                 final Duration totalDuration = Duration.between(overallStartTime, Instant.now());
                 LOG.info(
                     "Two-stage fast sync chain download finished in {} seconds (including pivot updates)",
-                    totalDuration.getSeconds());
+                    totalDuration.toSeconds());
                 // Stop metrics on success
                 syncDurationMetrics.stopTimer(SyncDurationMetrics.Labels.CHAIN_DOWNLOAD_DURATION);
                 chainSyncStateStorage.deleteState();
@@ -294,6 +295,7 @@ public class SnapSyncChainDownloader
 
       LOG.info("Created initial chain sync state: {}", newState);
       chainSyncState.set(newState);
+      chainSyncStateStorage.storeState(newState);
       return CompletableFuture.completedFuture(newState);
     }
 
@@ -329,6 +331,7 @@ public class SnapSyncChainDownloader
 
               LOG.info("Created initial chain sync state: {}", newState);
               chainSyncState.set(newState);
+              chainSyncStateStorage.storeState(newState);
               return newState;
             });
   }
@@ -378,7 +381,7 @@ public class SnapSyncChainDownloader
               final Duration stage1Duration = Duration.between(stage1StartTime, Instant.now());
               LOG.debug(
                   "Stage 1 complete: Backward header download finished in {} seconds",
-                  stage1Duration.getSeconds());
+                  stage1Duration.toSeconds());
 
               // Mark headers download as complete and persist
               chainSyncState.updateAndGet(ChainSyncState::withHeadersDownloadComplete);
@@ -433,7 +436,7 @@ public class SnapSyncChainDownloader
               final Duration stage2Duration = Duration.between(stage2StartTime, Instant.now());
               LOG.info(
                   "Stage 2 complete: Forward bodies/receipts download finished in {} seconds",
-                  stage2Duration.getSeconds());
+                  stage2Duration.toSeconds());
               return null;
             });
   }
@@ -476,6 +479,21 @@ public class SnapSyncChainDownloader
 
     // Already completed from another path
     if (overallResult.isDone()) {
+      return;
+    }
+
+    // Guard against starting an expensive 160-concurrent-future pipeline with no peers.
+    // With no peers every future immediately hits NO_PEER_AVAILABLE, spins for 60 s, and
+    // the pipeline restarts every 60 s accumulating scheduler/thread overhead indefinitely.
+    if (ethContext.getEthPeers().peerCount() == 0) {
+      LOG.debug(
+          "No peers available, deferring chain sync pipeline start for {} ms",
+          NO_PEER_RETRY_DELAY_MILLISECONDS);
+      ethContext
+          .getScheduler()
+          .scheduleFutureTask(
+              () -> attemptDownload(overallResult),
+              Duration.ofMillis(NO_PEER_RETRY_DELAY_MILLISECONDS));
       return;
     }
 
@@ -529,7 +547,7 @@ public class SnapSyncChainDownloader
     chainSyncStateStorage.storeState(chainSyncState.get());
 
     if (shouldRetry(error)) {
-      LOG.warn("Chain sync encountered error, will retry from saved state", error);
+      LOG.debug("Chain sync encountered error, will retry from saved state", error);
 
       // Schedule next attempt without recursion
       // Use a small delay to avoid tight retry loops

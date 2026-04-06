@@ -90,6 +90,11 @@ public class OpenTelemetrySystem implements ObservableMetricsSystem {
   private final Map<String, LabelledMetric<Counter>> cachedCounters = new ConcurrentHashMap<>();
   private final Map<String, LabelledMetric<OperationTimer>> cachedTimers =
       new ConcurrentHashMap<>();
+  private final Map<String, LabelledSuppliedMetric> cachedSuppliedGauges =
+      new ConcurrentHashMap<>();
+  private final Map<String, LabelledSuppliedMetric> cachedSuppliedCounters =
+      new ConcurrentHashMap<>();
+  private final Set<String> registeredGaugeNames = ConcurrentHashMap.newKeySet();
   private final SdkMeterProvider sdkMeterProvider;
   private final DebugMetricReader debugMetricReader;
   private final SdkTracerProvider sdkTracerProvider;
@@ -283,7 +288,7 @@ public class OpenTelemetrySystem implements ObservableMetricsSystem {
       final String help,
       final DoubleSupplier valueSupplier) {
     LOG.trace("Creating a gauge {}", name);
-    if (isCategoryEnabled(category)) {
+    if (isCategoryEnabled(category) && registeredGaugeNames.add(name)) {
       final Meter meter = sdkMeterProvider.get(category.getName());
       meter
           .gaugeBuilder(name)
@@ -315,8 +320,11 @@ public class OpenTelemetrySystem implements ObservableMetricsSystem {
       final String... labelNames) {
     LOG.trace("Creating a labelled supplied counter {}", name);
     if (isCategoryEnabled(category)) {
-      return new OpenTelemetrySuppliedCounter(
-          name, help, sdkMeterProvider.get(category.getName()), List.of(labelNames));
+      return cachedSuppliedCounters.computeIfAbsent(
+          name,
+          k ->
+              new OpenTelemetrySuppliedCounter(
+                  name, help, sdkMeterProvider.get(category.getName()), List.of(labelNames)));
     }
     return NoOpMetricsSystem.getLabelledSuppliedMetric(labelNames.length);
   }
@@ -329,8 +337,11 @@ public class OpenTelemetrySystem implements ObservableMetricsSystem {
       final String... labelNames) {
     LOG.trace("Creating a labelled gauge {}", name);
     if (isCategoryEnabled(category)) {
-      return new OpenTelemetryGauge(
-          name, help, sdkMeterProvider.get(category.getName()), List.of(labelNames));
+      return cachedSuppliedGauges.computeIfAbsent(
+          name,
+          k ->
+              new OpenTelemetryGauge(
+                  name, help, sdkMeterProvider.get(category.getName()), List.of(labelNames)));
     }
     return NoOpMetricsSystem.getLabelledSuppliedMetric(labelNames.length);
   }

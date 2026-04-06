@@ -102,7 +102,7 @@ public class DeFramerTest {
   private final String clientId = "abc";
   private final int port = 30303;
   private final List<Capability> capabilities = Arrays.asList(EthProtocolHelper.LATEST);
-  private final EnodeURL localEnode =
+  private final EnodeURLImpl localEnode =
       EnodeURLImpl.builder()
           .ipAddress("127.0.0.1")
           .discoveryAndListeningPorts(port)

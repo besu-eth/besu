@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.transactions;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 import org.hyperledger.besu.datatypes.Wei;
@@ -40,7 +41,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -269,5 +272,42 @@ public class TransactionPoolSaveRestoreTest extends AbstractTransactionPoolTestB
     final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
     TransactionEncoder.encodeRLP(transaction, rlp, EncodingContext.POOLED_TRANSACTION);
     return rlp.encoded().toBase64String();
+  }
+
+  @Test
+  public void diskLockTimeoutIsPropagatedNotSwallowed() throws InterruptedException {
+    // Create a txpool with save and restore enabled and a short lock timeout
+    // so the test does not block for 60 seconds
+    this.transactionPool =
+        createTransactionPool(
+            b ->
+                b.enableSaveRestore(true)
+                    .saveFile(saveFilePath.toFile())
+                    .unstable(
+                        ImmutableTransactionPoolConfiguration.Unstable.builder()
+                            .saveRestoreTimeout(Duration.ofMillis(100))
+                            .build()));
+
+    // Acquire the lock to simulate another operation holding it. Using acquire()
+    // instead of drainPermits() ensures we wait for any in-progress async operation
+    // (e.g. loadFromDisk triggered by pool creation) to release the permit first.
+    final var lock = transactionPool.getSaveRestoreManager().getDiskAccessLock();
+    lock.acquire();
+
+    try {
+      // Call loadFromDisk() directly on the SaveRestoreManager to test
+      // serializeAndDedupOperation() in isolation, since setDisabled() wraps the
+      // future with .exceptionally() which swallows the error for logging.
+      // Before the fix, the failedFuture was not returned and the caller silently got
+      // completedFuture(null). After the fix, the failed future must be propagated.
+      final CompletableFuture<Void> result = transactionPool.getSaveRestoreManager().loadFromDisk();
+
+      assertThatThrownBy(result::get)
+          .isInstanceOf(ExecutionException.class)
+          .hasCauseInstanceOf(TimeoutException.class);
+    } finally {
+      // Always restore the permit so cleanup does not hang
+      lock.release();
+    }
   }
 }

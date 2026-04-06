@@ -53,12 +53,15 @@ public class TransactionSelectionServiceImpl implements TransactionSelectionServ
 
   @Override
   public PluginTransactionSelector createPluginTransactionSelector(
+      final ProcessableBlockHeader processableBlockHeader,
       final SelectorsStateManager selectorsStateManager) {
     if (factories == null) {
       return PluginTransactionSelector.ACCEPT_ALL;
     }
     return new AggregatedPluginTransactionSelector(
-        factories.stream().map(factory -> factory.create(selectorsStateManager)).toList());
+        factories.stream()
+            .map(factory -> factory.create(processableBlockHeader, selectorsStateManager))
+            .toList());
   }
 
   @Override

@@ -1,0 +1,23 @@
+{
+  "description": "Error case: payloadAttributes (index 1) is null. Expects INVALID_PARAMS error.",
+  "request": {
+    "id": 3,
+    "jsonrpc": "2.0",
+    "method": "testing_buildBlockV1",
+    "params": [
+      "0x937c8f382f4945fc6122652239426484d97b400d66c122aea45f2dd4a8afeab6",
+      null,
+      [],
+      "0x"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "error": {
+      "code": -32602,
+      "message": "Invalid params"
+    }
+  },
+  "statusCode": 200
+}

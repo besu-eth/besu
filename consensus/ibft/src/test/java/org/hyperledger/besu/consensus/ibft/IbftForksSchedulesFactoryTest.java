@@ -56,7 +56,7 @@ public class IbftForksSchedulesFactoryTest
 
     final ForksSchedule<BftConfigOptions> forksSchedule =
         IbftForksSchedulesFactory.create(createGenesisConfig(configOptions, fork));
-    assertThat(forksSchedule.getFork(0))
+    assertThat(forksSchedule.getFork(0, 0))
         .usingRecursiveComparison()
         .isEqualTo(new ForkSpec<>(0, configOptions));
 
@@ -69,8 +69,8 @@ public class IbftForksSchedulesFactoryTest
             new JsonBftConfigOptions(JsonUtil.objectNodeFromMap(forkOptions)));
 
     final ForkSpec<BftConfigOptions> expectedFork = new ForkSpec<>(1, expectedForkConfig);
-    assertThat(forksSchedule.getFork(1)).usingRecursiveComparison().isEqualTo(expectedFork);
-    assertThat(forksSchedule.getFork(2)).usingRecursiveComparison().isEqualTo(expectedFork);
+    assertThat(forksSchedule.getFork(1, 0)).usingRecursiveComparison().isEqualTo(expectedFork);
+    assertThat(forksSchedule.getFork(2, 0)).usingRecursiveComparison().isEqualTo(expectedFork);
   }
 
   @Override

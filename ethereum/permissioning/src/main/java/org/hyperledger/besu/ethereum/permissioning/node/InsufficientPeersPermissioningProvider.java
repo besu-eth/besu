@@ -14,11 +14,11 @@
  */
 package org.hyperledger.besu.ethereum.permissioning.node;
 
+import org.hyperledger.besu.ethereum.p2p.discovery.NodeIdentifier;
 import org.hyperledger.besu.ethereum.p2p.network.P2PNetwork;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.util.Collection;
@@ -30,7 +30,7 @@ import java.util.Optional;
  */
 public class InsufficientPeersPermissioningProvider implements ContextualNodePermissioningProvider {
   private final P2PNetwork p2pNetwork;
-  private final Collection<EnodeURL> bootnodeEnodes;
+  private final Collection<? extends NodeIdentifier> bootnodeIdentifiers;
   private long nonBootnodePeerConnections;
   private final Subscribers<Runnable> permissioningUpdateSubscribers = Subscribers.create();
 
@@ -38,19 +38,19 @@ public class InsufficientPeersPermissioningProvider implements ContextualNodePer
    * Creates the provider observing the provided p2p network
    *
    * @param p2pNetwork the p2p network to observe
-   * @param bootnodeEnodes the bootnodes that this node is configured to connect to
+   * @param bootnodeIdentifiers the bootnodes that this node is configured to connect to
    */
   public InsufficientPeersPermissioningProvider(
-      final P2PNetwork p2pNetwork, final Collection<EnodeURL> bootnodeEnodes) {
+      final P2PNetwork p2pNetwork, final Collection<? extends NodeIdentifier> bootnodeIdentifiers) {
     this.p2pNetwork = p2pNetwork;
-    this.bootnodeEnodes = bootnodeEnodes;
+    this.bootnodeIdentifiers = bootnodeIdentifiers;
     this.nonBootnodePeerConnections = countP2PNetworkNonBootnodeConnections();
     p2pNetwork.subscribeConnect(this::handleConnect);
     p2pNetwork.subscribeDisconnect(this::handleDisconnect);
   }
 
   private boolean isNotABootnode(final PeerConnection peerConnection) {
-    return bootnodeEnodes.stream()
+    return bootnodeIdentifiers.stream()
         .noneMatch(
             (bootNode) ->
                 EnodeURLImpl.sameListeningEndpoint(peerConnection.getRemoteEnode(), bootNode));
@@ -62,11 +62,11 @@ public class InsufficientPeersPermissioningProvider implements ContextualNodePer
 
   @Override
   public Optional<Boolean> isPermitted(
-      final EnodeURL sourceEnode, final EnodeURL destinationEnode) {
-    final Optional<EnodeURL> maybeSelfEnode = p2pNetwork.getLocalEnode();
+      final NodeIdentifier sourceEnode, final NodeIdentifier destinationEnode) {
+    final Optional<EnodeURLImpl> maybeSelfEnode = p2pNetwork.getLocalEnode();
     if (nonBootnodePeerConnections > 0) {
       return Optional.empty();
-    } else if (!maybeSelfEnode.isPresent()) {
+    } else if (maybeSelfEnode.isEmpty()) {
       // The local node is not yet ready, so we can't validate enodes yet
       return Optional.empty();
     } else if (checkEnode(maybeSelfEnode.get(), sourceEnode)
@@ -77,10 +77,10 @@ public class InsufficientPeersPermissioningProvider implements ContextualNodePer
     }
   }
 
-  private boolean checkEnode(final EnodeURL localEnode, final EnodeURL enode) {
-    return (EnodeURLImpl.sameListeningEndpoint(localEnode, enode)
-        || bootnodeEnodes.stream()
-            .anyMatch(bootNode -> EnodeURLImpl.sameListeningEndpoint(bootNode, enode)));
+  private boolean checkEnode(final NodeIdentifier localEnode, final NodeIdentifier enode) {
+    return (NodeIdentifier.isSameListeningEndpoint(localEnode, enode)
+        || bootnodeIdentifiers.stream()
+            .anyMatch(bootNode -> NodeIdentifier.isSameListeningEndpoint(bootNode, enode)));
   }
 
   private void handleConnect(final PeerConnection peerConnection) {

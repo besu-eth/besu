@@ -21,10 +21,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import javax.annotation.CheckForNull;
 
 import com.google.common.collect.Table;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A Table that supports rolling back the Table to a prior state.
@@ -123,7 +123,7 @@ public class UndoTable<R, C, V> implements Table<R, C, V>, Undoable {
   }
 
   @Override
-  @CheckForNull
+  @Nullable
   public V get(final Object rowKey, final Object columnKey) {
     return delegate.get(rowKey, columnKey);
   }
@@ -135,7 +135,7 @@ public class UndoTable<R, C, V> implements Table<R, C, V>, Undoable {
 
   @Override
   @CanIgnoreReturnValue
-  @CheckForNull
+  @Nullable
   public V put(final R rowKey, final C columnKey, final V value) {
     V oldV = delegate.put(rowKey, columnKey, value);
     undoLog.add(new UndoEntry<>(rowKey, columnKey, oldV));
@@ -156,7 +156,7 @@ public class UndoTable<R, C, V> implements Table<R, C, V>, Undoable {
   @SuppressWarnings("unchecked")
   @Override
   @CanIgnoreReturnValue
-  @CheckForNull
+  @Nullable
   public V remove(final Object rowKey, final Object columnKey) {
     V oldV = delegate.remove(rowKey, columnKey);
     undoLog.add(new UndoEntry<>((R) rowKey, (C) columnKey, oldV));

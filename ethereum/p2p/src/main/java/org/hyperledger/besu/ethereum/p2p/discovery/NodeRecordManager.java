@@ -33,7 +33,6 @@ import java.util.Optional;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
-import com.google.common.base.Suppliers;
 import com.google.common.net.InetAddresses;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt64;
@@ -60,8 +59,8 @@ import org.slf4j.LoggerFactory;
  */
 public class NodeRecordManager {
   private static final Logger LOG = LoggerFactory.getLogger(NodeRecordManager.class);
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
 
   private static final String FORK_ID_ENR_FIELD = "eth";
 
@@ -345,14 +344,12 @@ public class NodeRecordManager {
 
     final UInt64 sequence = existingRecord.map(NodeRecord::getSeq).orElse(UInt64.ZERO).add(1);
 
-    final SignatureAlgorithm signatureAlgorithm = SIGNATURE_ALGORITHM.get();
-
     final List<EnrField> fields = new ArrayList<>();
     fields.add(new EnrField(EnrField.ID, IdentitySchema.V4));
     fields.add(
         new EnrField(
-            signatureAlgorithm.getCurveName(),
-            signatureAlgorithm.compressPublicKey(signatureAlgorithm.createPublicKey(nodeId))));
+            SIGNATURE_ALGORITHM.getCurveName(),
+            SIGNATURE_ALGORITHM.compressPublicKey(SIGNATURE_ALGORITHM.createPublicKey(nodeId))));
     fields.add(new EnrField(FORK_ID_ENR_FIELD, Collections.singletonList(forkId)));
 
     if (primaryEndpoint.isIpv4()) {

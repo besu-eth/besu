@@ -14,7 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.eth.manager.peertask.task;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -32,35 +38,36 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPee
 import org.hyperledger.besu.ethereum.eth.messages.BlockHeadersMessage;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.mockito.Mockito;
 
 public class GetHeadersFromPeerTaskTest {
+  private static final Set<Capability> AGREED_CAPABILITIES = Set.of(EthProtocol.LATEST);
 
-  private final ProtocolSchedule protocolSchedule = Mockito.mock(ProtocolSchedule.class);
+  private final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
 
   @Test
   public void testGetSubProtocol() {
     GetHeadersFromPeerTask task =
         new GetHeadersFromPeerTask(0, 1, 0, Direction.FORWARD, protocolSchedule);
-    Assertions.assertEquals(EthProtocol.get(), task.getSubProtocol());
+    assertEquals(EthProtocol.get(), task.getSubProtocol());
   }
 
   @Test
   public void testGetRequestMessageForHash() {
     GetHeadersFromPeerTask task =
         new GetHeadersFromPeerTask(Hash.ZERO, 0, 1, 0, Direction.FORWARD, protocolSchedule);
-    MessageData requestMessageData = task.getRequestMessage();
-    Assertions.assertEquals(
+    MessageData requestMessageData = task.getRequestMessage(AGREED_CAPABILITIES);
+    assertEquals(
         "0xe4a00000000000000000000000000000000000000000000000000000000000000000018080",
         requestMessageData.getData().toHexString());
   }
@@ -69,16 +76,16 @@ public class GetHeadersFromPeerTaskTest {
   public void testGetRequestMessageForBlockNumber() {
     GetHeadersFromPeerTask task =
         new GetHeadersFromPeerTask(123, 1, 0, Direction.FORWARD, protocolSchedule);
-    MessageData requestMessageData = task.getRequestMessage();
-    Assertions.assertEquals("0xc47b018080", requestMessageData.getData().toHexString());
+    MessageData requestMessageData = task.getRequestMessage(AGREED_CAPABILITIES);
+    assertEquals("0xc47b018080", requestMessageData.getData().toHexString());
   }
 
   @Test
   public void testGetRequestMessageForHashWhenBlockNumberAlsoProvided() {
     GetHeadersFromPeerTask task =
         new GetHeadersFromPeerTask(Hash.ZERO, 123, 1, 0, Direction.FORWARD, protocolSchedule);
-    MessageData requestMessageData = task.getRequestMessage();
-    Assertions.assertEquals(
+    MessageData requestMessageData = task.getRequestMessage(AGREED_CAPABILITIES);
+    assertEquals(
         "0xe4a00000000000000000000000000000000000000000000000000000000000000000018080",
         requestMessageData.getData().toHexString());
   }
@@ -87,9 +94,9 @@ public class GetHeadersFromPeerTaskTest {
   public void testProcessResponseWithNullMessageData() {
     GetHeadersFromPeerTask task =
         new GetHeadersFromPeerTask(0, 1, 0, Direction.FORWARD, protocolSchedule);
-    Assertions.assertThrows(
+    assertThrows(
         InvalidPeerTaskResponseException.class,
-        () -> task.processResponse(null),
+        () -> task.processResponse(null, Set.of()),
         "Response MessageData is null");
   }
 
@@ -111,15 +118,16 @@ public class GetHeadersFromPeerTaskTest {
             Direction.FORWARD,
             blockchainSetupUtil.getProtocolSchedule());
 
-    Assertions.assertEquals(
-        List.of(blockchain.getChainHeadHeader()), task.processResponse(responseMessage));
+    assertEquals(
+        List.of(blockchain.getChainHeadHeader()),
+        task.processResponse(responseMessage, AGREED_CAPABILITIES));
   }
 
   @ParameterizedTest
   @ValueSource(booleans = {false, true})
   public void testGetPeerRequirementFilter(final boolean isPoS) {
-    Mockito.reset(protocolSchedule);
-    Mockito.when(protocolSchedule.anyMatch(Mockito.any())).thenReturn(isPoS);
+    reset(protocolSchedule);
+    when(protocolSchedule.anyMatch(any())).thenReturn(isPoS);
 
     GetHeadersFromPeerTask task =
         new GetHeadersFromPeerTask(5, 1, 0, Direction.FORWARD, protocolSchedule);
@@ -127,11 +135,11 @@ public class GetHeadersFromPeerTaskTest {
     EthPeer failForShortChainHeight = mockPeer(1);
     EthPeer successfulCandidate = mockPeer(5);
 
-    Assertions.assertEquals(
+    assertEquals(
         isPoS,
         task.getPeerRequirementFilter()
             .test(EthPeerImmutableAttributes.from(failForShortChainHeight)));
-    Assertions.assertTrue(
+    assertTrue(
         task.getPeerRequirementFilter().test(EthPeerImmutableAttributes.from(successfulCandidate)));
   }
 
@@ -139,7 +147,7 @@ public class GetHeadersFromPeerTaskTest {
   public void testValidateResultForEmptyResult() {
     GetHeadersFromPeerTask task =
         new GetHeadersFromPeerTask(5, 1, 0, Direction.FORWARD, protocolSchedule);
-    Assertions.assertEquals(
+    assertEquals(
         PeerTaskValidationResponse.NO_RESULTS_RETURNED,
         task.validateResult(Collections.emptyList()));
   }
@@ -149,11 +157,11 @@ public class GetHeadersFromPeerTaskTest {
     GetHeadersFromPeerTask task =
         new GetHeadersFromPeerTask(5, 1, 1, Direction.FORWARD, protocolSchedule);
 
-    BlockHeader header1 = Mockito.mock(BlockHeader.class);
-    BlockHeader header2 = Mockito.mock(BlockHeader.class);
-    BlockHeader header3 = Mockito.mock(BlockHeader.class);
+    BlockHeader header1 = mock(BlockHeader.class);
+    BlockHeader header2 = mock(BlockHeader.class);
+    BlockHeader header3 = mock(BlockHeader.class);
 
-    Assertions.assertEquals(
+    assertEquals(
         PeerTaskValidationResponse.TOO_MANY_RESULTS_RETURNED,
         task.validateResult(List.of(header1, header2, header3)));
   }
@@ -165,32 +173,32 @@ public class GetHeadersFromPeerTaskTest {
 
     Hash block1Hash = Hash.fromHexStringLenient("01");
     Hash block2Hash = Hash.fromHexStringLenient("02");
-    BlockHeader header1 = Mockito.mock(BlockHeader.class);
-    Mockito.when(header1.getNumber()).thenReturn(1L);
-    Mockito.when(header1.getHash()).thenReturn(block1Hash);
-    BlockHeader header2 = Mockito.mock(BlockHeader.class);
-    Mockito.when(header2.getNumber()).thenReturn(2L);
-    Mockito.when(header2.getHash()).thenReturn(block2Hash);
-    Mockito.when(header2.getParentHash()).thenReturn(block1Hash);
-    BlockHeader header3 = Mockito.mock(BlockHeader.class);
-    Mockito.when(header3.getNumber()).thenReturn(3L);
-    Mockito.when(header3.getParentHash()).thenReturn(Hash.ZERO);
+    BlockHeader header1 = mock(BlockHeader.class);
+    when(header1.getNumber()).thenReturn(1L);
+    when(header1.getHash()).thenReturn(block1Hash);
+    BlockHeader header2 = mock(BlockHeader.class);
+    when(header2.getNumber()).thenReturn(2L);
+    when(header2.getHash()).thenReturn(block2Hash);
+    when(header2.getParentHash()).thenReturn(block1Hash);
+    BlockHeader header3 = mock(BlockHeader.class);
+    when(header3.getNumber()).thenReturn(3L);
+    when(header3.getParentHash()).thenReturn(Hash.ZERO);
 
-    Assertions.assertEquals(
+    assertEquals(
         PeerTaskValidationResponse.NON_SEQUENTIAL_HEADERS_RETURNED,
         task.validateResult(List.of(header1, header2, header3)));
   }
 
   private EthPeer mockPeer(final long chainHeight) {
-    EthPeer ethPeer = Mockito.mock(EthPeer.class);
-    ChainState chainState = Mockito.mock(ChainState.class);
+    EthPeer ethPeer = mock(EthPeer.class);
+    ChainState chainState = mock(ChainState.class);
 
-    Mockito.when(ethPeer.chainState()).thenReturn(chainState);
-    Mockito.when(chainState.getEstimatedHeight()).thenReturn(chainHeight);
-    Mockito.when(chainState.getEstimatedTotalDifficulty()).thenReturn(Difficulty.of(0));
-    Mockito.when(ethPeer.getReputation()).thenReturn(new PeerReputation());
+    when(ethPeer.chainState()).thenReturn(chainState);
+    when(chainState.getEstimatedHeight()).thenReturn(chainHeight);
+    when(chainState.getEstimatedTotalDifficulty()).thenReturn(Difficulty.of(0));
+    when(ethPeer.getReputation()).thenReturn(new PeerReputation());
     PeerConnection connection = mock(PeerConnection.class);
-    Mockito.when(ethPeer.getConnection()).thenReturn(connection);
+    when(ethPeer.getConnection()).thenReturn(connection);
     return ethPeer;
   }
 }

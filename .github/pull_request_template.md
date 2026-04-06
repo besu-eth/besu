@@ -8,7 +8,7 @@
 
 ### Thanks for sending a pull request! Have you done the following?
 
-- [ ] Checked out our [contribution guidelines](https://github.com/hyperledger/besu/blob/main/CONTRIBUTING.md)?
+- [ ] Checked out our [contribution guidelines](https://github.com/besu-eth/besu/blob/main/CONTRIBUTING.md)?
 - [ ] Considered documentation and added the `doc-change-required` label to this PR [if updates are required](https://wiki.hyperledger.org/display/BESU/Documentation).
 - [ ] Considered the changelog and included an [update if required](https://wiki.hyperledger.org/display/BESU/Changelog).
 - [ ] For database changes (e.g. KeyValueSegmentIdentifier) considered compatibility and performed forwards and backwards compatibility tests

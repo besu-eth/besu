@@ -31,7 +31,7 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.PoWHasher;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactoryDefault;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
@@ -224,7 +224,7 @@ public class SyncBlockBodyTest {
         true,
         Optional.empty(),
         Optional.empty(),
-        new StateRootCommitterFactoryDefault(),
+        new DefaultStateRootCommitterFactory(),
         BlockGasAccountingStrategy.FRONTIER,
         BlockGasUsedValidator.FRONTIER);
   }

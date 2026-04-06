@@ -24,8 +24,6 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.handshake.Handshaker.HandshakeStat
 
 import java.util.Optional;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import org.apache.tuweni.bytes.Bytes;
@@ -38,42 +36,26 @@ public class ECIESHandshakeTest {
   // Input data.
   private static class Input {
 
-    static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-        Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+    private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+        SignatureAlgorithmFactory.getInstance();
 
     // Keys.
     private static final KeyPair initiatorKeyPair =
-        SIGNATURE_ALGORITHM
-            .get()
-            .createKeyPair(
-                SIGNATURE_ALGORITHM
-                    .get()
-                    .createPrivateKey(
-                        h32("0x5e173f6ac3c669587538e7727cf19b782a4f2fda07c1eaa662c593e5e85e3051")));
+        SIGNATURE_ALGORITHM.createKeyPair(
+            SIGNATURE_ALGORITHM.createPrivateKey(
+                h32("0x5e173f6ac3c669587538e7727cf19b782a4f2fda07c1eaa662c593e5e85e3051")));
     private static final KeyPair initiatorEphKeyPair =
-        SIGNATURE_ALGORITHM
-            .get()
-            .createKeyPair(
-                SIGNATURE_ALGORITHM
-                    .get()
-                    .createPrivateKey(
-                        h32("0x19c2185f4f40634926ebed3af09070ca9e029f2edd5fae6253074896205f5f6c")));
+        SIGNATURE_ALGORITHM.createKeyPair(
+            SIGNATURE_ALGORITHM.createPrivateKey(
+                h32("0x19c2185f4f40634926ebed3af09070ca9e029f2edd5fae6253074896205f5f6c")));
     private static final KeyPair responderKeyPair =
-        SIGNATURE_ALGORITHM
-            .get()
-            .createKeyPair(
-                SIGNATURE_ALGORITHM
-                    .get()
-                    .createPrivateKey(
-                        h32("0xc45f950382d542169ea207959ee0220ec1491755abe405cd7498d6b16adb6df8")));
+        SIGNATURE_ALGORITHM.createKeyPair(
+            SIGNATURE_ALGORITHM.createPrivateKey(
+                h32("0xc45f950382d542169ea207959ee0220ec1491755abe405cd7498d6b16adb6df8")));
     private static final KeyPair responderEphKeyPair =
-        SIGNATURE_ALGORITHM
-            .get()
-            .createKeyPair(
-                SIGNATURE_ALGORITHM
-                    .get()
-                    .createPrivateKey(
-                        h32("0xd25688cf0ab10afa1a0e2dba7853ed5f1e5bf1c631757ed4e103b593ff3f5620")));
+        SIGNATURE_ALGORITHM.createKeyPair(
+            SIGNATURE_ALGORITHM.createPrivateKey(
+                h32("0xd25688cf0ab10afa1a0e2dba7853ed5f1e5bf1c631757ed4e103b593ff3f5620")));
 
     // Nonces.
     private static final Bytes32 initiatorNonce =

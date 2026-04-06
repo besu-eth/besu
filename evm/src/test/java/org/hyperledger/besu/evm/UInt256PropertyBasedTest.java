@@ -21,15 +21,19 @@ import java.util.Arrays;
 
 import net.jqwik.api.Arbitraries;
 import net.jqwik.api.Arbitrary;
+import net.jqwik.api.Assume;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.Tuple;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 public class UInt256PropertyBasedTest {
+  private static final BigInteger TWO_256 = BigInteger.ONE.shiftLeft(256);
 
   // region Test Data Providers
+  // --------------------------------------------------------------------------
 
   @Provide
   Arbitrary<byte[]> unsigned1to32() {
@@ -63,9 +67,115 @@ public class UInt256PropertyBasedTest {
     return Arbitraries.integers().between(-512, 512);
   }
 
+  // --------------------------------------------------------------------------
+  // endregion
+
+  // region Shaped Generators (from record-refactor regression suite)
+  // --------------------------------------------------------------------------
+
+  @Provide
+  Arbitrary<byte[]> bytes0to64_shaped() {
+    final Arbitrary<Integer> requiredLengths =
+        Arbitraries.of(0, 1, 7, 8, 9, 15, 16, 17, 31, 32, 33, 64);
+
+    final Arbitrary<Integer> lengths =
+        Arbitraries.frequencyOf(
+            Tuple.of(8, requiredLengths), Tuple.of(2, Arbitraries.integers().between(0, 64)));
+
+    final Arbitrary<Pattern> patterns =
+        Arbitraries.frequencyOf(
+            Tuple.of(4, Arbitraries.of(Pattern.ALL_ZERO)),
+            Tuple.of(4, Arbitraries.of(Pattern.ALL_FF)),
+            Tuple.of(4, Arbitraries.of(Pattern.LIMB_SIGN_BITS)),
+            Tuple.of(4, Arbitraries.of(Pattern.FIXED_TOP_LIMBS)),
+            Tuple.of(10, Arbitraries.of(Pattern.RANDOM)));
+
+    return lengths.flatMap(
+        len ->
+            patterns.flatMap(
+                pat -> {
+                  if (len == 0) {
+                    return Arbitraries.of(new byte[0]);
+                  }
+                  return Arbitraries.bytes()
+                      .array(byte[].class)
+                      .ofSize(len)
+                      .map(b -> applyPattern(b, pat));
+                }));
+  }
+
+  @Provide
+  Arbitrary<byte[]> bytes32_shaped() {
+    return bytes0to64_shaped().map(UInt256PropertyBasedTest::toBytes32Unsigned);
+  }
+
+  @Provide
+  Arbitrary<byte[]> bytes33to64_shaped() {
+    return bytes0to64_shaped()
+        .filter(b -> b.length >= 33 && b.length <= 64)
+        .map(UInt256PropertyBasedTest::forceNonZeroHighBytes);
+  }
+
+  @Provide
+  Arbitrary<Integer> shifts_extreme() {
+    final Arbitrary<Integer> edges =
+        Arbitraries.of(
+            -512, -257, -256, -129, -128, -65, -64, -1, 0, 1, 63, 64, 65, 127, 128, 129, 255, 256,
+            257, 512);
+    return Arbitraries.frequencyOf(
+        Tuple.of(7, edges), Tuple.of(3, Arbitraries.integers().between(-512, 512)));
+  }
+
+  private enum Pattern {
+    ALL_ZERO,
+    ALL_FF,
+    LIMB_SIGN_BITS,
+    FIXED_TOP_LIMBS,
+    RANDOM
+  }
+
+  private static byte[] applyPattern(final byte[] bytes, final Pattern pat) {
+    return switch (pat) {
+      case ALL_ZERO -> {
+        Arrays.fill(bytes, (byte) 0x00);
+        yield bytes;
+      }
+      case ALL_FF -> {
+        Arrays.fill(bytes, (byte) 0xFF);
+        yield bytes;
+      }
+      case LIMB_SIGN_BITS -> {
+        Arrays.fill(bytes, (byte) 0x00);
+        forceMsbAtIndexIfPresent(bytes, 0);
+        forceMsbAtIndexIfPresent(bytes, 8);
+        forceMsbAtIndexIfPresent(bytes, 16);
+        forceMsbAtIndexIfPresent(bytes, 24);
+        forceMsbAtIndexIfPresent(bytes, bytes.length - 1);
+        yield bytes;
+      }
+      case FIXED_TOP_LIMBS -> {
+        int size = (int) Math.ceil(bytes.length / 8D) * 8;
+        final byte[] newArray = new byte[size];
+        System.arraycopy(bytes, 0, newArray, size - bytes.length, bytes.length);
+        Arrays.fill(newArray, 0, 8, (byte) 0x80);
+        yield newArray;
+      }
+      case RANDOM -> bytes;
+    };
+  }
+
+  private static void forceMsbAtIndexIfPresent(final byte[] bytes, final int index) {
+    if (index < 0 || index >= bytes.length) {
+      return;
+    }
+    bytes[index] = (byte) (bytes[index] | 0x80);
+  }
+
+  // --------------------------------------------------------------------------
   // endregion
 
   // region Serialization Tests
+  // --------------------------------------------------------------------------
 
   @Property
   void property_roundTripUnsigned_toFromBytesBE(@ForAll("unsigned0to64") final byte[] any) {
@@ -82,9 +192,11 @@ public class UInt256PropertyBasedTest {
     assertThat(back).containsExactly(expected);
   }
 
+  // --------------------------------------------------------------------------
   // endregion
 
   // region Comparison Tests
+  // --------------------------------------------------------------------------
 
   @Property
   void property_equals_compare_consistent(
@@ -106,9 +218,11 @@ public class UInt256PropertyBasedTest {
     assertThat(Integer.signum(cmp)).isEqualTo(Integer.signum(bc));
   }
 
+  // --------------------------------------------------------------------------
   // endregion
 
   // region Modulo Tests (MOD/SMOD/ADDMOD/MULMOD)
+  // --------------------------------------------------------------------------
   @Property
   void property_mod_matchesBigInteger(
       @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] m) {
@@ -224,11 +338,53 @@ public class UInt256PropertyBasedTest {
     assertThat(x.signedMod(zero).toBytesBE()).containsExactly(Bytes32.ZERO.toArrayUnsafe());
     assertThat(x.addMod(x, zero).toBytesBE()).containsExactly(Bytes32.ZERO.toArrayUnsafe());
     assertThat(x.mulMod(x, zero).toBytesBE()).containsExactly(Bytes32.ZERO.toArrayUnsafe());
+    assertThat(x.div(zero).toBytesBE()).containsExactly(Bytes32.ZERO.toArrayUnsafe());
+    assertThat(x.signedDiv(zero).toBytesBE()).containsExactly(Bytes32.ZERO.toArrayUnsafe());
   }
 
+  @Property
+  void property_div_matchesBigInteger(
+      @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] d) {
+    // Arrange
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ud = UInt256.fromBytesBE(d);
+
+    // Act
+    byte[] got = ua.div(ud).toBytesBE();
+
+    // Assert
+    BigInteger A = toBigUnsigned(a);
+    BigInteger D = toBigUnsigned(d);
+    byte[] exp =
+        (D.signum() == 0) ? Bytes32.ZERO.toArrayUnsafe() : bigUnsignedToBytes32(A.divide(D));
+    assertThat(got).containsExactly(exp);
+  }
+
+  @Property
+  void property_signedDiv_matchesEvmSemantics(
+      @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] d) {
+    // Arrange
+    final byte[] a32 = Bytes32.leftPad(Bytes.wrap(a)).toArrayUnsafe();
+    final byte[] d32 = Bytes32.leftPad(Bytes.wrap(d)).toArrayUnsafe();
+    final BigInteger A = new BigInteger(a32);
+    final BigInteger D = new BigInteger(d32);
+    final UInt256 ua = UInt256.fromBytesBE(a32);
+    final UInt256 ud = UInt256.fromBytesBE(d32);
+
+    // Act
+    byte[] got = ua.signedDiv(ud).toBytesBE();
+
+    // Assert
+    byte[] expected =
+        (D.signum() == 0) ? Bytes32.ZERO.toArrayUnsafe() : computeSignedDivExpected(A, D);
+    assertThat(got).containsExactly(expected);
+  }
+
+  // --------------------------------------------------------------------------
   // endregion
 
   // region AND Operation Tests
+  // --------------------------------------------------------------------------
 
   @Property
   void property_and_matchesBytesAnd(
@@ -411,9 +567,11 @@ public class UInt256PropertyBasedTest {
         .containsExactly(bytes1.and(bytes2).toArrayUnsafe());
   }
 
+  // --------------------------------------------------------------------------
   // endregion
 
   // region XOR Operation Tests
+  // --------------------------------------------------------------------------
 
   @Property
   void property_xor_matchesBytesXor(
@@ -511,7 +669,7 @@ public class UInt256PropertyBasedTest {
   void property_xor_with_allOnes_is_complement(@ForAll("unsigned1to32") final byte[] a) {
     // Arrange
     final UInt256 ua = UInt256.fromBytesBE(a);
-    final UInt256 allOnes = UInt256.ALL_ONES;
+    final UInt256 allOnes = UInt256.MAX;
 
     // Act
     final UInt256 result = ua.xor(allOnes);
@@ -574,7 +732,7 @@ public class UInt256PropertyBasedTest {
               (byte) 0x55, (byte) 0x55, (byte) 0x55, (byte) 0x55
             }); // 01010101...
 
-    final UInt256 allOnes = UInt256.ALL_ONES;
+    final UInt256 allOnes = UInt256.MAX;
     // Act & Assert - 0xAA XOR 0x55 = 0xFF
     assertThat(pattern1.xor(pattern2)).isEqualTo(allOnes);
 
@@ -600,9 +758,11 @@ public class UInt256PropertyBasedTest {
     assertThat(decrypted).isEqualTo(ua);
   }
 
+  // --------------------------------------------------------------------------
   // endregion
 
   // region OR Operation Tests
+  // --------------------------------------------------------------------------
 
   @Property
   void property_or_matchesBytesOr(
@@ -687,7 +847,7 @@ public class UInt256PropertyBasedTest {
   void property_or_with_allOnes(@ForAll("unsigned1to32") final byte[] a) {
     // Arrange
     final UInt256 ua = UInt256.fromBytesBE(a);
-    final UInt256 allOnes = UInt256.ALL_ONES;
+    final UInt256 allOnes = UInt256.MAX;
     // Act & Assert - A | 0xFF...FF = 0xFF...FF (domination)
     assertThat(ua.or(allOnes)).isEqualTo(allOnes);
     assertThat(allOnes.or(ua)).isEqualTo(allOnes);
@@ -742,7 +902,7 @@ public class UInt256PropertyBasedTest {
       complementBytes[i] = (byte) ~aBytes32[i];
     }
     final UInt256 complement = UInt256.fromBytesBE(complementBytes);
-    final UInt256 allOnes = UInt256.ALL_ONES;
+    final UInt256 allOnes = UInt256.MAX;
     // Act & Assert - A | ~A = 0xFF...FF
     assertThat(ua.or(complement)).isEqualTo(allOnes);
   }
@@ -774,7 +934,7 @@ public class UInt256PropertyBasedTest {
               (byte) 0x55, (byte) 0x55, (byte) 0x55, (byte) 0x55,
               (byte) 0x55, (byte) 0x55, (byte) 0x55, (byte) 0x55
             }); // 01010101...
-    final UInt256 allOnes = UInt256.ALL_ONES;
+    final UInt256 allOnes = UInt256.MAX;
     // Act & Assert - 0xAA OR 0x55 = 0xFF
     assertThat(pattern1.or(pattern2)).isEqualTo(allOnes);
     // Verify with Bytes implementation
@@ -834,9 +994,11 @@ public class UInt256PropertyBasedTest {
     assertThat(left).isEqualTo(right);
   }
 
+  // --------------------------------------------------------------------------
   // endregion
 
   // region NOT Operation Tests
+  // --------------------------------------------------------------------------
 
   @Property
   void property_not_matchesBytesNot(@ForAll("unsigned1to32") final byte[] a) {
@@ -896,7 +1058,7 @@ public class UInt256PropertyBasedTest {
   void property_not_different_from_original(@ForAll("unsigned1to32") final byte[] a) {
     // Arrange
     final UInt256 ua = UInt256.fromBytesBE(a);
-    final UInt256 allOnes = UInt256.ALL_ONES;
+    final UInt256 allOnes = UInt256.MAX;
 
     // Act
     final UInt256 notA = ua.not();
@@ -922,7 +1084,7 @@ public class UInt256PropertyBasedTest {
     // Arrange
     final UInt256 ua = UInt256.fromBytesBE(a);
     // Act & Assert - A | ~A = 0xFF...FF
-    assertThat(ua.or(ua.not())).isEqualTo(UInt256.ALL_ONES);
+    assertThat(ua.or(ua.not())).isEqualTo(UInt256.MAX);
   }
 
   @Property
@@ -930,7 +1092,7 @@ public class UInt256PropertyBasedTest {
     // Arrange
     final UInt256 ua = UInt256.fromBytesBE(a);
     // Act & Assert - A ^ ~A = 0xFF...FF
-    assertThat(ua.xor(ua.not())).isEqualTo(UInt256.ALL_ONES);
+    assertThat(ua.xor(ua.not())).isEqualTo(UInt256.MAX);
   }
 
   @Property
@@ -963,7 +1125,7 @@ public class UInt256PropertyBasedTest {
   void property_not_zero_is_allOnes() {
     // Arrange
     final UInt256 zero = UInt256.ZERO;
-    final UInt256 allOnes = UInt256.ALL_ONES;
+    final UInt256 allOnes = UInt256.MAX;
 
     // Act & Assert - ~0 = 0xFF...FF
     assertThat(zero.not()).isEqualTo(allOnes);
@@ -972,7 +1134,7 @@ public class UInt256PropertyBasedTest {
   @Property
   void property_not_allOnes_is_zero() {
     // Arrange
-    final UInt256 allOnes = UInt256.ALL_ONES;
+    final UInt256 allOnes = UInt256.MAX;
     final UInt256 zero = UInt256.ZERO;
 
     // Act & Assert - ~0xFF...FF = 0
@@ -1036,7 +1198,7 @@ public class UInt256PropertyBasedTest {
   void property_not_xor_equivalence(@ForAll("unsigned1to32") final byte[] a) {
     // Arrange
     final UInt256 ua = UInt256.fromBytesBE(a);
-    final UInt256 allOnes = UInt256.ALL_ONES;
+    final UInt256 allOnes = UInt256.MAX;
 
     // Act & Assert - ~A = A ^ 0xFF...FF
     assertThat(ua.not()).isEqualTo(ua.xor(allOnes));
@@ -1046,7 +1208,7 @@ public class UInt256PropertyBasedTest {
   void property_not_sum_with_original(@ForAll("unsigned1to32") final byte[] a) {
     // Arrange
     final UInt256 ua = UInt256.fromBytesBE(a);
-    final UInt256 allOnes = UInt256.ALL_ONES;
+    final UInt256 allOnes = UInt256.MAX;
 
     // Act
     // When we add A + ~A (bitwise), we should get all 1s in each bit position
@@ -1057,11 +1219,10 @@ public class UInt256PropertyBasedTest {
     assertThat(ua.xor(ua.not())).isEqualTo(allOnes);
   }
 
+  // --------------------------------------------------------------------------
   // endregion
 
-  // endregion
-
-  // Simple ADD tests
+  // region Simple ADD tests
   // --------------------------------------------------------------------------
   @Property
   void property_add_matchesBigInteger(
@@ -1291,7 +1452,544 @@ public class UInt256PropertyBasedTest {
   // --------------------------------------------------------------------------
   // endregion
 
+  // region Byte-Array ADD Tests (static UInt256.add(byte[], byte[]))
+  // --------------------------------------------------------------------------
+
+  @Property
+  void property_addBytes_matchesBigInteger(
+      @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] b) {
+    // Arrange
+    final byte[] a32 = toBytes32Unsigned(a);
+    final byte[] b32 = toBytes32Unsigned(b);
+
+    // Act
+    final byte[] got = UInt256.add(a32, b32);
+
+    // Assert
+    BigInteger A = toBigUnsigned(a);
+    BigInteger B = toBigUnsigned(b);
+    byte[] expected = bigUnsignedToBytes32(A.add(B));
+    assertThat(got).containsExactly(expected);
+  }
+
+  @Property
+  void property_addBytes_commutative(
+      @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] b) {
+    // Arrange
+    final byte[] a32 = toBytes32Unsigned(a);
+    final byte[] b32 = toBytes32Unsigned(b);
+
+    // Act & Assert
+    assertThat(UInt256.add(a32, b32)).containsExactly(UInt256.add(b32, a32));
+  }
+
+  @Property
+  void property_addBytes_identity(@ForAll("unsigned1to32") final byte[] a) {
+    // Arrange
+    final byte[] a32 = toBytes32Unsigned(a);
+    final byte[] zero = new byte[32];
+
+    // Act & Assert — x + 0 = x
+    assertThat(UInt256.add(a32, zero)).containsExactly(a32);
+    assertThat(UInt256.add(zero, a32)).containsExactly(a32);
+  }
+
+  @Property
+  void property_addBytes_consistent_with_UInt256_add(
+      @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] b) {
+    // Arrange
+    final byte[] a32 = toBytes32Unsigned(a);
+    final byte[] b32 = toBytes32Unsigned(b);
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ub = UInt256.fromBytesBE(b);
+
+    // Act
+    final byte[] fromBytes = UInt256.add(a32, b32);
+    final byte[] fromUInt256 = ua.add(ub).toBytesBE();
+
+    // Assert — byte[] and UInt256 paths must agree
+    assertThat(fromBytes).containsExactly(fromUInt256);
+  }
+
+  @Property
+  void property_addBytes_singleLimb_matchesBigInteger(
+      @ForAll("singleLimbUnsigned1to4") final byte[] a,
+      @ForAll("singleLimbUnsigned1to4") final byte[] b) {
+    // Arrange
+    final byte[] a32 = toBytes32Unsigned(a);
+    final byte[] b32 = toBytes32Unsigned(b);
+
+    // Act
+    final byte[] got = UInt256.add(a32, b32);
+
+    // Assert
+    BigInteger A = toBigUnsigned(a);
+    BigInteger B = toBigUnsigned(b);
+    byte[] expected = bigUnsignedToBytes32(A.add(B));
+    assertThat(got).containsExactly(expected);
+  }
+
+  // --------------------------------------------------------------------------
+  // endregion
+
+  // region Byte-Array SUB Tests (static UInt256.sub(byte[], byte[]))
+  // --------------------------------------------------------------------------
+
+  @Property
+  void property_subBytes_matchesBigInteger(
+      @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] b) {
+    // Arrange
+    final byte[] a32 = toBytes32Unsigned(a);
+    final byte[] b32 = toBytes32Unsigned(b);
+
+    // Act
+    final byte[] got = UInt256.sub(a32, b32);
+
+    // Assert — wrapping subtraction mod 2^256
+    BigInteger A = toBigUnsigned(a);
+    BigInteger B = toBigUnsigned(b);
+    BigInteger result = A.subtract(B).mod(TWO_256);
+    byte[] expected = bigUnsignedToBytes32(result);
+    assertThat(got).containsExactly(expected);
+  }
+
+  @Property
+  void property_subBytes_identity(@ForAll("unsigned1to32") final byte[] a) {
+    // Arrange
+    final byte[] a32 = toBytes32Unsigned(a);
+    final byte[] zero = new byte[32];
+
+    // Act & Assert — x - 0 = x
+    assertThat(UInt256.sub(a32, zero)).containsExactly(a32);
+  }
+
+  @Property
+  void property_subBytes_self_is_zero(@ForAll("unsigned1to32") final byte[] a) {
+    // Arrange
+    final byte[] a32 = toBytes32Unsigned(a);
+
+    // Act & Assert — x - x = 0
+    assertThat(UInt256.sub(a32, a32)).containsExactly(new byte[32]);
+  }
+
+  @Property
+  void property_subBytes_add_inverse(
+      @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] b) {
+    // Arrange
+    final byte[] a32 = toBytes32Unsigned(a);
+    final byte[] b32 = toBytes32Unsigned(b);
+
+    // Act & Assert — (x + y) - y = x
+    byte[] sum = UInt256.add(a32, b32);
+    assertThat(UInt256.sub(sum, b32)).containsExactly(a32);
+  }
+
+  @Property
+  void property_subBytes_anti_commutative(
+      @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] b) {
+    // Arrange — fresh copies for each sub call (sub/neg may mutate input arrays)
+    final byte[] aMinusB = UInt256.sub(toBytes32Unsigned(a), toBytes32Unsigned(b));
+    final byte[] bMinusA = UInt256.sub(toBytes32Unsigned(b), toBytes32Unsigned(a));
+
+    // Assert — (a - b) + (b - a) = 0
+    assertThat(UInt256.add(aMinusB, bMinusA)).containsExactly(new byte[32]);
+  }
+
+  @Property
+  void property_subBytes_consistent_with_add_neg(
+      @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] b) {
+    // Arrange
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ub = UInt256.fromBytesBE(b);
+    final byte[] a32 = toBytes32Unsigned(a);
+    final byte[] b32 = toBytes32Unsigned(b);
+
+    // Act — sub(a,b) should equal a + neg(b) via UInt256
+    final byte[] fromSub = UInt256.sub(a32, b32);
+    final byte[] fromAddNeg = ua.add(ub.neg()).toBytesBE();
+
+    // Assert
+    assertThat(fromSub).containsExactly(fromAddNeg);
+  }
+
+  @Property
+  void property_subBytes_singleLimb_matchesBigInteger(
+      @ForAll("singleLimbUnsigned1to4") final byte[] a,
+      @ForAll("singleLimbUnsigned1to4") final byte[] b) {
+    // Arrange
+    final byte[] a32 = toBytes32Unsigned(a);
+    final byte[] b32 = toBytes32Unsigned(b);
+
+    // Act
+    final byte[] got = UInt256.sub(a32, b32);
+
+    // Assert
+    BigInteger A = toBigUnsigned(a);
+    BigInteger B = toBigUnsigned(b);
+    BigInteger result = A.subtract(B).mod(TWO_256);
+    byte[] expected = bigUnsignedToBytes32(result);
+    assertThat(got).containsExactly(expected);
+  }
+
+  // --------------------------------------------------------------------------
+  // endregion
+
+  // region MUL Tests (UInt256.mul)
+  // --------------------------------------------------------------------------
+
+  @Property
+  void property_mul_matchesBigInteger(
+      @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] b) {
+    // Arrange
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ub = UInt256.fromBytesBE(b);
+
+    // Act
+    final byte[] got = ua.mul(ub).toBytesBE();
+
+    // Assert — wrapping multiplication mod 2^256
+    BigInteger A = toBigUnsigned(a);
+    BigInteger B = toBigUnsigned(b);
+    byte[] expected = bigUnsignedToBytes32(A.multiply(B));
+    assertThat(got).containsExactly(expected);
+  }
+
+  @Property
+  void property_mul_commutative(
+      @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] b) {
+    // Arrange
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ub = UInt256.fromBytesBE(b);
+
+    // Act & Assert — a * b = b * a
+    assertThat(ua.mul(ub)).isEqualTo(ub.mul(ua));
+  }
+
+  @Property
+  void property_mul_associative(
+      @ForAll("unsigned1to32") final byte[] a,
+      @ForAll("unsigned1to32") final byte[] b,
+      @ForAll("unsigned1to32") final byte[] c) {
+    // Arrange
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ub = UInt256.fromBytesBE(b);
+    final UInt256 uc = UInt256.fromBytesBE(c);
+
+    // Act & Assert — (a * b) * c = a * (b * c)
+    assertThat(ua.mul(ub).mul(uc)).isEqualTo(ua.mul(ub.mul(uc)));
+  }
+
+  @Property
+  void property_mul_identity(@ForAll("unsigned1to32") final byte[] a) {
+    // Arrange
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 one = UInt256.fromBytesBE(new byte[] {1});
+
+    // Act & Assert — a * 1 = a
+    assertThat(ua.mul(one)).isEqualTo(ua);
+    assertThat(one.mul(ua)).isEqualTo(ua);
+  }
+
+  @Property
+  void property_mul_zero(@ForAll("unsigned1to32") final byte[] a) {
+    // Arrange
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 zero = UInt256.ZERO;
+
+    // Act & Assert — a * 0 = 0
+    assertThat(ua.mul(zero)).isEqualTo(zero);
+    assertThat(zero.mul(ua)).isEqualTo(zero);
+  }
+
+  @Property
+  void property_mul_singleLimb_matchesBigInteger(
+      @ForAll("singleLimbUnsigned1to4") final byte[] a,
+      @ForAll("singleLimbUnsigned1to4") final byte[] b) {
+    // Arrange
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ub = UInt256.fromBytesBE(b);
+
+    // Act
+    final byte[] got = ua.mul(ub).toBytesBE();
+
+    // Assert
+    BigInteger A = toBigUnsigned(a);
+    BigInteger B = toBigUnsigned(b);
+    byte[] expected = bigUnsignedToBytes32(A.multiply(B));
+    assertThat(got).containsExactly(expected);
+  }
+
+  @Property
+  void property_mul_distributive_over_add(
+      @ForAll("unsigned1to32") final byte[] a,
+      @ForAll("unsigned1to32") final byte[] b,
+      @ForAll("unsigned1to32") final byte[] c) {
+    // Arrange
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ub = UInt256.fromBytesBE(b);
+    final UInt256 uc = UInt256.fromBytesBE(c);
+
+    // Act & Assert — a * (b + c) = a*b + a*c
+    UInt256 left = ua.mul(ub.add(uc));
+    UInt256 right = ua.mul(ub).add(ua.mul(uc));
+    assertThat(left).isEqualTo(right);
+  }
+
+  @Property
+  void property_mul_by_two_equals_add_self(@ForAll("unsigned1to32") final byte[] a) {
+    // Arrange
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 two = UInt256.fromBytesBE(new byte[] {2});
+
+    // Act & Assert — a * 2 = a + a
+    assertThat(ua.mul(two)).isEqualTo(ua.add(ua));
+  }
+
+  // --------------------------------------------------------------------------
+  // endregion
+
+  // region Record Refactor Regression Tests (shaped generators, fixed seeds)
+  // --------------------------------------------------------------------------
+
+  @Property(seed = "3735928559")
+  void property_fromBytesBE_toBytesBE_roundTrip_canonical32(
+      @ForAll("bytes0to64_shaped") final byte[] input) {
+    // Arrange.
+    final byte[] expected = canonicalUnsigned256ToBytes32(input);
+
+    // Act.
+    final UInt256 u = UInt256.fromBytesBE(input);
+    final byte[] got = u.toBytesBE();
+
+    // Assert.
+    assertThat(got).hasSize(32);
+    assertThat(got).containsExactly(expected);
+  }
+
+  @Property(seed = "2718281828")
+  void property_fromBytesBE_ignores_high_bytes_above_32(
+      @ForAll("bytes33to64_shaped") final byte[] input) {
+    // Arrange.
+    final byte[] low32 = Arrays.copyOfRange(input, input.length - 32, input.length);
+
+    // Act.
+    final UInt256 a = UInt256.fromBytesBE(input);
+    final UInt256 b = UInt256.fromBytesBE(low32);
+
+    // Assert.
+    assertThat(a).isEqualTo(b);
+  }
+
+  @Property(seed = "3141592653")
+  void property_fromBytesBE_toBytesBE_is_identity_on_32_bytes(
+      @ForAll("bytes32_shaped") final byte[] be32) {
+    // Arrange.
+    final byte[] input = Arrays.copyOf(be32, be32.length);
+
+    // Act.
+    final byte[] got = UInt256.fromBytesBE(input).toBytesBE();
+
+    // Assert.
+    assertThat(got).containsExactly(input);
+  }
+
+  @Property(seed = "1618033988")
+  void property_compare_zero_iff_equals(
+      @ForAll("bytes32_shaped") final byte[] a, @ForAll("bytes32_shaped") final byte[] b) {
+    // Arrange.
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ub = UInt256.fromBytesBE(b);
+
+    // Act.
+    final int cmp = UInt256.compare(ua, ub);
+
+    // Assert.
+    assertThat(cmp == 0).isEqualTo(ua.equals(ub));
+  }
+
+  @Property(seed = "1414213562")
+  void property_compare_sign_matches_unsigned_big_integer(
+      @ForAll("bytes32_shaped") final byte[] a, @ForAll("bytes32_shaped") final byte[] b) {
+    // Arrange.
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ub = UInt256.fromBytesBE(b);
+    final BigInteger A = new BigInteger(1, a);
+    final BigInteger B = new BigInteger(1, b);
+
+    // Act.
+    final int cmp = UInt256.compare(ua, ub);
+
+    // Assert.
+    assertThat(Integer.signum(cmp)).isEqualTo(Integer.signum(A.compareTo(B)));
+  }
+
+  @Property(seed = "1123581321")
+  void property_shiftLeft_matches_big_integer_mod_2_256(
+      @ForAll("bytes32_shaped") final byte[] a, @ForAll("shifts_extreme") final int shift) {
+    Assume.that(shift >= 0 && shift < 64);
+    // Arrange.
+    final BigInteger A = new BigInteger(1, a);
+    final byte[] expected = expectedShl(A, shift);
+
+    // Act.
+    final byte[] got = UInt256.fromBytesBE(a).shiftLeft(shift).toBytesBE();
+
+    // Assert.
+    assertThat(got).containsExactly(expected);
+  }
+
+  @Property(seed = "867530900")
+  void property_shiftRight_matches_big_integer_mod_2_256(
+      @ForAll("bytes32_shaped") final byte[] a, @ForAll("shifts_extreme") final int shift) {
+    Assume.that(shift >= 0 && shift < 64);
+    // Arrange.
+    final BigInteger A = new BigInteger(1, a);
+    final byte[] expected = expectedShr(A, shift);
+
+    // Act.
+    final byte[] got = UInt256.fromBytesBE(a).shiftRight(shift).toBytesBE();
+
+    // Assert.
+    assertThat(got).containsExactly(expected);
+  }
+
+  @Property(seed = "314159265")
+  void property_div_matches_big_integer_unsigned(
+      @ForAll("bytes0to64_shaped") final byte[] a, @ForAll("bytes0to64_shaped") final byte[] d) {
+    // Arrange.
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ud = UInt256.fromBytesBE(d);
+    final BigInteger A = toBigUnsignedMod256(a);
+    final BigInteger D = toBigUnsignedMod256(d);
+    final byte[] expected = expectedDiv(A, D);
+
+    // Act.
+    final byte[] got = ua.div(ud).toBytesBE();
+
+    // Assert.
+    assertThat(got).containsExactly(expected);
+  }
+
+  @Property(seed = "271828182")
+  void property_signedDiv_matches_evm_semantics(
+      @ForAll("bytes0to64_shaped") final byte[] a, @ForAll("bytes0to64_shaped") final byte[] d) {
+    // Arrange.
+    final byte[] a32 = toBytes32Unsigned(a);
+    final byte[] d32 = toBytes32Unsigned(d);
+    final UInt256 ua = UInt256.fromBytesBE(a32);
+    final UInt256 ud = UInt256.fromBytesBE(d32);
+    final BigInteger A = new BigInteger(a32);
+    final BigInteger D = new BigInteger(d32);
+    final byte[] expected = expectedSignedDiv(A, D);
+
+    // Act.
+    final byte[] got = ua.signedDiv(ud).toBytesBE();
+
+    // Assert.
+    assertThat(got).containsExactly(expected);
+  }
+
+  @Property(seed = "34243534534")
+  void property_signedDiv_division_by_minus_one(@ForAll("bytes0to64_shaped") final byte[] a) {
+    // Arrange.
+    final byte[] a32 = toBytes32Unsigned(a);
+    final byte[] d32 = applyPattern(new byte[32], Pattern.ALL_FF);
+    final UInt256 ua = UInt256.fromBytesBE(a32);
+    final UInt256 ud = UInt256.fromBytesBE(d32);
+    final BigInteger A = new BigInteger(a32);
+    final BigInteger D = new BigInteger(d32);
+    final byte[] expected = expectedSignedDiv(A, D);
+
+    // Act.
+    final byte[] got = ua.signedDiv(ud).toBytesBE();
+
+    // Assert.
+    assertThat(got).containsExactly(expected);
+  }
+
+  @Property(seed = "123456789")
+  void property_mod_matches_big_integer_unsigned(
+      @ForAll("bytes0to64_shaped") final byte[] a, @ForAll("bytes0to64_shaped") final byte[] m) {
+    // Arrange.
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 um = UInt256.fromBytesBE(m);
+    final BigInteger A = toBigUnsignedMod256(a);
+    final BigInteger M = toBigUnsignedMod256(m);
+    final byte[] expected = expectedMod(A, M);
+
+    // Act.
+    final byte[] got = ua.mod(um).toBytesBE();
+
+    // Assert.
+    assertThat(got).containsExactly(expected);
+  }
+
+  @Property(seed = "987654321")
+  void property_signedMod_matches_evm_semantics(
+      @ForAll("bytes0to64_shaped") final byte[] a, @ForAll("bytes0to64_shaped") final byte[] m) {
+    // Arrange.
+    final byte[] a32 = toBytes32Unsigned(a);
+    final byte[] m32 = toBytes32Unsigned(m);
+    final UInt256 ua = UInt256.fromBytesBE(a32);
+    final UInt256 um = UInt256.fromBytesBE(m32);
+    final BigInteger A = new BigInteger(a32);
+    final BigInteger M = new BigInteger(m32);
+    final byte[] expected = expectedSignedMod(A, M);
+
+    // Act.
+    final byte[] got = ua.signedMod(um).toBytesBE();
+
+    // Assert.
+    assertThat(got).containsExactly(expected);
+  }
+
+  @Property(seed = "42424242")
+  void property_addMod_matches_big_integer_unsigned(
+      @ForAll("bytes0to64_shaped") final byte[] a,
+      @ForAll("bytes0to64_shaped") final byte[] b,
+      @ForAll("bytes0to64_shaped") final byte[] m) {
+    // Arrange.
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ub = UInt256.fromBytesBE(b);
+    final UInt256 um = UInt256.fromBytesBE(m);
+    final BigInteger A = toBigUnsignedMod256(a);
+    final BigInteger B = toBigUnsignedMod256(b);
+    final BigInteger M = toBigUnsignedMod256(m);
+    final byte[] expected = expectedAddMod(A, B, M);
+
+    // Act.
+    final byte[] got = ua.addMod(ub, um).toBytesBE();
+
+    // Assert.
+    assertThat(got).containsExactly(expected);
+  }
+
+  @Property(seed = "13371337")
+  void property_mulMod_matches_big_integer_unsigned(
+      @ForAll("bytes0to64_shaped") final byte[] a,
+      @ForAll("bytes0to64_shaped") final byte[] b,
+      @ForAll("bytes0to64_shaped") final byte[] m) {
+    // Arrange.
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ub = UInt256.fromBytesBE(b);
+    final UInt256 um = UInt256.fromBytesBE(m);
+    final BigInteger A = toBigUnsignedMod256(a);
+    final BigInteger B = toBigUnsignedMod256(b);
+    final BigInteger M = toBigUnsignedMod256(m);
+    final byte[] expected = expectedMulMod(A, B, M);
+
+    // Act.
+    final byte[] got = ua.mulMod(ub, um).toBytesBE();
+
+    // Assert.
+    assertThat(got).containsExactly(expected);
+  }
+
+  // --------------------------------------------------------------------------
+  // endregion
+
   // region Utility Methods
+  // --------------------------------------------------------------------------
 
   private static byte[] clampUnsigned32(final byte[] any) {
     if (any.length == 0) {
@@ -1308,7 +2006,7 @@ public class UInt256PropertyBasedTest {
 
     byte[] ba = y.toByteArray();
     if (ba.length == 0) {
-      return new byte[] {0};
+      return new byte[32];
     }
 
     if (ba.length == 32) {
@@ -1343,6 +2041,16 @@ public class UInt256PropertyBasedTest {
     return bigUnsignedToBytes32(r);
   }
 
+  private static byte[] computeSignedDivExpected(final BigInteger A, final BigInteger D) {
+    BigInteger q = A.abs().divide(D.abs());
+
+    if ((A.signum() < 0) != (D.signum() < 0) && q.signum() != 0) {
+      return padNegative(q);
+    }
+
+    return bigUnsignedToBytes32(q);
+  }
+
   private static byte[] padNegative(final BigInteger r) {
     BigInteger neg = r.negate();
     byte[] rb = neg.toByteArray();
@@ -1351,5 +2059,115 @@ public class UInt256PropertyBasedTest {
     System.arraycopy(rb, 0, padded, 32 - rb.length, rb.length);
     return padded;
   }
+
+  private static byte[] canonicalUnsigned256ToBytes32(final byte[] be) {
+    if (be.length == 0) {
+      return new byte[32];
+    }
+    final BigInteger x = new BigInteger(1, be).mod(TWO_256);
+    return bigUnsignedToBytes32(x);
+  }
+
+  private static byte[] toBytes32Unsigned(final byte[] be) {
+    if (be.length == 32) {
+      return Arrays.copyOf(be, 32);
+    }
+    if (be.length == 0) {
+      return new byte[32];
+    }
+    if (be.length < 32) {
+      final byte[] out = new byte[32];
+      System.arraycopy(be, 0, out, 32 - be.length, be.length);
+      return out;
+    }
+    return Arrays.copyOfRange(be, be.length - 32, be.length);
+  }
+
+  private static byte[] forceNonZeroHighBytes(final byte[] be) {
+    if (be.length <= 32) {
+      return be;
+    }
+    final int highLen = be.length - 32;
+    boolean anyNonZero = false;
+    for (int i = 0; i < highLen; i++) {
+      anyNonZero |= (be[i] != 0);
+    }
+    if (!anyNonZero) {
+      be[0] = 1;
+    }
+    return be;
+  }
+
+  private static BigInteger toBigUnsignedMod256(final byte[] be) {
+    if (be.length == 0) {
+      return BigInteger.ZERO;
+    }
+    return new BigInteger(1, be).mod(TWO_256);
+  }
+
+  private static byte[] expectedDiv(final BigInteger A, final BigInteger D) {
+    if (D.signum() == 0) {
+      return new byte[32];
+    }
+    return bigUnsignedToBytes32(A.divide(D));
+  }
+
+  private static byte[] expectedSignedDiv(final BigInteger A, final BigInteger D) {
+    if (D.signum() == 0) {
+      return new byte[32];
+    }
+    BigInteger q = A.abs().divide(D.abs());
+    if ((A.signum() < 0) != (D.signum() < 0) && q.signum() != 0) {
+      return padNegative(q);
+    }
+    return bigUnsignedToBytes32(q);
+  }
+
+  private static byte[] expectedMod(final BigInteger A, final BigInteger M) {
+    if (M.signum() == 0) {
+      return new byte[32];
+    }
+    return bigUnsignedToBytes32(A.mod(M));
+  }
+
+  private static byte[] expectedAddMod(final BigInteger A, final BigInteger B, final BigInteger M) {
+    if (M.signum() == 0) {
+      return new byte[32];
+    }
+    return bigUnsignedToBytes32(A.add(B).mod(M));
+  }
+
+  private static byte[] expectedMulMod(final BigInteger A, final BigInteger B, final BigInteger M) {
+    if (M.signum() == 0) {
+      return new byte[32];
+    }
+    return bigUnsignedToBytes32(A.multiply(B).mod(M));
+  }
+
+  private static byte[] expectedSignedMod(final BigInteger A, final BigInteger M) {
+    if (M.signum() == 0) {
+      return new byte[32];
+    }
+    BigInteger r = A.abs().mod(M.abs());
+    if (A.signum() < 0 && r.signum() != 0) {
+      return padNegative(r);
+    }
+    return bigUnsignedToBytes32(r);
+  }
+
+  private static byte[] expectedShl(final BigInteger A, final int shift) {
+    if (shift < 0 || shift >= 256) {
+      return new byte[32];
+    }
+    return bigUnsignedToBytes32(A.shiftLeft(shift));
+  }
+
+  private static byte[] expectedShr(final BigInteger A, final int shift) {
+    if (shift < 0 || shift >= 256) {
+      return new byte[32];
+    }
+    return bigUnsignedToBytes32(A.shiftRight(shift));
+  }
+
   // endregion
 }

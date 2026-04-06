@@ -18,26 +18,42 @@ import org.hyperledger.besu.plugin.services.TransactionPoolValidatorService;
 import org.hyperledger.besu.plugin.services.txvalidator.PluginTransactionPoolValidator;
 import org.hyperledger.besu.plugin.services.txvalidator.PluginTransactionPoolValidatorFactory;
 
+import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
+
+import com.google.common.base.Preconditions;
 
 /** The Transaction pool validator service implementation. */
 public class TransactionPoolValidatorServiceImpl implements TransactionPoolValidatorService {
 
-  private Optional<PluginTransactionPoolValidatorFactory> factory = Optional.empty();
+  private final List<PluginTransactionPoolValidatorFactory> factories =
+      new CopyOnWriteArrayList<>();
 
   /** Default Constructor. */
   public TransactionPoolValidatorServiceImpl() {}
 
   @Override
   public PluginTransactionPoolValidator createTransactionValidator() {
-    return factory
-        .map(PluginTransactionPoolValidatorFactory::createTransactionValidator)
-        .orElse(PluginTransactionPoolValidator.VALIDATE_ALL);
+    if (factories.isEmpty()) {
+      return PluginTransactionPoolValidator.VALIDATE_ALL;
+    }
+
+    return (transaction, isLocal, hasPriority) ->
+        factories.stream()
+            .map(PluginTransactionPoolValidatorFactory::createTransactionValidator)
+            .map(validator -> validator.validateTransaction(transaction, isLocal, hasPriority))
+            .filter(Optional::isPresent)
+            .findAny()
+            .orElse(Optional.empty());
   }
 
   @Override
   public void registerPluginTransactionValidatorFactory(
       final PluginTransactionPoolValidatorFactory pluginTransactionPoolValidatorFactory) {
-    factory = Optional.ofNullable(pluginTransactionPoolValidatorFactory);
+    Preconditions.checkNotNull(
+        pluginTransactionPoolValidatorFactory,
+        "PluginTransactionPoolValidatorFactory must not be null");
+    factories.add(pluginTransactionPoolValidatorFactory);
   }
 }

@@ -155,9 +155,13 @@ public class MetricsHttpService implements MetricsService {
   }
 
   private static class RestrictedDefaultHandler extends DefaultHandler {
+    RestrictedDefaultHandler() {
+      super("/metrics");
+    }
+
     @Override
     public void handle(final HttpExchange exchange) throws IOException {
-      if (!exchange.getRequestURI().getPath().equals("/")) {
+      if (!exchange.getRequestURI().getPath().equals(exchange.getHttpContext().getPath())) {
         try {
           exchange.sendResponseHeaders(HTTP_NOT_FOUND, -1);
         } finally {

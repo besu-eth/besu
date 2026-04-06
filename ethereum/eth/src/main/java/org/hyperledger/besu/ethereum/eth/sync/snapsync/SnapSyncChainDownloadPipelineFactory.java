@@ -14,9 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
-import static org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode.DETACHED_ONLY;
-import static org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode.LIGHT_DETACHED_ONLY;
-
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -24,24 +21,19 @@ import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceip
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.DownloadSyncBodiesStep;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
-import org.hyperledger.besu.ethereum.eth.sync.ValidationPolicy;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.BackwardBlockNumberSource;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.BlockHeaderSource;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.ChainSyncState;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.DownloadBackwardHeadersStep;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.DownloadSyncReceiptsStep;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncState;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.FastSyncValidationPolicy;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.ImportHeadersStep;
-import org.hyperledger.besu.ethereum.eth.sync.fastsync.ImportSyncBlocksStep;
+import org.hyperledger.besu.ethereum.eth.sync.common.BackwardBlockNumberSource;
+import org.hyperledger.besu.ethereum.eth.sync.common.BlockHeaderSource;
+import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
+import org.hyperledger.besu.ethereum.eth.sync.common.DownloadBackwardHeadersStep;
+import org.hyperledger.besu.ethereum.eth.sync.common.DownloadSyncReceiptsStep;
+import org.hyperledger.besu.ethereum.eth.sync.common.ImportHeadersStep;
+import org.hyperledger.besu.ethereum.eth.sync.common.ImportSyncBlocksStep;
+import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
-import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.rlp.SimpleNoCopyRlpEncoder;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
-import org.hyperledger.besu.plugin.services.metrics.Counter;
-import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.services.pipeline.Pipeline;
 import org.hyperledger.besu.services.pipeline.PipelineBuilder;
 
@@ -59,17 +51,15 @@ public class SnapSyncChainDownloadPipelineFactory {
   protected final ProtocolSchedule protocolSchedule;
   protected final ProtocolContext protocolContext;
   protected final EthContext ethContext;
-  protected final FastSyncState fastSyncState;
+  protected final PivotSyncState fastSyncState;
   protected final MetricsSystem metricsSystem;
-  protected final FastSyncValidationPolicy detachedValidationPolicy;
-  protected final ValidationPolicy downloadHeaderValidation;
 
   public SnapSyncChainDownloadPipelineFactory(
       final SynchronizerConfiguration syncConfig,
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final EthContext ethContext,
-      final FastSyncState fastSyncState,
+      final PivotSyncState fastSyncState,
       final MetricsSystem metricsSystem) {
     this.syncConfig = syncConfig;
     this.protocolSchedule = protocolSchedule;
@@ -77,24 +67,6 @@ public class SnapSyncChainDownloadPipelineFactory {
     this.ethContext = ethContext;
     this.fastSyncState = fastSyncState;
     this.metricsSystem = metricsSystem;
-    final LabelledMetric<Counter> fastSyncValidationCounter =
-        metricsSystem.createLabelledCounter(
-            BesuMetricCategory.SYNCHRONIZER,
-            "fast_sync_validation_mode",
-            "Number of blocks validated using light vs full validation during fast sync",
-            "validationMode");
-    detachedValidationPolicy =
-        new FastSyncValidationPolicy(
-            this.syncConfig.getFastSyncFullValidationRate(),
-            LIGHT_DETACHED_ONLY,
-            DETACHED_ONLY,
-            fastSyncValidationCounter);
-    final ValidationPolicy noneValidationPolicy = () -> HeaderValidationMode.NONE;
-    downloadHeaderValidation =
-        fastSyncState.isSourceTrusted() ? noneValidationPolicy : detachedValidationPolicy;
-    if (fastSyncState.isSourceTrusted()) {
-      LOG.trace("Pivot block is from trusted source, skipping header validation");
-    }
   }
 
   /**
@@ -117,11 +89,12 @@ public class SnapSyncChainDownloadPipelineFactory {
 
     final long pivotBlockNumber = chainState.pivotBlockHeader().getNumber();
     LOG.info(
-        "Creating backward header download pipeline from pivot={} down to lowest block={}, parallelism={}, batchSize={}",
+        "Creating backward header download pipeline from pivot={} down to lowest block={}, parallelism={}, batchSize={}, peers={}",
         pivotBlockNumber,
         anchorForHeaderDownload.getNumber(),
         downloaderParallelism,
-        headerRequestSize);
+        headerRequestSize,
+        ethContext.getEthPeers().peerCount());
 
     final BackwardBlockNumberSource headerSource =
         new BackwardBlockNumberSource(
@@ -133,7 +106,7 @@ public class SnapSyncChainDownloadPipelineFactory {
             ethContext,
             headerRequestSize,
             anchorForHeaderDownload.getNumber(),
-            java.time.Duration.ofMillis(syncConfig.getBackwardHeadersDownloadStepTimeoutMillis()));
+            Duration.ofMillis(syncConfig.getBackwardHeadersDownloadStepTimeoutMillis()));
 
     final ImportHeadersStep importHeadersStep =
         new ImportHeadersStep(
@@ -190,7 +163,10 @@ public class SnapSyncChainDownloadPipelineFactory {
         new BlockHeaderSource(blockchain, anchorBlock, pivotHeaderNumber, bodiesRequestSize);
 
     final DownloadSyncBodiesStep downloadBodiesStep =
-        new DownloadSyncBodiesStep(protocolSchedule, ethContext, metricsSystem, syncConfig);
+        new DownloadSyncBodiesStep(
+            protocolSchedule,
+            ethContext,
+            Duration.ofMillis(syncConfig.getBodiesDownloadStepTimeoutMillis()));
 
     final DownloadSyncReceiptsStep downloadReceiptsStep =
         new DownloadSyncReceiptsStep(

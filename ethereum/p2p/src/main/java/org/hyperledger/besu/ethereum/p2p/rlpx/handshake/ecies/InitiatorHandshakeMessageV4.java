@@ -25,16 +25,14 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 public final class InitiatorHandshakeMessageV4 implements InitiatorHandshakeMessage {
 
   public static final int VERSION = 4;
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
 
   private final SECPPublicKey pubKey;
   private final SECPSignature signature;
@@ -49,7 +47,7 @@ public final class InitiatorHandshakeMessageV4 implements InitiatorHandshakeMess
       final Bytes32 nonce) {
     return new InitiatorHandshakeMessageV4(
         ourPubKey,
-        SIGNATURE_ALGORITHM.get().sign(staticSharedSecret.xor(nonce), ephKeyPair),
+        SIGNATURE_ALGORITHM.sign(staticSharedSecret.xor(nonce), ephKeyPair),
         ephKeyPair.getPublicKey(),
         nonce);
   }
@@ -64,13 +62,12 @@ public final class InitiatorHandshakeMessageV4 implements InitiatorHandshakeMess
   public static InitiatorHandshakeMessageV4 decode(final Bytes bytes, final NodeKey nodeKey) {
     final RLPInput input = new BytesValueRLPInput(bytes, true);
     input.enterList();
-    final SECPSignature signature = SIGNATURE_ALGORITHM.get().decodeSignature(input.readBytes());
-    final SECPPublicKey pubKey = SIGNATURE_ALGORITHM.get().createPublicKey(input.readBytes());
+    final SECPSignature signature = SIGNATURE_ALGORITHM.decodeSignature(input.readBytes());
+    final SECPPublicKey pubKey = SIGNATURE_ALGORITHM.createPublicKey(input.readBytes());
     final Bytes32 nonce = input.readBytes32();
     final Bytes32 staticSharedSecret = nodeKey.calculateECDHKeyAgreement(pubKey);
     final SECPPublicKey ephPubKey =
         SIGNATURE_ALGORITHM
-            .get()
             .recoverPublicKeyFromSignature(staticSharedSecret.xor(nonce), signature)
             .orElseThrow(() -> new RuntimeException("Could not recover public key from signature"));
 

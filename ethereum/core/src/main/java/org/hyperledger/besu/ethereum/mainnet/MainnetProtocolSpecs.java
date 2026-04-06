@@ -77,7 +77,7 @@ import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBloc
 import org.hyperledger.besu.ethereum.mainnet.requests.MainnetRequestsValidator;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestContractAddresses;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactoryBal;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalStateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.mainnet.transactionpool.OsakaTransactionPoolPreProcessor;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.MainnetEVMs;
@@ -122,8 +122,6 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.IntStream;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.io.Resources;
 import io.vertx.core.json.JsonArray;
 import org.slf4j.Logger;
@@ -135,8 +133,8 @@ public abstract class MainnetProtocolSpecs {
   private static final Address RIPEMD160_PRECOMPILE =
       Address.fromHexString("0x0000000000000000000000000000000000000003");
 
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
 
   // A consensus bug at Ethereum mainnet transaction 0xcf416c53
   // deleted an empty account even when the message execution scope
@@ -956,7 +954,7 @@ public abstract class MainnetProtocolSpecs {
                         .codeDelegationProcessor(
                             new CodeDelegationProcessor(
                                 chainId,
-                                SIGNATURE_ALGORITHM.get().getHalfCurveOrder(),
+                                SIGNATURE_ALGORITHM.getHalfCurveOrder(),
                                 new CodeDelegationService()))
                         .build())
             // EIP-2935 Blockhash processor
@@ -1020,7 +1018,9 @@ public abstract class MainnetProtocolSpecs {
                     (BaseFeeMarket) feeMarket,
                     gasCalculator,
                     blobSchedule.getMax(),
-                    blobSchedule.getTarget()))
+                    blobSchedule.getTarget(),
+                    miningConfiguration.getMaxBlobsPerTransaction(),
+                    miningConfiguration.getMaxBlobsPerBlock()))
         .evmBuilder(
             (gasCalculator, __) ->
                 MainnetEVMs.osaka(gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
@@ -1218,17 +1218,34 @@ public abstract class MainnetProtocolSpecs {
                     .codeDelegationProcessor(
                         new CodeDelegationProcessor(
                             chainId,
-                            SIGNATURE_ALGORITHM.get().getHalfCurveOrder(),
+                            SIGNATURE_ALGORITHM.getHalfCurveOrder(),
                             new CodeDelegationService()))
                     .transferLogEmitter(EIP7708TransferLogEmitter.INSTANCE)
                     .build())
         .blockAccessListFactory(new BlockAccessListFactory())
         .blockAccessListValidatorBuilder(MainnetBlockAccessListValidator::create)
-        .stateRootCommitterFactory(new StateRootCommitterFactoryBal(balConfiguration))
-
-        // EIP-7778: Block gas accounting without refunds (prevents block gas limit circumvention)
-        .blockGasAccountingStrategy(BlockGasAccountingStrategy.EIP7778)
-        .blockGasUsedValidator(BlockGasUsedValidator.EIP7778)
+        .stateRootCommitterFactory(new BalStateRootCommitterFactory(balConfiguration))
+        // EIP-8037: Disable validation-time TX_MAX_GAS_LIMIT cap (enforced at runtime on regular
+        // gas)
+        .gasLimitCalculatorBuilder(
+            (feeMarket, gasCalculator, blobSchedule) -> {
+              final long londonForkBlock = genesisConfigOptions.getLondonBlockNumber().orElse(0L);
+              return new OsakaTargetingGasLimitCalculator(
+                  londonForkBlock,
+                  (BaseFeeMarket) feeMarket,
+                  gasCalculator,
+                  blobSchedule.getMax(),
+                  blobSchedule.getTarget(),
+                  miningConfiguration.getMaxBlobsPerTransaction(),
+                  miningConfiguration.getMaxBlobsPerBlock(),
+                  Long.MAX_VALUE);
+            })
+        // EIP-8037: Amsterdam gas calculator with state gas cost support
+        .gasCalculator(AmsterdamGasCalculator::new)
+        // Amsterdam (EIP-7778 + EIP-8037): Pre-refund 2D gas accounting
+        .blockGasAccountingStrategy(BlockGasAccountingStrategy.AMSTERDAM)
+        // Amsterdam: Validator uses pre-refund gas_metered = max(regular, state) from processing
+        .blockGasUsedValidator(BlockGasUsedValidator.AMSTERDAM)
         .hardforkId(AMSTERDAM);
   }
 

@@ -15,10 +15,12 @@
 package org.hyperledger.besu.ethereum.eth.manager.peertask;
 
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
 
 import java.time.Duration;
+import java.util.Set;
 import java.util.function.Predicate;
 
 /**
@@ -39,17 +41,18 @@ public interface PeerTask<T> {
    *
    * @return the request data to send to the EthPeer
    */
-  MessageData getRequestMessage();
+  MessageData getRequestMessage(final Set<Capability> agreedCapabilities);
 
   /**
    * Parses and processes the MessageData response from the EthPeer
    *
    * @param messageData the response MessageData to be parsed
+   * @param agreedCapabilities the set of capabilities agreed with the peer
    * @return a T built from the response MessageData
    * @throws InvalidPeerTaskResponseException if the response messageData is invalid
    * @throws MalformedRlpFromPeerException if the peer sent malformed RLP
    */
-  T processResponse(MessageData messageData)
+  T processResponse(MessageData messageData, final Set<Capability> agreedCapabilities)
       throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException;
 
   /**

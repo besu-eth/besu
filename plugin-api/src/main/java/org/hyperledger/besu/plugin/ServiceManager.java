@@ -16,9 +16,9 @@ package org.hyperledger.besu.plugin;
 
 import org.hyperledger.besu.plugin.services.BesuService;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Adds and accesses BesuServices for plugins to provide or use. */
 public interface ServiceManager {
@@ -57,7 +57,8 @@ public interface ServiceManager {
 
   /** A basic implementation of ServiceManager, suitable for tests. */
   class SimpleServiceManager implements ServiceManager {
-    private final Map<Class<? extends BesuService>, BesuService> services = new HashMap<>();
+    private final Map<Class<? extends BesuService>, BesuService> services =
+        new ConcurrentHashMap<>();
 
     /** default constructor. commented here to appease the linter. */
     public SimpleServiceManager() {}

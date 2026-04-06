@@ -22,7 +22,7 @@ This behaviour has been seen on AWS and Digital Ocean.
 Workaround -> On AWS, a full restart of the AWS VM is required to restart the fast sync. 
 
 Fast sync is not currently supported on Digital Ocean. We are investigating options to 
-[add support for fast sync on Digital Ocean](https://github.com/hyperledger/besu/issues/591). 
+[add support for fast sync on Digital Ocean](https://github.com/besu-eth/besu/issues/591). 
 
 ## Privacy users with private transactions created using v1.3.4 or earlier 
 

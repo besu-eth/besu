@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.eth.transactions;
 
 import static java.time.Instant.now;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.task.BufferedGetPooledTransactionsFromPeerFetcher;
@@ -40,21 +39,22 @@ public class NewPooledTransactionHashesMessageProcessor {
 
   static final String METRIC_LABEL = "new_pooled_transaction_hashes";
 
-  private final ConcurrentHashMap<EthPeer, BufferedGetPooledTransactionsFromPeerFetcher>
-      scheduledTasks;
+  private final ConcurrentHashMap<EthPeer, ScheduledFuture<?>> scheduledTasks;
 
   private final PeerTransactionTracker transactionTracker;
   private final TransactionPool transactionPool;
   private final TransactionPoolConfiguration transactionPoolConfiguration;
   private final EthContext ethContext;
   private final TransactionPoolMetrics metrics;
+  private final int maxTransactionsMessageSize;
 
   public NewPooledTransactionHashesMessageProcessor(
       final PeerTransactionTracker transactionTracker,
       final TransactionPool transactionPool,
       final TransactionPoolConfiguration transactionPoolConfiguration,
       final EthContext ethContext,
-      final TransactionPoolMetrics metrics) {
+      final TransactionPoolMetrics metrics,
+      final int maxTransactionsMessageSize) {
     this.transactionTracker = transactionTracker;
     this.transactionPool = transactionPool;
     this.transactionPoolConfiguration = transactionPoolConfiguration;
@@ -62,6 +62,7 @@ public class NewPooledTransactionHashesMessageProcessor {
     this.metrics = metrics;
     metrics.initExpiredMessagesCounter(METRIC_LABEL);
     this.scheduledTasks = new ConcurrentHashMap<>();
+    this.maxTransactionsMessageSize = maxTransactionsMessageSize;
   }
 
   void processNewPooledTransactionHashesMessage(
@@ -72,16 +73,16 @@ public class NewPooledTransactionHashesMessageProcessor {
     // Check if message is not expired.
     final var latency = Duration.between(queueAt, now());
     if (latency.compareTo(keepAlive) < 0) {
-      this.processNewPooledTransactionHashesMessage(peer, transactionsMessage);
+      processNewPooledTransactionHashesMessage(peer, transactionsMessage);
     } else {
       LOG.atTrace()
           .setMessage(
-              "Ignoring expired transactions message: peer={}, latency={}, queuedAt={}, keepAlive={}, hashes={}")
+              "Ignoring expired transactions message: peer={}, latency={}, queuedAt={}, keepAlive={}, announcements={}")
           .addArgument(peer)
           .addArgument(latency)
           .addArgument(queueAt)
           .addArgument(keepAlive)
-          .addArgument(transactionsMessage::pendingTransactionHashes)
+          .addArgument(transactionsMessage::pendingTransactionAnnouncements)
           .log();
       metrics.incrementExpiredMessages(METRIC_LABEL);
     }
@@ -90,44 +91,42 @@ public class NewPooledTransactionHashesMessageProcessor {
   private void processNewPooledTransactionHashesMessage(
       final EthPeer peer, final NewPooledTransactionHashesMessage transactionsMessage) {
     try {
-      final List<Hash> incomingTransactionHashes = transactionsMessage.pendingTransactionHashes();
+      final List<TransactionAnnouncement> incomingAnnouncements =
+          transactionsMessage.pendingTransactionAnnouncements();
+      final var freshAnnouncements =
+          transactionTracker.receivedAnnouncements(peer, incomingAnnouncements);
+
+      metrics.incrementAlreadySeenTransactions(
+          METRIC_LABEL, incomingAnnouncements.size() - freshAnnouncements.size());
 
       LOG.atTrace()
-          .setMessage("Received pooled transaction hashes message: peer={}, incoming hashes={}")
+          .setMessage(
+              "Received pooled transaction hashes message: peer={}, incoming hashes={}, fresh hashes={}")
           .addArgument(peer)
-          .addArgument(incomingTransactionHashes)
+          .addArgument(incomingAnnouncements)
+          .addArgument(freshAnnouncements)
           .log();
 
-      final BufferedGetPooledTransactionsFromPeerFetcher bufferedTask =
-          scheduledTasks.computeIfAbsent(
-              peer,
-              ethPeer -> {
-                final ScheduledFuture<?> scheduledFuture =
-                    ethContext
-                        .getScheduler()
-                        .scheduleFutureTaskWithFixedDelay(
-                            new FetcherCreatorTask(peer),
-                            transactionPoolConfiguration
-                                .getUnstable()
-                                .getEth65TrxAnnouncedBufferingPeriod(),
-                            transactionPoolConfiguration
-                                .getUnstable()
-                                .getEth65TrxAnnouncedBufferingPeriod());
-
-                return new BufferedGetPooledTransactionsFromPeerFetcher(
-                    ethContext,
-                    scheduledFuture,
-                    peer,
-                    transactionPool,
-                    transactionTracker,
-                    metrics,
-                    METRIC_LABEL);
-              });
-
-      bufferedTask.addHashes(
-          incomingTransactionHashes.stream()
-              .filter(hash -> transactionPool.getTransactionByHash(hash).isEmpty())
-              .toList());
+      scheduledTasks.computeIfAbsent(
+          peer,
+          ethPeer ->
+              ethContext
+                  .getScheduler()
+                  .scheduleFutureTaskWithFixedDelay(
+                      new FetcherCreatorTask(
+                          peer,
+                          new BufferedGetPooledTransactionsFromPeerFetcher(
+                              ethContext,
+                              peer,
+                              transactionPool,
+                              transactionTracker,
+                              maxTransactionsMessageSize)),
+                      transactionPoolConfiguration
+                          .getUnstable()
+                          .getEth65TrxAnnouncedBufferingPeriod(),
+                      transactionPoolConfiguration
+                          .getUnstable()
+                          .getEth65TrxAnnouncedBufferingPeriod()));
     } catch (final RLPException ex) {
       if (peer != null) {
         LOG.debug(
@@ -140,20 +139,23 @@ public class NewPooledTransactionHashesMessageProcessor {
     }
   }
 
-  public class FetcherCreatorTask implements Runnable {
+  class FetcherCreatorTask implements Runnable {
     final EthPeer peer;
+    final BufferedGetPooledTransactionsFromPeerFetcher fetcher;
 
-    public FetcherCreatorTask(final EthPeer peer) {
+    public FetcherCreatorTask(
+        final EthPeer peer, final BufferedGetPooledTransactionsFromPeerFetcher fetcher) {
       this.peer = peer;
+      this.fetcher = fetcher;
     }
 
     @Override
     public void run() {
       if (peer != null) {
         if (peer.isDisconnected()) {
-          scheduledTasks.remove(peer).getScheduledFuture().cancel(true);
+          scheduledTasks.remove(peer).cancel(true);
         } else if (peer.hasAvailableRequestCapacity()) {
-          scheduledTasks.get(peer).requestTransactions();
+          ethContext.getScheduler().scheduleServiceTask(fetcher::requestTransactions);
         }
       }
     }

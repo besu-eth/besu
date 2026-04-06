@@ -335,12 +335,12 @@ public class QbftBesuControllerBuilder extends BesuControllerBuilder {
             o -> {
               miningConfiguration.setBlockPeriodSeconds(
                   qbftForksSchedule
-                      .getFork(o.getHeader().getNumber() + 1)
+                      .getFork(o.getHeader().getNumber() + 1, o.getHeader().getTimestamp())
                       .getValue()
                       .getBlockPeriodSeconds());
               miningConfiguration.setEmptyBlockPeriodSeconds(
                   qbftForksSchedule
-                      .getFork(o.getHeader().getNumber() + 1)
+                      .getFork(o.getHeader().getNumber() + 1, o.getHeader().getTimestamp())
                       .getValue()
                       .getEmptyBlockPeriodSeconds());
             });

@@ -164,6 +164,70 @@ public class OpenTelemetryMetricsSystemTest {
   }
 
   @Test
+  public void shouldNotAccumulateCallbacksForTimer() {
+    final LabelledMetric<OperationTimer> timer =
+        metricsSystem.createLabelledTimer(RPC, "request", "Some help", "method");
+
+    // Stop the timer many times — before the fix each stop() registered a new OTel callback.
+    for (int i = 0; i < 10; i++) {
+      try (final OperationTimer.TimingContext ignored = timer.labels("eth_getBlock").startTimer()) {
+        // intentionally empty
+      }
+    }
+
+    List<Observation> observations =
+        metricsSystem
+            .streamObservations()
+            .filter(o -> o.metricName().equals("request"))
+            .collect(Collectors.toList());
+
+    // Despite 10 stops there must be exactly one observation per label set, not 10.
+    assertThat(observations).hasSize(1);
+    assertThat(observations.get(0).labels()).containsExactly("eth_getBlock");
+    assertThat((Double) observations.get(0).value()).isPositive();
+  }
+
+  @Test
+  public void shouldHandleDuplicateGaugeCreation() {
+    metricsSystem.createGauge(RPC, "myGauge", "help", () -> 42.0);
+    // Second call with the same name must not register a second OTel callback.
+    metricsSystem.createGauge(RPC, "myGauge", "help", () -> 42.0);
+
+    List<Observation> observations =
+        metricsSystem.streamObservations().collect(Collectors.toList());
+    assertThat(observations).hasSize(1);
+    assertThat(observations).containsExactly(new Observation(RPC, "myGauge", 42.0, emptyList()));
+  }
+
+  @Test
+  public void shouldHandleDuplicateSuppliedGaugeCreation() {
+    final LabelledSuppliedMetric gauge1 =
+        metricsSystem.createLabelledSuppliedGauge(RPC, "gaugeName", "help", "label");
+    final LabelledSuppliedMetric gauge2 =
+        metricsSystem.createLabelledSuppliedGauge(RPC, "gaugeName", "help", "label");
+
+    // Both calls must return the exact same cached instance.
+    assertThat(gauge1).isSameAs(gauge2);
+
+    gauge1.labels(() -> 7.0, "value1");
+
+    // Exactly one observation, not two.
+    assertThat(metricsSystem.streamObservations())
+        .containsExactly(new Observation(RPC, "gaugeName", 7.0, singletonList("value1")));
+  }
+
+  @Test
+  public void shouldHandleDuplicateSuppliedCounterCreation() {
+    final LabelledSuppliedMetric counter1 =
+        metricsSystem.createLabelledSuppliedCounter(RPC, "myCounter", "help");
+    final LabelledSuppliedMetric counter2 =
+        metricsSystem.createLabelledSuppliedCounter(RPC, "myCounter", "help");
+
+    // Both calls must return the exact same cached instance — only one OTel callback registered.
+    assertThat(counter1).isSameAs(counter2);
+  }
+
+  @Test
   public void shouldCreateObservationsFromTimerWithLabels() {
     final LabelledMetric<OperationTimer> timer =
         metricsSystem.createLabelledTimer(RPC, "request", "Some help", "methodName");

@@ -20,11 +20,11 @@ import org.hyperledger.besu.datatypes.Wei;
 
 import java.util.List;
 import java.util.Optional;
-import javax.annotation.Nullable;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.immutables.value.Value;
+import org.jspecify.annotations.Nullable;
 
 @Value.Immutable
 public interface FeeHistory {

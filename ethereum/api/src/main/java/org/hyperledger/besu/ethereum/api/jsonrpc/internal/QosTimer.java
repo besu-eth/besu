@@ -25,6 +25,7 @@ public class QosTimer {
   private final Vertx timerVertx;
   private final AtomicLong timerId = new AtomicLong(Long.MAX_VALUE);
   private final AtomicLong lastReset = new AtomicLong(System.currentTimeMillis());
+  private volatile boolean stopped = false;
 
   private final long periodMillis;
   private final Consumer<Long> consumerTask;
@@ -38,17 +39,30 @@ public class QosTimer {
   }
 
   public void resetTimer() {
+    if (stopped) {
+      return;
+    }
     lastReset.set(System.currentTimeMillis());
     resetTimerHandler(timerHandler());
   }
 
+  public void stop() {
+    stopped = true;
+    timerVertx.cancelTimer(timerId.get());
+  }
+
   void resetTimerHandler(final Handler<Long> timerHandler) {
     timerVertx.cancelTimer(timerId.get());
-    timerId.set(timerVertx.setTimer(periodMillis, timerHandler));
+    if (!stopped) {
+      timerId.set(timerVertx.setTimer(periodMillis, timerHandler));
+    }
   }
 
   Handler<Long> timerHandler() {
     return z -> {
+      if (stopped) {
+        return;
+      }
       var lastCall = getLastCallMillis();
       var now = System.currentTimeMillis();
       if (lastCall + periodMillis < now) {

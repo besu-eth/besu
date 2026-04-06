@@ -1,0 +1,30 @@
+{
+  "description": "Error case: parentBlockHash refers to a block that does not exist in the chain. Expects INVALID_PARAMS with 'Parent block not found' message.",
+  "request": {
+    "id": 1,
+    "jsonrpc": "2.0",
+    "method": "testing_buildBlockV1",
+    "params": [
+      "0x3b8fb240d288781d4f1e1d32f4c15500beefdeadbeefdeadbeefdeadbeefdead",
+      {
+        "timestamp": "0x6705D918",
+        "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "suggestedFeeRecipient": "0x0000000000000000000000000000000000000000",
+        "withdrawals": [],
+        "parentBeaconBlockRoot": "0xcf8e0d4e9587369b2301d0790347320302cc0943d5a1884365149a42212e8822"
+      },
+      [],
+      "0x"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "error": {
+      "code": -32602,
+      "message": "Invalid params",
+      "data": "Parent block not found: 0x3b8fb240d288781d4f1e1d32f4c15500beefdeadbeefdeadbeefdeadbeefdead"
+    }
+  },
+  "statusCode": 200
+}

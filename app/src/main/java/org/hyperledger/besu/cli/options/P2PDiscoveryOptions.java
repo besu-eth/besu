@@ -16,7 +16,7 @@ package org.hyperledger.besu.cli.options;
 
 import org.hyperledger.besu.cli.DefaultCommandValues;
 import org.hyperledger.besu.cli.converter.PercentageConverter;
-import org.hyperledger.besu.cli.converter.SubnetInfoConverter;
+import org.hyperledger.besu.cli.converter.SubnetCidrConverter;
 import org.hyperledger.besu.cli.util.CommandLineUtils;
 import org.hyperledger.besu.ethereum.p2p.discovery.P2PDiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
@@ -34,7 +34,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 import com.google.common.net.InetAddresses;
-import org.apache.commons.net.util.SubnetUtils;
+import inet.ipaddr.IPAddress;
 import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -88,9 +88,10 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
   // NOTE: we have no control over default value here.
   @CommandLine.Option(
       names = {"--bootnodes"},
-      paramLabel = "<enode://id@host:port>",
+      paramLabel = "<enode://id@host:port>|<enr:base64Enr>",
       description =
-          "Comma separated enode URLs for P2P discovery bootstrap. "
+          "Comma separated enode or ENR URLs for P2P discovery bootstrap. "
+              + "Must be either all enode URLs (discovery V4) or all ENR URLs (discovery V5). "
               + "Default is a predefined list.",
       split = ",",
       arity = "0..*")
@@ -256,10 +257,10 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
       names = {"--net-restrict"},
       arity = "1..*",
       split = ",",
-      converter = SubnetInfoConverter.class,
+      converter = SubnetCidrConverter.class,
       description =
           "Comma-separated list of allowed IP subnets (e.g., '192.168.1.0/24,10.0.0.0/8').")
-  private List<SubnetUtils.SubnetInfo> allowedSubnets;
+  private List<IPAddress> allowedSubnets;
 
   @Override
   public P2PDiscoveryConfiguration toDomainObject() {

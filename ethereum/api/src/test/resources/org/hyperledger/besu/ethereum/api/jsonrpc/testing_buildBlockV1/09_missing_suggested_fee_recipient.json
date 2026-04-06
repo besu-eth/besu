@@ -1,0 +1,29 @@
+{
+  "description": "Error case: suggestedFeeRecipient field is absent from payloadAttributes. Expects INVALID_PARAMS with 'Missing suggestedFeeRecipient field'.",
+  "request": {
+    "id": 10,
+    "jsonrpc": "2.0",
+    "method": "testing_buildBlockV1",
+    "params": [
+      "0x937c8f382f4945fc6122652239426484d97b400d66c122aea45f2dd4a8afeab6",
+      {
+        "timestamp": "0x1",
+        "prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "withdrawals": [],
+        "parentBeaconBlockRoot": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      [],
+      "0x"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 10,
+    "error": {
+      "code": -32602,
+      "message": "Invalid params",
+      "data": "Missing suggestedFeeRecipient field"
+    }
+  },
+  "statusCode": 200
+}

@@ -50,17 +50,15 @@ import java.util.Optional;
 import java.util.Random;
 import java.util.stream.IntStream;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 
 public class BaseTransactionPoolTest extends TrustedSetupClassLoaderExtension {
 
-  protected static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
-  protected static final KeyPair KEYS1 = SIGNATURE_ALGORITHM.get().generateKeyPair();
-  protected static final KeyPair KEYS2 = SIGNATURE_ALGORITHM.get().generateKeyPair();
+  protected static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
+  protected static final KeyPair KEYS1 = SIGNATURE_ALGORITHM.generateKeyPair();
+  protected static final KeyPair KEYS2 = SIGNATURE_ALGORITHM.generateKeyPair();
   protected static final Address SENDER1 = Util.publicKeyToAddress(KEYS1.getPublicKey());
   protected static final Address SENDER2 = Util.publicKeyToAddress(KEYS2.getPublicKey());
   protected static final CodeDelegation CODE_DELEGATION_SENDER_1 =

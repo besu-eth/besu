@@ -217,7 +217,7 @@ public class OpenTelemetryAcceptanceTest extends AcceptanceTestBase {
           final Call.Factory client =
               OkHttpTelemetry.builder(openTelemetry)
                   .build()
-                  .newCallFactory(
+                  .createCallFactory(
                       new OkHttpClient.Builder()
                           .connectTimeout(timeout)
                           .readTimeout(timeout)

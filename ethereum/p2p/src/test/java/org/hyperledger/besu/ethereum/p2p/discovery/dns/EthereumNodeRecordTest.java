@@ -37,7 +37,7 @@ class EthereumNodeRecordTest {
       final int expectedUdpPort) {
     final EthereumNodeRecord record = EthereumNodeRecord.fromEnr(enr);
     assertThat(record.publicKey()).isEqualTo(expectedPublicKey);
-    assertThat(record.ip()).isEqualTo(expectedIp);
+    assertThat(record.ip().get()).isEqualTo(expectedIp);
     assertThat(record.tcp()).isEqualTo(Optional.of(expectedTcpPort));
     assertThat(record.udp()).isEqualTo(Optional.of(expectedUdpPort));
   }

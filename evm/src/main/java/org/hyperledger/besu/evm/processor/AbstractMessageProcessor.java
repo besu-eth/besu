@@ -135,12 +135,41 @@ public abstract class AbstractMessageProcessor {
   }
 
   /**
+   * EIP-8037: Handles state gas spill on revert/halt. When state changes are rolled back, the state
+   * gas that was consumed is restored. Any "spill" (state gas that had overflowed from the
+   * reservoir into gasRemaining) is routed back: for child frames it returns to the reservoir for
+   * parent re-use; for the initial frame it is tracked in stateGasSpillBurned for transaction-level
+   * gas accounting.
+   *
+   * @param frame The message frame
+   */
+  private void handleStateGasSpill(final MessageFrame frame) {
+    final long stateGasUsedBefore = frame.getStateGasUsed();
+    final long reservoirBefore = frame.getStateGasReservoir();
+
+    clearAccumulatedStateBesidesGasAndOutput(frame);
+
+    final long stateGasRestored = stateGasUsedBefore - frame.getStateGasUsed();
+    final long reservoirRestored = frame.getStateGasReservoir() - reservoirBefore;
+    final long spill = Math.max(0L, stateGasRestored - reservoirRestored);
+    if (spill > 0) {
+      if (frame.getMessageFrameStack().size() > 1) {
+        // Child frame: return spill to reservoir for parent to re-use
+        frame.incrementStateGasReservoir(spill);
+      } else {
+        // Initial frame: track spill for transaction-level gas accounting
+        frame.accumulateStateGasSpillBurned(spill);
+      }
+    }
+  }
+
+  /**
    * Gets called when the message frame encounters an exceptional halt.
    *
    * @param frame The message frame
    */
   private void exceptionalHalt(final MessageFrame frame) {
-    clearAccumulatedStateBesidesGasAndOutput(frame);
+    handleStateGasSpill(frame);
     frame.clearGasRemaining();
     frame.clearOutputData();
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
@@ -152,7 +181,7 @@ public abstract class AbstractMessageProcessor {
    * @param frame The message frame
    */
   protected void revert(final MessageFrame frame) {
-    clearAccumulatedStateBesidesGasAndOutput(frame);
+    handleStateGasSpill(frame);
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
   }
 
@@ -207,7 +236,8 @@ public abstract class AbstractMessageProcessor {
       }
     }
 
-    if (frame.getState() == MessageFrame.State.CODE_EXECUTING) {
+    final boolean wasCodeExecuting = (frame.getState() == MessageFrame.State.CODE_EXECUTING);
+    if (wasCodeExecuting) {
       codeExecute(frame, operationTracer);
 
       if (frame.getState() == MessageFrame.State.CODE_SUSPENDED) {

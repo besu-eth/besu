@@ -36,9 +36,7 @@ import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 
 import java.math.BigInteger;
 import java.util.List;
-import java.util.function.Supplier;
 
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.bytes.Bytes48;
@@ -46,17 +44,15 @@ import org.junit.jupiter.api.Test;
 
 public class TransactionSizeAndHashTest {
 
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
 
   // Fake signature for transactions to not fail being processed.
   private static final SECPSignature FAKE_SIGNATURE =
-      SIGNATURE_ALGORITHM
-          .get()
-          .createSignature(
-              SIGNATURE_ALGORITHM.get().getHalfCurveOrder(),
-              SIGNATURE_ALGORITHM.get().getHalfCurveOrder(),
-              (byte) 0);
+      SIGNATURE_ALGORITHM.createSignature(
+          SIGNATURE_ALGORITHM.getHalfCurveOrder(),
+          SIGNATURE_ALGORITHM.getHalfCurveOrder(),
+          (byte) 0);
 
   @Test
   public void returnsRightSizeForFrontierTx() {

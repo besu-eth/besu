@@ -21,6 +21,8 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
+import org.ethereum.beacon.discovery.schema.NodeRecord;
+
 /** Service interface for peer discovery in a P2P network. */
 public interface PeerDiscoveryAgent {
 
@@ -92,4 +94,13 @@ public interface PeerDiscoveryAgent {
    * @return An Optional containing the peer if found, or empty if not found.
    */
   Optional<Peer> getPeer(PeerId peerId);
+
+  /**
+   * Returns the local node record (ENR), if available.
+   *
+   * @return an Optional containing the local NodeRecord, or empty if not available.
+   */
+  default Optional<NodeRecord> getLocalNodeRecord() {
+    return Optional.empty();
+  }
 }

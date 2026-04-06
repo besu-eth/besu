@@ -48,7 +48,6 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
-import org.hyperledger.besu.evm.tracing.TracerAggregator;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.math.BigInteger;
@@ -156,7 +155,7 @@ public class TransactionSimulator {
 
       // in order to trace the state diff we need to make sure that
       // the world updater always has a parent
-      if (TracerAggregator.hasTracer(operationTracer, DebugOperationTracer.class)) {
+      if (operationTracer instanceof DebugOperationTracer) {
         updater = updater.parentUpdater().isPresent() ? updater : updater.updater();
       }
 
@@ -181,7 +180,7 @@ public class TransactionSimulator {
         currentProtocolSpec
             .getSlotDuration()
             .plusSeconds(chainHeadHeader.getTimestamp())
-            .getSeconds();
+            .toSeconds();
 
     final ProtocolSpec protocolSpec =
         protocolSchedule.getForNextBlockHeader(chainHeadHeader, timestamp);
@@ -293,7 +292,7 @@ public class TransactionSimulator {
       }
       // in order to trace the state diff we need to make sure that
       // the world updater always has a parent
-      if (TracerAggregator.hasTracer(operationTracer, DebugOperationTracer.class)) {
+      if (operationTracer instanceof DebugOperationTracer) {
         updater = updater.parentUpdater().isPresent() ? updater : updater.updater();
       }
 
@@ -370,7 +369,8 @@ public class TransactionSimulator {
 
     BiFunction<ProtocolSpec, Optional<BlockHeader>, Wei> blobGasPricePerGasSupplier =
         (protocolSpec, maybeParentHeader) -> {
-          if (transactionValidationParams.isAllowExceedingBalance()) {
+          if (transactionValidationParams.isAllowExceedingBalance()
+              && !transactionValidationParams.isPreserveCallerGasPricing()) {
             return Wei.ZERO;
           }
           return protocolSpec
@@ -423,6 +423,7 @@ public class TransactionSimulator {
 
     final ProcessableBlockHeader blockHeaderToProcess;
     if (transactionValidationParams.isAllowExceedingBalance()
+        && !transactionValidationParams.isPreserveCallerGasPricing()
         && processableHeader.getBaseFee().isPresent()) {
       blockHeaderToProcess =
           new BlockHeaderBuilder()
@@ -588,7 +589,15 @@ public class TransactionSimulator {
     final Wei maxFeePerGas;
     final Wei maxPriorityFeePerGas;
     final Wei maxFeePerBlobGas;
-    if (transactionValidationParams.isAllowExceedingBalance()) {
+    if (transactionValidationParams.isPreserveCallerGasPricing()) {
+      // eth_simulateV1: use caller-provided gas pricing so fees are charged from sender's balance,
+      // producing the correct stateRoot and block hash.
+      gasPrice = callParams.getGasPrice().orElse(Wei.ZERO);
+      maxFeePerGas = callParams.getMaxFeePerGas().orElse(Wei.ZERO);
+      maxPriorityFeePerGas = callParams.getMaxPriorityFeePerGas().orElse(Wei.ZERO);
+      maxFeePerBlobGas = callParams.getMaxFeePerBlobGas().orElse(Wei.ZERO);
+    } else if (transactionValidationParams.isAllowExceedingBalance()) {
+      // eth_call: zero gas prices so callers don't need sufficient balance for gas.
       gasPrice = Wei.ZERO;
       maxFeePerGas = Wei.ZERO;
       maxPriorityFeePerGas = Wei.ZERO;

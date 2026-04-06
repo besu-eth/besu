@@ -46,6 +46,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolCo
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionAddedListener;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactionDroppedListener;
+import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.ethereum.eth.transactions.RemovalReason;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
@@ -246,7 +247,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
               i,
               DEFAULT_BASE_FEE.add(i),
               (int) smallPoolConfig.getPendingTransactionsLayerMaxCapacityBytes() + 1,
-              SIGNATURE_ALGORITHM.get().generateKeyPair());
+              SIGNATURE_ALGORITHM.generateKeyPair());
       smallPendingTransactions.addTransaction(
           createRemotePendingTransaction(tx), Optional.of(sender));
       firstTxs.add(tx);
@@ -260,7 +261,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
             0,
             DEFAULT_MIN_GAS_PRICE.multiply(1000),
             (int) smallPoolConfig.getPendingTransactionsLayerMaxCapacityBytes(),
-            SIGNATURE_ALGORITHM.get().generateKeyPair());
+            SIGNATURE_ALGORITHM.generateKeyPair());
     final Account lastSender = mock(Account.class);
     when(lastSender.getNonce()).thenReturn(0L);
     smallPendingTransactions.addTransaction(
@@ -294,8 +295,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
       final Account sender = mock(Account.class);
       when(sender.getNonce()).thenReturn((long) i);
       final var tx =
-          createTransaction(
-              i, DEFAULT_BASE_FEE.add(i), SIGNATURE_ALGORITHM.get().generateKeyPair());
+          createTransaction(i, DEFAULT_BASE_FEE.add(i), SIGNATURE_ALGORITHM.generateKeyPair());
       pendingTransactions.addTransaction(createRemotePendingTransaction(tx), Optional.of(sender));
       txs.add(tx);
       assertTransactionPending(pendingTransactions, tx);
@@ -820,6 +820,78 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     assertThat(pendingTransactions.getNextNonceForSender(addedTxs[0].transaction.getSender()))
         .isPresent()
         .hasValue(1);
+  }
+
+  @Test
+  public void shouldReturnZeroStatusWhenPoolIsEmpty() {
+    final PendingTransactions.Status status = pendingTransactions.getStatus();
+    assertThat(status.pendingCount()).isZero();
+    assertThat(status.queuedCount()).isZero();
+  }
+
+  @Test
+  public void shouldCountAllTransactionsAsPendingWhenNoncesAreSequential() {
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(0, KEYS1)), Optional.empty());
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(1, KEYS1)), Optional.empty());
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(2, KEYS1)), Optional.empty());
+
+    final PendingTransactions.Status status = pendingTransactions.getStatus();
+    assertThat(status.pendingCount()).isEqualTo(3);
+    assertThat(status.queuedCount()).isZero();
+  }
+
+  @Test
+  public void shouldCountTransactionsBeyondNonceGapAsQueued() {
+    // nonce 0 lands in prioritized/ready (pending), nonce 2 lands in sparse with gap=1 (queued)
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(0, KEYS1)), Optional.empty());
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(2, KEYS1)), Optional.empty());
+
+    final PendingTransactions.Status status = pendingTransactions.getStatus();
+    assertThat(status.pendingCount()).isEqualTo(1);
+    assertThat(status.queuedCount()).isEqualTo(1);
+  }
+
+  @Test
+  public void shouldAggregatePendingAndQueuedAcrossMultipleSenders() {
+    // SENDER1: nonces 0, 1 — sequential, all pending
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(0, KEYS1)), Optional.empty());
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(1, KEYS1)), Optional.empty());
+    // SENDER2: nonces 0, 2 — gap at 1: 1 pending, 1 queued
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(0, KEYS2)), Optional.empty());
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(2, KEYS2)), Optional.empty());
+
+    final PendingTransactions.Status status = pendingTransactions.getStatus();
+    assertThat(status.pendingCount()).isEqualTo(3);
+    assertThat(status.queuedCount()).isEqualTo(1);
+  }
+
+  @Test
+  public void shouldMoveTxFromQueuedToPendingWhenGapIsFilled() {
+    // start with a gap: nonce 0 pending, nonce 2 queued
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(0, KEYS1)), Optional.empty());
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(2, KEYS1)), Optional.empty());
+
+    assertThat(pendingTransactions.getStatus().pendingCount()).isEqualTo(1);
+    assertThat(pendingTransactions.getStatus().queuedCount()).isEqualTo(1);
+
+    // fill the gap: nonce 1 arrives, nonce 2 is promoted from sparse to ready/prioritized
+    pendingTransactions.addTransaction(
+        createRemotePendingTransaction(createTransaction(1, KEYS1)), Optional.empty());
+
+    final PendingTransactions.Status status = pendingTransactions.getStatus();
+    assertThat(status.pendingCount()).isEqualTo(3);
+    assertThat(status.queuedCount()).isZero();
   }
 
   private TransactionAndAccount[] populateCache(final int numTxs, final long startingNonce) {

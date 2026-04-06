@@ -22,6 +22,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StateOverride;
 import org.hyperledger.besu.datatypes.StateOverrideMap;
 import org.hyperledger.besu.datatypes.Wei;
@@ -53,6 +54,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -483,6 +485,24 @@ public class EthEstimateGasTest {
         new JsonRpcSuccessResponse(null, Quantity.create(MIN_TX_GAS_COST));
 
     assertThat(method.response(request)).usingRecursiveComparison().isEqualTo(expectedResponse);
+  }
+
+  @Test
+  public void shouldUseBlockHashNotParentHashForBalanceLookup() {
+    // Set up distinct hashes so we can verify the correct one is used
+    final Hash latestBlockHash = Hash.wrap(Bytes32.fromHexString("0x" + "aa".repeat(32)));
+    final Hash latestParentHash = Hash.wrap(Bytes32.fromHexString("0x" + "bb".repeat(32)));
+    when(latestBlockHeader.getHash()).thenReturn(latestBlockHash);
+    when(latestBlockHeader.getParentHash()).thenReturn(latestParentHash);
+
+    final JsonRpcRequestContext request =
+        ethEstimateGasRequest(eip1559TransactionCallParameter(), "latest");
+    mockTransientProcessorResultGasEstimate(MIN_TX_GAS_COST, true, false, latestBlockHeader);
+
+    method.response(request);
+
+    // Balance must be looked up at the block's own hash, not its parent
+    verify(blockchainQueries).accountBalance(Address.fromHexString("0x0"), latestBlockHash);
   }
 
   @Test

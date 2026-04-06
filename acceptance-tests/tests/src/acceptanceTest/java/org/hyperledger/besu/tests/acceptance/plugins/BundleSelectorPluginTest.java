@@ -76,7 +76,8 @@ public class BundleSelectorPluginTest extends AcceptanceTestBase {
                 "--plugin-bundle-test-enabled=true",
                 "--plugin-bundle-size=2",
                 "--plugin-bundle-failing-nonce=1",
-                "--plugin-block-txs-selection-max-time=75"));
+                "--plugin-block-txs-selection-max-time=75",
+                "--poa-block-txs-selection-max-time=95"));
     cluster.start(node);
 
     // since the last tx of the bundle fails, the first was initially selected, but eventually not
@@ -95,7 +96,8 @@ public class BundleSelectorPluginTest extends AcceptanceTestBase {
                 "--plugin-bundle-test-enabled=true",
                 "--plugin-bundle-size=3",
                 "--plugin-bundle-failing-nonce=1",
-                "--plugin-block-txs-selection-max-time=75"));
+                "--plugin-block-txs-selection-max-time=75",
+                "--poa-block-txs-selection-max-time=95"));
     cluster.start(node);
 
     // since the last tx of the bundle fails, the first was initially selected, but eventually not

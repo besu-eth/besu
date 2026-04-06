@@ -44,10 +44,8 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 import com.google.auto.service.AutoService;
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,16 +55,12 @@ import picocli.CommandLine;
 public class TestBundlePlugin implements BesuPlugin {
   private static final Logger LOG = LoggerFactory.getLogger(TestBundlePlugin.class);
   private final List<String> events = new ArrayList<>();
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
   private static final KeyPair SENDER_KEYS =
-      SIGNATURE_ALGORITHM
-          .get()
-          .createKeyPair(
-              SIGNATURE_ALGORITHM
-                  .get()
-                  .createPrivateKey(
-                      Bytes32.fromHexString(Accounts.GENESIS_ACCOUNT_THREE_PRIVATE_KEY)));
+      SIGNATURE_ALGORITHM.createKeyPair(
+          SIGNATURE_ALGORITHM.createPrivateKey(
+              Bytes32.fromHexString(Accounts.GENESIS_ACCOUNT_THREE_PRIVATE_KEY)));
 
   private ServiceManager serviceManager;
   private File callbackDir;
@@ -136,6 +130,7 @@ public class TestBundlePlugin implements BesuPlugin {
 
                 @Override
                 public PluginTransactionSelector create(
+                    final ProcessableBlockHeader pendingBlockHeader,
                     final SelectorsStateManager selectorsStateManager) {
                   return new PluginTransactionSelector() {
 

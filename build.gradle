@@ -26,7 +26,7 @@ plugins {
   id 'com.github.jk1.dependency-license-report' version '3.1.1'
   id 'com.jfrog.artifactory' version '5.2.5'
   id 'me.champeau.jmh' version '0.7.3' apply false
-  id 'net.ltgt.errorprone' version '4.2.0'
+  id 'net.ltgt.errorprone' version '4.4.0'
   id 'maven-publish'
   id 'jacoco'
   id 'jacoco-report-aggregation'
@@ -230,6 +230,9 @@ configure(allprojects - project(':platform')) {
     exclude group: 'io.tmio', module: 'tuweni-crypto'
     exclude group: 'io.tmio', module: 'tuweni-rlp'
     exclude group: 'io.tmio', module: 'tuweni-units'
+
+    // discovery library coordinates moved to io.consensys.protocols
+    exclude group: 'tech.pegasys.discovery', module: 'discovery'
   }
 
 
@@ -309,6 +312,16 @@ configure(allprojects - project(':platform')) {
         check('TypeParameterUnusedInFormals', CheckSeverity.OFF)
       }
 
+      // byte[] record components are used intentionally in ERA1 types (mutable by design)
+      check('ArrayRecordComponent', CheckSeverity.OFF)
+      // Standard Immutables pattern: interface with static fields referencing generated subclass
+      // e.g. org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration
+      check('ClassInitializationDeadlock', CheckSeverity.OFF)
+      // EvmSpecVersion was designed for ordinal comparison, e.g EVM.java
+      // Changing this would require deeper refactoring across the codebase
+      check('EnumOrdinal', CheckSeverity.OFF)
+      // necessary for usages of CompletableFuture<Void> e.g WorldDownloadState.java
+      check('VoidUsed', CheckSeverity.OFF)
       check('FieldCanBeFinal', CheckSeverity.WARN)
       check('InsecureCryptoUsage', CheckSeverity.WARN)
       check('WildcardImport', CheckSeverity.WARN)
@@ -461,6 +474,76 @@ configure(allprojects - project(':platform')) {
   }
 }
 
+task resolveSourceArtifacts {
+  group = 'verification'
+  description = 'Resolves source artifacts for all configurations so they can be included in dependency verification metadata'
+  doLast {
+    def componentIds = new HashSet()
+    def unresolvedConfigs = 0
+
+    def collectComponentIds = { configs, String label ->
+      configs.matching { it.canBeResolved }.each { config ->
+        try {
+          config.incoming.resolutionResult.allComponents.each { component ->
+            componentIds.add(component.id)
+          }
+        } catch (Exception e) {
+          unresolvedConfigs++
+          logger.info("Could not resolve ${label} '${config.name}': ${e.message}")
+        }
+      }
+    }
+
+    allprojects.each { proj ->
+      collectComponentIds(proj.configurations, "${proj.path} config")
+      collectComponentIds(proj.buildscript.configurations, "${proj.path} buildscript config")
+    }
+
+    if (unresolvedConfigs > 0) {
+      logger.warn("${unresolvedConfigs} configurations could not be resolved (run with --info for details)")
+    }
+
+    def externalIds = componentIds.findAll { it instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier }
+    logger.lifecycle("Resolving sources for ${externalIds.size()} external dependencies...")
+
+    // Populated by resolveSources across both project and buildscript repository calls
+    def resolvedComponentIds = new HashSet()
+    def resolveSources = { depHandler, componentIdsToResolve, String label ->
+      def sizeBefore = resolvedComponentIds.size()
+      def result = depHandler.createArtifactResolutionQuery()
+        .forComponents(componentIdsToResolve)
+        .withArtifacts(JvmLibrary, SourcesArtifact)
+        .execute()
+      result.resolvedComponents.each { component ->
+        component.getArtifacts(SourcesArtifact).each { source ->
+          if (source instanceof ResolvedArtifactResult) {
+            source.file // access .file to trigger download and register with verification metadata
+            resolvedComponentIds.add(component.id)
+          } else {
+            logger.warn("Could not download sources for ${component.id}: ${source}")
+          }
+        }
+      }
+      def count = resolvedComponentIds.size() - sizeBefore
+      logger.lifecycle("Resolved sources for ${count} components from ${label}")
+    }
+
+    resolveSources(dependencies, externalIds, "project repositories")
+
+    // Retry unresolved sources using buildscript repositories (includes Gradle Plugin Portal)
+    def unresolvedIds = externalIds.findAll { !resolvedComponentIds.contains(it) }
+    if (!unresolvedIds.isEmpty()) {
+      resolveSources(buildscript.dependencies, unresolvedIds, "buildscript repositories")
+    }
+
+    def finalUnresolved = externalIds.size() - resolvedComponentIds.size()
+    if (finalUnresolved > 0) {
+      logger.warn("${finalUnresolved} dependencies have no published source artifacts")
+    }
+    logger.lifecycle("Total: sources resolved for ${resolvedComponentIds.size()}/${externalIds.size()} components")
+  }
+}
+
 task deploy() {}
 
 task checkMavenCoordinateCollisions {
@@ -575,7 +658,7 @@ subprojects {
           }
           pom {
             name = "Besu - ${project.name}"
-            url = 'http://github.com/hyperledger/besu'
+            url = 'http://github.com/besu-eth/besu'
             licenses {
               license {
                 name = 'The Apache License, Version 2.0'
@@ -583,9 +666,9 @@ subprojects {
               }
             }
             scm {
-              connection = 'scm:git:git://github.com/hyperledger/besu.git'
-              developerConnection = 'scm:git:ssh://github.com/hyperledger/besu.git'
-              url = 'https://github.com/hyperledger/besu'
+              connection = 'scm:git:git://github.com/besu-eth/besu.git'
+              developerConnection = 'scm:git:ssh://github.com/besu-eth/besu.git'
+              url = 'https://github.com/besu-eth/besu'
             }
           }
         }
@@ -640,6 +723,7 @@ subprojects {
         "\nRun JMH benchmarks in each of the projects. Allows for controlling JMH execution directly from the command line.\n" +
         "\t-Pincludes=<includePattern>\tInclude pattern (regular expression) for benchmarks to be executed. Defaults to including all benchmarks.\n" +
         "\t-Pexcludes=<excludePattern>\tComma-separated exclude pattern (regular expression) for benchmarks to not be executed. Defaults to including all benchmarks.\n" +
+        "\t-Pcases=<caseNames>\t\tComma-separated list of @Param caseName values to run (e.g. MOD_32_32,MOD_256_256). Defaults to running all cases.\n" +
         "\t-PasyncProfiler=<libPath>\tLibrary path to fetch the Async profiler from. Default is to disable profiling.\n" +
         "\t-PasyncProfilerOptions=<asyncProfilerOptions>\tOptions to pass on to the Async profiler separated by ';'. Default is to produce a flamegraph with all other default profiler options.\n"
     }
@@ -654,6 +738,12 @@ subprojects {
       var inc = _strListCmdArg('includes', [''])
       includes = inc.size() > 1 ? [".*(${inc.join('|')}).*"] : inc
       excludes = _strListCmdArg('excludes', [])
+      var cases = _strListCmdArg('cases', [])
+      if (!cases.isEmpty()) {
+        def casesListProp = project.objects.listProperty(String)
+        casesListProp.addAll(cases)
+        benchmarkParameters = ['caseName': casesListProp]
+      }
       var asyncProfiler = _strCmdArg('asyncProfiler')
       var asyncProfilerOptions = _strCmdArg('asyncProfilerOptions', 'output=flamegraph')
       zip64.set(true)

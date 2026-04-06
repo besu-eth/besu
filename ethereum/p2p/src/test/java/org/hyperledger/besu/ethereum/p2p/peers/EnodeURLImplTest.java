@@ -816,14 +816,14 @@ public class EnodeURLImplTest {
 
   @Test
   public void sameListeningEndpoint_forMatchingEnodes() {
-    final EnodeURL enodeA =
+    final EnodeURLImpl enodeA =
         EnodeURLImpl.builder()
             .nodeId(VALID_NODE_ID)
             .ipAddress(IPV4_ADDRESS)
             .listeningPort(P2P_PORT)
             .discoveryPort(DISCOVERY_PORT)
             .build();
-    final EnodeURL enodeB =
+    final EnodeURLImpl enodeB =
         EnodeURLImpl.builder()
             .nodeId(VALID_NODE_ID)
             .ipAddress(IPV4_ADDRESS)
@@ -836,14 +836,14 @@ public class EnodeURLImplTest {
 
   @Test
   public void sameListeningEndpoint_differentListeningPorts() {
-    final EnodeURL enodeA =
+    final EnodeURLImpl enodeA =
         EnodeURLImpl.builder()
             .nodeId(VALID_NODE_ID)
             .ipAddress(IPV4_ADDRESS)
             .listeningPort(P2P_PORT)
             .discoveryPort(DISCOVERY_PORT)
             .build();
-    final EnodeURL enodeB =
+    final EnodeURLImpl enodeB =
         EnodeURLImpl.builder()
             .nodeId(VALID_NODE_ID)
             .ipAddress(IPV4_ADDRESS)
@@ -856,14 +856,14 @@ public class EnodeURLImplTest {
 
   @Test
   public void sameListeningEndpoint_differentIps() {
-    final EnodeURL enodeA =
+    final EnodeURLImpl enodeA =
         EnodeURLImpl.builder()
             .nodeId(VALID_NODE_ID)
             .ipAddress(IPV6_COMPACT_ADDRESS)
             .listeningPort(P2P_PORT)
             .discoveryPort(DISCOVERY_PORT)
             .build();
-    final EnodeURL enodeB =
+    final EnodeURLImpl enodeB =
         EnodeURLImpl.builder()
             .nodeId(VALID_NODE_ID)
             .ipAddress(IPV4_ADDRESS)
@@ -876,14 +876,14 @@ public class EnodeURLImplTest {
 
   @Test
   public void sameListeningEndpoint_listeningDisabledForOne() {
-    final EnodeURL enodeA =
+    final EnodeURLImpl enodeA =
         EnodeURLImpl.builder()
             .nodeId(VALID_NODE_ID)
             .ipAddress(IPV4_ADDRESS)
             .disableListening()
             .discoveryPort(DISCOVERY_PORT)
             .build();
-    final EnodeURL enodeB =
+    final EnodeURLImpl enodeB =
         EnodeURLImpl.builder()
             .nodeId(VALID_NODE_ID)
             .ipAddress(IPV4_ADDRESS)
@@ -896,14 +896,14 @@ public class EnodeURLImplTest {
 
   @Test
   public void sameListeningEndpoint_listeningDisabledForBoth() {
-    final EnodeURL enodeA =
+    final EnodeURLImpl enodeA =
         EnodeURLImpl.builder()
             .nodeId(VALID_NODE_ID)
             .ipAddress(IPV4_ADDRESS)
             .disableListening()
             .discoveryPort(DISCOVERY_PORT)
             .build();
-    final EnodeURL enodeB =
+    final EnodeURLImpl enodeB =
         EnodeURLImpl.builder()
             .nodeId(VALID_NODE_ID)
             .ipAddress(IPV4_ADDRESS)

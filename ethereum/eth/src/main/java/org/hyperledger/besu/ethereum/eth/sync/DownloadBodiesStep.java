@@ -17,10 +17,8 @@ package org.hyperledger.besu.ethereum.eth.sync;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
-import org.hyperledger.besu.ethereum.eth.sync.tasks.CompleteBlocksTask;
 import org.hyperledger.besu.ethereum.eth.sync.tasks.CompleteBlocksWithPeerTask;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
-import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -31,39 +29,23 @@ public class DownloadBodiesStep
 
   private final ProtocolSchedule protocolSchedule;
   private final EthContext ethContext;
-  private final MetricsSystem metricsSystem;
-  private final SynchronizerConfiguration synchronizerConfiguration;
 
-  public DownloadBodiesStep(
-      final ProtocolSchedule protocolSchedule,
-      final EthContext ethContext,
-      final SynchronizerConfiguration synchronizerConfiguration,
-      final MetricsSystem metricsSystem) {
+  public DownloadBodiesStep(final ProtocolSchedule protocolSchedule, final EthContext ethContext) {
     this.protocolSchedule = protocolSchedule;
     this.ethContext = ethContext;
-    this.synchronizerConfiguration = synchronizerConfiguration;
-    this.metricsSystem = metricsSystem;
   }
 
   @Override
   public CompletableFuture<List<Block>> apply(final List<BlockHeader> blockHeaders) {
-    if (synchronizerConfiguration.isPeerTaskSystemEnabled()) {
-      return ethContext
-          .getScheduler()
-          .scheduleServiceTask(() -> getBodiesWithPeerTaskSystem(blockHeaders));
-    } else {
-      return CompleteBlocksTask.forHeaders(
-              protocolSchedule, ethContext, blockHeaders, metricsSystem)
-          .run();
-    }
-  }
-
-  private CompletableFuture<List<Block>> getBodiesWithPeerTaskSystem(
-      final List<BlockHeader> headers) {
-
-    final CompleteBlocksWithPeerTask completeBlocksWithPeerTask =
-        new CompleteBlocksWithPeerTask(protocolSchedule, headers, ethContext.getPeerTaskExecutor());
-    final List<Block> blocks = completeBlocksWithPeerTask.retrieveBlocksFromPeers();
-    return CompletableFuture.completedFuture(blocks);
+    return ethContext
+        .getScheduler()
+        .scheduleServiceTask(
+            () -> {
+              final CompleteBlocksWithPeerTask completeBlocksWithPeerTask =
+                  new CompleteBlocksWithPeerTask(
+                      protocolSchedule, blockHeaders, ethContext.getPeerTaskExecutor());
+              final List<Block> blocks = completeBlocksWithPeerTask.retrieveBlocksFromPeers();
+              return CompletableFuture.completedFuture(blocks);
+            });
   }
 }

@@ -26,12 +26,6 @@ public enum RpcMethod {
   ADMIN_GENERATE_LOG_BLOOM_CACHE("admin_generateLogBloomCache"),
   ADMIN_LOGS_REPAIR_CACHE("admin_logsRepairCache"),
   ADMIN_LOGS_REMOVE_CACHE("admin_logsRemoveCache"),
-  CLIQUE_DISCARD("clique_discard"),
-  CLIQUE_GET_SIGNERS("clique_getSigners"),
-  CLIQUE_GET_SIGNERS_AT_HASH("clique_getSignersAtHash"),
-  CLIQUE_GET_PROPOSALS("clique_proposals"),
-  CLIQUE_PROPOSE("clique_propose"),
-  CLIQUE_GET_SIGNER_METRICS("clique_getSignerMetrics"),
   DEBUG_ACCOUNT_AT("debug_accountAt"),
   DEBUG_ACCOUNT_RANGE("debug_accountRange"),
   DEBUG_METRICS("debug_metrics"),
@@ -174,9 +168,14 @@ public enum RpcMethod {
   TX_POOL_BESU_STATISTICS("txpool_besuStatistics"),
   TX_POOL_BESU_TRANSACTIONS("txpool_besuTransactions"),
   TX_POOL_BESU_PENDING_TRANSACTIONS("txpool_besuPendingTransactions"),
+  TX_POOL_STATUS("txpool_status"),
+  TX_POOL_CONTENT_FROM("txpool_contentFrom"),
+  TX_POOL_CONTENT("txpool_content"),
+  TX_POOL_INSPECT("txpool_inspect"),
   WEB3_CLIENT_VERSION("web3_clientVersion"),
   WEB3_SHA3("web3_sha3"),
-  PLUGINS_RELOAD_CONFIG("plugins_reloadPluginConfig");
+  PLUGINS_RELOAD_CONFIG("plugins_reloadPluginConfig"),
+  TESTING_BUILD_BLOCK_V1("testing_buildBlockV1");
 
   private final String methodName;
 

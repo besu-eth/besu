@@ -17,7 +17,6 @@ package org.hyperledger.besu.ethereum.eth.manager;
 import static com.google.common.base.Preconditions.checkArgument;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.SnapProtocol;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
@@ -25,13 +24,14 @@ import org.hyperledger.besu.ethereum.eth.messages.GetBlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockHeadersMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetNodeDataMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetPooledTransactionsMessage;
-import org.hyperledger.besu.ethereum.eth.messages.GetReceiptsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.StatusMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetAccountRangeMessage;
+import org.hyperledger.besu.ethereum.eth.messages.snap.GetBlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetByteCodesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetStorageRangeMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetTrieNodesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV1;
+import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV2;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection.PeerNotConnected;
@@ -82,8 +82,6 @@ public class EthPeer implements Comparable<EthPeer> {
               }));
   private final Bytes localNodeId;
 
-  private Optional<BlockHeader> checkpointHeader = Optional.empty();
-
   private final int maxMessageSize;
   private final Clock clock;
   private final List<NodeMessagePermissioningProvider> permissioningProviders;
@@ -113,11 +111,14 @@ public class EthPeer implements Comparable<EthPeer> {
     roundMessages.put(EthProtocolMessages.NODE_DATA, EthProtocolMessages.GET_NODE_DATA);
     roundMessages.put(
         EthProtocolMessages.POOLED_TRANSACTIONS, EthProtocolMessages.GET_POOLED_TRANSACTIONS);
+    roundMessages.put(
+        EthProtocolMessages.BLOCK_ACCESS_LISTS, EthProtocolMessages.GET_BLOCK_ACCESS_LISTS);
 
     roundMessages.put(SnapV1.ACCOUNT_RANGE, SnapV1.GET_ACCOUNT_RANGE);
     roundMessages.put(SnapV1.STORAGE_RANGE, SnapV1.GET_STORAGE_RANGE);
     roundMessages.put(SnapV1.BYTECODES, SnapV1.GET_BYTECODES);
     roundMessages.put(SnapV1.TRIE_NODES, SnapV1.GET_TRIE_NODES);
+    roundMessages.put(SnapV2.BLOCK_ACCESS_LISTS, SnapV2.GET_BLOCK_ACCESS_LISTS);
   }
 
   @VisibleForTesting
@@ -140,7 +141,6 @@ public class EthPeer implements Comparable<EthPeer> {
     this.requestManagers = new ConcurrentHashMap<>();
     this.localNodeId = localNodeId;
     this.id = connection.getPeer().getId();
-
     initEthRequestManagers();
     initSnapRequestManagers();
   }
@@ -159,6 +159,9 @@ public class EthPeer implements Comparable<EthPeer> {
                 EthProtocolMessages.GET_NODE_DATA, new RequestManager(this, EthProtocol.NAME)),
             Map.entry(
                 EthProtocolMessages.GET_POOLED_TRANSACTIONS,
+                new RequestManager(this, EthProtocol.NAME)),
+            Map.entry(
+                EthProtocolMessages.GET_BLOCK_ACCESS_LISTS,
                 new RequestManager(this, EthProtocol.NAME))));
   }
 
@@ -170,7 +173,8 @@ public class EthPeer implements Comparable<EthPeer> {
             Map.entry(SnapV1.GET_ACCOUNT_RANGE, new RequestManager(this, SnapProtocol.NAME)),
             Map.entry(SnapV1.GET_STORAGE_RANGE, new RequestManager(this, SnapProtocol.NAME)),
             Map.entry(SnapV1.GET_BYTECODES, new RequestManager(this, SnapProtocol.NAME)),
-            Map.entry(SnapV1.GET_TRIE_NODES, new RequestManager(this, SnapProtocol.NAME))));
+            Map.entry(SnapV1.GET_TRIE_NODES, new RequestManager(this, SnapProtocol.NAME)),
+            Map.entry(SnapV2.GET_BLOCK_ACCESS_LISTS, new RequestManager(this, SnapProtocol.NAME))));
   }
 
   public void markValidated(final PeerValidator validator) {
@@ -329,13 +333,6 @@ public class EthPeer implements Comparable<EthPeer> {
         requestManagers.get(EthProtocol.NAME).get(EthProtocolMessages.GET_BLOCK_BODIES), message);
   }
 
-  public RequestManager.ResponseStream getReceipts(final List<Hash> blockHashes)
-      throws PeerNotConnected {
-    final GetReceiptsMessage message = GetReceiptsMessage.create(blockHashes);
-    return sendRequest(
-        requestManagers.get(EthProtocol.NAME).get(EthProtocolMessages.GET_RECEIPTS), message);
-  }
-
   public RequestManager.ResponseStream getNodeData(final Iterable<Hash> nodeHashes)
       throws PeerNotConnected {
     final GetNodeDataMessage message = GetNodeDataMessage.create(nodeHashes);
@@ -390,6 +387,15 @@ public class EthPeer implements Comparable<EthPeer> {
     getTrieNodes.setRootHash(Optional.of(stateRoot));
     return sendRequest(
         requestManagers.get(SnapProtocol.NAME).get(SnapV1.GET_TRIE_NODES), getTrieNodes);
+  }
+
+  public RequestManager.ResponseStream getSnapBlockAccessLists(final List<Hash> blockHashes)
+      throws PeerNotConnected {
+    final GetBlockAccessListsMessage getBlockAccessListsMessage =
+        GetBlockAccessListsMessage.create(blockHashes);
+    return sendRequest(
+        requestManagers.get(SnapProtocol.NAME).get(SnapV2.GET_BLOCK_ACCESS_LISTS),
+        getBlockAccessListsMessage);
   }
 
   public void setIsServingSnap(final boolean isServingSnap) {
@@ -668,14 +674,6 @@ public class EthPeer implements Comparable<EthPeer> {
     if (headStateCompare != 0) return headStateCompare;
 
     return getConnection().getPeerInfo().compareTo(ethPeer.getConnection().getPeerInfo());
-  }
-
-  public void setCheckpointHeader(final BlockHeader header) {
-    checkpointHeader = Optional.of(header);
-  }
-
-  public Optional<BlockHeader> getCheckpointHeader() {
-    return checkpointHeader;
   }
 
   public Bytes getId() {

@@ -101,7 +101,13 @@ public abstract class BaseBftProtocolScheduleBuilder {
                 balConfiguration,
                 metricsSystem)
             .createProtocolSchedule();
-    return new BftProtocolSchedule((DefaultProtocolSchedule) protocolSchedule);
+    final BftProtocolSchedule bftSchedule =
+        new BftProtocolSchedule((DefaultProtocolSchedule) protocolSchedule);
+
+    // Once we have the schedule we can update the fork schedule with the type of each milestone
+    forksSchedule.applyMilestoneTypes(bftSchedule);
+
+    return bftSchedule;
   }
 
   /**

@@ -21,6 +21,7 @@ import org.hyperledger.besu.plugin.data.ProcessableBlockHeader;
  * Knows how to query the timestamp or block number of a given block header
  */
 public interface ScheduledProtocolSpec {
+
   boolean isOnOrAfterMilestoneBoundary(
       org.hyperledger.besu.plugin.data.ProcessableBlockHeader header);
 

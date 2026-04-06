@@ -14,16 +14,20 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
-import static com.google.common.base.Preconditions.checkArgument;
-
 import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
+import java.util.OptionalInt;
+
 import org.apache.tuweni.units.bigints.UInt256;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class OsakaTargetingGasLimitCalculator extends CancunTargetingGasLimitCalculator {
+  private static final Logger LOG = LoggerFactory.getLogger(OsakaTargetingGasLimitCalculator.class);
+
   /** The constant max number of blobs per transaction defined for Osaka */
   private static final int DEFAULT_MAX_BLOBS_PER_TRANSACTION = 6;
 
@@ -35,20 +39,24 @@ public class OsakaTargetingGasLimitCalculator extends CancunTargetingGasLimitCal
 
   private final long transactionGasLimitCap;
   private final long transactionBlobGasLimitCap;
+  private final long blockBuilderBlobGasLimit;
 
   public OsakaTargetingGasLimitCalculator(
       final long londonForkBlock,
       final BaseFeeMarket feeMarket,
       final GasCalculator gasCalculator,
       final int maxBlobsPerBlock,
-      final int targetBlobsPerBlock) {
+      final int targetBlobsPerBlock,
+      final OptionalInt maxBlobsPerTransaction,
+      final OptionalInt userMaxBlobsPerBlock) {
     this(
         londonForkBlock,
         feeMarket,
         gasCalculator,
         maxBlobsPerBlock,
         targetBlobsPerBlock,
-        DEFAULT_MAX_BLOBS_PER_TRANSACTION,
+        maxBlobsPerTransaction,
+        userMaxBlobsPerBlock,
         DEFAULT_TRANSACTION_GAS_LIMIT_CAP_OSAKA);
   }
 
@@ -58,16 +66,28 @@ public class OsakaTargetingGasLimitCalculator extends CancunTargetingGasLimitCal
       final GasCalculator gasCalculator,
       final int maxBlobsPerBlock,
       final int targetBlobsPerBlock,
-      final int maxBlobsPerTransaction,
+      final OptionalInt maxBlobsPerTransaction,
+      final OptionalInt userMaxBlobsPerBlock,
       final long transactionGasLimitCap) {
     super(londonForkBlock, feeMarket, gasCalculator, maxBlobsPerBlock, targetBlobsPerBlock);
+    final long blobGasPerBlob = gasCalculator.getBlobGasPerBlob();
+    int effectiveMaxBlobsPerTx = maxBlobsPerTransaction.orElse(DEFAULT_MAX_BLOBS_PER_TRANSACTION);
+    if (effectiveMaxBlobsPerTx > maxBlobsPerBlock) {
+      LOG.warn(
+          "--max-blobs-per-transaction ({}) exceeds the hardfork max blobs per block ({}), clamping to {}",
+          effectiveMaxBlobsPerTx,
+          maxBlobsPerBlock,
+          maxBlobsPerBlock);
+      effectiveMaxBlobsPerTx = maxBlobsPerBlock;
+    }
     this.transactionGasLimitCap = transactionGasLimitCap;
-    this.transactionBlobGasLimitCap = gasCalculator.getBlobGasPerBlob() * maxBlobsPerTransaction;
-    checkArgument(
-        maxBlobsPerBlock >= maxBlobsPerTransaction,
-        "maxBlobsPerTransaction (%s) must not be greater than maxBlobsPerBlock (%s)",
-        maxBlobsPerTransaction,
-        maxBlobsPerBlock);
+    this.transactionBlobGasLimitCap = blobGasPerBlob * effectiveMaxBlobsPerTx;
+    if (userMaxBlobsPerBlock.isPresent()) {
+      final int effectiveMax = Math.min(userMaxBlobsPerBlock.getAsInt(), maxBlobsPerBlock);
+      this.blockBuilderBlobGasLimit = blobGasPerBlob * effectiveMax;
+    } else {
+      this.blockBuilderBlobGasLimit = getMaxBlobGasPerBlock();
+    }
   }
 
   @Override
@@ -108,5 +128,10 @@ public class OsakaTargetingGasLimitCalculator extends CancunTargetingGasLimitCal
   @Override
   public long transactionBlobGasLimitCap() {
     return transactionBlobGasLimitCap;
+  }
+
+  @Override
+  public long blockBuilderBlobGasLimit() {
+    return blockBuilderBlobGasLimit;
   }
 }

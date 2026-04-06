@@ -58,7 +58,6 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
 import org.hyperledger.besu.services.PermissioningServiceImpl;
 import org.hyperledger.besu.services.RpcEndpointServiceImpl;
@@ -112,7 +111,7 @@ public class EphemeryTest extends CommandTestAbstract {
   BigInteger initialCycleId;
 
   String ephemeryDataPathPrefix = "Ephemery-data-chain";
-  public static final List<EnodeURL> EPHEMERY_BOOT_NODES =
+  public static final List<EnodeURLImpl> EPHEMERY_BOOT_NODES =
       Collections.unmodifiableList(
           Stream.of(
                   "enode://50a54ecbd2175497640bcf46a25bbe9bb4fae51d7cc2a29ef4947a7ee17496cf39a699b7fe6b703ed0feb9dbaae7e44fc3827fcb7435ca9ac6de4daa4d983b3d@137.74.203.240:30303",

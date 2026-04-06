@@ -555,6 +555,20 @@ public class TransactionPool implements BlockAddedObserver {
     return pendingTransactions.getPendingTransactions();
   }
 
+  /**
+   * Returns all pending transactions for the given sender, sorted by nonce in ascending order.
+   *
+   * @param sender the sender address
+   * @return transactions for the sender sorted by nonce ascending, or an empty list if none exist
+   */
+  public SenderPendingTransactionsData getPendingTransactionsFor(final Address sender) {
+    return pendingTransactions.getPendingTransactionsFor(sender);
+  }
+
+  public Map<Address, SenderPendingTransactionsData> getPendingTransactionsBySender() {
+    return pendingTransactions.getPendingTransactionsBySender();
+  }
+
   public OptionalLong getNextNonceForSender(final Address address) {
     return pendingTransactions.getNextNonceForSender(address);
   }
@@ -576,9 +590,18 @@ public class TransactionPool implements BlockAddedObserver {
     return pendingTransactions.logStats();
   }
 
+  public PendingTransactions.Status getStatus() {
+    return pendingTransactions.getStatus();
+  }
+
   @VisibleForTesting
   Class<? extends PendingTransactions> pendingTransactionsImplementation() {
     return pendingTransactions.getClass();
+  }
+
+  @VisibleForTesting
+  SaveRestoreManager getSaveRestoreManager() {
+    return saveRestoreManager;
   }
 
   public interface TransactionBatchAddedListener {
@@ -756,6 +779,11 @@ public class TransactionPool implements BlockAddedObserver {
         new AtomicReference<>(CompletableFuture.completedFuture(null));
     private final AtomicBoolean isCancelled = new AtomicBoolean(false);
 
+    @VisibleForTesting
+    Semaphore getDiskAccessLock() {
+      return diskAccessLock;
+    }
+
     CompletableFuture<Void> saveToDisk(final PendingTransactions pendingTransactionsToSave) {
       cancelInProgressReadOperation();
       return serializeAndDedupOperation(
@@ -790,7 +818,9 @@ public class TransactionPool implements BlockAddedObserver {
         final AtomicReference<CompletableFuture<Void>> operationInProgress) {
       if (configuration.getEnableSaveRestore()) {
         try {
-          if (diskAccessLock.tryAcquire(1, TimeUnit.MINUTES)) {
+          if (diskAccessLock.tryAcquire(
+              configuration.getUnstable().getSaveRestoreTimeout().toMillis(),
+              TimeUnit.MILLISECONDS)) {
 
             isCancelled.set(false);
             operationInProgress.set(
@@ -798,7 +828,7 @@ public class TransactionPool implements BlockAddedObserver {
                     .whenComplete((res, err) -> diskAccessLock.release()));
             return operationInProgress.get();
           } else {
-            CompletableFuture.failedFuture(
+            return CompletableFuture.failedFuture(
                 new TimeoutException("Timeout waiting for disk access lock"));
           }
         } catch (InterruptedException ie) {

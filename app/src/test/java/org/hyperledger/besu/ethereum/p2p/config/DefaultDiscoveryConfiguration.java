@@ -31,7 +31,7 @@ public class DefaultDiscoveryConfiguration {
   public static final String MAINNET_DISCOVERY_URL =
       "enrtree://AKA3AM6LPBYEUDMVNU3BSVQJ5AD45Y7YPOHJLEF6W26QOE4VTUDPE@all.mainnet.ethdisco.net";
 
-  public static final List<EnodeURL> MAINNET_BOOTSTRAP_NODES =
+  public static final List<EnodeURLImpl> MAINNET_BOOTSTRAP_NODES =
       Collections.unmodifiableList(
           Stream.of(
                   // Ethereum Foundation Bootnodes

@@ -23,6 +23,7 @@
 | Matilda Clerke   | Matilda-Clerke   | MatildaClerke    |
 | Karim Taam       | matkt            | matkt            |
 | Matthew Whitehead| matthew1001      | matthew.whitehead      |
+| Miroslav Kovář   | mirgee           | mirgee           |
 | Stefan Pingel    | pinges           | pinges           |
 | Simon Dudley     | siladu           | siladu           |
 | Usman Saleem     | usmansaleem      | usmansaleem      |
@@ -148,7 +149,7 @@ I propose to add [maintainer github handle] as a Besu project maintainer.
 
 - [list significant achievements]
 
-Here are [their past contributions on Besu project](https://github.com/hyperledger/besu/commits?author=[user github handle]).
+Here are [their past contributions on Besu project](https://github.com/besu-eth/besu/commits?author=[user github handle]).
 
 Voting ends two weeks from today.
 

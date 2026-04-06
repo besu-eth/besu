@@ -306,7 +306,11 @@ public class EthFeeHistory implements JsonRpcMethod {
    */
   private List<Wei> boundRewards(final List<Wei> rewards, final Wei nextBaseFee) {
     final Wei lowerBoundGasPrice = blockchainQueries.gasPriceLowerBound();
-    final Wei lowerBoundPriorityFee = lowerBoundGasPrice.subtract(nextBaseFee);
+    // prevent unsigned underflow when nextBaseFee exceeds lower bound
+    final Wei lowerBoundPriorityFee =
+        lowerBoundGasPrice.greaterThan(nextBaseFee)
+            ? lowerBoundGasPrice.subtract(nextBaseFee)
+            : Wei.ZERO;
     final Wei minPriorityFee = miningCoordinator.getMinPriorityFeePerGas();
     final Wei forcedMinPriorityFee = UInt256s.max(minPriorityFee, lowerBoundPriorityFee);
     final Wei lowerBound =

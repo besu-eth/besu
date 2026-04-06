@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.ChainHead;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.p2p.network.P2PNetwork;
+import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.nat.NatService;
 import org.hyperledger.besu.nat.core.domain.NatPortMapping;
 import org.hyperledger.besu.nat.core.domain.NatServiceType;
@@ -81,7 +82,7 @@ public class AdminNodeInfo implements JsonRpcMethod {
       return new JsonRpcErrorResponse(
           requestContext.getRequest().getId(), RpcErrorType.P2P_DISABLED);
     }
-    final Optional<EnodeURL> maybeEnode = peerNetwork.getLocalEnode();
+    final Optional<EnodeURLImpl> maybeEnode = peerNetwork.getLocalEnode();
     if (maybeEnode.isEmpty()) {
       return new JsonRpcErrorResponse(
           requestContext.getRequest().getId(), RpcErrorType.P2P_NETWORK_NOT_RUNNING);
@@ -97,13 +98,24 @@ public class AdminNodeInfo implements JsonRpcMethod {
     final int discoveryPort = getDiscoveryPort(enode);
 
     response.put("enode", getNodeAsString(enode, ip, listeningPort, discoveryPort));
+    peerNetwork.getLocalEnr().ifPresent(enr -> response.put("enr", enr));
     response.put("ip", ip);
 
     if (enode.isListening()) {
-      response.put("listenAddr", String.format("%s:%d", ip, listeningPort));
+      response.put("listenAddr", formatHostPort(ip, listeningPort));
     }
     response.put("id", nodeId.toUnprefixedHexString());
     response.put("name", clientVersion);
+
+    final Optional<P2PNetwork.IPv6AddressInfo> maybeIpv6Info = peerNetwork.getIPv6AddressInfo();
+    maybeIpv6Info.ifPresent(
+        ipv6Info -> {
+          response.put("ipv6", ipv6Info.address());
+          ipv6Info
+              .listeningPort()
+              .ifPresent(
+                  tcpV6 -> response.put("listenAddrV6", formatHostPort(ipv6Info.address(), tcpV6)));
+        });
 
     if (enode.isRunningDiscovery()) {
       ports.put("discovery", discoveryPort);
@@ -111,6 +123,11 @@ public class AdminNodeInfo implements JsonRpcMethod {
     if (enode.isListening()) {
       ports.put("listener", listeningPort);
     }
+    maybeIpv6Info.ifPresent(
+        ipv6Info -> {
+          ipv6Info.discoveryPort().ifPresent(udpV6 -> ports.put("discoveryV6", udpV6));
+          ipv6Info.listeningPort().ifPresent(tcpV6 -> ports.put("listenerV6", tcpV6));
+        });
     response.put("ports", ports);
 
     final ChainHead chainHead = blockchainQueries.getBlockchain().getChainHead();
@@ -142,9 +159,10 @@ public class AdminNodeInfo implements JsonRpcMethod {
 
   private String getNodeAsString(
       final EnodeURL enodeURL, final String ip, final int listeningPort, final int discoveryPort) {
+    final String host = bracketIpv6(ip);
     final String uri =
         String.format(
-            "enode://%s@%s:%d", enodeURL.getNodeId().toUnprefixedHexString(), ip, listeningPort);
+            "enode://%s@%s:%d", enodeURL.getNodeId().toUnprefixedHexString(), host, listeningPort);
     if (listeningPort != discoveryPort) {
       return URI.create(uri + String.format("?discport=%d", discoveryPort)).toString();
     } else {
@@ -168,5 +186,16 @@ public class AdminNodeInfo implements JsonRpcMethod {
         .getPortMapping(NatServiceType.RLPX, NetworkProtocol.TCP)
         .map(NatPortMapping::getExternalPort)
         .orElseGet(enode::getListeningPortOrZero);
+  }
+
+  private static String formatHostPort(final String host, final int port) {
+    return String.format("%s:%d", bracketIpv6(host), port);
+  }
+
+  private static String bracketIpv6(final String host) {
+    if (host.startsWith("[")) {
+      return host;
+    }
+    return host.contains(":") ? "[" + host + "]" : host;
   }
 }

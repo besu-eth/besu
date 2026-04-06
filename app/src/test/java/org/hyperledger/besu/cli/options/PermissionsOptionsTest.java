@@ -168,7 +168,7 @@ public class PermissionsOptionsTest extends CommandTestAbstract {
 
   @Test
   public void nodePermissioningTomlPathMustUseOption() throws IOException {
-    final List<EnodeURL> allowedNodes =
+    final List<EnodeURLImpl> allowedNodes =
         Lists.newArrayList(
             EnodeURLImpl.fromString(
                 "enode://6f8a80d14311c39f35f516fa664deaaaa13e85b2f7493f37f6144d86991ec012937307647bd3b9a82abe2974e1407241d54947bbb39763a4cac9f77166ad92a0@192.168.0.9:4567"),

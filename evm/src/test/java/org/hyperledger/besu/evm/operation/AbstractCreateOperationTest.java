@@ -33,10 +33,13 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.BlockValues;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.AmsterdamGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.ConstantinopleGasCalculator;
+import org.hyperledger.besu.evm.gascalculator.Eip8037StateGasCostCalculator;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
+import org.hyperledger.besu.evm.testutils.FakeBlockValues;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
@@ -202,5 +205,77 @@ class AbstractCreateOperationTest {
     assertThat(operation.failureFrame).isNotNull();
     assertThat(operation.failureHaltReason)
         .contains(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
+  }
+
+  @Test
+  void createHaltsWhenStateGasSpillReducesGasRemainingBelowCost() {
+    // EIP-8037: When the state gas reservoir is empty, consumeStateGas spills overflow into
+    // gasRemaining. If this reduces gasRemaining below the operation cost, the operation must
+    // halt with INSUFFICIENT_GAS rather than underflowing at decrementRemainingGas.
+    final long blockGasLimit = 36_000_000L;
+    final GasCalculator amsterdamCalc = new AmsterdamGasCalculator();
+    final FakeCreateOperation amsterdamOp = new FakeCreateOperation(amsterdamCalc);
+
+    // State gas for CREATE at 36M = 112 * 150 = 16,800
+    final long stateGas = new Eip8037StateGasCostCalculator().createStateGas(blockGasLimit);
+
+    final UInt256 memoryOffset = UInt256.fromHexString("0xFF");
+    final MessageFrame frame =
+        MessageFrame.builder()
+            .type(MessageFrame.Type.CONTRACT_CREATION)
+            .contract(Address.ZERO)
+            .inputData(Bytes.EMPTY)
+            .sender(Address.fromHexString(SENDER))
+            .value(Wei.ZERO)
+            .apparentValue(Wei.ZERO)
+            .code(new Code(SIMPLE_CREATE))
+            .completer(__ -> {})
+            .address(Address.fromHexString(SENDER))
+            .blockHashLookup((__, ___) -> Hash.ZERO)
+            .blockValues(
+                new FakeBlockValues(1337) {
+                  @Override
+                  public long getGasLimit() {
+                    return blockGasLimit;
+                  }
+                })
+            .gasPrice(Wei.ZERO)
+            .miningBeneficiary(Address.ZERO)
+            .originator(Address.ZERO)
+            .initialGas(100_000L)
+            .worldUpdater(worldUpdater)
+            .build();
+
+    // Push CREATE args: value=0, offset=0xFF, size=5 (SIMPLE_CREATE)
+    frame.pushStackItem(Bytes.ofUnsignedLong(SIMPLE_CREATE.size()));
+    frame.pushStackItem(memoryOffset);
+    frame.pushStackItem(Bytes.EMPTY); // value = 0
+    frame.expandMemory(0, 500);
+    frame.writeMemory(memoryOffset.trimLeadingZeros().toInt(), SIMPLE_CREATE.size(), SIMPLE_CREATE);
+
+    when(account.getNonce()).thenReturn(55L);
+    when(account.getBalance()).thenReturn(Wei.ZERO);
+    when(worldUpdater.getAccount(any())).thenReturn(account);
+    when(worldUpdater.get(any())).thenReturn(account);
+    when(worldUpdater.getSenderAccount(any())).thenReturn(account);
+    when(worldUpdater.getOrCreate(any())).thenReturn(newAccount);
+    when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
+    when(newAccount.isStorageEmpty()).thenReturn(true);
+    when(worldUpdater.updater()).thenReturn(worldUpdater);
+
+    // Compute the operation cost so we can set initialGas to trigger the underflow scenario
+    final EVM evm = MainnetEVMs.amsterdam(EvmConfiguration.DEFAULT);
+    final long cost = amsterdamOp.cost(frame, () -> new Code(SIMPLE_CREATE));
+
+    // Set gasRemaining to: cost + (stateGas - 1). This ensures the initial check (gas >= cost)
+    // passes, but after state gas spills into gasRemaining (reservoir=0), gasRemaining < cost.
+    final long initialGas = cost + stateGas - 1;
+    frame.setGasRemaining(initialGas);
+    // Ensure reservoir is empty so state gas must spill into gasRemaining
+    frame.setStateGasReservoir(0L);
+
+    final Operation.OperationResult result = amsterdamOp.execute(frame, evm);
+
+    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
   }
 }

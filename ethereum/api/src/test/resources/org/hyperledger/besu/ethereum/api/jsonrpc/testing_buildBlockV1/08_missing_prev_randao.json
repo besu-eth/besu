@@ -1,0 +1,28 @@
+{
+  "description": "Error case: prevRandao field is absent from payloadAttributes. Note: the error has no 'data' field because Jackson deserialization fails before reaching validatePayloadAttributes(), producing a generic INVALID_PARAMS response.",
+  "request": {
+    "id": 9,
+    "jsonrpc": "2.0",
+    "method": "testing_buildBlockV1",
+    "params": [
+      "0x937c8f382f4945fc6122652239426484d97b400d66c122aea45f2dd4a8afeab6",
+      {
+        "timestamp": "0x1",
+        "suggestedFeeRecipient": "0x0000000000000000000000000000000000000000",
+        "withdrawals": [],
+        "parentBeaconBlockRoot": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      [],
+      "0x"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 9,
+    "error": {
+      "code": -32602,
+      "message": "Invalid params"
+    }
+  },
+  "statusCode": 200
+}

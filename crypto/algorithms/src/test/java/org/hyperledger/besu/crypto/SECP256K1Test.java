@@ -84,6 +84,16 @@ public class SECP256K1Test {
   }
 
   @Test
+  public void recoverPublicKeyFromSignatureWithREqualsNCurveOrderReturnsEmpty() {
+    secp256K1.disableNative();
+    final BigInteger n = secp256K1.getHalfCurveOrder().multiply(BigInteger.TWO).add(BigInteger.ONE);
+    final Bytes32 dataHash = keccak256(Bytes.wrap("test".getBytes(UTF_8)));
+    final SECPSignature badSig = new SECPSignature(n, BigInteger.ONE, (byte) 0);
+
+    assertThat(secp256K1.recoverPublicKeyFromSignature(dataHash, badSig)).isEmpty();
+  }
+
+  @Test
   public void signatureGeneration() {
     final SECPPrivateKey privateKey =
         secp256K1.createPrivateKey(
@@ -114,6 +124,59 @@ public class SECP256K1Test {
 
     final SECPSignature signature = secp256K1.sign(dataHash, keyPair);
     assertThat(secp256K1.verify(data, signature, keyPair.getPublicKey(), Hash::keccak256)).isTrue();
+  }
+
+  @Test
+  public void ecdhKeyAgreementIsSymmetric() {
+    final KeyPair kp1 = secp256K1.generateKeyPair();
+    final KeyPair kp2 = secp256K1.generateKeyPair();
+
+    final Bytes32 secret1 =
+        secp256K1.calculateECDHKeyAgreement(kp1.getPrivateKey(), kp2.getPublicKey());
+    final Bytes32 secret2 =
+        secp256K1.calculateECDHKeyAgreement(kp2.getPrivateKey(), kp1.getPublicKey());
+
+    assertThat(secret1).isEqualTo(secret2);
+  }
+
+  @Test
+  public void ecdhKeyAgreementCompressedIsSymmetric() {
+    final KeyPair kp1 = secp256K1.generateKeyPair();
+    final KeyPair kp2 = secp256K1.generateKeyPair();
+
+    final Bytes compressed1 =
+        secp256K1.calculateECDHKeyAgreementCompressed(kp1.getPrivateKey(), kp2.getPublicKey());
+    final Bytes compressed2 =
+        secp256K1.calculateECDHKeyAgreementCompressed(kp2.getPrivateKey(), kp1.getPublicKey());
+
+    assertThat(compressed1).isEqualTo(compressed2);
+  }
+
+  @Test
+  public void ecdhCompressedReturns33BytesWithCorrectPrefix() {
+    final KeyPair kp1 = secp256K1.generateKeyPair();
+    final KeyPair kp2 = secp256K1.generateKeyPair();
+
+    final Bytes compressed =
+        secp256K1.calculateECDHKeyAgreementCompressed(kp1.getPrivateKey(), kp2.getPublicKey());
+
+    assertThat(compressed.size()).isEqualTo(33);
+    final byte prefix = compressed.get(0);
+    assertThat(prefix == 0x02 || prefix == 0x03).isTrue();
+  }
+
+  @Test
+  public void ecdhCompressedXCoordinateMatchesUncompressed() {
+    final KeyPair kp1 = secp256K1.generateKeyPair();
+    final KeyPair kp2 = secp256K1.generateKeyPair();
+
+    final Bytes32 xOnly =
+        secp256K1.calculateECDHKeyAgreement(kp1.getPrivateKey(), kp2.getPublicKey());
+    final Bytes compressed =
+        secp256K1.calculateECDHKeyAgreementCompressed(kp1.getPrivateKey(), kp2.getPublicKey());
+
+    // The x-coordinate in the compressed point (bytes 1-32) should match the uncompressed result
+    assertThat(compressed.slice(1, 32)).isEqualTo(xOnly);
   }
 
   @Test

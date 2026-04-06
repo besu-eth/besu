@@ -17,12 +17,15 @@ package org.hyperledger.besu.ethereum.eth.manager.peertask.task;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.InvalidPeerTaskResponseException;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskValidationResponse;
 import org.hyperledger.besu.ethereum.eth.messages.PooledTransactionsMessage;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 
 import java.util.List;
+import java.util.Set;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -30,13 +33,14 @@ import org.mockito.Mockito;
 
 public class GetPooledTransactionsFromPeerTaskTest {
   private static final BlockDataGenerator GENERATOR = new BlockDataGenerator();
+  private static final Set<Capability> AGREED_CAPABILITIES = Set.of(EthProtocol.LATEST);
 
   @Test
   public void testGetRequestMessage() {
     List<Hash> hashes = List.of(Hash.EMPTY);
     GetPooledTransactionsFromPeerTask task = new GetPooledTransactionsFromPeerTask(hashes);
 
-    MessageData result = task.getRequestMessage();
+    MessageData result = task.getRequestMessage(AGREED_CAPABILITIES);
 
     Assertions.assertEquals(
         "0xe1a0c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
@@ -52,7 +56,7 @@ public class GetPooledTransactionsFromPeerTaskTest {
     PooledTransactionsMessage pooledTransactionsMessage =
         PooledTransactionsMessage.create(List.of(transaction));
 
-    List<Transaction> result = task.processResponse(pooledTransactionsMessage);
+    List<Transaction> result = task.processResponse(pooledTransactionsMessage, AGREED_CAPABILITIES);
 
     Assertions.assertEquals(List.of(transaction), result);
   }
@@ -68,7 +72,7 @@ public class GetPooledTransactionsFromPeerTaskTest {
     InvalidPeerTaskResponseException exception =
         Assertions.assertThrows(
             InvalidPeerTaskResponseException.class,
-            () -> task.processResponse(pooledTransactionsMessage));
+            () -> task.processResponse(pooledTransactionsMessage, AGREED_CAPABILITIES));
 
     Assertions.assertEquals(
         "Response transaction count does not match request hash count", exception.getMessage());

@@ -33,6 +33,8 @@ sonarqube {
 }
 
 dependencies {
+  compileOnly 'org.jspecify:jspecify'
+
   implementation project(':ethereum:eth')
   implementation project(':plugin-api')
   implementation project(':util')

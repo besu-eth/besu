@@ -26,14 +26,12 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
-import java.util.function.Supplier;
 
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 
 public class EIP1559TransactionDecoder {
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
 
   private EIP1559TransactionDecoder() {
     // private constructor
@@ -73,12 +71,10 @@ public class EIP1559TransactionDecoder {
     final Transaction transaction =
         builder
             .signature(
-                SIGNATURE_ALGORITHM
-                    .get()
-                    .createSignature(
-                        txRlp.readUInt256Scalar().toUnsignedBigInteger(),
-                        txRlp.readUInt256Scalar().toUnsignedBigInteger(),
-                        recId))
+                SIGNATURE_ALGORITHM.createSignature(
+                    txRlp.readUInt256Scalar().toUnsignedBigInteger(),
+                    txRlp.readUInt256Scalar().toUnsignedBigInteger(),
+                    recId))
             .build();
     txRlp.leaveList();
     return transaction;

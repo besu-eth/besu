@@ -451,7 +451,6 @@ public class ECRecoverBenchmark extends BenchmarkExecutor {
         Bytes.fromHexString(
             "0xda13687f911cf8ede5e0a4317d8b9bf691b56bc2f3f4e463c8c2eb1f61a54469000000000000000000000000000000000000000000000000000000000000001bf6e5df315197d9fe994fae7e05e33be4bd090f9533f36c6285b80478cd21c38533928bb06d48795a86c12f5ccb95758e891d8b1b2d62106e85ae36cb8414d56b"));
 
-    SignatureAlgorithmFactory.setDefaultInstance();
     SignatureAlgorithm signatureAlgorithm = SignatureAlgorithmFactory.getInstance();
     if (attemptNative != null && (!attemptNative || !signatureAlgorithm.maybeEnableNative())) {
       signatureAlgorithm.disableNative();

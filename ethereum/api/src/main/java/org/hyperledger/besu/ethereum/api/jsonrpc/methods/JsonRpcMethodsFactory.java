@@ -157,7 +157,13 @@ public class JsonRpcMethodsFactory {
                   metricsSystem,
                   ethScheduler),
               new TxPoolJsonRpcMethods(transactionPool),
-              new PluginsJsonRpcMethods(namedPlugins));
+              new PluginsJsonRpcMethods(namedPlugins),
+              new TestingJsonRpcMethods(
+                  protocolContext,
+                  protocolSchedule,
+                  miningConfiguration,
+                  transactionPool,
+                  ethScheduler));
 
       for (final JsonRpcMethods apiGroup : availableApiGroups) {
         enabled.putAll(apiGroup.create(rpcApis));

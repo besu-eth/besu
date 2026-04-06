@@ -101,7 +101,6 @@ class CodeDelegationProcessorTest {
     when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
     when(worldUpdater.get(any())).thenReturn(null);
     when(worldUpdater.createAccount(any())).thenReturn(authority);
-    when(authority.getNonce()).thenReturn(0L);
 
     // Act
     CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
@@ -199,7 +198,7 @@ class CodeDelegationProcessorTest {
 
     when(worldUpdater.get(any())).thenReturn(null).thenReturn(null).thenReturn(authority);
     when(worldUpdater.createAccount(any())).thenReturn(authority);
-    when(authority.getNonce()).thenReturn(0L).thenReturn(1L);
+    when(authority.getNonce()).thenReturn(1L);
     when(codeDelegationService.canSetCodeDelegation(any())).thenReturn(true);
 
     // Act

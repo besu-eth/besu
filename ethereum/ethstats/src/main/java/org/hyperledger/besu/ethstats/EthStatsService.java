@@ -30,7 +30,6 @@ import static org.hyperledger.besu.ethstats.request.EthStatsRequest.Type.READY;
 import static org.hyperledger.besu.ethstats.request.EthStatsRequest.Type.STATS;
 
 import org.hyperledger.besu.config.GenesisConfigOptions;
-import org.hyperledger.besu.consensus.clique.blockcreation.CliqueMiningCoordinator;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
@@ -415,12 +414,7 @@ public class EthStatsService {
 
   /** Sends information about the node (is mining, is syncing, etc.) */
   private void sendNodeStatsReport() {
-    final boolean isMiningEnabled;
-    if (miningCoordinator instanceof CliqueMiningCoordinator) {
-      isMiningEnabled = ((CliqueMiningCoordinator) miningCoordinator).isSigner();
-    } else {
-      isMiningEnabled = miningCoordinator.isMining();
-    }
+    final boolean isMiningEnabled = miningCoordinator.isMining();
     final boolean isSyncing = syncState.isInSync();
     final long gasPrice = suggestGasPrice(blockchainQueries.getBlockchain().getChainHeadBlock());
     // safe to cast to int since it isn't realistic to have more than max int peers
@@ -485,14 +479,9 @@ public class EthStatsService {
                           .collect(Collectors.toList());
                   //  if the server does not send a list, we recover the last 50 blocks
                   if (list.isEmpty()) {
-                    final long chainHeadBlockNumber =
-                        blockchainQueries.getBlockchain().getChainHeadBlockNumber();
-                    final long startHistoryBlockNumber =
-                        Math.max(0, chainHeadBlockNumber - HISTORY_RANGE);
                     list =
-                        LongStream.range(chainHeadBlockNumber, startHistoryBlockNumber)
-                            .boxed()
-                            .collect(Collectors.toList());
+                        buildHistoryBlockList(
+                            blockchainQueries.getBlockchain().getChainHeadBlockNumber());
                   }
                   sendHistoryReport(list);
                 }
@@ -502,6 +491,12 @@ public class EthStatsService {
             LOG.debug("Ignore invalid request {}", message);
           }
         });
+  }
+
+  @VisibleForTesting
+  static List<Long> buildHistoryBlockList(final long chainHeadBlockNumber) {
+    final long start = Math.max(0, chainHeadBlockNumber - HISTORY_RANGE);
+    return LongStream.rangeClosed(start, chainHeadBlockNumber).boxed().collect(Collectors.toList());
   }
 
   private long suggestGasPrice(final Block block) {

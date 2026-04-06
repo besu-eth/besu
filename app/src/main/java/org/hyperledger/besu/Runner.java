@@ -32,10 +32,10 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolEvictionService;
 import org.hyperledger.besu.ethereum.p2p.network.NetworkRunner;
 import org.hyperledger.besu.ethereum.p2p.network.P2PNetwork;
+import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethstats.EthStatsService;
 import org.hyperledger.besu.metrics.MetricsService;
 import org.hyperledger.besu.nat.NatService;
-import org.hyperledger.besu.plugin.data.EnodeURL;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -542,7 +542,7 @@ public class Runner implements AutoCloseable {
    * @return the local enode
    */
   @VisibleForTesting
-  Optional<EnodeURL> getLocalEnode() {
+  Optional<EnodeURLImpl> getLocalEnode() {
     return networkRunner.getNetwork().getLocalEnode();
   }
 

@@ -70,8 +70,6 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.stream.Stream;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
@@ -90,11 +88,11 @@ import org.mockito.quality.Strictness;
 @SuppressWarnings({"rawtypes", "unchecked"})
 public class TransactionSimulatorTest extends TrustedSetupClassLoaderExtension {
 
-  private static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
-  private static final BigInteger HALF_CURVE_ORDER = SIGNATURE_ALGORITHM.get().getHalfCurveOrder();
+  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
+  private static final BigInteger HALF_CURVE_ORDER = SIGNATURE_ALGORITHM.getHalfCurveOrder();
   private static final SECPSignature FAKE_SIGNATURE =
-      SIGNATURE_ALGORITHM.get().createSignature(HALF_CURVE_ORDER, HALF_CURVE_ORDER, (byte) 0);
+      SIGNATURE_ALGORITHM.createSignature(HALF_CURVE_ORDER, HALF_CURVE_ORDER, (byte) 0);
 
   private static final Address DEFAULT_FROM =
       Address.fromHexString("0x0000000000000000000000000000000000000000");

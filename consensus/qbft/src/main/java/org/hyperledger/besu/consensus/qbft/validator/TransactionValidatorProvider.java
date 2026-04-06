@@ -67,13 +67,15 @@ public class TransactionValidatorProvider implements ValidatorProvider {
     // For the validator contract we determine the validators from the previous block but the
     // address from block about to be created
     final long nextBlock = parentHeader.getNumber() + 1;
-    final Address contractAddress = resolveContractAddress(nextBlock);
+    final long blockTimestamp = parentHeader.getTimestamp();
+    final Address contractAddress = resolveContractAddress(nextBlock, blockTimestamp);
     return getValidatorsFromContract(afterBlockValidatorCache, parentHeader, contractAddress);
   }
 
   @Override
   public Collection<Address> getValidatorsForBlock(final BlockHeader header) {
-    final Address contractAddress = resolveContractAddress(header.getNumber());
+    final Address contractAddress =
+        resolveContractAddress(header.getNumber(), header.getTimestamp());
     return getValidatorsFromContract(forBlockValidatorCache, header, contractAddress);
   }
 
@@ -99,9 +101,9 @@ public class TransactionValidatorProvider implements ValidatorProvider {
     return Optional.empty();
   }
 
-  private Address resolveContractAddress(final long blockNumber) {
+  private Address resolveContractAddress(final long blockNumber, final long blockTimestamp) {
     return forksSchedule
-        .getFork(blockNumber)
+        .getFork(blockNumber, blockTimestamp)
         .getValue()
         .getValidatorContractAddress()
         .map(Address::fromHexString)

@@ -32,12 +32,12 @@ Gradle won't rerun a task by default with no changes, so to run subsequent times
 
 ---
 
-## 🎯 Filter Benchmarks by Name
+## 🎯 Filter Benchmarks by Name and Case
 
-To run a specific benchmark class, use the `-Pincludes` and/or `-Pexcludes` project properties:
+To run a specific benchmark class, use the `-Pincludes` and/or `-Pexcludes` project properties. To filter by case name, use `-Pcases`:
 
 ```bash
-./gradlew :ethereum:core:jmh -Pincludes=SomeBenchmark -Pexcludes=TransientStorage,BlockHash
+./gradlew :ethereum:core:jmh -Pincludes=Mod -Pexcludes=Mul,Add,SMod -Pcases=MOD_256_128,MOD_256_192 --rerun-tasks
 ```
 
 This uses a regex pattern so other kinds of regexes can be used.
@@ -62,7 +62,8 @@ To profile benchmarks with [Async Profiler](https://github.com/jvm-profiling-too
 ./gradlew :ethereum:core:jmh \
   -Pincludes=SomeBenchmark \
   -PasyncProfiler=/path/to/libasyncProfiler.so \
-  -PasyncProfilerOptions="output=flamegraph"
+  -PasyncProfilerOptions="output=flamegraph" \
+  --rerun-tasks
 ```
 
 This will generate two html profiling files flame-cpu-forward.html and flame-cpu-reverse.html after the benchmark run.

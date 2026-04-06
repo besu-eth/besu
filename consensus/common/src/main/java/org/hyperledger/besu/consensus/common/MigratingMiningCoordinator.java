@@ -53,8 +53,13 @@ public class MigratingMiningCoordinator implements MiningCoordinator, BlockAdded
       final Blockchain blockchain) {
     this.miningCoordinatorSchedule = miningCoordinatorSchedule;
     this.blockchain = blockchain;
+
+    final BlockHeader chainHead = blockchain.getChainHeadHeader();
+
     this.activeMiningCoordinator =
-        this.miningCoordinatorSchedule.getFork(blockchain.getChainHeadBlockNumber() + 1).getValue();
+        this.miningCoordinatorSchedule
+            .getFork(chainHead.getNumber() + 1, chainHead.getTimestamp())
+            .getValue();
   }
 
   @Override
@@ -133,8 +138,9 @@ public class MigratingMiningCoordinator implements MiningCoordinator, BlockAdded
   @Override
   public void onBlockAdded(final BlockAddedEvent event) {
     final long currentBlock = event.getHeader().getNumber();
+    final long parentTimestamp = event.getHeader().getTimestamp();
     final MiningCoordinator nextMiningCoordinator =
-        miningCoordinatorSchedule.getFork(currentBlock + 1).getValue();
+        miningCoordinatorSchedule.getFork(currentBlock + 1, parentTimestamp).getValue();
 
     if (activeMiningCoordinator != nextMiningCoordinator) {
       LOG.trace(

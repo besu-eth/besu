@@ -16,4 +16,6 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 public interface EngineCallListener {
   void executionEngineCalled();
+
+  default void stop() {}
 }

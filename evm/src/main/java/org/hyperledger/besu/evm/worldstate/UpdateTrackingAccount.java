@@ -29,11 +29,11 @@ import org.hyperledger.besu.evm.internal.CodeCache;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.TreeMap;
-import javax.annotation.Nullable;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.jspecify.annotations.Nullable;
 
 /**
  * An implementation of {@link MutableAccount} that tracks updates made to the account since the

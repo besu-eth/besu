@@ -27,13 +27,14 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
-@JsonPropertyOrder({"pc", "op", "gas", "gasCost", "depth", "stack", "memory", "storage"})
+@JsonPropertyOrder({"pc", "op", "gas", "gasCost", "depth", "refund", "stack", "memory", "storage"})
 public class StructLog {
 
   private static final char[] hexChars = "0123456789abcdef".toCharArray();
   private final int depth;
   private final long gas;
   private final long gasCost;
+  private final long refund;
   private final String[] memory;
   private final String op;
   private final int pc;
@@ -45,12 +46,11 @@ public class StructLog {
     depth = traceFrame.getDepth() + 1;
     gas = traceFrame.getGasRemaining();
     gasCost = traceFrame.getGasCost().orElse(0L);
+    refund = traceFrame.getGasRefund();
     memory =
         traceFrame
             .getMemory()
-            .map(
-                a ->
-                    Arrays.stream(a).map(bytes -> toCompactHex(bytes, true)).toArray(String[]::new))
+            .map(a -> Arrays.stream(a).map(StructLog::toBytes32Hex).toArray(String[]::new))
             .orElse(null);
     op = traceFrame.getOpcode();
     pc = traceFrame.getPc();
@@ -68,9 +68,26 @@ public class StructLog {
 
   private static Map<String, String> formatStorage(final Map<UInt256, UInt256> storage) {
     final Map<String, String> formattedStorage = new TreeMap<>();
-    storage.forEach(
-        (key, value) -> formattedStorage.put(toCompactHex(key, false), toCompactHex(value, false)));
+    storage.forEach((key, value) -> formattedStorage.put(toBytes32Hex(key), toBytes32Hex(value)));
     return formattedStorage;
+  }
+
+  /**
+   * Encodes bytes as a 0x-prefixed, zero-padded 32-byte hex string (always 66 chars). Used for
+   * memory words and storage keys/values per the execution-apis opcode tracer spec.
+   */
+  public static String toBytes32Hex(final Bytes abytes) {
+    final byte[] raw = abytes.toArrayUnsafe();
+    final StringBuilder sb = new StringBuilder(66);
+    sb.append("0x");
+    for (int i = raw.length; i < 32; i++) {
+      sb.append("00");
+    }
+    for (final byte b : raw) {
+      sb.append(hexChars[(b >> 4) & 0xF]);
+      sb.append(hexChars[b & 0xF]);
+    }
+    return sb.toString();
   }
 
   @JsonGetter("depth")
@@ -86,6 +103,12 @@ public class StructLog {
   @JsonGetter("gasCost")
   public long gasCost() {
     return gasCost;
+  }
+
+  @JsonGetter("refund")
+  @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+  public long refund() {
+    return refund;
   }
 
   @JsonGetter("memory")

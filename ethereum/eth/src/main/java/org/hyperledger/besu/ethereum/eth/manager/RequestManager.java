@@ -27,6 +27,7 @@ import java.util.Optional;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -67,20 +68,22 @@ public class RequestManager {
   }
 
   public void dispatchResponse(final EthMessage ethMessage) {
-    final Collection<ResponseStream> streams = List.copyOf(responseStreams.values());
-    final int count = outstandingRequests.decrementAndGet();
     try {
       final Map.Entry<BigInteger, MessageData> requestIdAndEthMessage =
           ethMessage.getData().unwrapMessageData();
       Optional.ofNullable(responseStreams.get(requestIdAndEthMessage.getKey()))
           .ifPresentOrElse(
-              responseStream -> responseStream.processMessage(requestIdAndEthMessage.getValue()),
+              responseStream -> {
+                responseStream.releaseOutstandingRequest();
+                responseStream.processMessage(requestIdAndEthMessage.getValue());
+              },
               // Consider incorrect requestIds to be a useless response; too
               // many of these and we will disconnect.
               () -> peer.recordUselessResponse("Request ID incorrect"));
     } catch (final RLPException e) {
       LOG.debug(
-          "Received malformed message {} (BREACH_OF_PROTOCOL), disconnecting: {}",
+          "Received malformed message code={} data={} (BREACH_OF_PROTOCOL), disconnecting: {}",
+          ethMessage.getData().getCode(),
           ethMessage.getData(),
           peer,
           e);
@@ -89,9 +92,9 @@ public class RequestManager {
           DisconnectMessage.DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
     }
 
-    if (count == 0) {
+    if (outstandingRequests.get() == 0) {
       // No possibility of any remaining outstanding messages
-      closeOutstandingStreams(streams);
+      closeOutstandingStreams(List.copyOf(responseStreams.values()));
     }
   }
 
@@ -100,7 +103,15 @@ public class RequestManager {
   }
 
   private ResponseStream createStream(final BigInteger requestId) {
-    final ResponseStream stream = new ResponseStream(peer, () -> deregisterStream(requestId));
+    final AtomicBoolean released = new AtomicBoolean(false);
+    final Runnable releaser =
+        () -> {
+          if (released.compareAndSet(false, true)) {
+            outstandingRequests.decrementAndGet();
+          }
+        };
+    final ResponseStream stream =
+        new ResponseStream(peer, () -> deregisterStream(requestId), releaser);
     responseStreams.put(requestId, stream);
     return stream;
   }
@@ -151,13 +162,18 @@ public class RequestManager {
   public static class ResponseStream {
     private final EthPeer peer;
     private final DeregistrationProcessor deregisterCallback;
+    private final Runnable outstandingRequestReleaser;
     private final Queue<Response> bufferedResponses = new ConcurrentLinkedQueue<>();
     private volatile boolean closed = false;
     private volatile ResponseCallback responseCallback = null;
 
-    public ResponseStream(final EthPeer peer, final DeregistrationProcessor deregisterCallback) {
+    public ResponseStream(
+        final EthPeer peer,
+        final DeregistrationProcessor deregisterCallback,
+        final Runnable outstandingRequestReleaser) {
       this.peer = peer;
       this.deregisterCallback = deregisterCallback;
+      this.outstandingRequestReleaser = outstandingRequestReleaser;
     }
 
     public ResponseStream then(final ResponseCallback callback) {
@@ -171,12 +187,23 @@ public class RequestManager {
       return this;
     }
 
+    /**
+     * Releases the outstanding request capacity for this stream. Uses CAS to ensure exactly-once
+     * semantics: either dispatchResponse() or close() will release the capacity, but not both.
+     */
+    void releaseOutstandingRequest() {
+      outstandingRequestReleaser.run();
+    }
+
     public void close() {
       if (closed) {
         return;
       }
       closed = true;
       deregisterCallback.exec();
+      // Release outstanding request capacity if not already released by dispatchResponse().
+      // This handles the case where a request times out without receiving a response.
+      outstandingRequestReleaser.run();
       bufferedResponses.add(new Response(true, null));
       dispatchBufferedResponses();
     }

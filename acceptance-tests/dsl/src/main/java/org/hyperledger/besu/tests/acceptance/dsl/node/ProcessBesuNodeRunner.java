@@ -162,6 +162,8 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
       }
       params.add("--sync-min-peers");
       params.add(Integer.toString(node.getSynchronizerConfiguration().getSyncMinimumPeerCount()));
+      params.add("--Xsynchronizer-pivot-distance");
+      params.add(Integer.toString(node.getSynchronizerConfiguration().getSyncPivotDistance()));
     } else {
       params.add("--sync-mode");
       params.add("FULL");
@@ -461,7 +463,13 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
     Awaitility.waitAtMost(60, TimeUnit.SECONDS)
         .until(
             () -> {
-              if (!besuProcesses.get(node.getName()).isAlive()) {
+              final Process process = besuProcesses.get(node.getName());
+              if (!process.isAlive()) {
+                LOG.warn(
+                    "Besu process for node {} exited with code {} before writing {}",
+                    node.getName(),
+                    process.exitValue(),
+                    fileName);
                 return true;
               }
 

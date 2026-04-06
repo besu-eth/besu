@@ -41,7 +41,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelTransactionPreprocessing;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiAccount;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BlockAccessListStateRootHashCalculator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BalStateRootCalculator;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -818,7 +818,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x2150c4988c5064c272bb9b9e1119627d41ca1d7b2f93b7624b8c79f84d327f8d",
+            "0x3912cef7496ffde5dc6822b2d268c582faeadcb261c66c80a333aca6f5da9de6",
             Wei.of(5),
             transactionTransfer,
             getcontractBalanceTransaction,
@@ -886,7 +886,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x32e68243a5de9ec1ab65f355c0d1f1ddfeb0770a5853966224653007c02ac75f",
+            "0xb5b3d7b39b66b3e829b038d6ba9b38a3597cedd87df504828336dedb5f3e799f",
             Wei.of(5),
             transactionTransfer,
             sendEthFromContractTransaction,
@@ -953,7 +953,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x61943cc0897cfed1c9b53f59fef91f0902944db9bc30320a7eda4f64612895f6",
+            "0xf81c87537a0a166a48ede069bf50358163ae697d1005cbaa7e6083f22a60a2fb",
             Wei.of(5),
             transactionTransfer,
             getcontractBalanceTransaction,
@@ -1022,7 +1022,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x61943cc0897cfed1c9b53f59fef91f0902944db9bc30320a7eda4f64612895f6",
+            "0xf81c87537a0a166a48ede069bf50358163ae697d1005cbaa7e6083f22a60a2fb",
             Wei.of(5),
             transactionTransfer,
             sendEthFromContractTransaction,
@@ -1286,8 +1286,7 @@ class AbstractBlockProcessorIntegrationTest {
         result.getYield().orElseThrow().getBlockAccessList().orElseThrow();
 
     final Hash computedRoot =
-        BlockAccessListStateRootHashCalculator.computeAsync(
-                protocolContext, block.getHeader(), blockAccessList)
+        BalStateRootCalculator.computeAsync(protocolContext, block.getHeader(), blockAccessList)
             .join()
             .root();
 

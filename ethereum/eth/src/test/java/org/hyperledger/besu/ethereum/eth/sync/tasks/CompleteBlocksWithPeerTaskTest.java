@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResponseCode;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetBodiesFromPeerTask;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.WithdrawalsProcessor;
@@ -39,14 +40,19 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
-import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 public class CompleteBlocksWithPeerTaskTest {
 
-  @BeforeAll
-  public static void setUp() {}
+  private long blockNumber;
+
+  @BeforeEach
+  public void setUp() {
+    blockNumber = 1;
+  }
 
   @Test
   public void shouldFailWhenEmptyHeaders() {
@@ -207,6 +213,29 @@ public class CompleteBlocksWithPeerTaskTest {
     assertThat(BlockHeader.hasEmptyBlock(blocks.get(3).getHeader())).isTrue();
   }
 
+  @Test
+  public void shouldThrowExceptionWhenNoPeersAvailable() {
+    final ProtocolSchedule protocolSchedule = getProtocolScheduleMock();
+    final PeerTaskExecutor peerTaskExecutor = mock(PeerTaskExecutor.class);
+    final BlockHeader header1 = getNonEmptyBlockHeaderMock("0x01", "0x02");
+    final BlockHeader header2 = getNonEmptyBlockHeaderMock("0x03", "0x05");
+
+    Mockito.when(peerTaskExecutor.execute(any(GetBodiesFromPeerTask.class)))
+        .thenReturn(
+            new PeerTaskExecutorResult<>(
+                Optional.empty(),
+                PeerTaskExecutorResponseCode.NO_PEER_AVAILABLE,
+                Collections.emptyList()));
+
+    CompleteBlocksWithPeerTask task =
+        new CompleteBlocksWithPeerTask(
+            protocolSchedule, List.of(header1, header2), peerTaskExecutor);
+    Assertions.assertThrows(
+        RuntimeException.class,
+        task::retrieveBlocksFromPeers,
+        "Unable to retrieve blocks for block numbers: 1 to 2");
+  }
+
   private static ProtocolSchedule getProtocolScheduleMock() {
     final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
     final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
@@ -216,17 +245,19 @@ public class CompleteBlocksWithPeerTaskTest {
     return protocolSchedule;
   }
 
-  private static BlockHeader getEmptyBlockHeaderMock() {
+  private BlockHeader getEmptyBlockHeaderMock() {
     final BlockHeader blockHeader = mock(BlockHeader.class);
+    when(blockHeader.getNumber()).thenReturn(blockNumber++);
     when(blockHeader.getTransactionsRoot()).thenReturn(Hash.EMPTY_TRIE_HASH);
     when(blockHeader.getOmmersHash()).thenReturn(Hash.EMPTY_LIST_HASH);
     when(blockHeader.getWithdrawalsRoot()).thenReturn(Optional.empty());
     return blockHeader;
   }
 
-  private static BlockHeader getNonEmptyBlockHeaderMock(
+  private BlockHeader getNonEmptyBlockHeaderMock(
       final String transactionsRootHexString, final String ommersHash) {
     final BlockHeader blockHeader = mock(BlockHeader.class);
+    when(blockHeader.getNumber()).thenReturn(blockNumber++);
     when(blockHeader.getTransactionsRoot())
         .thenReturn(Hash.fromHexStringLenient(transactionsRootHexString));
     when(blockHeader.getOmmersHash()).thenReturn(Hash.fromHexStringLenient(ommersHash));

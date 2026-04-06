@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
+import org.hyperledger.besu.ethereum.eth.manager.exceptions.ProtocolViolationException;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
 import org.hyperledger.besu.ethereum.eth.messages.StatusMessage;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
@@ -36,6 +37,7 @@ import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.p2p.network.ProtocolManager;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection.PeerNotConnected;
+import org.hyperledger.besu.ethereum.p2p.rlpx.framing.FramingException;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Message;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
@@ -175,6 +177,8 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
 
     capabilities.add(EthProtocol.ETH68);
     capabilities.add(EthProtocol.ETH69);
+    capabilities.add(EthProtocol.ETH70);
+    capabilities.add(EthProtocol.ETH71);
     capabilities.removeIf(cap -> cap.getVersion() > ethProtocolConfiguration.getMaxEthCapability());
     capabilities.removeIf(cap -> cap.getVersion() < ethProtocolConfiguration.getMinEthCapability());
 
@@ -295,12 +299,12 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
       return;
     }
 
-    // This will handle responses
-    ethPeers.dispatchMessage(ethPeer, ethMessage, getSupportedProtocol());
-
-    // This will handle requests
     Optional<MessageData> maybeResponseData = Optional.empty();
     try {
+      // This will handle responses
+      ethPeers.dispatchMessage(ethPeer, ethMessage, getSupportedProtocol());
+
+      // This will handle requests
       if (EthProtocol.requestIdCompatible(code)) {
         final Map.Entry<BigInteger, MessageData> requestIdAndEthMessage =
             ethMessage.getData().unwrapMessageData();
@@ -311,16 +315,38 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
       } else {
         maybeResponseData = ethMessages.dispatch(ethMessage, capability);
       }
-    } catch (final RLPException e) {
+    } catch (final FramingException e) {
       LOG.atDebug()
-          .setMessage("Received malformed message {} (BREACH_OF_PROTOCOL), disconnecting: {}, {}")
-          .addArgument(messageData::getData)
-          .addArgument(ethPeer::toString)
-          .addArgument(e::toString)
+          .setMessage("Disconnecting peer {} due to decompression failure for message code {}")
+          .addArgument(ethPeer::getLoggableId)
+          .addArgument(code)
+          .setCause(e)
           .log();
 
       ethPeer.disconnect(
           DisconnectMessage.DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+    } catch (final RLPException e) {
+      LOG.atDebug()
+          .setMessage(
+              "Received malformed message code={} data={} (BREACH_OF_PROTOCOL), disconnecting: {}")
+          .addArgument(code)
+          .addArgument(messageData::getData)
+          .addArgument(ethPeer::toString)
+          .setCause(e)
+          .log();
+
+      ethPeer.disconnect(
+          DisconnectMessage.DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+    } catch (final ProtocolViolationException e) {
+      LOG.atDebug()
+          .setMessage("Received invalid message {} ({}), disconnecting: {}, {}")
+          .addArgument(messageData::getData)
+          .addArgument(e::getReason)
+          .addArgument(ethPeer::toString)
+          .addArgument(e::toString)
+          .log();
+
+      ethPeer.disconnect(e.getReason());
     }
     maybeResponseData.ifPresent(
         responseData -> {
@@ -382,6 +408,9 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
         .addArgument(() -> connection.getPeerInfo().getClientId())
         .addArgument(ethPeers::peerCount)
         .log();
+    if (initiatedByPeer && reason.isBreachOfProtocol()) {
+      BreachOfProtocolLogger.log(connection, reason);
+    }
     LOG.atTrace().setMessage("{}").addArgument(ethPeers::toString).log();
   }
 

@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.CallParameterUtil.validateAndGetCallParams;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StateOverrideMap;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcErrorConverter;
@@ -241,8 +242,12 @@ public abstract class AbstractEstimateGas extends AbstractBlockParameterMethod {
       final var sender = callParameters.getSender().get();
       final var maxGasPrice = calculateTxMaxGasPrice(callParameters);
       if (!maxGasPrice.equals(Wei.ZERO)) {
-        final var maybeBalance =
-            getBlockchainQueries().accountBalance(sender, blockHeader.getParentHash());
+        // For a concrete BlockHeader (historical or "latest"), look up the balance at that
+        // block's own state.  For a synthetic ProcessableBlockHeader (pending), the block
+        // does not exist yet, so the correct state is the parent's (chain-head) state.
+        final Hash balanceBlockHash =
+            (blockHeader instanceof BlockHeader bh) ? bh.getHash() : blockHeader.getParentHash();
+        final var maybeBalance = getBlockchainQueries().accountBalance(sender, balanceBlockHash);
         if (maybeBalance.isEmpty() || maybeBalance.get().equals(Wei.ZERO)) {
           return 0;
         }

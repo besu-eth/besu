@@ -43,6 +43,7 @@ import org.hyperledger.besu.plugin.data.EnodeURL;
 
 import java.net.InetAddress;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -76,8 +77,12 @@ public class P2PNetworkTest {
     final NodeKey nodeKey = NodeKeyUtils.generate();
     try (final P2PNetwork listener = createP2PNetwork(nodeKey);
         final P2PNetwork connector = createP2PNetwork(NodeKeyUtils.generate())) {
-      listener.getRlpxAgent().subscribeConnectRequest((p, d) -> true);
-      connector.getRlpxAgent().subscribeConnectRequest((p, d) -> true);
+      listener
+          .getRlpxAgent()
+          .ifPresent(agent -> agent.setPeerConnectionGatekeeper((p, d) -> Optional.empty()));
+      connector
+          .getRlpxAgent()
+          .ifPresent(agent -> agent.setPeerConnectionGatekeeper((p, d) -> Optional.empty()));
 
       listener.start();
       connector.start();
@@ -100,8 +105,12 @@ public class P2PNetworkTest {
     final NodeKey listenNodeKey = NodeKeyUtils.generate();
     try (final P2PNetwork listener = createP2PNetwork(listenNodeKey);
         final P2PNetwork connector = createP2PNetwork(NodeKeyUtils.generate())) {
-      listener.getRlpxAgent().subscribeConnectRequest((p, d) -> true);
-      connector.getRlpxAgent().subscribeConnectRequest((p, d) -> true);
+      listener
+          .getRlpxAgent()
+          .ifPresent(agent -> agent.setPeerConnectionGatekeeper((p, d) -> Optional.empty()));
+      connector
+          .getRlpxAgent()
+          .ifPresent(agent -> agent.setPeerConnectionGatekeeper((p, d) -> Optional.empty()));
 
       listener.start();
       connector.start();
@@ -137,8 +146,12 @@ public class P2PNetworkTest {
         Capability.create(subprotocol2.getName(), EthProtocolHelper.LATEST.getVersion());
     try (final P2PNetwork listener = createP2PNetwork(listenerNodeKey, List.of(cap1));
         final P2PNetwork connector = createP2PNetwork(connectorNodeKey, List.of(cap2))) {
-      listener.getRlpxAgent().subscribeConnectRequest((p, d) -> true);
-      connector.getRlpxAgent().subscribeConnectRequest((p, d) -> true);
+      listener
+          .getRlpxAgent()
+          .ifPresent(agent -> agent.setPeerConnectionGatekeeper((p, d) -> Optional.empty()));
+      connector
+          .getRlpxAgent()
+          .ifPresent(agent -> agent.setPeerConnectionGatekeeper((p, d) -> Optional.empty()));
 
       listener.start();
       connector.start();
@@ -158,8 +171,12 @@ public class P2PNetworkTest {
 
     try (final P2PNetwork localNetwork = createP2PNetwork(localDenylist);
         final P2PNetwork remoteNetwork = createP2PNetwork()) {
-      localNetwork.getRlpxAgent().subscribeConnectRequest((p, d) -> true);
-      remoteNetwork.getRlpxAgent().subscribeConnectRequest((p, d) -> true);
+      localNetwork
+          .getRlpxAgent()
+          .ifPresent(agent -> agent.setPeerConnectionGatekeeper((p, d) -> Optional.empty()));
+      remoteNetwork
+          .getRlpxAgent()
+          .ifPresent(agent -> agent.setPeerConnectionGatekeeper((p, d) -> Optional.empty()));
 
       localNetwork.start();
       remoteNetwork.start();
@@ -207,13 +224,17 @@ public class P2PNetworkTest {
 
     try (final P2PNetwork localNetwork = createP2PNetwork(peerPermissions);
         final P2PNetwork remoteNetwork = createP2PNetwork()) {
-      localNetwork.getRlpxAgent().subscribeConnectRequest((p, d) -> true);
-      remoteNetwork.getRlpxAgent().subscribeConnectRequest((p, d) -> true);
+      localNetwork
+          .getRlpxAgent()
+          .ifPresent(agent -> agent.setPeerConnectionGatekeeper((p, d) -> Optional.empty()));
+      remoteNetwork
+          .getRlpxAgent()
+          .ifPresent(agent -> agent.setPeerConnectionGatekeeper((p, d) -> Optional.empty()));
 
       localNetwork.start();
       remoteNetwork.start();
 
-      final EnodeURL localEnode = localNetwork.getLocalEnode().get();
+      final EnodeURLImpl localEnode = localNetwork.getLocalEnode().get();
       final Peer localPeer = DefaultPeer.fromEnodeURL(localEnode);
       final Peer remotePeer = DefaultPeer.fromEnodeURL(remoteNetwork.getLocalEnode().get());
 

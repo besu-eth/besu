@@ -65,8 +65,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import org.junit.jupiter.api.Test;
 
 public abstract class AbstractPendingTransactionsTestBase {
@@ -74,10 +72,10 @@ public abstract class AbstractPendingTransactionsTestBase {
   protected static final int MAX_TRANSACTIONS = 5;
   protected static final int MAX_TRANSACTIONS_LARGE_POOL = 15;
   private static final float LIMITED_TRANSACTIONS_BY_SENDER_PERCENTAGE = 0.8f;
-  protected static final Supplier<SignatureAlgorithm> SIGNATURE_ALGORITHM =
-      Suppliers.memoize(SignatureAlgorithmFactory::getInstance);
-  protected static final KeyPair KEYS1 = SIGNATURE_ALGORITHM.get().generateKeyPair();
-  protected static final KeyPair KEYS2 = SIGNATURE_ALGORITHM.get().generateKeyPair();
+  protected static final SignatureAlgorithm SIGNATURE_ALGORITHM =
+      SignatureAlgorithmFactory.getInstance();
+  protected static final KeyPair KEYS1 = SIGNATURE_ALGORITHM.generateKeyPair();
+  protected static final KeyPair KEYS2 = SIGNATURE_ALGORITHM.generateKeyPair();
   protected static final String ADDED_COUNTER = "transactions_added_total";
   protected static final String REMOVED_COUNTER = "transactions_removed_total";
   protected static final String REMOTE = "remote";
@@ -172,7 +170,7 @@ public abstract class AbstractPendingTransactionsTestBase {
   @Test
   public void shouldDropOldestTransactionWhenLimitExceeded() {
     final Transaction oldestTransaction =
-        transactionWithNonceSenderAndGasPrice(0, SIGNATURE_ALGORITHM.get().generateKeyPair(), 10L);
+        transactionWithNonceSenderAndGasPrice(0, SIGNATURE_ALGORITHM.generateKeyPair(), 10L);
     final Account oldestSender = mock(Account.class);
     when(oldestSender.getNonce()).thenReturn(0L);
     senderLimitedTransactions.addTransaction(
@@ -182,8 +180,7 @@ public abstract class AbstractPendingTransactionsTestBase {
       when(sender.getNonce()).thenReturn((long) i);
       senderLimitedTransactions.addTransaction(
           createRemotePendingTransaction(
-              transactionWithNonceSenderAndGasPrice(
-                  i, SIGNATURE_ALGORITHM.get().generateKeyPair(), 10L)),
+              transactionWithNonceSenderAndGasPrice(i, SIGNATURE_ALGORITHM.generateKeyPair(), 10L)),
           Optional.of(sender));
     }
     assertThat(senderLimitedTransactions.size()).isEqualTo(MAX_TRANSACTIONS);
@@ -628,6 +625,78 @@ public abstract class AbstractPendingTransactionsTestBase {
         });
   }
 
+  @Test
+  public void shouldReturnZeroStatusWhenPoolIsEmpty() {
+    final PendingTransactions.Status status = transactions.getStatus();
+    assertThat(status.pendingCount()).isZero();
+    assertThat(status.queuedCount()).isZero();
+  }
+
+  @Test
+  public void shouldCountAllTransactionsAsPendingWhenNonceIsSequential() {
+    transactions.addTransaction(
+        createRemotePendingTransaction(transactionWithNonceAndSender(0, KEYS1)), Optional.empty());
+    transactions.addTransaction(
+        createRemotePendingTransaction(transactionWithNonceAndSender(1, KEYS1)), Optional.empty());
+    transactions.addTransaction(
+        createRemotePendingTransaction(transactionWithNonceAndSender(2, KEYS1)), Optional.empty());
+
+    final PendingTransactions.Status status = transactions.getStatus();
+    assertThat(status.pendingCount()).isEqualTo(3);
+    assertThat(status.queuedCount()).isZero();
+  }
+
+  @Test
+  public void shouldCountTransactionsBeyondNonceGapAsQueued() {
+    // nonce 0 is pending, nonce 2 is queued (gap at 1)
+    transactions.addTransaction(
+        createRemotePendingTransaction(transactionWithNonceAndSender(0, KEYS1)), Optional.empty());
+    transactions.addTransaction(
+        createRemotePendingTransaction(transactionWithNonceAndSender(2, KEYS1)), Optional.empty());
+
+    final PendingTransactions.Status status = transactions.getStatus();
+    assertThat(status.pendingCount()).isEqualTo(1);
+    assertThat(status.queuedCount()).isEqualTo(1);
+  }
+
+  @Test
+  public void shouldAggregatePendingAndQueuedAcrossMultipleSenders() {
+    // SENDER1: nonces 0, 1 — sequential, all pending
+    transactions.addTransaction(
+        createRemotePendingTransaction(transactionWithNonceAndSender(0, KEYS1)), Optional.empty());
+    transactions.addTransaction(
+        createRemotePendingTransaction(transactionWithNonceAndSender(1, KEYS1)), Optional.empty());
+    // SENDER2: nonces 0, 2 — gap at 1: 1 pending, 1 queued
+    transactions.addTransaction(
+        createRemotePendingTransaction(transactionWithNonceAndSender(0, KEYS2)), Optional.empty());
+    transactions.addTransaction(
+        createRemotePendingTransaction(transactionWithNonceAndSender(2, KEYS2)), Optional.empty());
+
+    final PendingTransactions.Status status = transactions.getStatus();
+    assertThat(status.pendingCount()).isEqualTo(3);
+    assertThat(status.queuedCount()).isEqualTo(1);
+  }
+
+  @Test
+  public void shouldUseAccountNonceToComputePendingCountWhenGapIsPresent() {
+    // account nonce is 2, txs at 2, 3, 5 — gap at 4: 2 pending (nonces 2,3), 1 queued (nonce 5)
+    final Account sender = mock(Account.class);
+    when(sender.getNonce()).thenReturn(2L);
+    transactions.addTransaction(
+        createRemotePendingTransaction(transactionWithNonceAndSender(2, KEYS1)),
+        Optional.of(sender));
+    transactions.addTransaction(
+        createRemotePendingTransaction(transactionWithNonceAndSender(3, KEYS1)),
+        Optional.of(sender));
+    transactions.addTransaction(
+        createRemotePendingTransaction(transactionWithNonceAndSender(5, KEYS1)),
+        Optional.of(sender));
+
+    final PendingTransactions.Status status = transactions.getStatus();
+    assertThat(status.pendingCount()).isEqualTo(2);
+    assertThat(status.queuedCount()).isEqualTo(1);
+  }
+
   protected void assertMaximumNonceForSender(final Address sender1, final int i) {
     assertThat(transactions.getNextNonceForSender(sender1)).isEqualTo(OptionalLong.of(i));
   }
@@ -887,7 +956,7 @@ public abstract class AbstractPendingTransactionsTestBase {
                   final Account randomSender = mock(Account.class);
                   final Transaction lowPriceTx =
                       transactionWithNonceSenderAndGasPrice(
-                          0, SIGNATURE_ALGORITHM.get().generateKeyPair(), 10);
+                          0, SIGNATURE_ALGORITHM.generateKeyPair(), 10);
                   transactions.addTransaction(
                       createRemotePendingTransaction(lowPriceTx), Optional.of(randomSender));
                   return lowPriceTx;

@@ -124,6 +124,10 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
 
   public abstract JsonRpcResponse syncResponse(final JsonRpcRequestContext request);
 
+  public EngineCallListener getEngineCallListener() {
+    return engineCallListener;
+  }
+
   protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
     return ValidationResult.valid();
   }

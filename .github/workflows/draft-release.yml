@@ -14,7 +14,7 @@ env:
 
 jobs:
   validate:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     env:
       RELEASE_VERSION: "${{ inputs.tag }}"
     steps:
@@ -41,7 +41,7 @@ jobs:
 
       # Perform a tag checkout to ensure tag is available
       - name: Verify tag Exist
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ steps.validate_release_version.outputs.release_version }}
           fetch-depth: 1
@@ -50,7 +50,7 @@ jobs:
       release_version: ${{ steps.validate_release_version.outputs.release_version }}
 
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     needs: validate
     env:
       RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}  # Use the output from the pre_process_release job
@@ -59,18 +59,18 @@ jobs:
       zipSha: ${{steps.hashes.outputs.zipSha}}
     steps:
       - name: Checkout tag
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.RELEASE_VERSION }}
 
       - name: Set up Java
-        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           distribution: temurin
           java-version: 21
 
       - name: Setup gradle
-        uses: gradle/actions/setup-gradle@9e899d11ad247ec76be7a60bc1cf9d3abbb9e7f1
+        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
           cache-disabled: true
 
@@ -90,28 +90,28 @@ jobs:
           shasum -a 256 besu-${{env.RELEASE_VERSION}}.zip > besu-${{env.RELEASE_VERSION}}.zip.sha256
 
       - name: Upload tarball
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           path: 'build/distributions/besu-${{ env.RELEASE_VERSION }}.tar.gz'
           name: besu-${{ env.RELEASE_VERSION }}.tar.gz
           compression-level: 0
 
       - name: upload zipfile
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           path: 'build/distributions/besu-${{ env.RELEASE_VERSION }}.zip'
           name: besu-${{ env.RELEASE_VERSION }}.zip
           compression-level: 0
 
       - name: upload checksum zip
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           path: 'build/distributions/besu-${{ env.RELEASE_VERSION }}.zip.sha256'
           name: besu-${{ env.RELEASE_VERSION }}.zip.sha256
           compression-level: 0
 
       - name: upload checksum tar.gz
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
           path: 'build/distributions/besu-${{ env.RELEASE_VERSION }}.tar.gz.sha256'
           name: besu-${{ env.RELEASE_VERSION }}.tar.gz.sha256
@@ -123,13 +123,13 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Set up Java
-        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           distribution: temurin
           java-version: 21
 
       - name: Download zip
-        uses: actions/download-artifact@eaceaf801fd36c7dee90939fad912460b18a1ffe
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: besu-*.zip
           merge-multiple: true
@@ -144,18 +144,18 @@ jobs:
           besu\bin\besu.bat --version
 
   test-linux:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     needs: ["build"]
     timeout-minutes: 5
     steps:
       - name: Set up Java
-        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           distribution: temurin
           java-version: 21
 
       - name: Download tar.gz
-        uses: actions/download-artifact@eaceaf801fd36c7dee90939fad912460b18a1ffe
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: besu-*.tar.gz
           merge-multiple: true
@@ -169,13 +169,13 @@ jobs:
           besu-test/bin/besu --version
 
   docker-lint:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     needs: [test-linux, test-windows]
     env:
       RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}  # Use the output from the pre_process_release job
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.RELEASE_VERSION }}
 
@@ -190,7 +190,7 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - ubuntu-22.04
+          - ubuntu-latest
           - besu-arm64
     runs-on: ${{ matrix.platform }}
     steps:
@@ -198,7 +198,7 @@ jobs:
         id: prep
         run: |
           platform=${{ matrix.platform }}
-          if [ "$platform" = 'ubuntu-22.04' ]; then
+          if [ "$platform" = 'ubuntu-latest' ]; then
             echo "PLATFORM_PAIR=linux-amd64" >> $GITHUB_OUTPUT
             echo "ARCH=amd64" >> $GITHUB_OUTPUT
           else
@@ -207,7 +207,7 @@ jobs:
           fi
 
       - name: Checkout Repo
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.RELEASE_VERSION }}
 
@@ -216,30 +216,27 @@ jobs:
         run: echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
       - name: Set up Java
-        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           distribution: temurin
           java-version: 21
 
       - name: setup gradle
-        uses: gradle/actions/setup-gradle@9e899d11ad247ec76be7a60bc1cf9d3abbb9e7f1
+        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
           cache-disabled: true
 
       - name: login to ${{ env.registry }}
-        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
         with:
           registry: ${{ env.registry }}
           username: ${{ secrets.DOCKER_USER_RW }}
           password: ${{ secrets.DOCKER_PASSWORD_RW }}
 
       - name: build and test docker
-        uses: gradle/actions/setup-gradle@9e899d11ad247ec76be7a60bc1cf9d3abbb9e7f1
         env:
           architecture: ${{ steps.prep.outputs.ARCH }}
-        with:
-          cache-disabled: true
-          arguments: testDocker -PdockerOrgName=${{ env.registry }}/${{ secrets.DOCKER_ORG }} -Pversion=${{env.RELEASE_VERSION}} -Prelease.releaseVersion=${{ env.RELEASE_VERSION }}
+        run: ./gradlew --no-daemon testDocker -PdockerOrgName=${{ env.registry }}/${{ secrets.DOCKER_ORG }} -Pversion=${{env.RELEASE_VERSION}} -Prelease.releaseVersion=${{ env.RELEASE_VERSION }}
 
       - name: publish
         env:
@@ -248,28 +245,28 @@ jobs:
 
   docker-manifest:
     needs: [validate, docker-publish]
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     env:
       RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.RELEASE_VERSION }}
 
       - name: Set up Java
-        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           distribution: temurin
           java-version: 21
 
       - name: setup gradle
-        uses: gradle/actions/setup-gradle@9e899d11ad247ec76be7a60bc1cf9d3abbb9e7f1
+        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
           cache-disabled: true
 
       - name: login to ${{ env.registry }}
-        uses: docker/login-action@343f7c4344506bcbf9b4de18042ae17996df046d
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
         with:
           registry: ${{ env.registry }}
           username: ${{ secrets.DOCKER_USER_RW }}
@@ -290,16 +287,16 @@ jobs:
         combination:
           - tag: ${{ needs.validate.outputs.release_version }}
             platform: ''
-            runner: ubuntu-22.04
+            runner: ubuntu-latest
           - tag: ${{ needs.validate.outputs.release_version }}-amd64
             platform: 'linux/amd64'
-            runner: ubuntu-22.04
+            runner: ubuntu-latest
           - tag: ${{ needs.validate.outputs.release_version }}-arm64
             platform: ''
             runner: besu-arm64
     steps:
       - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           sparse-checkout: '.github/workflows/BesuContainerVerify.sh'
 
@@ -320,7 +317,7 @@ jobs:
         run: docker stop ${{ env.CONTAINER_NAME }}
 
   release-draft:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     needs: [validate, test-linux, test-windows]
     permissions:
       contents: write
@@ -328,12 +325,12 @@ jobs:
       RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.RELEASE_VERSION }}
 
       - name: Download Besu artifacts
-        uses: actions/download-artifact@eaceaf801fd36c7dee90939fad912460b18a1ffe
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: besu-${{env.RELEASE_VERSION}}*
           merge-multiple: true
@@ -365,24 +362,24 @@ jobs:
           GH_TOKEN: ${{ github.token }}
 
   artifactory:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     needs: [validate, test-linux, test-windows]
     env:
       RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
     steps:
       - name: checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.RELEASE_VERSION }}
 
       - name: Set up Java
-        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           distribution: temurin
           java-version: 21
 
       - name: setup gradle
-        uses: gradle/actions/setup-gradle@9e899d11ad247ec76be7a60bc1cf9d3abbb9e7f1
+        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
           cache-disabled: true
 
@@ -393,16 +390,15 @@ jobs:
         run: ./gradlew -Prelease.releaseVersion=${{ env.RELEASE_VERSION }} -Pversion=${{env.RELEASE_VERSION}} artifactoryPublish
 
   verify_artifactory:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     needs: [artifactory, validate, test-linux, test-windows]
     steps:
       - name: checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.RELEASE_VERSION }}
 
-      # actions/setup-python@5.3 
-      - uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
           python-version: '3.13'
 
