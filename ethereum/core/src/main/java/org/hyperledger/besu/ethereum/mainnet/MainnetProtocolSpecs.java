@@ -1278,12 +1278,12 @@ public abstract class MainnetProtocolSpecs {
       final ProtocolSpecBuilder builder,
       final GenesisConfigOptions genesisConfigOptions,
       final Function<BlobScheduleOptions, Optional<BlobSchedule>> blobGetter,
-      final Function<GenesisConfigOptions, OptionalLong> forkTimestampGetter,
+      final Function<GenesisConfigOptions, OptionalLong> blobScheduleTimestampGetter,
       final HardforkId hardforkId) {
     // Only apply a fork's blob schedule if the fork is actually activated (has a timestamp).
     // This prevents inactive BPO forks from overriding the blob schedule with stale values
     // from the genesis config.
-    if (forkTimestampGetter.apply(genesisConfigOptions).isPresent()) {
+    if (blobScheduleTimestampGetter.apply(genesisConfigOptions).isPresent()) {
       genesisConfigOptions
           .getBlobScheduleOptions()
           .flatMap(blobGetter)
