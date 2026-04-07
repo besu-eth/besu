@@ -186,6 +186,8 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
       return CompletableFuture.failedFuture(e);
     }
 
+    peerPermissions.subscribeUpdate(this::handlePermissionsUpdate);
+
     return system
         .start()
         .thenApply(
@@ -571,5 +573,27 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
         "discv5_total_nodes_current",
         "Current number of total nodes tracked by the DiscV5 discovery system",
         () -> system.getBucketStats().getTotalNodeCount());
+  }
+
+  private void handlePermissionsUpdate(
+      final boolean addRestrictions, final Optional<List<Peer>> affectedPeers) {
+    if (nodeRecordManager.getLocalNode().isPresent() && addRestrictions) {
+      if (affectedPeers.isPresent()) {
+        affectedPeers.get().stream().filter(this::isPeerNotPermitted).forEach(this::dropPeer);
+      } else {
+        discoverySystem.get().getNodeRecordBuckets().stream()
+            .flatMap(List::stream)
+            .map(nr -> DiscoveryPeerFactory.fromNodeRecord(nr, preferIpv6Outbound))
+            .filter(this::isPeerNotPermitted)
+            .forEach(this::dropPeer);
+      }
+    }
+  }
+
+  private boolean isPeerNotPermitted(final Peer peer) {
+    return !peerPermissions.isPermitted(
+        nodeRecordManager.getLocalNode().get(),
+        peer,
+        PeerPermissions.Action.DISCOVERY_ALLOW_IN_PEER_TABLE);
   }
 }
