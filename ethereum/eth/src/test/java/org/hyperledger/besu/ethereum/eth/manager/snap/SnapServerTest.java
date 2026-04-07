@@ -167,7 +167,8 @@ public class SnapServerTest {
               }
             });
 
-    snapServer = new SnapServer(new EthMessages(), storageCoordinator, spyProvider).start();
+    // start snap server with no Long.MAX_VALUE timeout to avoid flaky tests
+    snapServer = new SnapServer(new EthMessages(), storageCoordinator, spyProvider, Long.MAX_VALUE);
     snapServer.start();
 
     acct1 = createTestAccount("10");
