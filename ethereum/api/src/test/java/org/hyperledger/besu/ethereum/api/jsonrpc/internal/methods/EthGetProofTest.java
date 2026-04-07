@@ -45,23 +45,18 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.assertj.core.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.junit.jupiter.MockitoSettings;
-import org.mockito.quality.Strictness;
 
-@ExtendWith(MockitoExtension.class)
-@MockitoSettings(strictness = Strictness.LENIENT)
 class EthGetProofTest {
+
+  private static BlockchainQueries blockchainQueries;
 
   private EthGetProof method;
   private final String JSON_RPC_VERSION = "2.0";
   private final String ETH_METHOD = "eth_getProof";
 
-  @Mock private BlockchainQueries blockchainQueries;
   private final Address address =
       Address.fromHexString("0x000d836201318ec6899a67540690382780743280");
   private final UInt256 storageKey =
@@ -69,8 +64,8 @@ class EthGetProofTest {
 
   private final long blockNumber = 500;
 
-  @BeforeEach
-  public void setUp() {
+  @BeforeAll
+  static void setUpClass() {
     final BlockchainSetupUtil blockchainSetupUtil =
         BlockchainSetupUtil.forSnapTesting(DataStorageFormat.BONSAI);
     blockchainSetupUtil.importAllBlocks(
@@ -83,7 +78,10 @@ class EthGetProofTest {
             blockchain,
             worldStateArchive,
             MiningConfiguration.newDefault());
+  }
 
+  @BeforeEach
+  void setUp() {
     method = new EthGetProof(blockchainQueries);
   }
 

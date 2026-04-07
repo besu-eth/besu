@@ -20,8 +20,8 @@
     "jsonrpc" : "2.0",
     "id" : 67,
     "error" : {
-      "code" : -32602,
-      "message" : "Invalid withdrawals"
+      "code" : -38003,
+      "message" : "Invalid payload attributes"
     }
   },
   "statusCode" : 200

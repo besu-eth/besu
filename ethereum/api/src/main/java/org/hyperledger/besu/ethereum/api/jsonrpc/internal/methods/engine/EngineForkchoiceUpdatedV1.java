@@ -57,4 +57,9 @@ public class EngineForkchoiceUpdatedV1 extends AbstractEngineForkchoiceUpdated {
   protected RpcErrorType getInvalidParametersError() {
     return RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES;
   }
+
+  @Override
+  protected RpcErrorType getInvalidPayloadAttributesError() {
+    return RpcErrorType.INVALID_WITHDRAWALS_PARAMS;
+  }
 }

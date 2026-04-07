@@ -28,8 +28,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTracer;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.OpCodeLoggerTracerResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.StructLog;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
@@ -167,7 +169,7 @@ public class DebugTraceTransactionTest {
         (OpCodeLoggerTracerResult) response.getResult();
 
     assertThat(transactionResult.getGas()).isEqualTo(73);
-    assertThat(transactionResult.getReturnValue()).isEqualTo("1234");
+    assertThat(transactionResult.getReturnValue()).isEqualTo("0x1234");
     final List<StructLog> expectedStructLogs = Collections.singletonList(new StructLog(traceFrame));
     assertThat(transactionResult.getStructLogs()).isEqualTo(expectedStructLogs);
     assertThat(transactionResult.getStructLogs().size()).isEqualTo(1);
@@ -176,53 +178,21 @@ public class DebugTraceTransactionTest {
         .isEqualTo(StructLog.toCompactHex(stackBytes[0], true));
     assertThat(transactionResult.getStructLogs().get(0).memory().length).isEqualTo(1);
     assertThat(transactionResult.getStructLogs().get(0).memory()[0])
-        .isEqualTo(StructLog.toCompactHex(memoryBytes[0], true));
+        .isEqualTo(StructLog.toBytes32Hex(memoryBytes[0]));
   }
 
   @Test
   public void shouldNotTraceTheTransactionIfNotFound() {
-    final Map<String, Boolean> map = new HashMap<>();
-    map.put("disableStorage", true);
-    final Object[] params = new Object[] {transactionHash, map};
+    final Object[] params = new Object[] {transactionHash};
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceTransaction", params));
-    final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
 
-    final TraceFrame traceFrame =
-        TraceFrame.builder()
-            .setPc(12)
-            .setOpcode("NONE")
-            .setOpcodeNumber(Integer.MAX_VALUE)
-            .setGasRemaining(45L)
-            .setGasCost(OptionalLong.of(56L))
-            .setGasRefund(0L)
-            .setDepth(2)
-            .setRecipient(null)
-            .setValue(Wei.ZERO)
-            .setInputData(Bytes.EMPTY)
-            .setOutputData(Bytes.EMPTY)
-            .setWorldUpdater(null)
-            .setRevertReason(Optional.of(Bytes.fromHexString("0x1122334455667788")))
-            .setStackItemsProduced(0)
-            .setVirtualOperation(false)
-            .build();
-    final List<TraceFrame> traceFrames = Collections.singletonList(traceFrame);
-    final TransactionTrace transactionTrace =
-        new TransactionTrace(transaction, result, traceFrames);
-    when(transaction.getGasLimit()).thenReturn(100L);
-    when(result.getGasRemaining()).thenReturn(27L);
-    when(result.getOutput()).thenReturn(Bytes.fromHexString("1234"));
-    when(blockchainQueries.headBlockNumber()).thenReturn(12L);
     when(blockchainQueries.transactionByHash(transactionHash)).thenReturn(Optional.empty());
-    when(transactionTracer.traceTransaction(
-            any(Tracer.TraceableState.class),
-            eq(blockHash),
-            eq(transactionHash),
-            any(DebugOperationTracer.class)))
-        .thenReturn(Optional.of(transactionTrace));
-    final JsonRpcSuccessResponse response =
-        (JsonRpcSuccessResponse) debugTraceTransaction.response(request);
 
-    assertThat(response.getResult()).isNull();
+    final JsonRpcResponse response = debugTraceTransaction.response(request);
+    assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
+    final JsonRpcErrorResponse errorResponse = (JsonRpcErrorResponse) response;
+    assertThat(errorResponse.getErrorType())
+        .isEqualByComparingTo(RpcErrorType.TRANSACTION_NOT_FOUND);
   }
 }

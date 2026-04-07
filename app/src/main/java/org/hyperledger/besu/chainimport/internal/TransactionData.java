@@ -16,7 +16,6 @@ package org.hyperledger.besu.chainimport.internal;
 
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECPPrivateKey;
-import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
@@ -42,9 +41,6 @@ public class TransactionData {
   private final Optional<Address> to;
   private final SECPPrivateKey privateKey;
 
-  private static final SignatureAlgorithm SIGNATURE_ALGORITHM =
-      SignatureAlgorithmFactory.getInstance();
-
   /**
    * Instantiates a new Transaction data.
    *
@@ -68,7 +64,8 @@ public class TransactionData {
     this.data = data.map(Bytes::fromHexString).orElse(Bytes.EMPTY);
     this.value = value.map(Wei::fromHexString).orElse(Wei.ZERO);
     this.to = to.map(Address::fromHexString);
-    this.privateKey = SIGNATURE_ALGORITHM.createPrivateKey(Bytes32.fromHexString(secretKey));
+    this.privateKey =
+        SignatureAlgorithmFactory.getInstance().createPrivateKey(Bytes32.fromHexString(secretKey));
   }
 
   /**
@@ -78,7 +75,7 @@ public class TransactionData {
    * @return the signed transaction
    */
   public Transaction getSignedTransaction(final NonceProvider nonceProvider) {
-    final KeyPair keyPair = SIGNATURE_ALGORITHM.createKeyPair(privateKey);
+    final KeyPair keyPair = SignatureAlgorithmFactory.getInstance().createKeyPair(privateKey);
 
     final Address fromAddress = Address.extract(keyPair.getPublicKey());
     final long nonce = nonceProvider.get(fromAddress);
