@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
+import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.plugin.ServiceManager;
@@ -60,6 +61,12 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
 
   @Override
   public Optional<MutableWorldState> getWorldState(final WorldStateQueryParams queryParams) {
+    // If not in archive mode then the migration is not yet complete, so fallback to
+    // the regular BonsaiWorldStateProvider
+    if (!worldStateKeyValueStorage.getFlatDbMode().equals(FlatDbMode.ARCHIVE)) {
+      return super.getWorldState(queryParams);
+    }
+
     if (queryParams.shouldWorldStateUpdateHead()) {
       return getFullWorldState(queryParams);
     } else {

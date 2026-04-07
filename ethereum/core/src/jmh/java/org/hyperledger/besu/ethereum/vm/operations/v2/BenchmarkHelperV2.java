@@ -25,6 +25,7 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 
 import org.apache.tuweni.bytes.Bytes32;
 
@@ -100,5 +101,45 @@ public class BenchmarkHelperV2 {
     s[dst + 2] = value.u1();
     s[dst + 3] = value.u0();
     frame.setTopV2(top + 1);
+  }
+
+  /**
+   * Generates a random UInt256 value.
+   *
+   * @param random thread-local random source
+   * @return random UInt256 value
+   */
+  static org.hyperledger.besu.evm.UInt256 randomUInt256Value(final ThreadLocalRandom random) {
+    final byte[] value = new byte[32];
+    random.nextBytes(value);
+    return org.hyperledger.besu.evm.UInt256.fromBytesBE(value);
+  }
+
+  /**
+   * Generates a random positive signed 256-bit UInt256 value (sign bit cleared).
+   *
+   * @param random thread-local random source
+   * @return random positive UInt256 value
+   */
+  static org.hyperledger.besu.evm.UInt256 randomPositiveUInt256Value(
+      final ThreadLocalRandom random) {
+    final byte[] value = new byte[32];
+    random.nextBytes(value);
+    value[0] = (byte) (value[0] & 0x7F);
+    return org.hyperledger.besu.evm.UInt256.fromBytesBE(value);
+  }
+
+  /**
+   * Generates a random negative signed 256-bit UInt256 value (sign bit set).
+   *
+   * @param random thread-local random source
+   * @return random negative UInt256 value
+   */
+  static org.hyperledger.besu.evm.UInt256 randomNegativeUInt256Value(
+      final ThreadLocalRandom random) {
+    final byte[] value = new byte[32];
+    random.nextBytes(value);
+    value[0] = (byte) (value[0] | 0x80);
+    return org.hyperledger.besu.evm.UInt256.fromBytesBE(value);
   }
 }

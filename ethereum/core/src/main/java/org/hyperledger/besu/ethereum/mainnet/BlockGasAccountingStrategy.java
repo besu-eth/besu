@@ -100,9 +100,13 @@ public interface BlockGasAccountingStrategy {
             final long cumulativeRegularGas,
             final long cumulativeStateGas,
             final long blockGasLimit) {
+          // EIP-8037: Only check regular gas dimension. State gas is validated at block level
+          // via effectiveGasUsed() = max(regular, state) after transaction execution.
+          // The tx gas limit is not an accurate proxy for state gas usage, so checking it
+          // against remaining state capacity would reject valid blocks where individual txs
+          // exceed the state gas budget but the block total is within limits.
           final long remainingRegular = Math.max(0, blockGasLimit - cumulativeRegularGas);
-          final long remainingState = Math.max(0, blockGasLimit - cumulativeStateGas);
-          return txGasLimit <= Math.min(remainingRegular, remainingState);
+          return txGasLimit <= remainingRegular;
         }
 
         @Override
