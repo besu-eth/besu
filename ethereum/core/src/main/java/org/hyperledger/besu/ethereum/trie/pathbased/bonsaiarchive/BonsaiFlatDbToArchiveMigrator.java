@@ -174,14 +174,16 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
         OptionalLong.of(
             blockchain.observeBlockAdded(
                 event -> {
-                  final long target = archiveTarget(event.getHeader().getNumber());
-                  if (target > 0) {
-                    try {
-                      executorService.submit(() -> catchUp(target));
-                    } catch (final RejectedExecutionException e) {
-                      LOG.debug(
-                          "Bonsai migrator executor shut down; skipping migration up to block {}",
-                          target);
+                  if (event.isNewCanonicalHead()) {
+                    final long target = archiveTarget(event.getHeader().getNumber());
+                    if (target > 0) {
+                      try {
+                        executorService.submit(() -> catchUp(target));
+                      } catch (final RejectedExecutionException e) {
+                        LOG.debug(
+                            "Bonsai migrator executor shut down; skipping migration up to block {}",
+                            target);
+                      }
                     }
                   }
                 }));
