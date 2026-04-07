@@ -26,7 +26,6 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListCh
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldView;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
@@ -84,7 +83,7 @@ public class BlockAccessListDataRequest extends SnapDataRequest {
           for (final var accountChanges : BlockAccessListChanges.latestChanges(bal)) {
             final Hash accountHash = Hash.hash(accountChanges.address().getBytes());
 
-            final PmtStateTrieAccountValue currentValue =
+            final PmtStateTrieAccountValue trieAccountValue =
                 accountTrie
                     .get(accountHash.getBytes())
                     .map(RLP::input)
@@ -95,24 +94,19 @@ public class BlockAccessListDataRequest extends SnapDataRequest {
 
             final var updatedCode = accountChanges.code();
             final Hash updatedCodeHash =
-                updatedCode.map(Hash::hash).orElse(currentValue.getCodeHash());
+                updatedCode.map(Hash::hash).orElse(trieAccountValue.getCodeHash());
             updatedCode.ifPresent(
                 code -> bonsaiUpdater.putCode(accountHash, updatedCodeHash, code));
 
-            final Hash updatedStorageRoot = currentValue.getStorageRoot();
+            final Hash updatedStorageRoot = trieAccountValue.getStorageRoot();
             if (!accountChanges.storageChanges().isEmpty()) {
-              applyStorageChangesAndVerifyStorageRoot(
-                  accountHash,
-                  updatedStorageRoot,
-                  accountChanges,
-                  worldStateStorageCoordinator,
-                  bonsaiUpdater);
+              applyStorageChanges(accountHash, accountChanges, bonsaiUpdater);
             }
 
             final PmtStateTrieAccountValue updatedValue =
                 new PmtStateTrieAccountValue(
-                    accountChanges.nonce().orElse(currentValue.getNonce()),
-                    accountChanges.balance().orElse(currentValue.getBalance()),
+                    accountChanges.nonce().orElse(trieAccountValue.getNonce()),
+                    accountChanges.balance().orElse(trieAccountValue.getBalance()),
                     updatedStorageRoot,
                     updatedCodeHash);
             bonsaiUpdater.putAccountInfoState(accountHash, RLP.encode(updatedValue::writeTo));
@@ -122,43 +116,18 @@ public class BlockAccessListDataRequest extends SnapDataRequest {
     return 0;
   }
 
-  private void applyStorageChangesAndVerifyStorageRoot(
+  private void applyStorageChanges(
       final Hash accountHash,
-      final Hash expectedStorageRoot,
       final BlockAccessListChanges.AccountFinalChanges accountChanges,
-      final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final BonsaiWorldStateKeyValueStorage.Updater bonsaiUpdater) {
-    final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
-        new StoredMerklePatriciaTrie<>(
-            (location, hash) ->
-                worldStateStorageCoordinator.getAccountStorageTrieNode(accountHash, location, hash),
-            Bytes32.wrap(expectedStorageRoot.getBytes()),
-            value -> value,
-            value -> value);
-
     for (final var storageChange : accountChanges.storageChanges()) {
       final Hash slotHash = storageChange.slot().getSlotHash();
       final UInt256 value = storageChange.value();
-      final Bytes slotKey = slotHash.getBytes();
-
       if (value.equals(UInt256.ZERO)) {
         bonsaiUpdater.removeStorageValueBySlotHash(accountHash, slotHash);
-        storageTrie.remove(slotKey);
       } else {
         bonsaiUpdater.putStorageValueBySlotHash(accountHash, slotHash, value.toBytes());
-        storageTrie.put(slotKey, PathBasedWorldView.encodeTrieValue(value.toBytes()));
       }
-    }
-
-    final Hash calculatedStorageRoot = Hash.wrap(storageTrie.getRootHash());
-    if (!calculatedStorageRoot.equals(expectedStorageRoot)) {
-      throw new IllegalStateException(
-          "Storage root mismatch for account "
-              + accountHash
-              + ": expected "
-              + expectedStorageRoot
-              + " but got "
-              + calculatedStorageRoot);
     }
   }
 
