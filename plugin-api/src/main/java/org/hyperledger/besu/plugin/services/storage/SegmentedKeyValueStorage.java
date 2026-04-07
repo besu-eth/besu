@@ -92,6 +92,21 @@ public interface SegmentedKeyValueStorage extends Closeable {
   SegmentedKeyValueStorageTransaction startTransaction() throws StorageException;
 
   /**
+   * Begins a transaction with low write priority. On RocksDB-backed storage this sets {@code
+   * WriteOptions.low_pri = true}, which causes RocksDB to throttle this transaction's writes more
+   * aggressively than normal writes when compaction back-pressure builds.
+   *
+   * <p>Non-RocksDB implementations fall back to {@link #startTransaction()}.
+   *
+   * @return An object representing the transaction.
+   * @throws StorageException the storage exception
+   */
+  default SegmentedKeyValueStorageTransaction startLowPriorityTransaction()
+      throws StorageException {
+    return startTransaction();
+  }
+
+  /**
    * Returns a stream of all keys for the segment.
    *
    * @param segmentIdentifier The segment identifier whose keys we want to stream.

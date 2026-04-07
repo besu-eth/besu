@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbSt
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
-import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
@@ -45,11 +44,7 @@ public class BonsaiFlatDbStrategyProvider extends FlatDbStrategyProvider {
             .getPathBasedExtraStorageConfiguration()
             .getUnstable()
             .getFullFlatDbEnabled()
-        ? (dataStorageConfiguration
-                .getDataStorageFormat()
-                .equals(DataStorageFormat.X_BONSAI_ARCHIVE)
-            ? FlatDbMode.ARCHIVE
-            : FlatDbMode.FULL)
+        ? FlatDbMode.FULL
         : FlatDbMode.PARTIAL;
   }
 
@@ -61,16 +56,19 @@ public class BonsaiFlatDbStrategyProvider extends FlatDbStrategyProvider {
   public void upgradeToFullFlatDbMode(final SegmentedKeyValueStorage composedWorldStateStorage) {
     final SegmentedKeyValueStorageTransaction transaction =
         composedWorldStateStorage.startTransaction();
-    if (dataStorageConfiguration.getDataStorageFormat() == DataStorageFormat.BONSAI) {
-      LOG.info("setting FlatDbStrategy to FULL");
-      transaction.put(
-          TRIE_BRANCH_STORAGE, FLAT_DB_MODE, FlatDbMode.FULL.getVersion().toArrayUnsafe());
-    } else if (dataStorageConfiguration.getDataStorageFormat()
-        == DataStorageFormat.X_BONSAI_ARCHIVE) {
-      LOG.info("setting FlatDbStrategy to ARCHIVE");
-      transaction.put(
-          TRIE_BRANCH_STORAGE, FLAT_DB_MODE, FlatDbMode.ARCHIVE.getVersion().toArrayUnsafe());
-    }
+    LOG.info("setting FlatDbStrategy to FULL");
+    transaction.put(
+        TRIE_BRANCH_STORAGE, FLAT_DB_MODE, FlatDbMode.FULL.getVersion().toArrayUnsafe());
+    transaction.commit();
+    loadFlatDbStrategy(composedWorldStateStorage); // force reload of flat db reader strategy
+  }
+
+  public void upgradeToArchiveFlatDbMode(final SegmentedKeyValueStorage composedWorldStateStorage) {
+    final SegmentedKeyValueStorageTransaction transaction =
+        composedWorldStateStorage.startTransaction();
+    LOG.info("setting FlatDbStrategy to ARCHIVE");
+    transaction.put(
+        TRIE_BRANCH_STORAGE, FLAT_DB_MODE, FlatDbMode.ARCHIVE.getVersion().toArrayUnsafe());
     transaction.commit();
     loadFlatDbStrategy(composedWorldStateStorage); // force reload of flat db reader strategy
   }
