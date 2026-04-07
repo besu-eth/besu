@@ -16,12 +16,12 @@ package org.hyperledger.besu.ethereum.vm.operations.v2;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.Operation;
-import org.hyperledger.besu.evm.v2.operation.AddOperationV2;
+import org.hyperledger.besu.evm.v2.operation.NotOperationV2;
 
-public class AddOperationBenchmarkV2 extends BinaryOperationBenchmarkV2 {
+public class NotOperationBenchmarkV2 extends UnaryOperationBenchmarkV2 {
 
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {
-    return AddOperationV2.staticOperation(frame, frame.stackDataV2());
+    return NotOperationV2.staticOperation(frame, frame.stackDataV2());
   }
 }

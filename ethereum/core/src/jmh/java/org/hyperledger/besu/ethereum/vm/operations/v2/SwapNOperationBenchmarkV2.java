@@ -16,12 +16,32 @@ package org.hyperledger.besu.ethereum.vm.operations.v2;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.Operation;
-import org.hyperledger.besu.evm.v2.operation.AddOperationV2;
+import org.hyperledger.besu.evm.operation.SwapNOperation;
+import org.hyperledger.besu.evm.v2.operation.SwapNOperationV2;
 
-public class AddOperationBenchmarkV2 extends BinaryOperationBenchmarkV2 {
+/** JMH benchmark for the EVM v2 SWAPN operation (EIP-8024). */
+public class SwapNOperationBenchmarkV2 extends ImmediateByteOperationBenchmarkV2 {
 
   @Override
-  protected Operation.OperationResult invoke(final MessageFrame frame) {
-    return AddOperationV2.staticOperation(frame, frame.stackDataV2());
+  protected int getOpcode() {
+    return SwapNOperation.OPCODE;
+  }
+
+  @Override
+  protected byte getImmediate() {
+    // Immediate 0x00 decodes to n=17 (swap top with 18th stack item)
+    return 0x00;
+  }
+
+  @Override
+  protected Operation.OperationResult invoke(
+      final MessageFrame frame, final byte[] code, final int pc) {
+    return SwapNOperationV2.staticOperation(frame, frame.stackDataV2(), code, pc);
+  }
+
+  @Override
+  protected int getStackDelta() {
+    // SWAPN does not change stack size
+    return 0;
   }
 }

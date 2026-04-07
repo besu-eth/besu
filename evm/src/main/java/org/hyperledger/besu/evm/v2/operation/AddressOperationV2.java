@@ -12,33 +12,26 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.evm.operation.v2;
+package org.hyperledger.besu.evm.v2.operation;
 
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.Operation;
+import org.hyperledger.besu.evm.v2.StackArithmetic;
 
-/**
- * EVM v2 ADD operation using long[] stack representation.
- *
- * <p>Each 256-bit word is stored as four longs: index 0 = most significant 64 bits, index 3 = least
- * significant 64 bits. Addition is performed with carry propagation from least to most significant
- * word, with overflow silently truncated (mod 2^256).
- */
-public class AddOperationV2 extends AbstractFixedCostOperationV2 {
+/** EVM v2 ADDRESS operation — pushes the recipient address onto the stack. */
+public class AddressOperationV2 extends AbstractFixedCostOperationV2 {
 
-  @SuppressWarnings("UnusedVariable")
-  private static final Operation.OperationResult ADD_SUCCESS =
-      new Operation.OperationResult(3, null);
+  private static final OperationResult addressSuccess = new OperationResult(2, null);
 
   /**
-   * Instantiates a new Add operation.
+   * Instantiates a new Address operation.
    *
    * @param gasCalculator the gas calculator
    */
-  public AddOperationV2(final GasCalculator gasCalculator) {
-    super(0x01, "ADD", 2, 1, gasCalculator, gasCalculator.getVeryLowTierGasCost());
+  public AddressOperationV2(final GasCalculator gasCalculator) {
+    super(0x30, "ADDRESS", 0, 1, gasCalculator, gasCalculator.getBaseTierGasCost());
   }
 
   @Override
@@ -48,15 +41,16 @@ public class AddOperationV2 extends AbstractFixedCostOperationV2 {
   }
 
   /**
-   * Execute the ADD opcode on the v2 long[] stack.
+   * Performs the ADDRESS operation.
    *
    * @param frame the message frame
-   * @param stackData the stack operands as a long[] array
+   * @param stack the v2 long[] stack
    * @return the operation result
    */
-  @SuppressWarnings("DoNotCallSuggester")
-  public static Operation.OperationResult staticOperation(
-      final MessageFrame frame, final long[] stackData) {
-    throw new UnsupportedOperationException("ADD operation not yet implemented for evm v2");
+  public static OperationResult staticOperation(final MessageFrame frame, final long[] stack) {
+    if (!frame.stackHasSpace(1)) return OVERFLOW_RESPONSE;
+    frame.setTopV2(
+        StackArithmetic.pushAddress(stack, frame.stackTopV2(), frame.getRecipientAddress()));
+    return addressSuccess;
   }
 }

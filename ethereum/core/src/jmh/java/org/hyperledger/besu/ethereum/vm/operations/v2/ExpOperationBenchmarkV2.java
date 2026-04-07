@@ -15,13 +15,28 @@
 package org.hyperledger.besu.ethereum.vm.operations.v2;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.FrontierGasCalculator;
 import org.hyperledger.besu.evm.operation.Operation;
-import org.hyperledger.besu.evm.v2.operation.AddOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ExpOperationV2;
 
-public class AddOperationBenchmarkV2 extends BinaryOperationBenchmarkV2 {
+import org.openjdk.jmh.annotations.Level;
+import org.openjdk.jmh.annotations.Setup;
+
+public class ExpOperationBenchmarkV2 extends BinaryOperationBenchmarkV2 {
+
+  private static final FrontierGasCalculator FRONTIER_GAS_CALCULATOR = new FrontierGasCalculator();
+
+  private ExpOperationV2 op;
+
+  @Setup(Level.Iteration)
+  @Override
+  public void setUp() {
+    super.setUp();
+    op = new ExpOperationV2(FRONTIER_GAS_CALCULATOR);
+  }
 
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {
-    return AddOperationV2.staticOperation(frame, frame.stackDataV2());
+    return op.execute(frame, null);
   }
 }

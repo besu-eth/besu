@@ -15,13 +15,33 @@
 package org.hyperledger.besu.ethereum.vm.operations.v2;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.operation.ExchangeOperation;
 import org.hyperledger.besu.evm.operation.Operation;
-import org.hyperledger.besu.evm.v2.operation.AddOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ExchangeOperationV2;
 
-public class AddOperationBenchmarkV2 extends BinaryOperationBenchmarkV2 {
+/** JMH benchmark for the EVM v2 EXCHANGE operation (EIP-8024). */
+public class ExchangeOperationBenchmarkV2 extends ImmediateByteOperationBenchmarkV2 {
 
   @Override
-  protected Operation.OperationResult invoke(final MessageFrame frame) {
-    return AddOperationV2.staticOperation(frame, frame.stackDataV2());
+  protected int getOpcode() {
+    return ExchangeOperation.OPCODE;
+  }
+
+  @Override
+  protected byte getImmediate() {
+    // Immediate 0x01 gives n=1, m=2 (swap 2nd with 3rd stack item)
+    return 0x01;
+  }
+
+  @Override
+  protected Operation.OperationResult invoke(
+      final MessageFrame frame, final byte[] code, final int pc) {
+    return ExchangeOperationV2.staticOperation(frame, frame.stackDataV2(), code, pc);
+  }
+
+  @Override
+  protected int getStackDelta() {
+    // EXCHANGE does not change stack size
+    return 0;
   }
 }

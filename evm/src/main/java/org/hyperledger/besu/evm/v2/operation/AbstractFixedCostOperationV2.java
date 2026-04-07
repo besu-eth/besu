@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.evm.operation.v2;
+package org.hyperledger.besu.evm.v2.operation;
 
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
@@ -20,14 +20,17 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.internal.OverflowException;
 import org.hyperledger.besu.evm.internal.UnderflowException;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 
 /** The Abstract fixed cost operation. */
-abstract class AbstractFixedCostOperationV2 extends AbstractOperation {
+abstract class AbstractFixedCostOperationV2 extends AbstractOperationV2 {
 
   /** Shared underflow response for static operation methods. */
   static final OperationResult UNDERFLOW_RESPONSE =
       new OperationResult(0L, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
+
+  /** Shared overflow response for static operation methods. */
+  static final OperationResult OVERFLOW_RESPONSE =
+      new OperationResult(0L, ExceptionalHaltReason.TOO_MANY_STACK_ITEMS);
 
   /** The Success response. */
   protected final OperationResult successResponse;
