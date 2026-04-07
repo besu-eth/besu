@@ -15,6 +15,8 @@
 package org.hyperledger.besu.plugin.services.storage.rocksdb;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.ADDITIONAL_COLUMN_FAMILY_OPTIONS;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.ADDITIONAL_DATABASE_OPTIONS;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.CACHE_CAPACITY_FLAG;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_BACKGROUND_THREAD_COUNT;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_CACHE_CAPACITY;
@@ -103,5 +105,29 @@ public class RocksDBCLIOptionsTest {
     assertThat(configuration.getBackgroundThreadCount()).isEqualTo(DEFAULT_BACKGROUND_THREAD_COUNT);
     assertThat(configuration.getCacheCapacity()).isEqualTo(DEFAULT_CACHE_CAPACITY);
     assertThat(configuration.isHighSpec()).isEqualTo(Boolean.TRUE);
+  }
+
+  @Test
+  public void additionalColumnFamilyOptionsIncludesBlockTableKeys() {
+    final RocksDBCLIOptions options = RocksDBCLIOptions.create();
+    new CommandLine(options)
+        .parseArgs(
+            ADDITIONAL_COLUMN_FAMILY_OPTIONS,
+            "write_buffer_size=1000000;block_based_table_factory.prepopulate_block_cache=kFlushOnly;");
+
+    final RocksDBFactoryConfiguration configuration = options.toDomainObject();
+    assertThat(configuration.getAdditionalColumnFamilyOptions())
+        .hasValue(
+            "write_buffer_size=1000000;block_based_table_factory.prepopulate_block_cache=kFlushOnly;");
+  }
+
+  @Test
+  public void additionalDatabaseOptions() {
+    final RocksDBCLIOptions options = RocksDBCLIOptions.create();
+    new CommandLine(options).parseArgs(ADDITIONAL_DATABASE_OPTIONS, "max_file_opening_threads=16;");
+
+    final RocksDBFactoryConfiguration configuration = options.toDomainObject();
+    assertThat(configuration.getAdditionalDatabaseOptions())
+        .hasValue("max_file_opening_threads=16;");
   }
 }

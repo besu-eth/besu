@@ -15,8 +15,13 @@
 package org.hyperledger.besu.plugin.services.storage.rocksdb.segmented;
 
 import static java.util.stream.Collectors.toUnmodifiableSet;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.BLOCKCHAIN;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.DEFAULT;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
+import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
@@ -25,8 +30,10 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetrics;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetricsFactory;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbIterator;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbNativeOptionStrings;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbSegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbUtil;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBConfiguration;
 
 import java.nio.charset.StandardCharsets;
@@ -35,6 +42,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
@@ -46,8 +54,6 @@ import com.google.common.collect.Streams;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.tuweni.bytes.Bytes;
 import org.rocksdb.AbstractRocksIterator;
-import org.rocksdb.BlockBasedTableConfig;
-import org.rocksdb.BloomFilter;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
@@ -55,7 +61,6 @@ import org.rocksdb.CompressionType;
 import org.rocksdb.ConfigOptions;
 import org.rocksdb.DBOptions;
 import org.rocksdb.Env;
-import org.rocksdb.LRUCache;
 import org.rocksdb.Options;
 import org.rocksdb.OptionsUtil;
 import org.rocksdb.ReadOptions;
@@ -90,6 +95,31 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   /** RocksDb Time to roll a log file (1 day = 3600 * 24 seconds) */
   private static final long TIME_TO_ROLL_LOG_FILE = 86_400L;
+
+  /**
+   * {@link OptimisticTransactionDB#open} and {@link org.rocksdb.TransactionDB#open} require the
+   * default column family in {@code columnFamilyDescriptors}. Full Besu segment lists include
+   * {@link KeyValueSegmentIdentifier#DEFAULT}; split databases (e.g. state-only) must inject it.
+   */
+  private static void ensureDefaultColumnFamilyPresent(
+      final List<SegmentIdentifier> trimmedSegments) {
+    if (trimmedSegments.isEmpty()) {
+      return;
+    }
+    final boolean hasDefault =
+        trimmedSegments.stream()
+            .anyMatch(seg -> Arrays.equals(seg.getId(), RocksDB.DEFAULT_COLUMN_FAMILY));
+    if (!hasDefault) {
+      trimmedSegments.add(0, DEFAULT);
+    }
+  }
+
+  /**
+   * Default RocksDB {@code target_file_size_base} is 64 MiB; larger SSTs reduce file count and open
+   * FD pressure for high-volume Bonsai columns. User {@code
+   * --Xplugin-rocksdb-additional-column-family-options} may override per deployment.
+   */
+  private static final long BONSAI_LARGE_TARGET_FILE_SIZE_BYTES = 256L * 1024 * 1024;
 
   static {
     RocksDbUtil.loadNativeLibrary();
@@ -164,6 +194,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
                   existingColumnFamilies.stream()
                       .noneMatch(existed -> Arrays.equals(existed, ignorableSegment.getId())))
           .forEach(trimmedSegments::remove);
+      ensureDefaultColumnFamilyPresent(trimmedSegments);
       columnDescriptors =
           trimmedSegments.stream()
               .map(segment -> createColumnDescriptor(segment, configuration))
@@ -182,58 +213,139 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
    * Create a Column Family Descriptor for a given segment It defines basically the different
    * options to apply to the corresponding Column Family
    *
+   * <p>Additional CF options from configuration are parsed into a scratch {@link Properties}; Besu
+   * then builds {@link RocksDbNativeOptionStrings.InsertionOrderedProperties} by applying its
+   * block-table keys in a fixed order (so {@code index_type} precedes {@code partition_filters} in
+   * the JNI option string), then merges user keys (same key in user config overrides the Besu
+   * default). A single {@code getColumnFamilyOptionsFromProps} call follows, which unlocks any
+   * column-family or {@code block_based_table_factory.*} option the native RocksDB build accepts,
+   * even when rocksdbjni does not expose it on Java option classes. Compaction and blob options are
+   * still set in Java where needed. {@code level_compaction_dynamic_level_bytes} is taken from the
+   * latest on-disk {@code OPTIONS-*} file when present for this column family (existing
+   * deployments); otherwise it defaults to {@code true}.
+   *
    * @param segment the segment identifier
    * @param configuration RocksDB configuration
    * @return a column family descriptor
    */
   private ColumnFamilyDescriptor createColumnDescriptor(
       final SegmentIdentifier segment, final RocksDBConfiguration configuration) {
-    boolean dynamicLevelBytes = true;
-    try {
-      ConfigOptions configOptions = new ConfigOptions();
-      DBOptions dbOptions = new DBOptions();
-      List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
+    final boolean dynamicLevelCompaction =
+        readLevelCompactionDynamicLevelBytesFromOptionsFile(segment, configuration);
 
-      String latestOptionsFileName =
+    final Properties userCfProps =
+        RocksDbNativeOptionStrings.parseSemicolonKeyValueString(
+            configuration.getAdditionalColumnFamilyOptions().orElse(""));
+    final RocksDbNativeOptionStrings.InsertionOrderedProperties cfProps =
+        new RocksDbNativeOptionStrings.InsertionOrderedProperties();
+    mergeBesuNativeColumnFamilyOptionsBeforeParse(cfProps, segment, configuration);
+    for (final String key : userCfProps.stringPropertyNames()) {
+      cfProps.setProperty(key, userCfProps.getProperty(key));
+    }
+
+    final ColumnFamilyOptions columnOpts = columnFamilyOptionsFromNativeProperties(cfProps);
+
+    columnOpts.setLevelCompactionDynamicLevelBytes(dynamicLevelCompaction);
+    if (segment.containsStaticData()) {
+      configureBlobDBForSegment(segment, configuration, columnOpts);
+    }
+    return new ColumnFamilyDescriptor(segment.getId(), columnOpts);
+  }
+
+  /**
+   * Writes Besu's block-table defaults onto {@code cfProps} in this call order so the JNI option
+   * string has {@code index_type=kTwoLevelIndexSearch} before {@code partition_filters=true}
+   * (partitioned filters need a two-level index when options are applied incrementally in native
+   * code). Must run on an empty {@link RocksDbNativeOptionStrings.InsertionOrderedProperties}
+   * before user keys are added.
+   */
+  private static void mergeBesuNativeColumnFamilyOptionsBeforeParse(
+      final RocksDbNativeOptionStrings.InsertionOrderedProperties cfProps,
+      final SegmentIdentifier segment,
+      final RocksDBConfiguration configuration) {
+    final long blockCacheBytes =
+        configuration.isHighSpec() && segment.isEligibleToHighSpecFlag()
+            ? ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC
+            : configuration.getCacheCapacity();
+    cfProps.setProperty(
+        "block_based_table_factory.format_version", Integer.toString(ROCKSDB_FORMAT_VERSION));
+    cfProps.setProperty("block_based_table_factory.filter_policy", "bloomfilter:10:false");
+    cfProps.setProperty("block_based_table_factory.partition_filters", "false");
+    cfProps.setProperty("block_based_table_factory.cache_index_and_filter_blocks", "false");
+    cfProps.setProperty("block_based_table_factory.block_size", Long.toString(ROCKSDB_BLOCK_SIZE));
+    cfProps.setProperty("block_based_table_factory.block_cache", Long.toString(blockCacheBytes));
+    if (segment.getName().equals(ACCOUNT_STORAGE_STORAGE.getName())
+        || segment.getName().equals(ACCOUNT_INFO_STATE.getName())
+        || segment.getName().equals(TRIE_BRANCH_STORAGE.getName())) {
+      cfProps.setProperty(
+          "target_file_size_base", Long.toString(BONSAI_LARGE_TARGET_FILE_SIZE_BYTES));
+    }
+  }
+
+  /**
+   * RocksDB stores column-family options in an {@code OPTIONS-*} file under the data directory. On
+   * reopen, reading the on-disk value avoids overriding {@code
+   * level_compaction_dynamic_level_bytes} and changing compaction behaviour for existing databases.
+   * New databases have no file yet; we default to {@code true} (historical Besu default).
+   */
+  private boolean readLevelCompactionDynamicLevelBytesFromOptionsFile(
+      final SegmentIdentifier segment, final RocksDBConfiguration configuration) {
+    try {
+      final ConfigOptions configOptions = new ConfigOptions();
+      final DBOptions dbOptions = new DBOptions();
+      final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
+
+      final String latestOptionsFileName =
           OptionsUtil.getLatestOptionsFileName(
               configuration.getDatabaseDir().toString(), Env.getDefault());
-      LOG.trace("Latest OPTIONS file detected: " + latestOptionsFileName);
+      LOG.trace("Latest OPTIONS file detected: {}", latestOptionsFileName);
 
-      String optionsFilePath =
+      final String optionsFilePath =
           configuration.getDatabaseDir().toString() + "/" + latestOptionsFileName;
       OptionsUtil.loadOptionsFromFile(configOptions, optionsFilePath, dbOptions, cfDescriptors);
+      LOG.trace("RocksDB options loaded successfully from: {}", optionsFilePath);
 
-      LOG.trace("RocksDB options loaded successfully from: " + optionsFilePath);
-
-      if (!cfDescriptors.isEmpty()) {
-        Optional<ColumnFamilyOptions> matchedCfOptions = Optional.empty();
-        for (ColumnFamilyDescriptor descriptor : cfDescriptors) {
-          if (Arrays.equals(descriptor.getName(), segment.getId())) {
-            matchedCfOptions = Optional.of(descriptor.getOptions());
-            break;
-          }
-        }
-        if (matchedCfOptions.isPresent()) {
-          dynamicLevelBytes = matchedCfOptions.get().levelCompactionDynamicLevelBytes();
-          LOG.trace("dynamicLevelBytes is set to an existing value : " + dynamicLevelBytes);
+      for (ColumnFamilyDescriptor descriptor : cfDescriptors) {
+        if (Arrays.equals(descriptor.getName(), segment.getId())) {
+          final boolean value = descriptor.getOptions().levelCompactionDynamicLevelBytes();
+          LOG.trace("dynamicLevelBytes from existing DB options file: {}", value);
+          return value;
         }
       }
-    } catch (RocksDBException ex) {
-      // Options file is not found in the database
+    } catch (final RocksDBException ex) {
+      // New database: no OPTIONS-* file to load yet.
     }
-    BlockBasedTableConfig basedTableConfig = createBlockBasedTableConfig(segment, configuration);
+    return true;
+  }
 
-    final var options =
-        new ColumnFamilyOptions()
-            .setTtl(0)
-            .setCompressionType(CompressionType.LZ4_COMPRESSION)
-            .setTableFormatConfig(basedTableConfig)
-            .setLevelCompactionDynamicLevelBytes(dynamicLevelBytes);
-    if (segment.containsStaticData()) {
-      configureBlobDBForSegment(segment, configuration, options);
+  /**
+   * Always builds from {@code getColumnFamilyOptionsFromProps} (including when the properties map
+   * is empty), then applies Besu's fixed {@code ttl=0} and LZ4 compression on top so they are never
+   * omitted. On null or parse failure, starts from a bare {@link ColumnFamilyOptions}.
+   */
+  private static ColumnFamilyOptions columnFamilyOptionsFromNativeProperties(
+      final Properties nativeCfProps) {
+    ColumnFamilyOptions base;
+    try {
+      final ColumnFamilyOptions fromNative =
+          ColumnFamilyOptions.getColumnFamilyOptionsFromProps(new ConfigOptions(), nativeCfProps);
+      if (fromNative != null) {
+        base = fromNative;
+      } else {
+        if (!nativeCfProps.isEmpty()) {
+          LOG.warn(
+              "RocksDB getColumnFamilyOptionsFromProps returned null; using bare ColumnFamilyOptions. Check {} for invalid native keys.",
+              RocksDBCLIOptions.ADDITIONAL_COLUMN_FAMILY_OPTIONS);
+        }
+        base = new ColumnFamilyOptions();
+      }
+    } catch (final IllegalArgumentException ex) {
+      LOG.warn(
+          "Invalid RocksDB column-family options passed to getColumnFamilyOptionsFromProps; using bare ColumnFamilyOptions. {}",
+          ex.getMessage());
+      base = new ColumnFamilyOptions();
     }
-
-    return new ColumnFamilyDescriptor(segment.getId(), options);
+    return base.setTtl(0).setCompressionType(CompressionType.LZ4_COMPRESSION);
   }
 
   private static void configureBlobDBForSegment(
@@ -273,47 +385,46 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   }
 
   /***
-   * Create a Block Base Table configuration for each segment, depending on the configuration in place
-   * and the segment itself
-   *
-   * @param segment The segment related to the column family
-   * @param config RocksDB configuration
-   * @return Block Base Table configuration
-   */
-  private BlockBasedTableConfig createBlockBasedTableConfig(
-      final SegmentIdentifier segment, final RocksDBConfiguration config) {
-    final LRUCache cache =
-        new LRUCache(
-            config.isHighSpec() && segment.isEligibleToHighSpecFlag()
-                ? ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC
-                : config.getCacheCapacity());
-    return new BlockBasedTableConfig()
-        .setFormatVersion(ROCKSDB_FORMAT_VERSION)
-        .setBlockCache(cache)
-        .setFilterPolicy(new BloomFilter(10, false))
-        .setPartitionFilters(true)
-        .setCacheIndexAndFilterBlocks(false)
-        .setBlockSize(ROCKSDB_BLOCK_SIZE);
-  }
-
-  /***
    * Set Global options (DBOptions)
    *
    * @param configuration RocksDB configuration
    * @param stats The statistics object
    */
   private void setGlobalOptions(final RocksDBConfiguration configuration, final Statistics stats) {
-    options = new DBOptions();
-    options
-        .setCreateIfMissing(true)
-        .setMaxOpenFiles(configuration.getMaxOpenFiles())
-        .setStatistics(stats)
-        .setCreateMissingColumnFamilies(true)
-        .setLogFileTimeToRoll(TIME_TO_ROLL_LOG_FILE)
-        .setKeepLogFileNum(NUMBER_OF_LOG_FILES_TO_KEEP)
-        .setEnv(Env.getDefault().setBackgroundThreads(configuration.getBackgroundThreadCount()))
-        .setMaxTotalWalSize(WAL_MAX_TOTAL_SIZE)
-        .setRecycleLogFileNum(WAL_MAX_TOTAL_SIZE / EXPECTED_WAL_FILE_SIZE);
+    final Properties dbProps =
+        RocksDbNativeOptionStrings.parseDbOptionString(
+            configuration.getAdditionalDatabaseOptions().orElse(""));
+    final ConfigOptions cfgOpts = new ConfigOptions();
+    DBOptions dbOpts;
+    if (dbProps.isEmpty()) {
+      dbOpts = new DBOptions();
+    } else {
+      try {
+        dbOpts = DBOptions.getDBOptionsFromProps(cfgOpts, dbProps);
+      } catch (final IllegalArgumentException ex) {
+        LOG.warn(
+            "Invalid RocksDB DB options passed to getDBOptionsFromProps; using programmatic DB defaults. {}",
+            ex.getMessage());
+        dbOpts = null;
+      }
+      if (dbOpts == null) {
+        LOG.warn(
+            "RocksDB getDBOptionsFromProps returned null; using programmatic DB defaults. Check {} for invalid native keys.",
+            RocksDBCLIOptions.ADDITIONAL_DATABASE_OPTIONS);
+        dbOpts = new DBOptions();
+      }
+    }
+    options =
+        dbOpts
+            .setCreateIfMissing(true)
+            .setMaxOpenFiles(configuration.getMaxOpenFiles())
+            .setStatistics(stats)
+            .setCreateMissingColumnFamilies(true)
+            .setLogFileTimeToRoll(TIME_TO_ROLL_LOG_FILE)
+            .setKeepLogFileNum(NUMBER_OF_LOG_FILES_TO_KEEP)
+            .setEnv(Env.getDefault().setBackgroundThreads(configuration.getBackgroundThreadCount()))
+            .setMaxTotalWalSize(WAL_MAX_TOTAL_SIZE)
+            .setRecycleLogFileNum(WAL_MAX_TOTAL_SIZE / EXPECTED_WAL_FILE_SIZE);
   }
 
   /**

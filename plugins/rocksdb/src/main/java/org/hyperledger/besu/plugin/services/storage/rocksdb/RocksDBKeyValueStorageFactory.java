@@ -22,7 +22,9 @@ import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.BLOB_BLOCKCHAIN_GARBAGE_COLLECTION_ENABLED;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.BLOB_GARBAGE_COLLECTION_AGE_CUTOFF;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.BLOB_GARBAGE_COLLECTION_FORCE_THRESHOLD;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_MAX_OPEN_FILES;
 
+import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStorageSegmentGroup;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -46,7 +48,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
@@ -66,10 +70,32 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
           BONSAI_WITH_RECEIPT_COMPACTION,
           BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION);
   private static final String NAME = "rocksdb";
+
+  /** Subdirectory under the storage path for the dedicated world-state RocksDB (split layout). */
+  public static final String STATE_DATABASE_DIR = "state";
+
+  /** Subdirectory for blockchain, trie log, variables, sync segments, etc. (split layout). */
+  public static final String MAIN_DATABASE_DIR = "main";
+
+  /**
+   * Multiply CLI {@code max_open_files} for the state DB (separate instance). Capped in {@link
+   * #stateDatabaseMaxOpenFiles}.
+   */
+  private static final int STATE_DATABASE_MAX_OPEN_FILES_FACTOR = 4;
+
+  private static final int STATE_DATABASE_MAX_OPEN_FILES_MIN = 4_096;
+  private static final int STATE_DATABASE_MAX_OPEN_FILES_CAP = 32_768;
+
   private final RocksDBMetricsFactory rocksDBMetricsFactory;
   private DatabaseMetadata databaseMetadata;
+
+  /** Legacy single-directory layout ({@code database/CURRENT}). */
   private RocksDBColumnarKeyValueStorage segmentedStorage;
-  private RocksDBConfiguration rocksDBConfiguration;
+
+  private final Map<KeyValueStorageSegmentGroup, RocksDBColumnarKeyValueStorage> segmentedStorages =
+      new ConcurrentHashMap<>();
+  private boolean metadataInitialized;
+  private boolean legacyMonolithicDatabase;
 
   private final Supplier<RocksDBFactoryConfiguration> configuration;
   private final List<SegmentIdentifier> configuredSegments;
@@ -129,9 +155,7 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
       final BesuConfiguration commonConfiguration,
       final MetricsSystem metricsSystem)
       throws StorageException {
-    if (requiresInit()) {
-      init(commonConfiguration);
-    }
+    init(commonConfiguration);
 
     // safety check to see that segments all exist within configured segments
     if (!configuredSegments.containsAll(segments)) {
@@ -143,43 +167,161 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
                   .collect(Collectors.joining(", ")));
     }
 
-    if (segmentedStorage == null) {
-      final List<SegmentIdentifier> segmentsForFormat =
-          configuredSegments.stream()
-              .filter(
-                  segmentId ->
-                      segmentId.includeInDatabaseFormat(
-                          databaseMetadata.getVersionedStorageFormat().getFormat()))
-              .toList();
-
-      // It's probably a good idea for the creation logic to be entirely dependent on the database
-      // version. Introducing intermediate booleans that represent database properties and
-      // dispatching
-      // creation logic based on them is error-prone.
-      switch (databaseMetadata.getVersionedStorageFormat().getFormat()) {
-        case FOREST -> {
-          LOG.debug("FOREST mode detected, using TransactionDB.");
-          segmentedStorage =
-              new TransactionDBRocksDBColumnarKeyValueStorage(
-                  rocksDBConfiguration,
-                  segmentsForFormat,
-                  ignorableSegments,
-                  metricsSystem,
-                  rocksDBMetricsFactory);
-        }
-        case BONSAI, X_BONSAI_ARCHIVE -> {
-          LOG.debug("BONSAI mode detected, Using OptimisticTransactionDB.");
-          segmentedStorage =
-              new OptimisticRocksDBColumnarKeyValueStorage(
-                  rocksDBConfiguration,
-                  segmentsForFormat,
-                  ignorableSegments,
-                  metricsSystem,
-                  rocksDBMetricsFactory);
-        }
+    final KeyValueStorageSegmentGroup group =
+        KeyValueStorageSegmentGroup.forSegment(segments.get(0));
+    for (final SegmentIdentifier segment : segments) {
+      if (KeyValueStorageSegmentGroup.forSegment(segment) != group) {
+        throw new StorageException(
+            "All segments in one create() call must belong to the same RocksDB instance; mixing "
+                + group
+                + " with "
+                + KeyValueStorageSegmentGroup.forSegment(segment)
+                + " is not supported.");
       }
     }
-    return segmentedStorage;
+
+    if (legacyMonolithicDatabase) {
+      if (segmentedStorage == null) {
+        segmentedStorage =
+            openColumnarStorage(
+                segmentsForDatabaseFormat(),
+                storagePath(commonConfiguration),
+                commonConfiguration,
+                metricsSystem,
+                false);
+      }
+      return segmentedStorage;
+    }
+
+    final Path groupDir =
+        group == KeyValueStorageSegmentGroup.STATE
+            ? storagePath(commonConfiguration).resolve(STATE_DATABASE_DIR)
+            : storagePath(commonConfiguration).resolve(MAIN_DATABASE_DIR);
+    return segmentedStorages.computeIfAbsent(
+        group,
+        g ->
+            openColumnarStorage(
+                segmentsForGroup(g),
+                groupDir,
+                commonConfiguration,
+                metricsSystem,
+                g == KeyValueStorageSegmentGroup.STATE));
+  }
+
+  private List<SegmentIdentifier> segmentsForDatabaseFormat() {
+    return configuredSegments.stream()
+        .filter(
+            segmentId ->
+                segmentId.includeInDatabaseFormat(
+                    databaseMetadata.getVersionedStorageFormat().getFormat()))
+        .toList();
+  }
+
+  private List<SegmentIdentifier> segmentsForGroup(final KeyValueStorageSegmentGroup group) {
+    return configuredSegments.stream()
+        .filter(
+            segmentId ->
+                segmentId.includeInDatabaseFormat(
+                    databaseMetadata.getVersionedStorageFormat().getFormat()))
+        .filter(segmentId -> KeyValueStorageSegmentGroup.forSegment(segmentId) == group)
+        .toList();
+  }
+
+  private RocksDBColumnarKeyValueStorage openColumnarStorage(
+      final List<SegmentIdentifier> segmentsForFormat,
+      final Path databaseDir,
+      final BesuConfiguration commonConfiguration,
+      final MetricsSystem metricsSystem,
+      final boolean stateDatabase) {
+    if (segmentsForFormat.isEmpty()) {
+      throw new StorageException("No column families configured for database at " + databaseDir);
+    }
+    try {
+      Files.createDirectories(databaseDir);
+    } catch (final IOException e) {
+      throw new StorageException("Could not create database directory " + databaseDir, e);
+    }
+    final RocksDBConfiguration rocksConfig =
+        buildRocksConfiguration(databaseDir, commonConfiguration, stateDatabase);
+    if (stateDatabase) {
+      LOG.atInfo()
+          .setMessage(
+              "Opening dedicated world-state RocksDB at {} with max_open_files={} (default Besu is 1024 unless overridden by {})")
+          .addArgument(databaseDir)
+          .addArgument(rocksConfig.getMaxOpenFiles())
+          .addArgument("--Xplugin-rocksdb-max-open-files")
+          .log();
+    } else if (!legacyMonolithicDatabase) {
+      LOG.atInfo()
+          .setMessage("Opening main RocksDB at {} with max_open_files={}")
+          .addArgument(databaseDir)
+          .addArgument(rocksConfig::getMaxOpenFiles)
+          .log();
+    }
+    return switch (databaseMetadata.getVersionedStorageFormat().getFormat()) {
+      case FOREST -> {
+        LOG.debug("FOREST mode detected, using TransactionDB.");
+        yield new TransactionDBRocksDBColumnarKeyValueStorage(
+            rocksConfig,
+            segmentsForFormat,
+            ignorableSegments,
+            metricsSystem,
+            rocksDBMetricsFactory);
+      }
+      case BONSAI, X_BONSAI_ARCHIVE -> {
+        LOG.debug("BONSAI mode detected, Using OptimisticTransactionDB.");
+        yield new OptimisticRocksDBColumnarKeyValueStorage(
+            rocksConfig,
+            segmentsForFormat,
+            ignorableSegments,
+            metricsSystem,
+            rocksDBMetricsFactory);
+      }
+    };
+  }
+
+  private RocksDBConfiguration buildRocksConfiguration(
+      final Path databaseDir,
+      final BesuConfiguration commonConfiguration,
+      final boolean stateDatabase) {
+    final RocksDBFactoryConfiguration factoryConfig = configuration.get();
+    final int effectiveMaxOpen =
+        factoryConfig.getMaxOpenFiles() > 0
+            ? factoryConfig.getMaxOpenFiles()
+            : DEFAULT_MAX_OPEN_FILES;
+    var configBuilder = RocksDBConfigurationBuilder.from(factoryConfig).databaseDir(databaseDir);
+    if (factoryConfig.getMaxOpenFiles() <= 0) {
+      configBuilder.maxOpenFiles(effectiveMaxOpen);
+    }
+    configBuilder.label(stateDatabase ? "state" : "main");
+    if (stateDatabase) {
+      configBuilder.maxOpenFiles(stateDatabaseMaxOpenFiles(effectiveMaxOpen));
+    }
+    applyHistoryExpiryOptions(configBuilder, commonConfiguration);
+    return configBuilder.build();
+  }
+
+  private static int stateDatabaseMaxOpenFiles(final int configuredMaxOpenFiles) {
+    final int base = configuredMaxOpenFiles > 0 ? configuredMaxOpenFiles : DEFAULT_MAX_OPEN_FILES;
+    final int scaled =
+        Math.max(STATE_DATABASE_MAX_OPEN_FILES_MIN, base * STATE_DATABASE_MAX_OPEN_FILES_FACTOR);
+    return Math.min(STATE_DATABASE_MAX_OPEN_FILES_CAP, scaled);
+  }
+
+  private void applyHistoryExpiryOptions(
+      final RocksDBConfigurationBuilder configBuilder,
+      final BesuConfiguration commonConfiguration) {
+    if (commonConfiguration.getDataStorageConfiguration().isHistoryExpiryPruneEnabled()) {
+      configBuilder.isBlockchainGarbageCollectionEnabled(true);
+      final RocksDBFactoryConfiguration factoryConfig = configuration.get();
+      final double blobGarbageCollectionAgeCutoff =
+          factoryConfig.getBlobGarbageCollectionAgeCutoff().orElse(0.5);
+      final double blobGarbageCollectionForceThreshold =
+          factoryConfig.getBlobGarbageCollectionForceThreshold().orElse(0.1);
+      configBuilder.blobGarbageCollectionAgeCutoff(Optional.of(blobGarbageCollectionAgeCutoff));
+      configBuilder.blobGarbageCollectionForceThreshold(
+          Optional.of(blobGarbageCollectionForceThreshold));
+    }
   }
 
   /**
@@ -193,6 +335,9 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
   }
 
   private void init(final BesuConfiguration commonConfiguration) {
+    if (metadataInitialized) {
+      return;
+    }
     try {
       databaseMetadata = readDatabaseMetadata(commonConfiguration);
     } catch (final IOException e) {
@@ -202,20 +347,22 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
               + " could not be found. You may not have the appropriate permission to access the item.";
       throw new StorageException(message, e);
     }
-    final RocksDBFactoryConfiguration factoryConfig = configuration.get();
-    var configBuilder =
-        RocksDBConfigurationBuilder.from(factoryConfig)
-            .databaseDir(storagePath(commonConfiguration));
-
+    final Path storageRoot = storagePath(commonConfiguration);
+    legacyMonolithicDatabase = Files.isRegularFile(storageRoot.resolve("CURRENT"));
+    if (legacyMonolithicDatabase) {
+      LOG.info(
+          "Legacy monolithic RocksDB layout detected at {}; state is not split to a subdirectory. "
+              + "For split layout (database/{}/ and database/{}/), start from an empty data directory.",
+          storageRoot,
+          MAIN_DATABASE_DIR,
+          STATE_DATABASE_DIR);
+    }
     if (commonConfiguration.getDataStorageConfiguration().isHistoryExpiryPruneEnabled()) {
-      configBuilder.isBlockchainGarbageCollectionEnabled(true);
+      final RocksDBFactoryConfiguration factoryConfig = configuration.get();
       final double blobGarbageCollectionAgeCutoff =
           factoryConfig.getBlobGarbageCollectionAgeCutoff().orElse(0.5);
       final double blobGarbageCollectionForceThreshold =
           factoryConfig.getBlobGarbageCollectionForceThreshold().orElse(0.1);
-      configBuilder.blobGarbageCollectionAgeCutoff(Optional.of(blobGarbageCollectionAgeCutoff));
-      configBuilder.blobGarbageCollectionForceThreshold(
-          Optional.of(blobGarbageCollectionForceThreshold));
       LOG.atInfo()
           .setMessage("History expiry prune is enabled so setting {}; {}={}; {}={}")
           .addArgument(BLOB_BLOCKCHAIN_GARBAGE_COLLECTION_ENABLED)
@@ -225,12 +372,7 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
           .addArgument(blobGarbageCollectionForceThreshold)
           .log();
     }
-
-    rocksDBConfiguration = configBuilder.build();
-  }
-
-  private boolean requiresInit() {
-    return segmentedStorage == null;
+    metadataInitialized = true;
   }
 
   private DatabaseMetadata readDatabaseMetadata(final BesuConfiguration commonConfiguration)
@@ -391,9 +533,9 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
 
   /** Resets the segmentedStorage for Ephemery automatic restart. */
   public void reset() {
-    if (segmentedStorage != null) {
-      segmentedStorage = null;
-    }
+    segmentedStorage = null;
+    segmentedStorages.clear();
+    metadataInitialized = false;
   }
 
   @Override
@@ -401,6 +543,10 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
     if (segmentedStorage != null) {
       segmentedStorage.close();
     }
+    for (final RocksDBColumnarKeyValueStorage storage : segmentedStorages.values()) {
+      storage.close();
+    }
+    segmentedStorages.clear();
   }
 
   @Override

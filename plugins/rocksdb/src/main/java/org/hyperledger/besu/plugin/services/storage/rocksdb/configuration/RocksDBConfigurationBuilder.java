@@ -36,6 +36,8 @@ public class RocksDBConfigurationBuilder {
   private boolean isBlockchainGarbageCollectionEnabled = false;
   private Optional<Double> blobGarbageCollectionAgeCutoff = Optional.empty();
   private Optional<Double> blobGarbageCollectionForceThreshold = Optional.empty();
+  private Optional<String> additionalColumnFamilyOptions = Optional.empty();
+  private Optional<String> additionalDatabaseOptions = Optional.empty();
 
   /** Instantiates a new Rocks db configuration builder. */
   public RocksDBConfigurationBuilder() {}
@@ -155,6 +157,32 @@ public class RocksDBConfigurationBuilder {
   }
 
   /**
+   * Additional column-family options (semicolon-separated {@code key=value;}). Besu merges its own
+   * {@code block_based_table_factory.*} defaults into the same native map before parsing; keys
+   * listed there are overwritten by Besu.
+   *
+   * @param additionalColumnFamilyOptions the options string
+   * @return this builder
+   */
+  public RocksDBConfigurationBuilder additionalColumnFamilyOptions(
+      final Optional<String> additionalColumnFamilyOptions) {
+    this.additionalColumnFamilyOptions = additionalColumnFamilyOptions;
+    return this;
+  }
+
+  /**
+   * Additional {@link org.rocksdb.DBOptions} as a semicolon-separated native string.
+   *
+   * @param additionalDatabaseOptions the options string
+   * @return this builder
+   */
+  public RocksDBConfigurationBuilder additionalDatabaseOptions(
+      final Optional<String> additionalDatabaseOptions) {
+    this.additionalDatabaseOptions = additionalDatabaseOptions;
+    return this;
+  }
+
+  /**
    * From.
    *
    * @param configuration the configuration
@@ -169,8 +197,9 @@ public class RocksDBConfigurationBuilder {
         .enableReadCacheForSnapshots(configuration.isReadCacheEnabledForSnapshots())
         .isBlockchainGarbageCollectionEnabled(configuration.isBlockchainGarbageCollectionEnabled())
         .blobGarbageCollectionAgeCutoff(configuration.getBlobGarbageCollectionAgeCutoff())
-        .blobGarbageCollectionForceThreshold(
-            configuration.getBlobGarbageCollectionForceThreshold());
+        .blobGarbageCollectionForceThreshold(configuration.getBlobGarbageCollectionForceThreshold())
+        .additionalColumnFamilyOptions(configuration.getAdditionalColumnFamilyOptions())
+        .additionalDatabaseOptions(configuration.getAdditionalDatabaseOptions());
   }
 
   /**
@@ -189,6 +218,8 @@ public class RocksDBConfigurationBuilder {
         enableReadCacheForSnapshots,
         isBlockchainGarbageCollectionEnabled,
         blobGarbageCollectionAgeCutoff,
-        blobGarbageCollectionForceThreshold);
+        blobGarbageCollectionForceThreshold,
+        additionalColumnFamilyOptions,
+        additionalDatabaseOptions);
   }
 }

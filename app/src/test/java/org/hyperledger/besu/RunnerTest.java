@@ -414,6 +414,8 @@ public final class RunnerTest {
                         DEFAULT_ENABLE_READ_CACHE_FOR_SNAPSHOTS,
                         false,
                         Optional.empty(),
+                        Optional.empty(),
+                        Optional.empty(),
                         Optional.empty()),
                 Arrays.asList(KeyValueSegmentIdentifier.values()),
                 RocksDBMetricsFactory.PUBLIC_ROCKS_DB_METRICS))

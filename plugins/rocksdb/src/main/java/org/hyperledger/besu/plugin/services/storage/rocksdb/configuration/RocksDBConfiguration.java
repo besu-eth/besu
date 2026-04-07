@@ -30,6 +30,8 @@ public class RocksDBConfiguration {
   private final boolean isBlockchainGarbageCollectionEnabled;
   private final Optional<Double> blobGarbageCollectionAgeCutoff;
   private final Optional<Double> blobGarbageCollectionForceThreshold;
+  private final Optional<String> additionalColumnFamilyOptions;
+  private final Optional<String> additionalDatabaseOptions;
 
   /**
    * Instantiates a new RocksDb configuration.
@@ -45,6 +47,8 @@ public class RocksDBConfiguration {
    *     column family
    * @param blobGarbageCollectionAgeCutoff the blob garbage collection age cutoff
    * @param blobGarbageCollectionForceThreshold the blob garbage collection force threshold
+   * @param additionalColumnFamilyOptions additional native column-family options string
+   * @param additionalDatabaseOptions optional native DB options string
    */
   public RocksDBConfiguration(
       final Path databaseDir,
@@ -56,7 +60,9 @@ public class RocksDBConfiguration {
       final boolean enableReadCacheForSnapshots,
       final boolean isBlockchainGarbageCollectionEnabled,
       final Optional<Double> blobGarbageCollectionAgeCutoff,
-      final Optional<Double> blobGarbageCollectionForceThreshold) {
+      final Optional<Double> blobGarbageCollectionForceThreshold,
+      final Optional<String> additionalColumnFamilyOptions,
+      final Optional<String> additionalDatabaseOptions) {
     this.backgroundThreadCount = backgroundThreadCount;
     this.databaseDir = databaseDir;
     this.maxOpenFiles = maxOpenFiles;
@@ -67,6 +73,8 @@ public class RocksDBConfiguration {
     this.isBlockchainGarbageCollectionEnabled = isBlockchainGarbageCollectionEnabled;
     this.blobGarbageCollectionAgeCutoff = blobGarbageCollectionAgeCutoff;
     this.blobGarbageCollectionForceThreshold = blobGarbageCollectionForceThreshold;
+    this.additionalColumnFamilyOptions = additionalColumnFamilyOptions;
+    this.additionalDatabaseOptions = additionalDatabaseOptions;
   }
 
   /**
@@ -157,5 +165,23 @@ public class RocksDBConfiguration {
    */
   public Optional<Double> getBlobGarbageCollectionForceThreshold() {
     return blobGarbageCollectionForceThreshold;
+  }
+
+  /**
+   * Returns additional column-family options string (semicolon-separated), if any.
+   *
+   * @return the options string, or empty if unset
+   */
+  public Optional<String> getAdditionalColumnFamilyOptions() {
+    return additionalColumnFamilyOptions;
+  }
+
+  /**
+   * Returns additional {@code DBOptions} string (semicolon-separated), if any.
+   *
+   * @return the options string, or empty if unset
+   */
+  public Optional<String> getAdditionalDatabaseOptions() {
+    return additionalDatabaseOptions;
   }
 }
