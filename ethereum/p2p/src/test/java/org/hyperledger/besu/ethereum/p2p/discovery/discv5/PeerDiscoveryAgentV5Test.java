@@ -309,8 +309,6 @@ class PeerDiscoveryAgentV5Test {
     final PeerPermissionsDenylist denylist = PeerPermissionsDenylist.create();
 
     when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
-    when(mockSystem.searchForNewPeers()).thenReturn(CompletableFuture.completedFuture(List.of()));
-    when(mockSystem.streamLiveNodes()).thenAnswer(invocation -> Stream.of());
 
     final PeerDiscoveryAgentV5 restrictedAgent =
         new PeerDiscoveryAgentV5(
