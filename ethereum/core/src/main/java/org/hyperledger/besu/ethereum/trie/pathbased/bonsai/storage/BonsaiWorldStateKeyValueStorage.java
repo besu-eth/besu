@@ -47,9 +47,13 @@ import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValueStorage
     implements WorldStateKeyValueStorage {
+  private static final Logger LOG = LoggerFactory.getLogger(BonsaiWorldStateKeyValueStorage.class);
+
   protected final BonsaiFlatDbStrategyProvider flatDbStrategyProvider;
 
   public BonsaiWorldStateKeyValueStorage(
@@ -165,6 +169,21 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
 
   public void upgradeToFullFlatDbMode() {
     flatDbStrategyProvider.upgradeToFullFlatDbMode(composedWorldStateStorage);
+  }
+
+  public void upgradeToArchiveFlatDbMode() {
+    flatDbStrategyProvider.upgradeToArchiveFlatDbMode(composedWorldStateStorage);
+    // Invalidate cached world state snapshots that were created under the previous strategy.
+    // Snapshots share the flatDbStrategyProvider, so after the switch they would use the new
+    // ARCHIVE read path against stale snapshot data that lacks complete archive-keyed entries.
+    subscribers.forEach(
+        subscriber -> {
+          try {
+            subscriber.onClearFlatDatabaseStorage();
+          } catch (final Exception e) {
+            LOG.error("Error notifying subscriber of flat database storage upgrade", e);
+          }
+        });
   }
 
   public void downgradeToPartialFlatDbMode() {
