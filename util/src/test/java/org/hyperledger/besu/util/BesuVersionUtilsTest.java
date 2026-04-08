@@ -59,6 +59,7 @@ public final class BesuVersionUtilsTest {
   @Test
   public void userIdentityNodeNameIsEthstatsFriendly() {
     assertThat(BesuVersionUtils.nodeName(Optional.of("TestUserIdentity")))
-        .matches("[^/]+/[^/]+/v(\\d+\\.\\d+\\.\\d+[^/]*|" + BesuVersionUtils.UNKNOWN + ")/[^/]+/[^/]+");
+        .matches(
+            "[^/]+/[^/]+/v(\\d+\\.\\d+\\.\\d+[^/]*|" + BesuVersionUtils.UNKNOWN + ")/[^/]+/[^/]+");
   }
 }
