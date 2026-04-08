@@ -94,7 +94,6 @@ public class SynchronizerConfiguration {
   private final long receiptsDownloadStepTimeoutMillis;
   private final long backwardHeadersDownloadStepTimeoutMillis;
   private final long bodiesDownloadStepTimeoutMillis;
-  private final boolean isPeerTaskSystemEnabled;
   private final boolean snapSyncSavePreCheckpointHeadersOnlyEnabled;
 
   // ERA1 import prepipeline config
@@ -128,7 +127,6 @@ public class SynchronizerConfiguration {
       final long receiptsDownloadStepTimeoutMillis,
       final long backwardHeadersDownloadStepTimeoutMillis,
       final long bodiesDownloadStepTimeoutMillis,
-      final boolean isPeerTaskSystemEnabled,
       final boolean snapSyncSavePreCheckpointHeadersOnlyEnabled,
       final boolean era1ImportPrepipelineEnabled,
       final URI era1DataUri,
@@ -158,7 +156,6 @@ public class SynchronizerConfiguration {
     this.receiptsDownloadStepTimeoutMillis = receiptsDownloadStepTimeoutMillis;
     this.backwardHeadersDownloadStepTimeoutMillis = backwardHeadersDownloadStepTimeoutMillis;
     this.bodiesDownloadStepTimeoutMillis = bodiesDownloadStepTimeoutMillis;
-    this.isPeerTaskSystemEnabled = isPeerTaskSystemEnabled;
     this.snapSyncSavePreCheckpointHeadersOnlyEnabled = snapSyncSavePreCheckpointHeadersOnlyEnabled;
     this.era1ImportPrepipelineEnabled = era1ImportPrepipelineEnabled;
     this.era1DataUri = era1DataUri;
@@ -300,10 +297,6 @@ public class SynchronizerConfiguration {
     return bodiesDownloadStepTimeoutMillis;
   }
 
-  public boolean isPeerTaskSystemEnabled() {
-    return isPeerTaskSystemEnabled;
-  }
-
   public boolean isSnapSyncSavePreCheckpointHeadersOnlyEnabled() {
     return snapSyncSavePreCheckpointHeadersOnlyEnabled;
   }
@@ -347,7 +340,6 @@ public class SynchronizerConfiguration {
         DEFAULT_WORLD_STATE_MAX_REQUESTS_WITHOUT_PROGRESS;
     private long worldStateMinMillisBeforeStalling = DEFAULT_WORLD_STATE_MIN_MILLIS_BEFORE_STALLING;
     private int worldStateTaskCacheSize = DEFAULT_WORLD_STATE_TASK_CACHE_SIZE;
-    private boolean isPeerTaskSystemEnabled = false;
     private boolean snapSyncSavePreCheckpointHeadersOnlyEnabled = true;
     private boolean era1ImportPrepipelineEnabled = DEFAULT_ERA1_IMPORT_PREPIPELINE_ENABLED;
     private URI era1DataUri = DEFAULT_ERA1_DATA_URI;
@@ -493,11 +485,6 @@ public class SynchronizerConfiguration {
       return this;
     }
 
-    public Builder isPeerTaskSystemEnabled(final boolean isPeerTaskSystemEnabled) {
-      this.isPeerTaskSystemEnabled = isPeerTaskSystemEnabled;
-      return this;
-    }
-
     public Builder snapSyncSavePreCheckpointHeadersOnlyEnabled(
         final boolean snapSyncSavePreCheckpointHeadersOnlyEnabled) {
       this.snapSyncSavePreCheckpointHeadersOnlyEnabled =
@@ -547,7 +534,6 @@ public class SynchronizerConfiguration {
           receiptsDownloadStepTimeoutMillis,
           backwardHeadersDownloadStepTimeoutMillis,
           bodiesDownloadStepTimeoutMillis,
-          isPeerTaskSystemEnabled,
           snapSyncSavePreCheckpointHeadersOnlyEnabled,
           era1ImportPrepipelineEnabled,
           era1DataUri,
