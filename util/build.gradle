@@ -67,7 +67,7 @@ dependencies {
   implementation 'org.bouncycastle:bcpkix-jdk18on'
   implementation 'org.xerial.snappy:snappy-java'
 
-  compileOnly 'org.jspecify:jspecify'
+  compileOnlyApi 'org.jspecify:jspecify'
 
   testImplementation 'org.mockito:mockito-junit-jupiter'
   testImplementation 'org.assertj:assertj-core'
