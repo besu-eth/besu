@@ -25,7 +25,6 @@ import org.hyperledger.besu.evm.gascalculator.PragueGasCalculator;
 import java.util.List;
 import java.util.Optional;
 
-import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -169,12 +168,5 @@ class CancunTargetingGasLimitCalculatorTest {
             BlobSchedule.PRAGUE_DEFAULT.getTarget());
     assertThat(gasLimitCalculator.currentBlobGasLimit()).isEqualTo(0x120000); // 9 * 131072
     assertThat(gasLimitCalculator.transactionBlobGasLimitCap()).isEqualTo(0x120000); // 9 * 131072
-  }
-
-  @Test
-  void dryRunDetector() {
-    Assertions.assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }
