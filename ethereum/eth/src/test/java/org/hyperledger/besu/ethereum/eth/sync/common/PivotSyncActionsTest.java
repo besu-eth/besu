@@ -88,19 +88,14 @@ public class PivotSyncActionsTest {
     }
   }
 
-  public void setUp(final DataStorageFormat storageFormat, final boolean isPeerTaskSystemEnabled) {
-    setUp(storageFormat, isPeerTaskSystemEnabled, Optional.empty());
+  public void setUp(final DataStorageFormat storageFormat) {
+    setUp(storageFormat, Optional.empty());
   }
 
   public void setUp(
-      final DataStorageFormat storageFormat,
-      final boolean isPeerTaskSystemEnabled,
-      final Optional<Integer> syncMinimumPeers) {
+      final DataStorageFormat storageFormat, final Optional<Integer> syncMinimumPeers) {
     SynchronizerConfiguration.Builder syncConfigBuilder =
-        new SynchronizerConfiguration.Builder()
-            .syncMode(SyncMode.SNAP)
-            .syncPivotDistance(1000)
-            .isPeerTaskSystemEnabled(isPeerTaskSystemEnabled);
+        new SynchronizerConfiguration.Builder().syncMode(SyncMode.SNAP).syncPivotDistance(1000);
     syncMinimumPeers.ifPresent(syncConfigBuilder::syncMinimumPeerCount);
     syncConfig = syncConfigBuilder.build();
     when(worldStateStorageCoordinator.getDataStorageFormat()).thenReturn(storageFormat);
@@ -129,7 +124,7 @@ public class PivotSyncActionsTest {
   @ArgumentsSource(PivotSyncActionsTest.PivotSyncActionsTestArguments.class)
   public void waitForPeersShouldSucceedIfEnoughPeersAreFound(
       final DataStorageFormat storageFormat) {
-    setUp(storageFormat, false);
+    setUp(storageFormat);
     for (int i = 0; i < syncConfig.getSyncMinimumPeerCount(); i++) {
       EthProtocolManagerTestUtil.createPeer(
           ethProtocolManager, syncConfig.getSyncPivotDistance() + i + 1);
@@ -142,7 +137,7 @@ public class PivotSyncActionsTest {
   @ParameterizedTest
   @ArgumentsSource(PivotSyncActionsTest.PivotSyncActionsTestArguments.class)
   public void returnTheSamePivotBlockIfAlreadySelected(final DataStorageFormat storageFormat) {
-    setUp(storageFormat, false);
+    setUp(storageFormat);
     final BlockHeader pivotHeader = new BlockHeaderTestFixture().number(1024).buildHeader();
     final PivotSyncState fastSyncState = new PivotSyncState(pivotHeader, false);
     final CompletableFuture<PivotSyncState> result =
@@ -155,7 +150,7 @@ public class PivotSyncActionsTest {
   @ArgumentsSource(PivotSyncActionsTest.PivotSyncActionsTestArguments.class)
   public void selectPivotBlockShouldUseExistingPivotBlockIfAvailable(
       final DataStorageFormat storageFormat) {
-    setUp(storageFormat, false);
+    setUp(storageFormat);
     final BlockHeader pivotHeader = new BlockHeaderTestFixture().number(1024).buildHeader();
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 5000);
 
@@ -169,7 +164,7 @@ public class PivotSyncActionsTest {
   @ArgumentsSource(PivotSyncActionsTest.PivotSyncActionsTestArguments.class)
   public void selectPivotBlockShouldSelectBlockPivotDistanceFromBestPeer(
       final DataStorageFormat storageFormat) {
-    setUp(storageFormat, false, Optional.of(1));
+    setUp(storageFormat, Optional.of(1));
 
     pivotSyncActions =
         createPivotSyncActions(
@@ -187,7 +182,7 @@ public class PivotSyncActionsTest {
   @ArgumentsSource(PivotSyncActionsTest.PivotSyncActionsTestArguments.class)
   public void selectPivotBlockShouldConsiderTotalDifficultyWhenSelectingBestPeer(
       final DataStorageFormat storageFormat) {
-    setUp(storageFormat, false, Optional.of(1));
+    setUp(storageFormat, Optional.of(1));
     pivotSyncActions =
         createPivotSyncActions(
             syncConfig, new PivotSelectorFromPeers(ethContext, syncConfig, syncState));
@@ -205,7 +200,7 @@ public class PivotSyncActionsTest {
   @ArgumentsSource(PivotSyncActionsTest.PivotSyncActionsTestArguments.class)
   public void selectPivotBlockShouldWaitAndRetryUntilMinHeightEstimatesAreAvailable(
       final DataStorageFormat storageFormat) {
-    setUp(storageFormat, false, Optional.of(2));
+    setUp(storageFormat, Optional.of(2));
     pivotSyncActions =
         createPivotSyncActions(
             syncConfig, new PivotSelectorFromPeers(ethContext, syncConfig, syncState));
@@ -232,7 +227,7 @@ public class PivotSyncActionsTest {
   @ArgumentsSource(PivotSyncActionsTest.PivotSyncActionsTestArguments.class)
   public void selectPivotBlockShouldRetryIfPivotBlockSelectorReturnsEmptyOptional(
       final DataStorageFormat storageFormat) {
-    setUp(storageFormat, false, Optional.of(3));
+    setUp(storageFormat, Optional.of(3));
 
     PivotBlockSelector pivotBlockSelector = mock(PivotBlockSelector.class);
     pivotSyncActions = createPivotSyncActions(syncConfig, pivotBlockSelector);
@@ -258,14 +253,14 @@ public class PivotSyncActionsTest {
   @ArgumentsSource(PivotSyncActionsTest.PivotSyncActionsTestArguments.class)
   public void selectPivotBlockUsesBestPeerWithHeightEstimate(
       final DataStorageFormat storageFormat) {
-    setUp(storageFormat, false, Optional.of(3));
+    setUp(storageFormat, Optional.of(3));
     selectPivotBlockUsesBestPeerMatchingRequiredCriteria(true, false);
   }
 
   @ParameterizedTest
   @ArgumentsSource(PivotSyncActionsTest.PivotSyncActionsTestArguments.class)
   public void selectPivotBlockUsesBestPeerThatIsValidated(final DataStorageFormat storageFormat) {
-    setUp(storageFormat, false, Optional.of(3));
+    setUp(storageFormat, Optional.of(3));
     selectPivotBlockUsesBestPeerMatchingRequiredCriteria(false, true);
   }
 
@@ -273,7 +268,7 @@ public class PivotSyncActionsTest {
   @ArgumentsSource(PivotSyncActionsTest.PivotSyncActionsTestArguments.class)
   public void selectPivotBlockUsesBestPeerThatIsValidatedAndHasHeightEstimate(
       final DataStorageFormat storageFormat) {
-    setUp(storageFormat, false, Optional.of(3));
+    setUp(storageFormat, Optional.of(3));
     selectPivotBlockUsesBestPeerMatchingRequiredCriteria(true, true);
   }
 
@@ -327,7 +322,7 @@ public class PivotSyncActionsTest {
   @ArgumentsSource(PivotSyncActionsTest.PivotSyncActionsTestArguments.class)
   public void selectPivotBlockShouldWaitAndRetryIfBestPeerChainIsShorterThanPivotDistance(
       final DataStorageFormat storageFormat) {
-    setUp(storageFormat, false, Optional.of(1));
+    setUp(storageFormat, Optional.of(1));
     pivotSyncActions =
         createPivotSyncActions(
             syncConfig, new PivotSelectorFromPeers(ethContext, syncConfig, syncState));
@@ -353,7 +348,7 @@ public class PivotSyncActionsTest {
   @ArgumentsSource(PivotSyncActionsTest.PivotSyncActionsTestArguments.class)
   public void selectPivotBlockShouldRetryIfBestPeerChainIsEqualToPivotDistance(
       final DataStorageFormat storageFormat) {
-    setUp(storageFormat, false);
+    setUp(storageFormat);
     final long pivotDistance = syncConfig.getSyncPivotDistance();
     EthProtocolManagerTestUtil.disableEthSchedulerAutoRun(ethProtocolManager);
     // Create peers with chains that are too short
@@ -378,7 +373,7 @@ public class PivotSyncActionsTest {
   @ArgumentsSource(PivotSyncActionsTest.PivotSyncActionsTestArguments.class)
   public void downloadPivotBlockHeaderShouldUseExistingPivotBlockHeaderIfPresent(
       final DataStorageFormat storageFormat) {
-    setUp(storageFormat, false);
+    setUp(storageFormat);
     final BlockHeader pivotHeader = new BlockHeaderTestFixture().number(1024).buildHeader();
     final PivotSyncState expected = new PivotSyncState(pivotHeader, false);
     assertThat(pivotSyncActions.downloadPivotBlockHeader(expected)).isCompletedWithValue(expected);
@@ -388,7 +383,7 @@ public class PivotSyncActionsTest {
   @ArgumentsSource(PivotSyncActionsTest.PivotSyncActionsTestArguments.class)
   public void downloadPivotBlockHeaderShouldRetrievePivotBlockHeader(
       final DataStorageFormat storageFormat) {
-    setUp(storageFormat, false, Optional.of(1));
+    setUp(storageFormat, Optional.of(1));
     pivotSyncActions =
         createPivotSyncActions(
             syncConfig, new PivotSelectorFromPeers(ethContext, syncConfig, syncState));
@@ -413,7 +408,7 @@ public class PivotSyncActionsTest {
   @ArgumentsSource(PivotSyncActionsTest.PivotSyncActionsTestArguments.class)
   public void downloadPivotBlockHeaderShouldRetrievePivotBlockHash(
       final DataStorageFormat storageFormat) {
-    setUp(storageFormat, false, Optional.of(1));
+    setUp(storageFormat, Optional.of(1));
     GenesisConfigOptions genesisConfig = mock(GenesisConfigOptions.class);
     when(genesisConfig.getTerminalBlockNumber()).thenReturn(OptionalLong.of(10L));
 
