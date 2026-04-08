@@ -37,7 +37,9 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
+import org.hyperledger.besu.services.kvstore.LimitedInMemoryKeyValueStorage;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
 public class InMemoryKeyValueStorageProvider extends KeyValueStorageProvider {
@@ -45,7 +47,7 @@ public class InMemoryKeyValueStorageProvider extends KeyValueStorageProvider {
   public InMemoryKeyValueStorageProvider() {
     super(
         segmentIdentifiers -> new SegmentedInMemoryKeyValueStorage(),
-        new InMemoryKeyValueStorage(),
+        InMemoryKeyValueStorageProvider::get,
         new NoOpMetricsSystem());
   }
 
@@ -119,14 +121,23 @@ public class InMemoryKeyValueStorageProvider extends KeyValueStorageProvider {
   }
 
   public static MutableWorldState createInMemoryWorldState() {
+    return createInMemoryWorldState(DataStorageConfiguration.DEFAULT_FOREST_CONFIG);
+  }
+
+  public static MutableWorldState createInMemoryWorldState(
+      final DataStorageConfiguration dataStorageConfiguration) {
     final InMemoryKeyValueStorageProvider provider = new InMemoryKeyValueStorageProvider();
     return new ForestMutableWorldState(
-        provider.createWorldStateStorage(DataStorageConfiguration.DEFAULT_FOREST_CONFIG),
+        provider.createWorldStateStorage(dataStorageConfiguration),
         provider.createWorldStatePreimageStorage(),
         EvmConfiguration.DEFAULT);
   }
 
   public static VariablesStorage createInMemoryVariablesStorage() {
     return new VariablesKeyValueStorage(new InMemoryKeyValueStorage());
+  }
+
+  private static KeyValueStorage get() {
+    return new LimitedInMemoryKeyValueStorage(4000);
   }
 }

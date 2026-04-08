@@ -50,6 +50,7 @@ import picocli.CommandLine.Spec;
       StorageSubCommand.RevertVariablesStorage.class,
       RocksDbSubCommand.class,
       TrieLogSubCommand.class,
+      PreimageSubCommand.class,
       RevertMetadataSubCommand.class,
       PrunePreMergeBlockDataSubCommand.class
     })

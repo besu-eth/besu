@@ -44,7 +44,10 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
       final SnappedKeyValueStorage segmentedWorldStateStorage,
       final KeyValueStorage trieLogStorage) {
     super(
-        parentWorldStateStorage.flatDbStrategyProvider, segmentedWorldStateStorage, trieLogStorage);
+        parentWorldStateStorage.flatDbStrategyProvider,
+        segmentedWorldStateStorage,
+        trieLogStorage,
+        parentWorldStateStorage.getPreimageStorage());
     this.parentWorldStateStorage = parentWorldStateStorage;
     this.subscribeParentId = parentWorldStateStorage.subscribe(this);
   }

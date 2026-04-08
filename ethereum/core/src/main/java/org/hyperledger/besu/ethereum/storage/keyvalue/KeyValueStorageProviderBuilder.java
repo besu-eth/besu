@@ -23,6 +23,8 @@ import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageFactory;
 import org.hyperledger.besu.services.kvstore.LimitedInMemoryKeyValueStorage;
 
+import java.util.function.Supplier;
+
 public class KeyValueStorageProviderBuilder {
 
   private static final long DEFAULT_WORLD_STATE_PRE_IMAGE_CACHE_SIZE = 5_000L;
@@ -55,12 +57,19 @@ public class KeyValueStorageProviderBuilder {
         "Cannot build a storage provider without the plugin common configuration.");
     checkNotNull(metricsSystem, "Cannot build a storage provider without a metrics system.");
 
-    final KeyValueStorage worldStatePreImageStorage =
-        new LimitedInMemoryKeyValueStorage(DEFAULT_WORLD_STATE_PRE_IMAGE_CACHE_SIZE);
+    final Supplier<KeyValueStorage> preimageStorageSupplier =
+        commonConfiguration.getDataStorageConfiguration().getHashPreImageStorageEnabled()
+            ? () ->
+                storageFactory.create(
+                    KeyValueSegmentIdentifier.HASH_PREIMAGE_STORE,
+                    commonConfiguration,
+                    metricsSystem)
+            : () -> new LimitedInMemoryKeyValueStorage(DEFAULT_WORLD_STATE_PRE_IMAGE_CACHE_SIZE);
+    ;
 
     return new KeyValueStorageProvider(
         segments -> storageFactory.create(segments, commonConfiguration, metricsSystem),
-        worldStatePreImageStorage,
+        preimageStorageSupplier,
         (ObservableMetricsSystem) metricsSystem);
   }
 }

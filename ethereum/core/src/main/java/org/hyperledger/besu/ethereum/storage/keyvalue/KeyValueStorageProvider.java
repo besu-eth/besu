@@ -36,8 +36,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+import com.google.common.base.Suppliers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,17 +48,17 @@ public class KeyValueStorageProvider implements StorageProvider {
 
   protected final Function<List<SegmentIdentifier>, SegmentedKeyValueStorage>
       segmentedStorageCreator;
-  private final KeyValueStorage worldStatePreimageStorage;
+  private final Supplier<KeyValueStorage> preimageStorageSupplier;
   protected final Map<List<SegmentIdentifier>, SegmentedKeyValueStorage> storageInstances =
       new HashMap<>();
   private final ObservableMetricsSystem metricsSystem;
 
   public KeyValueStorageProvider(
       final Function<List<SegmentIdentifier>, SegmentedKeyValueStorage> segmentedStorageCreator,
-      final KeyValueStorage worldStatePreimageStorage,
+      final Supplier<KeyValueStorage> worldStatePreimageStorage,
       final ObservableMetricsSystem metricsSystem) {
     this.segmentedStorageCreator = segmentedStorageCreator;
-    this.worldStatePreimageStorage = worldStatePreimageStorage;
+    this.preimageStorageSupplier = Suppliers.memoize(worldStatePreimageStorage::get);
     this.metricsSystem = metricsSystem;
   }
 
@@ -99,7 +101,7 @@ public class KeyValueStorageProvider implements StorageProvider {
 
   @Override
   public WorldStatePreimageStorage createWorldStatePreimageStorage() {
-    return new WorldStatePreimageKeyValueStorage(worldStatePreimageStorage);
+    return new WorldStatePreimageKeyValueStorage(preimageStorageSupplier.get());
   }
 
   @Override

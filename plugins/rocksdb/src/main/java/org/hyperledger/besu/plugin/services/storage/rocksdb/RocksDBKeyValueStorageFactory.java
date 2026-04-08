@@ -250,7 +250,7 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
       if (!metadata
           .getVersionedStorageFormat()
           .getFormat()
-          .equals(commonConfiguration.getDataStorageConfiguration().getDatabaseFormat())) {
+          .equals(commonConfiguration.getDataStorageConfiguration().getDataStorageFormat())) {
         handleFormatMismatch(commonConfiguration, dataDir, metadata);
       }
 
@@ -306,7 +306,7 @@ public class RocksDBKeyValueStorageFactory implements KeyValueStorageFactory {
                 + "Please check your config.",
             dataDir,
             existingMetadata.getVersionedStorageFormat().getFormat().name(),
-            commonConfiguration.getDataStorageConfiguration().getDatabaseFormat());
+            commonConfiguration.getDataStorageConfiguration().getDataStorageFormat());
 
     throw new StorageException(error);
   }

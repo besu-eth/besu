@@ -34,19 +34,26 @@ public class WorldStatePreimageKeyValueStorage implements WorldStatePreimageStor
 
   @Override
   public Optional<UInt256> getStorageTrieKeyPreimage(final Bytes32 trieKey) {
-    return keyValueStorage
-        .get(trieKey.toArrayUnsafe())
-        .filter(val -> val.length == Bytes32.SIZE)
+    return getRawPreimage(trieKey)
+        .filter(val -> val.size() == Bytes32.SIZE)
         .map(Bytes32::wrap)
         .map(UInt256::fromBytes);
   }
 
   @Override
   public Optional<Address> getAccountTrieKeyPreimage(final Bytes32 trieKey) {
-    return keyValueStorage
-        .get(trieKey.toArrayUnsafe())
-        .filter(val -> val.length == Address.SIZE)
+    return getRawPreimage(trieKey)
+        .filter(val -> val.size() == Address.SIZE)
         .map(val -> Address.wrap(Bytes.wrap(val)));
+  }
+
+  @Override
+  public Optional<Bytes> getRawPreimage(final Bytes32 trieKey) {
+    return keyValueStorage.get(trieKey.toArrayUnsafe()).map(Bytes::wrap);
+  }
+
+  public KeyValueStorage getKeyValueStorage() {
+    return keyValueStorage;
   }
 
   @Override

@@ -31,7 +31,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorl
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbStrategy;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
-import org.hyperledger.besu.evm.account.AccountStorageEntry;
+import org.hyperledger.besu.plugin.services.storage.WorldStatePreimageStorage;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
@@ -41,7 +41,6 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTran
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
 import java.util.List;
-import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -64,7 +63,8 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
         provider.getStorageBySegmentIdentifiers(
             List.of(
                 ACCOUNT_INFO_STATE, CODE_STORAGE, ACCOUNT_STORAGE_STORAGE, TRIE_BRANCH_STORAGE)),
-        provider.getStorageBySegmentIdentifier(KeyValueSegmentIdentifier.TRIE_LOG_STORAGE));
+        provider.getStorageBySegmentIdentifier(KeyValueSegmentIdentifier.TRIE_LOG_STORAGE),
+        provider.createWorldStatePreimageStorage());
     this.flatDbStrategyProvider =
         new BonsaiFlatDbStrategyProvider(metricsSystem, dataStorageConfiguration);
     flatDbStrategyProvider.loadFlatDbStrategy(composedWorldStateStorage);
@@ -73,8 +73,9 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
   public BonsaiWorldStateKeyValueStorage(
       final BonsaiFlatDbStrategyProvider flatDbStrategyProvider,
       final SegmentedKeyValueStorage composedWorldStateStorage,
-      final KeyValueStorage trieLogStorage) {
-    super(composedWorldStateStorage, trieLogStorage);
+      final KeyValueStorage trieLogStorage,
+      final WorldStatePreimageStorage preimageStorage) {
+    super(composedWorldStateStorage, trieLogStorage, preimageStorage);
     this.flatDbStrategyProvider = flatDbStrategyProvider;
   }
 
@@ -160,11 +161,6 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
             accountHash,
             storageSlotKey,
             composedWorldStateStorage);
-  }
-
-  public NavigableMap<Bytes32, AccountStorageEntry> storageEntriesFrom(
-      final Hash addressHash, final Bytes32 startKeyHash, final int limit) {
-    throw new RuntimeException("Bonsai Tries does not currently support enumerating storage");
   }
 
   public void upgradeToFullFlatDbMode() {

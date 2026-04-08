@@ -26,7 +26,7 @@ public interface DataStorageConfiguration {
    * @return Database format.
    */
   @Unstable
-  DataStorageFormat getDatabaseFormat();
+  DataStorageFormat getDataStorageFormat();
 
   /**
    * Whether receipt compaction is enabled. When enabled this reduces the storage needed for
@@ -48,4 +48,13 @@ public interface DataStorageConfiguration {
   default boolean isHistoryExpiryPruneEnabled() {
     return false;
   }
+
+  /**
+   * Indicates whether to persist hash preimages to storage. When enabled this option will persist
+   * Account and Hash preimages to storage upon their writing.
+   *
+   * @return whether preimage persistent storage is enabled
+   */
+  @Unstable
+  boolean getHashPreImageStorageEnabled();
 }

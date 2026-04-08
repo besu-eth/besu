@@ -70,7 +70,7 @@ public enum BaseVersionedStorageFormat implements VersionedStorageFormat {
    */
   public static BaseVersionedStorageFormat defaultForNewDB(
       final DataStorageConfiguration configuration) {
-    return switch (configuration.getDatabaseFormat()) {
+    return switch (configuration.getDataStorageFormat()) {
       case FOREST -> FOREST_WITH_RECEIPT_COMPACTION;
       case BONSAI -> BONSAI_WITH_RECEIPT_COMPACTION;
       case X_BONSAI_ARCHIVE -> BONSAI_ARCHIVE_WITH_RECEIPT_COMPACTION;
