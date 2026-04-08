@@ -83,6 +83,7 @@ dependencies {
   implementation 'com.github.ben-manes.caffeine:caffeine'
 
   annotationProcessor "org.immutables:value"
+  annotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess'
   implementation "org.immutables:value-annotations"
 
   runtimeOnly 'org.bouncycastle:bcpkix-jdk18on'
