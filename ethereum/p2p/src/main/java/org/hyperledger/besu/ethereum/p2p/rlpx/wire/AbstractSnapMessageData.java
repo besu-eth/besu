@@ -25,8 +25,12 @@ import java.util.Optional;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public abstract class AbstractSnapMessageData extends AbstractMessageData {
+
+  private static final Logger LOG = LoggerFactory.getLogger(AbstractSnapMessageData.class);
 
   @VisibleForTesting
   public static final BigInteger SIZE_REQUEST = BigInteger.valueOf(524288); // 512 * 1024
@@ -48,6 +52,7 @@ public abstract class AbstractSnapMessageData extends AbstractMessageData {
 
   @Override
   public MessageData wrapMessageData(final BigInteger requestId) {
+    LOG.info("STEFAN: Wrapping message with requestId {}", requestId);
     return new RawMessage(getCode(), wrap(requestId));
   }
 

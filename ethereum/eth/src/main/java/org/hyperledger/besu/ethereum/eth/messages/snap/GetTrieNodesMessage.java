@@ -28,8 +28,12 @@ import java.util.List;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.immutables.value.Value;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class GetTrieNodesMessage extends AbstractSnapMessageData {
+
+  private static final Logger LOG = LoggerFactory.getLogger(GetTrieNodesMessage.class);
 
   // Compact-encoded Keccak256 hash is at most 33 bytes (1 metadata + 32 data)
   static final int MAX_PATH_SIZE = 33;
@@ -114,6 +118,9 @@ public final class GetTrieNodesMessage extends AbstractSnapMessageData {
       if (group.isEmpty()) {
         totalPaths++;
       }
+    }
+    if (totalPaths >= MAX_TOTAL_PATHS) {
+      LOG.info("STEFAN: stopped after reaching MAX_TOTAL_PATHS");
     }
     // skip any remaining groups
     while (!input.isEndOfCurrentList()) {
