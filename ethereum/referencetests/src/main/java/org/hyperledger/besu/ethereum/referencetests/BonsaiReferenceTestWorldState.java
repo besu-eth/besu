@@ -246,8 +246,6 @@ public class BonsaiReferenceTestWorldState extends BonsaiWorldState
           updater, Address.fromHexString(entry.getKey()), entry.getValue());
     }
     updater.commit();
-    // persist in order to save preimages
-    worldState.persist(null);
     return worldState;
   }
 

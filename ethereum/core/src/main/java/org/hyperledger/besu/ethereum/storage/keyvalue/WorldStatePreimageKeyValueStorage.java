@@ -52,10 +52,6 @@ public class WorldStatePreimageKeyValueStorage implements WorldStatePreimageStor
     return keyValueStorage.get(trieKey.toArrayUnsafe()).map(Bytes::wrap);
   }
 
-  public KeyValueStorage getKeyValueStorage() {
-    return keyValueStorage;
-  }
-
   @Override
   public Updater updater() {
     return new Updater(keyValueStorage.startTransaction());

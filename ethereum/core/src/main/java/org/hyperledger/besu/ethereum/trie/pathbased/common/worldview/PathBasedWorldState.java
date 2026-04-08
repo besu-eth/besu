@@ -183,32 +183,6 @@ public abstract class PathBasedWorldState
         worldStateKeyValueStorage.updater();
     Runnable saveTrieLog = () -> {};
     Runnable cacheWorldState = () -> {};
-    Runnable savePreimages =
-        () -> {
-          var preImageUpdater = worldStateKeyValueStorage.getPreimageStorage().updater();
-          accumulator
-              .getAccountsToUpdate()
-              .keySet()
-              .forEach(
-                  acct ->
-                      preImageUpdater.putAccountTrieKeyPreimage(
-                          Bytes32.wrap(acct.addressHash().getBytes()), acct));
-          accumulator.getStorageToUpdate().values().stream()
-              .flatMap(z -> z.keySet().stream())
-              .filter(
-                  z -> {
-                    // TODO: we should add logic here to limit writing
-                    //     common slot keys
-                    return z.getSlotKey().isPresent();
-                  })
-              .distinct()
-              .forEach(
-                  slot -> {
-                    preImageUpdater.putStorageTrieKeyPreimage(
-                        Bytes32.wrap(slot.getSlotHash().getBytes()), slot.getSlotKey().get());
-                  });
-          preImageUpdater.commit();
-        };
 
     try {
       final Hash calculatedRootHash =
@@ -220,6 +194,24 @@ public abstract class PathBasedWorldState
         saveTrieLog =
             () -> {
               trieLogManager.saveTrieLog(accumulator, calculatedRootHash, blockHeader, this);
+              var preImageUpdater = worldStateKeyValueStorage.getPreimageStorage().updater();
+              accumulator
+                  .getAccountsToUpdate()
+                  .keySet()
+                  .forEach(
+                      acct ->
+                          preImageUpdater.putAccountTrieKeyPreimage(
+                              Bytes32.wrap(acct.addressHash().getBytes()), acct));
+              accumulator.getStorageToUpdate().values().stream()
+                  .flatMap(z -> z.keySet().stream())
+                  .filter(z -> z.getSlotKey().isPresent())
+                  .distinct()
+                  .forEach(
+                      slot ->
+                          preImageUpdater.putStorageTrieKeyPreimage(
+                              Bytes32.wrap(slot.getSlotHash().getBytes()),
+                              slot.getSlotKey().get()));
+              preImageUpdater.commit();
             };
         cacheWorldState =
             () -> cachedWorldStorageManager.addCachedLayer(blockHeader, calculatedRootHash, this);
@@ -253,10 +245,8 @@ public abstract class PathBasedWorldState
       success = true;
     } finally {
       if (success) {
-        // commit the trielog transaction ahead of the state, in case of an abnormal shutdown:
+        // commit the trielog and preimage transactions ahead of the state, in case of an abnormal shutdown:
         saveTrieLog.run();
-        // save preImages to persisted storage or limited in-memory cache
-        savePreimages.run();
         // commit only the composed worldstate, as trielog transaction is already complete:
         stateUpdater.commitComposedOnly();
         if (!isStorageFrozen) {

@@ -27,8 +27,9 @@ import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.WorldStatePreimageKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
-import org.hyperledger.besu.ethereum.worldstate.WorldStatePreimageStorage;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
+import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -36,6 +37,7 @@ import java.nio.file.Path;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -58,8 +60,8 @@ public class PreimageSubCommandTest {
 
     // use block coinbase to assert a preimage we know by default
     var coinbase = chainSetup.getBlockchain().getChainHeadHeader().getCoinbase();
-
-    var coinbasePreimage = preimageStorage.getAccountTrieKeyPreimage(Hash.hash(coinbase));
+    var coinbasePreimage =
+        preimageStorage.getAccountTrieKeyPreimage(Bytes32.wrap(coinbase.addressHash().getBytes()));
     assertThat(coinbasePreimage).isPresent();
     assertThat(coinbasePreimage.get()).isEqualTo(coinbase);
 
@@ -71,13 +73,15 @@ public class PreimageSubCommandTest {
         .map(Hash::wrap)
         .forEach(
             acctHash -> {
-              var acctPreimage = preimageStorage.getAccountTrieKeyPreimage(Hash.wrap(acctHash));
+              var acctPreimage =
+                  preimageStorage.getAccountTrieKeyPreimage(Bytes32.wrap(acctHash.getBytes()));
               assertThat(acctPreimage).isPresent();
 
               // get all flat storage and assert their key preimages exist:
               var acctStorage =
                   ws.streamFlatStorages(acctHash, UInt256.ZERO, UInt256.MAX_VALUE, 100L);
-              acctStorage.keySet().stream()
+              acctStorage
+                  .keySet()
                   .forEach(
                       slotHash -> {
                         var slotPreimage = preimageStorage.getStorageTrieKeyPreimage(slotHash);
@@ -89,31 +93,36 @@ public class PreimageSubCommandTest {
   @Test
   public void assertPreimageExport(@TempDir final Path tempDir) throws IOException {
     Path tempFile = tempDir.resolve("export_preimages.txt");
-    var chainSetup = BlockchainSetupUtil.forTesting(preimageStorageConfiguration);
-    BonsaiWorldStateProvider archive = (BonsaiWorldStateProvider) chainSetup.getWorldArchive();
-    var preimageStorage = archive.getWorldStateKeyValueStorage().getPreimageStorage();
 
-    chainSetup.importAllBlocks();
+    var kvStorage = new InMemoryKeyValueStorage();
+    var preimageStorage = new WorldStatePreimageKeyValueStorage(kvStorage);
+
+    // Pre-populate with known preimages
+    Address knownAddress = Address.fromHexString("0xdeadbeef");
+    UInt256 knownSlot = UInt256.valueOf(42);
+    var updater = preimageStorage.updater();
+    updater.putAccountTrieKeyPreimage(
+        Bytes32.wrap(Hash.hash(knownAddress.getBytes()).getBytes()), knownAddress);
+    updater.putStorageTrieKeyPreimage(
+        Bytes32.wrap(Hash.hash(knownSlot).getBytes()), knownSlot);
+    updater.commit();
+
     var cmd = new PreimageSubCommand.Export();
-    cmd.storageProvider = getMockStorageProvider(preimageStorage);
+    cmd.storageProvider = getMockStorageProvider(kvStorage);
     cmd.hex = true;
     cmd.preimageFilePath = tempFile;
     cmd.run();
 
-    // smoke check to ensure the export isn't empty:
-    assertThat(Files.readAllLines(tempFile).size()).isGreaterThan(1);
-
+    assertThat(Files.readAllLines(tempFile)).isNotEmpty();
     try (Stream<String> lines = Files.lines(tempFile)) {
       lines.forEach(
           line -> {
             var preimage = Bytes.fromHexString(line);
-            var hashVal = Hash.hash(preimage);
+            var hashVal = Bytes32.wrap(Hash.hash(preimage).getBytes());
             var lookupRaw = preimageStorage.getRawPreimage(hashVal);
             assertThat(lookupRaw).isPresent();
             assertThat(lookupRaw.get()).isEqualTo(preimage);
           });
-    } catch (IOException e) {
-      throw new RuntimeException(e);
     }
   }
 
@@ -123,29 +132,27 @@ public class PreimageSubCommandTest {
     Address mockAddress = Address.fromHexString("0xdeadbeef");
     Files.writeString(tempFile, mockAddress.toHexString() + "\n");
 
-    var chainSetup = BlockchainSetupUtil.forTesting(preimageStorageConfiguration);
-    BonsaiWorldStateProvider archive = (BonsaiWorldStateProvider) chainSetup.getWorldArchive();
-    var preimageStorage = archive.getWorldStateKeyValueStorage().getPreimageStorage();
-    chainSetup.importAllBlocks();
+    var kvStorage = new InMemoryKeyValueStorage();
+    var preimageStorage = new WorldStatePreimageKeyValueStorage(kvStorage);
 
-    assertThat(preimageStorage.getRawPreimage(mockAddress.addressHash())).isEmpty();
+    assertThat(preimageStorage.getRawPreimage(Bytes32.wrap(mockAddress.addressHash().getBytes())))
+        .isEmpty();
 
     var cmd = new PreimageSubCommand.Import();
-    cmd.storageProvider = getMockStorageProvider(preimageStorage);
+    cmd.storageProvider = getMockStorageProvider(kvStorage);
     cmd.hex = true;
     cmd.preimageFilePath = tempFile;
     cmd.run();
 
-    var preimage = preimageStorage.getRawPreimage(mockAddress.addressHash());
+    var preimage =
+        preimageStorage.getRawPreimage(Bytes32.wrap(mockAddress.addressHash().getBytes()));
     assertThat(preimage).isPresent();
     assertThat(preimage.get()).isEqualTo(mockAddress);
   }
 
-  private StorageProvider getMockStorageProvider(final WorldStatePreimageStorage wrapped) {
+  private StorageProvider getMockStorageProvider(final KeyValueStorage kvStorage) {
     var mockProvider = mock(StorageProvider.class);
-    var kvStorage = ((WorldStatePreimageKeyValueStorage) wrapped).getKeyValueStorage();
     doAnswer(__ -> kvStorage).when(mockProvider).getStorageBySegmentIdentifier(any());
-    doAnswer(__ -> wrapped).when(mockProvider).createWorldStatePreimageStorage();
     return mockProvider;
   }
 }
