@@ -44,24 +44,28 @@ public enum KeyValueSegmentIdentifier implements SegmentIdentifier {
       EnumSet.of(X_BONSAI_ARCHIVE),
       true,
       false,
+      true,
       true),
   ACCOUNT_STORAGE_ARCHIVE(
       "ACCOUNT_STORAGE_ARCHIVE".getBytes(StandardCharsets.UTF_8),
       EnumSet.of(X_BONSAI_ARCHIVE),
       true,
       false,
+      true,
       true),
   ACCOUNT_INFO_STATE_FREEZER(
       "ACCOUNT_INFO_STATE_FREEZER".getBytes(StandardCharsets.UTF_8),
       EnumSet.of(X_BONSAI_ARCHIVE),
       true,
       false,
+      true,
       true),
   ACCOUNT_STORAGE_FREEZER(
       "ACCOUNT_STORAGE_FREEZER".getBytes(StandardCharsets.UTF_8),
       EnumSet.of(X_BONSAI_ARCHIVE),
       true,
       false,
+      true,
       true),
   VARIABLES(new byte[] {11}), // formerly GOQUORUM_PRIVATE_WORLD_STATE
 
@@ -81,6 +85,7 @@ public enum KeyValueSegmentIdentifier implements SegmentIdentifier {
   private final boolean containsStaticData;
   private final boolean eligibleToHighSpecFlag;
   private final boolean staticDataGarbageCollectionEnabled;
+  private final boolean cacheIndexAndFilterBlocks;
 
   KeyValueSegmentIdentifier(final byte[] id) {
     this(id, EnumSet.allOf(DataStorageFormat.class));
@@ -96,11 +101,22 @@ public enum KeyValueSegmentIdentifier implements SegmentIdentifier {
       final boolean containsStaticData,
       final boolean eligibleToHighSpecFlag,
       final boolean staticDataGarbageCollectionEnabled) {
+    this(id, formats, containsStaticData, eligibleToHighSpecFlag, staticDataGarbageCollectionEnabled, false);
+  }
+
+  KeyValueSegmentIdentifier(
+      final byte[] id,
+      final EnumSet<DataStorageFormat> formats,
+      final boolean containsStaticData,
+      final boolean eligibleToHighSpecFlag,
+      final boolean staticDataGarbageCollectionEnabled,
+      final boolean cacheIndexAndFilterBlocks) {
     this.id = id;
     this.formats = formats;
     this.containsStaticData = containsStaticData;
     this.eligibleToHighSpecFlag = eligibleToHighSpecFlag;
     this.staticDataGarbageCollectionEnabled = staticDataGarbageCollectionEnabled;
+    this.cacheIndexAndFilterBlocks = cacheIndexAndFilterBlocks;
   }
 
   @Override
@@ -126,6 +142,11 @@ public enum KeyValueSegmentIdentifier implements SegmentIdentifier {
   @Override
   public boolean isStaticDataGarbageCollectionEnabled() {
     return staticDataGarbageCollectionEnabled;
+  }
+
+  @Override
+  public boolean isCacheIndexAndFilterBlocks() {
+    return cacheIndexAndFilterBlocks;
   }
 
   @Override
