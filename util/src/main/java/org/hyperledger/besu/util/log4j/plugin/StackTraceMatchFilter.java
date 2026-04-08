@@ -73,7 +73,7 @@ public class StackTraceMatchFilter extends AbstractFilter {
     return filter(event.getThrown());
   }
 
-  private Result filter(final Throwable t) {
+  private Result filter(final @Nullable Throwable t) {
     if (t != null) {
       return (messageEquals == null || Objects.equals(t.getMessage(), messageEquals))
               && Arrays.stream(t.getStackTrace())
@@ -87,7 +87,7 @@ public class StackTraceMatchFilter extends AbstractFilter {
 
   @Override
   public String toString() {
-    return String.valueOf(stackContains);
+    return stackContains;
   }
 
   /**
