@@ -1,0 +1,31 @@
+asyncapi: '2.6.0'
+id: 'urn:un:charter:article27:v2'
+info:
+  title: UNSC Voting and Veto Contract
+  version: '2.0.0'
+  description: "Refatoração do Artigo 27: Votação e Veto com Histerese e Bypass Automático"
+
+components:
+  messageTraits:
+    veto_rules:
+      headers:
+        type: object
+        properties:
+          crisis_level:
+            type: integer
+            minimum: 0
+            maximum: 1000
+            description: "Medida de gravidade humanitária (0=normal, >800=bypass)"
+          lambda2_current:
+            type: number
+            description: "Coerência global no momento da votação"
+      x-arkhe-rules:
+        - condition: "crisis_level > 800"
+          action: "DISABLE_VETO"
+          reason: "Automatic bypass for humanitarian coherence"
+        - condition: "lambda2_current < 0.60"
+          action: "TRIGGER_GENERAL_ASSEMBLY"
+          threshold: 0.66
+        - condition: "veto_count > 3 in 12 months"
+          action: "SUSPEND_VETO"
+          duration_months: 6

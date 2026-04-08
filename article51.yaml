@@ -1,0 +1,13 @@
+asyncapi: '2.6.0'
+id: 'urn:un:charter:article51:v2'
+info:
+  title: UNSC Self-Defense Contract
+  version: '2.0.0'
+  description: "Refatoração do Artigo 51: Legítima Defesa validada por dados"
+
+emergency_protocol: SELF_DEFENSE
+  trigger: UNSANCTIONED_KINETIC_STRIKE
+  duration: "UNTIL UNSC_REPLY OR 48H"
+  verification:
+    source: "Multi-Source Satellite & Cyber Feeds"
+    consensus_threshold: 0.95
