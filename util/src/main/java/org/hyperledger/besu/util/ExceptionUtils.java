@@ -26,7 +26,7 @@ public class ExceptionUtils {
    * Returns the root cause of an exception
    *
    * @param throwable the throwable whose root cause we want to find
-   * @return The root cause
+   * @return The root cause, or {@code null} if the input is {@code null}
    */
   public static @Nullable Throwable rootCause(final @Nullable Throwable throwable) {
     return throwable != null ? Throwables.getRootCause(throwable) : null;
