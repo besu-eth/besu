@@ -1,0 +1,58 @@
+asyncapi: '2.6.0'
+id: 'urn:un:charter:article23:v2'
+info:
+  title: UNSC Composition Contract
+  version: '2.0.0'
+  description: |
+    Define a composição do Conselho de Segurança.
+    Baseado no Artigo 23 da Carta da ONU, reformado.
+  x-arkhe-coherence-target: 0.95
+  x-arkhe-owner: 'General Assembly'
+
+components:
+  schemas:
+    UNSCComposition:
+      type: object
+      properties:
+        permanent_members:
+          type: array
+          minItems: 11
+          maxItems: 11
+          items:
+            type: object
+            properties:
+              member_state:
+                type: string
+                enum: ['USA', 'UK', 'France', 'Russia', 'China',
+                       'Germany', 'Japan', 'India', 'Brazil',
+                       'SouthAfrica', 'Nigeria']  # África 2 cadeiras
+              veto_power:
+                type: boolean
+                default: true
+              phase_lock_years:
+                type: integer
+                minimum: 0
+                maximum: 5
+                description: "Anos de veto condicional (phase-lock)"
+        non_permanent_members:
+          type: array
+          minItems: 14
+          maxItems: 14
+          items:
+            type: object
+            properties:
+              region:
+                type: string
+                enum: ['Africa', 'AsiaPacific', 'LatinAmerica', 'WesternEurope', 'EasternEurope']
+              term_years:
+                type: integer
+                enum: [2]
+              immediate_re_election:
+                type: boolean
+                default: false
+        lambda2_quorum:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: "Coerência mínima para operação (Art. 27)"
+          default: 0.85

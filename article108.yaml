@@ -1,0 +1,30 @@
+asyncapi: '2.6.0'
+id: 'urn:un:charter:article108:v2'
+info:
+  title: UNSC Amendment Governance Contract
+  version: '2.0.0'
+  description: "Refatoração do Artigo 108: Emendas baseadas em coerência"
+
+channels:
+  charter.amendments:
+    subscribe:
+      message:
+        payload:
+          type: object
+          properties:
+            amendment_id:
+              type: string
+              format: uuid
+            sponsor:
+              type: string
+              enum: ['GeneralAssembly', 'SecurityCouncil', 'MemberState']
+            required_coherence:
+              type: number
+              default: 0.95
+            voting_rule:
+              type: string
+              enum: ['two_thirds_ga', 'unanimous_p5', 'phase_lock_consensus']
+      x-arkhe-validation:
+        - if: "required_coherence < 0.90"
+          then: "reject_amendment"
+          reason: "Coherence below operational threshold"
