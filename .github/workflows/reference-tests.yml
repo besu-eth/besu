@@ -30,7 +30,7 @@ jobs:
         runner_index: [1,2,3,4]
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
           submodules: recursive
@@ -40,7 +40,7 @@ jobs:
           distribution: semeru # IBM Semeru with OpenJ9
           java-version: 21
       - name: setup gradle
-        uses: gradle/actions/setup-gradle@748248ddd2a24f49513d8f472f81c3a07d4d50e1 # v4.4.4
+        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
           cache-disabled: true
       - name: execute generate reference tests
@@ -71,7 +71,7 @@ jobs:
             exit 1
           fi
       - name: Upload Test Report
-        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: always() # always run even if the previous step fails
         with:
           name: reference-test-node-${{matrix.runner_index}}-results

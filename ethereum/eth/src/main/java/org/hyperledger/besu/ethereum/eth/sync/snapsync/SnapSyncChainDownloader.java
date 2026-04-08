@@ -244,7 +244,7 @@ public class SnapSyncChainDownloader
                 final Duration totalDuration = Duration.between(overallStartTime, Instant.now());
                 LOG.info(
                     "Two-stage fast sync chain download finished in {} seconds (including pivot updates)",
-                    totalDuration.getSeconds());
+                    totalDuration.toSeconds());
                 // Stop metrics on success
                 syncDurationMetrics.stopTimer(SyncDurationMetrics.Labels.CHAIN_DOWNLOAD_DURATION);
                 chainSyncStateStorage.deleteState();
@@ -381,7 +381,7 @@ public class SnapSyncChainDownloader
               final Duration stage1Duration = Duration.between(stage1StartTime, Instant.now());
               LOG.debug(
                   "Stage 1 complete: Backward header download finished in {} seconds",
-                  stage1Duration.getSeconds());
+                  stage1Duration.toSeconds());
 
               // Mark headers download as complete and persist
               chainSyncState.updateAndGet(ChainSyncState::withHeadersDownloadComplete);
@@ -436,7 +436,7 @@ public class SnapSyncChainDownloader
               final Duration stage2Duration = Duration.between(stage2StartTime, Instant.now());
               LOG.info(
                   "Stage 2 complete: Forward bodies/receipts download finished in {} seconds",
-                  stage2Duration.getSeconds());
+                  stage2Duration.toSeconds());
               return null;
             });
   }
