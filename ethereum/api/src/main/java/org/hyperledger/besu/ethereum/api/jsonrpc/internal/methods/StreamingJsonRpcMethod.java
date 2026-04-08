@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -12,34 +12,36 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.api.jsonrpc.execution;
+package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestId;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 
 import java.io.IOException;
 import java.io.OutputStream;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.opentelemetry.api.trace.Span;
 
-public interface JsonRpcProcessor {
-  JsonRpcResponse process(
-      final JsonRpcRequestId id,
-      final JsonRpcMethod method,
-      final Span metricSpan,
-      final JsonRpcRequestContext request);
+public interface StreamingJsonRpcMethod extends JsonRpcMethod {
 
-  default void streamProcess(
-      final JsonRpcRequestId id,
-      final JsonRpcMethod method,
-      final Span metricSpan,
-      final JsonRpcRequestContext request,
-      final OutputStream out,
-      final ObjectMapper mapper)
-      throws IOException {
-    throw new UnsupportedOperationException();
+  void streamResponse(JsonRpcRequestContext request, OutputStream out, ObjectMapper mapper)
+      throws IOException;
+
+  @Override
+  default boolean isStreaming() {
+    return true;
+  }
+
+  /**
+   * Default synchronous response path for batch JSON-RPC requests. Returns an error since streaming
+   * cannot be used within a batch response. Must use the non-streaming JsonRp instead
+   */
+  @Override
+  default JsonRpcResponse response(final JsonRpcRequestContext request) {
+    return new JsonRpcErrorResponse(
+        new JsonRpcRequestId(request.getRequest().getId()), RpcErrorType.INVALID_REQUEST);
   }
 }
