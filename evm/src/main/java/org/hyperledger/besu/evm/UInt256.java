@@ -632,7 +632,8 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    * writes {@code value >> shift} back into the value slot and decrements the top. Shifts >= 256
    * produce 0 for positive values and -1 for negative values.
    *
-   * @return the new stack-top after consuming one item
+   * @param shift 256 bit value storing the amount of bits to shift
+   * @return the result
    */
   public UInt256 sar(final UInt256 shift) {
     int bytesToShift;
@@ -655,7 +656,8 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    * value >>> shift} back into the value slot and decrements the top. Shifts >= 256 or a zero value
    * produce 0.
    *
-   * @return the new stack-top after consuming one item
+   * @param shift 256 bit value storing the amount of bits to shift
+   * @return the result
    */
   public UInt256 shr(final UInt256 shift) {
     int bytesToShift;
@@ -673,7 +675,12 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   /**
    * Arithmetic right-shifts a 256-bit value in place by 0..255 bits, sign-extending with {@code
    * fill}.
+   *
+   * @param shift number of bits to shift (must be in [1, 255])
+   * @param fill value to prepend while shifting
+   * @return the result
    */
+  // TODO: check perf - wiring shiftRight callers with this one
   private UInt256 sar0(final int shift, final long fill) {
     long w3 = fill, w2 = fill, w1 = fill, w0 = fill;
     if (shift != 256) {
@@ -725,7 +732,8 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    * value << shift} back into the value slot and decrements the top. Shifts >= 256 or a zero value
    * produce 0.
    *
-   * @return the new stack-top after consuming one item
+   * @param shift 256 bit value storing the amount of bits to shift
+   * @return the result
    */
   public UInt256 shl(final UInt256 shift) {
     int bytesToShift;
@@ -744,7 +752,9 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    * Left-shifts a 256-bit value in place by 1..255 bits, zero-filling from the right.
    *
    * @param shift number of bits to shift (must be in [1, 255])
+   * @return the result
    */
+  // TODO: check perf - wiring shiftLeft callers with this one
   private UInt256 shl0(final int shift) {
     long w3 = 0, w2 = 0, w1 = 0, w0 = 0;
     if (shift != 256) {
@@ -794,17 +804,6 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     return (value << bitShift) | (nextValue >>> (64 - bitShift));
   }
 
-  /**
-   * Shifts a 64-bit word right and carries in bits from the previous more-significant word.
-   *
-   * <p>The {@code bitShift == 0} fast path avoids Java long-shift masking, where a shift by 64 is
-   * treated as a shift by 0.
-   *
-   * @param value the current word
-   * @param prevValue the previous more-significant word
-   * @param bitShift the intra-word shift amount in the range {@code [0..63]}
-   * @return the shifted word
-   */
   private static long shiftRightWord(final long value, final long prevValue, final int bitShift) {
     if (bitShift == 0) return value;
     return (value >>> bitShift) | (prevValue << (64 - bitShift));
