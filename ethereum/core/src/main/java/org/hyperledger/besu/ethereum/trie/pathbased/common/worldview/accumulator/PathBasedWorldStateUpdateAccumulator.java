@@ -90,7 +90,14 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     this.evmConfiguration = evmConfiguration;
   }
 
-  public void cloneFromUpdater(final PathBasedWorldStateUpdateAccumulator<ACCOUNT> source) {
+  /** Copy constructor. Subclasses should chain via {@code super(source)}. */
+  protected PathBasedWorldStateUpdateAccumulator(
+      final PathBasedWorldStateUpdateAccumulator<ACCOUNT> source) {
+    this(
+        source.wrappedWorldView(),
+        source.accountPreloader,
+        source.storagePreloader,
+        source.evmConfiguration);
     accountsToUpdate.putAll(source.getAccountsToUpdate());
     codeToUpdate.putAll(source.codeToUpdate);
     storageToClear.addAll(source.storageToClear);
