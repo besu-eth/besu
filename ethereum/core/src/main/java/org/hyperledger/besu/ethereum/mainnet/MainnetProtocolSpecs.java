@@ -978,8 +978,8 @@ public abstract class MainnetProtocolSpecs {
             .preExecutionProcessor(getPraguePreExecutionProcessor(genesisConfigOptions))
             .hardforkId(PRAGUE);
     if (isPoAConsensus(genesisConfigOptions) && !hasSystemContractAddresses(genesisConfigOptions)) {
-      LOG.debug(
-          "Skipping system contract request processors for PoA consensus (clique/ibft/qbft).");
+      LOG.warn(
+          "Skipping system contract request processors for PoA consensus (clique/ibft/qbft) without system contract addresses.");
       pragueSpecBuilder.requestProcessorCoordinator(RequestProcessorCoordinator.noOp());
     } else {
       try {
