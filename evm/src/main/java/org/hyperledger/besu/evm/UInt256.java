@@ -642,7 +642,7 @@ public record UInt256(long u3, long u2, long u1, long u0) {
       || Long.compareUnsigned(shift.u0(), 256) >= 0) {
       bytesToShift = 256;
     } else {
-      bytesToShift = (int) (shift.u0() & 0xFFFFFFFFL);
+      bytesToShift = (int) shift.u0();
     }
     long fill = (u3 < 0 ? -1L : 0);
     return sar0(bytesToShift, fill);
@@ -695,6 +695,82 @@ public record UInt256(long u3, long u2, long u1, long u0) {
       }
     }
     return new UInt256(w3, w2, w1, w0);
+  }
+
+  /**
+   * Performs EVM SHL (shift left) on the two top stack items.
+   *
+   * <p>Reads the shift amount (unsigned) and the value from the top two stack slots, writes {@code
+   * value << shift} back into the value slot and decrements the top. Shifts >= 256 or a zero value
+   * produce 0.
+   *
+   * @return the new stack-top after consuming one item
+   */
+  public UInt256 shl(final UInt256 shift) {
+    int bytesToShift;
+    if (shift.u3() != 0
+      || shift.u2() != 0
+      || shift.u1() != 0
+      || Long.compareUnsigned(shift.u0(), 256) >= 0) {
+      bytesToShift = 256;
+    } else {
+      bytesToShift = (int) shift.u0();
+    }
+    return shl0(bytesToShift);
+  }
+
+  /**
+   * Left-shifts a 256-bit value in place by 1..255 bits, zero-filling from the right.
+   *
+   * @param shift number of bits to shift (must be in [1, 255])
+   */
+  private UInt256 shl0(final int shift) {
+    long w3 = 0, w2 = 0, w1 = 0, w0 = 0;
+    if (shift != 256) {
+      w3 = u3;
+      w2 = u2;
+      w1 = u1;
+      w0 = u0;
+    }
+
+    if (shift != 0 && shift != 256) {
+      // Number of whole 64-bit words to shift (shift / 64)
+      final int wordShift = shift >>> 6;
+      // Remaining intra-word bit shift (shift % 64)
+      final int bitShift = shift & 63;
+      switch (wordShift) {
+        case 0:
+          w3 = shiftLeftWord(w3, w2, bitShift);
+          w2 = shiftLeftWord(w2, w1, bitShift);
+          w1 = shiftLeftWord(w1, w0, bitShift);
+          w0 = shiftLeftWord(w0, 0, bitShift);
+          break;
+        case 1:
+          w3 = shiftLeftWord(w2, w1, bitShift);
+          w2 = shiftLeftWord(w1, w0, bitShift);
+          w1 = shiftLeftWord(w0, 0, bitShift);
+          w0 = 0;
+          break;
+        case 2:
+          w3 = shiftLeftWord(w1, w0, bitShift);
+          w2 = shiftLeftWord(w0, 0, bitShift);
+          w1 = 0;
+          w0 = 0;
+          break;
+        case 3:
+          w3 = shiftLeftWord(w0, 0, bitShift);
+          w2 = 0;
+          w1 = 0;
+          w0 = 0;
+          break;
+      }
+    }
+    return new UInt256(w3, w2, w1, w0);
+  }
+
+  private static long shiftLeftWord(final long value, final long nextValue, final int bitShift) {
+    if (bitShift == 0) return value;
+    return (value << bitShift) | (nextValue >>> (64 - bitShift));
   }
 
   /**

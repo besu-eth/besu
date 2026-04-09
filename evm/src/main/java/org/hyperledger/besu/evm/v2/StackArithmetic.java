@@ -29,108 +29,6 @@ public class StackArithmetic {
   /** Utility class — not instantiable. */
   private StackArithmetic() {}
 
-  // region SHL (Shift Left)
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Performs EVM SHL (shift left) on the two top stack items.
-   *
-   * <p>Reads the shift amount (unsigned) and the value from the top two stack slots, writes {@code
-   * value << shift} back into the value slot and decrements the top. Shifts >= 256 or a zero value
-   * produce 0.
-   *
-   * @param stack the flat limb array
-   * @param top current stack-top (item count)
-   * @return the new stack-top after consuming one item
-   */
-  public static int shl(final long[] stack, final int top) {
-    final int shiftOffset = (top - 1) << 2;
-    final int valueOffset = (top - 2) << 2;
-    // If shift amount > 255 or value is zero, result is zero
-    if (stack[shiftOffset] != 0
-        || stack[shiftOffset + 1] != 0
-        || stack[shiftOffset + 2] != 0
-        || Long.compareUnsigned(stack[shiftOffset + 3], 256) >= 0
-        || (stack[valueOffset] == 0
-            && stack[valueOffset + 1] == 0
-            && stack[valueOffset + 2] == 0
-            && stack[valueOffset + 3] == 0)) {
-      stack[valueOffset] = 0;
-      stack[valueOffset + 1] = 0;
-      stack[valueOffset + 2] = 0;
-      stack[valueOffset + 3] = 0;
-      return top - 1;
-    }
-    int shift = (int) stack[shiftOffset + 3];
-    shiftLeftInPlace(stack, valueOffset, shift);
-    return top - 1;
-  }
-
-  /**
-   * Left-shifts a 256-bit value in place by 1..255 bits, zero-filling from the right.
-   *
-   * @param stack the flat limb array
-   * @param valueOffset index of the value's most-significant limb
-   * @param shift number of bits to shift (must be in [1, 255])
-   */
-  private static void shiftLeftInPlace(final long[] stack, final int valueOffset, final int shift) {
-    if (shift == 0) return;
-    long w0 = stack[valueOffset],
-        w1 = stack[valueOffset + 1],
-        w2 = stack[valueOffset + 2],
-        w3 = stack[valueOffset + 3];
-    // Number of whole 64-bit words to shift (shift / 64)
-    final int wordShift = shift >>> 6;
-    // Remaining intra-word bit shift (shift % 64)
-    final int bitShift = shift & 63;
-    switch (wordShift) {
-      case 0:
-        w0 = shiftLeftWord(w0, w1, bitShift);
-        w1 = shiftLeftWord(w1, w2, bitShift);
-        w2 = shiftLeftWord(w2, w3, bitShift);
-        w3 = shiftLeftWord(w3, 0, bitShift);
-        break;
-      case 1:
-        w0 = shiftLeftWord(w1, w2, bitShift);
-        w1 = shiftLeftWord(w2, w3, bitShift);
-        w2 = shiftLeftWord(w3, 0, bitShift);
-        w3 = 0;
-        break;
-      case 2:
-        w0 = shiftLeftWord(w2, w3, bitShift);
-        w1 = shiftLeftWord(w3, 0, bitShift);
-        w2 = 0;
-        w3 = 0;
-        break;
-      case 3:
-        w0 = shiftLeftWord(w3, 0, bitShift);
-        w1 = 0;
-        w2 = 0;
-        w3 = 0;
-        break;
-    }
-    stack[valueOffset] = w0;
-    stack[valueOffset + 1] = w1;
-    stack[valueOffset + 2] = w2;
-    stack[valueOffset + 3] = w3;
-  }
-
-  /**
-   * Shifts a 64-bit word left and carries in bits from the next less-significant word.
-   *
-   * @param value the current word
-   * @param nextValue the next less-significant word (bits carry in from its top)
-   * @param bitShift the intra-word shift amount in [0, 63]; 0 returns {@code value} unchanged to
-   *     avoid Java's mod-64 shift semantics on {@code nextValue >>> 64}
-   * @return the shifted word
-   */
-  private static long shiftLeftWord(final long value, final long nextValue, final int bitShift) {
-    if (bitShift == 0) return value;
-    return (value << bitShift) | (nextValue >>> (64 - bitShift));
-  }
-
-  // endregion
-
   // region SHR (Shift Right)
   // ---------------------------------------------------------------------------
 
@@ -223,9 +121,4 @@ public class StackArithmetic {
   }
   // endregion
 
-  // region SAR (Shift Arithmetic Right)
-  // ---------------------------------------------------------------------------
-
-
-  // endregion
 }

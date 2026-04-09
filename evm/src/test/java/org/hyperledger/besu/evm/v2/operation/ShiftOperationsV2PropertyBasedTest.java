@@ -524,7 +524,7 @@ public class ShiftOperationsV2PropertyBasedTest {
   // region V2 Helpers (long[] stack)
 
   private Bytes32 runV2Shl(final Bytes shift, final Bytes value) {
-    return runV2OperationLegacy(shift, value, StackArithmetic::shl);
+    return runV2Operation(shift, value, UInt256::shl);
   }
 
   private Bytes32 runV2Shr(final Bytes shift, final Bytes value) {
@@ -564,10 +564,6 @@ public class ShiftOperationsV2PropertyBasedTest {
       final Bytes shift, final Bytes value, final V2OperationExecutor executor) {
     final UInt256 shiftVal = UInt256.fromBytesBE(Bytes32.leftPad(shift).toArrayUnsafe());
     final UInt256 valueVal = UInt256.fromBytesBE(Bytes32.leftPad(value).toArrayUnsafe());
-
-    final long[] s = new long[8];
-    writeLimbs(s, 0, valueVal);
-    writeLimbs(s, 4, shiftVal);
 
     final UInt256 result = executor.execute(valueVal, shiftVal);
 
