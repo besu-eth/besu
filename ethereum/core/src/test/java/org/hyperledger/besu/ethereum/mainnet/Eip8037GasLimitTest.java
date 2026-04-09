@@ -50,7 +50,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
-class Eip8037RegularGasLimitTest {
+class Eip8037GasLimitTest {
 
   private static final int MAX_STACK_SIZE = 1024;
 
@@ -107,19 +107,29 @@ class Eip8037RegularGasLimitTest {
   }
 
   @Test
-  void regularGasExceedingTxMaxGasLimitRevertsTransaction() {
+  void exceptionalHaltPreservesStateGasReservoirForRefund() {
+    // EIP-8037: On exceptional halt of the initial frame, the state_gas_reservoir must be
+    // preserved for transaction-level refund. This test simulates a child frame having refunded
+    // state gas to the parent's reservoir before the parent runs out of regular gas. The
+    // refunded reservoir must not be lost: the total gas used should be
+    // txGasLimit - preserved_reservoir, not the full txGasLimit.
     setupCommonMocks(20_000_000L);
+
+    // txGasLimit=20M, intrinsic≈21k → gasAvailable≈19,979,000.
+    // regularBudget = TX_MAX_GAS_LIMIT (16,777,216) - intrinsic ≈ 16,756,216.
+    // gas_left initial = 16,756,216; reservoir initial = 19,979,000 - 16,756,216 = 3,222,784.
+    // We simulate: child SSTORE spilled 37,568 into child gas_left, then child halted and the
+    // spill was restored to the reservoir. The initial frame then runs out of regular gas.
+    final long childRefund = 37_568L;
 
     doAnswer(
             invocation -> {
               final MessageFrame frame = invocation.getArgument(0);
-              // Simulate EXCEPTIONAL_HALT (e.g. ran out of gas mid-execution).
-              // Setting the halt reason causes MTP to zero the state gas reservoir,
-              // so totalConsumed = txGasLimit - 0 - 0 = 20M (instead of 20M - reservoir).
+              // Simulate a child frame halt having added state gas back to the reservoir.
+              frame.incrementStateGasReservoir(childRefund);
+              // Now simulate the initial frame running out of regular gas.
               frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
               frame.setGasRemaining(0);
-              // stateGas = 2M; regularConsumed = 20M - 2M = 18M > TX_MAX_GAS_LIMIT (16,777,216)
-              frame.incrementStateGasUsed(2_000_000L);
               frame.getMessageFrameStack().pop();
               return null;
             })
@@ -138,9 +148,12 @@ class Eip8037RegularGasLimitTest {
                 Wei.ZERO);
 
     assertThat(result.isSuccessful()).isFalse();
-    assertThat(result.getEstimateGasUsedByTransaction()).isEqualTo(20_000_000L);
     assertThat(result.getValidationResult().getInvalidReason())
         .isEqualTo(TransactionInvalidReason.EXECUTION_HALTED);
+    // The reservoir (initial budget overflow 3,222,784 + childRefund 37,568) must be preserved
+    // for refund. Total gas used = 20,000,000 - (3,222,784 + 37,568) = 16,739,648.
+    assertThat(result.getEstimateGasUsedByTransaction())
+        .isEqualTo(20_000_000L - 3_222_784L - childRefund);
   }
 
   @Test
