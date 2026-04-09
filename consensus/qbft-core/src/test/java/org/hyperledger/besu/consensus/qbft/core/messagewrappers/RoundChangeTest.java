@@ -31,11 +31,13 @@ import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.core.Util;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -120,5 +122,79 @@ public class RoundChangeTest {
         .isEqualToComparingFieldByField(signedRoundChangePayload);
     assertThat(decodedRoundChange.getProposedBlock()).isEmpty();
     assertThat(decodedRoundChange.getPrepares()).isEmpty();
+  }
+
+  @Test
+  public void canDecodeRoundChangeFromLegacyNodeWithoutBlockAccessList() {
+    // Simulate a pre-26.1.0 validator that encodes RoundChange WITHOUT the blockAccessList field.
+    // Old format: [SignedPayload, EmptyList, [Prepares...]]          (3 items)
+    // New format: [SignedPayload, EmptyList, BAL/Null, [Prepares...]] (4 items)
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final Address addr = Util.publicKeyToAddress(nodeKey.getPublicKey());
+
+    final RoundChangePayload payload =
+        new RoundChangePayload(new ConsensusRoundIdentifier(1, 1), Optional.empty());
+
+    final SignedData<RoundChangePayload> signedRoundChangePayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+
+    // Manually encode in old format (without blockAccessList field)
+    final BytesValueRLPOutput rlpOut = new BytesValueRLPOutput();
+    rlpOut.startList();
+    signedRoundChangePayload.writeTo(rlpOut);
+    rlpOut.writeEmptyList(); // empty block
+    rlpOut.writeList(Collections.emptyList(), SignedData::writeTo); // empty prepares
+    rlpOut.endList();
+    final Bytes legacyEncoded = rlpOut.encoded();
+
+    final RoundChange decodedRoundChange = RoundChange.decode(legacyEncoded, blockEncoder);
+
+    assertThat(decodedRoundChange.getMessageType()).isEqualTo(QbftV1.ROUND_CHANGE);
+    assertThat(decodedRoundChange.getAuthor()).isEqualTo(addr);
+    assertThat(decodedRoundChange.getProposedBlock()).isEmpty();
+    assertThat(decodedRoundChange.getBlockAccessList()).isEmpty();
+    assertThat(decodedRoundChange.getPrepares()).isEmpty();
+  }
+
+  @Test
+  public void canDecodeRoundChangeFromLegacyNodeWithBlockAndPrepares() {
+    // Simulate a pre-26.1.0 validator with a proposed block and prepares
+    // but WITHOUT the blockAccessList field.
+    when(blockEncoder.readFrom(any())).thenReturn(BLOCK);
+
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final Address addr = Util.publicKeyToAddress(nodeKey.getPublicKey());
+
+    final RoundChangePayload payload =
+        new RoundChangePayload(
+            new ConsensusRoundIdentifier(1, 1),
+            Optional.of(new PreparedRoundMetadata(BLOCK.getHash(), 0)));
+
+    final SignedData<RoundChangePayload> signedRoundChangePayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+
+    final PreparePayload preparePayload =
+        new PreparePayload(new ConsensusRoundIdentifier(1, 0), BLOCK.getHash());
+    final SignedData<PreparePayload> signedPreparePayload =
+        SignedData.create(
+            preparePayload,
+            nodeKey.sign(Bytes32.wrap(preparePayload.hashForSignature().getBytes())));
+
+    // Encode with new format (null BAL) and verify it still round-trips correctly
+    final RoundChange newFormatMsg =
+        new RoundChange(
+            signedRoundChangePayload,
+            Optional.of(BLOCK),
+            Optional.empty(),
+            blockEncoder,
+            List.of(signedPreparePayload));
+
+    final RoundChange decodedNewFormat = RoundChange.decode(newFormatMsg.encode(), blockEncoder);
+    assertThat(decodedNewFormat.getMessageType()).isEqualTo(QbftV1.ROUND_CHANGE);
+    assertThat(decodedNewFormat.getAuthor()).isEqualTo(addr);
+    assertThat(decodedNewFormat.getBlockAccessList()).isEmpty();
+    assertThat(decodedNewFormat.getPrepares()).hasSize(1);
   }
 }
