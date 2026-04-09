@@ -637,9 +637,9 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   public UInt256 sar(final UInt256 shift) {
     int bytesToShift;
     if (shift.u3() != 0
-      || shift.u2() != 0
-      || shift.u1() != 0
-      || Long.compareUnsigned(shift.u0(), 256) >= 0) {
+        || shift.u2() != 0
+        || shift.u1() != 0
+        || Long.compareUnsigned(shift.u0(), 256) >= 0) {
       bytesToShift = 256;
     } else {
       bytesToShift = (int) shift.u0();
@@ -660,9 +660,9 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   public UInt256 shr(final UInt256 shift) {
     int bytesToShift;
     if (shift.u3() != 0
-      || shift.u2() != 0
-      || shift.u1() != 0
-      || Long.compareUnsigned(shift.u0(), 256) >= 0) {
+        || shift.u2() != 0
+        || shift.u1() != 0
+        || Long.compareUnsigned(shift.u0(), 256) >= 0) {
       bytesToShift = 256;
     } else {
       bytesToShift = (int) shift.u0();
@@ -673,7 +673,6 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   /**
    * Arithmetic right-shifts a 256-bit value in place by 0..255 bits, sign-extending with {@code
    * fill}.
-   *
    */
   private UInt256 sar0(final int shift, final long fill) {
     long w3 = fill, w2 = fill, w1 = fill, w0 = fill;
@@ -684,7 +683,7 @@ public record UInt256(long u3, long u2, long u1, long u0) {
       w0 = u0;
     }
 
-    if( shift != 0 && shift != 256) {
+    if (shift != 0 && shift != 256) {
       // Number of whole 64-bit words to shift (shift / 64)
       final int wordShift = shift >>> 6;
       // Remaining intra-word bit shift (shift % 64)
@@ -731,9 +730,9 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   public UInt256 shl(final UInt256 shift) {
     int bytesToShift;
     if (shift.u3() != 0
-      || shift.u2() != 0
-      || shift.u1() != 0
-      || Long.compareUnsigned(shift.u0(), 256) >= 0) {
+        || shift.u2() != 0
+        || shift.u1() != 0
+        || Long.compareUnsigned(shift.u0(), 256) >= 0) {
       bytesToShift = 256;
     } else {
       bytesToShift = (int) shift.u0();
@@ -2101,8 +2100,5 @@ public record UInt256(long u3, long u2, long u1, long u0) {
 
   // --------------------------------------------------------------------------
   // endregion
-
-
-
 
 }

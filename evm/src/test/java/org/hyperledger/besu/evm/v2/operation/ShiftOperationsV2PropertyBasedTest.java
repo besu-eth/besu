@@ -26,7 +26,6 @@ import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.SarOperation;
 import org.hyperledger.besu.evm.operation.ShlOperation;
 import org.hyperledger.besu.evm.operation.ShrOperation;
-import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
