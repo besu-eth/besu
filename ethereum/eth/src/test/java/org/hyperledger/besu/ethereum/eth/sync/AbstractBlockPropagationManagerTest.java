@@ -19,6 +19,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -29,6 +30,7 @@ import org.hyperledger.besu.consensus.merge.ForkchoiceEvent;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ConsensusContext;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -859,6 +861,135 @@ public abstract class AbstractBlockPropagationManagerTest {
     assertThat(badBlocksManager.getBadBlocks().size()).isEqualTo(1);
 
     verify(ethScheduler, times(1)).scheduleSyncWorkerTask(any(Supplier.class));
+  }
+
+  @Test
+  public void shouldSkipKnownBadBlockOnNewBlockMessage() {
+    blockchainUtil.importFirstBlocks(2);
+    final Block firstBlock = blockchainUtil.getBlock(1);
+    final BadBlockManager badBlocksManager = protocolContext.getBadBlockManager();
+    final Block badBlock =
+        new BlockDataGenerator()
+            .block(
+                BlockDataGenerator.BlockOptions.create()
+                    .setBlockNumber(2)
+                    .setParentHash(firstBlock.getHash())
+                    .setBlockHeaderFunctions(new MainnetBlockHeaderFunctions()));
+
+    // Pre-populate BadBlockManager, simulating an earlier validation failure.
+    badBlocksManager.addBadBlock(badBlock, BadBlockCause.fromValidationFailure("test"));
+    assertThat(badBlocksManager.getBadBlocks().size()).isEqualTo(1);
+
+    blockPropagationManager.start();
+
+    final RespondingEthPeer peer = EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 0);
+    final NewBlockMessage newBlockMessage =
+        NewBlockMessage.create(badBlock, Difficulty.ONE, maxMessageSize);
+
+    EthProtocolManagerTestUtil.broadcastMessage(ethProtocolManager, peer, newBlockMessage);
+
+    // The handler should have short-circuited before entering the import pipeline.
+    verify(processingBlocksManager, never()).addImportingBlock(badBlock.getHash());
+    // BadBlockManager should still contain exactly one entry — we didn't re-add it.
+    assertThat(badBlocksManager.getBadBlocks().size()).isEqualTo(1);
+  }
+
+  @Test
+  public void shouldSkipKnownBadBlockOnNewBlockHashesMessage() {
+    blockchainUtil.importFirstBlocks(2);
+    final Block firstBlock = blockchainUtil.getBlock(1);
+    final BadBlockManager badBlocksManager = protocolContext.getBadBlockManager();
+    final Block badBlock =
+        new BlockDataGenerator()
+            .block(
+                BlockDataGenerator.BlockOptions.create()
+                    .setBlockNumber(2)
+                    .setParentHash(firstBlock.getHash())
+                    .setBlockHeaderFunctions(new MainnetBlockHeaderFunctions()));
+
+    // Pre-populate BadBlockManager, simulating an earlier validation failure.
+    badBlocksManager.addBadBlock(badBlock, BadBlockCause.fromValidationFailure("test"));
+
+    blockPropagationManager.start();
+
+    final RespondingEthPeer peer = EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 0);
+    final NewBlockHashesMessage newBlockHashesMessage =
+        NewBlockHashesMessage.create(
+            Collections.singletonList(
+                new NewBlockHashesMessage.NewBlockHash(
+                    badBlock.getHash(), badBlock.getHeader().getNumber())));
+
+    EthProtocolManagerTestUtil.broadcastMessage(ethProtocolManager, peer, newBlockHashesMessage);
+
+    // The hash announcement should have been filtered out before requesting the body.
+    verify(processingBlocksManager, never()).addRequestedBlock(badBlock.getHash());
+    // No body request should have been issued to the peer.
+    assertThat(peer.hasOutstandingRequests()).isFalse();
+  }
+
+  @SuppressWarnings("unchecked")
+  @Test
+  public void importOrSavePendingBlockShouldSkipKnownBadBlock() {
+    // Mirrors shouldDetectAndCacheInvalidBlocks but pre-populates BadBlockManager to
+    // exercise the defensive short-circuit at the top of importOrSavePendingBlock.
+    final EthScheduler ethScheduler = mock(EthScheduler.class);
+    when(ethScheduler.scheduleSyncWorkerTask(any(Supplier.class)))
+        .thenAnswer(
+            new Answer<Object>() {
+              @Override
+              public Object answer(final InvocationOnMock invocation) throws Throwable {
+                return invocation.getArgument(0, Supplier.class).get();
+              }
+            });
+
+    final EthContext ethContext =
+        new EthContext(
+            new EthPeers(
+                () -> protocolSchedule.getByBlockHeader(blockchain.getChainHeadHeader()),
+                TestClock.fixed(),
+                metricsSystem,
+                EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE,
+                Collections.emptyList(),
+                Bytes.random(64),
+                25,
+                25,
+                false,
+                SyncMode.SNAP,
+                new ForkIdManager(blockchain, Collections.emptyList(), Collections.emptyList())),
+            new EthMessages(),
+            ethScheduler,
+            null);
+    final BlockPropagationManager blockPropagationManager =
+        new BlockPropagationManager(
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            pendingBlocksManager,
+            metricsSystem,
+            blockBroadcaster);
+
+    blockchainUtil.importFirstBlocks(2);
+    final Block firstBlock = blockchainUtil.getBlock(1);
+    final BadBlockManager badBlocksManager = protocolContext.getBadBlockManager();
+    final Block badBlock =
+        new BlockDataGenerator()
+            .block(
+                BlockDataGenerator.BlockOptions.create()
+                    .setBlockNumber(2)
+                    .setParentHash(firstBlock.getHash())
+                    .setBlockHeaderFunctions(new MainnetBlockHeaderFunctions()));
+
+    // Pre-populate BadBlockManager, simulating an earlier validation failure.
+    badBlocksManager.addBadBlock(badBlock, BadBlockCause.fromValidationFailure("test"));
+    assertThat(badBlocksManager.getBadBlocks().size()).isEqualTo(1);
+
+    blockPropagationManager.importOrSavePendingBlock(badBlock, NODE_ID_1);
+
+    // The defensive check should have short-circuited before scheduling validation.
+    verify(ethScheduler, never()).scheduleSyncWorkerTask(any(Supplier.class));
+    assertThat(badBlocksManager.getBadBlocks().size()).isEqualTo(1);
   }
 
   @Test

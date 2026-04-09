@@ -337,6 +337,14 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
             .log();
         return;
       }
+      if (protocolContext.getBadBlockManager().isBadBlock(block.getHash())) {
+        LOG.atTrace()
+            .setMessage("Ignoring known-bad block {} from peer {}")
+            .addArgument(block::toLogString)
+            .addArgument(message::getPeer)
+            .log();
+        return;
+      }
 
       importOrSavePendingBlock(block, message.getPeer().nodeId());
     } catch (final RLPException e) {
@@ -389,6 +397,10 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
         }
         if (blockchain.contains(announcedBlock.hash())) {
           LOG.trace("New block hash from network {} was already imported", announcedBlock);
+          continue;
+        }
+        if (protocolContext.getBadBlockManager().isBadBlock(announcedBlock.hash())) {
+          LOG.trace("New block hash from network {} is a known bad block", announcedBlock);
           continue;
         }
         if (processingBlocksManager.addRequestedBlock(announcedBlock.hash())) {
@@ -624,6 +636,14 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
         .setMessage("Import or save pending block {}")
         .addArgument(block::toLogString)
         .log();
+
+    if (protocolContext.getBadBlockManager().isBadBlock(block.getHash())) {
+      LOG.atTrace()
+          .setMessage("Skipping known-bad block {} in importOrSavePendingBlock")
+          .addArgument(block::toLogString)
+          .log();
+      return CompletableFuture.completedFuture(block);
+    }
 
     if (!protocolContext.getBlockchain().contains(block.getHeader().getParentHash())) {
       // Block isn't connected to local chain, save it to pending blocks collection
