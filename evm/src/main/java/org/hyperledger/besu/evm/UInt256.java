@@ -649,6 +649,28 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   }
 
   /**
+   * Performs EVM SHR (logical shift right) on the two top stack items.
+   *
+   * <p>Reads the shift amount (unsigned) and the value from the top two stack slots, writes {@code
+   * value >>> shift} back into the value slot and decrements the top. Shifts >= 256 or a zero value
+   * produce 0.
+   *
+   * @return the new stack-top after consuming one item
+   */
+  public UInt256 shr(final UInt256 shift) {
+    int bytesToShift;
+    if (shift.u3() != 0
+      || shift.u2() != 0
+      || shift.u1() != 0
+      || Long.compareUnsigned(shift.u0(), 256) >= 0) {
+      bytesToShift = 256;
+    } else {
+      bytesToShift = (int) shift.u0();
+    }
+    return sar0(bytesToShift, 0);
+  }
+
+  /**
    * Arithmetic right-shifts a 256-bit value in place by 0..255 bits, sign-extending with {@code
    * fill}.
    *

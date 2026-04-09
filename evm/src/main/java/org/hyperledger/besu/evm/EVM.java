@@ -494,7 +494,7 @@ public class EVM {
                       : InvalidOperation.invalidOperationResult(opcode);
               case 0x1c ->
                   enableConstantinople
-                      ? ShrOperationV2.staticOperation(frame, frame.stackDataV2())
+                      ? ShrOperationV2.staticOperation(frame)
                       : InvalidOperation.invalidOperationResult(opcode);
               case 0x1d ->
                   enableConstantinople
