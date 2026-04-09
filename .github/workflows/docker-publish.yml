@@ -1,0 +1,260 @@
+name: docker multi-arch build publish
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  registry: docker.io
+  IMAGE_NAME: hyperledger/besu
+
+jobs:
+
+  hadolint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Lint Dockerfile
+        run: docker run --rm -i hadolint/hadolint < docker/Dockerfile
+
+  build-and-test:
+    needs: hadolint
+    runs-on: ${{ matrix.platform }}
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      push:    ${{ steps.meta.outputs.push }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-latest
+            arch: amd64
+          - platform: besu-arm64
+            arch: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Compute version and push flag
+        id: meta
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${{ github.ref_name }}"
+          elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            VERSION="pr-${{ github.event.pull_request.number }}"
+          else
+            VERSION="$(date +'%y.%-m')-develop-${GITHUB_SHA::7}"
+          fi
+          PUSH=$([[ "${{ github.event_name }}" != "pull_request" ]] && echo "true" || echo "false")
+          echo "version=$VERSION"                              >> $GITHUB_OUTPUT
+          echo "push=$PUSH"                                   >> $GITHUB_OUTPUT
+          echo "build-date=$(date --utc --rfc-3339=seconds)"  >> $GITHUB_OUTPUT
+          echo "vcs-ref=${GITHUB_SHA}"                        >> $GITHUB_OUTPUT
+
+      - name: Set up Java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+
+      - name: Stage Docker build context
+        run: ./gradlew --no-daemon distDockerCopy
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Login to ${{ env.registry }}
+        if: steps.meta.outputs.push == 'true'
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          registry: ${{ env.registry }}
+          username: ${{ secrets.DOCKER_USER_RW }}
+          password: ${{ secrets.DOCKER_PASSWORD_RW }}
+
+      - name: Build and load for testing
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        env:
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: build/docker-besu
+          load: true
+          no-cache: true
+          pull: true
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            BUILD_DATE=${{ steps.meta.outputs.build-date }}
+            VCS_REF=${{ steps.meta.outputs.vcs-ref }}
+          tags: ${{ env.IMAGE_NAME }}:test-${{ matrix.arch }}
+          cache-from: type=gha,scope=build-${{ matrix.arch }}
+          cache-to:   type=gha,mode=max,scope=build-${{ matrix.arch }}
+
+      - name: Download Goss binaries
+        run: ./gradlew downloadGossBinaries
+
+      - name: Run Docker tests
+        env:
+          architecture: ${{ matrix.arch }}
+        run: |
+          mkdir -p docker/reports
+          cd docker && ./test.sh ${{ env.IMAGE_NAME }}:test-${{ matrix.arch }}
+
+      - name: Test Summary
+        if: always()
+        run: |
+          SUMMARY="<h2>Docker Test Summary (${{ matrix.arch }})</h2>\n"
+          SUMMARY+="<details><summary><strong>Details</strong></summary>\n<pre><code>\n"
+          SUMMARY+=$(cat ./docker/reports/*.xml 2>/dev/null || echo "No report found")
+          SUMMARY+="\n</code></pre></details>\n"
+          echo -e "$SUMMARY" >> $GITHUB_STEP_SUMMARY
+
+      - name: Build and push by digest
+        id: push
+        if: steps.meta.outputs.push == 'true'
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: build/docker-besu
+          platforms: linux/${{ matrix.arch }}
+          no-cache: true
+          pull: true
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            BUILD_DATE=${{ steps.meta.outputs.build-date }}
+            VCS_REF=${{ steps.meta.outputs.vcs-ref }}
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=build-${{ matrix.arch }}
+
+      - name: Export digest
+        if: steps.meta.outputs.push == 'true'
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.push.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest artifact
+        if: steps.meta.outputs.push == 'true'
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: digests-${{ matrix.arch }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  manifest:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Download digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: digests-*
+          merge-multiple: true
+          path: /tmp/digests
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Login to ${{ env.registry }}
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          registry: ${{ env.registry }}
+          username: ${{ secrets.DOCKER_USER_RW }}
+          password: ${{ secrets.DOCKER_PASSWORD_RW }}
+
+      - name: Compute manifest tags
+        id: tags
+        env:
+          VERSION: ${{ needs.build-and-test.outputs.version }}
+        run: |
+          TAGS="-t ${{ env.IMAGE_NAME }}:${VERSION}"
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            if [[ ! "${VERSION}" =~ -(RC|SNAPSHOT|alpha|beta) ]]; then
+              SHORT="${VERSION%.*}"
+              TAGS+=" -t ${{ env.IMAGE_NAME }}:${SHORT}"
+              TAGS+=" -t ${{ env.IMAGE_NAME }}:latest"
+            fi
+          fi
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+
+      - name: Create and push multi-arch manifest
+        env:
+          VERSION: ${{ needs.build-and-test.outputs.version }}
+        run: |
+          docker buildx imagetools create \
+            ${{ steps.tags.outputs.tags }} \
+            $(printf '${{ env.IMAGE_NAME }}@sha256:%s ' $(ls /tmp/digests/))
+
+      - name: Inspect manifest
+        env:
+          VERSION: ${{ needs.build-and-test.outputs.version }}
+        run: docker buildx imagetools inspect "${{ env.IMAGE_NAME }}:${VERSION}"
+
+  verify:
+    needs: [build-and-test, manifest]
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        combination:
+          - tag: ${{ needs.build-and-test.outputs.version }}
+            platform: ''
+            runner: ubuntu-latest
+          - tag: ${{ needs.build-and-test.outputs.version }}
+            platform: 'linux/amd64'
+            runner: ubuntu-latest
+          - tag: ${{ needs.build-and-test.outputs.version }}
+            platform: ''
+            runner: besu-arm64
+    runs-on: ${{ matrix.combination.runner }}
+    env:
+      CONTAINER_NAME: besu-check
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: '.github/workflows/BesuContainerVerify.sh'
+
+      - name: Start container
+        run: |
+          PLATFORM_OPT=""
+          [[ -n "${{ matrix.combination.platform }}" ]] && \
+            PLATFORM_OPT="--platform ${{ matrix.combination.platform }}"
+          docker run -d $PLATFORM_OPT \
+            --name ${{ env.CONTAINER_NAME }} \
+            ${{ env.IMAGE_NAME }}:${{ matrix.combination.tag }}
+
+      - name: Verify Besu container
+        run: bash .github/workflows/BesuContainerVerify.sh
+        env:
+          TAG: ${{ matrix.combination.tag }}
+          VERSION: ${{ needs.build-and-test.outputs.version }}
+          CHECK_LATEST: false
+
+      - name: Stop container
+        if: always()
+        run: docker stop ${{ env.CONTAINER_NAME }} || true
