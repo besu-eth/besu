@@ -43,17 +43,15 @@ public class BonsaiWorldStateUpdateAccumulator
     this.codeCache = codeCache;
   }
 
+  /** Copy constructor. */
+  protected BonsaiWorldStateUpdateAccumulator(final BonsaiWorldStateUpdateAccumulator source) {
+    super(source);
+    this.codeCache = source.codeCache;
+  }
+
   @Override
-  public PathBasedWorldStateUpdateAccumulator<BonsaiAccount> copy() {
-    final BonsaiWorldStateUpdateAccumulator copy =
-        new BonsaiWorldStateUpdateAccumulator(
-            wrappedWorldView(),
-            getAccountPreloader(),
-            getStoragePreloader(),
-            getEvmConfiguration(),
-            codeCache);
-    copy.cloneFromUpdater(this);
-    return copy;
+  public BonsaiWorldStateUpdateAccumulator copy() {
+    return new BonsaiWorldStateUpdateAccumulator(this);
   }
 
   @Override
