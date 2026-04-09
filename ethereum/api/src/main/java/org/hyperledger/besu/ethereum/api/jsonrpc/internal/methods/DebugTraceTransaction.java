@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcPara
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TransactionTraceParams;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTracer;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -91,7 +92,8 @@ public class DebugTraceTransaction implements JsonRpcMethod {
       return new JsonRpcSuccessResponse(
           requestContext.getRequest().getId(), debugResult.getResult());
     } else {
-      return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), null);
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), RpcErrorType.TRANSACTION_NOT_FOUND);
     }
   }
 

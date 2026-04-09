@@ -170,13 +170,13 @@ public class EthProtocolManagerTestBuilder {
     if (protocolSchedule == null) {
       protocolSchedule = ProtocolScheduleFixture.TESTING_NETWORK;
     }
-    if (genesisConfig == null) {
-      genesisConfig = GenesisConfig.mainnet();
-    }
-    if (genesisState == null) {
-      genesisState = GenesisState.fromConfig(genesisConfig, protocolSchedule, new CodeCache());
-    }
     if (blockchain == null) {
+      if (genesisConfig == null) {
+        genesisConfig = GenesisConfig.mainnet();
+      }
+      if (genesisState == null) {
+        genesisState = GenesisState.fromConfig(genesisConfig, protocolSchedule, new CodeCache());
+      }
       blockchain = createInMemoryBlockchain(genesisState.getBlock());
     }
     if (networkId == null) {

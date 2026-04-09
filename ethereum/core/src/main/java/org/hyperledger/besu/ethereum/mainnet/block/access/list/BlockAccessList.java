@@ -55,6 +55,10 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
     return Objects.hash(accountChanges);
   }
 
+  public boolean isEmpty() {
+    return accountChanges.isEmpty();
+  }
+
   public void writeTo(final RLPOutput out) {
     BlockAccessListEncoder.encode(this, out);
   }

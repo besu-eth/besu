@@ -23,22 +23,15 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPendingResult;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPoolContentFromResult;
-import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
-import org.hyperledger.besu.ethereum.eth.transactions.SenderPendingTransactionsData;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPoolResult;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.SequencedMap;
-import java.util.stream.Collectors;
 
-public class TxPoolContentFrom implements JsonRpcMethod {
-
-  private final TransactionPool transactionPool;
+public class TxPoolContentFrom extends AbstractTxPoolContent<TransactionPendingResult> {
 
   public TxPoolContentFrom(final TransactionPool transactionPool) {
-    this.transactionPool = transactionPool;
+    super(transactionPool);
   }
 
   @Override
@@ -58,39 +51,13 @@ public class TxPoolContentFrom implements JsonRpcMethod {
     }
   }
 
-  private TransactionPoolContentFromResult contentFrom(final Address sender) {
-    final SenderPendingTransactionsData pendingTransactionsData =
-        transactionPool.getPendingTransactionsFor(sender);
-    final List<PendingTransaction> pendingTransactions =
-        pendingTransactionsData.pendingTransactions();
-    long expectedNonce = pendingTransactionsData.nonce();
-    int idx = 0;
-    while (idx < pendingTransactions.size()
-        && expectedNonce == pendingTransactions.get(idx).getNonce()) {
-      ++expectedNonce;
-      ++idx;
-    }
+  private TransactionPoolResult<SequencedMap<String, TransactionPendingResult>> contentFrom(
+      final Address sender) {
+    final PendingAndQueued<TransactionPendingResult> pendingAndQueued =
+        getPendingAndQueued(
+            transactionPool.getPendingTransactionsFor(sender), TransactionPendingResult::new);
 
-    final SequencedMap<String, TransactionPendingResult> pendingByNonce =
-        pendingTransactions.subList(0, idx).stream()
-            .map(PendingTransaction::getTransaction)
-            .collect(
-                Collectors.toMap(
-                    tx -> Long.toString(tx.getNonce()),
-                    TransactionPendingResult::new,
-                    (a, b) -> a,
-                    LinkedHashMap::new));
-
-    final SequencedMap<String, TransactionPendingResult> queuedByNonce =
-        pendingTransactions.subList(idx, pendingTransactions.size()).stream()
-            .map(PendingTransaction::getTransaction)
-            .collect(
-                Collectors.toMap(
-                    tx -> Long.toString(tx.getNonce()),
-                    TransactionPendingResult::new,
-                    (a, b) -> a,
-                    LinkedHashMap::new));
-
-    return new TransactionPoolContentFromResult(pendingByNonce, queuedByNonce);
+    return new TransactionPoolResult<>(
+        pendingAndQueued.pendingByNonce(), pendingAndQueued.queuedByNonce());
   }
 }

@@ -38,6 +38,7 @@ import org.hyperledger.besu.ethereum.core.ParsedExtraData;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
@@ -45,6 +46,7 @@ import org.hyperledger.besu.ethereum.mainnet.MiningBeneficiaryCalculator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
+import org.hyperledger.besu.ethereum.mainnet.WithdrawalsValidator.AllowedWithdrawals;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
@@ -184,10 +186,7 @@ public class BlockSimulator {
 
     // Fill gaps between blocks and set the correct block number and timestamp
     List<BlockStateCall> blockStateCalls =
-        fillBlockStateCalls(
-            protocolSchedule.getByBlockHeader(blockHeader),
-            simulationParameter.getBlockStateCalls(),
-            blockHeader);
+        fillBlockStateCalls(simulationParameter.getBlockStateCalls(), blockHeader);
 
     BlockHeader currentBlockHeader = blockHeader;
     HashMap<Long, Hash> blockHashCache = HashMap.newHashMap(countStateCalls);
@@ -236,9 +235,18 @@ public class BlockSimulator {
       final OperationTracer operationTracer) {
 
     BlockOverrides blockOverrides = blockStateCall.getBlockOverrides();
-    ProtocolSpec protocolSpec =
-        protocolSchedule.getForNextBlockHeader(
-            baseBlockHeader, blockOverrides.getTimestamp().orElseThrow());
+    // Use the parent's actual difficulty (not Difficulty.ZERO) so that
+    // TransitionProtocolSchedule correctly identifies pre-merge blocks: it dispatches
+    // to the post-merge schedule when isPostMerge()=true AND difficulty==0, so a PoW
+    // parent must preserve its non-zero difficulty to select the pre-merge spec.
+    final BlockHeader syntheticNextBlockHeader =
+        BlockHeaderBuilder.fromHeader(baseBlockHeader)
+            .number(baseBlockHeader.getNumber() + 1)
+            .timestamp(blockOverrides.getTimestamp().orElseThrow())
+            .parentHash(baseBlockHeader.getBlockHash())
+            .blockHeaderFunctions(new MainnetBlockHeaderFunctions())
+            .buildBlockHeader();
+    ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(syntheticNextBlockHeader);
 
     BlockHeader overridenBaseBlockHeader =
         overrideBlockHeader(baseBlockHeader, protocolSpec, blockOverrides, shouldValidate);
@@ -320,10 +328,23 @@ public class BlockSimulator {
             blockAccessListBuilder.ifPresent(
                 builder -> builder.apply(tracker, ws.updater().updater())));
 
+    // Apply block reward for PoW blocks, matching geth's FinalizeAndAssemble behaviour.
+    // Post-merge specs have blockReward=ZERO and skipZeroBlockRewards=true, so no reward is
+    // applied for them.
+    Wei blockReward = protocolSpec.getBlockReward();
+    if (!(protocolSpec.isSkipZeroBlockRewards() && blockReward.isZero())) {
+      Address miner = overridenBaseBlockHeader.getCoinbase();
+      WorldUpdater rewardUpdater = ws.updater();
+      MutableAccount minerAccount = rewardUpdater.getOrCreate(miner);
+      minerAccount.incrementBalance(blockReward);
+      rewardUpdater.commit();
+    }
+
     return createFinalBlock(
         overridenBaseBlockHeader,
         blockStateCallSimulationResult,
         blockOverrides,
+        protocolSpec,
         ws,
         maybeRequests,
         returnTrieLog);
@@ -492,6 +513,7 @@ public class BlockSimulator {
       final BlockHeader blockHeader,
       final BlockStateCallSimulationResult simResult,
       final BlockOverrides blockOverrides,
+      final ProtocolSpec protocolSpec,
       final MutableWorldState ws,
       final Optional<List<Request>> maybeRequests,
       final boolean returnTrieLog) {
@@ -499,7 +521,10 @@ public class BlockSimulator {
     List<Transaction> transactions = simResult.getTransactions();
     List<TransactionReceipt> receipts = simResult.getReceipts();
 
-    BlockHeader finalBlockHeader =
+    boolean isShanghaiPlus = protocolSpec.getWithdrawalsValidator() instanceof AllowedWithdrawals;
+    boolean isCancunPlus = protocolSpec.getFeeMarket().implementsBlobFee();
+
+    BlockHeaderBuilder headerBuilder =
         BlockHeaderBuilder.createDefault()
             .populateFrom(blockHeader)
             .ommersHash(BodyValidation.ommersHash(List.of()))
@@ -508,16 +533,29 @@ public class BlockSimulator {
             .receiptsRoot(BodyValidation.receiptsRoot(receipts))
             .logsBloom(BodyValidation.logsBloom(receipts))
             .gasUsed(simResult.getCumulativeGasUsed())
-            .blobGasUsed(simResult.getCumulativeBlobGasUsed())
-            .withdrawalsRoot(BodyValidation.withdrawalsRoot(List.of()))
             .requestsHash(maybeRequests.map(BodyValidation::requestsHash).orElse(null))
             .balHash(simResult.getBlockAccessList().map(BodyValidation::balHash).orElse(null))
             .extraData(blockOverrides.getExtraData().orElse(Bytes.EMPTY))
-            .blockHeaderFunctions(new BlockStateCallBlockHeaderFunctions(blockOverrides))
-            .buildBlockHeader();
+            .blockHeaderFunctions(new BlockStateCallBlockHeaderFunctions(blockOverrides));
 
-    Block block =
-        new Block(finalBlockHeader, new BlockBody(transactions, List.of(), Optional.of(List.of())));
+    if (isCancunPlus) {
+      headerBuilder.blobGasUsed(simResult.getCumulativeBlobGasUsed());
+    } else {
+      // Clear defaults set by createDefault() for pre-Cancun blocks
+      headerBuilder.blobGasUsed(null);
+      headerBuilder.excessBlobGas(null);
+    }
+
+    if (isShanghaiPlus) {
+      headerBuilder.withdrawalsRoot(BodyValidation.withdrawalsRoot(List.of()));
+    }
+
+    BlockHeader finalBlockHeader = headerBuilder.buildBlockHeader();
+
+    Optional<List<Withdrawal>> withdrawals =
+        isShanghaiPlus ? Optional.of(List.of()) : Optional.empty();
+
+    Block block = new Block(finalBlockHeader, new BlockBody(transactions, List.of(), withdrawals));
 
     if (returnTrieLog && ws instanceof PathBasedWorldState) {
       // if requested and path-based worldstate, return result with trielog and serializer:
@@ -594,19 +632,37 @@ public class BlockSimulator {
                 blockOverrides
                     .getGasLimit()
                     .orElseGet(() -> getNextGasLimit(newProtocolSpec, header, blockNumber)))
-            .baseFee(
-                blockOverrides
-                    .getBaseFeePerGas()
-                    .orElseGet(
-                        () ->
-                            shouldValidate
-                                ? getNextBaseFee(newProtocolSpec, header, blockNumber)
-                                : Wei.ZERO))
             .extraData(blockOverrides.getExtraData().orElse(Bytes.EMPTY))
-            .parentBeaconBlockRoot(blockOverrides.getParentBeaconBlockRoot().orElse(Bytes32.ZERO))
-            .prevRandao(blockOverrides.getMixHashOrPrevRandao().orElse(Bytes32.ZERO))
-            .excessBlobGas(
-                ExcessBlobGasCalculator.calculateExcessBlobGasForParent(newProtocolSpec, header));
+            .prevRandao(blockOverrides.getMixHashOrPrevRandao().orElse(Bytes32.ZERO));
+
+    // London+: baseFee
+    if (newProtocolSpec.getFeeMarket().implementsBaseFee()) {
+      builder.baseFee(
+          blockOverrides
+              .getBaseFeePerGas()
+              .orElseGet(
+                  () ->
+                      shouldValidate
+                          ? getNextBaseFee(newProtocolSpec, header, blockNumber)
+                          : Wei.ZERO));
+    }
+
+    // Cancun+: parentBeaconBlockRoot (set for all Cancun-timestamp blocks, not just PoS,
+    // matching geth's eth_simulateV1 behaviour where EIP-4788 runs based on timestamp)
+    if (newProtocolSpec.getFeeMarket().implementsBlobFee()) {
+      builder.parentBeaconBlockRoot(blockOverrides.getParentBeaconBlockRoot().orElse(Bytes32.ZERO));
+    } else {
+      builder.parentBeaconBlockRoot(null);
+    }
+
+    // Cancun+: excessBlobGas
+    if (newProtocolSpec.getFeeMarket().implementsBlobFee()) {
+      builder.excessBlobGas(
+          ExcessBlobGasCalculator.calculateExcessBlobGasForParent(newProtocolSpec, header));
+    } else {
+      builder.excessBlobGas(null);
+      builder.blobGasUsed(null);
+    }
 
     return builder
         .blockHeaderFunctions(new BlockStateCallBlockHeaderFunctions(blockOverrides))

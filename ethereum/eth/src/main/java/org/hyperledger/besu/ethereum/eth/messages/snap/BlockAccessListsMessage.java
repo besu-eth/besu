@@ -19,8 +19,6 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 
-import java.util.List;
-
 import org.apache.tuweni.bytes.Bytes;
 
 public final class BlockAccessListsMessage extends AbstractSnapMessageData {
@@ -61,7 +59,7 @@ public final class BlockAccessListsMessage extends AbstractSnapMessageData {
     return SnapV2.BLOCK_ACCESS_LISTS;
   }
 
-  public List<BlockAccessList> blockAccessLists(final boolean withRequestId) {
+  public Iterable<BlockAccessList> blockAccessLists(final boolean withRequestId) {
     return BlockAccessListsMessageData.decode(data, withRequestId);
   }
 }

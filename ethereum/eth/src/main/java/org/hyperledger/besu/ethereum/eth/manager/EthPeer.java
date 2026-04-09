@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.eth.messages.GetNodeDataMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetPooledTransactionsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.StatusMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetAccountRangeMessage;
+import org.hyperledger.besu.ethereum.eth.messages.snap.GetBlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetByteCodesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetStorageRangeMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetTrieNodesMessage;
@@ -391,6 +392,15 @@ public class EthPeer implements Comparable<EthPeer> {
     getTrieNodes.setRootHash(Optional.of(stateRoot));
     return sendRequest(
         requestManagers.get(SnapProtocol.NAME).get(SnapV1.GET_TRIE_NODES), getTrieNodes);
+  }
+
+  public RequestManager.ResponseStream getSnapBlockAccessLists(final List<Hash> blockHashes)
+      throws PeerNotConnected {
+    final GetBlockAccessListsMessage getBlockAccessListsMessage =
+        GetBlockAccessListsMessage.create(blockHashes);
+    return sendRequest(
+        requestManagers.get(SnapProtocol.NAME).get(SnapV2.GET_BLOCK_ACCESS_LISTS),
+        getBlockAccessListsMessage);
   }
 
   public void setIsServingSnap(final boolean isServingSnap) {

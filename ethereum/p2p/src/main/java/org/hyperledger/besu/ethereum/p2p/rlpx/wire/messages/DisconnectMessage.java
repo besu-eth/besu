@@ -201,6 +201,10 @@ public final class DisconnectMessage extends AbstractMessageData {
       return message;
     }
 
+    public boolean isBreachOfProtocol() {
+      return name().startsWith("BREACH_OF_PROTOCOL");
+    }
+
     @Override
     public String toString() {
       return getCode().toString() + " " + name() + " " + getMessage();

@@ -27,7 +27,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPoolContentFromResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPendingResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.TransactionPoolResult;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
@@ -35,6 +36,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.SenderPendingTransactionsD
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 
 import java.util.List;
+import java.util.SequencedMap;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -70,7 +72,8 @@ public class TxPoolContentFromTest {
     when(transactionPool.getPendingTransactionsFor(SENDER))
         .thenReturn(SenderPendingTransactionsData.empty(SENDER));
 
-    final TransactionPoolContentFromResult result = invokeMethod();
+    final TransactionPoolResult<SequencedMap<String, TransactionPendingResult>> result =
+        invokeMethod();
 
     assertThat(result.getPending()).isEmpty();
     assertThat(result.getQueued()).isEmpty();
@@ -86,7 +89,8 @@ public class TxPoolContentFromTest {
     when(transactionPool.getPendingTransactionsFor(SENDER))
         .thenReturn(new SenderPendingTransactionsData(SENDER, 0L, List.of(tx0, tx1, tx2)));
 
-    final TransactionPoolContentFromResult result = invokeMethod();
+    final TransactionPoolResult<SequencedMap<String, TransactionPendingResult>> result =
+        invokeMethod();
 
     assertThat(result.getPending()).containsOnlyKeys("0", "1", "2");
     assertThat(result.getQueued()).isEmpty();
@@ -101,7 +105,8 @@ public class TxPoolContentFromTest {
     when(transactionPool.getPendingTransactionsFor(SENDER))
         .thenReturn(new SenderPendingTransactionsData(SENDER, 0L, List.of(tx2, tx3)));
 
-    final TransactionPoolContentFromResult result = invokeMethod();
+    final TransactionPoolResult<SequencedMap<String, TransactionPendingResult>> result =
+        invokeMethod();
 
     assertThat(result.getPending()).isEmpty();
     assertThat(result.getQueued()).containsOnlyKeys("2", "3");
@@ -118,7 +123,8 @@ public class TxPoolContentFromTest {
     when(transactionPool.getPendingTransactionsFor(SENDER))
         .thenReturn(new SenderPendingTransactionsData(SENDER, 0L, List.of(tx0, tx1, tx3, tx4)));
 
-    final TransactionPoolContentFromResult result = invokeMethod();
+    final TransactionPoolResult<SequencedMap<String, TransactionPendingResult>> result =
+        invokeMethod();
 
     assertThat(result.getPending()).containsOnlyKeys("0", "1");
     assertThat(result.getQueued()).containsOnlyKeys("3", "4");
@@ -134,7 +140,8 @@ public class TxPoolContentFromTest {
     when(transactionPool.getPendingTransactionsFor(SENDER))
         .thenReturn(new SenderPendingTransactionsData(SENDER, 5L, List.of(tx5, tx6, tx8)));
 
-    final TransactionPoolContentFromResult result = invokeMethod();
+    final TransactionPoolResult<SequencedMap<String, TransactionPendingResult>> result =
+        invokeMethod();
 
     assertThat(result.getPending()).containsOnlyKeys("5", "6");
     assertThat(result.getQueued()).containsOnlyKeys("8");
@@ -149,10 +156,12 @@ public class TxPoolContentFromTest {
     assertThatThrownBy(() -> method.response(request)).isInstanceOf(InvalidJsonRpcParameters.class);
   }
 
-  private TransactionPoolContentFromResult invokeMethod() {
+  @SuppressWarnings("unchecked")
+  private TransactionPoolResult<SequencedMap<String, TransactionPendingResult>> invokeMethod() {
     final JsonRpcSuccessResponse response =
         (JsonRpcSuccessResponse) method.response(buildRequest(SENDER));
-    return (TransactionPoolContentFromResult) response.getResult();
+    return (TransactionPoolResult<SequencedMap<String, TransactionPendingResult>>)
+        response.getResult();
   }
 
   private JsonRpcRequestContext buildRequest(final Address sender) {

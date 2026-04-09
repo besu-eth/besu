@@ -15,6 +15,7 @@
 package org.hyperledger.besu.cli.options;
 
 import org.hyperledger.besu.ethereum.api.handlers.TimeoutOptions;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 
 import picocli.CommandLine;
 
@@ -26,6 +27,14 @@ public class RPCOptions {
       names = {"--Xhttp-timeout-seconds"},
       description = "HTTP timeout in seconds (default: ${DEFAULT-VALUE})")
   private final Long httpTimeoutSec = TimeoutOptions.defaultOptions().getTimeoutSeconds();
+
+  @CommandLine.Option(
+      hidden = true,
+      names = {"--Xhttp-streaming-timeout-seconds"},
+      description =
+          "HTTP timeout in seconds for streaming methods like debug_traceBlock (default: ${DEFAULT-VALUE})")
+  private final Long httpStreamingTimeoutSec =
+      JsonRpcConfiguration.DEFAULT_HTTP_STREAMING_TIMEOUT_SEC;
 
   @CommandLine.Option(
       hidden = true,
@@ -52,6 +61,15 @@ public class RPCOptions {
    */
   public Long getHttpTimeoutSec() {
     return httpTimeoutSec;
+  }
+
+  /**
+   * Gets http streaming timeout sec.
+   *
+   * @return the http streaming timeout sec
+   */
+  public Long getHttpStreamingTimeoutSec() {
+    return httpStreamingTimeoutSec;
   }
 
   /**
