@@ -67,6 +67,7 @@ import org.hyperledger.besu.evm.tracing.EthTransferLogOperationTracer;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.data.BlockOverrides;
+import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -79,6 +80,8 @@ import java.util.function.Supplier;
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Simulates the execution of a block, processing transactions and applying state overrides. This
@@ -90,6 +93,8 @@ import org.apache.tuweni.bytes.Bytes32;
  * header, transaction receipts, and other relevant information.
  */
 public class BlockSimulator {
+
+  private static final Logger LOG = LoggerFactory.getLogger(BlockSimulator.class);
 
   private static final TransactionValidationParams STRICT_VALIDATION_PARAMS =
       TransactionValidationParams.blockSimulatorStrict();
@@ -280,8 +285,15 @@ public class BlockSimulator {
             ws,
             protocolSpec,
             blockHashLookup,
-            OperationTracer.NO_TRACING,
+            operationTracer,
             Optional.empty());
+
+    // if operationTracer is block-aware, trace start block
+    if (operationTracer instanceof BlockAwareOperationTracer blockTracer) {
+      LOG.trace("traceStartBlock sim for {}", overridenBaseBlockHeader.getNumber());
+      blockTracer.traceStartBlock(
+          ws, overridenBaseBlockHeader, overridenBaseBlockHeader.getCoinbase());
+    }
 
     protocolSpec
         .getPreExecutionProcessor()
@@ -340,14 +352,22 @@ public class BlockSimulator {
       rewardUpdater.commit();
     }
 
-    return createFinalBlock(
-        overridenBaseBlockHeader,
-        blockStateCallSimulationResult,
-        blockOverrides,
-        protocolSpec,
-        ws,
-        maybeRequests,
-        returnTrieLog);
+    var finalBlock =
+        createFinalBlock(
+            overridenBaseBlockHeader,
+            blockStateCallSimulationResult,
+            blockOverrides,
+            protocolSpec,
+            ws,
+            maybeRequests,
+            returnTrieLog);
+
+    if (operationTracer instanceof BlockAwareOperationTracer blockTracer) {
+      LOG.trace("traceEndBlock sim for {}", finalBlock.getBlockHeader().getNumber());
+      blockTracer.traceEndBlock(finalBlock.getBlockHeader(), finalBlock.getBlockBody());
+    }
+
+    return finalBlock;
   }
 
   protected BlockStateCallSimulationResult processTransactions(
