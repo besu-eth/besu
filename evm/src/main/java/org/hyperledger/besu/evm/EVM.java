@@ -498,7 +498,7 @@ public class EVM {
                       : InvalidOperation.invalidOperationResult(opcode);
               case 0x1d ->
                   enableConstantinople
-                      ? SarOperationV2.staticOperation(frame, frame.stackDataV2())
+                      ? SarOperationV2.staticOperation(frame)
                       : InvalidOperation.invalidOperationResult(opcode);
               // TODO: implement remaining opcodes in v2; until then fall through to v1
               default -> {

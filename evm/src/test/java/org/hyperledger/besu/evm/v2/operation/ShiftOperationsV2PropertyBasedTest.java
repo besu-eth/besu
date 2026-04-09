@@ -524,20 +524,40 @@ public class ShiftOperationsV2PropertyBasedTest {
   // region V2 Helpers (long[] stack)
 
   private Bytes32 runV2Shl(final Bytes shift, final Bytes value) {
-    return runV2Operation(shift, value, StackArithmetic::shl);
+    return runV2OperationLegacy(shift, value, StackArithmetic::shl);
   }
 
   private Bytes32 runV2Shr(final Bytes shift, final Bytes value) {
-    return runV2Operation(shift, value, StackArithmetic::shr);
+    return runV2OperationLegacy(shift, value, StackArithmetic::shr);
   }
 
   private Bytes32 runV2Sar(final Bytes shift, final Bytes value) {
-    return runV2Operation(shift, value, StackArithmetic::sar);
+    return runV2Operation(shift, value, UInt256::sar);
   }
 
   @FunctionalInterface
   interface V2OperationExecutor {
+    UInt256 execute(UInt256 value, UInt256 shift);
+  }
+
+  @FunctionalInterface
+  interface V2OperationExecutorLegacy {
     int execute(long[] stack, int top);
+  }
+
+  private Bytes32 runV2OperationLegacy(
+    final Bytes shift, final Bytes value, final V2OperationExecutorLegacy executor) {
+    final UInt256 shiftVal = UInt256.fromBytesBE(Bytes32.leftPad(shift).toArrayUnsafe());
+    final UInt256 valueVal = UInt256.fromBytesBE(Bytes32.leftPad(value).toArrayUnsafe());
+
+    final long[] s = new long[8];
+    writeLimbs(s, 0, valueVal);
+    writeLimbs(s, 4, shiftVal);
+
+    executor.execute(s, 2);
+
+    final UInt256 result = new UInt256(s[0], s[1], s[2], s[3]);
+    return Bytes32.wrap(result.toBytesBE());
   }
 
   private Bytes32 runV2Operation(
@@ -549,9 +569,8 @@ public class ShiftOperationsV2PropertyBasedTest {
     writeLimbs(s, 0, valueVal);
     writeLimbs(s, 4, shiftVal);
 
-    executor.execute(s, 2);
+    final UInt256 result = executor.execute(valueVal, shiftVal);
 
-    final UInt256 result = new UInt256(s[0], s[1], s[2], s[3]);
     return Bytes32.wrap(result.toBytesBE());
   }
 
