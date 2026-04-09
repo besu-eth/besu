@@ -92,7 +92,12 @@ public class SnapDownloaderFactory {
         chainSyncState != null
             ? new PivotSyncState(chainSyncState.pivotBlockHeader(), false)
             : PivotSyncState.EMPTY_SYNC_STATE;
-    final SnapSyncProcessState snapSyncState = new SnapSyncProcessState(pivotSyncState);
+    final Optional<BlockHeader> firstPivotHeader =
+        chainSyncState != null
+            ? Optional.of(chainSyncState.firstPivotBlockHeader())
+            : Optional.empty();
+    final SnapSyncProcessState snapSyncState =
+        new SnapSyncProcessState(pivotSyncState, firstPivotHeader);
 
     final InMemoryTasksPriorityQueues<SnapDataRequest> snapTaskCollection =
         createSnapWorldStateDownloaderTaskCollection();
@@ -101,6 +106,7 @@ public class SnapDownloaderFactory {
             ethContext,
             snapContext,
             protocolContext,
+            protocolSchedule,
             worldStateStorageCoordinator,
             snapTaskCollection,
             syncConfig.getSnapSyncConfiguration(),

@@ -15,17 +15,28 @@
 package org.hyperledger.besu.ethereum.eth.sync.snapsync.request;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.RequestType;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapWorldDownloadState;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListChanges;
+import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.stream.Stream;
+
+import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.units.bigints.UInt256;
 
 public class BlockAccessListDataRequest extends SnapDataRequest {
 
@@ -56,8 +67,68 @@ public class BlockAccessListDataRequest extends SnapDataRequest {
       final SnapWorldDownloadState downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
-    // TODO: Collect changes from BALs to the updater and commit at the end.
+    if (!(updater instanceof BonsaiWorldStateKeyValueStorage.Updater bonsaiUpdater)) {
+      return 0;
+    }
+
+    final StoredMerklePatriciaTrie<Bytes, Bytes> accountTrie =
+        new StoredMerklePatriciaTrie<>(
+            worldStateStorageCoordinator::getAccountStateTrieNode,
+            Bytes32.wrap(getRootHash().getBytes()),
+            Function.identity(),
+            Function.identity());
+
+    blockAccessList.ifPresent(
+        bal -> {
+          for (final var accountChanges : BlockAccessListChanges.latestChanges(bal)) {
+            final Hash accountHash = Hash.hash(accountChanges.address().getBytes());
+
+            final PmtStateTrieAccountValue trieAccountValue =
+                accountTrie
+                    .get(accountHash.getBytes())
+                    .map(RLP::input)
+                    .map(PmtStateTrieAccountValue::readFrom)
+                    .orElse(
+                        new PmtStateTrieAccountValue(
+                            0, Wei.ZERO, Hash.EMPTY_TRIE_HASH, Hash.EMPTY));
+
+            final var updatedCode = accountChanges.code();
+            final Hash updatedCodeHash =
+                updatedCode.map(Hash::hash).orElse(trieAccountValue.getCodeHash());
+            updatedCode.ifPresent(
+                code -> bonsaiUpdater.putCode(accountHash, updatedCodeHash, code));
+
+            final Hash updatedStorageRoot = trieAccountValue.getStorageRoot();
+            if (!accountChanges.storageChanges().isEmpty()) {
+              applyStorageChanges(accountHash, accountChanges, bonsaiUpdater);
+            }
+
+            final PmtStateTrieAccountValue updatedValue =
+                new PmtStateTrieAccountValue(
+                    accountChanges.nonce().orElse(trieAccountValue.getNonce()),
+                    accountChanges.balance().orElse(trieAccountValue.getBalance()),
+                    updatedStorageRoot,
+                    updatedCodeHash);
+            bonsaiUpdater.putAccountInfoState(accountHash, RLP.encode(updatedValue::writeTo));
+          }
+        });
+
     return 0;
+  }
+
+  private void applyStorageChanges(
+      final Hash accountHash,
+      final BlockAccessListChanges.AccountFinalChanges accountChanges,
+      final BonsaiWorldStateKeyValueStorage.Updater bonsaiUpdater) {
+    for (final var storageChange : accountChanges.storageChanges()) {
+      final Hash slotHash = storageChange.slot().getSlotHash();
+      final UInt256 value = storageChange.value();
+      if (value.equals(UInt256.ZERO)) {
+        bonsaiUpdater.removeStorageValueBySlotHash(accountHash, slotHash);
+      } else {
+        bonsaiUpdater.putStorageValueBySlotHash(accountHash, slotHash, value.toBytes());
+      }
+    }
   }
 
   @Override
