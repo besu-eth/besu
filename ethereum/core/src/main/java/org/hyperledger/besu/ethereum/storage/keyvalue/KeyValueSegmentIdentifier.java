@@ -101,7 +101,13 @@ public enum KeyValueSegmentIdentifier implements SegmentIdentifier {
       final boolean containsStaticData,
       final boolean eligibleToHighSpecFlag,
       final boolean staticDataGarbageCollectionEnabled) {
-    this(id, formats, containsStaticData, eligibleToHighSpecFlag, staticDataGarbageCollectionEnabled, false);
+    this(
+        id,
+        formats,
+        containsStaticData,
+        eligibleToHighSpecFlag,
+        staticDataGarbageCollectionEnabled,
+        false);
   }
 
   KeyValueSegmentIdentifier(
