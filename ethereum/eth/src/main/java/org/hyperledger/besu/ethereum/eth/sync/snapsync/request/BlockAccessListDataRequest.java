@@ -37,8 +37,12 @@ import java.util.stream.Stream;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class BlockAccessListDataRequest extends SnapDataRequest {
+
+  private static final Logger LOG = LoggerFactory.getLogger(BlockAccessListDataRequest.class);
 
   private final BlockHeader blockHeader;
   private Optional<BlockAccessList> blockAccessList = Optional.empty();
@@ -93,8 +97,7 @@ public class BlockAccessListDataRequest extends SnapDataRequest {
                             0, Wei.ZERO, Hash.EMPTY_TRIE_HASH, Hash.EMPTY));
 
             final var updatedCode = accountChanges.code();
-            final Hash updatedCodeHash =
-                updatedCode.map(Hash::hash).orElse(trieAccountValue.getCodeHash());
+            final Hash updatedCodeHash = resolveUpdatedCodeHash(accountChanges, trieAccountValue);
             updatedCode.ifPresent(
                 code -> bonsaiUpdater.putCode(accountHash, updatedCodeHash, code));
 
@@ -105,8 +108,8 @@ public class BlockAccessListDataRequest extends SnapDataRequest {
 
             final PmtStateTrieAccountValue updatedValue =
                 new PmtStateTrieAccountValue(
-                    accountChanges.nonce().orElse(trieAccountValue.getNonce()),
-                    accountChanges.balance().orElse(trieAccountValue.getBalance()),
+                    resolveUpdatedNonce(accountChanges, trieAccountValue),
+                    resolveUpdatedBalance(accountChanges, trieAccountValue),
                     updatedStorageRoot,
                     updatedCodeHash);
             bonsaiUpdater.putAccountInfoState(accountHash, RLP.encode(updatedValue::writeTo));
@@ -129,6 +132,70 @@ public class BlockAccessListDataRequest extends SnapDataRequest {
         bonsaiUpdater.putStorageValueBySlotHash(accountHash, slotHash, value.toBytes());
       }
     }
+  }
+
+  private long resolveUpdatedNonce(
+      final BlockAccessListChanges.AccountFinalChanges accountChanges,
+      final PmtStateTrieAccountValue trieAccountValue) {
+    return accountChanges
+        .nonce()
+        .map(
+            balNonce -> {
+              final long trieNonce = trieAccountValue.getNonce();
+              if (trieNonce != balNonce) {
+                LOG.warn(
+                    "BAL nonce mismatch for account {} at block {}: trie={}, bal={}",
+                    accountChanges.address(),
+                    blockHeader.getNumber(),
+                    trieNonce,
+                    balNonce);
+              }
+              return balNonce;
+            })
+        .orElse(trieAccountValue.getNonce());
+  }
+
+  private Wei resolveUpdatedBalance(
+      final BlockAccessListChanges.AccountFinalChanges accountChanges,
+      final PmtStateTrieAccountValue trieAccountValue) {
+    return accountChanges
+        .balance()
+        .map(
+            balBalance -> {
+              final Wei trieBalance = trieAccountValue.getBalance();
+              if (!trieBalance.equals(balBalance)) {
+                LOG.warn(
+                    "BAL balance mismatch for account {} at block {}: trie={}, bal={}",
+                    accountChanges.address(),
+                    blockHeader.getNumber(),
+                    trieBalance,
+                    balBalance);
+              }
+              return balBalance;
+            })
+        .orElse(trieAccountValue.getBalance());
+  }
+
+  private Hash resolveUpdatedCodeHash(
+      final BlockAccessListChanges.AccountFinalChanges accountChanges,
+      final PmtStateTrieAccountValue trieAccountValue) {
+    return accountChanges
+        .code()
+        .map(
+            balCode -> {
+              final Hash balCodeHash = Hash.hash(balCode);
+              final Hash trieCodeHash = trieAccountValue.getCodeHash();
+              if (!trieCodeHash.equals(balCodeHash)) {
+                LOG.warn(
+                    "BAL code hash mismatch for account {} at block {}: trie={}, bal={}",
+                    accountChanges.address(),
+                    blockHeader.getNumber(),
+                    trieCodeHash,
+                    balCodeHash);
+              }
+              return balCodeHash;
+            })
+        .orElse(trieAccountValue.getCodeHash());
   }
 
   @Override

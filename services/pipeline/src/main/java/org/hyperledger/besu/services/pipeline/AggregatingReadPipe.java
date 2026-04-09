@@ -19,8 +19,8 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Queue;
 import java.util.List;
+import java.util.Queue;
 
 /**
  * A read pipe that aggregates all incoming batches into a single batch.
