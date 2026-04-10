@@ -682,15 +682,13 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    */
   // TODO: check perf - wiring shiftRight callers with this one
   private UInt256 sar0(final int shift, final long fill) {
-    long w3 = fill, w2 = fill, w1 = fill, w0 = fill;
-    if (shift != 256) {
-      w3 = u3;
-      w2 = u2;
-      w1 = u1;
-      w0 = u0;
-    }
-
-    if (shift != 0 && shift != 256) {
+    long w3 = u3, w2 = u2, w1 = u1, w0 = u0;
+    if (shift == 256) {
+      w3 = fill;
+      w2 = fill;
+      w1 = fill;
+      w0 = fill;
+    } else if (shift != 0) {
       // Number of whole 64-bit words to shift (shift / 64)
       final int wordShift = shift >>> 6;
       // Remaining intra-word bit shift (shift % 64)
@@ -756,15 +754,13 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    */
   // TODO: check perf - wiring shiftLeft callers with this one
   private UInt256 shl0(final int shift) {
-    long w3 = 0, w2 = 0, w1 = 0, w0 = 0;
-    if (shift != 256) {
-      w3 = u3;
-      w2 = u2;
-      w1 = u1;
-      w0 = u0;
-    }
-
-    if (shift != 0 && shift != 256) {
+    long w3 = u3, w2 = u2, w1 = u1, w0 = u0;
+    if (shift == 256) {
+      w3 = 0;
+      w2 = 0;
+      w1 = 0;
+      w0 = 0;
+    } else if (shift != 0) {
       // Number of whole 64-bit words to shift (shift / 64)
       final int wordShift = shift >>> 6;
       // Remaining intra-word bit shift (shift % 64)
