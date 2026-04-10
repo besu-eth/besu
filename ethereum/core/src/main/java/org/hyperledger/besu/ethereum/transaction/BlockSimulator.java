@@ -288,12 +288,16 @@ public class BlockSimulator {
             operationTracer,
             Optional.empty());
 
-    // if operationTracer is block-aware, trace start block
-    if (operationTracer instanceof BlockAwareOperationTracer blockTracer) {
-      LOG.trace("traceStartBlock sim for {}", overridenBaseBlockHeader.getNumber());
-      blockTracer.traceStartBlock(
+    // if operationTracer is block-aware, traceStart and hold onto the option ref for traceEnd
+    var maybeBlockAwareOperationTracer = Optional.of(operationTracer)
+        .filter(z -> z instanceof BlockAwareOperationTracer)
+        .map(BlockAwareOperationTracer.class::cast);
+
+    maybeBlockAwareOperationTracer.ifPresent(tracer -> {
+      LOG.trace("traceStartBlock sim for {}", overridenBaseBlockHeader.toLogString());
+      tracer.traceStartBlock(
           ws, overridenBaseBlockHeader, overridenBaseBlockHeader.getCoinbase());
-    }
+    });
 
     protocolSpec
         .getPreExecutionProcessor()
@@ -360,12 +364,8 @@ public class BlockSimulator {
             protocolSpec,
             ws,
             maybeRequests,
+            maybeBlockAwareOperationTracer,
             returnTrieLog);
-
-    if (operationTracer instanceof BlockAwareOperationTracer blockTracer) {
-      LOG.trace("traceEndBlock sim for {}", finalBlock.getBlockHeader().getNumber());
-      blockTracer.traceEndBlock(finalBlock.getBlockHeader(), finalBlock.getBlockBody());
-    }
 
     return finalBlock;
   }
@@ -536,6 +536,7 @@ public class BlockSimulator {
       final ProtocolSpec protocolSpec,
       final MutableWorldState ws,
       final Optional<List<Request>> maybeRequests,
+      final Optional<BlockAwareOperationTracer> maybeBlockAwareOperationTracer,
       final boolean returnTrieLog) {
 
     List<Transaction> transactions = simResult.getTransactions();
@@ -576,6 +577,12 @@ public class BlockSimulator {
         isShanghaiPlus ? Optional.of(List.of()) : Optional.empty();
 
     Block block = new Block(finalBlockHeader, new BlockBody(transactions, List.of(), withdrawals));
+
+    // if we have a block-aware operation tracer, trace end block here
+    maybeBlockAwareOperationTracer.ifPresent(tracer -> {
+      LOG.trace("traceEndBlock sim for {}", blockHeader.toLogString());
+      tracer.traceEndBlock(blockHeader, block.getBody());
+    });
 
     if (returnTrieLog && ws instanceof PathBasedWorldState) {
       // if requested and path-based worldstate, return result with trielog and serializer:
@@ -678,7 +685,7 @@ public class BlockSimulator {
     // Cancun+: excessBlobGas
     if (newProtocolSpec.getFeeMarket().implementsBlobFee()) {
       builder.excessBlobGas(
-          ExcessBlobGasCalculator.calculateExcessBlobGasForParent(newProtocolSpec, header));
+          calculateExcessBlobGasForParent(newProtocolSpec, header));
     } else {
       builder.excessBlobGas(null);
       builder.blobGasUsed(null);
