@@ -636,17 +636,17 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    * @return the result
    */
   public UInt256 sar(final UInt256 shift) {
-    int bytesToShift;
+    int bitShift;
     if (shift.u3() != 0
         || shift.u2() != 0
         || shift.u1() != 0
         || Long.compareUnsigned(shift.u0(), 256) >= 0) {
-      bytesToShift = 256;
+      bitShift = 256;
     } else {
-      bytesToShift = (int) shift.u0();
+      bitShift = (int) shift.u0();
     }
     long fill = (u3 < 0 ? -1L : 0);
-    return sar0(bytesToShift, fill);
+    return sar0(bitShift, fill);
   }
 
   /**
@@ -660,16 +660,16 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    * @return the result
    */
   public UInt256 shr(final UInt256 shift) {
-    int bytesToShift;
+    int bitShift;
     if (shift.u3() != 0
         || shift.u2() != 0
         || shift.u1() != 0
         || Long.compareUnsigned(shift.u0(), 256) >= 0) {
-      bytesToShift = 256;
+      bitShift = 256;
     } else {
-      bytesToShift = (int) shift.u0();
+      bitShift = (int) shift.u0();
     }
-    return sar0(bytesToShift, 0);
+    return sar0(bitShift, 0);
   }
 
   /**
@@ -734,16 +734,16 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    * @return the result
    */
   public UInt256 shl(final UInt256 shift) {
-    int bytesToShift;
+    int bitShift;
     if (shift.u3() != 0
         || shift.u2() != 0
         || shift.u1() != 0
         || Long.compareUnsigned(shift.u0(), 256) >= 0) {
-      bytesToShift = 256;
+      bitShift = 256;
     } else {
-      bytesToShift = (int) shift.u0();
+      bitShift = (int) shift.u0();
     }
-    return shl0(bytesToShift);
+    return shl0(bitShift);
   }
 
   /**

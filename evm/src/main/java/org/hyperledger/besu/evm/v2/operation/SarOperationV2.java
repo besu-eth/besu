@@ -49,28 +49,28 @@ public class SarOperationV2 extends AbstractFixedCostOperationV2 {
    */
   public static OperationResult staticOperation(final MessageFrame frame) {
     if (!frame.stackHasItems(2)) return UNDERFLOW_RESPONSE;
-    long[] _stack = frame.stackDataV2();
+    long[] stack = frame.stackDataV2();
     int top = frame.stackTopV2();
     final int shiftOffset = (--top) << 2;
     final UInt256 shift =
         new UInt256(
-            _stack[shiftOffset],
-            _stack[shiftOffset + 1],
-            _stack[shiftOffset + 2],
-            _stack[shiftOffset + 3]);
+            stack[shiftOffset],
+            stack[shiftOffset + 1],
+            stack[shiftOffset + 2],
+            stack[shiftOffset + 3]);
     final int valueOffset = (--top) << 2;
     final UInt256 value =
         new UInt256(
-            _stack[valueOffset],
-            _stack[valueOffset + 1],
-            _stack[valueOffset + 2],
-            _stack[valueOffset + 3]);
+            stack[valueOffset],
+            stack[valueOffset + 1],
+            stack[valueOffset + 2],
+            stack[valueOffset + 3]);
     final UInt256 result = value.sar(shift);
     int resultOffset = top << 2;
-    _stack[resultOffset] = result.u3();
-    _stack[resultOffset + 1] = result.u2();
-    _stack[resultOffset + 2] = result.u1();
-    _stack[resultOffset + 3] = result.u0();
+    stack[resultOffset] = result.u3();
+    stack[resultOffset + 1] = result.u2();
+    stack[resultOffset + 2] = result.u1();
+    stack[resultOffset + 3] = result.u0();
     frame.setTopV2(++top);
     return sarSuccess;
   }
