@@ -119,9 +119,7 @@ public final class GetTrieNodesMessage extends AbstractSnapMessageData {
         totalPaths++;
       }
     }
-    if (totalPaths >= MAX_TOTAL_PATHS) {
-      LOG.info("STEFAN: stopped after reaching MAX_TOTAL_PATHS");
-    }
+
     // skip any remaining groups
     while (!input.isEndOfCurrentList()) {
       input.skipNext();

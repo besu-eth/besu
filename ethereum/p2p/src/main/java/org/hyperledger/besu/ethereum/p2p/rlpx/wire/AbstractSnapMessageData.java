@@ -52,7 +52,6 @@ public abstract class AbstractSnapMessageData extends AbstractMessageData {
 
   @Override
   public MessageData wrapMessageData(final BigInteger requestId) {
-    LOG.info("STEFAN: Wrapping message with requestId {}", requestId);
     return new RawMessage(getCode(), wrap(requestId));
   }
 

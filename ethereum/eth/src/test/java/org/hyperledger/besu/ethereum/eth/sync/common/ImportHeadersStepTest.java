@@ -94,6 +94,22 @@ public class ImportHeadersStepTest {
   }
 
   @Test
+  public void shouldTrackLowestImportedBlockNumber() {
+    final ImportHeadersStep step = new ImportHeadersStep(blockchain, anchorHeader, pivotHeader);
+
+    // Initially the lowest imported block is the pivot
+    assertThat(step.getLowestImportedBlockNumber()).isEqualTo(pivotHeader.getNumber());
+
+    // After importing a batch, lowest should be the last header in the batch
+    step.accept(getHeaders(99, 98, 97, 96));
+    assertThat(step.getLowestImportedBlockNumber()).isEqualTo(96);
+
+    // After another batch, lowest should update again
+    step.accept(getHeaders(95, 94, 93, 92));
+    assertThat(step.getLowestImportedBlockNumber()).isEqualTo(92);
+  }
+
+  @Test
   public void shouldCompleteSuccessfullyWhenImportingToLowestHeader() {
     final ImportHeadersStep step = new ImportHeadersStep(blockchain, anchorHeader, pivotHeader);
 
