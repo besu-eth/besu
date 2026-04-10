@@ -39,13 +39,13 @@ import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -145,7 +145,8 @@ public class EthSimulateV1Test {
   public void shouldNotReturnInvalidParamsWhenInputAndDataHaveDifferentValues() {
     setupMethodWithMockSimulator();
     setupBlockchainForLatest();
-    when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class))).thenReturn(List.of());
+    when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class)))
+        .thenReturn(List.of());
 
     // Reproduces issue #9960: both input and data provided with different values.
     // Other EL clients (Geth, Nethermind, Reth, Erigon) accept this and use input.
@@ -168,7 +169,8 @@ public class EthSimulateV1Test {
 
     final ArgumentCaptor<BlockSimulationParameter> captor =
         ArgumentCaptor.forClass(BlockSimulationParameter.class);
-    verify(blockSimulator).process(any(BlockHeader.class), captor.capture(), any(OperationTracer.class));
+    verify(blockSimulator)
+        .process(any(BlockHeader.class), captor.capture(), any(OperationTracer.class));
     final Bytes payload =
         captor.getValue().getBlockStateCalls().get(0).getCalls().get(0).getPayload().orElseThrow();
     assertThat(payload).isEqualTo(Bytes.fromHexString("0xDEADBEEF"));
