@@ -55,29 +55,18 @@ import org.junit.jupiter.api.Test;
 /**
  * Integration test for the engine_forkchoiceUpdated "invalid block as ancestor" flow.
  *
- * <p>Stages exercised, using REAL objects (not mocks) for {@link BadBlockManager}, {@link
- * MergeCoordinator}, and {@link EngineForkchoiceUpdatedV3}:
- *
  * <ol>
  *   <li>A bad block B is registered in {@link BadBlockManager} (simulating what {@link
  *       org.hyperledger.besu.ethereum.MainnetBlockValidator} does on a failed import).
  *   <li>{@link MergeCoordinator#onBadChain(Block, List, List)} is called with B and a descendant D
- *       — simulating the backward-sync code path that fires on {@code
+ *       simulating the backward-sync code path that fires on {@code
  *       BackwardSyncContext.emitBadChainEvent}. This should propagate B's "bad" marking to every
  *       descendant, and record each descendant's {@code latestValidHash} as B's (valid) parent
  *       hash.
  *   <li>A JSON-RPC {@code engine_forkchoiceUpdated} call is invoked with {@code headBlockHash = D}.
- *       The {@link
- *       org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.AbstractEngineForkchoiceUpdated}
- *       short-circuit at line 115 should fire, returning {@code INVALID} with {@code
- *       latestValidHash} equal to B's valid parent hash.
+ *       The that should return {@code INVALID} with {@code latestValidHash} equal to B's valid
+ *       parent hash.
  * </ol>
- *
- * <p>The existing unit test {@link
- * AbstractEngineForkchoiceUpdatedTest#shouldReturnInvalidWithLatestValidHashOnBadBlock} mocks both
- * {@code isBadBlock} and {@code getLatestValidHashOfBadBlock}, so it does not verify that {@code
- * MergeCoordinator.onBadChain} actually wires descendants up correctly. This test closes that gap
- * end-to-end across the {@code onBadChain → BadBlockManager → fcU response} boundary.
  */
 public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
 
@@ -112,10 +101,8 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
             .build();
 
     final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
-    // Avoid NPE inside MergeCoordinator's getDefaultGasLimit fallback during construction.
+
     when(protocolSchedule.getChainId()).thenReturn(Optional.empty());
-    // AbstractEngineForkchoiceUpdated reads these in its constructor; returning empty means the
-    // fork-supported check is skipped, which matches a non-Cancun/non-Amsterdam test setup.
     when(protocolSchedule.milestoneFor(CANCUN)).thenReturn(Optional.empty());
     when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.empty());
 
@@ -158,28 +145,28 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
     // onBadChain looks up the bad block's parent in the blockchain to compute latestValidHash.
     when(blockchain.getBlockHeader(validParent.getHash())).thenReturn(Optional.of(validParent));
 
-    // Stage 1: Simulate MainnetBlockValidator.handleFailedBlockProcessing — add the bad block
+    // Simulate MainnetBlockValidator.handleFailedBlockProcessing — add the bad block
     // to the manager directly. (The direct add path intentionally does NOT record a
     // latestValidHash for B itself; only the descendants in stage 2 get one.)
     badBlockManager.addBadBlock(badBlock, BadBlockCause.fromValidationFailure("BAL mismatch"));
 
-    // Stage 2: Simulate BackwardSyncContext.emitBadChainEvent firing — MergeCoordinator is
+    // Simulate BackwardSyncContext.emitBadChainEvent firing — MergeCoordinator is
     // registered as a BadChainListener in its constructor and receives the descendant list.
     mergeCoordinator.onBadChain(badBlock, emptyList(), List.of(descendantHeader));
 
-    // Sanity check: onBadChain propagated "bad" status and latestValidHash to the descendant.
+    // onBadChain propagated "bad" status and latestValidHash to the descendant.
     assertThat(mergeCoordinator.isBadBlock(descendantHeader.getHash())).isTrue();
     assertThat(mergeCoordinator.getLatestValidHashOfBadBlock(descendantHeader.getHash()))
         .contains(validParent.getHash());
 
-    // Stage 3: CL sends engine_forkchoiceUpdated with the descendant as the head — simulating the
+    // CL sends engine_forkchoiceUpdated with the descendant as the head, simulating the
     // case where the CL reuses a head whose ancestry was poisoned while we were backward-syncing.
     final JsonRpcResponse response =
         invokeForkchoiceUpdated(
             new EngineForkchoiceUpdatedParameter(
                 descendantHeader.getHash(), validParent.getHash(), validParent.getHash()));
 
-    // The short-circuit at AbstractEngineForkchoiceUpdated.java:115 must return INVALID with
+    // Must return INVALID with
     // latestValidHash pointing at the last valid ancestor (B's parent), not SYNCING and not
     // VALID, without ever touching the blockchain state.
     final EngineUpdateForkchoiceResult forkchoiceResult =
