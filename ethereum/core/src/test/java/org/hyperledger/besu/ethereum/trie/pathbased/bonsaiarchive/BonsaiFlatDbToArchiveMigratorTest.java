@@ -50,6 +50,7 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -59,6 +60,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.tuweni.units.bigints.UInt256;
 import org.awaitility.Awaitility;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -79,6 +81,7 @@ public class BonsaiFlatDbToArchiveMigratorTest {
   private MutableBlockchain blockchain;
   private SegmentedKeyValueStorage storage;
   private BlockDataGenerator blockDataGenerator;
+  private final List<BonsaiFlatDbToArchiveMigrator> migrators = new ArrayList<>();
 
   @BeforeEach
   public void setup() {
@@ -88,6 +91,17 @@ public class BonsaiFlatDbToArchiveMigratorTest {
     when(worldStateStorage.getComposedWorldStateStorage()).thenReturn(storage);
     when(trieLogManager.getTrieLogLayer(any()))
         .thenReturn(Optional.of(createAccountTrieLog(Wei.ONE)));
+  }
+
+  @AfterEach
+  public void tearDown() {
+    migrators.forEach(
+        m -> {
+          try {
+            m.close();
+          } catch (final Exception ignored) {
+          }
+        });
   }
 
   @Test
@@ -439,14 +453,17 @@ public class BonsaiFlatDbToArchiveMigratorTest {
     final NoOpMetricsSystem metricsSystem = new NoOpMetricsSystem();
     final BonsaiArchiveFlatDbStrategy archiveStrategy =
         new BonsaiArchiveFlatDbStrategy(metricsSystem, new CodeHashCodeStorageStrategy());
-    return new BonsaiFlatDbToArchiveMigrator(
-        worldStateStorage,
-        trieLogManager,
-        blockchain,
-        Executors.newScheduledThreadPool(1),
-        metricsSystem,
-        archiveStrategy,
-        boundaryDistance);
+    final BonsaiFlatDbToArchiveMigrator migrator =
+        new BonsaiFlatDbToArchiveMigrator(
+            worldStateStorage,
+            trieLogManager,
+            blockchain,
+            Executors.newScheduledThreadPool(1),
+            metricsSystem,
+            archiveStrategy,
+            boundaryDistance);
+    migrators.add(migrator);
+    return migrator;
   }
 
   private TrieLogLayer createAccountTrieLog(final Wei balance) {
