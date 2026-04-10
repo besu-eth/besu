@@ -248,6 +248,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     } else if (frame.getMaybeUpdatedMemory().isEmpty()
         && lastFrame != null
         && lastFrame.getDepth() == frame.getDepth()
+        && lastFrame.getMemory().isPresent()
         && lastFrame.getMemory().get().length == frame.memoryWordSize()) {
       return lastFrame.getMemory();
     }
