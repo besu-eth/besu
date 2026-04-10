@@ -21,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.LogTopic;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -359,6 +360,72 @@ public class SubscriptionRequestMapperTest {
         mapper.mapSubscribeRequest(new JsonRpcRequestContext(jsonRpcRequest));
 
     assertThat(subscribeRequest).isEqualTo(expectedSubscribeRequest);
+  }
+
+  @Test
+  public void mapRequestToTransactionReceiptsSubscribe() {
+    final JsonRpcRequest jsonRpcRequest =
+        parseWebSocketRpcRequest(
+            "{\"id\": 1, \"method\": \"eth_subscribe\", \"params\": [\"transactionReceipts\"]}");
+    final SubscribeRequest expectedSubscribeRequest =
+        new SubscribeRequest(
+            SubscriptionType.TRANSACTION_RECEIPTS, null, null, null, CONNECTION_ID);
+
+    final SubscribeRequest subscribeRequest =
+        mapper.mapSubscribeRequest(new JsonRpcRequestContext(jsonRpcRequest));
+
+    assertThat(subscribeRequest).usingRecursiveComparison().isEqualTo(expectedSubscribeRequest);
+  }
+
+  @Test
+  public void mapRequestToTransactionReceiptsSubscribeWithFilter() {
+    final JsonRpcRequest jsonRpcRequest =
+        parseWebSocketRpcRequest(
+            "{\"id\": 1, \"method\": \"eth_subscribe\", \"params\": [\"transactionReceipts\", {\"transactionHashes\": [\"0x0000000000000000000000000000000000000000000000000000000000000001\", \"0x0000000000000000000000000000000000000000000000000000000000000002\"]}]}");
+    final List<Hash> expectedHashes =
+        List.of(
+            Hash.fromHexString(
+                "0x0000000000000000000000000000000000000000000000000000000000000001"),
+            Hash.fromHexString(
+                "0x0000000000000000000000000000000000000000000000000000000000000002"));
+    final SubscribeRequest expectedSubscribeRequest =
+        new SubscribeRequest(
+            SubscriptionType.TRANSACTION_RECEIPTS, null, null, expectedHashes, CONNECTION_ID);
+
+    final SubscribeRequest subscribeRequest =
+        mapper.mapSubscribeRequest(new JsonRpcRequestContext(jsonRpcRequest));
+
+    assertThat(subscribeRequest).usingRecursiveComparison().isEqualTo(expectedSubscribeRequest);
+  }
+
+  @Test
+  public void mapRequestToTransactionReceiptsSubscribeWithEmptyFilter() {
+    final JsonRpcRequest jsonRpcRequest =
+        parseWebSocketRpcRequest(
+            "{\"id\": 1, \"method\": \"eth_subscribe\", \"params\": [\"transactionReceipts\", {\"transactionHashes\": []}]}");
+    final SubscribeRequest expectedSubscribeRequest =
+        new SubscribeRequest(
+            SubscriptionType.TRANSACTION_RECEIPTS, null, null, List.of(), CONNECTION_ID);
+
+    final SubscribeRequest subscribeRequest =
+        mapper.mapSubscribeRequest(new JsonRpcRequestContext(jsonRpcRequest));
+
+    assertThat(subscribeRequest).usingRecursiveComparison().isEqualTo(expectedSubscribeRequest);
+  }
+
+  @Test
+  public void mapRequestToTransactionReceiptsSubscribeWithEmptyObject() {
+    final JsonRpcRequest jsonRpcRequest =
+        parseWebSocketRpcRequest(
+            "{\"id\": 1, \"method\": \"eth_subscribe\", \"params\": [\"transactionReceipts\", {}]}");
+    final SubscribeRequest expectedSubscribeRequest =
+        new SubscribeRequest(
+            SubscriptionType.TRANSACTION_RECEIPTS, null, null, List.of(), CONNECTION_ID);
+
+    final SubscribeRequest subscribeRequest =
+        mapper.mapSubscribeRequest(new JsonRpcRequestContext(jsonRpcRequest));
+
+    assertThat(subscribeRequest).usingRecursiveComparison().isEqualTo(expectedSubscribeRequest);
   }
 
   @Test
