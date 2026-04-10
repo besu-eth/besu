@@ -24,6 +24,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeCoordinator;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -182,6 +183,44 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
     assertThat(forkchoiceResult.getPayloadStatus().getStatus()).isEqualTo(INVALID);
     assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHashAsString())
         .isEqualTo(validParent.getHash().toHexString());
+    final String error = forkchoiceResult.getPayloadStatus().getError();
+    assertThat(error).contains(descendantHeader.getHash().toString());
+    assertThat(error).containsIgnoringCase("invalid");
+    assertThat(forkchoiceResult.getPayloadId()).isNull();
+  }
+
+  @Test
+  public void shouldReturnInvalidWithZeroHashWhenBadBlockParentIsUnknown() {
+    // Same shape as the previous test, except the bad block's parent is NOT in the blockchain.
+    // This models a deep backward-sync failure where we never resolved the ancestor — onBadChain
+    // cannot compute a latestValidHash, so the fcU short-circuit must fall back to Hash.ZERO.
+    final BlockHeader unknownParent = headerBuilder.number(100L).buildHeader();
+    final BlockHeader badHeader =
+        headerBuilder.number(101L).parentHash(unknownParent.getHash()).buildHeader();
+    final Block badBlock = new Block(badHeader, BlockBody.empty());
+    final BlockHeader descendantHeader =
+        headerBuilder.number(102L).parentHash(badHeader.getHash()).buildHeader();
+
+    // Deliberately leave blockchain.getBlockHeader(unknownParent.getHash()) unstubbed so the
+    // mock returns Optional.empty() — that's the path that drives maybeLatestValidHash empty.
+
+    badBlockManager.addBadBlock(badBlock, BadBlockCause.fromValidationFailure("BAL mismatch"));
+    mergeCoordinator.onBadChain(badBlock, emptyList(), List.of(descendantHeader));
+
+    // Descendant is still marked bad, but no latestValidHash was recorded for it.
+    assertThat(mergeCoordinator.isBadBlock(descendantHeader.getHash())).isTrue();
+    assertThat(mergeCoordinator.getLatestValidHashOfBadBlock(descendantHeader.getHash())).isEmpty();
+
+    final JsonRpcResponse response =
+        invokeForkchoiceUpdated(
+            new EngineForkchoiceUpdatedParameter(
+                descendantHeader.getHash(), unknownParent.getHash(), unknownParent.getHash()));
+
+    final EngineUpdateForkchoiceResult forkchoiceResult =
+        (EngineUpdateForkchoiceResult) ((JsonRpcSuccessResponse) response).getResult();
+    assertThat(forkchoiceResult.getPayloadStatus().getStatus()).isEqualTo(INVALID);
+    assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHashAsString())
+        .isEqualTo(Hash.ZERO.toHexString());
     final String error = forkchoiceResult.getPayloadStatus().getError();
     assertThat(error).contains(descendantHeader.getHash().toString());
     assertThat(error).containsIgnoringCase("invalid");

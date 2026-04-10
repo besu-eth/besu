@@ -880,7 +880,8 @@ public abstract class AbstractBlockPropagationManagerTest {
     badBlocksManager.addBadBlock(badBlock, BadBlockCause.fromValidationFailure("test"));
     assertThat(badBlocksManager.getBadBlocks().size()).isEqualTo(1);
 
-    blockPropagationManager.start();
+    final BlockPropagationManager propManager = spy(blockPropagationManager);
+    propManager.start();
 
     final RespondingEthPeer peer = EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 0);
     final NewBlockMessage newBlockMessage =
@@ -888,8 +889,10 @@ public abstract class AbstractBlockPropagationManagerTest {
 
     EthProtocolManagerTestUtil.broadcastMessage(ethProtocolManager, peer, newBlockMessage);
 
-    // The handler should have short-circuited before entering the import pipeline.
-    verify(processingBlocksManager, never()).addImportingBlock(badBlock.getHash());
+    // handleNewBlockFromNetwork must short-circuit before dispatching to importOrSavePendingBlock.
+    // Checking addImportingBlock alone would also pass via the defensive second check inside
+    // importOrSavePendingBlock, so verify the dispatch itself never happened.
+    verify(propManager, never()).importOrSavePendingBlock(any(), any(Bytes.class));
     // BadBlockManager should still contain exactly one entry — we didn't re-add it.
     assertThat(badBlocksManager.getBadBlocks().size()).isEqualTo(1);
   }
