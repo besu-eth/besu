@@ -156,9 +156,10 @@ public class EthSimulateV1 extends AbstractBlockParameterOrBlockHashMethod {
   }
 
   private Object process(final BlockHeader header, final SimulateV1Parameter simulateV1Parameter) {
-    var blockImportTracer = simulateV1Parameter.isTraceBlockImport()
-        ? blockImportTracerProvider.getBlockImportTracer(header)
-        : OperationTracer.NO_TRACING;
+    var blockImportTracer =
+        simulateV1Parameter.isTraceBlockImport()
+            ? blockImportTracerProvider.getBlockImportTracer(header)
+            : OperationTracer.NO_TRACING;
 
     final List<BlockSimulationResult> simulationResults =
         blockSimulator.process(header, simulateV1Parameter, blockImportTracer);

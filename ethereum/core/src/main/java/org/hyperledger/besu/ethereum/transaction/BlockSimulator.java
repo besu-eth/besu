@@ -51,7 +51,6 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTra
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
-import org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
@@ -289,15 +288,17 @@ public class BlockSimulator {
             Optional.empty());
 
     // if operationTracer is block-aware, traceStart and hold onto the option ref for traceEnd
-    var maybeBlockAwareOperationTracer = Optional.of(operationTracer)
-        .filter(z -> z instanceof BlockAwareOperationTracer)
-        .map(BlockAwareOperationTracer.class::cast);
+    var maybeBlockAwareOperationTracer =
+        Optional.of(operationTracer)
+            .filter(z -> z instanceof BlockAwareOperationTracer)
+            .map(BlockAwareOperationTracer.class::cast);
 
-    maybeBlockAwareOperationTracer.ifPresent(tracer -> {
-      LOG.trace("traceStartBlock sim for {}", overridenBaseBlockHeader.toLogString());
-      tracer.traceStartBlock(
-          ws, overridenBaseBlockHeader, overridenBaseBlockHeader.getCoinbase());
-    });
+    maybeBlockAwareOperationTracer.ifPresent(
+        tracer -> {
+          LOG.trace("traceStartBlock sim for {}", overridenBaseBlockHeader.toLogString());
+          tracer.traceStartBlock(
+              ws, overridenBaseBlockHeader, overridenBaseBlockHeader.getCoinbase());
+        });
 
     protocolSpec
         .getPreExecutionProcessor()
@@ -579,10 +580,11 @@ public class BlockSimulator {
     Block block = new Block(finalBlockHeader, new BlockBody(transactions, List.of(), withdrawals));
 
     // if we have a block-aware operation tracer, trace end block here
-    maybeBlockAwareOperationTracer.ifPresent(tracer -> {
-      LOG.trace("traceEndBlock sim for {}", blockHeader.toLogString());
-      tracer.traceEndBlock(blockHeader, block.getBody());
-    });
+    maybeBlockAwareOperationTracer.ifPresent(
+        tracer -> {
+          LOG.trace("traceEndBlock sim for {}", blockHeader.toLogString());
+          tracer.traceEndBlock(blockHeader, block.getBody());
+        });
 
     if (returnTrieLog && ws instanceof PathBasedWorldState) {
       // if requested and path-based worldstate, return result with trielog and serializer:
@@ -684,8 +686,7 @@ public class BlockSimulator {
 
     // Cancun+: excessBlobGas
     if (newProtocolSpec.getFeeMarket().implementsBlobFee()) {
-      builder.excessBlobGas(
-          calculateExcessBlobGasForParent(newProtocolSpec, header));
+      builder.excessBlobGas(calculateExcessBlobGasForParent(newProtocolSpec, header));
     } else {
       builder.excessBlobGas(null);
       builder.blobGasUsed(null);
