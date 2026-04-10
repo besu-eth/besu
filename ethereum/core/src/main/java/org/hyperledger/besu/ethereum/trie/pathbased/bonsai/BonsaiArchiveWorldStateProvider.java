@@ -94,6 +94,16 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
     return super.getWorldState(queryParams);
   }
 
+  @Override
+  public void close() {
+    super.close();
+    try {
+      archiveReadStorage.close();
+    } catch (Exception e) {
+      // no-op, consistent with parent
+    }
+  }
+
   private boolean isHistoricalQuery(final WorldStateQueryParams queryParams) {
     return worldStateKeyValueStorage.getFlatDbMode().equals(FlatDbMode.ARCHIVE)
         && !queryParams.shouldWorldStateUpdateHead()
