@@ -75,7 +75,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   private final AtomicBoolean shouldLogProgress = new AtomicBoolean(true);
   protected final AtomicLong migratedBlockNumber = new AtomicLong(0);
   protected final AtomicBoolean migrationRunning = new AtomicBoolean(false);
-  protected OptionalLong blockObserverId = OptionalLong.empty();
+  protected volatile OptionalLong blockObserverId = OptionalLong.empty();
 
   /**
    * Creates a new BonsaiFlatDbToArchiveMigrator.
@@ -125,15 +125,17 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
     migratedBlockNumber.set(Math.max(0, lastProcessedBlock));
 
     final AtomicLong target = new AtomicLong(archiveTarget(blockchain.getChainHeadBlockNumber()));
-    final long blockObserverId =
-        blockchain.observeBlockAdded(
-            event -> target.set(archiveTarget(event.getHeader().getNumber())));
+    blockObserverId =
+        OptionalLong.of(
+            blockchain.observeBlockAdded(
+                event -> target.set(archiveTarget(event.getHeader().getNumber()))));
 
     LOG.info("Starting Bonsai Archive migration from block {}", startBlock);
     return CompletableFuture.runAsync(() -> migrateBlocks(startBlock, target), executorService)
         .whenComplete(
             (result, ex) -> {
-              blockchain.removeObserver(blockObserverId);
+              blockObserverId.ifPresent(blockchain::removeObserver);
+              blockObserverId = OptionalLong.empty();
               if (ex != null) {
                 migrationRunning.set(false);
                 LOG.error("Bonsai to Bonsai archive migration failed", ex);
