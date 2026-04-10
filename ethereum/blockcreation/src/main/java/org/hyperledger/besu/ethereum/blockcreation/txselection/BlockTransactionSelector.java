@@ -238,10 +238,6 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
         .addArgument(() -> nanosToMillis(blockTxsSelectionMaxTimeNanos))
         .log();
 
-    if (isCancelled.get()) {
-      return Map.of();
-    }
-
     // reset timeout status for next selection run
     isTimeout.set(false);
 
