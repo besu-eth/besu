@@ -100,6 +100,7 @@ public class BonsaiFlatDbToArchiveMigratorTest {
           try {
             m.close();
           } catch (final Exception ignored) {
+            // Ignore exceptions during close
           }
         });
   }
