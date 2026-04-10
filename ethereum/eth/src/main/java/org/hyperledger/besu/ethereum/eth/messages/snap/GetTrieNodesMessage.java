@@ -33,8 +33,6 @@ import org.slf4j.LoggerFactory;
 
 public final class GetTrieNodesMessage extends AbstractSnapMessageData {
 
-  private static final Logger LOG = LoggerFactory.getLogger(GetTrieNodesMessage.class);
-
   // Compact-encoded Keccak256 hash is at most 33 bytes (1 metadata + 32 data)
   static final int MAX_PATH_SIZE = 33;
   // Maximum total paths decoded across all groups, matches geth's maxTrieNodeLookups

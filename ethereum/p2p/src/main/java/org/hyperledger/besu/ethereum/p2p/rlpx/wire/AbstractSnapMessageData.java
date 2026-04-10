@@ -30,9 +30,7 @@ import org.slf4j.LoggerFactory;
 
 public abstract class AbstractSnapMessageData extends AbstractMessageData {
 
-  private static final Logger LOG = LoggerFactory.getLogger(AbstractSnapMessageData.class);
-
-  @VisibleForTesting
+    @VisibleForTesting
   public static final BigInteger SIZE_REQUEST = BigInteger.valueOf(524288); // 512 * 1024
 
   private Optional<Hash> rootHash;
