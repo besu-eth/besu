@@ -25,7 +25,6 @@ import org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2;
 import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes32;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -179,13 +178,6 @@ class SarOperationV2Test {
       expected = UInt256.fromBytesBE(Bytes32.fromHexStringLenient(expectedResult).toArrayUnsafe());
     }
     assertThat(getV2StackItem(frame, 0)).isEqualTo(expected);
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 
   private static UInt256 getV2StackItem(final MessageFrame frame, final int offset) {
