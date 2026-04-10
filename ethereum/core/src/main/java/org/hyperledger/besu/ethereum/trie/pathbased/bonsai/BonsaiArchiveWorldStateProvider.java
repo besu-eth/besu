@@ -87,6 +87,8 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final BonsaiWorldState archiveWorldState =
           new BonsaiWorldState(
               this, archiveReadStorage, evmConfiguration, archiveWorldStateConfig, codeCache);
+      // Freeze before the persisting to ensure that the historical block number which is needed for
+      // Bonsai archive does not affect the database
       archiveWorldState.freezeStorage();
       return rollMutableArchiveStateToBlockHash(
           archiveWorldState, queryParams.getBlockHeader().getBlockHash());
