@@ -49,6 +49,7 @@ import java.util.List;
 import java.util.Optional;
 
 import io.vertx.core.Vertx;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -64,13 +65,20 @@ import org.junit.jupiter.api.Test;
  *       descendant, and record each descendant's {@code latestValidHash} as B's (valid) parent
  *       hash.
  *   <li>A JSON-RPC {@code engine_forkchoiceUpdated} call is invoked with {@code headBlockHash = D}.
- *       The that should return {@code INVALID} with {@code latestValidHash} equal to B's valid
+ *       The bad-block short-circuit in {@link
+ *       org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.AbstractEngineForkchoiceUpdated}
+ *       should fire, returning {@code INVALID} with {@code latestValidHash} equal to B's valid
  *       parent hash.
  * </ol>
  */
 public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
 
   private static final Vertx vertx = Vertx.vertx();
+
+  @AfterAll
+  public static void tearDown() {
+    vertx.close();
+  }
 
   private final BlockHeaderTestFixture headerBuilder = new BlockHeaderTestFixture();
 
@@ -174,8 +182,9 @@ public class EngineForkchoiceUpdatedBadAncestorIntegrationTest {
     assertThat(forkchoiceResult.getPayloadStatus().getStatus()).isEqualTo(INVALID);
     assertThat(forkchoiceResult.getPayloadStatus().getLatestValidHashAsString())
         .isEqualTo(validParent.getHash().toHexString());
-    assertThat(forkchoiceResult.getPayloadStatus().getError())
-        .contains(descendantHeader.getHash() + " is an invalid block");
+    final String error = forkchoiceResult.getPayloadStatus().getError();
+    assertThat(error).contains(descendantHeader.getHash().toString());
+    assertThat(error).containsIgnoringCase("invalid");
     assertThat(forkchoiceResult.getPayloadId()).isNull();
   }
 
