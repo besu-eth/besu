@@ -260,13 +260,6 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     if (frame.memoryWordSize() == 0) {
       return Optional.empty();
     }
-    return forceCaptureMem(frame);
-  }
-
-  private Optional<Bytes[]> forceCaptureMem(final MessageFrame frame) {
-    if (frame.memoryWordSize() == 0) {
-      return Optional.empty();
-    }
     final Bytes[] memoryContents = new Bytes[frame.memoryWordSize()];
     for (int i = 0; i < memoryContents.length; i++) {
       memoryContents[i] = frame.readMemory(i * 32L, 32);
