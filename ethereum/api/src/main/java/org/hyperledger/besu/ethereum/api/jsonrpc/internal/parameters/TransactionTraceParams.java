@@ -71,7 +71,7 @@ public interface TransactionTraceParams {
 
   @JsonProperty(value = "limit")
   @Nullable Integer limit();
-  
+
   @JsonProperty(value = "enableReturnData")
   @Nullable Boolean enableReturnDataNullable();
 
@@ -141,6 +141,7 @@ public interface TransactionTraceParams {
     }
     if (limit() != null) {
       builder.limit(limit());
+    }
     if (enableReturnDataNullable() != null) {
       builder.traceReturnData(enableReturnData());
     }
