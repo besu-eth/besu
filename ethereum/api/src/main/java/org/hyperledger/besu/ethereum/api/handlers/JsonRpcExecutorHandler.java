@@ -26,6 +26,7 @@ import java.util.Optional;
 
 import io.opentelemetry.api.trace.Tracer;
 import io.vertx.core.Handler;
+import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,7 +41,7 @@ public class JsonRpcExecutorHandler {
       final Tracer tracer,
       final JsonRpcConfiguration jsonRpcConfiguration) {
     return ctx -> {
-      long timeoutMillis = jsonRpcConfiguration.getHttpTimeoutSec() * 1000;
+      final long timeoutMillis = resolveTimeoutMillis(ctx, jsonRpcExecutor, jsonRpcConfiguration);
       final long timerId =
           ctx.vertx()
               .setTimer(
@@ -146,5 +147,18 @@ public class JsonRpcExecutorHandler {
 
   private static boolean isJsonArrayRequest(final RoutingContext ctx) {
     return ctx.data().containsKey(ContextKey.REQUEST_BODY_AS_JSON_ARRAY.name());
+  }
+
+  private static long resolveTimeoutMillis(
+      final RoutingContext ctx,
+      final JsonRpcExecutor jsonRpcExecutor,
+      final JsonRpcConfiguration config) {
+    if (isJsonObjectRequest(ctx)) {
+      final JsonObject req = ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name());
+      if (req != null && jsonRpcExecutor.isStreamingMethod(req.getString("method"))) {
+        return config.getHttpStreamingTimeoutSec() * 1000;
+      }
+    }
+    return config.getHttpTimeoutSec() * 1000;
   }
 }

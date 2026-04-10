@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PARIS;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
 
 import org.hyperledger.besu.config.GenesisConfig;
@@ -31,6 +32,7 @@ import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.PraguePreExecutionProcessor;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.operation.InvalidOperation;
 import org.hyperledger.besu.evm.operation.PrevRanDaoOperation;
@@ -268,5 +270,77 @@ public class MergeProtocolScheduleTest {
     assertThat(amsterdamSpec.getBlockAccessListFactory())
         .withFailMessage("BlockAccessListFactory should be present for Amsterdam, but it was empty")
         .isPresent();
+  }
+
+  /**
+   * Verifies that a Clique-to-PoS network (with TTD set) uses PraguePreExecutionProcessor for
+   * post-merge Prague blocks, not FrontierPreExecutionProcessor. This is a regression test for a
+   * bug where isPoAConsensus() returned true for Clique genesis configs even when TTD was set,
+   * causing EIP-2935 and EIP-4788 system calls to be skipped for post-merge blocks.
+   */
+  @Test
+  public void cliqueToPoSNetworkUsesPraguePreExecutionProcessorAfterMerge() {
+    final String jsonInput =
+        "{\"config\": "
+            + "{\"chainId\": 59139,\n"
+            + "\"homesteadBlock\": 0,\n"
+            + "\"eip150Block\": 0,\n"
+            + "\"eip155Block\": 0,\n"
+            + "\"eip158Block\": 0,\n"
+            + "\"byzantiumBlock\": 0,\n"
+            + "\"constantinopleBlock\": 0,\n"
+            + "\"petersburgBlock\": 0,\n"
+            + "\"istanbulBlock\": 0,\n"
+            + "\"berlinBlock\": 0,\n"
+            + "\"londonBlock\": 0,\n"
+            + "\"terminalTotalDifficulty\": 17628883,\n"
+            + "\"shanghaiTime\": 1755165600,\n"
+            + "\"pragueTime\": 1755770400,\n"
+            + "\"clique\": {\n"
+            + "  \"blockperiodseconds\": 1,\n"
+            + "  \"epochlength\": 30000,\n"
+            + "  \"createemptyblocks\": true\n"
+            + "},\n"
+            + "\"depositContractAddress\": \"0x45152B0bD93Dc1e4c84d70e24edA3CEb12b1a1D3\",\n"
+            + "\"withdrawalRequestContractAddress\": \"0xF7B4391C85B1ad1eAF38cb4B45a235cDF9295a7D\",\n"
+            + "\"consolidationRequestContractAddress\": \"0x0bbfd3E844Cc1D63D4D86498Ca91FF6de417Ed73\"\n"
+            + "}}";
+
+    final GenesisConfigOptions config = GenesisConfig.fromConfig(jsonInput).getConfigOptions();
+
+    // Verify that the genesis is detected as Clique (this is expected)
+    assertThat(config.isClique()).isTrue();
+    // Verify TTD is set (this is a Clique-to-PoS network)
+    assertThat(config.getTerminalTotalDifficulty()).isPresent();
+
+    final ProtocolSchedule protocolSchedule =
+        MergeProtocolSchedule.create(
+            config,
+            false,
+            MiningConfiguration.MINING_DISABLED,
+            new BadBlockManager(),
+            false,
+            BalConfiguration.DEFAULT,
+            new NoOpMetricsSystem(),
+            EvmConfiguration.DEFAULT);
+
+    // Get Prague spec at post-merge timestamp
+    final ProtocolSpec pragueSpec =
+        protocolSchedule.getByBlockHeader(
+            new BlockHeaderTestFixture().number(18000000).timestamp(1755770400).buildHeader());
+
+    assertThat(pragueSpec.getHardforkId()).isEqualTo(PRAGUE);
+    assertProofOfStakeConfigIsEnabled(pragueSpec);
+
+    // The critical assertion: Prague blocks on a Clique-to-PoS network must use
+    // PraguePreExecutionProcessor (for EIP-2935 and EIP-4788 system calls),
+    // NOT FrontierPreExecutionProcessor
+    assertThat(pragueSpec.getPreExecutionProcessor())
+        .withFailMessage(
+            "Prague blocks on a Clique-to-PoS network should use PraguePreExecutionProcessor, "
+                + "but got %s. This means EIP-2935 blockhash storage and EIP-4788 beacon root "
+                + "system calls are being skipped, causing stateroot mismatches.",
+            pragueSpec.getPreExecutionProcessor().getClass().getSimpleName())
+        .isInstanceOf(PraguePreExecutionProcessor.class);
   }
 }
