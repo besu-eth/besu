@@ -298,7 +298,7 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
     final NewBlockMessage newBlockMessage = NewBlockMessage.readFrom(message.getData());
     try {
       final Block block = newBlockMessage.block(protocolSchedule);
-      LOG.atWarn()
+      LOG.atTrace()
           .setMessage("New block from network {} from peer {}. Current status {}")
           .addArgument(block::toLogString)
           .addArgument(message::getPeer)
@@ -338,7 +338,7 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
         return;
       }
       if (protocolContext.getBadBlockManager().isBadBlock(block.getHash())) {
-        LOG.atTrace()
+        LOG.atDebug()
             .setMessage("Ignoring known-bad block {} from peer {}")
             .addArgument(block::toLogString)
             .addArgument(message::getPeer)
@@ -400,7 +400,7 @@ public class BlockPropagationManager implements UnverifiedForkchoiceListener {
           continue;
         }
         if (protocolContext.getBadBlockManager().isBadBlock(announcedBlock.hash())) {
-          LOG.warn("New block hash from network {} is a known bad block", announcedBlock);
+          LOG.debug("New block hash from network {} is a known bad block", announcedBlock);
           continue;
         }
         if (processingBlocksManager.addRequestedBlock(announcedBlock.hash())) {
