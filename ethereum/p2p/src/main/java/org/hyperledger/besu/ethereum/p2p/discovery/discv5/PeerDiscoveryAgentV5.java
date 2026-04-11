@@ -161,7 +161,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
   @Override
   public CompletableFuture<Integer> start(final int tcpPort) {
     if (!isEnabled()) {
-      LOG.debug("DiscV5 peer discovery is disabled; not starting agent");
+      LOG.trace("DiscV5 peer discovery is disabled; not starting agent");
       return CompletableFuture.completedFuture(0);
     }
     if (stopped.get()) {
@@ -201,7 +201,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
               } catch (final RejectedExecutionException e) {
                 // Benign: stop() shut down the scheduler between the stopped check and the
                 // schedule call. The agent is stopping so there is nothing to schedule.
-                LOG.debug("Scheduler already shut down; skipping discovery tick scheduling", e);
+                LOG.trace("Scheduler already shut down; skipping discovery tick scheduling", e);
               }
               if (stopped.get()) {
                 throw new IllegalStateException(
@@ -232,7 +232,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
                 try {
                   system.stop();
                 } catch (final Exception e) {
-                  LOG.debug("Error while stopping discovery system after failed start", e);
+                  LOG.trace("Error while stopping discovery system after failed start", e);
                 }
                 discoverySystem.set(null);
               }
