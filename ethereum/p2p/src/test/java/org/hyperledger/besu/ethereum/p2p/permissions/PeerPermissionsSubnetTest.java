@@ -21,33 +21,34 @@ import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions.Action;
 
+import java.net.InetSocketAddress;
 import java.util.List;
 
-import org.apache.commons.net.util.SubnetUtils;
-import org.apache.commons.net.util.SubnetUtils.SubnetInfo;
+import inet.ipaddr.IPAddress;
+import inet.ipaddr.IPAddressString;
 import org.junit.jupiter.api.Test;
 
 public class PeerPermissionsSubnetTest {
 
-  private final Peer remoteNode = createPeer();
+  private final Peer remoteNode = createPeer("127.0.0.1");
 
   @Test
   public void peerInSubnetRangeShouldBePermitted() {
-    List<SubnetInfo> allowedSubnets = List.of(subnet("127.0.0.0/24"));
+    List<IPAddress> allowedSubnets = List.of(subnet("127.0.0.0/24"));
     PeerPermissionSubnet peerPermissionSubnet = new PeerPermissionSubnet(allowedSubnets);
     checkPermissions(peerPermissionSubnet, remoteNode, true);
   }
 
   @Test
   public void peerInAtLeastOneSubnetRangeShouldBePermitted() {
-    List<SubnetInfo> allowedSubnets = List.of(subnet("127.0.0.0/24"), subnet("10.0.0.1/24"));
+    List<IPAddress> allowedSubnets = List.of(subnet("127.0.0.0/24"), subnet("10.0.0.1/24"));
     PeerPermissionSubnet peerPermissionSubnet = new PeerPermissionSubnet(allowedSubnets);
     checkPermissions(peerPermissionSubnet, remoteNode, true);
   }
 
   @Test
   public void peerOutSubnetRangeShouldNotBePermitted() {
-    List<SubnetInfo> allowedSubnets = List.of(subnet("10.0.0.0/24"));
+    List<IPAddress> allowedSubnets = List.of(subnet("10.0.0.0/24"));
     PeerPermissionSubnet peerPermissionSubnet = new PeerPermissionSubnet(allowedSubnets);
     checkPermissions(peerPermissionSubnet, remoteNode, false);
   }
@@ -58,23 +59,75 @@ public class PeerPermissionsSubnetTest {
     checkPermissions(peerPermissionSubnet, remoteNode, true);
   }
 
+  @Test
+  public void ipv6PeerInSubnetRangeShouldBePermitted() {
+    Peer ipv6Peer = createPeer("fd00::1");
+    List<IPAddress> allowedSubnets = List.of(subnet("fd00::/64"));
+    PeerPermissionSubnet peerPermissionSubnet = new PeerPermissionSubnet(allowedSubnets);
+    checkPermissions(peerPermissionSubnet, ipv6Peer, true);
+  }
+
+  @Test
+  public void ipv6PeerOutSubnetRangeShouldNotBePermitted() {
+    Peer ipv6Peer = createPeer("fe80::1");
+    List<IPAddress> allowedSubnets = List.of(subnet("fd00::/64"));
+    PeerPermissionSubnet peerPermissionSubnet = new PeerPermissionSubnet(allowedSubnets);
+    checkPermissions(peerPermissionSubnet, ipv6Peer, false);
+  }
+
+  @Test
+  public void inetSocketAddressInSubnetShouldBePermitted() {
+    List<IPAddress> allowedSubnets = List.of(subnet("192.168.1.0/24"));
+    PeerPermissionSubnet peerPermissionSubnet = new PeerPermissionSubnet(allowedSubnets);
+    assertThat(peerPermissionSubnet.isPermitted(new InetSocketAddress("192.168.1.50", 30303)))
+        .isTrue();
+  }
+
+  @Test
+  public void inetSocketAddressOutsideSubnetShouldNotBePermitted() {
+    List<IPAddress> allowedSubnets = List.of(subnet("192.168.1.0/24"));
+    PeerPermissionSubnet peerPermissionSubnet = new PeerPermissionSubnet(allowedSubnets);
+    assertThat(peerPermissionSubnet.isPermitted(new InetSocketAddress("10.0.0.1", 30303)))
+        .isFalse();
+  }
+
+  @Test
+  public void inetSocketAddressShouldBePermittedIfNoSubnets() {
+    PeerPermissionSubnet peerPermissionSubnet = new PeerPermissionSubnet(List.of());
+    assertThat(peerPermissionSubnet.isPermitted(new InetSocketAddress("10.0.0.1", 30303))).isTrue();
+  }
+
+  @Test
+  public void ipv6InetSocketAddressInSubnetShouldBePermitted() {
+    List<IPAddress> allowedSubnets = List.of(subnet("fd00::/64"));
+    PeerPermissionSubnet peerPermissionSubnet = new PeerPermissionSubnet(allowedSubnets);
+    assertThat(peerPermissionSubnet.isPermitted(new InetSocketAddress("fd00::1", 30303))).isTrue();
+  }
+
+  @Test
+  public void ipv6InetSocketAddressOutsideSubnetShouldNotBePermitted() {
+    List<IPAddress> allowedSubnets = List.of(subnet("fd00::/64"));
+    PeerPermissionSubnet peerPermissionSubnet = new PeerPermissionSubnet(allowedSubnets);
+    assertThat(peerPermissionSubnet.isPermitted(new InetSocketAddress("fe80::1", 30303))).isFalse();
+  }
+
   private void checkPermissions(
       final PeerPermissions peerPermissions, final Peer remotePeer, final boolean expectedResult) {
     for (Action action : Action.values()) {
-      assertThat(peerPermissions.isPermitted(createPeer(), remotePeer, action))
+      assertThat(peerPermissions.isPermitted(createPeer("127.0.0.1"), remotePeer, action))
           .isEqualTo(expectedResult);
     }
   }
 
-  private SubnetInfo subnet(final String subnet) {
-    return new SubnetUtils(subnet).getInfo();
+  private IPAddress subnet(final String cidr) {
+    return new IPAddressString(cidr).getAddress().toPrefixBlock();
   }
 
-  private Peer createPeer() {
+  private Peer createPeer(final String ip) {
     return DefaultPeer.fromEnodeURL(
         EnodeURLImpl.builder()
             .nodeId(Peer.randomId())
-            .ipAddress("127.0.0.1")
+            .ipAddress(ip)
             .discoveryAndListeningPorts(EnodeURLImpl.DEFAULT_LISTENING_PORT)
             .build());
   }

@@ -30,6 +30,8 @@ import org.hyperledger.besu.ethereum.eth.manager.EthProtocolManagerTestUtil;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetBodiesFromPeerTask;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetBodiesFromPeerTaskExecutorAnswer;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTaskExecutorAnswer;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
@@ -45,7 +47,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -109,6 +110,10 @@ public class FullSyncChainDownloaderTotalTerminalDifficultyTest {
             peerTaskExecutor.executeAgainstPeer(
                 Mockito.any(GetHeadersFromPeerTask.class), Mockito.any(EthPeer.class)))
         .thenAnswer(headersAnswer);
+
+    Mockito.when(peerTaskExecutor.execute(Mockito.any(GetBodiesFromPeerTask.class)))
+        .thenAnswer(
+            new GetBodiesFromPeerTaskExecutorAnswer(otherBlockchain, ethContext.getEthPeers()));
   }
 
   @AfterEach
@@ -204,12 +209,5 @@ public class FullSyncChainDownloaderTotalTerminalDifficultyTest {
     assertThat(localBlockchain.getChainHeadBlockNumber()).isEqualTo(targetBlock);
 
     assertThat(future.isDone()).isFalse();
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

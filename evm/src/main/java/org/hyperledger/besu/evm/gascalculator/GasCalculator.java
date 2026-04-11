@@ -672,4 +672,13 @@ public interface GasCalculator {
       final MessageFrame frame, final Account targetAccount) {
     return 0L;
   }
+
+  /**
+   * Returns the state gas cost calculator for EIP-8037 multidimensional gas metering.
+   *
+   * @return the state gas cost calculator (NONE by default)
+   */
+  default StateGasCostCalculator stateGasCostCalculator() {
+    return StateGasCostCalculator.NONE;
+  }
 }

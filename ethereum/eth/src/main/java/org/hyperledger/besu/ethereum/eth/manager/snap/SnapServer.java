@@ -16,18 +16,24 @@ package org.hyperledger.besu.ethereum.eth.manager.snap;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
+import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
 import org.hyperledger.besu.ethereum.eth.messages.snap.AccountRangeMessage;
+import org.hyperledger.besu.ethereum.eth.messages.snap.BlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.ByteCodesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetAccountRangeMessage;
+import org.hyperledger.besu.ethereum.eth.messages.snap.GetBlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetByteCodesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetStorageRangeMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetTrieNodesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV1;
+import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV2;
 import org.hyperledger.besu.ethereum.eth.messages.snap.StorageRangeMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.TrieNodesMessage;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
@@ -91,6 +97,9 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
   // whether snap server is enabled
   private final boolean snapServerEnabled;
 
+  // max time per snap request
+  private final long maxMillisPerRequest;
+
   // provide worldstate storage by root hash
   private Function<Hash, Optional<BonsaiWorldStateKeyValueStorage>> worldStateStorageProvider =
       __ -> Optional.empty();
@@ -108,6 +117,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
     this.snapMessages = snapMessages;
     this.worldStateStorageCoordinator = worldStateStorageCoordinator;
     this.protocolContext = Optional.of(protocolContext);
+    this.maxMillisPerRequest = ResponseSizePredicate.DEFAULT_MAX_MILLIS_PER_REQUEST;
     registerResponseConstructors();
 
     // subscribe to initial sync completed events to start/stop snap server,
@@ -124,11 +134,25 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
       final EthMessages snapMessages,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final Function<Hash, Optional<BonsaiWorldStateKeyValueStorage>> worldStateStorageProvider) {
+    this(
+        snapMessages,
+        worldStateStorageCoordinator,
+        worldStateStorageProvider,
+        ResponseSizePredicate.DEFAULT_MAX_MILLIS_PER_REQUEST);
+  }
+
+  @VisibleForTesting
+  SnapServer(
+      final EthMessages snapMessages,
+      final WorldStateStorageCoordinator worldStateStorageCoordinator,
+      final Function<Hash, Optional<BonsaiWorldStateKeyValueStorage>> worldStateStorageProvider,
+      final long maxMillisPerRequest) {
     this.snapServerEnabled = true;
     this.snapMessages = snapMessages;
     this.worldStateStorageCoordinator = worldStateStorageCoordinator;
     this.worldStateStorageProvider = worldStateStorageProvider;
     this.protocolContext = Optional.empty();
+    this.maxMillisPerRequest = maxMillisPerRequest;
   }
 
   @Override
@@ -148,7 +172,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
       if (worldStateKeyValueStorage.getDataStorageFormat().isBonsaiFormat()
           && (worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.FULL)
               || worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.ARCHIVE))) {
-        LOGGER.debug("Starting SnapServer with Bonsai full flat db");
+        LOGGER.info("Starting SnapServer with Bonsai full flat db");
         var bonsaiArchive =
             protocolContext
                 .map(ProtocolContext::getWorldStateArchive)
@@ -206,6 +230,58 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
     snapMessages.registerResponseConstructor(
         SnapV1.GET_TRIE_NODES,
         (peer, messageData, capability) -> constructGetTrieNodesResponse(messageData));
+    snapMessages.registerResponseConstructor(
+        SnapV2.GET_BLOCK_ACCESS_LISTS,
+        (peer, messageData, capability) -> constructGetBlockAccessListsResponse(messageData));
+  }
+
+  MessageData constructGetBlockAccessListsResponse(final MessageData message) {
+    if (!isStarted.get()) {
+      return BlockAccessListsMessage.create(List.of());
+    }
+
+    final GetBlockAccessListsMessage getBlockAccessLists =
+        GetBlockAccessListsMessage.readFrom(message);
+    final Iterable<Hash> blockHashes = getBlockAccessLists.blockHashes(true);
+
+    int responseSizeEstimate = RLP.MAX_PREFIX_SIZE;
+    final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
+    rlp.startList();
+
+    final Optional<Blockchain> maybeBlockchain =
+        protocolContext.map(ProtocolContext::getBlockchain);
+
+    if (maybeBlockchain.isPresent()) {
+      final var blockchain = maybeBlockchain.get();
+      int count = 0;
+      for (final Hash blockHash : blockHashes) {
+        if (count >= MAX_ENTRIES_PER_REQUEST) {
+          break;
+        }
+        count++;
+
+        final Optional<BlockAccessList> maybeBlockAccessList =
+            blockchain.getBlockAccessList(blockHash);
+        final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
+        if (maybeBlockAccessList.isPresent()) {
+          BlockAccessListEncoder.encode(maybeBlockAccessList.get(), balOutput);
+        } else {
+          // Empty lists are returned for blocks where the BAL is unavailable.
+          balOutput.startList();
+          balOutput.endList();
+        }
+
+        final int encodedSize = balOutput.encodedSize();
+        if (responseSizeEstimate + encodedSize > MAX_RESPONSE_SIZE) {
+          break;
+        }
+        responseSizeEstimate += encodedSize;
+        rlp.writeRaw(balOutput.encoded());
+      }
+    }
+    rlp.endList();
+
+    return BlockAccessListsMessage.createUnsafe(rlp.encoded());
   }
 
   MessageData constructGetAccountRangeResponse(final MessageData message) {
@@ -239,6 +315,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                         "account",
                         stopWatch,
                         maxResponseBytes,
+                        maxMillisPerRequest,
                         (pair) -> {
                           Bytes bytes =
                               AccountRangeMessage.toSlimAccount(RLP.input(pair.getSecond()));
@@ -346,6 +423,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                         "storage",
                         stopWatch,
                         maxResponseBytes,
+                        maxMillisPerRequest,
                         (pair) -> {
                           var slotRlpOutput = new BytesValueRLPOutput();
                           slotRlpOutput.startList();
@@ -480,7 +558,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
           if (optCode.isPresent()) {
             if (!codeBytes.isEmpty()
                 && (sumListBytes(codeBytes) + optCode.get().size() > maxResponseBytes
-                    || stopWatch.getTime() > ResponseSizePredicate.MAX_MILLIS_PER_REQUEST)) {
+                    || stopWatch.getTime() > maxMillisPerRequest)) {
               break;
             }
             codeBytes.add(optCode.get());
@@ -539,8 +617,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                     var trieNode = optStorage.orElse(Bytes.EMPTY);
                     if (!trieNodes.isEmpty()
                         && (sumListBytes(trieNodes) + trieNode.size() > maxResponseBytes
-                            || stopWatch.getTime(TimeUnit.MILLISECONDS)
-                                > ResponseSizePredicate.MAX_MILLIS_PER_REQUEST)) {
+                            || stopWatch.getTime(TimeUnit.MILLISECONDS) > maxMillisPerRequest)) {
                       break;
                     }
                     trieNodes.add(trieNode);
@@ -631,7 +708,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
 
   static class ResponseSizePredicate implements Predicate<Pair<Bytes32, Bytes>> {
     // default to a max of 4 seconds per request
-    static final long MAX_MILLIS_PER_REQUEST = 4000;
+    static final long DEFAULT_MAX_MILLIS_PER_REQUEST = 4000;
 
     final AtomicInteger byteLimit = new AtomicInteger(0);
     final AtomicInteger recordLimit = new AtomicInteger(0);
@@ -639,15 +716,18 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
     final Function<Pair<Bytes32, Bytes>, Integer> encodingSizeAccumulator;
     final StopWatch stopWatch;
     final int maxResponseBytes;
+    final long maxMillisPerRequest;
     final String forWhat;
 
     ResponseSizePredicate(
         final String forWhat,
         final StopWatch stopWatch,
         final int maxResponseBytes,
+        final long maxMillisPerRequest,
         final Function<Pair<Bytes32, Bytes>, Integer> encodingSizeAccumulator) {
       this.stopWatch = stopWatch;
       this.maxResponseBytes = maxResponseBytes;
+      this.maxMillisPerRequest = maxMillisPerRequest;
       this.forWhat = forWhat;
       this.encodingSizeAccumulator = encodingSizeAccumulator;
     }
@@ -661,7 +741,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
           .addArgument(byteLimit::get)
           .addArgument(recordLimit::get)
           .log();
-      if (stopWatch.getTime() > MAX_MILLIS_PER_REQUEST) {
+      if (stopWatch.getTime() > maxMillisPerRequest) {
         shouldContinue.set(false);
         LOGGER.warn(
             "{} took too long, stopped at {} ms with {} records and {} bytes",

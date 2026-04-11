@@ -18,6 +18,7 @@ import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.services.securitymodule.data.PublicKey;
 import org.hyperledger.besu.plugin.services.securitymodule.data.Signature;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 /**
@@ -53,4 +54,24 @@ public interface SecurityModule {
    * @throws SecurityModuleException if calculateECDHKeyAgreement fails
    */
   Bytes32 calculateECDHKeyAgreement(PublicKey partyKey) throws SecurityModuleException;
+
+  /**
+   * Perform ECDH key agreement returning the compressed EC point.
+   *
+   * <p>Returns the full compressed EC point (SEC1 compressed format: prefix byte + x-coordinate)
+   * from the ECDH scalar multiplication. This is required by protocols such as DiscV5 which use the
+   * compressed point as input keying material for HKDF key derivation.
+   *
+   * <p>The default implementation throws {@link SecurityModuleException}. Implementations that need
+   * to support DiscV5 must override this method.
+   *
+   * @param partyKey the key with which an agreement is to be created.
+   * @return the compressed EC point in SEC1 format
+   * @throws SecurityModuleException if the operation is not supported or fails
+   */
+  default Bytes calculateECDHKeyAgreementCompressed(final PublicKey partyKey)
+      throws SecurityModuleException {
+    throw new SecurityModuleException(
+        "Compressed ECDH key agreement is not supported by this security module");
+  }
 }

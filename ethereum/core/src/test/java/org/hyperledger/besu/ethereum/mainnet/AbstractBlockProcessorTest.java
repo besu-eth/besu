@@ -16,9 +16,11 @@ package org.hyperledger.besu.ethereum.mainnet;
 
 import static java.util.Collections.emptyList;
 import static java.util.Collections.emptyMap;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -34,9 +36,10 @@ import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactoryDefault;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestBlockchain;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestWorldState;
 
@@ -72,7 +75,7 @@ abstract class AbstractBlockProcessorTest {
         .thenReturn(new FrontierPreExecutionProcessor());
     lenient()
         .when(protocolSpec.getStateRootCommitterFactory())
-        .thenReturn(new StateRootCommitterFactoryDefault());
+        .thenReturn(new DefaultStateRootCommitterFactory());
     blockProcessor =
         new TestBlockProcessor(
             transactionProcessor,
@@ -119,6 +122,38 @@ abstract class AbstractBlockProcessorTest {
     blockProcessor.processBlock(
         protocolContext, blockchain, worldState, testBlockBuilder(withdrawals));
     verify(withdrawalsProcessor, never()).processWithdrawals(any(), any(), any(), any());
+  }
+
+  @Test
+  void hasAvailableBlockBudget_delegates2DCheckToStrategy() {
+    // EIP-8037: hasAvailableBlockBudget must delegate to
+    // BlockGasAccountingStrategy.hasBlockCapacity
+    // so that block import uses the same 2D headroom logic as block building.
+    final long blockGasLimit = 100_000L;
+    final BlockHeader header = new BlockHeaderTestFixture().gasLimit(blockGasLimit).buildHeader();
+    final Transaction tx = mock(Transaction.class);
+    when(tx.getGasLimit()).thenReturn(50_000L);
+    when(tx.getHash()).thenReturn(Hash.fromHexStringLenient("0x1234"));
+
+    // Regular=60k, State=40k. Per-dimension: min(100k-60k, 100k-40k) = min(40k, 60k) = 40k.
+    // txGasLimit=50k > 40k → should fail with AMSTERDAM (exceeds tighter dimension).
+    assertThat(
+            blockProcessor.hasAvailableBlockBudget(
+                header, tx, 60_000L, 40_000L, BlockGasAccountingStrategy.AMSTERDAM))
+        .isFalse();
+
+    // txGasLimit=40k fits: min(40k, 60k) = 40k >= 40k
+    when(tx.getGasLimit()).thenReturn(40_000L);
+    assertThat(
+            blockProcessor.hasAvailableBlockBudget(
+                header, tx, 60_000L, 40_000L, BlockGasAccountingStrategy.AMSTERDAM))
+        .isTrue();
+
+    // Same scenario with FRONTIER (1D check, only regular): 40k <= 100k-60k=40k → passes
+    assertThat(
+            blockProcessor.hasAvailableBlockBudget(
+                header, tx, 60_000L, 40_000L, BlockGasAccountingStrategy.FRONTIER))
+        .isTrue();
   }
 
   private static class TestBlockProcessor extends AbstractBlockProcessor {

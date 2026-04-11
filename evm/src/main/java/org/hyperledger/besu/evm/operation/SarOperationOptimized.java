@@ -16,7 +16,10 @@ package org.hyperledger.besu.evm.operation;
 
 import static org.hyperledger.besu.evm.operation.Shift256Operations.ALL_ONES;
 import static org.hyperledger.besu.evm.operation.Shift256Operations.ALL_ONES_BYTES;
+import static org.hyperledger.besu.evm.operation.Shift256Operations.getLong;
 import static org.hyperledger.besu.evm.operation.Shift256Operations.isShiftOverflow;
+import static org.hyperledger.besu.evm.operation.Shift256Operations.putLong;
+import static org.hyperledger.besu.evm.operation.Shift256Operations.shiftRight;
 
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.MessageFrame;
@@ -94,30 +97,46 @@ public class SarOperationOptimized extends AbstractFixedCostOperation {
    */
   private static Bytes sar256(final byte[] in, final int shift, final boolean negative) {
     if (shift == 0) return Bytes.wrap(in);
-
-    final int shiftBytes = shift >>> 3; // /8
-    final int shiftBits = shift & 7; // %8
-    final int fill = negative ? 0xFF : 0x00;
-
+    long w0 = getLong(in, 0);
+    long w1 = getLong(in, 8);
+    long w2 = getLong(in, 16);
+    long w3 = getLong(in, 24);
+    final long fill = negative ? -1L : 0L;
+    // Number of whole 64-bit words to shift (shift / 64).
+    final int wordShift = shift >>> 6;
+    // Remaining intra-word bit shift (shift % 64).
+    final int bitShift = shift & 63;
+    switch (wordShift) {
+      case 0:
+        w3 = shiftRight(w3, w2, bitShift);
+        w2 = shiftRight(w2, w1, bitShift);
+        w1 = shiftRight(w1, w0, bitShift);
+        w0 = shiftRight(w0, fill, bitShift);
+        break;
+      case 1:
+        w3 = shiftRight(w2, w1, bitShift);
+        w2 = shiftRight(w1, w0, bitShift);
+        w1 = shiftRight(w0, fill, bitShift);
+        w0 = fill;
+        break;
+      case 2:
+        w3 = shiftRight(w1, w0, bitShift);
+        w2 = shiftRight(w0, fill, bitShift);
+        w1 = fill;
+        w0 = fill;
+        break;
+      case 3:
+        w3 = shiftRight(w0, fill, bitShift);
+        w2 = fill;
+        w1 = fill;
+        w0 = fill;
+        break;
+    }
     final byte[] out = new byte[32];
-
-    // Pre-fill sign-extended bytes (indices below shiftBytes are fully sign-extended)
-    if (negative && shiftBytes > 0) {
-      Arrays.fill(out, 0, shiftBytes, (byte) 0xFF);
-    }
-
-    // Only iterate bytes that receive shifted data from the input
-    for (int i = 31; i >= shiftBytes; i--) {
-      final int srcIndex = i - shiftBytes;
-      final int curr = in[srcIndex] & 0xFF;
-      if (shiftBits == 0) {
-        out[i] = (byte) curr;
-      } else {
-        final int prev = (srcIndex - 1 >= 0) ? (in[srcIndex - 1] & 0xFF) : fill;
-        out[i] = (byte) ((curr >>> shiftBits) | (prev << (8 - shiftBits)));
-      }
-    }
-
+    putLong(out, 0, w0);
+    putLong(out, 8, w1);
+    putLong(out, 16, w2);
+    putLong(out, 24, w3);
     return Bytes.wrap(out);
   }
 }

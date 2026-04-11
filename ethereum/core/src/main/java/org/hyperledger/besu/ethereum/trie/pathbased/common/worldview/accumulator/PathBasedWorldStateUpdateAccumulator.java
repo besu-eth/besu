@@ -108,117 +108,108 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
    * the modification from the source will be taken. This approach ensures that the source's state
    * changes are prioritized and overrides any conflicting changes in the current state.
    *
-   * @param source The source accumulator
+   * @param source The source accumulator whose changes take priority
    */
   public void importStateChangesFromSource(
       final PathBasedWorldStateUpdateAccumulator<ACCOUNT> source) {
-    source
-        .getAccountsToUpdate()
-        .forEach(
-            (address, pathBasedValue) -> {
-              ACCOUNT copyPrior =
-                  pathBasedValue.getPrior() != null
-                      ? copyAccount(pathBasedValue.getPrior(), this, false)
-                      : null;
-              ACCOUNT copyUpdated =
-                  pathBasedValue.getUpdated() != null
-                      ? copyAccount(pathBasedValue.getUpdated(), this, true)
-                      : null;
-              accountsToUpdate.put(
-                  address,
-                  new PathBasedValue<>(copyPrior, copyUpdated, pathBasedValue.isLastStepCleared()));
-            });
-    source
-        .getCodeToUpdate()
-        .forEach(
-            (address, pathBasedValue) -> {
-              codeToUpdate.put(
-                  address,
-                  new PathBasedValue<>(
-                      pathBasedValue.getPrior(),
-                      pathBasedValue.getUpdated(),
-                      pathBasedValue.isLastStepCleared()));
-            });
-    source
-        .getStorageToUpdate()
-        .forEach(
-            (address, slots) -> {
-              StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> storageConsumingMap =
-                  storageToUpdate.computeIfAbsent(
-                      address,
-                      k ->
-                          new StorageConsumingMap<>(
-                              address, new ConcurrentHashMap<>(), storagePreloader));
-              slots.forEach(
-                  (storageSlotKey, uInt256PathBasedValue) -> {
-                    storageConsumingMap.put(
-                        storageSlotKey,
-                        new PathBasedValue<>(
-                            uInt256PathBasedValue.getPrior(),
-                            uInt256PathBasedValue.getUpdated(),
-                            uInt256PathBasedValue.isLastStepCleared()));
-                  });
-            });
+    importFrom(source, ImportMode.UPSERT);
     storageToClear.addAll(source.storageToClear);
-    storageKeyHashLookup.putAll(source.storageKeyHashLookup);
-
-    this.isAccumulatorStateChanged = true;
   }
 
   /**
-   * Imports unchanged state data from an external source into the current state. This method
-   * focuses on integrating state data from the specified source that has been read but not
-   * modified.
+   * Imports unchanged (prior-only) state data from an external source. Only data not already
+   * present in this accumulator is imported — existing entries are never overwritten. Both prior
+   * and updated values are set to the source's prior value (i.e. read-only snapshot).
    *
-   * <p>The method ensures that only new, unmodified data from the source is added to the current
-   * state. If a state data has already been read or modified in the current state, it will not be
-   * added again to avoid overwriting any existing modifications.
-   *
-   * @param source The source accumulator
+   * @param source The source accumulator to import prior state from
    */
   public void importPriorStateFromSource(
       final PathBasedWorldStateUpdateAccumulator<ACCOUNT> source) {
+    importFrom(source, ImportMode.INSERT);
+  }
+
+  private enum ImportMode {
+    /** Insert new entries and update existing ones with values from the source. */
+    UPSERT,
+    /** Insert new entries only, existing entries are left untouched. */
+    INSERT
+  }
+
+  private void importFrom(
+      final PathBasedWorldStateUpdateAccumulator<ACCOUNT> source, final ImportMode mode) {
+    final boolean priorOnly = mode == ImportMode.INSERT;
 
     source
         .getAccountsToUpdate()
         .forEach(
-            (address, pathBasedValue) -> {
-              ACCOUNT copyPrior =
-                  pathBasedValue.getPrior() != null
-                      ? copyAccount(pathBasedValue.getPrior(), this, false)
+            (address, srcValue) -> {
+              final ACCOUNT copyPrior =
+                  srcValue.getPrior() != null
+                      ? copyAccount(srcValue.getPrior(), this, false)
                       : null;
-              ACCOUNT copyUpdated =
-                  pathBasedValue.getPrior() != null
-                      ? copyAccount(pathBasedValue.getPrior(), this, true)
-                      : null;
-              accountsToUpdate.putIfAbsent(address, new PathBasedValue<>(copyPrior, copyUpdated));
+              final ACCOUNT copyUpdated =
+                  priorOnly
+                      ? (srcValue.getPrior() != null
+                          ? copyAccount(srcValue.getPrior(), this, true)
+                          : null)
+                      : (srcValue.getUpdated() != null
+                          ? copyAccount(srcValue.getUpdated(), this, true)
+                          : null);
+              final PathBasedValue<ACCOUNT> newValue =
+                  priorOnly
+                      ? new PathBasedValue<>(copyPrior, copyUpdated)
+                      : new PathBasedValue<>(copyPrior, copyUpdated, srcValue.isLastStepCleared());
+              if (priorOnly) {
+                accountsToUpdate.putIfAbsent(address, newValue);
+              } else {
+                accountsToUpdate.put(address, newValue);
+              }
             });
+
     source
         .getCodeToUpdate()
         .forEach(
-            (address, pathBasedValue) -> {
-              codeToUpdate.putIfAbsent(
-                  address,
-                  new PathBasedValue<>(pathBasedValue.getPrior(), pathBasedValue.getPrior()));
+            (address, srcValue) -> {
+              final Bytes prior = srcValue.getPrior();
+              final Bytes updated = priorOnly ? prior : srcValue.getUpdated();
+              final PathBasedValue<Bytes> newValue =
+                  priorOnly
+                      ? new PathBasedValue<>(prior, updated)
+                      : new PathBasedValue<>(prior, updated, srcValue.isLastStepCleared());
+              if (priorOnly) {
+                codeToUpdate.putIfAbsent(address, newValue);
+              } else {
+                codeToUpdate.put(address, newValue);
+              }
             });
+
     source
         .getStorageToUpdate()
         .forEach(
             (address, slots) -> {
-              StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> storageConsumingMap =
+              final StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> targetSlots =
                   storageToUpdate.computeIfAbsent(
                       address,
                       k ->
                           new StorageConsumingMap<>(
                               address, new ConcurrentHashMap<>(), storagePreloader));
               slots.forEach(
-                  (storageSlotKey, uInt256PathBasedValue) -> {
-                    storageConsumingMap.putIfAbsent(
-                        storageSlotKey,
-                        new PathBasedValue<>(
-                            uInt256PathBasedValue.getPrior(), uInt256PathBasedValue.getPrior()));
+                  (slotKey, srcSlot) -> {
+                    final UInt256 slotPrior = srcSlot.getPrior();
+                    final UInt256 slotUpdated = priorOnly ? slotPrior : srcSlot.getUpdated();
+                    final PathBasedValue<UInt256> newSlotValue =
+                        priorOnly
+                            ? new PathBasedValue<>(slotPrior, slotUpdated)
+                            : new PathBasedValue<>(
+                                slotPrior, slotUpdated, srcSlot.isLastStepCleared());
+                    if (priorOnly) {
+                      targetSlots.putIfAbsent(slotKey, newSlotValue);
+                    } else {
+                      targetSlots.put(slotKey, newSlotValue);
+                    }
                   });
             });
+
     storageKeyHashLookup.putAll(source.storageKeyHashLookup);
     this.isAccumulatorStateChanged = true;
   }

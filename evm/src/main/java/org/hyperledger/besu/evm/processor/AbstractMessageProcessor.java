@@ -135,12 +135,65 @@ public abstract class AbstractMessageProcessor {
   }
 
   /**
+   * EIP-8037: Handles state gas spill on revert/halt. When state changes are rolled back, the state
+   * gas that was consumed is restored. Any "spill" (state gas that had overflowed from the
+   * reservoir into gasRemaining) is routed back: for child frames it returns to the reservoir for
+   * parent re-use; for the initial frame it is tracked in stateGasSpillBurned for transaction-level
+   * gas accounting.
+   *
+   * <p>For the initial (top-level) frame, the reservoir must be preserved for transaction-level
+   * refund. If child frames had restored state gas to the reservoir during the initial frame's
+   * execution (via their own revert/halt), that refund must not be lost when the initial frame
+   * subsequently reverts or halts. We therefore restore the reservoir to the higher of the
+   * pre-rollback value (which may include child refunds) and the post-rollback value (which
+   * reflects any reservoir drain that rollback undid). We also compute the spill contribution only
+   * from the positive part of reservoirRestored so that child-refunded gas is never counted as
+   * burned spill.
+   *
+   * @param frame The message frame
+   */
+  private void handleStateGasSpill(final MessageFrame frame) {
+    final long stateGasUsedBefore = frame.getStateGasUsed();
+    final long reservoirBefore = frame.getStateGasReservoir();
+    final boolean isInitialFrame = frame.getMessageFrameStack().size() == 1;
+
+    clearAccumulatedStateBesidesGasAndOutput(frame);
+
+    final long stateGasRestored = stateGasUsedBefore - frame.getStateGasUsed();
+    final long reservoirRestored = frame.getStateGasReservoir() - reservoirBefore;
+
+    if (isInitialFrame) {
+      // EIP-8037: Preserve the reservoir for top-level refund. Use the max of the pre-rollback
+      // value (which may include child frame refunds that must not be lost) and the post-rollback
+      // value (which reflects any reservoir drain rollback has already restored).
+      final long reservoirPostRollback = frame.getStateGasReservoir();
+      final long preservedReservoir = Math.max(reservoirPostRollback, reservoirBefore);
+      if (preservedReservoir != reservoirPostRollback) {
+        frame.setStateGasReservoir(preservedReservoir);
+      }
+      // Only burn the portion of state gas that actually spilled into gasRemaining (not the
+      // portion that was drawn from the reservoir and has already been restored, and not the
+      // portion that child frames had refunded to the reservoir).
+      final long spill = Math.max(0L, stateGasRestored - Math.max(0L, reservoirRestored));
+      if (spill > 0) {
+        frame.accumulateStateGasSpillBurned(spill);
+      }
+    } else {
+      final long spill = Math.max(0L, stateGasRestored - reservoirRestored);
+      if (spill > 0) {
+        // Child frame: return spill to reservoir for parent to re-use
+        frame.incrementStateGasReservoir(spill);
+      }
+    }
+  }
+
+  /**
    * Gets called when the message frame encounters an exceptional halt.
    *
    * @param frame The message frame
    */
   private void exceptionalHalt(final MessageFrame frame) {
-    clearAccumulatedStateBesidesGasAndOutput(frame);
+    handleStateGasSpill(frame);
     frame.clearGasRemaining();
     frame.clearOutputData();
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
@@ -152,7 +205,7 @@ public abstract class AbstractMessageProcessor {
    * @param frame The message frame
    */
   protected void revert(final MessageFrame frame) {
-    clearAccumulatedStateBesidesGasAndOutput(frame);
+    handleStateGasSpill(frame);
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
   }
 
@@ -207,7 +260,8 @@ public abstract class AbstractMessageProcessor {
       }
     }
 
-    if (frame.getState() == MessageFrame.State.CODE_EXECUTING) {
+    final boolean wasCodeExecuting = (frame.getState() == MessageFrame.State.CODE_EXECUTING);
+    if (wasCodeExecuting) {
       codeExecute(frame, operationTracer);
 
       if (frame.getState() == MessageFrame.State.CODE_SUSPENDED) {

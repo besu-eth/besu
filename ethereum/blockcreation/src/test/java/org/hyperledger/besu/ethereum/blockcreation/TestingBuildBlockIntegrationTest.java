@@ -391,7 +391,8 @@ class TestingBuildBlockIntegrationTest {
                         new BadBlockManager(),
                         false,
                         ImmutableBalConfiguration.builder()
-                            .isBalOptimisationEnabled(withBAL)
+                            .isBalStateRootTrusted(withBAL)
+                            .isPerfectParallelizationEnabled(withBAL)
                             .build(),
                         new NoOpMetricsSystem())
                     .createProtocolSchedule())
@@ -430,7 +431,6 @@ class TestingBuildBlockIntegrationTest {
                 MutableInitValues.builder()
                     .extraData(Bytes.fromHexString("deadbeef"))
                     .minTransactionGasPrice(Wei.ONE)
-                    .minBlockOccupancyRatio(0d)
                     .coinbase(Address.ZERO)
                     .build())
             .build();

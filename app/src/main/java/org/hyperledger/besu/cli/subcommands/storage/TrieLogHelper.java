@@ -33,11 +33,7 @@ import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration;
 
 import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
 import java.io.PrintWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -153,12 +149,7 @@ public class TrieLogHelper {
       final PathBasedWorldStateKeyValueStorage rootWorldStateStorage,
       final List<Hash> trieLogKeys) {
 
-    try {
-      saveTrieLogsInFile(trieLogKeys, rootWorldStateStorage, batchFileName);
-    } catch (IOException e) {
-      LOG.error("Error saving trie logs to file: {}", e.getMessage());
-      throw new RuntimeException(e);
-    }
+    saveTrieLogsAsRlpInFile(trieLogKeys, rootWorldStateStorage, batchFileName);
   }
 
   private void restoreTrieLogBatches(
@@ -166,13 +157,8 @@ public class TrieLogHelper {
       final long batchNumber,
       final String batchFileNameBase) {
 
-    try {
-      LOG.info("Restoring trie logs retained from batch {}...", batchNumber);
-      recreateTrieLogs(rootWorldStateStorage, batchNumber, batchFileNameBase);
-    } catch (IOException e) {
-      LOG.error("Error recreating trie logs from batch {}: {}", batchNumber, e.getMessage());
-      throw new RuntimeException(e);
-    }
+    LOG.info("Restoring trie logs retained from batch {}...", batchNumber);
+    recreateTrieLogs(rootWorldStateStorage, batchNumber, batchFileNameBase);
   }
 
   private boolean deleteFiles(final String batchFileNameBase, final long numberOfBatches) {
@@ -257,11 +243,10 @@ public class TrieLogHelper {
   private void recreateTrieLogs(
       final PathBasedWorldStateKeyValueStorage rootWorldStateStorage,
       final long batchNumber,
-      final String batchFileNameBase)
-      throws IOException {
+      final String batchFileNameBase) {
     // process in chunk to avoid OOM
     final String batchFileName = batchFileNameBase + "-" + batchNumber;
-    IdentityHashMap<byte[], byte[]> trieLogsToRetain = readTrieLogsFromFile(batchFileName);
+    IdentityHashMap<byte[], byte[]> trieLogsToRetain = readTrieLogsAsRlpFromFile(batchFileName);
     final int chunkSize = ROCKSDB_MAX_INSERTS_PER_TRANSACTION;
     List<byte[]> keys = new ArrayList<>(trieLogsToRetain.keySet());
 
@@ -312,43 +297,6 @@ public class TrieLogHelper {
             TRIE_LOG_PRUNING_WINDOW_SIZE + "=%d must be greater than " + MAX_LAYERS_TO_LOAD + "=%d",
             subStorageConfiguration.getTrieLogPruningWindowSize(),
             subStorageConfiguration.getMaxLayersToLoad()));
-  }
-
-  private void saveTrieLogsInFile(
-      final List<Hash> trieLogsKeys,
-      final PathBasedWorldStateKeyValueStorage rootWorldStateStorage,
-      final String batchFileName)
-      throws IOException {
-
-    File file = new File(batchFileName);
-    if (file.exists()) {
-      LOG.warn("File already exists {}, skipping file creation", batchFileName);
-      return;
-    }
-
-    try (FileOutputStream fos = new FileOutputStream(file)) {
-      ObjectOutputStream oos = new ObjectOutputStream(fos);
-      oos.writeObject(getTrieLogs(trieLogsKeys, rootWorldStateStorage));
-    } catch (IOException e) {
-      LOG.error(e.getMessage());
-      throw new RuntimeException(e);
-    }
-  }
-
-  @SuppressWarnings("unchecked")
-  IdentityHashMap<byte[], byte[]> readTrieLogsFromFile(final String batchFileName) {
-
-    IdentityHashMap<byte[], byte[]> trieLogs;
-    try (FileInputStream fis = new FileInputStream(batchFileName);
-        ObjectInputStream ois = new ObjectInputStream(fis)) {
-
-      trieLogs = (IdentityHashMap<byte[], byte[]>) ois.readObject();
-    } catch (IOException | ClassNotFoundException e) {
-      LOG.error(e.getMessage());
-      throw new RuntimeException(e);
-    }
-
-    return trieLogs;
   }
 
   private void saveTrieLogsAsRlpInFile(

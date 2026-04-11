@@ -23,83 +23,57 @@ public class SignatureAlgorithmFactory {
 
   private static final Logger LOG = LoggerFactory.getLogger(SignatureAlgorithmFactory.class);
 
-  private static SignatureAlgorithm instance = null;
+  /** The constant DEFAULT_EC_CURVE_NAME. */
+  public static final String DEFAULT_EC_CURVE_NAME = "secp256k1";
+
+  /** The constant SECP_256_R1_CURVE_NAME. */
+  public static final String SECP_256_R1_CURVE_NAME = "secp256r1";
+
+  private static final SignatureAlgorithm DEFAULT_INSTANCE = new SECP256K1();
+  private static SignatureAlgorithm instance = DEFAULT_INSTANCE;
 
   private SignatureAlgorithmFactory() {}
 
-  /** Sets default instance. */
-  public static void setDefaultInstance() {
-    instance = SignatureAlgorithmType.createDefault().getInstance();
-  }
-
   /**
-   * Sets instance.
+   * Sets instance by curve name.
    *
-   * @param signatureAlgorithmType the signature algorithm type
-   * @throws IllegalStateException the illegal state exception
+   * @param ecCurve the ec curve name
+   * @throws IllegalArgumentException if the curve name is not supported
    */
-  public static void setInstance(final SignatureAlgorithmType signatureAlgorithmType)
-      throws IllegalStateException {
-    if (instance != null) {
-      throw new IllegalStateException(
-          "Instance of SignatureAlgorithmFactory can only be set once.");
-    }
+  public static void switchInstance(final String ecCurve) {
+    instance =
+        switch (ecCurve) {
+          case DEFAULT_EC_CURVE_NAME -> DEFAULT_INSTANCE;
+          case SECP_256_R1_CURVE_NAME -> new SECP256R1();
+          default ->
+              throw new IllegalArgumentException(
+                  ecCurve
+                      + " is not in the list of valid elliptic curves ["
+                      + DEFAULT_EC_CURVE_NAME
+                      + ", "
+                      + SECP_256_R1_CURVE_NAME
+                      + "]");
+        };
 
-    instance = signatureAlgorithmType.getInstance();
-
-    if (!SignatureAlgorithmType.isDefault(instance)) {
+    if (!DEFAULT_EC_CURVE_NAME.equals(ecCurve)) {
       LOG.info(
           "The signature algorithm uses the elliptic curve {}. The usage of alternative elliptic curves is still experimental.",
-          instance.getCurveName());
+          ecCurve);
     }
   }
 
   /**
-   * Sets a custom SignatureAlgorithm instance directly.
-   *
-   * @param signatureAlgorithm the custom signature algorithm instance
-   * @throws IllegalStateException if instance is already set
-   */
-  public static void setInstance(final SignatureAlgorithm signatureAlgorithm)
-      throws IllegalStateException {
-    if (instance != null) {
-      throw new IllegalStateException(
-          "Instance of SignatureAlgorithmFactory can only be set once.");
-    }
-
-    instance = signatureAlgorithm;
-
-    if (!SignatureAlgorithmType.isDefault(instance)) {
-      LOG.info(
-          "The signature algorithm uses the elliptic curve {}. The usage of alternative elliptic curves is still experimental.",
-          instance.getCurveName());
-    }
-  }
-
-  /**
-   * getInstance will always return a valid SignatureAlgorithm and never null. This is necessary in
-   * the unit tests be able to use the factory without having to call setInstance first.
+   * Gets instance.
    *
    * @return SignatureAlgorithm instance
    */
   public static SignatureAlgorithm getInstance() {
-    return instance != null
-        ? instance
-        : SignatureAlgorithmType.DEFAULT_SIGNATURE_ALGORITHM_TYPE.get();
+    return instance;
   }
 
-  /**
-   * Is instance set boolean.
-   *
-   * @return the boolean
-   */
-  public static boolean isInstanceSet() {
-    return instance != null;
-  }
-
-  /** Reset instance. */
+  /** Reset instance to default. */
   @VisibleForTesting
   public static void resetInstance() {
-    instance = null;
+    instance = DEFAULT_INSTANCE;
   }
 }

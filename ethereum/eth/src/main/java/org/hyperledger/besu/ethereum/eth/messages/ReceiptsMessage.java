@@ -26,7 +26,7 @@ import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes;
 
-public final class ReceiptsMessage extends AbstractMessageData {
+public class ReceiptsMessage extends AbstractMessageData {
   /**
    * This default decoder instance is used for performance reasons to avoid creating a new decoder
    * for every ReceiptsMessage
@@ -34,7 +34,9 @@ public final class ReceiptsMessage extends AbstractMessageData {
   private static final SyncTransactionReceiptDecoder DEFAULT_SYNC_TRANSACTION_RECEIPT_DECODER =
       new SyncTransactionReceiptDecoder();
 
-  private ReceiptsMessage(final Bytes data) {
+  private List<List<SyncTransactionReceipt>> syncReceiptsByBlock;
+
+  protected ReceiptsMessage(final Bytes data) {
     super(data);
   }
 
@@ -67,9 +69,19 @@ public final class ReceiptsMessage extends AbstractMessageData {
   }
 
   public List<List<SyncTransactionReceipt>> syncReceipts() {
+    if (syncReceiptsByBlock == null) {
+      deserialize();
+    }
+    return syncReceiptsByBlock;
+  }
+
+  protected void deserialize() {
     final RLPInput input = new BytesValueRLPInput(data, false);
-    input.enterList();
-    final List<List<SyncTransactionReceipt>> receiptsForBodies = new ArrayList<>();
+    deserializeReceiptLists(input);
+  }
+
+  protected void deserializeReceiptLists(final RLPInput input) {
+    final List<List<SyncTransactionReceipt>> receiptsByBlock = new ArrayList<>(input.enterList());
     while (input.nextIsList()) {
       final int setSize = input.enterList();
       final List<SyncTransactionReceipt> receiptSet = new ArrayList<>(setSize);
@@ -79,9 +91,9 @@ public final class ReceiptsMessage extends AbstractMessageData {
                 input.nextIsList() ? input.currentListAsBytes() : input.readBytes()));
       }
       input.leaveList();
-      receiptsForBodies.add(receiptSet);
+      receiptsByBlock.add(receiptSet);
     }
     input.leaveList();
-    return receiptsForBodies;
+    syncReceiptsByBlock = receiptsByBlock;
   }
 }

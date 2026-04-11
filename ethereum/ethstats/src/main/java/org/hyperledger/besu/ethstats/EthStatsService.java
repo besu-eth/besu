@@ -30,7 +30,6 @@ import static org.hyperledger.besu.ethstats.request.EthStatsRequest.Type.READY;
 import static org.hyperledger.besu.ethstats.request.EthStatsRequest.Type.STATS;
 
 import org.hyperledger.besu.config.GenesisConfigOptions;
-import org.hyperledger.besu.consensus.clique.blockcreation.CliqueMiningCoordinator;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
@@ -415,12 +414,7 @@ public class EthStatsService {
 
   /** Sends information about the node (is mining, is syncing, etc.) */
   private void sendNodeStatsReport() {
-    final boolean isMiningEnabled;
-    if (miningCoordinator instanceof CliqueMiningCoordinator) {
-      isMiningEnabled = ((CliqueMiningCoordinator) miningCoordinator).isSigner();
-    } else {
-      isMiningEnabled = miningCoordinator.isMining();
-    }
+    final boolean isMiningEnabled = miningCoordinator.isMining();
     final boolean isSyncing = syncState.isInSync();
     final long gasPrice = suggestGasPrice(blockchainQueries.getBlockchain().getChainHeadBlock());
     // safe to cast to int since it isn't realistic to have more than max int peers

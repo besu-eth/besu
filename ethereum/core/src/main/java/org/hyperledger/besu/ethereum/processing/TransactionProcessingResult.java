@@ -50,6 +50,8 @@ public class TransactionProcessingResult
 
   private final long gasSpent;
 
+  private final long stateGasUsed;
+
   private final List<Log> logs;
 
   private final Bytes output;
@@ -71,6 +73,7 @@ public class TransactionProcessingResult
         -1,
         -1,
         -1,
+        0,
         Bytes.EMPTY,
         validationResult,
         Optional.empty(),
@@ -82,6 +85,7 @@ public class TransactionProcessingResult
       final long gasUsedByTransaction,
       final long gasRemaining,
       final long gasSpent,
+      final long stateGasUsed,
       final ValidationResult<TransactionInvalidReason> validationResult,
       final Optional<Bytes> revertReason,
       final Optional<ExceptionalHaltReason> exceptionalHaltReason,
@@ -92,6 +96,7 @@ public class TransactionProcessingResult
         gasUsedByTransaction,
         gasRemaining,
         gasSpent,
+        stateGasUsed,
         Bytes.EMPTY,
         validationResult,
         revertReason,
@@ -114,6 +119,7 @@ public class TransactionProcessingResult
         gasUsedByTransaction,
         gasRemaining,
         gasUsedByTransaction,
+        0,
         validationResult,
         revertReason,
         exceptionalHaltReason,
@@ -125,6 +131,7 @@ public class TransactionProcessingResult
       final long gasUsedByTransaction,
       final long gasRemaining,
       final long gasSpent,
+      final long stateGasUsed,
       final Bytes output,
       final Optional<PartialBlockAccessView> partialBlockAccessView,
       final ValidationResult<TransactionInvalidReason> validationResult) {
@@ -134,6 +141,7 @@ public class TransactionProcessingResult
         gasUsedByTransaction,
         gasRemaining,
         gasSpent,
+        stateGasUsed,
         output,
         validationResult,
         Optional.empty(),
@@ -156,6 +164,7 @@ public class TransactionProcessingResult
         gasUsedByTransaction,
         gasRemaining,
         gasUsedByTransaction,
+        0,
         output,
         partialBlockAccessView,
         validationResult);
@@ -180,6 +189,7 @@ public class TransactionProcessingResult
         estimateGasUsedByTransaction,
         gasRemaining,
         estimateGasUsedByTransaction,
+        0,
         output,
         validationResult,
         revertReason,
@@ -193,6 +203,7 @@ public class TransactionProcessingResult
       final long estimateGasUsedByTransaction,
       final long gasRemaining,
       final long gasSpent,
+      final long stateGasUsed,
       final Bytes output,
       final ValidationResult<TransactionInvalidReason> validationResult,
       final Optional<Bytes> revertReason,
@@ -202,6 +213,7 @@ public class TransactionProcessingResult
     this.estimateGasUsedByTransaction = estimateGasUsedByTransaction;
     this.gasRemaining = gasRemaining;
     this.gasSpent = gasSpent;
+    this.stateGasUsed = stateGasUsed;
     this.output = output;
     this.validationResult = validationResult;
     this.revertReason = revertReason;
@@ -229,6 +241,7 @@ public class TransactionProcessingResult
         estimateGasUsedByTransaction,
         gasRemaining,
         estimateGasUsedByTransaction,
+        0,
         output,
         validationResult,
         revertReason,
@@ -236,13 +249,14 @@ public class TransactionProcessingResult
         partialBlockAccessView);
   }
 
-  /** Constructor with gasSpent (for Amsterdam+ forks with EIP-7778). */
+  /** Constructor with gasSpent and stateGasUsed (for Amsterdam+ forks with EIP-7778/EIP-8037). */
   public TransactionProcessingResult(
       final Status status,
       final List<Log> logs,
       final long estimateGasUsedByTransaction,
       final long gasRemaining,
       final long gasSpent,
+      final long stateGasUsed,
       final Bytes output,
       final ValidationResult<TransactionInvalidReason> validationResult,
       final Optional<Bytes> revertReason,
@@ -253,6 +267,7 @@ public class TransactionProcessingResult
     this.estimateGasUsedByTransaction = estimateGasUsedByTransaction;
     this.gasRemaining = gasRemaining;
     this.gasSpent = gasSpent;
+    this.stateGasUsed = stateGasUsed;
     this.output = output;
     this.validationResult = validationResult;
     this.revertReason = revertReason;
@@ -323,6 +338,19 @@ public class TransactionProcessingResult
    */
   public long getGasSpent() {
     return gasSpent;
+  }
+
+  /**
+   * Returns the state gas used by the transaction (EIP-8037).
+   *
+   * <p>This represents the gas consumed by state-creation operations (CREATE, SSTORE 0→nonzero,
+   * CALL to new accounts, code deposits, EIP-7702 delegations). State gas is tracked separately
+   * from regular gas for multidimensional gas metering.
+   *
+   * @return the state gas used
+   */
+  public long getStateGasUsed() {
+    return stateGasUsed;
   }
 
   /**
@@ -438,6 +466,8 @@ public class TransactionProcessingResult
         + gasRemaining
         + ", gasSpent="
         + gasSpent
+        + ", stateGasUsed="
+        + stateGasUsed
         + ", logs="
         + logs
         + ", output="

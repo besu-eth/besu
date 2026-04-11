@@ -38,7 +38,6 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -136,12 +135,5 @@ public class FullSyncDownloaderTest {
 
     assertThat(synchronizer.calculateTrailingPeerRequirements())
         .isEqualTo(TrailingPeerRequirements.UNRESTRICTED);
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

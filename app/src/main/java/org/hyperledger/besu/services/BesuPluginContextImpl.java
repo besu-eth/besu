@@ -32,7 +32,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -41,6 +40,7 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.ServiceLoader;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -55,7 +55,7 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
   private static final Logger LOG = LoggerFactory.getLogger(BesuPluginContextImpl.class);
 
   private PluginLifecyclePhase state = PluginLifecyclePhase.UNINITIALIZED;
-  private final Map<Class<?>, ? super BesuService> serviceRegistry = new HashMap<>();
+  private final Map<Class<?>, ? super BesuService> serviceRegistry = new ConcurrentHashMap<>();
 
   private List<BesuPlugin> detectedPlugins = new ArrayList<>();
   private List<String> requestedPlugins = new ArrayList<>();

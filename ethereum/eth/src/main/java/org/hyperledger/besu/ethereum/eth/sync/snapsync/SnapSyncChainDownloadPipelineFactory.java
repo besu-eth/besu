@@ -89,11 +89,12 @@ public class SnapSyncChainDownloadPipelineFactory {
 
     final long pivotBlockNumber = chainState.pivotBlockHeader().getNumber();
     LOG.info(
-        "Creating backward header download pipeline from pivot={} down to lowest block={}, parallelism={}, batchSize={}",
+        "Creating backward header download pipeline from pivot={} down to lowest block={}, parallelism={}, batchSize={}, peers={}",
         pivotBlockNumber,
         anchorForHeaderDownload.getNumber(),
         downloaderParallelism,
-        headerRequestSize);
+        headerRequestSize,
+        ethContext.getEthPeers().peerCount());
 
     final BackwardBlockNumberSource headerSource =
         new BackwardBlockNumberSource(

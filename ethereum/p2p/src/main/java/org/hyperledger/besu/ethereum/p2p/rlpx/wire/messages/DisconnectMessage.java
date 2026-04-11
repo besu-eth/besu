@@ -143,6 +143,8 @@ public final class DisconnectMessage extends AbstractMessageData {
     UNEXPECTED_ID((byte) 0x09, "Unexpected ID"),
     LOCAL_IDENTITY((byte) 0x0a, "Local identity"),
     TIMEOUT((byte) 0x0b, "Timeout"),
+    INVALID_RECEIPT_RECEIVED((byte) 0x0f, "Invalid receipt received"),
+    INVALID_FIRST_BLOCK_RECEIPT_INDEX((byte) 0x0f, "Invalid first block receipt index"),
     SUBPROTOCOL_TRIGGERED((byte) 0x10, "Sub protocol triggered"),
     SUBPROTOCOL_TRIGGERED_MISMATCHED_NETWORK((byte) 0x10, "Mismatched network id"),
     SUBPROTOCOL_TRIGGERED_MISMATCHED_FORKID((byte) 0x10, "Mismatched fork id"),
@@ -197,6 +199,10 @@ public final class DisconnectMessage extends AbstractMessageData {
 
     public String getMessage() {
       return message;
+    }
+
+    public boolean isBreachOfProtocol() {
+      return name().startsWith("BREACH_OF_PROTOCOL");
     }
 
     @Override

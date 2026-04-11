@@ -38,7 +38,6 @@ import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguratio
 import org.hyperledger.besu.ethereum.worldstate.ImmutablePathBasedExtraStorageConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -126,6 +125,44 @@ class TrieLogHelperTest {
     when(blockchain.getChainHeadBlockNumber()).thenReturn(5L);
     when(blockchain.getFinalized()).thenReturn(Optional.of(blockHeader3.getBlockHash()));
     when(blockchain.getBlockHeader(any(Hash.class))).thenReturn(Optional.of(blockHeader3));
+  }
+
+  @Test
+  public void pruneFailsWhenBatchFileContainsJavaSerialization(final @TempDir Path dataDir)
+      throws IOException {
+    Files.createDirectories(dataDir.resolve("database"));
+
+    DataStorageConfiguration dataStorageConfiguration =
+        ImmutableDataStorageConfiguration.builder()
+            .dataStorageFormat(BONSAI)
+            .pathBasedExtraStorageConfiguration(
+                ImmutablePathBasedExtraStorageConfiguration.builder()
+                    .maxLayersToLoad(3L)
+                    .limitTrieLogsEnabled(true)
+                    .build())
+            .build();
+
+    mockBlockchainBase();
+    when(blockchain.getBlockHeader(5)).thenReturn(Optional.of(blockHeader5));
+    when(blockchain.getBlockHeader(4)).thenReturn(Optional.of(blockHeader4));
+    when(blockchain.getBlockHeader(3)).thenReturn(Optional.of(blockHeader3));
+
+    // Pre-place a Java-serialized file at the expected batch file path.
+    // saveTrieLogsAsRlpInFile's exists-check will skip overwriting it.
+    // readTrieLogsAsRlpFromFile will then fail to parse it as RLP during restore,
+    // confirming the code no longer silently deserializes Java-serialized objects.
+    Path batchFile = dataDir.resolve("database").resolve("trieLogsToRetain-1");
+    try (var oos =
+        new java.io.ObjectOutputStream(new java.io.FileOutputStream(batchFile.toFile()))) {
+      oos.writeObject("notrlp");
+    }
+
+    assertThatThrownBy(
+            () ->
+                nonValidatingTrieLogHelper.prune(
+                    dataStorageConfiguration, inMemoryWorldState, blockchain, dataDir))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining("RLP");
   }
 
   @Test
@@ -388,7 +425,7 @@ class TrieLogHelperTest {
                     blockchain,
                     dataDir.resolve("unknownPath")))
         .isInstanceOf(RuntimeException.class)
-        .hasCauseExactlyInstanceOf(FileNotFoundException.class);
+        .hasCauseInstanceOf(java.io.IOException.class);
 
     // assert all trie logs are still in the DB
     assertThat(inMemoryWorldState.getTrieLog(blockHeader1.getHash()).get())

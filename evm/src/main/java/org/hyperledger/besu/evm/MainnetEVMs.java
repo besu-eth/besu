@@ -61,6 +61,7 @@ import org.hyperledger.besu.evm.operation.CreateOperation;
 import org.hyperledger.besu.evm.operation.DelegateCallOperation;
 import org.hyperledger.besu.evm.operation.DifficultyOperation;
 import org.hyperledger.besu.evm.operation.DivOperation;
+import org.hyperledger.besu.evm.operation.DivOperationOptimized;
 import org.hyperledger.besu.evm.operation.DupNOperation;
 import org.hyperledger.besu.evm.operation.DupOperation;
 import org.hyperledger.besu.evm.operation.EqOperation;
@@ -109,6 +110,7 @@ import org.hyperledger.besu.evm.operation.ReturnDataSizeOperation;
 import org.hyperledger.besu.evm.operation.ReturnOperation;
 import org.hyperledger.besu.evm.operation.RevertOperation;
 import org.hyperledger.besu.evm.operation.SDivOperation;
+import org.hyperledger.besu.evm.operation.SDivOperationOptimized;
 import org.hyperledger.besu.evm.operation.SGtOperation;
 import org.hyperledger.besu.evm.operation.SLoadOperation;
 import org.hyperledger.besu.evm.operation.SLtOperation;
@@ -205,8 +207,6 @@ public class MainnetEVMs {
     }
     registry.put(new MulOperation(gasCalculator));
     registry.put(new SubOperation(gasCalculator));
-    registry.put(new DivOperation(gasCalculator));
-    registry.put(new SDivOperation(gasCalculator));
     if (evmConfiguration.enableOptimizedOpcodes()) {
       registry.put(new AddOperationOptimized(gasCalculator));
       registry.put(new ModOperationOptimized(gasCalculator));
@@ -217,6 +217,8 @@ public class MainnetEVMs {
       registry.put(new XorOperationOptimized(gasCalculator));
       registry.put(new OrOperationOptimized(gasCalculator));
       registry.put(new NotOperationOptimized(gasCalculator));
+      registry.put(new DivOperationOptimized(gasCalculator));
+      registry.put(new SDivOperationOptimized(gasCalculator));
     } else {
       registry.put(new AddOperation(gasCalculator));
       registry.put(new ModOperation(gasCalculator));
@@ -227,6 +229,8 @@ public class MainnetEVMs {
       registry.put(new XorOperation(gasCalculator));
       registry.put(new OrOperation(gasCalculator));
       registry.put(new NotOperation(gasCalculator));
+      registry.put(new DivOperation(gasCalculator));
+      registry.put(new SDivOperation(gasCalculator));
     }
     registry.put(new ExpOperation(gasCalculator));
     registry.put(new SignExtendOperation(gasCalculator));

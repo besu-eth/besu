@@ -21,8 +21,6 @@ import static org.hyperledger.besu.config.NetworkDefinition.DEV;
 import static org.hyperledger.besu.config.NetworkDefinition.MAINNET;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis.ETH;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis.WEB3;
-import static org.hyperledger.besu.ethereum.p2p.config.DefaultDiscoveryConfiguration.MAINNET_BOOTSTRAP_NODES;
-import static org.hyperledger.besu.ethereum.p2p.config.DefaultDiscoveryConfiguration.MAINNET_DISCOVERY_URL;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -132,6 +130,7 @@ public class CascadingDefaultProviderTest extends CommandTestAbstract {
             .setNetworkId(BigInteger.valueOf(42))
             .setGenesisConfig(GenesisConfig.fromConfig(encodeJsonGenesis(GENESIS_VALID_JSON)))
             .setEnodeBootNodes(nodes)
+            .setEnrBootNodes(Collections.emptyList())
             .setDnsDiscoveryUrl(null)
             .build();
     verify(mockControllerBuilder).dataDirectory(eq(dataFolder.toPath()));
@@ -165,14 +164,7 @@ public class CascadingDefaultProviderTest extends CommandTestAbstract {
     final MetricsConfiguration metricsConfiguration = MetricsConfiguration.builder().build();
 
     verify(mockRunnerBuilder).discoveryEnabled(eq(true));
-    verify(mockRunnerBuilder)
-        .ethNetworkConfig(
-            new EthNetworkConfig(
-                GenesisConfig.fromResource(MAINNET.getGenesisFile()),
-                MAINNET.getNetworkId(),
-                MAINNET_BOOTSTRAP_NODES,
-                Collections.emptyList(),
-                MAINNET_DISCOVERY_URL));
+    verify(mockRunnerBuilder).ethNetworkConfig(EthNetworkConfig.getNetworkConfig(MAINNET));
     verify(mockRunnerBuilder).p2pAdvertisedHost(eq("127.0.0.1"));
     verify(mockRunnerBuilder).p2pListenPort(eq(30303));
     verify(mockRunnerBuilder).jsonRpcConfiguration(eq(jsonRpcConfiguration));

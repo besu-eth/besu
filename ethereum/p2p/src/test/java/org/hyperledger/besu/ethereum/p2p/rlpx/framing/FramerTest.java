@@ -271,6 +271,63 @@ public class FramerTest {
     assertThat(receivingFramer.isCompressionSuccessful()).isTrue();
   }
 
+  @Test
+  public void firstMessageDecompressesEagerlySubsequentMessagesDeferred() {
+    final HandshakeSecrets sendSecrets =
+        new HandshakeSecrets(
+            Bytes.fromHexString(
+                    "0x75b3ee95adff0c529a05efd7612aa1dbe5057eb9facdde0dfc837ad143da1d43")
+                .toArray(),
+            Bytes.fromHexString(
+                    "0x030dfd1566f4800c4842c177f7d476b64ae2b99a2aa0ab5600aa2f41a8710575")
+                .toArray(),
+            Bytes.fromHexString(
+                    "0xc9d3385b1588a5969cba312f8c29bedb4cb9d56ec0cf825436addc1ec644f1d6")
+                .toArray());
+    final HandshakeSecrets recvSecrets =
+        new HandshakeSecrets(
+            Bytes.fromHexString(
+                    "0x75b3ee95adff0c529a05efd7612aa1dbe5057eb9facdde0dfc837ad143da1d43")
+                .toArray(),
+            Bytes.fromHexString(
+                    "0x030dfd1566f4800c4842c177f7d476b64ae2b99a2aa0ab5600aa2f41a8710575")
+                .toArray(),
+            Bytes.fromHexString(
+                    "0xc9d3385b1588a5969cba312f8c29bedb4cb9d56ec0cf825436addc1ec644f1d6")
+                .toArray());
+    final Framer sendingFramer = new Framer(sendSecrets);
+    final Framer receivingFramer = new Framer(recvSecrets);
+    sendingFramer.enableCompression();
+    receivingFramer.enableCompression();
+
+    final Bytes payload1 = DisconnectMessage.create(DisconnectReason.TIMEOUT).getData();
+    final Bytes payload2 = DisconnectMessage.create(DisconnectReason.BREACH_OF_PROTOCOL).getData();
+
+    // Frame two messages
+    final ByteBuf out1 = Unpooled.buffer();
+    sendingFramer.frame(new RawMessage(0x01, payload1), out1);
+    final ByteBuf out2 = Unpooled.buffer();
+    sendingFramer.frame(new RawMessage(0x01, payload2), out2);
+
+    // First message: eagerly decompressed (compressionSuccessful was false)
+    final MessageData msg1 = receivingFramer.deframe(out1);
+    assertThat(msg1).isNotNull();
+    final RawMessage raw1 = (RawMessage) msg1;
+    assertThat(raw1.getCompressedData()).isNull();
+    assertThat(raw1.getData()).isEqualTo(payload1);
+    assertThat(receivingFramer.isCompressionSuccessful()).isTrue();
+
+    // Second message: deferred decompression (compressionSuccessful was true)
+    final MessageData msg2 = receivingFramer.deframe(out2);
+    assertThat(msg2).isNotNull();
+    final RawMessage raw2 = (RawMessage) msg2;
+    assertThat(raw2.getCompressedData()).isNotNull();
+    // getData() triggers lazy decompression
+    assertThat(raw2.getData()).isEqualTo(payload2);
+    // Compressed data released after decompression
+    assertThat(raw2.getCompressedData()).isNull();
+  }
+
   private HandshakeSecrets secretsFrom(final JsonNode td, final boolean swap) {
     final byte[] aes = decodeHexDump(td.get("aes_secret").asText());
     final byte[] mac = decodeHexDump(td.get("mac_secret").asText());

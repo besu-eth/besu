@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
 import java.util.List;
 import java.util.Optional;

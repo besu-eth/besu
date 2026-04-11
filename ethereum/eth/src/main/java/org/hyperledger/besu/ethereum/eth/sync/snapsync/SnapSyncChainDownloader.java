@@ -66,6 +66,7 @@ public class SnapSyncChainDownloader
     implements ChainDownloader, PivotUpdateListener, WorldStateHealFinishedListener {
   private static final Logger LOG = LoggerFactory.getLogger(SnapSyncChainDownloader.class);
   public static final int SMALL_DELAY_MILLISECONDS = 100;
+  static final int NO_PEER_RETRY_DELAY_MILLISECONDS = 5_000;
 
   private final SnapSyncChainDownloadPipelineFactory pipelineFactory;
   private final ProtocolSchedule protocolSchedule;
@@ -243,7 +244,7 @@ public class SnapSyncChainDownloader
                 final Duration totalDuration = Duration.between(overallStartTime, Instant.now());
                 LOG.info(
                     "Two-stage fast sync chain download finished in {} seconds (including pivot updates)",
-                    totalDuration.getSeconds());
+                    totalDuration.toSeconds());
                 // Stop metrics on success
                 syncDurationMetrics.stopTimer(SyncDurationMetrics.Labels.CHAIN_DOWNLOAD_DURATION);
                 chainSyncStateStorage.deleteState();
@@ -380,7 +381,7 @@ public class SnapSyncChainDownloader
               final Duration stage1Duration = Duration.between(stage1StartTime, Instant.now());
               LOG.debug(
                   "Stage 1 complete: Backward header download finished in {} seconds",
-                  stage1Duration.getSeconds());
+                  stage1Duration.toSeconds());
 
               // Mark headers download as complete and persist
               chainSyncState.updateAndGet(ChainSyncState::withHeadersDownloadComplete);
@@ -435,7 +436,7 @@ public class SnapSyncChainDownloader
               final Duration stage2Duration = Duration.between(stage2StartTime, Instant.now());
               LOG.info(
                   "Stage 2 complete: Forward bodies/receipts download finished in {} seconds",
-                  stage2Duration.getSeconds());
+                  stage2Duration.toSeconds());
               return null;
             });
   }
@@ -478,6 +479,21 @@ public class SnapSyncChainDownloader
 
     // Already completed from another path
     if (overallResult.isDone()) {
+      return;
+    }
+
+    // Guard against starting an expensive 160-concurrent-future pipeline with no peers.
+    // With no peers every future immediately hits NO_PEER_AVAILABLE, spins for 60 s, and
+    // the pipeline restarts every 60 s accumulating scheduler/thread overhead indefinitely.
+    if (ethContext.getEthPeers().peerCount() == 0) {
+      LOG.debug(
+          "No peers available, deferring chain sync pipeline start for {} ms",
+          NO_PEER_RETRY_DELAY_MILLISECONDS);
+      ethContext
+          .getScheduler()
+          .scheduleFutureTask(
+              () -> attemptDownload(overallResult),
+              Duration.ofMillis(NO_PEER_RETRY_DELAY_MILLISECONDS));
       return;
     }
 
@@ -531,7 +547,7 @@ public class SnapSyncChainDownloader
     chainSyncStateStorage.storeState(chainSyncState.get());
 
     if (shouldRetry(error)) {
-      LOG.warn("Chain sync encountered error, will retry from saved state", error);
+      LOG.debug("Chain sync encountered error, will retry from saved state", error);
 
       // Schedule next attempt without recursion
       // Use a small delay to avoid tight retry loops

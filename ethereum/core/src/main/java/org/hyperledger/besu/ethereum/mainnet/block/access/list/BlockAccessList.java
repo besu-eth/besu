@@ -55,6 +55,10 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
     return Objects.hash(accountChanges);
   }
 
+  public boolean isEmpty() {
+    return accountChanges.isEmpty();
+  }
+
   public void writeTo(final RLPOutput out) {
     BlockAccessListEncoder.encode(this, out);
   }
@@ -117,6 +121,14 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
       List<BalanceChange> balanceChanges,
       List<NonceChange> nonceChanges,
       List<CodeChange> codeChanges) {
+
+    public boolean hasAnyChange() {
+      return !balanceChanges.isEmpty()
+          || !nonceChanges.isEmpty()
+          || !codeChanges.isEmpty()
+          || !storageChanges.isEmpty();
+    }
+
     @Override
     public String toString() {
       return "AccountChanges{"

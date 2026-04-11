@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.framing.FramingException;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.CapabilityMultiplexer;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.PeerInfo;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.HelloMessage;
@@ -54,6 +55,7 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.DecoderException;
 import io.netty.handler.timeout.IdleStateHandler;
+import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -227,7 +229,9 @@ final class DeFramer extends ByteToMessageDecoder {
             "Message received before HELLO's exchanged (BREACH_OF_PROTOCOL), disconnecting.  Peer: {}, Code: {}, Data: {}",
             expectedPeer.map(Peer::getEnodeURLString).orElse("unknown"),
             message.getCode(),
-            message.getData().toString());
+            message instanceof RawMessage raw && raw.getCompressedData() != null
+                ? "snappy compressed data: " + Bytes.wrap(raw.getCompressedData())
+                : message.getData().toString());
         ctx.writeAndFlush(
                 new OutboundMessage(
                     null,

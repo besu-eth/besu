@@ -40,7 +40,6 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -147,12 +146,5 @@ abstract class AbstractJsonRpcTest {
         new File(AbstractJsonRpcTest.class.getResource(testCasesPath).toURI()).listFiles();
 
     return Arrays.stream(testCasesList).sorted().map(File::toURI).map(Arguments::of);
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

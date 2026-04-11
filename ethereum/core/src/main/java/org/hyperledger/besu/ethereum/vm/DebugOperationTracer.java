@@ -20,17 +20,15 @@ import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.ModificationNotAllowedException;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
-import org.hyperledger.besu.evm.operation.AbstractCallOperation;
+import org.hyperledger.besu.evm.operation.AbstractCreateOperation;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.Operation.OperationResult;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
-import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -39,29 +37,12 @@ import java.util.TreeMap;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
-public class DebugOperationTracer implements OperationTracer {
-
-  private final OpCodeTracerConfig options;
-
-  /**
-   * A flag to indicate if call operations should trace just the operation cost (false, Geth style,
-   * debug_ series RPCs) or the operation cost and all gas granted to the child call (true, Parity
-   * style, trace_ series RPCs)
-   */
-  private final boolean recordChildCallGas;
+public class DebugOperationTracer extends AbstractDebugOperationTracer {
 
   private List<TraceFrame> traceFrames = new ArrayList<>();
   private TraceFrame lastFrame;
 
-  private Optional<Bytes[]> preExecutionStack;
-  private long gasRemaining;
   private Bytes inputData;
-  private int pc;
-  private int depth;
-
-  // Flags used for implementing traceOpcodes functionality
-  private boolean traceOpcode;
-  private Operation previousOpcode = null;
 
   /**
    * Creates the operation tracer.
@@ -71,53 +52,35 @@ public class DebugOperationTracer implements OperationTracer {
    *     (false) gas amounts for call operations
    */
   public DebugOperationTracer(final OpCodeTracerConfig options, final boolean recordChildCallGas) {
-    this.options = options;
-    this.recordChildCallGas = recordChildCallGas;
+    super(options, recordChildCallGas);
   }
 
   @Override
-  public void tracePreExecution(final MessageFrame frame) {
-    final Operation currentOperation = frame.getCurrentOperation();
-    if (!(traceOpcode = traceOpcode(currentOperation))) {
-      return;
-    }
-    preExecutionStack = captureStack(frame);
-    gasRemaining = frame.getRemainingGas();
+  protected void capturePreExecutionState(final MessageFrame frame) {
     if (lastFrame != null && frame.getDepth() > lastFrame.getDepth())
       inputData = frame.getInputData().copy();
     else inputData = frame.getInputData();
-    pc = frame.getPC();
-    depth = frame.getDepth();
-  }
-
-  private boolean traceOpcode(final Operation currentOpcode) {
-    if (options.traceOpcodes().isEmpty()) {
-      return true;
-    }
-    final boolean traceCurrentOpcode =
-        options.traceOpcodes().contains(currentOpcode.getName().toLowerCase(Locale.ROOT));
-    final boolean tracePreviousOpcode =
-        previousOpcode != null
-            && options.traceOpcodes().contains(previousOpcode.getName().toLowerCase(Locale.ROOT));
-
-    if (!traceCurrentOpcode && !tracePreviousOpcode) {
-      return false;
-    }
-    previousOpcode = currentOpcode;
-    return true;
   }
 
   @Override
   public void tracePostExecution(final MessageFrame frame, final OperationResult operationResult) {
-    final Operation currentOperation = frame.getCurrentOperation();
-    final String opcode = currentOperation.getName();
     if (!traceOpcode) {
       return;
     }
+    final Operation currentOperation = frame.getCurrentOperation();
+    final String opcode = currentOperation.getName();
     final int opcodeNumber = (opcode != null) ? currentOperation.getOpcode() : Integer.MAX_VALUE;
     final WorldUpdater worldUpdater = frame.getWorldUpdater();
     final Bytes outputData = frame.getOutputData();
-    final Optional<Bytes[]> memory = captureMemory(frame);
+    // Always capture memory for soft-failed CREATE/CREATE2 ops so callTracer can extract init code
+    final Optional<Bytes[]> memory =
+        captureMemory(frame)
+            .or(
+                () ->
+                    operationResult.getSoftFailureReason().isPresent()
+                            && currentOperation instanceof AbstractCreateOperation
+                        ? forceCaptureMem(frame)
+                        : Optional.empty());
     final Optional<Bytes[]> stackPostExecution = captureStack(frame);
 
     if (!traceFrames.isEmpty()) {
@@ -130,10 +93,7 @@ public class DebugOperationTracer implements OperationTracer {
     final Optional<Map<UInt256, UInt256>> storage = captureStorage(frame);
     final Optional<Map<Address, Wei>> maybeRefunds =
         frame.getRefunds().isEmpty() ? Optional.empty() : Optional.of(frame.getRefunds());
-    long thisGasCost = operationResult.getGasCost();
-    if (recordChildCallGas && currentOperation instanceof AbstractCallOperation) {
-      thisGasCost += frame.getMessageFrameStack().getFirst().getRemainingGas();
-    }
+    final long thisGasCost = computeGasCost(currentOperation, operationResult, frame);
 
     final Optional<ExceptionalHaltReason> haltReason =
         Optional.ofNullable(operationResult.getHaltReason()).or(frame::getExceptionalHaltReason);
@@ -177,7 +137,6 @@ public class DebugOperationTracer implements OperationTracer {
   @Override
   public void tracePrecompileCall(
       final MessageFrame frame, final long gasRequirement, final Bytes output) {
-
     final Address recipient = frame.getRecipientAddress();
     final Bytes inputData = frame.getInputData().copy();
 
@@ -286,25 +245,26 @@ public class DebugOperationTracer implements OperationTracer {
   private Optional<Bytes[]> captureMemory(final MessageFrame frame) {
     if (!options.traceMemory() || frame.memoryWordSize() == 0) {
       return Optional.empty();
+    } else if (frame.getMaybeUpdatedMemory().isEmpty() && lastFrame != null) {
+      final Optional<Bytes[]> lastMemory = lastFrame.getMemory();
+      if (lastFrame.getDepth() == frame.getDepth()
+          && lastMemory.isPresent()
+          && lastMemory.get().length == frame.memoryWordSize()) {
+        return lastMemory;
+      }
+    }
+    return forceCaptureMem(frame);
+  }
+
+  private Optional<Bytes[]> forceCaptureMem(final MessageFrame frame) {
+    if (frame.memoryWordSize() == 0) {
+      return Optional.empty();
     }
     final Bytes[] memoryContents = new Bytes[frame.memoryWordSize()];
     for (int i = 0; i < memoryContents.length; i++) {
       memoryContents[i] = frame.readMemory(i * 32L, 32);
     }
     return Optional.of(memoryContents);
-  }
-
-  private Optional<Bytes[]> captureStack(final MessageFrame frame) {
-    if (!options.traceStack()) {
-      return Optional.empty();
-    }
-
-    final Bytes[] stackContents = new Bytes[frame.stackSize()];
-    for (int i = 0; i < stackContents.length; i++) {
-      // Record stack contents in reverse
-      stackContents[i] = frame.getStackItem(stackContents.length - i - 1);
-    }
-    return Optional.of(stackContents);
   }
 
   @Override

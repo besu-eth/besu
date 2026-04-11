@@ -44,6 +44,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetSyncReceiptsFromPeerTask;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetSyncReceiptsFromPeerTask.Response;
 import org.hyperledger.besu.ethereum.mainnet.DefaultProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -89,25 +90,29 @@ public class DownloadSyncReceiptsStepTest {
   @Test
   public void shouldDownloadReceiptsForBlocksWithTransactions()
       throws ExecutionException, InterruptedException {
-
     // skip genesis block, since we do not need to retrieve receipt for it
     final List<Block> blockWithTxs = gen.blockSequence(3).subList(1, 3);
 
-    final var receiptsPerBlock =
+    final List<List<SyncTransactionReceipt>> returnedReceiptsByBlock =
         blockWithTxs.stream()
             .map(gen::receipts)
             .map(rs -> receiptsToSyncReceipts(rs, ETH69_RECEIPT_CONFIGURATION))
             .toList();
     final var syncBlocks = blocksToSyncBlocks(blockWithTxs);
 
-    final Map<SyncBlock, List<SyncTransactionReceipt>> returnedReceiptsByBlock = new HashMap<>();
-    for (int i = 0; i < syncBlocks.size(); i++) {
-      returnedReceiptsByBlock.put(syncBlocks.get(i), receiptsPerBlock.get(i));
-    }
-
     // Mock the peer task executor to return receipts for both blocks
-    final var executorResult =
-        new PeerTaskExecutorResult<>(Optional.of(returnedReceiptsByBlock), SUCCESS, emptyList());
+    final PeerTaskExecutorResult<Response> executorResult =
+        new PeerTaskExecutorResult<>(
+            Optional.of(
+                new Response(
+                    Map.of(
+                        syncBlocks.get(0),
+                        returnedReceiptsByBlock.get(0),
+                        syncBlocks.get(1),
+                        returnedReceiptsByBlock.get(1)),
+                    List.of())),
+            SUCCESS,
+            emptyList());
     when(peerTaskExecutor.execute(any(GetSyncReceiptsFromPeerTask.class)))
         .thenReturn(executorResult);
 
@@ -120,7 +125,7 @@ public class DownloadSyncReceiptsStepTest {
     assertThat(blocksWithReceipts).hasSize(2);
     for (int i = 0; i < blocksWithReceipts.size(); i++) {
       assertThat(blocksWithReceipts.get(i).getBlock()).isEqualTo(syncBlocks.get(i));
-      assertThat(blocksWithReceipts.get(i).getReceipts()).isEqualTo(receiptsPerBlock.get(i));
+      assertThat(blocksWithReceipts.get(i).getReceipts()).isEqualTo(returnedReceiptsByBlock.get(i));
     }
 
     // Verify the task was executed once
@@ -140,21 +145,23 @@ public class DownloadSyncReceiptsStepTest {
     gen.setBlockOptionsSupplier(() -> BlockOptions.create().hasTransactions(true));
     final Block block3_withTxs = gen.blockSequence(block2_withoutTxs, 1).getFirst();
 
-    final var blocks = List.of(block1_withTxs, block2_withoutTxs, block3_withTxs);
+    final List<Block> blocks = List.of(block1_withTxs, block2_withoutTxs, block3_withTxs);
 
     // we must not request receipt for block2, so only return receipts for the 2 blocks with txs
-    final var receiptsForBlock1 =
+    final List<SyncTransactionReceipt> receiptsForBlock1 =
         receiptsToSyncReceipts(gen.receipts(block1_withTxs), ETH69_RECEIPT_CONFIGURATION);
-    final var receiptsForBlock3 =
+    final List<SyncTransactionReceipt> receiptsForBlock3 =
         receiptsToSyncReceipts(gen.receipts(block3_withTxs), ETH69_RECEIPT_CONFIGURATION);
 
-    final var syncBlocks = blocksToSyncBlocks(blocks);
+    final List<SyncBlock> syncBlocks = blocksToSyncBlocks(blocks);
 
-    final Map<SyncBlock, List<SyncTransactionReceipt>> returnedReceiptsByBlock =
-        Map.of(syncBlocks.get(0), receiptsForBlock1, syncBlocks.get(2), receiptsForBlock3);
+    final Response taskResponse =
+        new Response(
+            Map.of(syncBlocks.get(0), receiptsForBlock1, syncBlocks.get(2), receiptsForBlock3),
+            List.of());
 
-    final var executorResult =
-        new PeerTaskExecutorResult<>(Optional.of(returnedReceiptsByBlock), SUCCESS, emptyList());
+    final PeerTaskExecutorResult<Response> executorResult =
+        new PeerTaskExecutorResult<>(Optional.of(taskResponse), SUCCESS, emptyList());
     when(peerTaskExecutor.execute(any(GetSyncReceiptsFromPeerTask.class)))
         .thenReturn(executorResult);
 
@@ -180,32 +187,155 @@ public class DownloadSyncReceiptsStepTest {
   }
 
   @Test
+  public void shouldHandlePartialReceiptsFromFirstBlock()
+      throws ExecutionException, InterruptedException {
+
+    // Given: blocks with 3 transactions each, excluding genesis block
+    gen.setBlockOptionsSupplier(
+        () -> BlockOptions.create().hasTransactions(true).transactionCount(3));
+    final List<Block> blocks = gen.blockSequence(3).subList(1, 3);
+
+    final List<SyncBlock> syncBlocks = blocksToSyncBlocks(blocks);
+
+    final List<List<SyncTransactionReceipt>> returnedReceiptsByBlock =
+        blocks.stream()
+            .map(gen::receipts)
+            .map(rs -> receiptsToSyncReceipts(rs, ETH69_RECEIPT_CONFIGURATION))
+            .toList();
+
+    // First call returns partial receipts for first block
+    final List<SyncTransactionReceipt> firstBlockReceipts = returnedReceiptsByBlock.getFirst();
+    final List<SyncTransactionReceipt> secondBlockReceipts = returnedReceiptsByBlock.get(1);
+    final List<SyncTransactionReceipt> partialReceipts =
+        firstBlockReceipts.subList(0, firstBlockReceipts.size() / 2);
+
+    final PeerTaskExecutorResult<Response> firstExecutorResult =
+        new PeerTaskExecutorResult<>(
+            Optional.of(new Response(Map.of(), partialReceipts)), SUCCESS, emptyList());
+
+    // Second call returns combined receipts (partial + remaining) for first block and second block
+    // Note: processResponse in AbstractGetReceiptsFromPeerTask combines firstBlockPartialReceipts
+    // with newly received receipts, so the result contains the full receipt list
+    final PeerTaskExecutorResult<Response> secondExecutorResult =
+        new PeerTaskExecutorResult<>(
+            Optional.of(
+                new Response(
+                    Map.of(
+                        syncBlocks.getFirst(),
+                        firstBlockReceipts,
+                        syncBlocks.get(1),
+                        secondBlockReceipts),
+                    List.of())),
+            SUCCESS,
+            emptyList());
+
+    when(peerTaskExecutor.execute(any(GetSyncReceiptsFromPeerTask.class)))
+        .thenReturn(firstExecutorResult)
+        .thenReturn(secondExecutorResult);
+
+    // When: downloading receipts
+    final CompletableFuture<List<SyncBlockWithReceipts>> result =
+        downloadSyncReceiptsStep.apply(syncBlocks);
+
+    // Then: should return blocks with complete receipts
+    final List<SyncBlockWithReceipts> blocksWithReceipts = result.get();
+    assertThat(blocksWithReceipts).hasSize(2);
+    assertThat(blocksWithReceipts.get(0).getReceipts()).isEqualTo(firstBlockReceipts);
+    assertThat(blocksWithReceipts.get(1).getReceipts()).isEqualTo(secondBlockReceipts);
+
+    // Verify the task was executed twice
+    verify(peerTaskExecutor, times(2)).execute(any(GetSyncReceiptsFromPeerTask.class));
+  }
+
+  @Test
+  public void shouldHandlePartialReceiptsFromBlockAdvanced()
+      throws ExecutionException, InterruptedException {
+
+    // Given: block with 3 transactions
+    gen.setBlockOptionsSupplier(
+        () -> BlockOptions.create().hasTransactions(true).transactionCount(3));
+    final Block block = gen.block();
+
+    final List<SyncBlock> syncBlocks = blocksToSyncBlocks(List.of(block));
+
+    final List<SyncTransactionReceipt> returnedReceipts =
+        receiptsToSyncReceipts(gen.receipts(block), ETH69_RECEIPT_CONFIGURATION);
+
+    // Receipts for the block are split in three responses
+    // Note: processResponse combines partial receipts, so each result contains cumulative receipts
+    final List<SyncTransactionReceipt> firstCallReturnedReceipts = returnedReceipts.subList(0, 1);
+    final List<SyncTransactionReceipt> secondCallReturnedReceipts = returnedReceipts.subList(0, 2);
+    final List<SyncTransactionReceipt> thirdCallReturnedReceipts = returnedReceipts;
+
+    final PeerTaskExecutorResult<Response> firstExecutorResult =
+        new PeerTaskExecutorResult<>(
+            Optional.of(new Response(Map.of(), firstCallReturnedReceipts)), SUCCESS, emptyList());
+
+    final PeerTaskExecutorResult<Response> secondExecutorResult =
+        new PeerTaskExecutorResult<>(
+            Optional.of(new Response(Map.of(), secondCallReturnedReceipts)), SUCCESS, emptyList());
+
+    final PeerTaskExecutorResult<Response> thirdExecutorResult =
+        new PeerTaskExecutorResult<>(
+            Optional.of(
+                new Response(Map.of(syncBlocks.getFirst(), thirdCallReturnedReceipts), List.of())),
+            SUCCESS,
+            emptyList());
+
+    when(peerTaskExecutor.execute(any(GetSyncReceiptsFromPeerTask.class)))
+        .thenReturn(firstExecutorResult)
+        .thenReturn(secondExecutorResult)
+        .thenReturn(thirdExecutorResult);
+
+    // When: downloading receipts
+    final CompletableFuture<List<SyncBlockWithReceipts>> result =
+        downloadSyncReceiptsStep.apply(syncBlocks);
+
+    // Then: should return block with complete receipts
+    final List<SyncBlockWithReceipts> blocksWithReceipts = result.get();
+    assertThat(blocksWithReceipts).hasSize(1);
+    assertThat(blocksWithReceipts.getFirst().getReceipts()).isEqualTo(returnedReceipts);
+
+    // Verify the task was executed twice
+    verify(peerTaskExecutor, times(3)).execute(any(GetSyncReceiptsFromPeerTask.class));
+  }
+
+  @Test
   public void shouldRetryUntilAllReceiptsDownloaded()
       throws ExecutionException, InterruptedException {
     // Given: 3 blocks with transactions
     final List<Block> blocks = gen.blockSequence(4).subList(1, 4);
     final List<SyncBlock> syncBlocks = blocksToSyncBlocks(blocks);
 
-    final var receiptsPerBlock =
+    final List<List<SyncTransactionReceipt>> receiptsPerBlock =
         blocks.stream()
             .map(gen::receipts)
             .map(rs -> receiptsToSyncReceipts(rs, ETH69_RECEIPT_CONFIGURATION))
             .toList();
 
     // First call returns first block only
-    final var firstExecutorResult =
+    final PeerTaskExecutorResult<Response> firstExecutorResult =
         new PeerTaskExecutorResult<>(
-            Optional.of(Map.of(syncBlocks.get(0), receiptsPerBlock.get(0))), SUCCESS, emptyList());
+            Optional.of(
+                new Response(Map.of(syncBlocks.get(0), receiptsPerBlock.get(0)), List.of())),
+            SUCCESS,
+            emptyList());
 
     // Second call returns second block only
-    final var secondExecutorResult =
+    final PeerTaskExecutorResult<Response> secondExecutorResult =
         new PeerTaskExecutorResult<>(
-            Optional.of(Map.of(syncBlocks.get(1), receiptsPerBlock.get(1))), SUCCESS, emptyList());
+            Optional.of(
+                new Response(Map.of(syncBlocks.get(1), receiptsPerBlock.get(1)), List.of())),
+            SUCCESS,
+            emptyList());
 
     // Third call returns third block only
-    final var thirdExecutorResult =
+    final PeerTaskExecutorResult<Response> thirdExecutorResult =
         new PeerTaskExecutorResult<>(
-            Optional.of(Map.of(syncBlocks.get(2), receiptsPerBlock.get(2))), SUCCESS, emptyList());
+            Optional.of(
+                new Response(Map.of(syncBlocks.get(2), receiptsPerBlock.get(2)), List.of())),
+            SUCCESS,
+            emptyList());
 
     when(peerTaskExecutor.execute(any(GetSyncReceiptsFromPeerTask.class)))
         .thenReturn(firstExecutorResult)
@@ -288,13 +418,13 @@ public class DownloadSyncReceiptsStepTest {
     }
 
     // First call returns failure (e.g., peer disconnected)
-    final var failureResult =
-        new PeerTaskExecutorResult<Map<SyncBlock, List<SyncTransactionReceipt>>>(
-            Optional.empty(), PEER_DISCONNECTED, emptyList());
+    final PeerTaskExecutorResult<Response> failureResult =
+        new PeerTaskExecutorResult<>(Optional.empty(), PEER_DISCONNECTED, emptyList());
 
     // Second call returns success with all receipts
-    final var successResult =
-        new PeerTaskExecutorResult<>(Optional.of(returnedReceiptsByBlock), SUCCESS, emptyList());
+    final PeerTaskExecutorResult<Response> successResult =
+        new PeerTaskExecutorResult<>(
+            Optional.of(new Response(returnedReceiptsByBlock, emptyList())), SUCCESS, emptyList());
 
     when(peerTaskExecutor.execute(any(GetSyncReceiptsFromPeerTask.class)))
         .thenReturn(failureResult)
@@ -330,20 +460,19 @@ public class DownloadSyncReceiptsStepTest {
             .toList();
 
     // First three calls return different failures
-    final var timeoutResult =
-        new PeerTaskExecutorResult<Map<SyncBlock, List<SyncTransactionReceipt>>>(
-            Optional.empty(), TIMEOUT, emptyList());
-    final var noPeerResult =
-        new PeerTaskExecutorResult<Map<SyncBlock, List<SyncTransactionReceipt>>>(
-            Optional.empty(), NO_PEER_AVAILABLE, emptyList());
-    final var disconnectedResult =
-        new PeerTaskExecutorResult<Map<SyncBlock, List<SyncTransactionReceipt>>>(
-            Optional.empty(), PEER_DISCONNECTED, emptyList());
+    final PeerTaskExecutorResult<Response> timeoutResult =
+        new PeerTaskExecutorResult<>(Optional.empty(), TIMEOUT, emptyList());
+    final PeerTaskExecutorResult<Response> noPeerResult =
+        new PeerTaskExecutorResult<>(Optional.empty(), NO_PEER_AVAILABLE, emptyList());
+    final PeerTaskExecutorResult<Response> disconnectedResult =
+        new PeerTaskExecutorResult<>(Optional.empty(), PEER_DISCONNECTED, emptyList());
 
     // Fourth call returns success
-    final var successResult =
+    final PeerTaskExecutorResult<Response> successResult =
         new PeerTaskExecutorResult<>(
-            Optional.of(Map.of(syncBlocks.getFirst(), receiptsPerBlock.getFirst())),
+            Optional.of(
+                new Response(
+                    Map.of(syncBlocks.getFirst(), receiptsPerBlock.getFirst()), List.of())),
             SUCCESS,
             emptyList());
 
@@ -361,6 +490,7 @@ public class DownloadSyncReceiptsStepTest {
     final List<SyncBlockWithReceipts> blocksWithReceipts = result.get();
     assertThat(blocksWithReceipts).hasSize(1);
     assertThat(blocksWithReceipts.getFirst().getBlock()).isEqualTo(syncBlocks.getFirst());
+
     assertThat(blocksWithReceipts.getFirst().getReceipts()).isEqualTo(receiptsPerBlock.getFirst());
 
     // Verify the task was executed 4 times (3 failures + 1 success)
@@ -374,9 +504,8 @@ public class DownloadSyncReceiptsStepTest {
     final List<SyncBlock> syncBlocks = blocksToSyncBlocks(blocks);
 
     // Mock returns SUCCESS but with empty Optional (should never happen in practice)
-    final var invalidResult =
-        new PeerTaskExecutorResult<Map<SyncBlock, List<SyncTransactionReceipt>>>(
-            Optional.empty(), SUCCESS, emptyList());
+    final PeerTaskExecutorResult<Response> invalidResult =
+        new PeerTaskExecutorResult<>(Optional.empty(), SUCCESS, emptyList());
 
     when(peerTaskExecutor.execute(any(GetSyncReceiptsFromPeerTask.class)))
         .thenReturn(invalidResult);
@@ -418,16 +547,17 @@ public class DownloadSyncReceiptsStepTest {
     final List<SyncBlock> syncBlocks = blocksToSyncBlocks(blocks);
 
     // Only 2 unique receipt requests should be made (for block1 and block3)
-    final var receiptsForBlock1 =
+    final List<SyncTransactionReceipt> receiptsForBlock1 =
         receiptsToSyncReceipts(gen.receipts(block1), ETH69_RECEIPT_CONFIGURATION);
-    final var receiptsForBlock3 =
+    final List<SyncTransactionReceipt> receiptsForBlock3 =
         receiptsToSyncReceipts(gen.receipts(block3), ETH69_RECEIPT_CONFIGURATION);
 
     final Map<SyncBlock, List<SyncTransactionReceipt>> returnedReceiptsByBlock =
         Map.of(syncBlocks.get(0), receiptsForBlock1, syncBlocks.get(2), receiptsForBlock3);
 
-    final var executorResult =
-        new PeerTaskExecutorResult<>(Optional.of(returnedReceiptsByBlock), SUCCESS, emptyList());
+    final PeerTaskExecutorResult<Response> executorResult =
+        new PeerTaskExecutorResult<>(
+            Optional.of(new Response(returnedReceiptsByBlock, List.of())), SUCCESS, emptyList());
     when(peerTaskExecutor.execute(any(GetSyncReceiptsFromPeerTask.class)))
         .thenReturn(executorResult);
 
@@ -463,34 +593,37 @@ public class DownloadSyncReceiptsStepTest {
     final List<Block> blocks = gen.blockSequence(5).subList(1, 5);
     final List<SyncBlock> syncBlocks = blocksToSyncBlocks(blocks);
 
-    final var allReceiptsPerBlock =
+    final List<List<SyncTransactionReceipt>> allReceiptsPerBlock =
         blocks.stream()
             .map(gen::receipts)
             .map(rs -> receiptsToSyncReceipts(rs, ETH69_RECEIPT_CONFIGURATION))
             .toList();
 
     // First call returns partial success (first 2 blocks only)
-    final var firstSuccessResult =
+    final PeerTaskExecutorResult<Response> firstSuccessResult =
         new PeerTaskExecutorResult<>(
             Optional.of(
-                Map.of(
-                    syncBlocks.get(0), allReceiptsPerBlock.get(0),
-                    syncBlocks.get(1), allReceiptsPerBlock.get(1))),
+                new Response(
+                    Map.of(
+                        syncBlocks.get(0), allReceiptsPerBlock.get(0),
+                        syncBlocks.get(1), allReceiptsPerBlock.get(1)),
+                    List.of())),
             SUCCESS,
             emptyList());
 
     // Second call for remaining blocks returns failure
-    final var failureResult =
-        new PeerTaskExecutorResult<Map<SyncBlock, List<SyncTransactionReceipt>>>(
-            Optional.empty(), TIMEOUT, emptyList());
+    final PeerTaskExecutorResult<Response> failureResult =
+        new PeerTaskExecutorResult<>(Optional.empty(), TIMEOUT, emptyList());
 
     // Third call (retry) returns the remaining 2 blocks successfully
-    final var secondSuccessResult =
+    final PeerTaskExecutorResult<Response> secondSuccessResult =
         new PeerTaskExecutorResult<>(
             Optional.of(
-                Map.of(
-                    syncBlocks.get(2), allReceiptsPerBlock.get(2),
-                    syncBlocks.get(3), allReceiptsPerBlock.get(3))),
+                new Response(
+                    Map.of(
+                        syncBlocks.get(2), allReceiptsPerBlock.get(2),
+                        syncBlocks.get(3), allReceiptsPerBlock.get(3)),
+                    List.of())),
             SUCCESS,
             emptyList());
 
@@ -542,9 +675,8 @@ public class DownloadSyncReceiptsStepTest {
               Duration.ofMillis(100));
 
       // Mock continuous failures that would retry indefinitely without timeout
-      final var failureResult =
-          new PeerTaskExecutorResult<Map<SyncBlock, List<SyncTransactionReceipt>>>(
-              Optional.empty(), TIMEOUT, emptyList());
+      final PeerTaskExecutorResult<Response> failureResult =
+          new PeerTaskExecutorResult<>(Optional.empty(), TIMEOUT, emptyList());
 
       when(peerTaskExecutor.execute(any(GetSyncReceiptsFromPeerTask.class)))
           .thenReturn(failureResult);

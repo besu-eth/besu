@@ -14,20 +14,14 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.bonsai;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import org.hyperledger.besu.ethereum.api.jsonrpc.AbstractJsonRpcHttpBySpecTest;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 public class TraceJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
 
   @Override
-  @BeforeEach
-  public void setup() throws Exception {
+  protected void doSetup() throws Exception {
     setupBonsaiBlockchain();
     startService();
   }
@@ -54,12 +48,5 @@ public class TraceJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
           "trace/specs/trace-callMany",
           "trace/specs/trace-raw-transaction"
         });
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

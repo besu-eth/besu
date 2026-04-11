@@ -17,7 +17,6 @@ package org.hyperledger.besu.tests.acceptance.dsl.node.configuration;
 import static java.util.Collections.singletonList;
 import static java.util.stream.Collectors.toList;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis.ADMIN;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis.CLIQUE;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis.IBFT;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis.MINER;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis.QBFT;
@@ -46,12 +45,6 @@ public class NodeConfigurationFactory {
     final List<RunnableNode> nodes =
         besuNodes.stream().filter(n -> validators.contains(n.getName())).collect(toList());
     return genesisConfigProvider.create(nodes);
-  }
-
-  public JsonRpcConfiguration createJsonRpcWithCliqueEnabledConfig(final Set<String> extraRpcApis) {
-    final var enabledApis = new HashSet<>(extraRpcApis);
-    enabledApis.add(CLIQUE.name());
-    return createJsonRpcWithRpcApiEnabledConfig(enabledApis.toArray(String[]::new));
   }
 
   public JsonRpcConfiguration createJsonRpcWithIbft2EnabledConfig(final boolean minerEnabled) {

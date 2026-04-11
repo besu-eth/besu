@@ -21,7 +21,6 @@ import org.hyperledger.besu.tests.acceptance.dsl.account.Accounts;
 import org.hyperledger.besu.tests.acceptance.dsl.blockchain.Blockchain;
 import org.hyperledger.besu.tests.acceptance.dsl.condition.admin.AdminConditions;
 import org.hyperledger.besu.tests.acceptance.dsl.condition.bft.BftConditions;
-import org.hyperledger.besu.tests.acceptance.dsl.condition.clique.CliqueConditions;
 import org.hyperledger.besu.tests.acceptance.dsl.condition.eth.EthConditions;
 import org.hyperledger.besu.tests.acceptance.dsl.condition.login.LoginConditions;
 import org.hyperledger.besu.tests.acceptance.dsl.condition.net.NetConditions;
@@ -37,7 +36,6 @@ import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.permissionin
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.account.AccountTransactions;
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.admin.AdminTransactions;
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.bft.BftTransactions;
-import org.hyperledger.besu.tests.acceptance.dsl.transaction.clique.CliqueTransactions;
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.contract.ContractTransactions;
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.debug.DebugTransactions;
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.eth.EthTransactions;
@@ -64,7 +62,6 @@ import org.apache.logging.log4j.ThreadContext;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -84,8 +81,6 @@ public class AcceptanceTestBase {
   protected final AdminConditions admin;
   protected final AdminTransactions adminTransactions;
   protected final Blockchain blockchain;
-  protected final CliqueConditions clique;
-  protected final CliqueTransactions cliqueTransactions;
   protected final Cluster cluster;
   protected final ContractVerifier contractVerifier;
   protected final ContractTransactions contractTransactions;
@@ -113,14 +108,12 @@ public class AcceptanceTestBase {
     ethTransactions = new EthTransactions();
     accounts = new Accounts(ethTransactions);
     adminTransactions = new AdminTransactions();
-    cliqueTransactions = new CliqueTransactions();
     bftTransactions = new BftTransactions();
     accountTransactions = new AccountTransactions(accounts);
     permissioningTransactions = new PermissioningTransactions();
     contractTransactions = new ContractTransactions();
     minerTransactions = new MinerTransactions();
     blockchain = new Blockchain(ethTransactions);
-    clique = new CliqueConditions(ethTransactions, cliqueTransactions);
     eth = new EthConditions(ethTransactions);
     bft = new BftConditions(bftTransactions);
     login = new LoginConditions();
@@ -215,12 +208,5 @@ public class AcceptanceTestBase {
                 return false;
               }
             });
-  }
-
-  @Test
-  public void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

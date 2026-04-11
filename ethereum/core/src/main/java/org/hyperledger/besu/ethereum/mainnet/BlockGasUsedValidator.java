@@ -56,15 +56,15 @@ public interface BlockGasUsedValidator {
       };
 
   /**
-   * EIP-7778 (Amsterdam+): Validates header.gasUsed against cumulativeBlockGasUsed when available.
-   * Header.gasUsed is pre-refund gas, while receipt.cumulativeGasUsed is post-refund gas, so they
-   * differ when refunds apply.
+   * Amsterdam (EIP-7778 + EIP-8037): Validates header.gasUsed against cumulativeBlockGasUsed when
+   * available. Header.gasUsed is pre-refund gas, while receipt.cumulativeGasUsed is post-refund
+   * gas, so they differ when refunds apply.
    *
    * <p>During full block processing, cumulativeBlockGasUsed is provided and must match
    * header.gasUsed. During light validation (sync), cumulativeBlockGasUsed is empty and validation
    * is skipped - the receiptsRoot already validates receipt integrity.
    */
-  BlockGasUsedValidator EIP7778 =
+  BlockGasUsedValidator AMSTERDAM =
       (header, receipts, blockGas) -> {
         // If we have block gas from processing, validate against it
         // Otherwise (light validation during sync), skip - receiptsRoot validates receipts

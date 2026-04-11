@@ -28,6 +28,7 @@ public class DiscoveryOptions {
       new DiscoveryOptions(JsonUtil.createEmptyObjectNode());
 
   private static final String ENODES_KEY = "bootnodes";
+  private static final String V5_BOOTNODES_KEY = "v5bootnodes";
   private static final String DNS_KEY = "dns";
 
   private final ObjectNode discoveryConfigRoot;
@@ -61,6 +62,32 @@ public class DiscoveryOptions {
               if (!bootNodeElement.isTextual()) {
                 throw new IllegalArgumentException(
                     ENODES_KEY + " does not contain a string: " + bootNodeElement);
+              }
+              bootNodes.add(bootNodeElement.asText());
+            });
+    return Optional.of(bootNodes);
+  }
+
+  /**
+   * Gets V5 boot nodes (ENR format).
+   *
+   * @return optional list of ENR boot node strings
+   */
+  public Optional<List<String>> getV5BootNodes() {
+    final Optional<ArrayNode> bootNodesArray =
+        JsonUtil.getArrayNode(discoveryConfigRoot, V5_BOOTNODES_KEY);
+    if (bootNodesArray.isEmpty()) {
+      return Optional.empty();
+    }
+    final List<String> bootNodes = new ArrayList<>();
+    bootNodesArray
+        .get()
+        .elements()
+        .forEachRemaining(
+            bootNodeElement -> {
+              if (!bootNodeElement.isTextual()) {
+                throw new IllegalArgumentException(
+                    V5_BOOTNODES_KEY + " does not contain a string: " + bootNodeElement);
               }
               bootNodes.add(bootNodeElement.asText());
             });

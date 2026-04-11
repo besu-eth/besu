@@ -431,6 +431,10 @@ public class ProtocolSpec {
     return blockAccessListFactory;
   }
 
+  public boolean isBlockAccessListEnabled() {
+    return blockAccessListFactory.isPresent();
+  }
+
   public StateRootCommitterFactory getStateRootCommitterFactory() {
     return stateRootCommitterFactory;
   }

@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -135,29 +136,42 @@ public class DownloadBackwardHeadersStep
     final int currentTaskId = taskId.getAndIncrement();
     final List<BlockHeader> downloadedHeaders = new ArrayList<>(headersToRequest);
     final AtomicBoolean cancelled = new AtomicBoolean(false);
-    return ethScheduler
-        .scheduleServiceTask(
-            () ->
-                downloadAllHeaders(
-                    currentTaskId,
-                    0,
-                    startBlockNumber,
-                    headersToRequest,
-                    downloadedHeaders,
-                    cancelled))
-        .orTimeout(timeoutDuration.toMillis(), TimeUnit.MILLISECONDS)
-        .whenComplete(
-            (unused, throwable) -> {
-              if (throwable instanceof TimeoutException) {
-                cancelled.set(true);
-                LOG.trace(
-                    "[{}] Timed out after {} ms while downloading {} backward headers from block {}",
-                    currentTaskId,
-                    timeoutDuration.toMillis(),
-                    headersToRequest,
-                    startBlockNumber);
-              }
-            });
+    final CompletableFuture<List<BlockHeader>> result =
+        ethScheduler
+            .scheduleServiceTask(
+                () ->
+                    downloadAllHeaders(
+                        currentTaskId,
+                        0,
+                        startBlockNumber,
+                        headersToRequest,
+                        downloadedHeaders,
+                        cancelled))
+            .orTimeout(timeoutDuration.toMillis(), TimeUnit.MILLISECONDS)
+            .whenComplete(
+                (unused, throwable) -> {
+                  if (throwable instanceof TimeoutException) {
+                    cancelled.set(true);
+                    LOG.trace(
+                        "[{}] Timed out after {} ms while downloading {} backward headers from block {}",
+                        currentTaskId,
+                        timeoutDuration.toMillis(),
+                        headersToRequest,
+                        startBlockNumber);
+                  }
+                });
+    // Stop the retry chain if the result itself is cancelled externally,
+    // e.g. by AsyncOperationProcessor.abort() when the pipeline is aborted.
+    // The whenComplete above is attached to the inner P1 future; cancelling
+    // the returned result (P3) does not complete P1, so we need a separate
+    // callback on the returned future to catch that case.
+    result.whenComplete(
+        (unused, throwable) -> {
+          if (throwable instanceof CancellationException) {
+            cancelled.set(true);
+          }
+        });
+    return result;
   }
 
   /**

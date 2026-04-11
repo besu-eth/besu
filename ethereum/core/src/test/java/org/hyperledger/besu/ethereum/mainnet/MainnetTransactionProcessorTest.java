@@ -107,6 +107,7 @@ class MainnetTransactionProcessorTest {
 
     when(transaction.getType()).thenReturn(TransactionType.EIP1559);
     when(transaction.getPayload()).thenReturn(Bytes.EMPTY);
+    when(transaction.getGasLimit()).thenReturn(100_000L);
     when(transaction.getSender()).thenReturn(senderAddress);
     when(transaction.getValue()).thenReturn(Wei.ZERO);
     when(transactionValidatorFactory.get().validate(any(), any(), any(), any()))
@@ -167,6 +168,7 @@ class MainnetTransactionProcessorTest {
     when(transaction.getType()).thenReturn(TransactionType.EIP1559);
     when(transaction.getTo()).thenReturn(toAddress);
     when(transaction.getPayload()).thenReturn(Bytes.EMPTY);
+    when(transaction.getGasLimit()).thenReturn(100_000L);
     when(transaction.getSender()).thenReturn(senderAddress);
     when(transaction.getValue()).thenReturn(Wei.ZERO);
     when(transactionValidatorFactory.get().validate(any(), any(), any(), any()))

@@ -76,15 +76,6 @@ import org.slf4j.LoggerFactory;
 public class MergeCoordinator implements MergeMiningCoordinator, BadChainListener {
   private static final Logger LOG = LoggerFactory.getLogger(MergeCoordinator.class);
 
-  /**
-   * On PoS you do not need to compete with other nodes for block production, since you have an
-   * allocated slot for that, so in this case make sense to always try to fill the block, if there
-   * are enough pending transactions, until the remaining gas is less than the minimum needed for
-   * the smaller transaction. So for PoS the min-block-occupancy-ratio option is set to always try
-   * to fill 100% of the block.
-   */
-  private static final double TRY_FILL_BLOCK = 1.0;
-
   /** The Mining parameters. */
   protected final MiningConfiguration miningConfiguration;
 
@@ -175,7 +166,6 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     if (miningParams.getTargetGasLimit().isEmpty()) {
       getDefaultGasLimit(protocolSchedule).ifPresent(miningParams::setTargetGasLimit);
     }
-    miningParams.setMinBlockOccupancyRatio(TRY_FILL_BLOCK);
     this.miningConfiguration = miningParams;
 
     this.mergeBlockCreatorFactory = mergeBlockCreatorFactory;

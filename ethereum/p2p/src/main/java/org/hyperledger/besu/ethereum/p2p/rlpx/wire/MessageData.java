@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
 import java.util.AbstractMap;
+import java.util.ArrayList;
 import java.util.Map;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -63,9 +64,13 @@ public interface MessageData extends org.hyperledger.besu.datatypes.p2p.MessageD
     final RLPInput messageDataRLP = RLP.input(getData());
     messageDataRLP.enterList();
     final BigInteger requestId = messageDataRLP.readBigIntegerScalar();
-    final Bytes message = messageDataRLP.readAsRlp().raw();
+    final var params = new ArrayList<Bytes>();
+    while (!messageDataRLP.isEndOfCurrentList()) {
+      params.add(messageDataRLP.readAsRlp().raw());
+    }
     messageDataRLP.leaveList();
-    return new AbstractMap.SimpleImmutableEntry<>(requestId, new RawMessage(getCode(), message));
+    return new AbstractMap.SimpleImmutableEntry<>(
+        requestId, new RawMessage(getCode(), Bytes.concatenate(params)));
   }
 
   /**

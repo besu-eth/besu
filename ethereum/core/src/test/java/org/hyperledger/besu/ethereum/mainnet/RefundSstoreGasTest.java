@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.mainnet;
 
 import static org.apache.tuweni.units.bigints.UInt256.ONE;
 import static org.apache.tuweni.units.bigints.UInt256.ZERO;
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -30,7 +29,6 @@ import java.util.stream.Stream;
 
 import org.apache.tuweni.units.bigints.UInt256;
 import org.assertj.core.api.Assertions;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -135,12 +133,5 @@ public class RefundSstoreGasTest {
             gasCalculator.calculateStorageRefundAmount(
                 newValue, mockSupplierCurrentValue, mockSupplierForOriginalValue))
         .isEqualTo(expectedGasRefund);
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

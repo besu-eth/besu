@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.after;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -54,7 +55,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -602,6 +605,57 @@ public class DownloadBackwardHeadersStepTest {
           .hasCauseInstanceOf(java.util.concurrent.TimeoutException.class);
 
       verify(peerTaskExecutor, after(1200).times(1)).execute(any(GetHeadersFromPeerTask.class));
+    } finally {
+      realScheduler.stop();
+      realScheduler.awaitStop();
+    }
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void shouldNotRetryAfterCancellation() throws Exception {
+    // The first request fails transiently, scheduling a retry after RETRY_DELAY (1 s).
+    // The pipeline cancels the future (as AsyncOperationProcessor.abort() does) before
+    // the retry fires.  The cancelled flag must be set so the retry exits immediately
+    // without making a second peer request.
+    final EthScheduler realScheduler = new EthScheduler(1, 1, 1, new NoOpMetricsSystem());
+    final EthContext realEthContext = mock(EthContext.class);
+    when(realEthContext.getScheduler()).thenReturn(realScheduler);
+    when(realEthContext.getPeerTaskExecutor()).thenReturn(peerTaskExecutor);
+
+    try {
+      final DownloadBackwardHeadersStep step =
+          new DownloadBackwardHeadersStep(
+              protocolSchedule, realEthContext, 10, 0, Duration.ofMinutes(1));
+
+      // Use a latch so we can wait until the first execute() has actually run before
+      // cancelling. Without this, cancel() can race with the scheduler starting the
+      // service task, causing the initial execute() call to never happen and the
+      // verify() below to report WantedButNotInvoked.
+      final CountDownLatch firstCallLatch = new CountDownLatch(1);
+      doAnswer(
+              invocation -> {
+                firstCallLatch.countDown();
+                return new PeerTaskExecutorResult<>(
+                    Optional.empty(), PeerTaskExecutorResponseCode.NO_PEER_AVAILABLE, emptyList());
+              })
+          .when(peerTaskExecutor)
+          .execute(any(GetHeadersFromPeerTask.class));
+
+      final CompletableFuture<List<BlockHeader>> result = step.apply(100L);
+
+      // Wait until the first execute() has run before cancelling, so we are guaranteed
+      // to be racing only the retry (scheduled 1 s later) and not the initial attempt.
+      assertThat(firstCallLatch.await(5, TimeUnit.SECONDS))
+          .as("peerTaskExecutor.execute should be called within 5 s")
+          .isTrue();
+
+      // Simulate pipeline abort cancelling the future before the 1-second retry fires.
+      result.cancel(true);
+      assertThat(result.isCancelled()).isTrue();
+
+      // Wait 2 s — longer than the 1 s RETRY_DELAY — and confirm no second call was made.
+      verify(peerTaskExecutor, after(2000).times(1)).execute(any(GetHeadersFromPeerTask.class));
     } finally {
       realScheduler.stop();
       realScheduler.awaitStop();

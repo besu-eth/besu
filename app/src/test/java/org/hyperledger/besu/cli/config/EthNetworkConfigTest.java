@@ -40,6 +40,7 @@ public class EthNetworkConfigTest {
     EthNetworkConfig config = EthNetworkConfig.getNetworkConfig(NetworkDefinition.MAINNET);
     assertThat(config.dnsDiscoveryUrl()).isEqualTo(MAINNET_DISCOVERY_URL);
     assertThat(config.enodeBootNodes()).isEqualTo(MAINNET_BOOTSTRAP_NODES);
+    assertThat(config.enrBootNodes()).isNotEmpty();
     assertThat(config.networkId()).isEqualTo(BigInteger.ONE);
   }
 
@@ -56,6 +57,7 @@ public class EthNetworkConfigTest {
     EthNetworkConfig config = EthNetworkConfig.getNetworkConfig(NetworkDefinition.HOODI);
     assertThat(config.dnsDiscoveryUrl()).isEqualTo(HOODI_DISCOVERY_URL);
     assertThat(config.enodeBootNodes()).isEqualTo(HOODI_BOOTSTRAP_NODES);
+    assertThat(config.enrBootNodes()).isNotEmpty();
     assertThat(config.networkId()).isEqualTo(BigInteger.valueOf(560048));
   }
 

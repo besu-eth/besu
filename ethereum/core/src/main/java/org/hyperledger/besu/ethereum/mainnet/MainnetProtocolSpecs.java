@@ -71,13 +71,14 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFa
 import org.hyperledger.besu.ethereum.mainnet.blockhash.CancunPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.PraguePreExecutionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.requests.MainnetRequestsValidator;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestContractAddresses;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactoryBal;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalStateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.mainnet.transactionpool.OsakaTransactionPoolPreProcessor;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.MainnetEVMs;
@@ -118,6 +119,7 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.IntStream;
@@ -874,11 +876,26 @@ public abstract class MainnetProtocolSpecs {
                     evm.getMaxInitcodeSize()))
         .precompileContractRegistryBuilder(MainnetPrecompiledContractRegistries::cancun)
         .blockHeaderValidatorBuilder(MainnetBlockHeaderValidator::blobAwareBlockHeaderValidator)
-        .preExecutionProcessor(
-            isPoAConsensus(genesisConfigOptions)
-                ? new FrontierPreExecutionProcessor()
-                : new CancunPreExecutionProcessor())
+        .preExecutionProcessor(getPreExecutionProcessor(genesisConfigOptions))
         .hardforkId(CANCUN);
+  }
+
+  private static PreExecutionProcessor getPreExecutionProcessor(
+      final GenesisConfigOptions genesisConfigOptions) {
+    if (isPoAConsensus(genesisConfigOptions) && !hasSystemContractAddresses(genesisConfigOptions)) {
+      return new FrontierPreExecutionProcessor();
+    }
+
+    return new CancunPreExecutionProcessor();
+  }
+
+  private static PreExecutionProcessor getPraguePreExecutionProcessor(
+      final GenesisConfigOptions genesisConfigOptions) {
+    if (isPoAConsensus(genesisConfigOptions) && !hasSystemContractAddresses(genesisConfigOptions)) {
+      return new FrontierPreExecutionProcessor();
+    }
+
+    return new PraguePreExecutionProcessor();
   }
 
   static ProtocolSpecBuilder pragueDefinition(
@@ -958,14 +975,11 @@ public abstract class MainnetProtocolSpecs {
                                 new CodeDelegationService()))
                         .build())
             // EIP-2935 Blockhash processor
-            .preExecutionProcessor(
-                isPoAConsensus(genesisConfigOptions)
-                    ? new FrontierPreExecutionProcessor()
-                    : new PraguePreExecutionProcessor())
+            .preExecutionProcessor(getPraguePreExecutionProcessor(genesisConfigOptions))
             .hardforkId(PRAGUE);
-    if (isPoAConsensus(genesisConfigOptions)) {
-      LOG.debug(
-          "Skipping system contract request processors for PoA consensus (clique/ibft/qbft).");
+    if (isPoAConsensus(genesisConfigOptions) && !hasSystemContractAddresses(genesisConfigOptions)) {
+      LOG.warn(
+          "Skipping system contract request processors for PoA consensus (clique/ibft/qbft) without system contract addresses.");
       pragueSpecBuilder.requestProcessorCoordinator(RequestProcessorCoordinator.noOp());
     } else {
       try {
@@ -987,6 +1001,13 @@ public abstract class MainnetProtocolSpecs {
     return genesisConfigOptions.isClique()
         || genesisConfigOptions.isIbft2()
         || genesisConfigOptions.isQbft();
+  }
+
+  private static boolean hasSystemContractAddresses(
+      final GenesisConfigOptions genesisConfigOptions) {
+    return genesisConfigOptions.getDepositContractAddress().isPresent()
+        && genesisConfigOptions.getWithdrawalRequestContractAddress().isPresent()
+        && genesisConfigOptions.getConsolidationRequestContractAddress().isPresent();
   }
 
   static ProtocolSpecBuilder osakaDefinition(
@@ -1065,7 +1086,12 @@ public abstract class MainnetProtocolSpecs {
             isParallelTxProcessingEnabled,
             balConfiguration,
             metricsSystem);
-    return applyBlobSchedule(builder, genesisConfigOptions, BlobScheduleOptions::getBpo1, BPO1);
+    return applyBlobSchedule(
+        builder,
+        genesisConfigOptions,
+        BlobScheduleOptions::getBpo1,
+        GenesisConfigOptions::getBpo1Time,
+        BPO1);
   }
 
   static ProtocolSpecBuilder bpo2Definition(
@@ -1087,7 +1113,12 @@ public abstract class MainnetProtocolSpecs {
             isParallelTxProcessingEnabled,
             balConfiguration,
             metricsSystem);
-    return applyBlobSchedule(builder, genesisConfigOptions, BlobScheduleOptions::getBpo2, BPO2);
+    return applyBlobSchedule(
+        builder,
+        genesisConfigOptions,
+        BlobScheduleOptions::getBpo2,
+        GenesisConfigOptions::getBpo2Time,
+        BPO2);
   }
 
   static ProtocolSpecBuilder bpo3Definition(
@@ -1109,7 +1140,12 @@ public abstract class MainnetProtocolSpecs {
             isParallelTxProcessingEnabled,
             balConfiguration,
             metricsSystem);
-    return applyBlobSchedule(builder, genesisConfigOptions, BlobScheduleOptions::getBpo3, BPO3);
+    return applyBlobSchedule(
+        builder,
+        genesisConfigOptions,
+        BlobScheduleOptions::getBpo3,
+        GenesisConfigOptions::getBpo3Time,
+        BPO3);
   }
 
   static ProtocolSpecBuilder bpo4Definition(
@@ -1131,7 +1167,12 @@ public abstract class MainnetProtocolSpecs {
             isParallelTxProcessingEnabled,
             balConfiguration,
             metricsSystem);
-    return applyBlobSchedule(builder, genesisConfigOptions, BlobScheduleOptions::getBpo4, BPO4);
+    return applyBlobSchedule(
+        builder,
+        genesisConfigOptions,
+        BlobScheduleOptions::getBpo4,
+        GenesisConfigOptions::getBpo4Time,
+        BPO4);
   }
 
   static ProtocolSpecBuilder bpo5Definition(
@@ -1153,7 +1194,12 @@ public abstract class MainnetProtocolSpecs {
             isParallelTxProcessingEnabled,
             balConfiguration,
             metricsSystem);
-    return applyBlobSchedule(builder, genesisConfigOptions, BlobScheduleOptions::getBpo5, BPO5);
+    return applyBlobSchedule(
+        builder,
+        genesisConfigOptions,
+        BlobScheduleOptions::getBpo5,
+        GenesisConfigOptions::getBpo5Time,
+        BPO5);
   }
 
   static ProtocolSpecBuilder amsterdamDefinition(
@@ -1224,11 +1270,27 @@ public abstract class MainnetProtocolSpecs {
                     .build())
         .blockAccessListFactory(new BlockAccessListFactory())
         .blockAccessListValidatorBuilder(MainnetBlockAccessListValidator::create)
-        .stateRootCommitterFactory(new StateRootCommitterFactoryBal(balConfiguration))
-
-        // EIP-7778: Block gas accounting without refunds (prevents block gas limit circumvention)
-        .blockGasAccountingStrategy(BlockGasAccountingStrategy.EIP7778)
-        .blockGasUsedValidator(BlockGasUsedValidator.EIP7778)
+        .stateRootCommitterFactory(new BalStateRootCommitterFactory(balConfiguration))
+        // EIP-8037: Disable validation-time TX_MAX_GAS_LIMIT cap (enforced at runtime on regular
+        // gas)
+        .gasLimitCalculatorBuilder(
+            (feeMarket, gasCalculator, blobSchedule) -> {
+              final long londonForkBlock = genesisConfigOptions.getLondonBlockNumber().orElse(0L);
+              return new AmsterdamTargetingGasLimitCalculator(
+                  londonForkBlock,
+                  (BaseFeeMarket) feeMarket,
+                  gasCalculator,
+                  blobSchedule.getMax(),
+                  blobSchedule.getTarget(),
+                  miningConfiguration.getMaxBlobsPerTransaction(),
+                  miningConfiguration.getMaxBlobsPerBlock());
+            })
+        // EIP-8037: Amsterdam gas calculator with state gas cost support
+        .gasCalculator(AmsterdamGasCalculator::new)
+        // Amsterdam (EIP-7778 + EIP-8037): Pre-refund 2D gas accounting
+        .blockGasAccountingStrategy(BlockGasAccountingStrategy.AMSTERDAM)
+        // Amsterdam: Validator uses pre-refund gas_metered = max(regular, state) from processing
+        .blockGasUsedValidator(BlockGasUsedValidator.AMSTERDAM)
         .hardforkId(AMSTERDAM);
   }
 
@@ -1236,11 +1298,17 @@ public abstract class MainnetProtocolSpecs {
       final ProtocolSpecBuilder builder,
       final GenesisConfigOptions genesisConfigOptions,
       final Function<BlobScheduleOptions, Optional<BlobSchedule>> blobGetter,
+      final Function<GenesisConfigOptions, OptionalLong> blobScheduleTimestampGetter,
       final HardforkId hardforkId) {
-    genesisConfigOptions
-        .getBlobScheduleOptions()
-        .flatMap(blobGetter)
-        .ifPresent(builder::blobSchedule);
+    // Only apply a fork's blob schedule if the fork is actually activated (has a timestamp).
+    // This prevents inactive BPO forks from overriding the blob schedule with stale values
+    // from the genesis config.
+    if (blobScheduleTimestampGetter.apply(genesisConfigOptions).isPresent()) {
+      genesisConfigOptions
+          .getBlobScheduleOptions()
+          .flatMap(blobGetter)
+          .ifPresent(builder::blobSchedule);
+    }
     return builder.hardforkId(hardforkId);
   }
 

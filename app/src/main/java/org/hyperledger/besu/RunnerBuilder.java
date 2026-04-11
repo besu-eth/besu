@@ -22,7 +22,6 @@ import static org.hyperledger.besu.controller.BesuController.CACHE_PATH;
 
 import org.hyperledger.besu.cli.config.EthNetworkConfig;
 import org.hyperledger.besu.cli.options.EthstatsOptions;
-import org.hyperledger.besu.config.NetworkDefinition;
 import org.hyperledger.besu.controller.BesuController;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -62,6 +61,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.logs.Log
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.pending.PendingTransactionDroppedSubscriptionService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.pending.PendingTransactionSubscriptionService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.syncing.SyncingSubscriptionService;
+import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.transactionreceipts.TransactionReceiptsSubscriptionService;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -144,9 +144,9 @@ import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import graphql.GraphQL;
+import inet.ipaddr.IPAddress;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
-import org.apache.commons.net.util.SubnetUtils.SubnetInfo;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
@@ -195,7 +195,7 @@ public class RunnerBuilder {
   private RpcEndpointServiceImpl rpcEndpointServiceImpl;
   private JsonRpcIpcConfiguration jsonRpcIpcConfiguration;
   private Optional<EnodeDnsConfiguration> enodeDnsConfiguration;
-  private List<SubnetInfo> allowedSubnets = new ArrayList<>();
+  private List<IPAddress> allowedSubnets = new ArrayList<>();
   private boolean poaDiscoveryRetryBootnodes = true;
   private TransactionValidatorServiceImpl transactionValidatorService;
 
@@ -611,7 +611,7 @@ public class RunnerBuilder {
    * @param allowedSubnets the allowedSubnets
    * @return the runner builder
    */
-  public RunnerBuilder allowedSubnets(final List<SubnetInfo> allowedSubnets) {
+  public RunnerBuilder allowedSubnets(final List<IPAddress> allowedSubnets) {
     this.allowedSubnets = allowedSubnets;
     return this;
   }
@@ -672,17 +672,8 @@ public class RunnerBuilder {
         });
     discoveryConfiguration.setPreferIpv6Outbound(preferIpv6Outbound);
     if (discoveryEnabled) {
-      final List<EnodeURLImpl> bootstrap;
-      if (ethNetworkConfig.enodeBootNodes() == null) {
-        bootstrap = EthNetworkConfig.getNetworkConfig(NetworkDefinition.MAINNET).enodeBootNodes();
-      } else {
-        bootstrap = ethNetworkConfig.enodeBootNodes();
-      }
-      discoveryConfiguration.setEnodeBootnodes(bootstrap);
-      discoveryConfiguration.setEnrBootnodes(
-          ethNetworkConfig.enrBootNodes() == null
-              ? EthNetworkConfig.getNetworkConfig(NetworkDefinition.MAINNET).enrBootNodes()
-              : ethNetworkConfig.enrBootNodes());
+      discoveryConfiguration.setEnodeBootnodes(ethNetworkConfig.enodeBootNodes());
+      discoveryConfiguration.setEnrBootnodes(ethNetworkConfig.enrBootNodes());
 
       discoveryConfiguration.setIncludeBootnodesOnPeerRefresh(
           besuController.getGenesisConfigOptions().isPoa() && poaDiscoveryRetryBootnodes);
@@ -690,12 +681,21 @@ public class RunnerBuilder {
           "Resolved {} bootnodes.",
           discoveryConfiguration.getEnodeBootnodes().size()
               + discoveryConfiguration.getEnrBootnodes().size());
-      LOG.debug("Bootnodes = {}", bootstrap);
+      LOG.debug(
+          "Bootnodes enode={}, enr={}",
+          discoveryConfiguration.getEnodeBootnodes(),
+          discoveryConfiguration.getEnrBootnodes());
       discoveryConfiguration.setDnsDiscoveryURL(ethNetworkConfig.dnsDiscoveryUrl());
       discoveryConfiguration.setDiscoveryV5Enabled(
           networkingConfiguration.discoveryConfiguration().isDiscoveryV5Enabled());
       discoveryConfiguration.setFilterOnEnrForkId(
           networkingConfiguration.discoveryConfiguration().isFilterOnEnrForkIdEnabled());
+      discoveryConfiguration.setDiscV5DiscoveryIntervalSeconds(
+          networkingConfiguration.discoveryConfiguration().getDiscV5DiscoveryIntervalSeconds());
+      discoveryConfiguration.setDiscV5DiscoveryTimeoutSeconds(
+          networkingConfiguration.discoveryConfiguration().getDiscV5DiscoveryTimeoutSeconds());
+      discoveryConfiguration.setDiscV5MinimumPeerRatio(
+          networkingConfiguration.discoveryConfiguration().getDiscV5MinimumPeerRatio());
     } else {
       discoveryConfiguration.setEnabled(false);
     }
@@ -935,6 +935,9 @@ public class RunnerBuilder {
           context.getBlockchain(), blockchainQueries, subscriptionManager);
 
       createSyncingSubscriptionService(synchronizer, subscriptionManager);
+
+      createTransactionReceiptsSubscriptionService(
+          context.getBlockchain(), blockchainQueries, subscriptionManager, protocolSchedule);
     }
 
     Optional<EngineJsonRpcService> engineJsonRpcService = Optional.empty();
@@ -1434,6 +1437,18 @@ public class RunnerBuilder {
         new NewBlockHeadersSubscriptionService(subscriptionManager, blockchainQueries);
 
     blockchain.observeBlockAdded(newBlockHeadersSubscriptionService);
+  }
+
+  private void createTransactionReceiptsSubscriptionService(
+      final Blockchain blockchain,
+      final BlockchainQueries blockchainQueries,
+      final SubscriptionManager subscriptionManager,
+      final ProtocolSchedule protocolSchedule) {
+    final TransactionReceiptsSubscriptionService transactionReceiptsSubscriptionService =
+        new TransactionReceiptsSubscriptionService(
+            subscriptionManager, blockchainQueries, protocolSchedule);
+
+    blockchain.observeBlockAdded(transactionReceiptsSubscriptionService);
   }
 
   private WebSocketService createWebsocketService(

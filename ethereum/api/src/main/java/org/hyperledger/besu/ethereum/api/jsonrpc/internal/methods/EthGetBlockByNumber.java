@@ -26,7 +26,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFac
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
+import org.hyperledger.besu.plugin.data.SyncStatus;
 
+import java.util.Optional;
 import java.util.function.Supplier;
 
 import com.google.common.base.Suppliers;
@@ -96,10 +98,11 @@ public class EthGetBlockByNumber extends AbstractBlockParameterMethod {
         .get()
         .getWorldStateArchive()
         .isWorldStateAvailable(stateRoot, block)) {
-      if (this.synchronizer.getSyncStatus().isEmpty()) { // we are already in sync
+      final Optional<SyncStatus> maybeSyncStatus = this.synchronizer.getSyncStatus();
+      if (maybeSyncStatus.isEmpty()) { // we are already in sync
         return resultByBlockNumber(request, headBlockNumber);
       } else { // out of sync, return highest pulled block
-        long headishBlock = this.synchronizer.getSyncStatus().get().getCurrentBlock();
+        long headishBlock = maybeSyncStatus.get().getCurrentBlock();
         return resultByBlockNumber(request, headishBlock);
       }
     }

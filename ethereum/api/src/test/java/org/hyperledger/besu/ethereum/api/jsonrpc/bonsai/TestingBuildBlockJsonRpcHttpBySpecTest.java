@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.bonsai;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 
@@ -39,8 +38,6 @@ import java.util.List;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes32;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 
 public class TestingBuildBlockJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
 
@@ -51,8 +48,7 @@ public class TestingBuildBlockJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpB
       Address.fromHexString("0x627306090abaB3A6e1400e9345bC60c78a8BEf57");
 
   @Override
-  @BeforeEach
-  public void setup() throws Exception {
+  protected void doSetup() throws Exception {
     blockchainSetupUtil = getBlockchainSetupUtil(DataStorageFormat.BONSAI);
     blockchainSetupUtil.importAllBlocks();
     startService();
@@ -107,12 +103,5 @@ public class TestingBuildBlockJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpB
 
   public static Object[][] specs() {
     return findSpecFiles(new String[] {"testing_buildBlockV1"});
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

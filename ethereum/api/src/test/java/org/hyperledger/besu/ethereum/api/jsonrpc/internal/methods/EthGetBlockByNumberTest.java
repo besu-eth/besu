@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
 import static org.mockito.Mockito.spy;
@@ -35,6 +36,7 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.DefaultSyncStatus;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
@@ -43,6 +45,8 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -194,6 +198,32 @@ public class EthGetBlockByNumberTest {
     blockchain.setSafeBlock(blockchain.getBlockByNumber(SAFE_BLOCK_HEIGHT).get().getHash());
     blockchain.setFinalized(blockchain.getBlockByNumber(FINALIZED_BLOCK_HEIGHT).get().getHash());
     assertSuccess(tag, height);
+  }
+
+  @Test
+  public void latestDoesNotThrowWhenSyncStatusClearedBetweenChecks() {
+    // Simulates the race where sync completes between the isEmpty() check and the .get() call.
+    // Before the fix, getSyncStatus() was called twice — once for the isEmpty() guard and once to
+    // read getCurrentBlock(). If clearSyncTarget() fired on the sync thread between those two
+    // calls, the second call returned Optional.empty() and .get() threw NoSuchElementException,
+    // crashing the RPC handler for eth_getBlockByNumber("latest").
+    final long currentBlock = BLOCKCHAIN_LENGTH - 2;
+    final AtomicInteger callCount = new AtomicInteger(0);
+    when(synchronizer.getSyncStatus())
+        .thenAnswer(
+            invocation -> {
+              // First call: looks like sync is still in progress.
+              // Second call (if it were made): sync has just completed, no status.
+              if (callCount.incrementAndGet() == 1) {
+                return Optional.of(
+                    new DefaultSyncStatus(
+                        0, currentBlock, currentBlock + 10, Optional.empty(), Optional.empty()));
+              }
+              return Optional.empty();
+            });
+
+    assertThatCode(() -> method.response(requestWithParams("latest", "false")))
+        .doesNotThrowAnyException();
   }
 
   private JsonRpcRequestContext requestWithParams(final Object... params) {

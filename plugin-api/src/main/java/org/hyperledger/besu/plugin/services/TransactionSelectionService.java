@@ -31,11 +31,12 @@ public interface TransactionSelectionService extends BesuService {
   /**
    * Create a transaction selector plugin
    *
+   * @param pendingBlockHeader the header of the block being created
    * @param selectorsStateManager the selectors state manager
    * @return the transaction selector plugin
    */
   PluginTransactionSelector createPluginTransactionSelector(
-      SelectorsStateManager selectorsStateManager);
+      ProcessableBlockHeader pendingBlockHeader, SelectorsStateManager selectorsStateManager);
 
   /**
    * Called during the block creation to allow plugins to propose their own pending transactions for

@@ -99,15 +99,17 @@ final class ApiHandler extends SimpleChannelInboundHandler<MessageData> {
       }
       return;
     }
-    LOG.atTrace()
-        .addMarker(P2P_MESSAGE_MARKER)
-        .setMessage("Received {} from {} via protocol {}")
-        .addArgument(message)
-        .addArgument(connection.getPeerInfo())
-        .addArgument(demultiplexed.getCapability())
-        .addKeyValue("rawData", message.getData())
-        .addKeyValue("decodedData", message::toStringDecoded)
-        .log();
+    if (LOG.isTraceEnabled()) {
+      LOG.atTrace()
+          .addMarker(P2P_MESSAGE_MARKER)
+          .setMessage("Received {} from {} via protocol {}")
+          .addArgument(message)
+          .addArgument(connection.getPeerInfo())
+          .addArgument(demultiplexed.getCapability())
+          .addKeyValue("rawData", message.getData())
+          .addKeyValue("decodedData", message::toStringDecoded)
+          .log();
+    }
 
     connectionEventDispatcher.dispatchMessage(demultiplexed.getCapability(), connection, message);
   }

@@ -45,13 +45,19 @@ import com.google.common.io.Resources;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public abstract class AbstractJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpServiceTest {
 
   private static final boolean UPDATE_SPECS = Boolean.getBoolean("besu.test.update.specs");
   private static final ObjectMapper objectMapper = new ObjectMapper();
+  private static final ObjectMapper prettyObjectMapper =
+      new ObjectMapper().configure(INDENT_OUTPUT, true);
   private static final Pattern GAS_MATCH_FOR_STATE_DIFF =
       Pattern.compile("\"balance\":(?!\"=\").*?},");
   private static final Pattern GAS_MATCH_FOR_VM_TRACE =
@@ -62,6 +68,34 @@ public abstract class AbstractJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpS
       Pattern.compile("\"error\"\\s*:\\s*\"([^\"]+)\"");
 
   private URL specURL;
+  private volatile boolean initialized = false;
+
+  /**
+   * Subclasses implement this to perform one-time blockchain + service setup. Called the first time
+   * {@link #setup()} runs; skipped on subsequent parameterized test invocations.
+   */
+  protected abstract void doSetup() throws Exception;
+
+  @Override
+  @BeforeEach
+  public void setup() throws Exception {
+    if (!initialized) {
+      initialized = true;
+      doSetup();
+    } else if (filterManager != null) {
+      filterManager.stop();
+    }
+  }
+
+  @AfterAll
+  public void teardownAll() {
+    super.shutdownServer();
+  }
+
+  @Override
+  public void shutdownServer() {
+    // Suppressed: teardown happens once in @AfterAll, not after every parameterized test case
+  }
 
   @ParameterizedTest(name = "{index}: {0}")
   @MethodSource("specs")
@@ -325,18 +359,16 @@ public abstract class AbstractJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpS
       expectedResult = normalizeErrorMessages(expectedResult);
       actualResult = normalizeErrorMessages(actualResult);
 
-      final ObjectMapper mapper = new ObjectMapper();
-      mapper.configure(INDENT_OUTPUT, true);
       assertThat(
-              mapper
+              prettyObjectMapper
                   .writerWithDefaultPrettyPrinter()
                   .withoutAttribute("creationMethod")
-                  .writeValueAsString(mapper.readTree(actualResult)))
+                  .writeValueAsString(prettyObjectMapper.readTree(actualResult)))
           .isEqualTo(
-              mapper
+              prettyObjectMapper
                   .writerWithDefaultPrettyPrinter()
                   .withoutAttribute("creationMethod")
-                  .writeValueAsString(mapper.readTree(expectedResult)));
+                  .writeValueAsString(prettyObjectMapper.readTree(expectedResult)));
     }
 
     // Check error

@@ -14,8 +14,8 @@
  */
 package org.hyperledger.besu.cli.config;
 
+import org.hyperledger.besu.config.DiscoveryOptions;
 import org.hyperledger.besu.config.GenesisConfig;
-import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.config.NetworkDefinition;
 import org.hyperledger.besu.ethereum.p2p.discovery.dns.EthereumNodeRecord;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
@@ -25,10 +25,8 @@ import java.io.InputStream;
 import java.math.BigInteger;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * The Eth network config.
@@ -72,25 +70,27 @@ public record EthNetworkConfig(
   public static EthNetworkConfig getNetworkConfig(final NetworkDefinition networkDefinition) {
     final URL genesisSource = jsonConfigSource(networkDefinition.getGenesisFile());
     final GenesisConfig genesisConfig = GenesisConfig.fromSource(genesisSource);
-    final GenesisConfigOptions genesisConfigOptions = genesisConfig.getConfigOptions();
-    final Optional<List<String>> rawBootNodes =
-        genesisConfigOptions.getDiscoveryOptions().getBootNodes();
-    final List<EnodeURLImpl> enodeBootNodes = new ArrayList<>();
-    final List<EthereumNodeRecord> enrBootNodes = new ArrayList<>();
-    if (rawBootNodes.isPresent() && !rawBootNodes.get().isEmpty()) {
-      if (rawBootNodes.get().getFirst().startsWith("enr:")) {
-        enrBootNodes.addAll(rawBootNodes.get().stream().map(EthereumNodeRecord::fromEnr).toList());
-      } else {
-        enodeBootNodes.addAll(rawBootNodes.get().stream().map(EnodeURLImpl::fromString).toList());
-      }
-    }
+    final DiscoveryOptions discoveryOptions =
+        genesisConfig.getConfigOptions().getDiscoveryOptions();
+
+    final List<EnodeURLImpl> enodeBootNodes =
+        discoveryOptions
+            .getBootNodes()
+            .map(nodes -> nodes.stream().map(EnodeURLImpl::fromString).toList())
+            .orElse(List.of());
+
+    final List<EthereumNodeRecord> enrBootNodes =
+        discoveryOptions
+            .getV5BootNodes()
+            .map(nodes -> nodes.stream().map(EthereumNodeRecord::fromEnr).toList())
+            .orElse(List.of());
 
     return new EthNetworkConfig(
         genesisConfig,
         networkDefinition.getNetworkId(),
         enodeBootNodes,
         enrBootNodes,
-        genesisConfigOptions.getDiscoveryOptions().getDiscoveryDnsUrl().orElse(null));
+        discoveryOptions.getDiscoveryDnsUrl().orElse(null));
   }
 
   private static URL jsonConfigSource(final String resourceName) {

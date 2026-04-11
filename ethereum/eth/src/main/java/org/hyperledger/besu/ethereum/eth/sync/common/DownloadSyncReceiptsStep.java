@@ -28,6 +28,8 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResponseCode;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetSyncReceiptsFromPeerTask;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetSyncReceiptsFromPeerTask.Request;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetSyncReceiptsFromPeerTask.Response;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
 import java.time.Duration;
@@ -77,13 +79,21 @@ public class DownloadSyncReceiptsStep
   public CompletableFuture<List<SyncBlockWithReceipts>> apply(final List<SyncBlock> blocks) {
     final int currTaskId = taskSequence.incrementAndGet();
     final List<SyncBlock> blocksToRequest = prepareRequest(blocks);
+    final List<SyncTransactionReceipt> firstBlockPartialReceipts = new ArrayList<>();
     final Map<Hash, List<SyncTransactionReceipt>> receiptsByRootHash =
         HashMap.newHashMap(blocksToRequest.size());
     final AtomicBoolean cancelled = new AtomicBoolean(false);
 
     return ethScheduler
         .scheduleServiceTask(
-            () -> downloadReceipts(currTaskId, 0, blocksToRequest, receiptsByRootHash, cancelled))
+            () ->
+                downloadReceipts(
+                    currTaskId,
+                    0,
+                    blocksToRequest,
+                    firstBlockPartialReceipts,
+                    receiptsByRootHash,
+                    cancelled))
         .thenApply(receipts -> combineBlocksAndReceipts(blocks, receipts))
         .orTimeout(timeoutDuration.toMillis(), TimeUnit.MILLISECONDS)
         .whenComplete(
@@ -139,6 +149,7 @@ public class DownloadSyncReceiptsStep
       final int currTaskId,
       final int prevIterations,
       final List<SyncBlock> blocksToRequest,
+      final List<SyncTransactionReceipt> firstBlockPartialReceipts,
       final Map<Hash, List<SyncTransactionReceipt>> receiptsByRootHash,
       final AtomicBoolean cancelled) {
 
@@ -148,25 +159,28 @@ public class DownloadSyncReceiptsStep
       ++iteration;
 
       LOG.atTrace()
-          .setMessage("[{}:{}] Requesting receipts for {} blocks (initial {}): {}")
+          .setMessage(
+              "[{}:{}] Requesting receipts for {} blocks, partial receipts fetched for first block {} (initial {}): {}")
           .addArgument(currTaskId)
           .addArgument(iteration)
           .addArgument(blocksToRequest::size)
+          .addArgument(firstBlockPartialReceipts::size)
           .addArgument(initialBlockCount)
           .addArgument(() -> formatBlockDetails(blocksToRequest))
           .log();
 
       final GetSyncReceiptsFromPeerTask task =
           new GetSyncReceiptsFromPeerTask(
-              blocksToRequest, protocolSchedule, syncTransactionReceiptEncoder);
+              new Request(blocksToRequest, firstBlockPartialReceipts),
+              protocolSchedule,
+              syncTransactionReceiptEncoder);
 
-      final PeerTaskExecutorResult<Map<SyncBlock, List<SyncTransactionReceipt>>> getReceiptsResult =
-          peerTaskExecutor.execute(task);
+      final PeerTaskExecutorResult<Response> getReceiptsResult = peerTaskExecutor.execute(task);
 
       final PeerTaskExecutorResponseCode responseCode = getReceiptsResult.responseCode();
 
       if (responseCode == SUCCESS) {
-        final Map<SyncBlock, List<SyncTransactionReceipt>> receiptsByBlock =
+        final Response response =
             getReceiptsResult
                 .result()
                 .orElseThrow(
@@ -174,10 +188,23 @@ public class DownloadSyncReceiptsStep
                         new IllegalStateException(
                             "Task validation failure, it must flag empty result as failure"));
 
+        final Map<SyncBlock, List<SyncTransactionReceipt>> receiptsByBlock =
+            response.completeReceiptsByBlock();
+        final List<SyncTransactionReceipt> lastBlockPartialReceipts =
+            response.lastBlockPartialReceipts();
+
+        firstBlockPartialReceipts.clear();
+        if (!lastBlockPartialReceipts.isEmpty()) {
+          firstBlockPartialReceipts.addAll(lastBlockPartialReceipts);
+        }
+
         LOG.atTrace()
-            .setMessage("[{}:{}] Received response for {} blocks (requested {}, initial {}): {}")
+            .setMessage(
+                "[{}:{}] Received complete response for {} blocks, last block partial receipts {}, completed blocks {} (requested {}, initial {}): {}")
             .addArgument(currTaskId)
             .addArgument(iteration)
+            .addArgument(response::completeCount)
+            .addArgument(lastBlockPartialReceipts::size)
             .addArgument(receiptsByBlock::size)
             .addArgument(blocksToRequest::size)
             .addArgument(initialBlockCount)
@@ -185,11 +212,10 @@ public class DownloadSyncReceiptsStep
             .log();
 
         receiptsByBlock.forEach(
-            (syncBlock, syncTransactionReceipts) ->
-                receiptsByRootHash.put(
-                    syncBlock.getHeader().getReceiptsRoot(), syncTransactionReceipts));
-
-        blocksToRequest.removeAll(receiptsByBlock.keySet());
+            (block, receipts) -> {
+              receiptsByRootHash.put(block.getHeader().getReceiptsRoot(), receipts);
+              blocksToRequest.remove(block);
+            });
       } else {
         LOG.atTrace()
             .setMessage(
@@ -212,6 +238,7 @@ public class DownloadSyncReceiptsStep
                             currTaskId,
                             passIterations,
                             blocksToRequest,
+                            firstBlockPartialReceipts,
                             receiptsByRootHash,
                             cancelled)),
             RETRY_DELAY);

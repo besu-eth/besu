@@ -16,7 +16,6 @@ package org.hyperledger.besu.tests.acceptance.dsl.node.configuration.genesis;
 
 import static java.util.stream.Collectors.toList;
 
-import org.hyperledger.besu.consensus.clique.CliqueExtraData;
 import org.hyperledger.besu.consensus.ibft.IbftExtraDataCodec;
 import org.hyperledger.besu.consensus.qbft.QbftExtraDataCodec;
 import org.hyperledger.besu.datatypes.Address;
@@ -42,21 +41,6 @@ public class GenesisConfigurationFactory {
 
   private GenesisConfigurationFactory() {
     throw new IllegalStateException("Utility class");
-  }
-
-  public static Optional<String> createCliqueGenesisConfig(
-      final Collection<? extends RunnableNode> validators) {
-    return createCliqueGenesisConfig(validators, CliqueOptions.DEFAULT);
-  }
-
-  public static Optional<String> createCliqueGenesisConfig(
-      final Collection<? extends RunnableNode> validators, final CliqueOptions cliqueOptions) {
-    final String template = readGenesisFile("/clique/clique.json.tpl");
-
-    return updateGenesisExtraData(
-        validators,
-        updateGenesisCliqueOptions(template, cliqueOptions),
-        CliqueExtraData::createGenesisExtraDataString);
   }
 
   public static Optional<String> createIbft2GenesisConfig(
@@ -142,13 +126,6 @@ public class GenesisConfigurationFactory {
     }
   }
 
-  public static Optional<String> createDevLondonGenesisConfig(
-      final Collection<? extends RunnableNode> validators) {
-    final String template = readGenesisFile("/dev/dev_london.json");
-    return updateGenesisExtraData(
-        validators, template, CliqueExtraData::createGenesisExtraDataString);
-  }
-
   private static Optional<String> updateGenesisExtraData(
       final Collection<? extends RunnableNode> validators,
       final String genesisTemplate,
@@ -164,14 +141,6 @@ public class GenesisConfigurationFactory {
     return Optional.of(readGenesisFile(resourceName));
   }
 
-  private static String updateGenesisCliqueOptions(
-      final String template, final CliqueOptions cliqueOptions) {
-    return template
-        .replace("%blockperiodseconds%", String.valueOf(cliqueOptions.blockPeriodSeconds))
-        .replace("%epochlength%", String.valueOf(cliqueOptions.epochLength))
-        .replace("%createemptyblocks%", String.valueOf(cliqueOptions.createEmptyBlocks));
-  }
-
   @SuppressWarnings("UnstableApiUsage")
   public static String readGenesisFile(final String filepath) {
     try {
@@ -180,9 +149,5 @@ public class GenesisConfigurationFactory {
     } catch (final URISyntaxException | IOException e) {
       throw new IllegalStateException("Unable to get test genesis config " + filepath);
     }
-  }
-
-  public record CliqueOptions(int blockPeriodSeconds, int epochLength, boolean createEmptyBlocks) {
-    public static final CliqueOptions DEFAULT = new CliqueOptions(10, 30000, true);
   }
 }

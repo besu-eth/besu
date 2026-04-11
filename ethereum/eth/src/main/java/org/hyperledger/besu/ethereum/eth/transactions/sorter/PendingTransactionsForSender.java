@@ -15,10 +15,10 @@
 package org.hyperledger.besu.ethereum.eth.transactions.sorter;
 
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
+import org.hyperledger.besu.ethereum.eth.transactions.PendingTransactions;
 import org.hyperledger.besu.evm.account.Account;
 
 import java.util.List;
-import java.util.Map;
 import java.util.NavigableMap;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -31,7 +31,7 @@ public class PendingTransactionsForSender {
   private final NavigableMap<Long, PendingTransaction> pendingTransactions;
   private OptionalLong nextGap = OptionalLong.empty();
 
-  private Optional<Account> maybeSenderAccount;
+  private volatile Optional<Account> maybeSenderAccount;
 
   public PendingTransactionsForSender(final Optional<Account> maybeSenderAccount) {
     this.pendingTransactions = new TreeMap<>();
@@ -70,12 +70,16 @@ public class PendingTransactionsForSender {
     this.maybeSenderAccount = maybeSenderAccount;
   }
 
-  public long getSenderAccountNonce() {
-    return maybeSenderAccount.map(Account::getNonce).orElse(0L);
-  }
-
-  public Optional<Account> getSenderAccount() {
-    return maybeSenderAccount;
+  PendingTransactions.Status getStatus() {
+    synchronized (pendingTransactions) {
+      if (nextGap.isPresent()) {
+        final long gap = nextGap.getAsLong();
+        final long accountNonce = maybeSenderAccount.map(Account::getNonce).orElse(0L);
+        final long nonGapped = Math.max(0, gap - accountNonce);
+        return new PendingTransactions.Status(nonGapped, transactionCount() - nonGapped);
+      }
+      return new PendingTransactions.Status(transactionCount(), 0);
+    }
   }
 
   private void findGap() {
@@ -109,8 +113,10 @@ public class PendingTransactionsForSender {
     }
   }
 
-  public Optional<PendingTransaction> maybeLastPendingTransaction() {
-    return Optional.ofNullable(pendingTransactions.lastEntry()).map(Map.Entry::getValue);
+  public OptionalLong maybeCurrentNonce() {
+    return maybeSenderAccount
+        .map(account -> OptionalLong.of(account.getNonce()))
+        .orElse(OptionalLong.empty());
   }
 
   public int transactionCount() {
@@ -119,6 +125,10 @@ public class PendingTransactionsForSender {
 
   public List<PendingTransaction> getPendingTransactions(final long startingNonce) {
     return List.copyOf(pendingTransactions.tailMap(startingNonce).values());
+  }
+
+  public List<PendingTransaction> getPendingTransactions() {
+    return List.copyOf(pendingTransactions.values());
   }
 
   public Stream<PendingTransaction> streamPendingTransactions() {

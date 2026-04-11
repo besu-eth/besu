@@ -45,7 +45,6 @@ import org.hyperledger.besu.tests.acceptance.dsl.transaction.Transaction;
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.admin.AdminRequestFactory;
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.bft.BftRequestFactory;
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.bft.ConsensusType;
-import org.hyperledger.besu.tests.acceptance.dsl.transaction.clique.CliqueRequestFactory;
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.debug.DebugRequestFactory;
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.login.LoginRequestFactory;
 import org.hyperledger.besu.tests.acceptance.dsl.transaction.miner.MinerRequestFactory;
@@ -496,7 +495,6 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
           new NodeRequests(
               web3jService,
               new JsonRpc2_0Web3j(web3jService, 2000, Async.defaultExecutorService()),
-              new CliqueRequestFactory(web3jService),
               new BftRequestFactory(web3jService, bftType),
               new PermissioningJsonRpcRequestFactory(web3jService),
               new AdminRequestFactory(web3jService),

@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.referencetests;
 
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
-import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
@@ -46,10 +45,6 @@ import java.util.stream.Collectors;
  * be created and initialized for each created instance. This might cause your tests to slow down.
  */
 public class ReferenceTestProtocolSchedules {
-
-  static {
-    SignatureAlgorithmFactory.setDefaultInstance();
-  }
 
   private static final BigInteger CHAIN_ID = BigInteger.ONE;
 

@@ -88,6 +88,7 @@ import org.hyperledger.besu.cli.util.ConfigDefaultValueProviderStrategy;
 import org.hyperledger.besu.cli.util.VersionProvider;
 import org.hyperledger.besu.components.BesuComponent;
 import org.hyperledger.besu.config.CheckpointConfigOptions;
+import org.hyperledger.besu.config.DiscoveryOptions;
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.config.JsonUtil;
@@ -101,7 +102,6 @@ import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.KeyPairUtil;
 import org.hyperledger.besu.crypto.SECP256R1;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
-import org.hyperledger.besu.crypto.SignatureAlgorithmType;
 import org.hyperledger.besu.cryptoservices.KeyPairSecurityModule;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.datatypes.Address;
@@ -115,7 +115,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis;
 import org.hyperledger.besu.ethereum.api.jsonrpc.authentication.JwtAlgorithm;
 import org.hyperledger.besu.ethereum.api.jsonrpc.ipc.JsonRpcIpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
-import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.ChainDataPruner.ChainPruningStrategy;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
@@ -158,52 +157,25 @@ import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.metrics.vertx.VertxMetricsAdapterFactory;
 import org.hyperledger.besu.nat.NatMethod;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
-import org.hyperledger.besu.plugin.services.BesuEvents;
-import org.hyperledger.besu.plugin.services.BlockSimulationService;
-import org.hyperledger.besu.plugin.services.BlockchainService;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
-import org.hyperledger.besu.plugin.services.PermissioningService;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
-import org.hyperledger.besu.plugin.services.RpcEndpointService;
-import org.hyperledger.besu.plugin.services.SecurityModuleService;
-import org.hyperledger.besu.plugin.services.StorageService;
-import org.hyperledger.besu.plugin.services.TraceService;
-import org.hyperledger.besu.plugin.services.TransactionPoolValidatorService;
-import org.hyperledger.besu.plugin.services.TransactionSelectionService;
-import org.hyperledger.besu.plugin.services.TransactionSimulationService;
-import org.hyperledger.besu.plugin.services.TransactionValidatorService;
-import org.hyperledger.besu.plugin.services.WorldStateService;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
-import org.hyperledger.besu.plugin.services.metrics.MetricCategoryRegistry;
-import org.hyperledger.besu.plugin.services.mining.MiningService;
-import org.hyperledger.besu.plugin.services.p2p.P2PService;
-import org.hyperledger.besu.plugin.services.rlp.RlpConverterService;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModule;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBPlugin;
-import org.hyperledger.besu.plugin.services.sync.SynchronizationService;
-import org.hyperledger.besu.plugin.services.transactionpool.TransactionPoolService;
 import org.hyperledger.besu.services.BesuConfigurationImpl;
-import org.hyperledger.besu.services.BesuEventsImpl;
 import org.hyperledger.besu.services.BesuPluginContextImpl;
-import org.hyperledger.besu.services.BlockSimulatorServiceImpl;
+import org.hyperledger.besu.services.BesuPluginServiceRegistrar;
 import org.hyperledger.besu.services.BlockchainServiceImpl;
-import org.hyperledger.besu.services.MiningServiceImpl;
-import org.hyperledger.besu.services.P2PServiceImpl;
 import org.hyperledger.besu.services.PermissioningServiceImpl;
 import org.hyperledger.besu.services.PicoCLIOptionsImpl;
-import org.hyperledger.besu.services.RlpConverterServiceImpl;
 import org.hyperledger.besu.services.RpcEndpointServiceImpl;
 import org.hyperledger.besu.services.SecurityModuleServiceImpl;
 import org.hyperledger.besu.services.StorageServiceImpl;
-import org.hyperledger.besu.services.SynchronizationServiceImpl;
-import org.hyperledger.besu.services.TraceServiceImpl;
-import org.hyperledger.besu.services.TransactionPoolServiceImpl;
 import org.hyperledger.besu.services.TransactionPoolValidatorServiceImpl;
 import org.hyperledger.besu.services.TransactionSelectionServiceImpl;
 import org.hyperledger.besu.services.TransactionSimulationServiceImpl;
 import org.hyperledger.besu.services.TransactionValidatorServiceImpl;
-import org.hyperledger.besu.services.WorldStateServiceImpl;
 import org.hyperledger.besu.services.kvstore.InMemoryStoragePlugin;
 import org.hyperledger.besu.util.BesuVersionUtils;
 import org.hyperledger.besu.util.EphemeryGenesisUpdater;
@@ -976,12 +948,12 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         System.exit(0); // Exit before any services are started
       }
 
+      logger.info("Starting Besu");
+
       // set merge config on the basis of genesis config
       setMergeConfigOptions();
 
       instantiateSignatureAlgorithmFactory();
-
-      logger.info("Starting Besu");
 
       // Need to create vertx after cmdline has been parsed, such that metricsSystem is configurable
       vertx = createVertx(besuComponent.getMetricsSystem());
@@ -1278,23 +1250,22 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
   private void preparePlugins() {
     besuPluginContext.addService(PicoCLIOptions.class, new PicoCLIOptionsImpl(commandLine));
-    besuPluginContext.addService(SecurityModuleService.class, securityModuleService);
-    besuPluginContext.addService(StorageService.class, storageService);
 
     metricCategoryRegistry.addCategories(BesuMetricCategory.class);
     metricCategoryRegistry.addCategories(StandardMetricCategory.class);
-    besuPluginContext.addService(MetricCategoryRegistry.class, metricCategoryRegistry);
-    besuPluginContext.addService(PermissioningService.class, permissioningService);
-    besuPluginContext.addService(RpcEndpointService.class, rpcEndpointServiceImpl);
-    besuPluginContext.addService(
-        TransactionSelectionService.class, transactionSelectionServiceImpl);
-    besuPluginContext.addService(
-        TransactionPoolValidatorService.class, transactionPoolValidatorServiceImpl);
-    besuPluginContext.addService(
-        TransactionSimulationService.class, transactionSimulationServiceImpl);
-    besuPluginContext.addService(BlockchainService.class, blockchainServiceImpl);
-    besuPluginContext.addService(
-        TransactionValidatorService.class, transactionValidatorServiceImpl);
+
+    BesuPluginServiceRegistrar.registerEarlyServices(
+        besuPluginContext,
+        securityModuleService,
+        storageService,
+        metricCategoryRegistry,
+        permissioningService,
+        rpcEndpointServiceImpl,
+        transactionSelectionServiceImpl,
+        transactionPoolValidatorServiceImpl,
+        transactionSimulationServiceImpl,
+        blockchainServiceImpl,
+        transactionValidatorServiceImpl);
 
     // register built-in plugins
     rocksDBPlugin = new RocksDBPlugin();
@@ -1355,65 +1326,13 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         besuController.getTransactionSimulator());
     rpcEndpointServiceImpl.init(runner.getInProcessRpcMethods());
 
-    besuPluginContext.addService(
-        BesuEvents.class,
-        new BesuEventsImpl(
-            besuController.getProtocolContext().getBlockchain(),
-            besuController.getProtocolManager().getBlockBroadcaster(),
-            besuController.getTransactionPool(),
-            besuController.getSyncState(),
-            besuController.getProtocolContext().getBadBlockManager()));
-    besuPluginContext.addService(MetricsSystem.class, getMetricsSystem());
+    BesuPluginServiceRegistrar.registerRuntimeServices(
+        besuPluginContext,
+        besuController,
+        runner,
+        getMetricsSystem(),
+        miningParametersSupplier.get());
 
-    besuPluginContext.addService(
-        WorldStateService.class,
-        new WorldStateServiceImpl(
-            besuController.getProtocolContext().getWorldStateArchive(),
-            besuController.getProtocolContext().getBlockchain()));
-
-    besuPluginContext.addService(
-        SynchronizationService.class,
-        new SynchronizationServiceImpl(
-            besuController.getSynchronizer(),
-            besuController.getProtocolContext(),
-            besuController.getProtocolSchedule(),
-            besuController.getSyncState(),
-            besuController.getProtocolContext().getWorldStateArchive()));
-
-    besuPluginContext.addService(
-        P2PService.class, new P2PServiceImpl(runner.getP2PNetwork(), besuController.getEthPeers()));
-
-    besuPluginContext.addService(
-        TransactionPoolService.class,
-        new TransactionPoolServiceImpl(besuController.getTransactionPool()));
-
-    besuPluginContext.addService(
-        RlpConverterService.class,
-        new RlpConverterServiceImpl(besuController.getProtocolSchedule()));
-
-    besuPluginContext.addService(
-        TraceService.class,
-        new TraceServiceImpl(
-            new BlockchainQueries(
-                besuController.getProtocolSchedule(),
-                besuController.getProtocolContext().getBlockchain(),
-                besuController.getProtocolContext().getWorldStateArchive(),
-                miningParametersSupplier.get()),
-            besuController.getProtocolSchedule()));
-
-    besuPluginContext.addService(
-        MiningService.class, new MiningServiceImpl(besuController.getMiningCoordinator()));
-
-    besuPluginContext.addService(
-        BlockSimulationService.class,
-        new BlockSimulatorServiceImpl(
-            besuController.getProtocolContext().getWorldStateArchive(),
-            miningParametersSupplier.get(),
-            besuController.getTransactionSimulator(),
-            besuController.getProtocolSchedule(),
-            besuController.getProtocolContext().getBlockchain()));
-
-    besuController.getAdditionalPluginServices().appendPluginServices(besuPluginContext);
     besuPluginContext.startPlugins();
   }
 
@@ -1560,10 +1479,15 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     validateDataStorageOptions();
     validateGraphQlOptions();
     validatePluginOptions();
+    validateUnstableNetworkingOptions();
   }
 
   private void validatePluginOptions() {
     pluginsConfigurationOptions.validate(commandLine);
+  }
+
+  private void validateUnstableNetworkingOptions() {
+    unstableNetworkingOptions.validate(commandLine);
   }
 
   private void validateApiOptions() {
@@ -1993,7 +1917,10 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
     jsonRpcConfiguration =
         jsonRpcHttpOptions.jsonRpcConfiguration(
-            hostsAllowlist, p2PDiscoveryConfig.p2pHost(), unstableRPCOptions.getHttpTimeoutSec());
+            hostsAllowlist,
+            p2PDiscoveryConfig.p2pHost(),
+            unstableRPCOptions.getHttpTimeoutSec(),
+            unstableRPCOptions.getHttpStreamingTimeoutSec());
     logger.info("RPC HTTP JSON-RPC config: {}", jsonRpcConfiguration);
     if (isEngineApiEnabled()) {
       engineJsonRpcConfiguration = createEngineJsonRpcConfiguration();
@@ -2162,7 +2089,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         jsonRpcHttpOptions.jsonRpcConfiguration(
             engineRPCConfig.engineHostsAllowlist(),
             p2PDiscoveryConfig.p2pHost(),
-            unstableRPCOptions.getHttpTimeoutSec());
+            unstableRPCOptions.getHttpTimeoutSec(),
+            unstableRPCOptions.getHttpStreamingTimeoutSec());
     engineConfig.setPort(engineRPCConfig.engineRpcPort());
     engineConfig.setRpcApis(Arrays.asList("ENGINE", "ETH"));
     engineConfig.setEnabled(isEngineApiEnabled());
@@ -2517,6 +2445,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
       if (p2PDiscoveryOptions.bootNodes == null) {
         builder.setEnodeBootNodes(new ArrayList<>());
+        builder.setEnrBootNodes(new ArrayList<>());
       }
       builder.setDnsDiscoveryUrl(null);
     }
@@ -2539,46 +2468,75 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       discoveryDnsUrlFromGenesis.ifPresent(builder::setDnsDiscoveryUrl);
     }
 
-    List<EnodeURLImpl> listBootNodes = null;
-    if (p2PDiscoveryOptions.bootNodes != null) {
+    // Resolve bootnodes: CLI --bootnodes overrides genesis defaults.
+    // The discovery protocol version determines the expected format:
+    //   V5 → ENR strings ("enr:..."),  V4 → enode URLs ("enode://...")
+    final boolean isV5 =
+        unstableNetworkingOptions.toDomainObject().discoveryConfiguration().isDiscoveryV5Enabled();
+    List<String> rawBootnodes = null;
+    final boolean cliBootnodesProvided = p2PDiscoveryOptions.bootNodes != null;
+    if (cliBootnodesProvided) {
       try {
-        final List<String> resolvedBootNodeArgs =
-            BootnodeResolver.resolve(p2PDiscoveryOptions.bootNodes);
-        if (!resolvedBootNodeArgs.isEmpty()) {
-          if (resolvedBootNodeArgs.getFirst().startsWith("enr:")) {
-            builder.setEnrBootNodes(
-                resolvedBootNodeArgs.stream().map(EthereumNodeRecord::fromEnr).toList());
-          } else {
-            listBootNodes = buildEnodes(resolvedBootNodeArgs, getEnodeDnsConfiguration());
-          }
-        } else {
-          listBootNodes = Collections.emptyList();
-        }
-
-      } catch (final BootnodeResolutionException e) {
+        rawBootnodes = BootnodeResolver.resolve(p2PDiscoveryOptions.bootNodes);
+      } catch (final BootnodeResolutionException | IllegalArgumentException e) {
         throw new ParameterException(commandLine, e.getMessage(), e);
-
-      } catch (final IllegalArgumentException e) {
-        throw new ParameterException(commandLine, e.getMessage());
       }
     } else {
-      final Optional<List<String>> bootNodesFromGenesis =
-          genesisConfigOptionsSupplier.get().getDiscoveryOptions().getBootNodes();
-      if (bootNodesFromGenesis.isPresent() && !bootNodesFromGenesis.get().isEmpty()) {
-        if (bootNodesFromGenesis.get().getFirst().startsWith("enr:")) {
-          builder.setEnrBootNodes(
-              bootNodesFromGenesis.get().stream().map(EthereumNodeRecord::fromEnr).toList());
-        } else {
-          listBootNodes = buildEnodes(bootNodesFromGenesis.get(), getEnodeDnsConfiguration());
-        }
-      }
+      final DiscoveryOptions discoveryOptions =
+          genesisConfigOptionsSupplier.get().getDiscoveryOptions();
+      rawBootnodes =
+          isV5
+              ? discoveryOptions.getV5BootNodes().orElse(null)
+              : discoveryOptions.getBootNodes().orElse(null);
     }
-    if (listBootNodes != null) {
+
+    if (rawBootnodes != null && !rawBootnodes.isEmpty()) {
       if (!p2PDiscoveryOptions.peerDiscoveryEnabled) {
         logger.warn("Discovery disabled: bootnodes will be ignored.");
       }
-      DiscoveryConfiguration.assertValidBootnodes(listBootNodes);
-      builder.setEnodeBootNodes(listBootNodes);
+      try {
+        if (isV5) {
+          builder.setEnrBootNodes(
+              rawBootnodes.stream()
+                  .map(
+                      enr -> {
+                        try {
+                          return EthereumNodeRecord.fromEnr(enr);
+                        } catch (final Exception e) {
+                          throw new ParameterException(
+                              commandLine,
+                              "Invalid ENR bootnode: '"
+                                  + enr
+                                  + "'. ENR bootnodes must start with 'enr:'. Error: "
+                                  + e.getMessage(),
+                              e);
+                        }
+                      })
+                  .toList());
+        } else {
+          final List<EnodeURLImpl> enodes = buildEnodes(rawBootnodes, getEnodeDnsConfiguration());
+          DiscoveryConfiguration.assertValidBootnodes(enodes);
+          builder.setEnodeBootNodes(enodes);
+        }
+        // CLI --bootnodes is a full override: clear the unused protocol's list
+        if (cliBootnodesProvided) {
+          if (isV5) {
+            builder.setEnodeBootNodes(Collections.emptyList());
+          } else {
+            builder.setEnrBootNodes(Collections.emptyList());
+          }
+        }
+      } catch (final ParameterException e) {
+        throw e; // re-throw ParameterException from ENR parsing as-is
+      } catch (final IllegalArgumentException e) {
+        throw new ParameterException(commandLine, e.getMessage());
+      } catch (final RuntimeException e) {
+        throw new ParameterException(commandLine, "Invalid bootnode format: " + e.getMessage(), e);
+      }
+    } else if (cliBootnodesProvided) {
+      // Explicitly empty --bootnodes clears all default bootnodes
+      builder.setEnodeBootNodes(Collections.emptyList());
+      builder.setEnrBootNodes(Collections.emptyList());
     }
     return builder.build();
   }
@@ -2768,23 +2726,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   }
 
   private void instantiateSignatureAlgorithmFactory() {
-    if (SignatureAlgorithmFactory.isInstanceSet()) {
-      return;
-    }
-
-    final Optional<String> ecCurve = getEcCurveFromGenesisFile();
-
-    if (ecCurve.isEmpty()) {
-      SignatureAlgorithmFactory.setDefaultInstance();
-      return;
-    }
-
-    try {
-      SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create(ecCurve.get()));
-    } catch (final IllegalArgumentException e) {
-      throw new CommandLine.InitializationException(
-          "Invalid genesis file configuration for ecCurve. " + e.getMessage());
-    }
+    getEcCurveFromGenesisFile()
+        .ifPresent(
+            ecCurve -> {
+              try {
+                SignatureAlgorithmFactory.switchInstance(ecCurve);
+              } catch (final IllegalArgumentException e) {
+                throw new CommandLine.InitializationException(
+                    "Invalid genesis file configuration for ecCurve. " + e.getMessage());
+              }
+            });
   }
 
   private Optional<String> getEcCurveFromGenesisFile() {
@@ -2956,6 +2907,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .setTxPoolImplementation(buildTransactionPoolConfiguration().getTxPoolImplementation())
         .setWorldStateUpdateMode(unstableEvmOptions.toDomainObject().worldUpdaterMode())
         .setEnabledOpcodeOptimizations(unstableEvmOptions.toDomainObject().enableOptimizedOpcodes())
+        .setEvmV2(unstableEvmOptions.toDomainObject().enableEvmV2())
         .setPluginContext(this.besuPluginContext)
         .setHistoryExpiryPruneEnabled(getDataStorageConfiguration().getHistoryExpiryPruneEnabled())
         .setBlobDBSettings(rocksDBPlugin.getBlobDBSettings());

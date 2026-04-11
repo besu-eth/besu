@@ -22,10 +22,13 @@ import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 
+import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 
+import com.google.common.collect.HashBasedTable;
 import org.apache.tuweni.bytes.Bytes32;
 
 /**
@@ -48,6 +51,11 @@ import org.apache.tuweni.bytes.Bytes32;
  * @param creates The set of addresses that creates
  * @param selfDestructs The set of addresses that self-destructs
  * @param gasRefunds The gas refunds
+ * @param stateGasUsed The cumulative state gas used (EIP-8037), undone on revert
+ * @param stateGasReservoir The EIP-8037 state gas reservoir (overflow from regular gas budget),
+ *     undone on revert
+ * @param stateGasSpillBurned EIP-8037 accumulated state gas that spilled from reverted child
+ *     frames; NOT undone on revert (permanent burn counter for block accounting)
  */
 public record TxValues(
     BlockHashLookup blockHashLookup,
@@ -64,7 +72,56 @@ public record TxValues(
     UndoTable<Address, Bytes32, Bytes32> transientStorage,
     UndoSet<Address> creates,
     UndoSet<Address> selfDestructs,
-    UndoScalar<Long> gasRefunds) {
+    UndoScalar<Long> gasRefunds,
+    UndoScalar<Long> stateGasUsed,
+    UndoScalar<Long> stateGasReservoir,
+    long[] stateGasSpillBurned) {
+
+  /**
+   * Creates a new TxValues for the initial (depth-0) frame of a transaction. EIP-8037 gas tracking
+   * fields are initialized to zero.
+   *
+   * @param blockHashLookup block hash lookup function
+   * @param maxStackSize maximum stack size
+   * @param warmedUpAddresses pre-warmed addresses
+   * @param originator the transaction originator
+   * @param gasPrice the gas price
+   * @param blobGasPrice the blob gas price
+   * @param blockValues the block values
+   * @param miningBeneficiary the mining beneficiary
+   * @param versionedHashes optional versioned hashes
+   * @return a new TxValues instance
+   */
+  public static TxValues forTransaction(
+      final BlockHashLookup blockHashLookup,
+      final int maxStackSize,
+      final UndoSet<Address> warmedUpAddresses,
+      final Address originator,
+      final Wei gasPrice,
+      final Wei blobGasPrice,
+      final BlockValues blockValues,
+      final Address miningBeneficiary,
+      final Optional<List<VersionedHash>> versionedHashes) {
+    return new TxValues(
+        blockHashLookup,
+        maxStackSize,
+        warmedUpAddresses,
+        UndoTable.of(HashBasedTable.create()),
+        originator,
+        gasPrice,
+        blobGasPrice,
+        blockValues,
+        new ArrayDeque<>(),
+        miningBeneficiary,
+        versionedHashes,
+        UndoTable.of(HashBasedTable.create()),
+        UndoSet.of(new HashSet<>()),
+        UndoSet.of(new HashSet<>()),
+        new UndoScalar<>(0L),
+        new UndoScalar<>(0L),
+        new UndoScalar<>(0L),
+        new long[] {0L});
+  }
 
   /**
    * For all data stored in this record, undo the changes since the mark.
@@ -78,5 +135,7 @@ public record TxValues(
     creates.undo(mark);
     selfDestructs.undo(mark);
     gasRefunds.undo(mark);
+    stateGasUsed.undo(mark);
+    stateGasReservoir.undo(mark);
   }
 }

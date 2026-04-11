@@ -103,6 +103,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import com.google.common.base.Splitter;
 import com.google.common.io.Resources;
 import io.vertx.core.json.JsonObject;
 import org.apache.tuweni.bytes.Bytes;
@@ -113,6 +114,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -306,14 +309,7 @@ public class BesuCommandTest extends CommandTestAbstract {
     final ArgumentCaptor<EthNetworkConfig> ethNetworkArg =
         ArgumentCaptor.forClass(EthNetworkConfig.class);
     verify(mockRunnerBuilder).discoveryEnabled(eq(true));
-    verify(mockRunnerBuilder)
-        .ethNetworkConfig(
-            new EthNetworkConfig(
-                GenesisConfig.fromResource(MAINNET.getGenesisFile()),
-                MAINNET.getNetworkId(),
-                MAINNET_BOOTSTRAP_NODES,
-                Collections.emptyList(),
-                MAINNET_DISCOVERY_URL));
+    verify(mockRunnerBuilder).ethNetworkConfig(EthNetworkConfig.getNetworkConfig(MAINNET));
     verify(mockRunnerBuilder).p2pAdvertisedHost(eq("127.0.0.1"));
     verify(mockRunnerBuilder).p2pListenPort(eq(30303));
     verify(mockRunnerBuilder).jsonRpcConfiguration(eq(DEFAULT_JSON_RPC_CONFIGURATION));
@@ -958,6 +954,7 @@ public class BesuCommandTest extends CommandTestAbstract {
     verify(mockRunnerBuilder).build();
 
     assertThat(ethNetworkConfigArgumentCaptor.getValue().enodeBootNodes()).isEmpty();
+    assertThat(ethNetworkConfigArgumentCaptor.getValue().enrBootNodes()).isEmpty();
 
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
@@ -1018,6 +1015,46 @@ public class BesuCommandTest extends CommandTestAbstract {
         "Invalid enode URL syntax 'invalid_enode_url'. Enode URL should have the following format "
             + "'enode://<node_id>@<ip>:<listening_port>[?discport=<discovery_port>]'.";
     assertThat(commandErrorOutput.toString(UTF_8)).startsWith(expectedErrorOutputStart);
+  }
+
+  private static final String VALID_ENR_1 =
+      "enr:-Iu4QLm7bZGdAt9NSeJG0cEnJohWcQTQaI9wFLu3Q7eHIDfrI4cwtzvEW3F3VbG9XdFXlrHyFGeXPn9snTCQJ9bnMRABgmlkgnY0gmlwhAOTJQCJc2VjcDI1NmsxoQIZdZD6tDYpkpEfVo5bgiU8MGRjhcOmHGD2nErK0UKRrIN0Y3CCIyiDdWRwgiMo";
+  private static final String VALID_ENR_2 =
+      "enr:-Iu4QEDJ4Wa_UQNbK8Ay1hFEkXvd8psolVK6OhfTL9irqz3nbXxxWyKwEplPfkju4zduVQj6mMhUCm9R2Lc4YM5jPcIBgmlkgnY0gmlwhANrfESJc2VjcDI1NmsxoQJCYz2-nsqFpeEj6eov9HSi9QssIVIVNr0I89J1vXM9foN0Y3CCIyiDdWRwgiMo";
+
+  @Test
+  public void callingWithValidEnrBootnodeAndV5EnabledMustSucceed() {
+    parseCommand("--Xv5-discovery-enabled", "--bootnodes", VALID_ENR_1);
+
+    verify(mockRunnerBuilder).ethNetworkConfig(ethNetworkConfigArgumentCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    assertThat(ethNetworkConfigArgumentCaptor.getValue().enrBootNodes()).hasSize(1);
+    assertThat(ethNetworkConfigArgumentCaptor.getValue().enodeBootNodes()).isEmpty();
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void callingWithMultipleValidEnrBootnodesAndV5EnabledMustSucceed() {
+    parseCommand("--Xv5-discovery-enabled", "--bootnodes", VALID_ENR_1 + "," + VALID_ENR_2);
+
+    verify(mockRunnerBuilder).ethNetworkConfig(ethNetworkConfigArgumentCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    assertThat(ethNetworkConfigArgumentCaptor.getValue().enrBootNodes()).hasSize(2);
+    assertThat(ethNetworkConfigArgumentCaptor.getValue().enodeBootNodes()).isEmpty();
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"enr:-invalidenrdata", "enr:invalidvalue", "invalidvalue"})
+  public void callingWithInvalidBootnodeAndV5EnabledMustDisplayError(final String bootnode) {
+    parseCommand("--Xv5-discovery-enabled", "--bootnodes", bootnode);
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8))
+        .contains("Invalid ENR bootnode: '" + bootnode + "'");
   }
 
   @Test
@@ -1279,22 +1316,23 @@ public class BesuCommandTest extends CommandTestAbstract {
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 
-  @Test
-  public void netRestrictParsedCorrectly() {
-    final String subnet1 = "127.0.0.1/24";
-    final String subnet2 = "10.0.0.1/24";
-    parseCommand("--net-restrict", String.join(",", subnet1, subnet2));
+  @ParameterizedTest
+  @ValueSource(
+      strings = {"127.0.0.0/24,10.0.0.0/24", "fd00::/64,fe80::/10", "127.0.0.0/24,fd00::/64"})
+  public void netRestrictParsedCorrectly(final String subnets) {
+    parseCommand("--net-restrict", subnets);
     verify(mockRunnerBuilder).allowedSubnets(allowedSubnetsArgumentCaptor.capture());
-    assertThat(allowedSubnetsArgumentCaptor.getValue().size()).isEqualTo(2);
-    assertThat(allowedSubnetsArgumentCaptor.getValue().get(0).getCidrSignature())
-        .isEqualTo(subnet1);
-    assertThat(allowedSubnetsArgumentCaptor.getValue().get(1).getCidrSignature())
-        .isEqualTo(subnet2);
+    final List<String> expected = Splitter.on(',').splitToList(subnets);
+    assertThat(allowedSubnetsArgumentCaptor.getValue()).hasSize(expected.size());
+    for (int i = 0; i < expected.size(); i++) {
+      assertThat(allowedSubnetsArgumentCaptor.getValue().get(i).toString())
+          .isEqualTo(expected.get(i));
+    }
   }
 
-  @Test
-  public void netRestrictInvalidShouldFail() {
-    final String subnet = "127.0.0.1/abc";
+  @ParameterizedTest
+  @ValueSource(strings = {"127.0.0.1/abc", "abc", ""})
+  public void netRestrictInvalidShouldFail(final String subnet) {
     parseCommand("--net-restrict", subnet);
     verifyNoInteractions(mockRunnerBuilder);
     assertThat(commandErrorOutput.toString(UTF_8))
@@ -2742,21 +2780,6 @@ public class BesuCommandTest extends CommandTestAbstract {
     assertThat(commandErrorOutput.toString(UTF_8))
         .contains(
             "--Xchain-pruning-blocks-retained must be >= " + CHAIN_DATA_PRUNING_RETAINED_MINIMUM);
-    commandErrorOutput.reset();
-
-    // for Clique
-    genesis.getJsonObject("config").put("clique", new JsonObject().put("epochlength", 10000));
-    genesis.getJsonObject("config").remove("ibft2");
-    final Path genesisFileClique = createFakeGenesisFile(genesis);
-    parseCommand(
-        "--genesis-file",
-        genesisFileClique.toString(),
-        "--Xchain-pruning-enabled=ALL",
-        "--Xchain-pruning-blocks-retained=7200",
-        "--version-compatibility-protection=false");
-    assertThat(commandErrorOutput.toString(UTF_8))
-        .contains(
-            "--Xchain-pruning-blocks-retained must be >= " + CHAIN_DATA_PRUNING_RETAINED_MINIMUM);
   }
 
   @Test
@@ -2788,20 +2811,6 @@ public class BesuCommandTest extends CommandTestAbstract {
         "--Xchain-pruning-blocks-retained=" + CHAIN_DATA_PRUNING_RETAINED_MINIMUM,
         "--version-compatibility-protection=false");
 
-    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
-
-    // for Clique
-    genesis
-        .getJsonObject("config")
-        .put("clique", new JsonObject().put("epochlength", CHAIN_DATA_PRUNING_RETAINED_MINIMUM));
-    genesis.getJsonObject("config").remove("ibft2");
-    final Path genesisFileClique = createFakeGenesisFile(genesis);
-    parseCommand(
-        "--genesis-file",
-        genesisFileClique.toString(),
-        "--Xchain-pruning-enabled=ALL",
-        "--Xchain-pruning-blocks-retained=" + CHAIN_DATA_PRUNING_RETAINED_MINIMUM,
-        "--version-compatibility-protection=false");
     assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 

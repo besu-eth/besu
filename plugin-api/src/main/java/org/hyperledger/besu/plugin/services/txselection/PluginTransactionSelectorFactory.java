@@ -32,9 +32,26 @@ public interface PluginTransactionSelectorFactory {
    *
    * @param selectorsStateManager the selectors state manager
    * @return the transaction selector
+   * @deprecated use {@link PluginTransactionSelectorFactory#create(ProcessableBlockHeader,
+   *     SelectorsStateManager)} instead
    */
+  @Deprecated(forRemoval = true)
   default PluginTransactionSelector create(final SelectorsStateManager selectorsStateManager) {
     return PluginTransactionSelector.ACCEPT_ALL;
+  }
+
+  /**
+   * Create a plugin transaction selector, that can be used during block creation to apply custom
+   * filters to proposed pending transactions
+   *
+   * @param pendingBlockHeader the header of the block being created
+   * @param selectorsStateManager the selectors state manager
+   * @return the transaction selector
+   */
+  default PluginTransactionSelector create(
+      final ProcessableBlockHeader pendingBlockHeader,
+      final SelectorsStateManager selectorsStateManager) {
+    return create(selectorsStateManager);
   }
 
   /**

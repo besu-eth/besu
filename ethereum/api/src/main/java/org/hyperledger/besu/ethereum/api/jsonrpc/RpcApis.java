@@ -30,7 +30,6 @@ public enum RpcApis {
   TXPOOL,
   TRACE,
   PLUGINS,
-  CLIQUE,
   IBFT,
   ENGINE,
   QBFT,

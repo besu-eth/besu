@@ -76,9 +76,8 @@ class TransactionsMessageProcessor {
       final EthPeer peer, final TransactionsMessage transactionsMessage) {
     try {
       final List<Transaction> incomingTransactions = transactionsMessage.transactions();
-      final Collection<Transaction> freshTransactions = skipSeenTransactions(incomingTransactions);
-
-      transactionTracker.markTransactionsAsSeen(peer, incomingTransactions);
+      final Collection<Transaction> freshTransactions =
+          transactionTracker.receivedTransactions(peer, incomingTransactions);
 
       metrics.incrementAlreadySeenTransactions(
           METRIC_LABEL, incomingTransactions.size() - freshTransactions.size());
@@ -100,11 +99,5 @@ class TransactionsMessageProcessor {
         peer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
       }
     }
-  }
-
-  private Collection<Transaction> skipSeenTransactions(final List<Transaction> inTransactions) {
-    return inTransactions.stream()
-        .filter(tx -> !transactionTracker.hasSeenTransaction(tx.getHash()))
-        .toList();
   }
 }

@@ -8,7 +8,7 @@
   "response": {
     "jsonrpc": "2.0",
     "id": 2,
-    "result": "0x45"
+    "result": "0x47"
   },
   "statusCode": 200
 }

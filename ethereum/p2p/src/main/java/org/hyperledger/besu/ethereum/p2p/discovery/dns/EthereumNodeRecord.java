@@ -16,7 +16,8 @@
 // Adapted from https://github.com/tmio/tuweni and licensed under Apache 2.0
 package org.hyperledger.besu.ethereum.p2p.discovery.dns;
 
-import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
+import org.hyperledger.besu.crypto.SECP256K1;
+import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.ethereum.p2p.discovery.NodeIdentifier;
 
 import java.net.InetAddress;
@@ -45,6 +46,9 @@ public record EthereumNodeRecord(
     Optional<Integer> udpV6,
     NodeRecord nodeRecord)
     implements NodeIdentifier {
+
+  // ENR identity scheme v4 always uses secp256k1, independent of the node's signature algorithm
+  private static final SignatureAlgorithm SECP256K1 = new SECP256K1();
 
   @SuppressWarnings(
       "MethodInputParametersMustBeFinal") // needed since record constructors are not yet supported
@@ -97,8 +101,8 @@ public record EthereumNodeRecord(
       throw new IllegalArgumentException("Missing secp256k1 entry in ENR");
     }
     // convert 33 bytes compressed public key to uncompressed using Bouncy Castle
-    var curve = SignatureAlgorithmFactory.getInstance().getCurve();
-    var ecPoint = curve.getCurve().decodePoint(keyBytes.toArrayUnsafe());
+    // ENR identity scheme v4 always uses secp256k1 for the public key
+    var ecPoint = SECP256K1.getCurve().getCurve().decodePoint(keyBytes.toArrayUnsafe());
     // uncompressed public key is 65 bytes, first byte is 0x04.
     var encodedPubKey = ecPoint.getEncoded(false);
     return Bytes.of(Arrays.copyOfRange(encodedPubKey, 1, encodedPubKey.length));
