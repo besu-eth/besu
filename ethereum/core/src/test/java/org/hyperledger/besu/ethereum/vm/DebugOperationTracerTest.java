@@ -455,6 +455,25 @@ class DebugOperationTracerTest {
     assertThat(tracer.getTraceFrames().get(0).getGasRemainingPostExecution()).isGreaterThan(0);
   }
 
+  @Test
+  void shouldCaptureAllFramesWhenLimitIsZero() {
+    final OpCodeTracerConfig config =
+        OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+            .traceStorage(false)
+            .traceMemory(false)
+            .traceStack(false)
+            .limit(0)
+            .build();
+    final DebugOperationTracer tracer = new DebugOperationTracer(config, false);
+    final MessageFrame frame = validMessageFrame();
+
+    for (int i = 0; i < 5; i++) {
+      traceFrame(frame, tracer, anOperation);
+    }
+
+    assertThat(tracer.getTraceFrames()).hasSize(5);
+  }
+
   private TraceFrame traceFrame(final MessageFrame frame) {
     return traceFrame(
         frame,
