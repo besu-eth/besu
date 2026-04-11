@@ -122,6 +122,7 @@ public final class OpCodeTracerConfigBuilder {
    * @return the current builder
    */
   public OpCodeTracerConfigBuilder limit(final int n) {
+    if (n < 0) throw new IllegalArgumentException("limit must be >= 0, got: " + n);
     limit = n;
     return this;
   }

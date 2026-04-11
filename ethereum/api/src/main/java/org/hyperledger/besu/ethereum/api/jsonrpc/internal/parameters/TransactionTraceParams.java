@@ -126,6 +126,7 @@ public interface TransactionTraceParams {
       builder.traceStack(!disableStack());
     }
     if (limit() != null) {
+      if (limit() < 0) throw new IllegalArgumentException("limit must be >= 0, got: " + limit());
       builder.limit(limit());
     }
     var opCodeTracerConfig = builder.traceOpcodes(opcodes()).build();
