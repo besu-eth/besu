@@ -55,6 +55,20 @@ public interface ServiceManager {
    */
   <T extends BesuService> Optional<T> getService(Class<T> serviceType);
 
+  /**
+   * Returns the current lifecycle phase of the plugin system.
+   *
+   * <p>Plugins can use this to determine which services are expected to be available. For example,
+   * services like {@code BesuEvents} and {@code P2PService} are only registered during {@link
+   * PluginLifecyclePhase#BEFORE_MAIN_LOOP_STARTED}, so calling {@link #getService(Class)} for them
+   * during {@link PluginLifecyclePhase#REGISTERING} will return empty.
+   *
+   * @return the current {@link PluginLifecyclePhase}
+   */
+  default PluginLifecyclePhase getLifecyclePhase() {
+    return PluginLifecyclePhase.UNINITIALIZED;
+  }
+
   /** A basic implementation of ServiceManager, suitable for tests. */
   class SimpleServiceManager implements ServiceManager {
     private final Map<Class<? extends BesuService>, BesuService> services = new HashMap<>();

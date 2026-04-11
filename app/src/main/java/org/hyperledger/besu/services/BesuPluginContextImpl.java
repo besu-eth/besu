@@ -19,6 +19,7 @@ import static com.google.common.base.Preconditions.checkState;
 
 import org.hyperledger.besu.ethereum.core.plugins.PluginConfiguration;
 import org.hyperledger.besu.plugin.BesuPlugin;
+import org.hyperledger.besu.plugin.PluginLifecyclePhase;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.BesuService;
 import org.hyperledger.besu.plugin.services.PluginVersionsProvider;
@@ -53,30 +54,7 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
 
   private static final Logger LOG = LoggerFactory.getLogger(BesuPluginContextImpl.class);
 
-  private enum Lifecycle {
-    /** Uninitialized lifecycle. */
-    UNINITIALIZED,
-    /** Initialized lifecycle. */
-    INITIALIZED,
-    /** Registering lifecycle. */
-    REGISTERING,
-    /** Registered lifecycle. */
-    REGISTERED,
-    /** Before external services started lifecycle. */
-    BEFORE_EXTERNAL_SERVICES_STARTED,
-    /** Before external services finished lifecycle. */
-    BEFORE_EXTERNAL_SERVICES_FINISHED,
-    /** Before main loop started lifecycle. */
-    BEFORE_MAIN_LOOP_STARTED,
-    /** Before main loop finished lifecycle. */
-    BEFORE_MAIN_LOOP_FINISHED,
-    /** Stopping lifecycle. */
-    STOPPING,
-    /** Stopped lifecycle. */
-    STOPPED
-  }
-
-  private Lifecycle state = Lifecycle.UNINITIALIZED;
+  private PluginLifecyclePhase state = PluginLifecyclePhase.UNINITIALIZED;
   private final Map<Class<?>, ? super BesuService> serviceRegistry = new HashMap<>();
 
   private List<BesuPlugin> detectedPlugins = new ArrayList<>();
@@ -110,7 +88,19 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
   @SuppressWarnings("unchecked")
   @Override
   public <T extends BesuService> Optional<T> getService(final Class<T> serviceType) {
-    return Optional.ofNullable((T) serviceRegistry.get(serviceType));
+    final T service = (T) serviceRegistry.get(serviceType);
+    if (service == null) {
+      LOG.debug(
+          "Service {} is not available during lifecycle phase {}.",
+          serviceType.getSimpleName(),
+          state);
+    }
+    return Optional.ofNullable(service);
+  }
+
+  @Override
+  public PluginLifecyclePhase getLifecyclePhase() {
+    return state;
   }
 
   /**
@@ -121,10 +111,10 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
    */
   public void initialize(final PluginConfiguration config) {
     checkState(
-        state == Lifecycle.UNINITIALIZED,
+        state == PluginLifecyclePhase.UNINITIALIZED,
         "Besu plugins have already been initialized. Cannot register additional plugins.");
     this.config = config;
-    state = Lifecycle.INITIALIZED;
+    state = PluginLifecyclePhase.INITIALIZED;
   }
 
   /**
@@ -136,9 +126,9 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
    */
   public void registerPlugins() {
     checkState(
-        state == Lifecycle.INITIALIZED,
+        state == PluginLifecyclePhase.INITIALIZED,
         "Besu plugins have already been registered. Cannot register additional plugins.");
-    state = Lifecycle.REGISTERING;
+    state = PluginLifecyclePhase.REGISTERING;
 
     if (config.isExternalPluginsEnabled()) {
       detectedPlugins = detectPlugins(config);
@@ -158,7 +148,7 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
     } else {
       LOG.debug("External plugins are disabled. Skipping plugins registration.");
     }
-    state = Lifecycle.REGISTERED;
+    state = PluginLifecyclePhase.REGISTERED;
   }
 
   private List<BesuPlugin> matchAndValidateRequestedPlugins(
@@ -220,11 +210,11 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
   /** Before external services. */
   public void beforeExternalServices() {
     checkState(
-        state == Lifecycle.REGISTERED,
+        state == PluginLifecyclePhase.REGISTERED,
         "BesuContext should be in state %s but it was in %s",
-        Lifecycle.REGISTERED,
+        PluginLifecyclePhase.REGISTERED,
         state);
-    state = Lifecycle.BEFORE_EXTERNAL_SERVICES_STARTED;
+    state = PluginLifecyclePhase.BEFORE_EXTERNAL_SERVICES_STARTED;
     final Iterator<BesuPlugin> pluginsIterator = registeredPlugins.iterator();
 
     while (pluginsIterator.hasNext()) {
@@ -250,17 +240,17 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
       }
     }
     LOG.debug("Plugin startup complete.");
-    state = Lifecycle.BEFORE_EXTERNAL_SERVICES_FINISHED;
+    state = PluginLifecyclePhase.BEFORE_EXTERNAL_SERVICES_FINISHED;
   }
 
   /** Start plugins. */
   public void startPlugins() {
     checkState(
-        state == Lifecycle.BEFORE_EXTERNAL_SERVICES_FINISHED,
+        state == PluginLifecyclePhase.BEFORE_EXTERNAL_SERVICES_FINISHED,
         "BesuContext should be in state %s but it was in %s",
-        Lifecycle.BEFORE_EXTERNAL_SERVICES_FINISHED,
+        PluginLifecyclePhase.BEFORE_EXTERNAL_SERVICES_FINISHED,
         state);
-    state = Lifecycle.BEFORE_MAIN_LOOP_STARTED;
+    state = PluginLifecyclePhase.BEFORE_MAIN_LOOP_STARTED;
     final Iterator<BesuPlugin> pluginsIterator = registeredPlugins.iterator();
 
     while (pluginsIterator.hasNext()) {
@@ -284,16 +274,17 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
     }
 
     LOG.debug("Plugin startup complete.");
-    state = Lifecycle.BEFORE_MAIN_LOOP_FINISHED;
+    state = PluginLifecyclePhase.BEFORE_MAIN_LOOP_FINISHED;
   }
 
   /** Execute all plugin setup code after external services. */
   public void afterExternalServicesMainLoop() {
     checkState(
-        state == Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
+        state == PluginLifecyclePhase.BEFORE_MAIN_LOOP_FINISHED,
         "BesuContext should be in state %s but it was in %s",
-        Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
+        PluginLifecyclePhase.BEFORE_MAIN_LOOP_FINISHED,
         state);
+    state = PluginLifecyclePhase.AFTER_EXTERNAL_SERVICES_POST_MAIN_LOOP;
     final Iterator<BesuPlugin> pluginsIterator = registeredPlugins.iterator();
 
     while (pluginsIterator.hasNext()) {
@@ -321,11 +312,13 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
   /** Stop plugins. */
   public void stopPlugins() {
     checkState(
-        state == Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
-        "BesuContext should be in state %s but it was in %s",
-        Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
+        state == PluginLifecyclePhase.BEFORE_MAIN_LOOP_FINISHED
+            || state == PluginLifecyclePhase.AFTER_EXTERNAL_SERVICES_POST_MAIN_LOOP,
+        "BesuContext should be in state %s or %s but it was in %s",
+        PluginLifecyclePhase.BEFORE_MAIN_LOOP_FINISHED,
+        PluginLifecyclePhase.AFTER_EXTERNAL_SERVICES_POST_MAIN_LOOP,
         state);
-    state = Lifecycle.STOPPING;
+    state = PluginLifecyclePhase.STOPPING;
 
     for (final BesuPlugin plugin : registeredPlugins) {
       try {
@@ -347,7 +340,7 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
     }
 
     LOG.debug("Plugin shutdown complete.");
-    state = Lifecycle.STOPPED;
+    state = PluginLifecyclePhase.STOPPED;
   }
 
   private static URL pathToURIOrNull(final Path p) {
@@ -462,6 +455,6 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
 
   /** Resets the lifecycle state to uninitialized for Ephemery restart. */
   public void resetState() {
-    state = Lifecycle.UNINITIALIZED;
+    state = PluginLifecyclePhase.UNINITIALIZED;
   }
 }
