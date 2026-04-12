@@ -1123,6 +1123,67 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
         MAX_SCORE);
   }
 
+  @Test
+  public void updateForkChoiceShouldFailWhenWorldStateUnavailable() {
+    // Build a chain: genesis → terminal → block1 → block2
+    BlockHeader terminalHeader = terminalPowBlock();
+    sendNewPayloadAndForkchoiceUpdate(
+        new Block(terminalHeader, BlockBody.empty()), Optional.empty(), Hash.ZERO);
+
+    BlockHeader block1Header = nextBlockHeader(terminalHeader);
+    Block block1 = new Block(block1Header, BlockBody.empty());
+    sendNewPayloadAndForkchoiceUpdate(block1, Optional.empty(), terminalHeader.getHash());
+
+    BlockHeader block2Header = nextBlockHeader(block1Header);
+    Block block2 = new Block(block2Header, BlockBody.empty());
+    sendNewPayloadAndForkchoiceUpdate(block2, Optional.empty(), block1Header.getHash());
+
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(block2Header.getHash());
+
+    BlockHeader block3Header = nextBlockHeader(block2Header);
+    Block block3 = new Block(block3Header, BlockBody.empty());
+    coordinator.rememberBlock(block3);
+
+    // Simulate world state roll failure (storage error, pruned trie logs, etc.)
+    WorldStateArchive failingArchive = mock(WorldStateArchive.class);
+    when(failingArchive.getWorldState(any(
+            org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.class)))
+        .thenReturn(Optional.empty());
+
+    ProtocolContext failingProtocolContext =
+        spy(
+            new ProtocolContext.Builder()
+                .withBlockchain(blockchain)
+                .withWorldStateArchive(failingArchive)
+                .withConsensusContext(mergeContext)
+                .withBadBlockManager(badBlockManager)
+                .build());
+
+    MergeCoordinator failingCoordinator =
+        new MergeCoordinator(
+            failingProtocolContext,
+            protocolSchedule,
+            ethScheduler,
+            transactionPool,
+            miningConfiguration,
+            backwardSyncContext);
+
+    org.mockito.Mockito.clearInvocations(blockchain);
+
+    ForkchoiceResult result =
+        failingCoordinator.updateForkChoice(
+            block3Header, block1Header.getHash(), block1Header.getHash());
+
+    assertThat(result.shouldNotProceedToPayloadBuildProcess()).isTrue();
+    assertThat(result.getStatus()).isEqualTo(ForkchoiceResult.Status.INVALID);
+    assertThat(result.getErrorMessage()).isPresent();
+
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(block2Header.getHash());
+
+    verify(blockchain, never()).setFinalized(block1Header.getHash());
+    verify(blockchain, never()).setSafeBlock(block1Header.getHash());
+  }
+
   private static BlockHeader mockBlockHeader() {
     final BlockHeader blockHeader = mock(BlockHeader.class);
     when(blockHeader.getBaseFee()).thenReturn(Optional.of(Wei.ONE));
