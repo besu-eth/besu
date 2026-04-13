@@ -28,8 +28,11 @@ import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
+import java.io.IOException;
+import java.io.OutputStream;
 import java.util.Arrays;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.StatusCode;
 import io.vertx.core.json.JsonArray;
@@ -75,6 +78,37 @@ public class CombinedJsonRpcProcessor implements JsonRpcProcessor {
       metricSpan.end();
       return response;
     }
+  }
+
+  @Override
+  @SuppressWarnings("UnusedVariable") // Parameters required by interface
+  public void streamProcess(
+      final JsonRpcRequestId id,
+      final JsonRpcMethod method,
+      final Span metricSpan,
+      final JsonRpcRequestContext request,
+      final OutputStream out,
+      final ObjectMapper mapper)
+      throws IOException {
+    try (final OperationTimer.TimingContext ignored =
+        requestTimer.labels(request.getRequest().getMethod()).startTimer()) {
+      executeMethodAndStream(id, method, request, out, mapper);
+      metricSpan.end();
+    }
+  }
+
+  @SuppressWarnings("UnusedVariable") // Parameters required by interface
+  private void executeMethodAndStream(
+      final JsonRpcRequestId id,
+      final JsonRpcMethod method,
+      final JsonRpcRequestContext request,
+      final OutputStream out,
+      final ObjectMapper mapper)
+      throws IOException {
+    // Default implementation throws UnsupportedOperationException
+    // Methods supporting streaming override this
+    throw new UnsupportedOperationException(
+        "Method " + method.getName() + " does not support streaming");
   }
 
   private JsonRpcResponse executeMethod(
