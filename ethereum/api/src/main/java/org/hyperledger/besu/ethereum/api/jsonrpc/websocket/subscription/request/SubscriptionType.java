@@ -30,7 +30,10 @@ public enum SubscriptionType {
   DROPPED_PENDING_TRANSACTIONS("droppedPendingTransactions"),
 
   @JsonProperty("syncing")
-  SYNCING("syncing");
+  SYNCING("syncing"),
+
+  @JsonProperty("transactionReceipts")
+  TRANSACTION_RECEIPTS("transactionReceipts");
 
   private final String code;
 

@@ -23,7 +23,6 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -76,12 +75,5 @@ public class PeerRequirementCombineTest {
   public void combine_withOn() {
     PeerRequirement combined = PeerRequirement.combine(Collections.emptyList());
     assertThat(combined.hasSufficientPeers()).isTrue();
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }
