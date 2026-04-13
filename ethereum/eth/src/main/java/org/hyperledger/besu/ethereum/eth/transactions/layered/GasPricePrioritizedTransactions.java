@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfigurati
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 
+import java.util.List;
 import java.util.function.BiFunction;
 
 /**
@@ -64,6 +65,11 @@ public class GasPricePrioritizedTransactions extends AbstractPrioritizedTransact
         .thenComparing(PendingTransaction::getGasPrice)
         .thenComparing(PendingTransaction::getSequence)
         .compare(pt1, pt2);
+  }
+
+  @Override
+  List<PendingTransaction> getInclusionList(final BlockHeader header) {
+    return List.of();
   }
 
   @Override

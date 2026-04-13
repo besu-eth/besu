@@ -53,6 +53,8 @@ public interface PendingTransactions {
 
   Collection<PendingTransaction> getPendingTransactions();
 
+  List<PendingTransaction> getInclusionListPendingTransactions(final BlockHeader blockHeader);
+
   /**
    * Returns all pending transactions for the given sender, sorted by nonce in ascending order.
    *

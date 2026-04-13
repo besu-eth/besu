@@ -74,6 +74,7 @@ public class EngineForkchoiceUpdatedV2Test extends AbstractEngineForkchoiceUpdat
             Address.ECREC.toString(),
             null,
             null,
+            null,
             null);
 
     final JsonRpcResponse resp = resp(param, Optional.of(payloadParams));

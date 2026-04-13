@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 /** The interface Merge mining coordinator. */
@@ -47,6 +48,38 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    * @param slotNumber optional slot number (EIP-7843)
    * @return the payload identifier
    */
+  default PayloadIdentifier preparePayload(
+      final BlockHeader parentHeader,
+      final Long timestamp,
+      final Bytes32 prevRandao,
+      final Address feeRecipient,
+      final Optional<List<Withdrawal>> withdrawals,
+      final Optional<Bytes32> parentBeaconBlockRoot,
+      final Optional<Long> slotNumber) {
+    return preparePayload(
+        parentHeader,
+        timestamp,
+        prevRandao,
+        feeRecipient,
+        withdrawals,
+        parentBeaconBlockRoot,
+        slotNumber,
+        Optional.empty());
+  }
+
+  /**
+   * Prepare payload identifier with inclusion list transactions (EIP-7805).
+   *
+   * @param parentHeader the parent header
+   * @param timestamp the timestamp
+   * @param prevRandao the prev randao
+   * @param feeRecipient the fee recipient
+   * @param withdrawals the optional list of withdrawals
+   * @param parentBeaconBlockRoot optional root hash of the parent beacon block
+   * @param slotNumber optional slot number (EIP-7843)
+   * @param inclusionListTransactions optional list of inclusion list transactions (EIP-7805)
+   * @return the payload identifier
+   */
   PayloadIdentifier preparePayload(
       final BlockHeader parentHeader,
       final Long timestamp,
@@ -54,7 +87,8 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
       final Address feeRecipient,
       final Optional<List<Withdrawal>> withdrawals,
       final Optional<Bytes32> parentBeaconBlockRoot,
-      final Optional<Long> slotNumber);
+      final Optional<Long> slotNumber,
+      final Optional<List<Bytes>> inclusionListTransactions);
 
   @Override
   default boolean isCompatibleWithEngineApi() {

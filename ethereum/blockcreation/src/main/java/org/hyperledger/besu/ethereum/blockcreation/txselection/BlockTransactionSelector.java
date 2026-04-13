@@ -65,9 +65,11 @@ import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.SequencedSet;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -133,6 +135,7 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
   private volatile TransactionSelectionResult validTxSelectionTimeoutResult;
   private volatile TransactionSelectionResult invalidTxSelectionTimeoutResult;
   private volatile FutureTask<Void> currTxSelectionTask;
+  private final SequencedSet<Transaction> inclusionListTransactions;
 
   public BlockTransactionSelector(
       final MiningConfiguration miningConfiguration,
@@ -148,7 +151,8 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
       final PluginTransactionSelector pluginTransactionSelector,
       final EthScheduler ethScheduler,
       final SelectorsStateManager selectorsStateManager,
-      final Optional<BlockAccessList.BlockAccessListBuilder> maybeBlockAccessListBuilder) {
+      final Optional<BlockAccessList.BlockAccessListBuilder> maybeBlockAccessListBuilder,
+      final List<Transaction> inclusionListTransactions) {
     this.transactionProcessor = transactionProcessor;
     this.blockchain = blockchain;
     this.worldState = worldState;
@@ -177,6 +181,7 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     this.pluginTxsSelectionMaxTimeNanos =
         miningConfiguration.getPluginTxsSelectionMaxTime(blockTxsSelectionMaxTime).toNanos();
     this.maybeBlockAccessListBuilder = maybeBlockAccessListBuilder;
+    this.inclusionListTransactions = new LinkedHashSet<>(inclusionListTransactions);
   }
 
   private List<AbstractTransactionSelector> createTransactionSelectors(
@@ -207,6 +212,22 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
         .setMessage("Transaction selection result {}")
         .addArgument(transactionSelectionResults::toTraceLog)
         .log();
+
+    // for any inclusion list txs not yet selected, evaluate and include it now
+    // this is not time-limited, since failing to include any of these txs will result
+    // in an invalid block
+    for (final Transaction ilTx : List.copyOf(inclusionListTransactions)) {
+      final TransactionSelectionResult ilResult =
+          evaluateTransaction(new PendingTransaction.Local.Priority(ilTx));
+      if (!ilResult.selected()) {
+        LOG.atDebug()
+            .setMessage("Inclusion list tx {} not selected, reason: {}")
+            .addArgument(ilTx::toTraceLog)
+            .addArgument(ilResult)
+            .log();
+      }
+    }
+
     return transactionSelectionResults;
   }
 
@@ -883,6 +904,8 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
 
       transactionSelectionResults.updateSelected(
           transaction, receipt, blockGasUsed, receiptGasUsed, processingResult.getStateGasUsed());
+
+      inclusionListTransactions.remove(transaction);
 
       notifySelected(evaluationContext, processingResult);
       LOG.atTrace()
