@@ -970,6 +970,28 @@ public class MessageFrame {
   }
 
   /**
+   * Accumulates gas that was sitting unused in the initial frame's gasRemaining at the moment of an
+   * exceptional halt (EIP-7778/EIP-8037). The sender still pays for this gas via receipts, but it
+   * did not correspond to any executed regular or state gas, so it must be excluded from the block
+   * regular gas total. Not undone on revert.
+   *
+   * @param amount the gasRemaining snapshot taken immediately before clearGasRemaining on the
+   *     initial frame's exceptional halt
+   */
+  public void accumulateInitialFrameRegularHaltBurn(final long amount) {
+    txValues.initialFrameRegularHaltBurn()[0] += amount;
+  }
+
+  /**
+   * Returns the gas burned on the initial frame's exceptional halt.
+   *
+   * @return accumulated halt-burned gas
+   */
+  public long getInitialFrameRegularHaltBurn() {
+    return txValues.initialFrameRegularHaltBurn()[0];
+  }
+
+  /**
    * Add recipient to the self-destruct set if not already present.
    *
    * @param address The recipient to self-destruct

@@ -152,10 +152,9 @@ public abstract class AbstractMessageProcessor {
    *
    * @param frame The message frame
    */
-  private void handleStateGasSpill(final MessageFrame frame) {
+  private void handleStateGasSpill(final MessageFrame frame, final boolean isInitialFrame) {
     final long stateGasUsedBefore = frame.getStateGasUsed();
     final long reservoirBefore = frame.getStateGasReservoir();
-    final boolean isInitialFrame = frame.getMessageFrameStack().size() == 1;
 
     clearAccumulatedStateBesidesGasAndOutput(frame);
 
@@ -188,12 +187,34 @@ public abstract class AbstractMessageProcessor {
   }
 
   /**
+   * Snapshots the initial frame's gasRemaining into {@code initialFrameRegularHaltBurn} so that gas
+   * paid by the sender but never spent on regular or state work is excluded from block regular gas.
+   * Must be invoked before any path that zeroes {@code gasRemaining} on the initial frame
+   * (exceptional halt and depth-0 code-deposit failure).
+   *
+   * @param frame the initial (depth-0) message frame
+   */
+  protected static void recordInitialFrameRegularHaltBurn(final MessageFrame frame) {
+    final long haltBurn = frame.getRemainingGas();
+    if (haltBurn > 0) {
+      frame.accumulateInitialFrameRegularHaltBurn(haltBurn);
+    }
+  }
+
+  /**
    * Gets called when the message frame encounters an exceptional halt.
    *
    * @param frame The message frame
    */
   private void exceptionalHalt(final MessageFrame frame) {
-    handleStateGasSpill(frame);
+    final boolean isInitialFrame = frame.getMessageFrameStack().size() == 1;
+
+    handleStateGasSpill(frame, isInitialFrame);
+
+    if (isInitialFrame) {
+      recordInitialFrameRegularHaltBurn(frame);
+    }
+
     frame.clearGasRemaining();
     frame.clearOutputData();
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
@@ -205,7 +226,9 @@ public abstract class AbstractMessageProcessor {
    * @param frame The message frame
    */
   protected void revert(final MessageFrame frame) {
-    handleStateGasSpill(frame);
+    final boolean isInitialFrame = frame.getMessageFrameStack().size() == 1;
+    handleStateGasSpill(frame, isInitialFrame);
+
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
   }
 
