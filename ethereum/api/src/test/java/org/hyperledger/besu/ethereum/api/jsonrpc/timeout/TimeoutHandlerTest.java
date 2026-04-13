@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.timeout;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod.ETH_BLOCK_NUMBER;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod.ETH_GET_LOGS;
 import static org.mockito.ArgumentMatchers.any;
@@ -188,12 +187,5 @@ public class TimeoutHandlerTest {
     verify(setup.response(), never()).reset();
     verify(setup.ctx(), never()).fail(DEFAULT_OPTS.getErrorCode());
     verify(setup.connection(), never()).close();
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }
