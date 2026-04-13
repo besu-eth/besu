@@ -14,106 +14,111 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.mockStatic;
-import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.GenesisConfig;
+import org.hyperledger.besu.crypto.KeyPair;
+import org.hyperledger.besu.crypto.SECPPrivateKey;
+import org.hyperledger.besu.crypto.SignatureAlgorithm;
+import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.OpCodeLoggerTracerResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
-import org.hyperledger.besu.ethereum.chain.BadBlockManager;
-import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolScheduleBuilder;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSpecAdapters;
-import org.hyperledger.besu.ethereum.mainnet.TransactionValidatorFactory;
-import org.hyperledger.besu.ethereum.mainnet.WithdrawalsProcessor;
-import org.hyperledger.besu.evm.internal.EvmConfiguration;
-import org.hyperledger.besu.metrics.ObservableMetricsSystem;
-import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
-import org.hyperledger.besu.testutil.DeterministicEthScheduler;
+import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.math.BigInteger;
-import java.util.Arrays;
-import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Function;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.MockedStatic;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.junit.jupiter.MockitoSettings;
-import org.mockito.quality.Strictness;
 
-@ExtendWith(MockitoExtension.class)
-@MockitoSettings(strictness = Strictness.LENIENT)
 public class DebugTraceBlockTest {
-  @Mock private BlockchainQueries blockchainQueries;
-  @Mock private Blockchain blockchain;
-  @Mock private ObservableMetricsSystem metricsSystem;
-  @Mock private WithdrawalsProcessor withdrawalsProcessor;
-  @Mock private TransactionValidatorFactory alwaysValidTransactionValidatorFactory;
+
+  private static final String GENESIS_RESOURCE =
+      "/org/hyperledger/besu/ethereum/api/jsonrpc/trace/chain-data/genesis-osaka.json";
+  private static final KeyPair KEY_PAIR =
+      SignatureAlgorithmFactory.getInstance()
+          .createKeyPair(
+              SECPPrivateKey.create(
+                  Bytes32.fromHexString(
+                      "c87509a1c067bbde78beb793e6fa76530b6382a4c0241e5e4a9ec0a0f44dc0d3"),
+                  SignatureAlgorithm.ALGORITHM));
+  private static final Address CONTRACT_ADDRESS =
+      Address.fromHexString("0x0030000000000000000000000000000000000000");
+
   private DebugTraceBlock debugTraceBlock;
+  private ExecutionContextTestFixture fixture;
+  private Block testBlock;
+  private Transaction testTransaction;
+  private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module());
 
   @BeforeEach
   public void setUp() {
-    // As we build the block from RLP in DebugTraceBlock, we need to have non mocked
-    // protocolSchedule (and ProtocolSpec)
-    // to be able to get the hash of the block
-    final var genesisConfig =
-        GenesisConfig.fromResource(
-            "/org/hyperledger/besu/ethereum/api/jsonrpc/trace/chain-data/genesis.json");
-    final ProtocolSpecAdapters protocolSpecAdapters =
-        ProtocolSpecAdapters.create(
-            0,
-            specBuilder -> {
-              specBuilder.isReplayProtectionSupported(true);
-              specBuilder.withdrawalsProcessor(withdrawalsProcessor);
-              specBuilder.transactionValidatorFactoryBuilder(
-                  (evm, gasLimitCalculator, feeMarket) -> alwaysValidTransactionValidatorFactory);
-              return specBuilder;
-            });
-    final ExecutionContextTestFixture executionContextTestFixture =
+    final GenesisConfig genesisConfig = GenesisConfig.fromResource(GENESIS_RESOURCE);
+    fixture =
         ExecutionContextTestFixture.builder(genesisConfig)
-            .protocolSchedule(
-                new ProtocolScheduleBuilder(
-                        genesisConfig.getConfigOptions(),
-                        Optional.of(BigInteger.valueOf(42)),
-                        protocolSpecAdapters,
-                        false,
-                        EvmConfiguration.DEFAULT,
-                        MiningConfiguration.MINING_DISABLED,
-                        new BadBlockManager(),
-                        false,
-                        BalConfiguration.DEFAULT,
-                        new NoOpMetricsSystem())
-                    .createProtocolSchedule())
+            .dataStorageFormat(DataStorageFormat.BONSAI)
             .build();
-    debugTraceBlock =
-        new DebugTraceBlock(
-            executionContextTestFixture.getProtocolSchedule(),
-            blockchainQueries,
-            metricsSystem,
-            new DeterministicEthScheduler());
+
+    final BlockchainQueries blockchainQueries =
+        new BlockchainQueries(
+            fixture.getProtocolSchedule(),
+            fixture.getBlockchain(),
+            fixture.getStateArchive(),
+            MiningConfiguration.MINING_DISABLED);
+
+    debugTraceBlock = new DebugTraceBlock(fixture.getProtocolSchedule(), blockchainQueries);
+
+    // Build a signed EIP-1559 transaction calling the increment contract with input=5
+    testTransaction =
+        Transaction.builder()
+            .type(TransactionType.EIP1559)
+            .nonce(0)
+            .maxPriorityFeePerGas(Wei.of(5))
+            .maxFeePerGas(Wei.of(7))
+            .gasLimit(100_000L)
+            .to(CONTRACT_ADDRESS)
+            .value(Wei.ZERO)
+            .payload(Bytes32.leftPad(Bytes.of(5)))
+            .chainId(BigInteger.valueOf(42))
+            .signAndBuild(KEY_PAIR);
+
+    // Build a block whose parent is the genesis block
+    final BlockHeader genesis = fixture.getBlockchain().getChainHeadHeader();
+    final BlockHeader blockHeader =
+        new BlockHeaderTestFixture()
+            .number(genesis.getNumber() + 1L)
+            .parentHash(genesis.getHash())
+            .gasLimit(30_000_000L)
+            .baseFeePerGas(Wei.of(7))
+            .buildHeader();
+    final BlockBody blockBody =
+        new BlockBody(List.of(testTransaction), Collections.emptyList(), Optional.empty());
+    testBlock = new Block(blockHeader, blockBody);
   }
 
   @Test
@@ -121,92 +126,112 @@ public class DebugTraceBlockTest {
     assertThat(debugTraceBlock.getName()).isEqualTo("debug_traceBlock");
   }
 
-  @SuppressWarnings("unchecked")
   @Test
-  public void shouldReturnCorrectResponse() {
-    final Block parentBlock =
-        new BlockDataGenerator()
-            .block(
-                BlockDataGenerator.BlockOptions.create()
-                    .setBlockHeaderFunctions(new MainnetBlockHeaderFunctions()));
-    final Block block =
-        new BlockDataGenerator()
-            .block(
-                BlockDataGenerator.BlockOptions.create()
-                    .setBlockHeaderFunctions(new MainnetBlockHeaderFunctions())
-                    .setParentHash(parentBlock.getHash()));
-
-    final Object[] params = new Object[] {block.toRlp().toString()};
+  public void shouldReturnCorrectResponse() throws IOException {
+    final Object[] params = new Object[] {testBlock.toRlp().toString()};
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceBlock", params));
 
-    when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
-    when(blockchain.getBlockByHash(block.getHeader().getParentHash()))
-        .thenReturn(Optional.of(parentBlock));
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    debugTraceBlock.streamResponse(request, out, mapper);
+    final String json = out.toString(UTF_8);
+    assertThat(json).startsWith("{\"jsonrpc\":\"2.0\"");
+    assertThat(json).contains("\"result\":");
 
-    OpCodeLoggerTracerResult result1 = mock(OpCodeLoggerTracerResult.class);
-    OpCodeLoggerTracerResult result2 = mock(OpCodeLoggerTracerResult.class);
+    final JsonNode response = mapper.readTree(json);
+    assertThat(response.has("result")).isTrue();
+    final JsonNode result = response.get("result");
+    assertThat(result.isArray()).isTrue();
+    assertThat(result.size()).isEqualTo(1);
 
-    List<OpCodeLoggerTracerResult> resultList = Arrays.asList(result1, result2);
+    final JsonNode txTrace = result.get(0);
+    assertThat(txTrace.has("txHash")).isTrue();
+    assertThat(txTrace.get("txHash").asText()).isEqualTo(testTransaction.getHash().toHexString());
 
-    try (MockedStatic<Tracer> mockedTracer = mockStatic(Tracer.class)) {
-      mockedTracer
-          .when(
-              () ->
-                  Tracer.processTracing(
-                      eq(blockchainQueries),
-                      eq(Optional.of(block.getHeader())),
-                      any(Function.class)))
-          .thenReturn(Optional.of(resultList));
+    final JsonNode traceResult = txTrace.get("result");
+    assertThat(traceResult.get("failed").asBoolean()).isFalse();
+    assertThat(traceResult.get("gas").asLong()).isGreaterThan(0);
+    // Contract increments input (5) by 1, returns 6 as 32-byte value
+    assertThat(traceResult.get("returnValue").asText())
+        .isEqualTo("0x0000000000000000000000000000000000000000000000000000000000000006");
 
-      final JsonRpcResponse jsonRpcResponse = debugTraceBlock.response(request);
-      assertThat(jsonRpcResponse).isInstanceOf(JsonRpcSuccessResponse.class);
-      JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) jsonRpcResponse;
+    // Verify structLogs contains the expected opcode sequence
+    final JsonNode structLogs = traceResult.get("structLogs");
+    assertThat(structLogs.isArray()).isTrue();
+    assertThat(structLogs.size()).isEqualTo(9);
 
-      final Collection<OpCodeLoggerTracerResult> traceResult = getResult(response);
-      assertThat(traceResult).isNotEmpty();
-      assertThat(traceResult).isInstanceOf(Collection.class).hasSize(2);
-      assertThat(traceResult).containsExactly(result1, result2);
+    // First opcode: PUSH1 0x00
+    assertThat(structLogs.get(0).get("pc").asInt()).isEqualTo(0);
+    assertThat(structLogs.get(0).get("op").asText()).isEqualTo("PUSH1");
+    assertThat(structLogs.get(0).get("depth").asInt()).isEqualTo(1);
+    assertThat(structLogs.get(0).get("gas").asLong()).isGreaterThan(0);
+    assertThat(structLogs.get(0).get("gasCost").asLong()).isGreaterThan(0);
+
+    // Verify the full opcode sequence
+    final String[] expectedOps = {
+      "PUSH1", "CALLDATALOAD", "PUSH1", "ADD", "PUSH1", "MSTORE", "PUSH1", "PUSH1", "RETURN"
+    };
+    for (int i = 0; i < expectedOps.length; i++) {
+      assertThat(structLogs.get(i).get("op").asText()).isEqualTo(expectedOps[i]);
     }
   }
 
-  @SuppressWarnings("unchecked")
-  private Collection<OpCodeLoggerTracerResult> getResult(final JsonRpcSuccessResponse response) {
-    return (Collection<OpCodeLoggerTracerResult>) response.getResult();
+  @Test
+  public void batchResponseShouldMatchStreamingOutput() throws IOException {
+    final Object[] params = new Object[] {testBlock.toRlp().toString()};
+
+    // batch (accumulating) path
+    final JsonRpcRequestContext batchRequest =
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceBlock", params));
+    final JsonRpcResponse response = debugTraceBlock.response(batchRequest);
+    assertThat(response).isInstanceOf(JsonRpcSuccessResponse.class);
+    final Object batchResult = ((JsonRpcSuccessResponse) response).getResult();
+    assertThat(batchResult).isNotNull();
+    final JsonNode batchJson = mapper.readTree(mapper.writeValueAsBytes(batchResult));
+
+    // streaming path
+    final JsonRpcRequestContext streamRequest =
+        new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceBlock", params));
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    debugTraceBlock.streamResponse(streamRequest, out, mapper);
+    final JsonNode streamJson = mapper.readTree(out.toByteArray()).get("result");
+
+    assertThat(batchJson)
+        .as("batch (accumulating) and streaming paths must produce identical result JSON")
+        .isEqualTo(streamJson);
   }
 
   @Test
-  public void shouldReturnErrorResponseWhenParentBlockMissing() {
-    final Block block =
+  public void shouldReturnErrorResponseWhenParentBlockMissing() throws IOException {
+    // Create a block whose parent doesn't exist in the blockchain
+    final Block orphanBlock =
         new BlockDataGenerator()
             .block(
                 BlockDataGenerator.BlockOptions.create()
                     .setBlockHeaderFunctions(new MainnetBlockHeaderFunctions()));
 
-    final Object[] params = new Object[] {block.toRlp().toString()};
+    final Object[] params = new Object[] {orphanBlock.toRlp().toString()};
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceBlock", params));
 
-    when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
-    when(blockchain.getBlockByHash(block.getHeader().getParentHash())).thenReturn(Optional.empty());
-
-    final JsonRpcResponse jsonRpcResponse = debugTraceBlock.response(request);
-    assertThat(jsonRpcResponse).isInstanceOf(JsonRpcErrorResponse.class);
-    final JsonRpcErrorResponse response = (JsonRpcErrorResponse) debugTraceBlock.response(request);
-
-    assertThat(response.getErrorType()).isEqualByComparingTo(RpcErrorType.PARENT_BLOCK_NOT_FOUND);
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    debugTraceBlock.streamResponse(request, out, mapper);
+    final JsonNode response = mapper.readTree(out.toByteArray());
+    assertThat(response.has("error")).isTrue();
+    assertThat(response.get("error").get("message").asText()).contains("Parent block not found");
   }
 
   @Test
-  public void shouldHandleInvalidParametersGracefully() {
+  public void shouldHandleInvalidParametersGracefully() throws IOException {
     final Object[] invalidParams = new Object[] {"invalid RLP"};
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(new JsonRpcRequest("2.0", "debug_traceBlock", invalidParams));
 
-    final JsonRpcResponse jsonRpcResponse = debugTraceBlock.response(request);
-    assertThat(jsonRpcResponse).isInstanceOf(JsonRpcErrorResponse.class);
-    final JsonRpcErrorResponse response = (JsonRpcErrorResponse) debugTraceBlock.response(request);
-
-    assertThat(response.getError().getMessage()).contains("Invalid block param (block not found)");
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    debugTraceBlock.streamResponse(request, out, mapper);
+    final JsonNode response = mapper.readTree(out.toByteArray());
+    assertThat(response.has("error")).isTrue();
+    assertThat(response.get("error").get("message").asText())
+        .contains("Invalid block param (block not found)");
   }
 }

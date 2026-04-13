@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
@@ -22,6 +23,7 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 public class SnapSyncDownloader extends PivotSyncDownloader {
@@ -50,7 +52,11 @@ public class SnapSyncDownloader extends PivotSyncDownloader {
 
   @Override
   protected PivotSyncState storeState(final PivotSyncState fastSyncState) {
+    final Optional<BlockHeader> firstPivotBlockHeader =
+        initialPivotSyncState instanceof SnapSyncProcessState snapSyncState
+            ? snapSyncState.getFirstPivotBlockHeader().or(fastSyncState::getPivotBlockHeader)
+            : fastSyncState.getPivotBlockHeader();
     initialPivotSyncState = fastSyncState;
-    return new SnapSyncProcessState(fastSyncState);
+    return new SnapSyncProcessState(fastSyncState, firstPivotBlockHeader);
   }
 }

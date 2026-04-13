@@ -433,6 +433,7 @@ public class SnapWorldStateDownloadProcess implements WorldStateDownloadProcess 
                   "batchDownloadBlockAccessListsData",
                   tasks -> requestDataStep.requestBlockAccessLists(tasks),
                   maxOutstandingRequests)
+              .inSingleBatch()
               .thenProcess(
                   "batchPersistBlockAccessListsData", tasks -> persistDataStep.persist(tasks))
               .andFinishWith(

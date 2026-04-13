@@ -49,7 +49,6 @@ import java.util.stream.Stream;
 
 import com.google.common.collect.Streams;
 import org.apache.tuweni.bytes.Bytes;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -206,12 +205,5 @@ public class ForkIdsNetworkConfigTest {
       return transitionUtils.dispatchFunctionAccordingToMergeState(
           MilestoneStreamingProtocolSchedule::streamMilestoneBlocks);
     }
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }
