@@ -19,9 +19,11 @@ import static com.google.common.base.Preconditions.checkState;
 
 import org.hyperledger.besu.ethereum.core.plugins.PluginConfiguration;
 import org.hyperledger.besu.plugin.BesuPlugin;
+import org.hyperledger.besu.plugin.ServiceLifecyclePhase;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.BesuService;
 import org.hyperledger.besu.plugin.services.PluginVersionsProvider;
+import org.hyperledger.besu.plugin.services.ServiceAvailability;
 
 import java.io.IOException;
 import java.net.MalformedURLException;
@@ -126,8 +128,58 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
               + "Ensure this service is accessed in the correct lifecycle phase (register() vs start()).",
           serviceType.getSimpleName(),
           state);
+      return Optional.empty();
     }
-    return Optional.ofNullable(service);
+
+    // Check @ServiceAvailability: warn if the service is registered but not yet fully initialized
+    final ServiceAvailability availability = serviceType.getAnnotation(ServiceAvailability.class);
+    if (availability != null) {
+      final ServiceLifecyclePhase required = availability.fullyInitializedFrom();
+      // fullyInitializedFrom defaults to UNINITIALIZED when not set, meaning no restriction
+      if (required != ServiceLifecyclePhase.UNINITIALIZED && !isAtOrAfter(state, required)) {
+        LOG.warn(
+            "Plugin is accessing {} during lifecycle phase '{}', but this service is not fully "
+                + "initialized until the '{}' phase. Calling methods on this service now may "
+                + "result in errors or unexpected behavior. "
+                + "Store the service reference in register() and defer method calls to start().",
+            serviceType.getSimpleName(),
+            state,
+            required);
+      }
+    }
+
+    return Optional.of(service);
+  }
+
+  /**
+   * Returns true if the current internal {@link Lifecycle} state is at or beyond the given public
+   * {@link ServiceLifecyclePhase}.
+   *
+   * <p>Maps the internal Lifecycle enum to the public ServiceLifecyclePhase:
+   *
+   * <ul>
+   *   <li>UNINITIALIZED / INITIALIZED → before REGISTERING
+   *   <li>REGISTERING / REGISTERED → REGISTERING
+   *   <li>BEFORE_EXTERNAL_SERVICES_* → BEFORE_EXTERNAL_SERVICES
+   *   <li>BEFORE_MAIN_LOOP_STARTED / BEFORE_MAIN_LOOP_FINISHED / AFTER_... → STARTED
+   *   <li>STOPPING / STOPPED → STOPPING / STOPPED
+   * </ul>
+   */
+  private boolean isAtOrAfter(final Lifecycle current, final ServiceLifecyclePhase required) {
+    return toPublicPhaseOrdinal(current) >= required.ordinal();
+  }
+
+  private int toPublicPhaseOrdinal(final Lifecycle lifecycle) {
+    return switch (lifecycle) {
+      case UNINITIALIZED, INITIALIZED -> ServiceLifecyclePhase.UNINITIALIZED.ordinal();
+      case REGISTERING, REGISTERED -> ServiceLifecyclePhase.REGISTERING.ordinal();
+      case BEFORE_EXTERNAL_SERVICES_STARTED, BEFORE_EXTERNAL_SERVICES_FINISHED ->
+          ServiceLifecyclePhase.BEFORE_EXTERNAL_SERVICES.ordinal();
+      case BEFORE_MAIN_LOOP_STARTED, BEFORE_MAIN_LOOP_FINISHED ->
+          ServiceLifecyclePhase.STARTED.ordinal();
+      case STOPPING -> ServiceLifecyclePhase.STOPPING.ordinal();
+      case STOPPED -> ServiceLifecyclePhase.STOPPED.ordinal();
+    };
   }
 
   /**

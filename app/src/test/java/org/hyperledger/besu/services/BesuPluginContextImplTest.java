@@ -18,7 +18,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 
 import org.hyperledger.besu.ethereum.core.plugins.PluginConfiguration;
+import org.hyperledger.besu.plugin.ServiceLifecyclePhase;
 import org.hyperledger.besu.plugin.services.BesuService;
+import org.hyperledger.besu.plugin.services.ServiceAvailability;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -48,6 +50,16 @@ public class BesuPluginContextImplTest {
   interface TestServiceB extends BesuService {}
 
   interface TestServiceC extends BesuService {}
+
+  /** A service declared as only fully usable from the STARTED phase. */
+  @ServiceAvailability(
+      availableFrom = ServiceLifecyclePhase.REGISTERING,
+      fullyInitializedFrom = ServiceLifecyclePhase.STARTED)
+  interface StartedOnlyService extends BesuService {}
+
+  /** A service fully available from the REGISTERING phase (no deferred initialization). */
+  @ServiceAvailability(availableFrom = ServiceLifecyclePhase.REGISTERING)
+  interface EarlyService extends BesuService {}
 
   private BesuPluginContextImpl context;
 
@@ -204,5 +216,56 @@ public class BesuPluginContextImplTest {
     assertThat(failed.get()).isFalse();
     assertThat(context.getService(TestServiceA.class)).isPresent().contains(serviceA);
     assertThat(context.getService(TestServiceB.class)).isPresent();
+  }
+
+  // -------------------------------------------------------------------------
+  // @ServiceAvailability runtime checks
+  // -------------------------------------------------------------------------
+
+  @Test
+  void getService_startedOnlyService_isStillReturnedDuringRegisteringPhase() {
+    // Even when accessed too early (WARN is logged), the service must still be returned.
+    // Preventing return would be a breaking change; the warning is advisory.
+    final StartedOnlyService svc = new StartedOnlyService() {};
+    context.addService(StartedOnlyService.class, svc);
+
+    final Optional<StartedOnlyService> result = context.getService(StartedOnlyService.class);
+
+    // Service is present — the annotation check never suppresses the return value
+    assertThat(result).isPresent().contains(svc);
+  }
+
+  @Test
+  void getService_earlyService_isReturnedWithoutIssue() {
+    // EarlyService is fully usable from REGISTERING — no lifecycle restriction applies
+    final EarlyService svc = new EarlyService() {};
+    context.addService(EarlyService.class, svc);
+
+    final Optional<EarlyService> result = context.getService(EarlyService.class);
+
+    assertThat(result).isPresent().contains(svc);
+  }
+
+  @Test
+  void serviceAvailabilityAnnotation_isReadableAtRuntime() {
+    // Verify the annotation has RUNTIME retention and is readable via reflection —
+    // this is the contract that makes runtime checks possible
+    final ServiceAvailability annotation =
+        StartedOnlyService.class.getAnnotation(ServiceAvailability.class);
+
+    assertThat(annotation).isNotNull();
+    assertThat(annotation.availableFrom()).isEqualTo(ServiceLifecyclePhase.REGISTERING);
+    assertThat(annotation.fullyInitializedFrom()).isEqualTo(ServiceLifecyclePhase.STARTED);
+  }
+
+  @Test
+  void earlyServiceAvailabilityAnnotation_hasNoFullyInitializedRestriction() {
+    final ServiceAvailability annotation =
+        EarlyService.class.getAnnotation(ServiceAvailability.class);
+
+    assertThat(annotation).isNotNull();
+    assertThat(annotation.availableFrom()).isEqualTo(ServiceLifecyclePhase.REGISTERING);
+    // Default fullyInitializedFrom = UNINITIALIZED means no deferred-init restriction
+    assertThat(annotation.fullyInitializedFrom()).isEqualTo(ServiceLifecyclePhase.UNINITIALIZED);
   }
 }
