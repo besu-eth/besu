@@ -162,14 +162,17 @@ public abstract class AbstractMessageProcessor {
     final long reservoirRestored = frame.getStateGasReservoir() - reservoirBefore;
 
     if (isInitialFrame) {
-      // EIP-8037: Preserve the reservoir for top-level refund. Use the max of the pre-rollback
-      // value (which may include child frame refunds that must not be lost) and the post-rollback
-      // value (which reflects any reservoir drain rollback has already restored).
-      final long reservoirPostRollback = frame.getStateGasReservoir();
-      final long preservedReservoir = Math.max(reservoirPostRollback, reservoirBefore);
-      if (preservedReservoir != reservoirPostRollback) {
-        frame.setStateGasReservoir(preservedReservoir);
+      // EIP-8037: For initial-frame halt/revert, state gas consumed by ops is final for block
+      // accounting (spec: `tx_state_gas = intrinsic_state_gas + state_gas_used`). The portion
+      // that spilled from gasRemaining is already accounted via stateGasSpillBurned below; the
+      // portion drained from the reservoir (reservoirRestored) was rolled back by the undo but
+      // must still count as consumed state gas, so add it back to stateGasUsed. Then preserve
+      // the actual pre-rollback reservoir value so drain is reflected in total gas returned to
+      // the sender.
+      if (reservoirRestored > 0) {
+        frame.incrementStateGasUsed(reservoirRestored);
       }
+      frame.setStateGasReservoir(reservoirBefore);
       // Only burn the portion of state gas that actually spilled into gasRemaining (not the
       // portion that was drawn from the reservoir and has already been restored, and not the
       // portion that child frames had refunded to the reservoir).
