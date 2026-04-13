@@ -104,20 +104,22 @@ public interface BesuConfiguration extends BesuService {
   /**
    * Returns the version of the running Besu node.
    *
-   * <p>The format follows semantic versioning: {@code "MAJOR.MINOR.PATCH"} for release builds
-   * (e.g., {@code "25.3.0"}) or {@code "MAJOR.MINOR.PATCH-qualifier"} for development builds
-   * (e.g., {@code "25.3.1-dev-ac23d311"}).
+   * <p>This is a human-readable version string. For release builds, it is typically a semantic
+   * version such as {@code "25.3.0"}. Development builds may include a qualifier, e.g. {@code
+   * "25.3.1-dev-ac23d311"}.
    *
    * <p>Available during all plugin lifecycle phases ({@code register} through {@code stop}).
    *
-   * @return the Besu node version string, never null
+   * @return the Besu node version string
    */
   String getBesuVersion();
 
   /**
    * Returns the git commit hash of the running Besu build.
    *
-   * @return the short git commit hash, never null
+   * <p>Available during all plugin lifecycle phases ({@code register} through {@code stop}).
+   *
+   * @return the git commit hash
    */
   String getBesuCommitHash();
 }

@@ -16,23 +16,21 @@ package org.hyperledger.besu.services;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.util.BesuVersionUtils;
+
 import org.junit.jupiter.api.Test;
 
 class BesuConfigurationImplTest {
 
   @Test
-  void getBesuVersion_returnsNonEmptyString() {
+  void getBesuVersion_delegatesToBesuVersionUtils() {
     BesuConfigurationImpl config = new BesuConfigurationImpl();
-    String version = config.getBesuVersion();
-    assertThat(version).isNotNull();
-    assertThat(version).isNotEmpty();
+    assertThat(config.getBesuVersion()).isEqualTo(BesuVersionUtils.shortVersion());
   }
 
   @Test
-  void getBesuCommitHash_returnsNonEmptyString() {
+  void getBesuCommitHash_delegatesToBesuVersionUtils() {
     BesuConfigurationImpl config = new BesuConfigurationImpl();
-    String commit = config.getBesuCommitHash();
-    assertThat(commit).isNotNull();
-    assertThat(commit).isNotEmpty();
+    assertThat(config.getBesuCommitHash()).isEqualTo(BesuVersionUtils.commit());
   }
 }
