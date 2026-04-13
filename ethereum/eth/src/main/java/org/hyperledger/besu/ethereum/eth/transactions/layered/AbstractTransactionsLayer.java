@@ -95,6 +95,7 @@ public abstract class AbstractTransactionsLayer implements TransactionsLayer {
   protected final int[] txCountByType = new int[TransactionType.values().length];
   private final BlobCache blobCache;
   private final EthScheduler ethScheduler;
+  protected BlockHeader lastBlockHeaderSeen;
 
   protected AbstractTransactionsLayer(
       final TransactionPoolConfiguration poolConfig,
@@ -498,6 +499,7 @@ public abstract class AbstractTransactionsLayer implements TransactionsLayer {
     maxConfirmedNonceBySender.forEach(this::confirmed);
     internalBlockAdded(blockHeader, feeMarket);
     promoteTransactions();
+    lastBlockHeaderSeen = blockHeader;
   }
 
   protected abstract void internalBlockAdded(

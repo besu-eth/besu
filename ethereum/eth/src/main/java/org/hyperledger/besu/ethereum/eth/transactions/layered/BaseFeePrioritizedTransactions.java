@@ -25,10 +25,12 @@ import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
+import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 
 import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
@@ -80,6 +82,24 @@ public class BaseFeePrioritizedTransactions extends AbstractPrioritizedTransacti
         .thenComparing(Comparator.comparing(PendingTransaction::getNonce).reversed())
         .thenComparing(PendingTransaction::getSequence)
         .compare(pt1, pt2);
+  }
+
+  @Override
+  List<PendingTransaction> getInclusionList(final BlockHeader header) {
+    if (!header.equals(lastBlockHeaderSeen)) {
+      LOG.warn(
+          "Inclusion list request has inconsistent block header, not executable pending transactions may be returned."
+              + " Requested header {}, txpool header {}",
+          header.getHash(),
+          lastBlockHeaderSeen.getHash());
+
+      // ToDo: in this case to improve the results we could at least calculate the baseFee based on
+      // this header
+      // and use it to filter out txs not paying enough
+    }
+
+    return inclusionListTransactionSelector.selectTransactions(
+        header.getHash(), getBySender(), InclusionListConfiguration.MAX_BYTES_PER_INCLUSION_LIST);
   }
 
   /**

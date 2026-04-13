@@ -15,8 +15,8 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static java.util.stream.Collectors.toList;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.ACCEPTED;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INCLUSION_LIST_UNSATISFIED;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID_BLOCK_HASH;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.SYNCING;
@@ -52,9 +52,14 @@ import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListConfiguration;
+import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListValidationResult;
+import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListValidator;
+import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.StrictInclusionListValidator;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -62,6 +67,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -70,6 +76,7 @@ import org.hyperledger.besu.plugin.services.exception.StorageException;
 import java.security.InvalidParameterException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -83,15 +90,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMethod {
+  private static final Logger LOG = LoggerFactory.getLogger(AbstractEngineNewPayload.class);
 
   private static final Hash OMMERS_HASH_CONSTANT = Hash.EMPTY_LIST_HASH;
-  private static final Logger LOG = LoggerFactory.getLogger(AbstractEngineNewPayload.class);
   private static final BlockHeaderFunctions headerFunctions = new MainnetBlockHeaderFunctions();
+  private final InclusionListValidator inclusionListValidator = new StrictInclusionListValidator();
   private final MergeMiningCoordinator mergeCoordinator;
   private final EthPeers ethPeers;
   private long lastExecutionTimeInNs = 0L;
-
-  protected final Optional<Long> amsterdamMilestone;
 
   public AbstractEngineNewPayload(
       final Vertx vertx,
@@ -109,8 +115,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
         "execution_time_head",
         "The execution time of the last block (head)",
         this::getLastExecutionTime);
-
-    this.amsterdamMilestone = protocolSchedule.milestoneFor(AMSTERDAM);
   }
 
   @Override
@@ -160,12 +164,24 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
           e);
     }
 
+    final Optional<List<String>> maybeInclusionListTransactions;
+    try {
+      maybeInclusionListTransactions = requestContext.getOptionalList(4, String.class);
+    } catch (JsonRpcParameterException e) {
+      throw new InvalidJsonRpcRequestException(
+          "Invalid inclusion list transactions parameters (index 4)",
+          RpcErrorType.INVALID_INCLUSION_LIST_TRANSACTIONS_PARAMS,
+          e);
+    }
+
+
     final ValidationResult<RpcErrorType> parameterValidationResult =
         validateParameters(
             blockParam,
             maybeVersionedHashParam,
             maybeParentBeaconBlockRootParam,
-            maybeRequestsParam);
+            maybeRequestsParam,
+            maybeInclusionListTransactions);
     if (!parameterValidationResult.isValid()) {
       return new JsonRpcErrorResponse(reqId, parameterValidationResult);
     }
@@ -229,7 +245,7 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     final Optional<BlockAccessList> maybeBlockAccessList;
     try {
       maybeBlockAccessList = extractBlockAccessList(blockParam);
-    } catch (final InvalidBlockAccessListException e) {
+    } catch (final Exception e) {
       return respondWithInvalid(
           reqId,
           blockParam,
@@ -244,10 +260,11 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     }
 
     final List<Transaction> transactions;
+    final List<Bytes> rawTransactions;
     try {
+      rawTransactions = blockParam.getTransactions().stream().map(Bytes::fromHexString).toList();
       transactions =
-          blockParam.getTransactions().stream()
-              .map(Bytes::fromHexString)
+          rawTransactions.stream()
               .map(in -> TransactionDecoder.decodeOpaqueBytes(in, EncodingContext.BLOCK_BODY))
               .toList();
       precomputeSenders(transactions);
@@ -258,6 +275,27 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
           mergeCoordinator.getLatestValidAncestor(blockParam.getParentHash()).orElse(null),
           INVALID,
           "Failed to decode transactions from block parameter");
+    }
+
+    if (maybeInclusionListTransactions.isPresent()) {
+      try {
+        final InclusionListValidationResult result =
+            validateInclusionListTransactions(
+                maybeInclusionListTransactions.get(),
+                blockParam.getTransactions(),
+                rawTransactions);
+        if (!result.isValid()) {
+          return respondWithInvalid(
+              reqId,
+              blockParam,
+              mergeCoordinator.getLatestValidAncestor(blockParam.getParentHash()).orElse(null),
+              INCLUSION_LIST_UNSATISFIED,
+              result.getErrorMessage().orElse(""));
+        }
+      } catch (Exception e) {
+        return new JsonRpcErrorResponse(
+            reqId, RpcErrorType.INVALID_INCLUSION_LIST_TRANSACTIONS_PARAMS);
+      }
     }
 
     if (blockParam.getExtraData() == null) {
@@ -518,23 +556,9 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
       final EnginePayloadParameter parameter,
       final Optional<List<String>> maybeVersionedHashParam,
       final Optional<String> maybeBeaconBlockRootParam,
-      final Optional<List<String>> maybeRequestsParam) {
+      final Optional<List<String>> maybeRequestsParam,
+      final Optional<List<String>> maybeInclusionListTransactions) {
     return ValidationResult.valid();
-  }
-
-  protected Optional<BlockAccessList> extractBlockAccessList(
-      final EnginePayloadParameter payloadParameter) throws InvalidBlockAccessListException {
-    return Optional.empty();
-  }
-
-  protected static class InvalidBlockAccessListException extends Exception {
-    InvalidBlockAccessListException(final String message) {
-      super(message);
-    }
-
-    InvalidBlockAccessListException(final String message, final Throwable cause) {
-      super(message, cause);
-    }
   }
 
   protected ValidationResult<RpcErrorType> validateBlobs(
@@ -656,6 +680,42 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     return calculated == actual ? Optional.empty() : Optional.of(calculated);
   }
 
+  private InclusionListValidationResult validateInclusionListTransactions(
+      final List<String> inclusionListHexTransactions,
+      final List<String> payloadHexTransactions,
+      final List<Bytes> payloadRawTransactions) {
+
+    // fast happy path, to avoid decoding inclusion list transactions
+    // check max size and ensure all are included in the payload
+    final int totalHexChars = inclusionListHexTransactions.stream().mapToInt(String::length).sum();
+    if (totalHexChars % 2 != 0) {
+      throw new IllegalArgumentException(
+          "Inclusion list transactions must have even number of hex characters");
+    }
+    final int totalBytes = totalHexChars / 2;
+    if (totalBytes > InclusionListConfiguration.MAX_BYTES_PER_INCLUSION_LIST) {
+      throw new IllegalArgumentException(
+          "Inclusion list exceeds MAX_BYTES_PER_INCLUSION_LIST: "
+              + totalBytes
+              + " > "
+              + InclusionListConfiguration.MAX_BYTES_PER_INCLUSION_LIST);
+    }
+
+    // we can now check the inclusion of the all txs without decoding, since we have already
+    // decoded the payload txs, so if they match we are sure they are valid too
+    final boolean allPresent =
+        new HashSet<>(payloadHexTransactions).containsAll(inclusionListHexTransactions);
+
+    if (allPresent) {
+      return InclusionListValidationResult.valid();
+    }
+
+    final List<Bytes> inclusionListRawTransactions =
+        inclusionListHexTransactions.stream().map(Bytes::fromHexString).toList();
+
+    return inclusionListValidator.validate(payloadRawTransactions, inclusionListRawTransactions);
+  }
+
   private Optional<List<VersionedHash>> extractVersionedHashes(
       final Optional<List<String>> maybeVersionedHashParam) {
     return maybeVersionedHashParam.map(
@@ -690,6 +750,19 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
                       return new Request(RequestType.of(request.get(0)), requestData);
                     })
                 .collect(Collectors.toList()));
+  }
+
+  private Optional<BlockAccessList> extractBlockAccessList(
+      final EnginePayloadParameter payloadParameter) {
+    final String blockAccessList = payloadParameter.getBlockAccessList();
+
+    if (blockAccessList == null) {
+      return Optional.empty();
+    }
+
+    return Optional.of(
+        BlockAccessListDecoder.decode(
+            new BytesValueRLPInput(Bytes.fromHexString(blockAccessList), false)));
   }
 
   private void logImportedBlockInfo(
