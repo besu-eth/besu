@@ -66,7 +66,8 @@ public class SelfBalanceOperationBenchmarkV2 {
     worldUpdater.getOrCreate(address).setBalance(Wei.of(1));
     worldUpdater.commit();
 
-    frame = MessageFrame.builder()
+    frame =
+        MessageFrame.builder()
             .enableEvmV2(true)
             .worldUpdater(worldUpdater)
             .originator(Address.ZERO)

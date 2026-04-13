@@ -67,9 +67,10 @@ public class SelfBalanceOperationBenchmark {
     worldUpdater.commit();
 
     final ExecutionContextTestFixture executionContextTestFixture =
-            ExecutionContextTestFixture.create();
+        ExecutionContextTestFixture.create();
     final BlockHeader blockHeader = new BlockHeaderTestFixture().buildHeader();
-    frame = new MessageFrameTestFixture()
+    frame =
+        new MessageFrameTestFixture()
             .address(address)
             .worldUpdater(worldUpdater)
             .blockHeader(blockHeader)
