@@ -15,12 +15,14 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameterTestFixture.WITHDRAWAL_PARAM_1;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameterTestFixture.WITHDRAWAL_PARAM_2;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.GWei;
 
+import java.util.Collections;
 import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes32;
@@ -96,15 +98,144 @@ public class EnginePayloadAttributesParameterTest {
                 + "}");
   }
 
+  @Test
+  public void attributesAreConvertedFromString_InclusionListPresent() {
+    final List<String> inclusionListTxs =
+        List.of(
+            "0xf86c0a8502540be400825208940000000000000000000000000000000000000001018001a0",
+            "0xf86c0b8502540be400825208940000000000000000000000000000000000000002018001a0");
+    final EnginePayloadAttributesParameter parameter =
+        new EnginePayloadAttributesParameter(
+            TIMESTAMP,
+            PREV_RANDAO,
+            SUGGESTED_FEE_RECIPIENT_ADDRESS,
+            null,
+            null,
+            null,
+            inclusionListTxs);
+    assertThat(parameter.getInclusionListTransactions()).isEqualTo(inclusionListTxs);
+  }
+
+  @Test
+  public void attributesAreConvertedFromString_InclusionListOmitted() {
+    final EnginePayloadAttributesParameter parameter = parameterWithdrawalsOmitted();
+    assertThat(parameter.getInclusionListTransactions()).isNull();
+  }
+
+  @Test
+  public void serialize_InclusionListPresent() {
+    final List<String> inclusionListTxs = List.of("0x1234", "0x5678");
+    final EnginePayloadAttributesParameter parameter =
+        new EnginePayloadAttributesParameter(
+            TIMESTAMP,
+            PREV_RANDAO,
+            SUGGESTED_FEE_RECIPIENT_ADDRESS,
+            null,
+            null,
+            null,
+            inclusionListTxs);
+    final String serialized = parameter.serialize();
+    assertThat(serialized).contains("\"inclusionListTransactions\"");
+    assertThat(serialized).contains("\"0x1234\"");
+    assertThat(serialized).contains("\"0x5678\"");
+  }
+
+  @Test
+  public void validate_InvalidInclusionListTransaction_ThrowsException() {
+    final List<String> invalidInclusionListTxs = List.of("not-a-hex-string");
+    assertThatThrownBy(
+            () ->
+                new EnginePayloadAttributesParameter(
+                    TIMESTAMP,
+                    PREV_RANDAO,
+                    SUGGESTED_FEE_RECIPIENT_ADDRESS,
+                    null,
+                    null,
+                    null,
+                    invalidInclusionListTxs))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Invalid inclusion list transaction format");
+  }
+
+  @Test
+  public void validate_NullInclusionListTransaction_ThrowsException() {
+    final List<String> nullInclusionListTxs = Collections.singletonList(null);
+    assertThatThrownBy(
+            () ->
+                new EnginePayloadAttributesParameter(
+                    TIMESTAMP,
+                    PREV_RANDAO,
+                    SUGGESTED_FEE_RECIPIENT_ADDRESS,
+                    null,
+                    null,
+                    null,
+                    nullInclusionListTxs))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Inclusion list transaction cannot be null or empty");
+  }
+
+  @Test
+  public void validate_EmptyStringInclusionListTransaction_ThrowsException() {
+    final List<String> emptyInclusionListTxs = List.of("");
+    assertThatThrownBy(
+            () ->
+                new EnginePayloadAttributesParameter(
+                    TIMESTAMP,
+                    PREV_RANDAO,
+                    SUGGESTED_FEE_RECIPIENT_ADDRESS,
+                    null,
+                    null,
+                    null,
+                    emptyInclusionListTxs))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Inclusion list transaction cannot be null or empty");
+  }
+
   private EnginePayloadAttributesParameter parameterWithdrawalsOmitted() {
     return new EnginePayloadAttributesParameter(
-        TIMESTAMP, PREV_RANDAO, SUGGESTED_FEE_RECIPIENT_ADDRESS, null, null, null);
+        TIMESTAMP, PREV_RANDAO, SUGGESTED_FEE_RECIPIENT_ADDRESS, null, null, null, null);
   }
 
   private EnginePayloadAttributesParameter parameterWithdrawalsPresent() {
     final List<WithdrawalParameter> withdrawals = List.of(WITHDRAWAL_PARAM_1, WITHDRAWAL_PARAM_2);
     return new EnginePayloadAttributesParameter(
-        TIMESTAMP, PREV_RANDAO, SUGGESTED_FEE_RECIPIENT_ADDRESS, withdrawals, null, null);
+        TIMESTAMP, PREV_RANDAO, SUGGESTED_FEE_RECIPIENT_ADDRESS, withdrawals, null, null, null);
+  }
+
+  @Test
+  public void validate_InclusionListExceedsByteLimit_ThrowsException() {
+    // Create a transaction that is large enough to exceed 8192 bytes
+    final StringBuilder largeTx = new StringBuilder("0x");
+    for (int i = 0; i < 8193; i++) {
+      largeTx.append("ab");
+    }
+    final List<String> oversizedList = List.of(largeTx.toString());
+    assertThatThrownBy(
+            () ->
+                new EnginePayloadAttributesParameter(
+                    TIMESTAMP,
+                    PREV_RANDAO,
+                    SUGGESTED_FEE_RECIPIENT_ADDRESS,
+                    null,
+                    null,
+                    null,
+                    oversizedList))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Inclusion list exceeds maximum size");
+  }
+
+  @Test
+  public void validate_InclusionListAtByteLimit_Succeeds() {
+    // Create a transaction that is exactly 8192 bytes
+    final StringBuilder exactTx = new StringBuilder("0x");
+    for (int i = 0; i < 8192; i++) {
+      exactTx.append("ab");
+    }
+    final List<String> exactList = List.of(exactTx.toString());
+    final EnginePayloadAttributesParameter parameter =
+        new EnginePayloadAttributesParameter(
+            TIMESTAMP, PREV_RANDAO, SUGGESTED_FEE_RECIPIENT_ADDRESS, null, null, null, exactList);
+    assertThat(parameter.getInclusionListTransactions()).hasSize(1);
   }
 
   // TODO: add a parent beacon block root test here

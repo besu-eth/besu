@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineG
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetBlobsV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetBlobsV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetClientVersionV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetInclusionListV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetPayloadBodiesByHashV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetPayloadBodiesByHashV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetPayloadBodiesByRangeV1;
@@ -48,12 +49,15 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineN
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV5;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV6;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EnginePreparePayloadDebug;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineQosTimer;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListConfiguration;
+import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListTransactionSelector;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
@@ -78,6 +82,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
   private final String commit;
   private final TransactionPool transactionPool;
   private final MetricsSystem metricsSystem;
+  private final InclusionListTransactionSelector inclusionListSelector;
 
   ExecutionEngineJsonRpcMethods(
       final MiningCoordinator miningCoordinator,
@@ -89,6 +94,30 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       final String commit,
       final TransactionPool transactionPool,
       final MetricsSystem metricsSystem) {
+    this(
+        miningCoordinator,
+        protocolSchedule,
+        protocolContext,
+        ethPeers,
+        consensusEngineServer,
+        clientVersion,
+        commit,
+        transactionPool,
+        metricsSystem,
+        InclusionListConfiguration.DEFAULT);
+  }
+
+  ExecutionEngineJsonRpcMethods(
+      final MiningCoordinator miningCoordinator,
+      final ProtocolSchedule protocolSchedule,
+      final ProtocolContext protocolContext,
+      final EthPeers ethPeers,
+      final Vertx consensusEngineServer,
+      final String clientVersion,
+      final String commit,
+      final TransactionPool transactionPool,
+      final MetricsSystem metricsSystem,
+      final InclusionListConfiguration inclusionListConfiguration) {
     this.mergeCoordinator =
         Optional.ofNullable(miningCoordinator)
             .filter(mc -> mc.isCompatibleWithEngineApi())
@@ -101,6 +130,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
     this.commit = commit;
     this.transactionPool = transactionPool;
     this.metricsSystem = metricsSystem;
+    this.inclusionListSelector = inclusionListConfiguration.selector();
   }
 
   @Override
@@ -272,12 +302,29 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
                 engineQosTimer,
                 metricsSystem));
         executionEngineApisSupported.add(
+            new EngineNewPayloadV6(
+                consensusEngineServer,
+                protocolSchedule,
+                protocolContext,
+                mergeCoordinator.get(),
+                ethPeers,
+                engineQosTimer,
+                metricsSystem));
+        executionEngineApisSupported.add(
             new EngineForkchoiceUpdatedV4(
                 consensusEngineServer,
                 protocolSchedule,
                 protocolContext,
                 mergeCoordinator.get(),
                 engineQosTimer));
+        executionEngineApisSupported.add(
+            new EngineGetInclusionListV1(
+                consensusEngineServer,
+                protocolContext,
+                engineQosTimer,
+                transactionPool,
+                metricsSystem,
+                inclusionListSelector));
       }
 
       return mapOf(executionEngineApisSupported);

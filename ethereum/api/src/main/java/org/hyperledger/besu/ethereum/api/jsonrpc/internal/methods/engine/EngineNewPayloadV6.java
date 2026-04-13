@@ -14,8 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -32,11 +31,11 @@ import java.util.Optional;
 
 import io.vertx.core.Vertx;
 
-public class EngineNewPayloadV3 extends AbstractEngineNewPayload {
+public class EngineNewPayloadV6 extends AbstractEngineNewPayload {
 
-  private final Optional<Long> cancunMilestone;
+  private final Optional<Long> bogotaMilestone;
 
-  public EngineNewPayloadV3(
+  public EngineNewPayloadV6(
       final Vertx vertx,
       final ProtocolSchedule timestampSchedule,
       final ProtocolContext protocolContext,
@@ -52,12 +51,12 @@ public class EngineNewPayloadV3 extends AbstractEngineNewPayload {
         ethPeers,
         engineCallListener,
         metricsSystem);
-    this.cancunMilestone = timestampSchedule.milestoneFor(CANCUN);
+    this.bogotaMilestone = timestampSchedule.milestoneFor(BOGOTA);
   }
 
   @Override
   public String getName() {
-    return RpcMethod.ENGINE_NEW_PAYLOAD_V3.getMethodName();
+    return RpcMethod.ENGINE_NEW_PAYLOAD_V6.getMethodName();
   }
 
   @Override
@@ -80,22 +79,26 @@ public class EngineNewPayloadV3 extends AbstractEngineNewPayload {
       return ValidationResult.invalid(
           RpcErrorType.INVALID_PARENT_BEACON_BLOCK_ROOT_PARAMS,
           "Missing parent beacon block root field");
-    } else if (maybeRequestsParam.isPresent()) {
+    } else if (maybeRequestsParam.isEmpty()) {
       return ValidationResult.invalid(
-          RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS,
-          "Unexpected execution requests field present");
-    } else {
-      return ValidationResult.valid();
+          RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS, "Missing execution requests field");
+    } else if (payloadParameter.getBlockAccessList() == null
+        || payloadParameter.getBlockAccessList().isEmpty()) {
+      return ValidationResult.invalid(
+          RpcErrorType.INVALID_BLOCK_ACCESS_LIST_PARAMS, "Missing block access list field");
+    } else if (payloadParameter.getSlotNumber() == null) {
+      return ValidationResult.invalid(
+          RpcErrorType.INVALID_SLOT_NUMBER_PARAMS, "Missing slot number field");
+    } else if (maybeInclusionListTransactions.isEmpty()) {
+      return ValidationResult.invalid(
+          RpcErrorType.INVALID_INCLUSION_LIST_TRANSACTIONS_PARAMS,
+          "Missing inclusion list transactions field");
     }
+    return ValidationResult.valid();
   }
 
   @Override
   protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    return ForkSupportHelper.validateForkSupported(
-        CANCUN,
-        cancunMilestone,
-        PRAGUE,
-        protocolSchedule.flatMap(s -> s.milestoneFor(PRAGUE)),
-        blockTimestamp);
+    return ForkSupportHelper.validateForkSupported(BOGOTA, bogotaMilestone, blockTimestamp);
   }
 }

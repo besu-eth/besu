@@ -49,6 +49,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 import io.vertx.core.Vertx;
+import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.spi.LoggingEventBuilder;
@@ -221,7 +222,8 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
                     payloadAttributes.getSuggestedFeeRecipient(),
                     finalWithdrawals,
                     Optional.ofNullable(payloadAttributes.getParentBeaconBlockRoot()),
-                    Optional.ofNullable(payloadAttributes.getSlotNumber())));
+                    Optional.ofNullable(payloadAttributes.getSlotNumber()),
+                    getInclusionListBytes(payloadAttributes)));
 
     payloadId.ifPresent(
         pid ->
@@ -405,5 +407,14 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
         forkChoice.getHeadBlockHash(),
         forkChoice.getSafeBlockHash(),
         forkChoice.getFinalizedBlockHash());
+  }
+
+  private Optional<List<Bytes>> getInclusionListBytes(
+      final EnginePayloadAttributesParameter payloadAttributes) {
+    final List<Bytes> ilTxs = payloadAttributes.getInclusionListTransactions();
+    if (ilTxs == null || ilTxs.isEmpty()) {
+      return Optional.empty();
+    }
+    return Optional.of(ilTxs);
   }
 }

@@ -225,6 +225,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
             payload,
             Optional.of(List.of()),
             Optional.of("0x0000000000000000000000000000000000000000000000000000000000000000"),
+            Optional.empty(),
             Optional.empty());
     assertThat(res.isValid()).isTrue();
   }
@@ -242,7 +243,8 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
             payload,
             Optional.of(List.of()),
             Optional.of("0x0000000000000000000000000000000000000000000000000000000000000000"),
-            Optional.of(emptyList()));
+            Optional.of(emptyList()),
+            Optional.empty());
     assertThat(res.isValid()).isFalse();
     assertThat(res.getInvalidReason()).isEqualTo(RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS);
   }
