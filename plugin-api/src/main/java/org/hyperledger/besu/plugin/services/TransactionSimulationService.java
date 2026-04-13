@@ -19,6 +19,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StateOverrideMap;
 import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.plugin.ServiceLifecyclePhase;
 import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.data.ProcessableBlockHeader;
 import org.hyperledger.besu.plugin.data.TransactionSimulationResult;
@@ -26,8 +27,17 @@ import org.hyperledger.besu.plugin.data.TransactionSimulationResult;
 import java.util.EnumSet;
 import java.util.Optional;
 
-/** Transaction simulation service interface */
+/**
+ * Transaction simulation service interface.
+ *
+ * <p>This service is registered during the REGISTERING phase but is <b>not fully initialized</b>
+ * until the STARTED phase. Calling simulation methods before the STARTED phase will result in an
+ * {@link IllegalStateException}.
+ */
 @Unstable
+@ServiceAvailability(
+    availableFrom = ServiceLifecyclePhase.REGISTERING,
+    fullyInitializedFrom = ServiceLifecyclePhase.STARTED)
 public interface TransactionSimulationService extends BesuService {
   /**
    * Enumeration of simulation parameters that control validation behavior during transaction

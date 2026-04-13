@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.plugin.ServiceLifecyclePhase;
 import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.data.BlockBody;
 import org.hyperledger.besu.plugin.data.BlockContext;
@@ -28,8 +29,18 @@ import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 
-/** A service that plugins can use to query blocks by number */
+/**
+ * A service that plugins can use to query blocks by number.
+ *
+ * <p>This service is registered during the REGISTERING phase but is <b>not fully initialized</b>
+ * until the STARTED phase. Calling query methods before the STARTED phase will result in an {@link
+ * IllegalStateException}. During the REGISTERING phase, this service instance exists but should
+ * only be stored for later use.
+ */
 @Unstable
+@ServiceAvailability(
+    availableFrom = ServiceLifecyclePhase.REGISTERING,
+    fullyInitializedFrom = ServiceLifecyclePhase.STARTED)
 public interface BlockchainService extends BesuService {
   /**
    * Gets block by number

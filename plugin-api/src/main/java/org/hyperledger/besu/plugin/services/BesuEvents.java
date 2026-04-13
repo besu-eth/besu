@@ -16,6 +16,7 @@ package org.hyperledger.besu.plugin.services;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Transaction;
+import org.hyperledger.besu.plugin.ServiceLifecyclePhase;
 import org.hyperledger.besu.plugin.data.AddedBlockContext;
 import org.hyperledger.besu.plugin.data.BadBlockCause;
 import org.hyperledger.besu.plugin.data.BlockHeader;
@@ -46,6 +47,7 @@ import org.apache.tuweni.bytes.Bytes32;
  *   <li><b>SynchronizerStatus </b> - Fired when the status of the synchronizer changes.
  * </ul>
  */
+@ServiceAvailability(availableFrom = ServiceLifecyclePhase.STARTED)
 public interface BesuEvents extends BesuService {
 
   /**

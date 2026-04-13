@@ -76,7 +76,7 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
     STOPPED
   }
 
-  private Lifecycle state = Lifecycle.UNINITIALIZED;
+  private volatile Lifecycle state = Lifecycle.UNINITIALIZED;
   private final Map<Class<?>, ? super BesuService> serviceRegistry = new ConcurrentHashMap<>();
 
   private List<BesuPlugin> detectedPlugins = new ArrayList<>();
@@ -104,13 +104,30 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
     checkArgument(
         serviceType.isInstance(service),
         "The service registered with a type must implement that type");
-    serviceRegistry.put(serviceType, service);
+    final Object previous = serviceRegistry.put(serviceType, service);
+    if (previous != null && previous != service) {
+      LOG.warn(
+          "Service {} was overwritten during lifecycle phase {}. Previous: {}, New: {}. "
+              + "Unintentional overwrites can mask bugs or create inconsistent plugin state.",
+          serviceType.getSimpleName(),
+          state,
+          previous.getClass().getName(),
+          service.getClass().getName());
+    }
   }
 
   @SuppressWarnings("unchecked")
   @Override
   public <T extends BesuService> Optional<T> getService(final Class<T> serviceType) {
-    return Optional.ofNullable((T) serviceRegistry.get(serviceType));
+    final T service = (T) serviceRegistry.get(serviceType);
+    if (service == null) {
+      LOG.debug(
+          "Service {} requested during lifecycle phase {} but is not registered. "
+              + "Ensure this service is accessed in the correct lifecycle phase (register() vs start()).",
+          serviceType.getSimpleName(),
+          state);
+    }
+    return Optional.ofNullable(service);
   }
 
   /**

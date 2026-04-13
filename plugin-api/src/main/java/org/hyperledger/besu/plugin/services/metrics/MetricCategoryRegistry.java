@@ -14,7 +14,9 @@
  */
 package org.hyperledger.besu.plugin.services.metrics;
 
+import org.hyperledger.besu.plugin.ServiceLifecyclePhase;
 import org.hyperledger.besu.plugin.services.BesuService;
+import org.hyperledger.besu.plugin.services.ServiceAvailability;
 
 /**
  * Allow registration of {@link MetricCategory} instances so they are recognised by the metrics
@@ -22,6 +24,7 @@ import org.hyperledger.besu.plugin.services.BesuService;
  *
  * <p>Categories must be registered during plugin initialisation.
  */
+@ServiceAvailability(availableFrom = ServiceLifecyclePhase.REGISTERING)
 public interface MetricCategoryRegistry extends BesuService {
 
   /**

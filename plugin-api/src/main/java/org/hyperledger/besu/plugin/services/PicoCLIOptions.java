@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.plugin.services;
 
+import org.hyperledger.besu.plugin.ServiceLifecyclePhase;
+
 /**
  * A service that plugins can use to add CLI options and commands to the BesuCommand. The PicoCLI
  * library annotations will be inspected and the object will be passed into a
@@ -25,6 +27,7 @@ package org.hyperledger.besu.plugin.services;
  * href="https://github.com/hyperledger/besu/blob/master/CLI-STYLE-GUIDE.md">CLI-STYLE-GUIDE.md</a>
  * conventions.
  */
+@ServiceAvailability(availableFrom = ServiceLifecyclePhase.REGISTERING)
 public interface PicoCLIOptions extends BesuService {
 
   /**

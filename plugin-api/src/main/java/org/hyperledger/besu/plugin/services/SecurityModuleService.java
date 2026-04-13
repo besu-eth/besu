@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.plugin.services;
 
+import org.hyperledger.besu.plugin.ServiceLifecyclePhase;
 import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModule;
 
@@ -25,6 +26,7 @@ import java.util.function.Supplier;
  * operations that defer to specific provider (e.g. BouncyCastle).
  */
 @Unstable
+@ServiceAvailability(availableFrom = ServiceLifecyclePhase.REGISTERING)
 public interface SecurityModuleService extends BesuService {
 
   /**

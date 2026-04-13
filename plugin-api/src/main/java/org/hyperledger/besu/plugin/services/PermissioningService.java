@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.plugin.services;
 
+import org.hyperledger.besu.plugin.ServiceLifecyclePhase;
 import org.hyperledger.besu.plugin.services.permissioning.NodeConnectionPermissioningProvider;
 import org.hyperledger.besu.plugin.services.permissioning.NodeMessagePermissioningProvider;
 import org.hyperledger.besu.plugin.services.permissioning.TransactionPermissioningProvider;
@@ -30,6 +31,7 @@ import org.hyperledger.besu.plugin.services.permissioning.TransactionPermissioni
  *       NodeMessagePermissioningProvider}
  * </ul>
  */
+@ServiceAvailability(availableFrom = ServiceLifecyclePhase.REGISTERING)
 public interface PermissioningService extends BesuService {
 
   /**

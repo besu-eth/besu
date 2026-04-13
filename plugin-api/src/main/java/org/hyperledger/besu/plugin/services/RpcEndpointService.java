@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.plugin.services;
 
+import org.hyperledger.besu.plugin.ServiceLifecyclePhase;
 import org.hyperledger.besu.plugin.services.rpc.PluginRpcRequest;
 import org.hyperledger.besu.plugin.services.rpc.PluginRpcResponse;
 
@@ -22,11 +23,13 @@ import java.util.function.Function;
 /**
  * This service allows you to add functions exposed via RPC endpoints.
  *
- * <p>This service will be available during the registration callback and must be used during the
- * registration callback. RPC endpoints are configured prior to the start callback and all endpoints
- * connected. No endpoint will actually be called prior to the start callback so initialization
- * unrelated to the callback registration can also be done at that time.
+ * <p>This service is available during the REGISTERING phase for endpoint registration via {@link
+ * #registerRPCEndpoint}. The {@link #call} method for in-process RPC invocation is only available
+ * after the STARTED phase, once all RPC methods have been wired up.
  */
+@ServiceAvailability(
+    availableFrom = ServiceLifecyclePhase.REGISTERING,
+    fullyInitializedFrom = ServiceLifecyclePhase.STARTED)
 public interface RpcEndpointService extends BesuService {
 
   /**

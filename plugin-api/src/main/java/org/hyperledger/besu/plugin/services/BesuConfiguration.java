@@ -15,6 +15,7 @@
 package org.hyperledger.besu.plugin.services;
 
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.plugin.ServiceLifecyclePhase;
 import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.services.storage.DataStorageConfiguration;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -23,6 +24,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 
 /** Generally useful configuration provided by Besu. */
+@ServiceAvailability(availableFrom = ServiceLifecyclePhase.REGISTERING)
 public interface BesuConfiguration extends BesuService {
 
   /**
