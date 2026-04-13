@@ -676,7 +676,7 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    * Arithmetic right-shifts a 256-bit value in place by 0..255 bits, sign-extending with {@code
    * fill}.
    *
-   * @param shift number of bits to shift (must be in [1, 255])
+   * @param shift number of bits to shift
    * @param fill value to prepend while shifting
    * @return the result
    */
@@ -749,7 +749,7 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   /**
    * Left-shifts a 256-bit value in place by 1..255 bits, zero-filling from the right.
    *
-   * @param shift number of bits to shift (must be in [1, 255])
+   * @param shift number of bits to shift
    * @return the result
    */
   // TODO: check perf - wiring shiftLeft callers with this one

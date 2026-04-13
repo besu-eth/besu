@@ -108,12 +108,7 @@ class ShlOperationV2Test {
             .pushStackItem(Bytes32.fromHexString(shift))
             .build();
     operation.execute(frame, null);
-    UInt256 expected;
-    if (expectedResult.equals("0x") || expectedResult.equals("0x0")) {
-      expected = UInt256.ZERO;
-    } else {
-      expected = UInt256.fromBytesBE(Bytes32.fromHexString(expectedResult).toArrayUnsafe());
-    }
+    UInt256 expected = UInt256.fromBytesBE(Bytes32.fromHexString(expectedResult).toArrayUnsafe());
     assertThat(getV2StackItem(frame, 0)).isEqualTo(expected);
     assertThat(frame.stackTopV2()).isEqualTo(1);
   }
