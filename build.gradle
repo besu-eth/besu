@@ -269,7 +269,7 @@ configure(allprojects - project(':platform')) {
     }
     format 'Solidity', {
       target '**/*.sol'
-      targetExclude '**/src/reference-test/**', '**/src/main/generated/**', '**/src/test/generated/**', '**/src/jmh/generated/**'
+      targetExclude '**/src/reference-test/**', '**/src/main/generated/**', '**/src/test/generated/**', '**/src/jmh/generated/**', '**/bin/default/**'
       trimTrailingWhitespace()
       endWithNewline()
 
@@ -474,66 +474,80 @@ configure(allprojects - project(':platform')) {
   }
 }
 
+ext.collectExternalComponentIds = {
+  ->
+  def componentIds = new HashSet()
+  def unresolvedConfigs = 0
+
+  def collectComponentIds = { configs, String label ->
+    configs.matching { it.canBeResolved }.each { config ->
+      try {
+        config.incoming.resolutionResult.allComponents.each { component ->
+          componentIds.add(component.id)
+        }
+      } catch (Exception e) {
+        unresolvedConfigs++
+        logger.info("Could not resolve ${label} '${config.name}': ${e.message}")
+      }
+    }
+  }
+
+  allprojects.each { proj ->
+    collectComponentIds(proj.configurations, "${proj.path} config")
+    collectComponentIds(proj.buildscript.configurations, "${proj.path} buildscript config")
+  }
+
+  if (unresolvedConfigs > 0) {
+    logger.warn("${unresolvedConfigs} configurations could not be resolved (run with --info for details)")
+  }
+
+  return componentIds.findAll { it instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier }
+}
+
+// Retries buildscript repositories (which include the Gradle Plugin Portal) for any
+// components whose sources did not resolve against the project repositories.
+ext.forEachResolvedSourceArtifact = { Collection externalIds, Closure action ->
+  def resolvedComponentIds = new HashSet()
+
+  def resolveSources = { depHandler, componentIdsToResolve, String label ->
+    def sizeBefore = resolvedComponentIds.size()
+    def result = depHandler.createArtifactResolutionQuery()
+      .forComponents(componentIdsToResolve)
+      .withArtifacts(JvmLibrary, SourcesArtifact)
+      .execute()
+    result.resolvedComponents.each { component ->
+      component.getArtifacts(SourcesArtifact).each { source ->
+        if (source instanceof ResolvedArtifactResult) {
+          action(component.id, source)
+          resolvedComponentIds.add(component.id)
+        } else {
+          logger.info("Could not resolve sources for ${component.id}: ${source}")
+        }
+      }
+    }
+    def count = resolvedComponentIds.size() - sizeBefore
+    logger.lifecycle("Resolved sources for ${count} components from ${label}")
+  }
+
+  resolveSources(dependencies, externalIds, "project repositories")
+
+  def unresolvedIds = externalIds.findAll { !resolvedComponentIds.contains(it) }
+  if (!unresolvedIds.isEmpty()) {
+    resolveSources(buildscript.dependencies, unresolvedIds, "buildscript repositories")
+  }
+
+  return resolvedComponentIds
+}
+
 task resolveSourceArtifacts {
   group = 'verification'
   description = 'Resolves source artifacts for all configurations so they can be included in dependency verification metadata'
   doLast {
-    def componentIds = new HashSet()
-    def unresolvedConfigs = 0
-
-    def collectComponentIds = { configs, String label ->
-      configs.matching { it.canBeResolved }.each { config ->
-        try {
-          config.incoming.resolutionResult.allComponents.each { component ->
-            componentIds.add(component.id)
-          }
-        } catch (Exception e) {
-          unresolvedConfigs++
-          logger.info("Could not resolve ${label} '${config.name}': ${e.message}")
-        }
-      }
-    }
-
-    allprojects.each { proj ->
-      collectComponentIds(proj.configurations, "${proj.path} config")
-      collectComponentIds(proj.buildscript.configurations, "${proj.path} buildscript config")
-    }
-
-    if (unresolvedConfigs > 0) {
-      logger.warn("${unresolvedConfigs} configurations could not be resolved (run with --info for details)")
-    }
-
-    def externalIds = componentIds.findAll { it instanceof org.gradle.api.artifacts.component.ModuleComponentIdentifier }
+    def externalIds = collectExternalComponentIds()
     logger.lifecycle("Resolving sources for ${externalIds.size()} external dependencies...")
 
-    // Populated by resolveSources across both project and buildscript repository calls
-    def resolvedComponentIds = new HashSet()
-    def resolveSources = { depHandler, componentIdsToResolve, String label ->
-      def sizeBefore = resolvedComponentIds.size()
-      def result = depHandler.createArtifactResolutionQuery()
-        .forComponents(componentIdsToResolve)
-        .withArtifacts(JvmLibrary, SourcesArtifact)
-        .execute()
-      result.resolvedComponents.each { component ->
-        component.getArtifacts(SourcesArtifact).each { source ->
-          if (source instanceof ResolvedArtifactResult) {
-            source.file // access .file to trigger download and register with verification metadata
-            resolvedComponentIds.add(component.id)
-          } else {
-            logger.warn("Could not download sources for ${component.id}: ${source}")
-          }
-        }
-      }
-      def count = resolvedComponentIds.size() - sizeBefore
-      logger.lifecycle("Resolved sources for ${count} components from ${label}")
-    }
-
-    resolveSources(dependencies, externalIds, "project repositories")
-
-    // Retry unresolved sources using buildscript repositories (includes Gradle Plugin Portal)
-    def unresolvedIds = externalIds.findAll { !resolvedComponentIds.contains(it) }
-    if (!unresolvedIds.isEmpty()) {
-      resolveSources(buildscript.dependencies, unresolvedIds, "buildscript repositories")
+    def resolvedComponentIds = forEachResolvedSourceArtifact(externalIds) { id, source ->
+      source.file // access .file to trigger download and register with verification metadata
     }
 
     def finalUnresolved = externalIds.size() - resolvedComponentIds.size()
@@ -541,6 +555,50 @@ task resolveSourceArtifacts {
       logger.warn("${finalUnresolved} dependencies have no published source artifacts")
     }
     logger.lifecycle("Total: sources resolved for ${resolvedComponentIds.size()}/${externalIds.size()} components")
+  }
+}
+
+task verifySourceArtifacts {
+  group = 'verification'
+  description = 'Fails the build if gradle/verification-metadata.xml is missing source artifact entries for any resolvable dependency'
+  doLast {
+    def metadataFile = rootProject.file('gradle/verification-metadata.xml')
+    def slurper = new groovy.xml.XmlSlurper()
+    slurper.setFeature('http://xml.org/sax/features/namespaces', false)
+    def metadata = slurper.parse(metadataFile)
+
+    def componentsWithRecordedSources = new HashSet()
+    metadata.components.component.each { comp ->
+      def group = comp.@group.text()
+      def name = comp.@name.text()
+      def version = comp.@version.text()
+      def expected = "${name}-${version}-sources.jar".toString()
+      if (comp.artifact.any { it.@name.text() == expected }) {
+        componentsWithRecordedSources.add("${group}:${name}:${version}".toString())
+      }
+    }
+
+    def externalIds = collectExternalComponentIds()
+    def missing = new TreeSet()
+    forEachResolvedSourceArtifact(externalIds) { id, source ->
+      def key = "${id.group}:${id.module}:${id.version}".toString()
+      if (!componentsWithRecordedSources.contains(key)) {
+        missing.add(key)
+      }
+    }
+
+    if (!missing.isEmpty()) {
+      def list = missing.collect { "  - ${it}" }.join('\n')
+      throw new GradleException(
+      "gradle/verification-metadata.xml is missing source artifact entries for ${missing.size()} " +
+      "${missing.size() == 1 ? 'dependency' : 'dependencies'}:\n" +
+      "${list}\n\n" +
+      "Regenerate the metadata by running:\n" +
+      "  ./gradlew --write-verification-metadata sha256 resolveSourceArtifacts\n" +
+      "and commit the updated gradle/verification-metadata.xml.")
+    }
+
+    logger.lifecycle("verification-metadata.xml contains source entries for all resolvable external components.")
   }
 }
 
