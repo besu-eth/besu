@@ -29,10 +29,8 @@ import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.v2.operation.SelfBalanceOperationV2;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
-import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -52,65 +50,50 @@ import org.openjdk.jmh.infra.Blackhole;
 @BenchmarkMode(Mode.AverageTime)
 public class SelfBalanceOperationBenchmarkV2 {
 
-  private static final int NUMBER_ADDRESSES = 20_000;
-  private static final Random RANDOM = new Random();
-
   private SelfBalanceOperationV2 operation;
-  private MessageFrame[] frames;
-  private int index = 0;
+  private MessageFrame frame;
 
   @Setup
   public void setup() throws Exception {
     operation = new SelfBalanceOperationV2(mock(GasCalculator.class));
     final Blockchain blockchain = mock(Blockchain.class);
-
-    final Address[] addresses = new Address[NUMBER_ADDRESSES];
-    for (int i = 0; i < addresses.length; i++) {
-      final byte[] raw = new byte[Address.SIZE];
-      RANDOM.nextBytes(raw);
-      addresses[i] = Address.wrap(Bytes.wrap(raw));
-    }
+    final Address address = Address.fromHexString("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
 
     final WorldUpdater worldUpdater;
     try (WorldStateArchive archive = createBonsaiInMemoryWorldStateArchive(blockchain)) {
       worldUpdater = archive.getWorldState().updater();
     }
-    for (Address addr : addresses) {
-      worldUpdater.getOrCreate(addr).setBalance(Wei.of(1));
-    }
+    worldUpdater.getOrCreate(address).setBalance(Wei.of(1));
     worldUpdater.commit();
 
-    frames = new MessageFrame[NUMBER_ADDRESSES];
-    for (int i = 0; i < NUMBER_ADDRESSES; i++) {
-      frames[i] =
-          MessageFrame.builder()
-              .enableEvmV2(true)
-              .worldUpdater(worldUpdater)
-              .originator(Address.ZERO)
-              .gasPrice(Wei.ONE)
-              .blobGasPrice(Wei.ONE)
-              .blockValues(mock(BlockValues.class))
-              .miningBeneficiary(Address.ZERO)
-              .blockHashLookup((__, ___) -> Hash.ZERO)
-              .type(MessageFrame.Type.MESSAGE_CALL)
-              .initialGas(Long.MAX_VALUE)
-              .address(addresses[i])
-              .contract(addresses[i])
-              .inputData(Bytes32.ZERO)
-              .sender(Address.ZERO)
-              .value(Wei.ZERO)
-              .apparentValue(Wei.ZERO)
-              .code(Code.EMPTY_CODE)
-              .completer(__ -> {})
-              .build();
-    }
+    frame = MessageFrame.builder()
+            .enableEvmV2(true)
+            .worldUpdater(worldUpdater)
+            .originator(Address.ZERO)
+            .gasPrice(Wei.ONE)
+            .blobGasPrice(Wei.ONE)
+            .blockValues(mock(BlockValues.class))
+            .miningBeneficiary(Address.ZERO)
+            .blockHashLookup((__, ___) -> Hash.ZERO)
+            .type(MessageFrame.Type.MESSAGE_CALL)
+            .initialGas(Long.MAX_VALUE)
+            .address(address)
+            .contract(address)
+            .inputData(Bytes32.ZERO)
+            .sender(Address.ZERO)
+            .value(Wei.ZERO)
+            .apparentValue(Wei.ZERO)
+            .code(Code.EMPTY_CODE)
+            .completer(__ -> {})
+            .build();
+
+    // Pre-warm: force trie path into memory
+    worldUpdater.get(address);
   }
 
   @Benchmark
   public void executeOperation(final Blackhole blackhole) {
-    final MessageFrame frame = frames[index];
     blackhole.consume(operation.execute(frame, null));
     frame.setTopV2(frame.stackTopV2() - 1);
-    index = (index + 1) % NUMBER_ADDRESSES;
   }
 }
