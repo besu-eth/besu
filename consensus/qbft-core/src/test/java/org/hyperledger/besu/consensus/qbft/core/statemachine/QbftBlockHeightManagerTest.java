@@ -46,6 +46,7 @@ import org.hyperledger.besu.consensus.qbft.core.payload.MessageFactory;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlock;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockCodec;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockCreator;
+import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockCreator.BlockCreationResult;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockHeader;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockImporter;
 import org.hyperledger.besu.consensus.qbft.core.types.QbftBlockInterface;
@@ -96,6 +97,7 @@ public class QbftBlockHeightManagerTest {
   @Mock private QbftMessageTransmitter messageTransmitter;
   @Mock private RoundChangeManager roundChangeManager;
   @Mock private QbftRoundFactory roundFactory;
+  @Mock private QbftRound qbftRound;
   @Mock private Clock clock;
   @Mock private MessageValidatorFactory messageValidatorFactory;
   @Mock private QbftBlockCreator blockCreator;
@@ -266,6 +268,140 @@ public class QbftBlockHeightManagerTest {
     verify(messageTransmitter, never()).multicastPrepare(eq(roundIdentifier), any());
     verify(roundTimer, times(1)).startTimer(roundIdentifier);
     verify(finalState).isLocalNodeProposerForRound(eq(new ConsensusRoundIdentifier(1, 0)));
+  }
+
+  @Test
+  public void
+      onBlockTimerExpiryForNonProposerWithEmptyBlockPeriodNotExpired_ResetsTimerAndGoesIdle() {
+    // Test for non-proposer case when empty block period has NOT expired yet
+    // This verifies the fix for issue #8191 where non-proposer nodes should mirror proposer
+    // behavior to avoid waiting full empty block period when becoming proposer in next round
+    when(finalState.isLocalNodeProposerForRound(roundIdentifier)).thenReturn(false);
+    when(blockTimer.checkEmptyBlockExpired(any(), anyLong())).thenReturn(false);
+    when(finalState.getClock()).thenReturn(clock);
+    when(clock.millis()).thenReturn(25000L); // T+25s
+
+    final QbftBlockHeightManager manager =
+        new QbftBlockHeightManager(
+            headerTestFixture.buildHeader(),
+            finalState,
+            roundChangeManager,
+            roundFactory,
+            clock,
+            messageValidatorFactory,
+            messageFactory,
+            validatorProvider);
+
+    // Start a round first
+    manager.handleBlockTimerExpiry(roundIdentifier);
+
+    // Verify non-proposer resets timer and goes idle
+    verify(blockTimer, times(1)).resetTimerForEmptyBlock(eq(roundIdentifier), any(), eq(25000L));
+    verify(roundTimer, times(1)).cancelTimer();
+  }
+
+  @Test
+  public void onBlockTimerExpiryForProposerWithEmptyBlock_ResetsTimerWhenPeriodNotExpired() {
+    // Test for proposer case when block is empty and empty block period has NOT expired
+    // This verifies the scenario from issue #8191: T+0s parent block, T+25s tx arrives,
+    // should produce block immediately instead of waiting full period
+    when(finalState.isLocalNodeProposerForRound(roundIdentifier)).thenReturn(true);
+    when(finalState.getClock()).thenReturn(clock);
+    when(blockTimer.checkEmptyBlockExpired(any(), anyLong())).thenReturn(false);
+    when(clock.millis()).thenReturn(25000L); // T+25s
+
+    final QbftBlock qbftBlock = mock(QbftBlock.class);
+    when(qbftBlock.isEmpty()).thenReturn(true);
+    when(qbftRound.getRoundIdentifier()).thenReturn(roundIdentifier);
+    when(qbftRound.createBlock(anyLong()))
+        .thenReturn(new BlockCreationResult(qbftBlock, Optional.empty()));
+    when(roundFactory.createNewRound(any(), eq(0))).thenReturn(qbftRound);
+
+    final QbftBlockHeightManager manager =
+        new QbftBlockHeightManager(
+            headerTestFixture.buildHeader(),
+            finalState,
+            roundChangeManager,
+            roundFactory,
+            clock,
+            messageValidatorFactory,
+            messageFactory,
+            validatorProvider);
+
+    manager.handleBlockTimerExpiry(roundIdentifier);
+
+    // Verify proposer resets timer when period not expired (doesn't produce empty block yet)
+    verify(blockTimer, times(1)).resetTimerForEmptyBlock(eq(roundIdentifier), any(), eq(25000L));
+    verify(roundTimer, times(1)).cancelTimer();
+    verify(qbftRound, never()).updateStateWithProposalAndTransmit(any(), any(), any(), any());
+  }
+
+  @Test
+  public void onBlockTimerExpiryForProposerWithEmptyBlock_ProducesBlockWhenPeriodExpired() {
+    // Test for proposer case when block is empty but empty block period HAS expired
+    // This verifies the happy path: after empty block period expires, produce empty block
+    when(finalState.isLocalNodeProposerForRound(roundIdentifier)).thenReturn(true);
+    when(finalState.getClock()).thenReturn(clock);
+    when(blockTimer.checkEmptyBlockExpired(any(), anyLong())).thenReturn(true);
+
+    final QbftBlock qbftBlock = mock(QbftBlock.class);
+    when(qbftBlock.isEmpty()).thenReturn(true);
+    when(qbftRound.getRoundIdentifier()).thenReturn(roundIdentifier);
+    when(qbftRound.createBlock(anyLong()))
+        .thenReturn(new BlockCreationResult(qbftBlock, Optional.empty()));
+    when(roundFactory.createNewRound(any(), eq(0))).thenReturn(qbftRound);
+
+    final QbftBlockHeightManager manager =
+        new QbftBlockHeightManager(
+            headerTestFixture.buildHeader(),
+            finalState,
+            roundChangeManager,
+            roundFactory,
+            clock,
+            messageValidatorFactory,
+            messageFactory,
+            validatorProvider);
+
+    manager.handleBlockTimerExpiry(roundIdentifier);
+
+    // Verify proposer produces empty block when period expired
+    verify(qbftRound, times(1))
+        .updateStateWithProposalAndTransmit(eq(qbftBlock), any(), any(), any());
+  }
+
+  @Test
+  public void onBlockTimerExpiryForProposerWithNonEmptyBlock_ProducesBlockImmediately() {
+    // Test for proposer case when block has transactions
+    // This verifies the main fix: transactions arriving during empty block period
+    // trigger immediate block production
+    when(finalState.isLocalNodeProposerForRound(roundIdentifier)).thenReturn(true);
+    when(finalState.getClock()).thenReturn(clock);
+
+    final QbftBlock qbftBlock = mock(QbftBlock.class);
+    when(qbftBlock.isEmpty()).thenReturn(false); // Block has transactions
+    when(qbftRound.getRoundIdentifier()).thenReturn(roundIdentifier);
+    when(qbftRound.createBlock(anyLong()))
+        .thenReturn(new BlockCreationResult(qbftBlock, Optional.empty()));
+    when(roundFactory.createNewRound(any(), eq(0))).thenReturn(qbftRound);
+
+    final QbftBlockHeightManager manager =
+        new QbftBlockHeightManager(
+            headerTestFixture.buildHeader(),
+            finalState,
+            roundChangeManager,
+            roundFactory,
+            clock,
+            messageValidatorFactory,
+            messageFactory,
+            validatorProvider);
+
+    manager.handleBlockTimerExpiry(roundIdentifier);
+
+    // Verify proposer produces block immediately when it has transactions
+    verify(qbftRound, times(1))
+        .updateStateWithProposalAndTransmit(eq(qbftBlock), any(), any(), any());
+    // Timer should NOT be reset - block is produced immediately
+    verify(blockTimer, never()).resetTimerForEmptyBlock(any(), any(), anyLong());
   }
 
   @Test

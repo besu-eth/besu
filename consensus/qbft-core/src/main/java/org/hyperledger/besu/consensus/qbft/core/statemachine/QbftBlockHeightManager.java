@@ -70,8 +70,6 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
   private final Clock clock;
   private final Function<ConsensusRoundIdentifier, RoundState> roundStateCreator;
   private final QbftFinalState finalState;
-  private final ConsensusRoundIdentifier nextBlockRoundId;
-
   private Optional<PreparedCertificate> latestPreparedCertificate = Optional.empty();
   private Optional<QbftRound> currentRound = Optional.empty();
   private boolean isEarlyRoundChangeEnabled = false;
@@ -119,7 +117,8 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
                 messageValidatorFactory.createMessageValidator(roundIdentifier, parentHeader));
 
     final long nextBlockHeight = parentHeader.getNumber() + 1;
-    this.nextBlockRoundId = new ConsensusRoundIdentifier(nextBlockHeight, 0);
+    final ConsensusRoundIdentifier nextBlockRoundId =
+        new ConsensusRoundIdentifier(nextBlockHeight, 0);
 
     finalState.getBlockTimer().startTimer(nextBlockRoundId, parentHeader::getTimestamp);
   }
