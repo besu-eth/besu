@@ -25,12 +25,10 @@ import java.util.Optional;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public abstract class AbstractSnapMessageData extends AbstractMessageData {
 
-    @VisibleForTesting
+  @VisibleForTesting
   public static final BigInteger SIZE_REQUEST = BigInteger.valueOf(524288); // 512 * 1024
 
   private Optional<Hash> rootHash;

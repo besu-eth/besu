@@ -65,7 +65,7 @@ import org.slf4j.LoggerFactory;
 public class EthPeer implements Comparable<EthPeer> {
   private static final Logger LOG = LoggerFactory.getLogger(EthPeer.class);
 
-  private static final int MAX_OUTSTANDING_REQUESTS = 5;
+  private final int maxOutstandingRequests;
 
   private PeerConnection connection;
 
@@ -129,8 +129,10 @@ public class EthPeer implements Comparable<EthPeer> {
       final int maxMessageSize,
       final Clock clock,
       final List<NodeMessagePermissioningProvider> permissioningProviders,
-      final Bytes localNodeId) {
+      final Bytes localNodeId,
+      final int maxOutstandingRequests) {
     this.connection = connection;
+    this.maxOutstandingRequests = maxOutstandingRequests;
     this.maxMessageSize = maxMessageSize;
     this.clock = clock;
     this.permissioningProviders = permissioningProviders;
@@ -622,7 +624,7 @@ public class EthPeer implements Comparable<EthPeer> {
   }
 
   public boolean hasAvailableRequestCapacity() {
-    return outstandingRequests() < MAX_OUTSTANDING_REQUESTS;
+    return outstandingRequests() < maxOutstandingRequests;
   }
 
   public Set<Capability> getAgreedCapabilities() {

@@ -112,6 +112,7 @@ public class EthPeers implements PeerSelector {
   private final ForkIdManager forkIdManager;
   private final int snapServerTargetNumber;
   private final boolean shouldLimitRemoteConnections;
+  private final int peerMaxOutstandingRequests;
 
   private Comparator<EthPeerImmutableAttributes> bestPeerComparator;
   private final Bytes localNodeId;
@@ -135,11 +136,13 @@ public class EthPeers implements PeerSelector {
       final int maxRemotelyInitiatedConnections,
       final Boolean randomPeerPriority,
       final SyncMode syncMode,
-      final ForkIdManager forkIdManager) {
+      final ForkIdManager forkIdManager,
+      final int peerMaxOutstandingRequests) {
     this.currentProtocolSpecSupplier = currentProtocolSpecSupplier;
     this.clock = clock;
     this.permissioningProviders = permissioningProviders;
     this.maxMessageSize = maxMessageSize;
+    this.peerMaxOutstandingRequests = peerMaxOutstandingRequests;
     this.bestPeerComparator = TOTAL_DIFFICULTY_THEN_HEIGHT;
     this.localNodeId = localNodeId;
     this.peerUpperBound = peerUpperBound;
@@ -219,7 +222,8 @@ public class EthPeers implements PeerSelector {
                         maxMessageSize,
                         clock,
                         permissioningProviders,
-                        localNodeId));
+                        localNodeId,
+                        peerMaxOutstandingRequests));
       }
       incompleteConnections.put(newConnection, ethPeer);
     }

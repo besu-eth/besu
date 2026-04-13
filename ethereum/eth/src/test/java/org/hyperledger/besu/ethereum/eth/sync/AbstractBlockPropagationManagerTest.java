@@ -687,7 +687,8 @@ public abstract class AbstractBlockPropagationManagerTest {
                 25,
                 false,
                 SyncMode.SNAP,
-                new ForkIdManager(blockchain, Collections.emptyList(), Collections.emptyList())),
+                new ForkIdManager(blockchain, Collections.emptyList(), Collections.emptyList()),
+                SynchronizerConfiguration.DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS),
             new EthMessages(),
             ethScheduler,
             null);
@@ -828,7 +829,8 @@ public abstract class AbstractBlockPropagationManagerTest {
                 25,
                 false,
                 SyncMode.SNAP,
-                new ForkIdManager(blockchain, Collections.emptyList(), Collections.emptyList())),
+                new ForkIdManager(blockchain, Collections.emptyList(), Collections.emptyList()),
+                SynchronizerConfiguration.DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS),
             new EthMessages(),
             ethScheduler,
             null);

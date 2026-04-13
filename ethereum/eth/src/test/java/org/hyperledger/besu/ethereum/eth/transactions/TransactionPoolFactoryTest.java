@@ -122,7 +122,8 @@ public class TransactionPoolFactoryTest {
             25,
             false,
             SyncMode.SNAP,
-            new ForkIdManager(blockchain, Collections.emptyList(), Collections.emptyList()));
+            new ForkIdManager(blockchain, Collections.emptyList(), Collections.emptyList()),
+            SynchronizerConfiguration.DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS);
     when(ethContext.getEthMessages()).thenReturn(ethMessages);
     when(ethContext.getEthPeers()).thenReturn(ethPeers);
 

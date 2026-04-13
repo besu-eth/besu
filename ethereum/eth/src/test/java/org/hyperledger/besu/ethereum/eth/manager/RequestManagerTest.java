@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
@@ -227,7 +228,8 @@ public class RequestManagerTest {
         EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE,
         TestClock.fixed(),
         Collections.emptyList(),
-        Bytes.random(64));
+        Bytes.random(64),
+        SynchronizerConfiguration.DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS);
   }
 
   @Test

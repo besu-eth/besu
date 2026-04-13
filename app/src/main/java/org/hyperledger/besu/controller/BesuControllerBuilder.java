@@ -724,7 +724,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             maxRemotelyInitiatedPeers,
             randomPeerPriority,
             syncConfig.getSyncMode(),
-            forkIdManager);
+            forkIdManager,
+            syncConfig.getPeerMaxOutstandingRequests());
 
     final EthMessages ethMessages = new EthMessages();
     final EthMessages snapMessages = new EthMessages();

@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
+import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.PeerInfo;
 import org.hyperledger.besu.testutil.TestClock;
@@ -80,7 +81,8 @@ public class AdminJsonRpcHttpServiceTest extends JsonRpcHttpServiceTestBase {
             EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE,
             TestClock.fixed(),
             Collections.emptyList(),
-            Bytes.random(64)));
+            Bytes.random(64),
+            SynchronizerConfiguration.DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS));
     peerList.add(
         new EthPeer(
             MockPeerConnection.create(info2, addr30301, addr60302),
@@ -89,7 +91,8 @@ public class AdminJsonRpcHttpServiceTest extends JsonRpcHttpServiceTestBase {
             EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE,
             TestClock.fixed(),
             Collections.emptyList(),
-            Bytes.random(64)));
+            Bytes.random(64),
+            SynchronizerConfiguration.DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS));
     peerList.add(
         new EthPeer(
             MockPeerConnection.create(info3, addr30301, addr60303),
@@ -98,7 +101,8 @@ public class AdminJsonRpcHttpServiceTest extends JsonRpcHttpServiceTestBase {
             EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE,
             TestClock.fixed(),
             Collections.emptyList(),
-            Bytes.random(64)));
+            Bytes.random(64),
+            SynchronizerConfiguration.DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS));
 
     when(ethPeersMock.streamAllPeers())
         .thenReturn(peerList.stream().map(EthPeerImmutableAttributes::from));

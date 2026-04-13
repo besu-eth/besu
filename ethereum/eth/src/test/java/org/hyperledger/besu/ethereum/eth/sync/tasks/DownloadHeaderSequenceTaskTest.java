@@ -48,6 +48,7 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetBodiesFromPeer
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.task.EthTask;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
+import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.ValidationPolicy;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.sync.tasks.exceptions.InvalidBlockException;
@@ -126,7 +127,8 @@ public class DownloadHeaderSequenceTaskTest {
                 5,
                 false,
                 SyncMode.SNAP,
-                new ForkIdManager(blockchain, Collections.emptyList(), Collections.emptyList())));
+                new ForkIdManager(blockchain, Collections.emptyList(), Collections.emptyList()),
+                SynchronizerConfiguration.DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS));
 
     final EthMessages ethMessages = new EthMessages();
     final EthScheduler ethScheduler =

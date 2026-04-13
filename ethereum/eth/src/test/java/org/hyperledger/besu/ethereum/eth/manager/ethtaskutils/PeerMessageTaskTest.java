@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.EthTaskException;
 import org.hyperledger.besu.ethereum.eth.manager.task.AbstractPeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.task.EthTask;
+import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.testutil.TestClock;
 import org.hyperledger.besu.util.ExceptionUtils;
@@ -167,6 +168,7 @@ public abstract class PeerMessageTaskTest<T>
         EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE,
         TestClock.fixed(),
         Collections.emptyList(),
-        Bytes.random(64));
+        Bytes.random(64),
+        SynchronizerConfiguration.DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS);
   }
 }
