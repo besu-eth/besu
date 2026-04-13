@@ -100,4 +100,24 @@ public interface BesuConfiguration extends BesuService {
    */
   @Unstable
   DataStorageConfiguration getDataStorageConfiguration();
+
+  /**
+   * Returns the version of the running Besu node.
+   *
+   * <p>The format follows semantic versioning: {@code "MAJOR.MINOR.PATCH"} for release builds
+   * (e.g., {@code "25.3.0"}) or {@code "MAJOR.MINOR.PATCH-qualifier"} for development builds
+   * (e.g., {@code "25.3.1-dev-ac23d311"}).
+   *
+   * <p>Available during all plugin lifecycle phases ({@code register} through {@code stop}).
+   *
+   * @return the Besu node version string, never null
+   */
+  String getBesuVersion();
+
+  /**
+   * Returns the git commit hash of the running Besu build.
+   *
+   * @return the short git commit hash, never null
+   */
+  String getBesuCommitHash();
 }
