@@ -269,7 +269,7 @@ configure(allprojects - project(':platform')) {
     }
     format 'Solidity', {
       target '**/*.sol'
-      targetExclude '**/src/reference-test/**', '**/src/main/generated/**', '**/src/test/generated/**', '**/src/jmh/generated/**'
+      targetExclude '**/src/reference-test/**', '**/src/main/generated/**', '**/src/test/generated/**', '**/src/jmh/generated/**', '**/bin/default/**'
       trimTrailingWhitespace()
       endWithNewline()
 
