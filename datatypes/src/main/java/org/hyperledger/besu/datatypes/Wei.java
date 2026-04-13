@@ -14,7 +14,10 @@
  */
 package org.hyperledger.besu.datatypes;
 
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.math.BigInteger;
+import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.Locale;
 
@@ -24,6 +27,14 @@ import org.apache.tuweni.units.bigints.UInt256;
 
 /** A particular quantity of Wei, the Ethereum currency. */
 public final class Wei extends BaseUInt256Value<Wei> implements Quantity {
+
+  private static final VarHandle LONG_BE =
+      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
+
+  private final long u3;
+  private final long u2;
+  private final long u1;
+  private final long u0;
 
   /** The constant ZERO. */
   public static final Wei ZERO = of(0);
@@ -41,6 +52,11 @@ public final class Wei extends BaseUInt256Value<Wei> implements Quantity {
    */
   Wei(final UInt256 value) {
     super(value, Wei::new);
+    final byte[] b = value.toArray();
+    this.u3 = (long) LONG_BE.get(b, 0);
+    this.u2 = (long) LONG_BE.get(b, 8);
+    this.u1 = (long) LONG_BE.get(b, 16);
+    this.u0 = (long) LONG_BE.get(b, 24);
   }
 
   private Wei(final long v) {
@@ -123,6 +139,69 @@ public final class Wei extends BaseUInt256Value<Wei> implements Quantity {
    */
   public static Wei fromEth(final long eth) {
     return Wei.of(BigInteger.valueOf(eth).multiply(BigInteger.TEN.pow(18)));
+  }
+
+  /**
+   * Returns the most-significant limb (bits 255..192).
+   *
+   * @return the u3 limb
+   */
+  public long u3() {
+    return u3;
+  }
+
+  /**
+   * Returns limb 2 (bits 191..128).
+   *
+   * @return the u2 limb
+   */
+  public long u2() {
+    return u2;
+  }
+
+  /**
+   * Returns limb 1 (bits 127..64).
+   *
+   * @return the u1 limb
+   */
+  public long u1() {
+    return u1;
+  }
+
+  /**
+   * Returns the least-significant limb (bits 63..0).
+   *
+   * @return the u0 limb
+   */
+  public long u0() {
+    return u0;
+  }
+
+  /**
+   * Writes the 4 big-endian long limbs into the target array at the given offset. This enables
+   * zero-allocation transfer to the EVM operand stack.
+   *
+   * @param target the target long array (typically the EVM stack)
+   * @param off the offset into the array where u3 should be written
+   */
+  public void writeLimbs(final long[] target, final int off) {
+    target[off] = u3;
+    target[off + 1] = u2;
+    target[off + 2] = u1;
+    target[off + 3] = u0;
+  }
+
+  @Override
+  public boolean fitsLong() {
+    return u3 == 0 && u2 == 0 && u1 == 0 && u0 >= 0;
+  }
+
+  @Override
+  public long toLong() {
+    if (!fitsLong()) {
+      throw new ArithmeticException("Value does not fit a 8 byte long");
+    }
+    return u0;
   }
 
   @Override

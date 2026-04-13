@@ -102,7 +102,7 @@ public class SelfBalanceOperationBenchmark {
         ExecutionContextTestFixture.create();
     for (int i = 0; i < NUMBER_ADDRESSES; i++) {
       frames[i] =
-          createMessageFrame(blockchain, worldUpdater, executionContextTestFixture, addresses[0]);
+          createMessageFrame(blockchain, worldUpdater, executionContextTestFixture, addresses[i]);
     }
   }
 

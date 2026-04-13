@@ -25,10 +25,6 @@ import org.hyperledger.besu.evm.operation.AbstractOperation;
 /** The Abstract fixed cost operation. */
 abstract class AbstractFixedCostOperationV2 extends AbstractOperation {
 
-  /** Shared underflow response for static operation methods. */
-  static final OperationResult UNDERFLOW_RESPONSE =
-      new OperationResult(0L, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
-
   /** The Success response. */
   protected final OperationResult successResponse;
 
