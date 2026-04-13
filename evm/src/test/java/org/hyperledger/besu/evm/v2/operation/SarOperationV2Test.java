@@ -173,11 +173,11 @@ class SarOperationV2Test {
             .build();
     operation.execute(frame, null);
     UInt256 expected = UInt256.fromBytesBE(Bytes32.fromHexString(expectedResult).toArrayUnsafe());
-    assertThat(getV2StackItem(frame, 0)).isEqualTo(expected);
+    assertThat(getStackItem(frame, 0)).isEqualTo(expected);
     assertThat(frame.stackTopV2()).isEqualTo(1);
   }
 
-  private static UInt256 getV2StackItem(final MessageFrame frame, final int offset) {
+  private static UInt256 getStackItem(final MessageFrame frame, final int offset) {
     final long[] s = frame.stackDataV2();
     final int idx = (frame.stackTopV2() - 1 - offset) << 2;
     return new UInt256(s[idx], s[idx + 1], s[idx + 2], s[idx + 3]);
@@ -199,7 +199,7 @@ class SarOperationV2Test {
             .build();
     operation.execute(frame, null);
     assertThat(frame.stackTopV2()).isEqualTo(4);
-    assertThat(getV2StackItem(frame, 0))
+    assertThat(getStackItem(frame, 0))
         .isEqualTo(
             UInt256.fromBytesBE(
                 Bytes32.fromHexString(
