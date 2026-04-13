@@ -447,20 +447,13 @@ public class MainnetTransactionProcessor {
       final long initialFrameStateGasSpill =
           initialFrame.getStateGasSpillBurned() - spillBurnedBeforeInitialFinal;
 
-      // EIP-8037: On exceptional halt of the initial frame, zero the reservoir so all gas is
-      // consumed. Child frame reverts restore the reservoir via undo, but the initial frame's
-      // halt means all gas is forfeit. For REVERT, the reservoir was already restored by
-      // rollback and should be returned to the sender.
-      if (initialFrame.getExceptionalHaltReason().isPresent()) {
-        initialFrame.setStateGasReservoir(0L);
-      }
-
       // EIP-8037: Runtime TX_MAX_GAS_LIMIT enforcement on regular gas only.
       // With multidimensional gas, tx.gasLimit can exceed TX_MAX_GAS_LIMIT to accommodate
       // state gas, but regular gas consumption is still bounded at runtime.
       // For pre-Amsterdam forks, transactionRegularGasLimit() returns Long.MAX_VALUE (always
       // passes).
-      // EIP-8037: Include leftover reservoir in remaining gas for correct consumption calculation
+      // We also need to include leftover reservoir in remaining gas for correct consumption
+      // calculation
       final long totalRemaining =
           initialFrame.getRemainingGas() + initialFrame.getStateGasReservoir();
       final long totalConsumed = transaction.getGasLimit() - totalRemaining;
