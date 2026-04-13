@@ -187,14 +187,18 @@ public abstract class AbstractMessageProcessor {
   }
 
   /**
-   * Snapshots the initial frame's gasRemaining into {@code initialFrameRegularHaltBurn} so that gas
-   * paid by the sender but never spent on regular or state work is excluded from block regular gas.
-   * Must be invoked before any path that zeroes {@code gasRemaining} on the initial frame
-   * (exceptional halt and depth-0 code-deposit failure).
+   * Snapshots the initial frame's gasRemaining into {@code initialFrameRegularHaltBurn} when a
+   * pre-execution halt fires on the initial frame (e.g. EIP-684 CREATE collision) so that gas paid
+   * by the sender but never spent on regular or state work is excluded from block regular gas. When
+   * opcode execution has already run on the frame, the halt-burn must remain in block regular gas
+   * (no-op here).
    *
    * @param frame the initial (depth-0) message frame
    */
   protected static void recordInitialFrameRegularHaltBurn(final MessageFrame frame) {
+    if (frame.isCodeExecuted()) {
+      return;
+    }
     final long haltBurn = frame.getRemainingGas();
     if (haltBurn > 0) {
       frame.accumulateInitialFrameRegularHaltBurn(haltBurn);
@@ -260,6 +264,7 @@ public abstract class AbstractMessageProcessor {
    * @param operationTracer The tracer recording execution
    */
   private void codeExecute(final MessageFrame frame, final OperationTracer operationTracer) {
+    frame.markCodeExecuted();
     try {
       evm.runToHalt(frame, operationTracer);
     } catch (final ModificationNotAllowedException e) {

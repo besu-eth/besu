@@ -198,6 +198,10 @@ public class MessageFrame {
   // Metadata fields.
   private final Type type;
   private State state = State.NOT_STARTED;
+  // EIP-7778/EIP-8037: Flipped to true once code execution starts; used to distinguish a halt
+  // that fires during opcode execution (halt-burn counts toward block regular gas) from a halt
+  // raised pre-execution in the processor's start() (halt-burn must be excluded).
+  private boolean codeExecuted = false;
 
   // Machine state fields.
   private long gasRemaining;
@@ -989,6 +993,24 @@ public class MessageFrame {
    */
   public long getInitialFrameRegularHaltBurn() {
     return txValues.initialFrameRegularHaltBurn()[0];
+  }
+
+  /**
+   * Marks that opcode execution has started on this frame. Once set, an exceptional halt is
+   * classified as "during code execution" (halt-burned gas counts toward block regular gas) rather
+   * than pre-execution (halt-burned gas is excluded).
+   */
+  public void markCodeExecuted() {
+    this.codeExecuted = true;
+  }
+
+  /**
+   * Returns whether opcode execution has started on this frame.
+   *
+   * @return true if {@link #markCodeExecuted()} was invoked
+   */
+  public boolean isCodeExecuted() {
+    return codeExecuted;
   }
 
   /**

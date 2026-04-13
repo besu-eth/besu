@@ -269,9 +269,6 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
     frame.getWorldUpdater().commit();
     frame.clearLogs();
     frame.clearGasRefund();
-    // Only invoked from the depth-0 code-deposit failure path, so the initial-frame
-    // invariant required by recordInitialFrameRegularHaltBurn holds.
-    recordInitialFrameRegularHaltBurn(frame);
     frame.clearGasRemaining();
     frame.clearOutputData();
     // Do NOT call frame.setExceptionalHaltReason() here.
