@@ -30,8 +30,6 @@ dependencies {
   api project(':plugin-api')
   api 'org.slf4j:slf4j-api'
 
-  implementation project(':ethereum:core')
-
   testImplementation project(':testutil')
 
   testImplementation 'org.mockito:mockito-core'

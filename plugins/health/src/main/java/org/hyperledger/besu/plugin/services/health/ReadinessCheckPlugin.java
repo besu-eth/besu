@@ -33,6 +33,44 @@ public class ReadinessCheckPlugin implements BesuPlugin {
   /** Instantiates a new readiness check plugin. */
   public ReadinessCheckPlugin() {}
 
+  /**
+   * Safely parses a string to a non-negative integer.
+   *
+   * @param value the string to parse
+   * @return an Optional containing the parsed value if successful and non-negative, or empty
+   *     otherwise
+   */
+  private static Optional<Integer> parseNonNegativeInt(final String value) {
+    if (value == null) {
+      return Optional.empty();
+    }
+    try {
+      int parsed = Integer.parseInt(value);
+      return (parsed >= 0) ? Optional.of(parsed) : Optional.empty();
+    } catch (NumberFormatException e) {
+      return Optional.empty();
+    }
+  }
+
+  /**
+   * Safely parses a string to a non-negative long.
+   *
+   * @param value the string to parse
+   * @return an Optional containing the parsed value if successful and non-negative, or empty
+   *     otherwise
+   */
+  private static Optional<Long> parseNonNegativeLong(final String value) {
+    if (value == null) {
+      return Optional.empty();
+    }
+    try {
+      long parsed = Long.parseLong(value);
+      return (parsed >= 0) ? Optional.of(parsed) : Optional.empty();
+    } catch (NumberFormatException e) {
+      return Optional.empty();
+    }
+  }
+
   private ServiceManager context;
   private P2PService p2pService;
   private volatile Optional<SyncStatus> cachedSyncStatus = Optional.empty();
@@ -42,29 +80,45 @@ public class ReadinessCheckPlugin implements BesuPlugin {
   public void register(final ServiceManager context) {
     this.context = context;
 
-    this.p2pService = context.getService(P2PService.class).orElseThrow();
-    final BesuEvents besuEvents = context.getService(BesuEvents.class).orElseThrow();
+    this.p2pService =
+        context
+            .getService(P2PService.class)
+            .orElseThrow(() -> new IllegalStateException("Required service missing: P2PService"));
+    final BesuEvents besuEvents =
+        context
+            .getService(BesuEvents.class)
+            .orElseThrow(() -> new IllegalStateException("Required service missing: BesuEvents"));
     final HealthCheckService healthCheckService =
-        context.getService(HealthCheckService.class).orElseThrow();
+        context
+            .getService(HealthCheckService.class)
+            .orElseThrow(
+                () -> new IllegalStateException("Required service missing: HealthCheckService"));
 
     syncListenerId = besuEvents.addSyncStatusListener(status -> cachedSyncStatus = status);
     healthCheckService.registerHealthCheck(READINESS_ENDPOINT, this::checkReadiness);
   }
 
   private boolean checkReadiness(final HealthCheckService.ParamSource params) {
-    final String minPeersStr = params.getParam("minPeers");
-    final int minPeers = (minPeersStr != null) ? Integer.parseInt(minPeersStr) : DEFAULT_MIN_PEERS;
+    final int minPeers = parseNonNegativeInt(params.getParam("minPeers")).orElse(DEFAULT_MIN_PEERS);
     if (p2pService.getPeerCount() < minPeers) {
       return false;
     }
 
-    final String maxBlocksStr = params.getParam("maxBlocksBehind");
     final long maxBlocksBehind =
-        (maxBlocksStr != null) ? Long.parseLong(maxBlocksStr) : DEFAULT_MAX_BLOCKS_BEHIND;
+        parseNonNegativeLong(params.getParam("maxBlocksBehind")).orElse(DEFAULT_MAX_BLOCKS_BEHIND);
     return cachedSyncStatus
         .map(
-            syncStatus ->
-                syncStatus.getHighestBlock() - syncStatus.getCurrentBlock() <= maxBlocksBehind)
+            syncStatus -> {
+              long highestBlock = syncStatus.getHighestBlock();
+              long currentBlock = syncStatus.getCurrentBlock();
+              // Check for overflow: if currentBlock > Long.MAX_VALUE - maxBlocksBehind,
+              // then currentBlock + maxBlocksBehind would overflow
+              if (currentBlock > Long.MAX_VALUE - maxBlocksBehind) {
+                return true; // Treat as healthy if we would overflow (conservative approach)
+              }
+              // Safe comparison: highestBlock <= currentBlock + maxBlocksBehind
+              return highestBlock <= currentBlock + maxBlocksBehind;
+            })
         .orElse(true);
   }
 

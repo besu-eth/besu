@@ -157,6 +157,7 @@ import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.metrics.vertx.VertxMetricsAdapterFactory;
 import org.hyperledger.besu.nat.NatMethod;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
+import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -1278,7 +1279,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     livenessCheckPlugin = new LivenessCheckPlugin();
     livenessCheckPlugin.register(besuPluginContext);
     readinessCheckPlugin = new ReadinessCheckPlugin();
-    readinessCheckPlugin.register(besuPluginContext);
+
+    // Only register readiness check if endpoint is not already registered
+    besuPluginContext
+        .getService(HealthCheckService.class)
+        .ifPresent(
+            healthCheckService -> {
+              if (!healthCheckService.getHealthCheck("/readiness").isPresent()) {
+                readinessCheckPlugin.register(besuPluginContext);
+              }
+            });
 
     // register default security module
     securityModuleService.register(
