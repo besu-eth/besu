@@ -41,27 +41,8 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
     return a.getSlotKey().orElseThrow().toBytes().compareTo(b.getSlotKey().orElseThrow().toBytes());
   }
 
-  private final ProtocolSchedule protocolSchedule;
-
-  /**
-   * Creates a block access list validator for the given protocol schedule and optional BAL factory.
-   * Use as method reference: {@code MainnetBlockAccessListValidator::create}.
-   *
-   * @param protocolSchedule the protocol schedule
-   * @return a validator instance or no-op when factory is empty
-   */
-  public static BlockAccessListValidator create(final ProtocolSchedule protocolSchedule) {
-    return new MainnetBlockAccessListValidator(protocolSchedule);
-  }
-
-  /**
-   * Creates a new MainnetBlockAccessListValidator.
-   *
-   * @param protocolSchedule the protocol schedule to get protocol specs from
-   */
-  public MainnetBlockAccessListValidator(final ProtocolSchedule protocolSchedule) {
-    this.protocolSchedule = protocolSchedule;
-  }
+  /** Creates a new MainnetBlockAccessListValidator. */
+  public MainnetBlockAccessListValidator() {}
 
   @Override
   public boolean validate(
@@ -96,32 +77,35 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
       return false;
     }
 
-    final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(blockHeader);
-    final long itemCost = protocolSpec.getGasCalculator().getBlockAccessListItemCost();
-    if (itemCost > 0) {
-      long totalStorageKeys = 0;
-      for (BlockAccessList.AccountChanges accountChange : bal.accountChanges()) {
-        totalStorageKeys += accountChange.storageChanges().size();
-        totalStorageKeys += accountChange.storageReads().size();
-      }
-      final long totalAddresses = bal.accountChanges().size();
-      final long balItems = totalStorageKeys + totalAddresses;
-      final long maxItems = blockHeader.getGasLimit() / itemCost;
-      if (balItems > maxItems) {
-        LOG.warn(
-            "Block access list size exceeds maximum allowed items for block {} with gas limit {}",
-            blockHeader.getBlockHash(),
-            blockHeader.getGasLimit());
-        return false;
-      }
-    }
-
     final int maxIndex = nbTransactions + 1;
     if (!validateConstraints(bal, blockHeader, maxIndex)) {
       return false;
     }
     LOG.trace("Block access list validated successfully for block {}", blockHeader.getNumber());
     return true;
+  }
+
+  /**
+   * EIP-7928: checks that {@code balItems × itemCost > gasLimit}. When {@code itemCost <= 0} the
+   * check is disabled.
+   *
+   * @param bal the block access list
+   * @param gasLimit the block gas limit
+   * @param itemCost per-item gas cost from the gas calculator
+   * @return true if the BAL exceeds the gas-limit-derived item cap
+   */
+  public static boolean exceedsItemLimit(
+      final BlockAccessList bal, final long gasLimit, final long itemCost) {
+    if (itemCost <= 0) {
+      return false;
+    }
+    long totalStorageKeys = 0;
+    for (BlockAccessList.AccountChanges accountChange : bal.accountChanges()) {
+      totalStorageKeys += accountChange.storageChanges().size();
+      totalStorageKeys += accountChange.storageReads().size();
+    }
+    final long balItems = totalStorageKeys + bal.accountChanges().size();
+    return balItems > gasLimit / itemCost;
   }
 
   /**

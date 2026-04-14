@@ -1269,7 +1269,7 @@ public abstract class MainnetProtocolSpecs {
                     .transferLogEmitter(EIP7708TransferLogEmitter.INSTANCE)
                     .build())
         .blockAccessListFactory(new BlockAccessListFactory())
-        .blockAccessListValidatorBuilder(MainnetBlockAccessListValidator::create)
+        .blockAccessListValidatorBuilder(__ -> new MainnetBlockAccessListValidator())
         .stateRootCommitterFactory(new BalStateRootCommitterFactory(balConfiguration))
         // EIP-8037: Disable validation-time TX_MAX_GAS_LIMIT cap (enforced at runtime on regular
         // gas)

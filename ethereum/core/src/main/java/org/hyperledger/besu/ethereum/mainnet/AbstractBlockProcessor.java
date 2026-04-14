@@ -492,6 +492,22 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       try {
         if (blockAccessListBuilder.isPresent()) {
           final BlockAccessList bal = blockAccessListBuilder.get().build();
+
+          final long itemCost = protocolSpec.getGasCalculator().getBlockAccessListItemCost();
+          if (MainnetBlockAccessListValidator.exceedsItemLimit(
+              bal, blockHeader.getGasLimit(), itemCost)) {
+            final String errorMessage =
+                String.format(
+                    "Block access list validation failed for block %s: size exceeds gas limit %d at item cost %d",
+                    blockHeader.getBlockHash(), blockHeader.getGasLimit(), itemCost);
+            LOG.error(errorMessage);
+            if (worldState instanceof BonsaiWorldState) {
+              ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
+            }
+            return new BlockProcessingResult(
+                Optional.empty(), errorMessage, false, Optional.of(bal));
+          }
+
           final Optional<Hash> headerBalHash = block.getHeader().getBalHash();
           if (headerBalHash.isPresent()) {
             final Hash expectedHash = BodyValidation.balHash(bal);

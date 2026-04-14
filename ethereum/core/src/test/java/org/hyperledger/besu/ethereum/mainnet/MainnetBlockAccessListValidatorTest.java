@@ -14,10 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
@@ -47,18 +43,7 @@ class MainnetBlockAccessListValidatorTest {
   private static final StorageSlotKey SLOT_3 = new StorageSlotKey(UInt256.valueOf(3));
 
   private static BlockAccessListValidator validator() {
-    return validatorWithItemCost(2000L);
-  }
-
-  private static BlockAccessListValidator validatorWithItemCost(final long itemCost) {
-    final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
-    final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
-    final org.hyperledger.besu.evm.gascalculator.GasCalculator gasCalculator =
-        mock(org.hyperledger.besu.evm.gascalculator.GasCalculator.class);
-    when(gasCalculator.getBlockAccessListItemCost()).thenReturn(itemCost);
-    when(protocolSpec.getGasCalculator()).thenReturn(gasCalculator);
-    when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
-    return new MainnetBlockAccessListValidator(protocolSchedule);
+    return new MainnetBlockAccessListValidator();
   }
 
   private static BlockHeader headerWithBal(final BlockAccessList bal, final long gasLimit) {
@@ -110,27 +95,6 @@ class MainnetBlockAccessListValidatorTest {
               validator().validate(Optional.of(bal), headerWithBal(bal, 30_000_000L), 0))
           .isTrue();
     }
-
-    @Test
-    void atExactSizeLimit() {
-      final BlockAccessList.AccountChanges account1 =
-          new BlockAccessList.AccountChanges(
-              ADDR_1,
-              List.of(
-                  new BlockAccessList.SlotChanges(
-                      SLOT_1, List.of(new BlockAccessList.StorageChange(0, UInt256.ZERO)))),
-              List.of(),
-              List.of(),
-              List.of(),
-              List.of());
-      final BlockAccessList.AccountChanges account2 =
-          new BlockAccessList.AccountChanges(
-              ADDR_2, List.of(), List.of(), List.of(), List.of(), List.of());
-      final BlockAccessList bal = new BlockAccessList(List.of(account1, account2));
-      // 2 addresses + 1 storage key = 3 items, max = 3 with gas 6000 (Prague ITEM_COST=2000)
-      Assertions.assertThat(validator().validate(Optional.of(bal), headerWithBal(bal, 6_000L), 0))
-          .isTrue();
-    }
   }
 
   @Nested
@@ -157,8 +121,7 @@ class MainnetBlockAccessListValidatorTest {
   @Nested
   class SizeLimit {
 
-    @Test
-    void failsWhenExceedingMaxItems() {
+    private BlockAccessList sixItemBal() {
       final BlockAccessList.AccountChanges account =
           new BlockAccessList.AccountChanges(
               ADDR_1,
@@ -173,34 +136,31 @@ class MainnetBlockAccessListValidatorTest {
               List.of(),
               List.of(),
               List.of());
-      final BlockAccessList bal = new BlockAccessList(List.of(account));
-      // 1 addr + 1 storage change + 4 reads = 6 items. ITEM_COST=2000, gas 10_000 → max 5 items
-      final BlockHeader header = headerWithBal(bal, 10_000L);
-      Assertions.assertThat(validator().validate(Optional.of(bal), header, 0)).isFalse();
+      // 1 addr + 1 storage change + 4 reads = 6 items.
+      return new BlockAccessList(List.of(account));
     }
 
     @Test
-    void sizeCheckSkippedWhenItemCostZero() {
-      // BAL with 6 items would fail with itemCost=2000 and gas 10_000 (max 5 items)
-      final BlockAccessList.AccountChanges account =
-          new BlockAccessList.AccountChanges(
-              ADDR_1,
-              List.of(
-                  new BlockAccessList.SlotChanges(
-                      SLOT_1, List.of(new BlockAccessList.StorageChange(0, UInt256.ZERO)))),
-              List.of(
-                  new BlockAccessList.SlotRead(SLOT_2),
-                  new BlockAccessList.SlotRead(SLOT_3),
-                  new BlockAccessList.SlotRead(new StorageSlotKey(UInt256.valueOf(4))),
-                  new BlockAccessList.SlotRead(new StorageSlotKey(UInt256.valueOf(5)))),
-              List.of(),
-              List.of(),
-              List.of());
-      final BlockAccessList bal = new BlockAccessList(List.of(account));
-      final BlockHeader header = headerWithBal(bal, 10_000L);
-      // With itemCost=0 the size constraint is not applied (no division, check skipped)
-      Assertions.assertThat(validatorWithItemCost(0L).validate(Optional.of(bal), header, 0))
+    void exceedsWhenOverMaxItems() {
+      // itemCost=2000, gas 10_000 → max 5 items
+      Assertions.assertThat(
+              MainnetBlockAccessListValidator.exceedsItemLimit(sixItemBal(), 10_000L, 2000L))
           .isTrue();
+    }
+
+    @Test
+    void fitsAtExactMaxItems() {
+      // itemCost=2000, gas 12_000 → max 6 items
+      Assertions.assertThat(
+              MainnetBlockAccessListValidator.exceedsItemLimit(sixItemBal(), 12_000L, 2000L))
+          .isFalse();
+    }
+
+    @Test
+    void skippedWhenItemCostZero() {
+      Assertions.assertThat(
+              MainnetBlockAccessListValidator.exceedsItemLimit(sixItemBal(), 10_000L, 0L))
+          .isFalse();
     }
   }
 
