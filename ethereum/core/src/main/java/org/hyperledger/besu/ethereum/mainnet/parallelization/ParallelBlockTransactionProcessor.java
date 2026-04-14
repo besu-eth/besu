@@ -71,17 +71,10 @@ public abstract class ParallelBlockTransactionProcessor {
 
   protected BonsaiWorldState getWorldState(
       final ProtocolContext protocolContext, final BlockHeader blockHeader) {
-
-    final BlockHeader chainHeadHeader = protocolContext.getBlockchain().getChainHeadHeader();
-    if (!chainHeadHeader.getHash().equals(blockHeader.getParentHash())) {
-      return null;
-    }
-
     return (BonsaiWorldState)
         protocolContext
             .getWorldStateArchive()
-            .getWorldState(
-                WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(chainHeadHeader))
+            .getWorldState(WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(blockHeader))
             .orElse(null);
   }
 
