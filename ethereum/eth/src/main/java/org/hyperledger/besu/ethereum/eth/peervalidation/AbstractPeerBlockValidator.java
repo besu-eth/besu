@@ -74,7 +74,7 @@ abstract class AbstractPeerBlockValidator implements PeerValidator {
               CompletableFuture<Boolean> resultFuture;
               if (taskResult.responseCode() != PeerTaskExecutorResponseCode.SUCCESS
                   || taskResult.result().isEmpty()) {
-                resultFuture = CompletableFuture.completedFuture(false);
+                resultFuture = CompletableFuture.completedFuture(!blockIsRequired());
               } else {
                 resultFuture =
                     CompletableFuture.completedFuture(

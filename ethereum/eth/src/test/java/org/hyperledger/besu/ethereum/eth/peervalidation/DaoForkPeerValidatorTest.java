@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorRespon
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderValidator;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 
 import java.util.Collections;
 import java.util.List;
@@ -47,6 +48,36 @@ public class DaoForkPeerValidatorTest extends AbstractPeerBlockValidatorTest {
       final PeerTaskExecutor peerTaskExecutor, final long blockNumber, final long buffer) {
     return new DaoForkPeerValidator(
         ProtocolScheduleFixture.TESTING_NETWORK, peerTaskExecutor, blockNumber, buffer);
+  }
+
+  @Override
+  @Test
+  public void validatePeer_unresponsivePeer() {
+    final EthProtocolManager ethProtocolManager =
+        EthProtocolManagerTestBuilder.builder()
+            .setEthScheduler(
+                new DeterministicEthScheduler(
+                    DeterministicEthScheduler.TimeoutPolicy.ALWAYS_TIMEOUT))
+            .build();
+    final long blockNumber = 500;
+    final PeerValidator validator = createValidator(peerTaskExecutor, blockNumber, 0);
+
+    final EthPeer peer =
+        EthProtocolManagerTestUtil.createPeer(ethProtocolManager, blockNumber).getEthPeer();
+
+    Mockito.when(
+            peerTaskExecutor.executeAgainstPeer(
+                Mockito.any(GetHeadersFromPeerTask.class), Mockito.eq(peer)))
+        .thenReturn(
+            new PeerTaskExecutorResult<>(
+                Optional.empty(), PeerTaskExecutorResponseCode.TIMEOUT, List.of(peer)));
+
+    final CompletableFuture<Boolean> result =
+        validator.validatePeer(ethProtocolManager.ethContext(), peer);
+
+    // DAO fork block is not required, so an unresponsive peer should be deemed valid
+    assertThat(result).isDone();
+    assertThat(result).isCompletedWithValue(true);
   }
 
   @Test
