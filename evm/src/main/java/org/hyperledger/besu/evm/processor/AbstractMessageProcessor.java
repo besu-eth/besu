@@ -198,7 +198,7 @@ public abstract class AbstractMessageProcessor {
    *
    * @param frame the initial (depth-0) message frame
    */
-  protected static void recordInitialFrameRegularHaltBurn(final MessageFrame frame) {
+  private static void recordInitialFrameRegularHaltBurn(final MessageFrame frame) {
     if (frame.isCodeExecuted()) {
       return;
     }
