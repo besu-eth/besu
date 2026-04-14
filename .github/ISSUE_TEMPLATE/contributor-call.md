@@ -1,6 +1,6 @@
 ---
 name: Contributor Call Agenda
-about: agenda for the Besu contributor call
+about: Agenda for the Besu contributor call
 title: 'YYYY-MM-DD Contributor Call'
 labels: [agenda]
 assignees: [jflo]
