@@ -43,7 +43,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionT
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
-import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
@@ -64,7 +63,6 @@ public class DebugJsonRpcMethods extends ApiGroupJsonRpcMethods {
   private final Synchronizer synchronizer;
   private final Path dataDir;
   private final TransactionSimulator transactionSimulator;
-  private final EthScheduler ethScheduler;
 
   DebugJsonRpcMethods(
       final BlockchainQueries blockchainQueries,
@@ -74,8 +72,7 @@ public class DebugJsonRpcMethods extends ApiGroupJsonRpcMethods {
       final TransactionPool transactionPool,
       final Synchronizer synchronizer,
       final Path dataDir,
-      final TransactionSimulator transactionSimulator,
-      final EthScheduler ethScheduler) {
+      final TransactionSimulator transactionSimulator) {
     this.blockchainQueries = blockchainQueries;
     this.protocolContext = protocolContext;
     this.protocolSchedule = protocolSchedule;
@@ -84,7 +81,6 @@ public class DebugJsonRpcMethods extends ApiGroupJsonRpcMethods {
     this.synchronizer = synchronizer;
     this.dataDir = dataDir;
     this.transactionSimulator = transactionSimulator;
-    this.ethScheduler = ethScheduler;
   }
 
   @Override
@@ -104,12 +100,11 @@ public class DebugJsonRpcMethods extends ApiGroupJsonRpcMethods {
         new DebugStorageRangeAt(blockchainQueries, blockReplay),
         new DebugMetrics(metricsSystem),
         new DebugResyncWorldstate(protocolContext, synchronizer),
-        new DebugTraceBlock(protocolSchedule, blockchainQueries, metricsSystem, ethScheduler),
+        new DebugTraceBlock(protocolSchedule, blockchainQueries),
         new DebugSetHead(blockchainQueries, protocolContext),
         new DebugReplayBlock(blockchainQueries, protocolContext, protocolSchedule),
-        new DebugTraceBlockByNumber(
-            protocolSchedule, blockchainQueries, metricsSystem, ethScheduler),
-        new DebugTraceBlockByHash(protocolSchedule, blockchainQueries, metricsSystem, ethScheduler),
+        new DebugTraceBlockByNumber(protocolSchedule, blockchainQueries),
+        new DebugTraceBlockByHash(protocolSchedule, blockchainQueries),
         new DebugBatchSendRawTransaction(transactionPool),
         new DebugGetBadBlocks(protocolContext, blockResult),
         new DebugStandardTraceBlockToFile(
