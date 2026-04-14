@@ -145,10 +145,10 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
     // Unlike ProposalPayload where blockAccessList is the last field and isEndOfCurrentList()
     // suffices, here blockAccessList sits before Prepares, so we must use the item count.
     final Optional<BlockAccessList> blockAccessList;
-    if (items > 3) {
-      blockAccessList = readBlockAccessList(rlpIn);
-    } else {
+    if (items == 3) {
       blockAccessList = Optional.empty();
+    } else {
+      blockAccessList = readBlockAccessList(rlpIn);
     }
 
     final List<SignedData<PreparePayload>> prepares =
