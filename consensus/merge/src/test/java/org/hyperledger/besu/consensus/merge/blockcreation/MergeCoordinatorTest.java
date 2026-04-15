@@ -32,6 +32,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.MergeConfiguration;
@@ -1142,7 +1143,6 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     BlockHeader block3Header = nextBlockHeader(block2Header);
     Block block3 = new Block(block3Header, BlockBody.empty());
-    coordinator.rememberBlock(block3);
 
     // Simulate world state roll failure (storage error, pruned trie logs, etc.)
     WorldStateArchive failingArchive = mock(WorldStateArchive.class);
@@ -1151,13 +1151,12 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
         .thenReturn(Optional.empty());
 
     ProtocolContext failingProtocolContext =
-        spy(
-            new ProtocolContext.Builder()
-                .withBlockchain(blockchain)
-                .withWorldStateArchive(failingArchive)
-                .withConsensusContext(mergeContext)
-                .withBadBlockManager(badBlockManager)
-                .build());
+        new ProtocolContext.Builder()
+            .withBlockchain(blockchain)
+            .withWorldStateArchive(failingArchive)
+            .withConsensusContext(mergeContext)
+            .withBadBlockManager(badBlockManager)
+            .build();
 
     MergeCoordinator failingCoordinator =
         new MergeCoordinator(
@@ -1168,7 +1167,8 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
             miningConfiguration,
             backwardSyncContext);
 
-    org.mockito.Mockito.clearInvocations(blockchain);
+    coordinator.rememberBlock(block3);
+    clearInvocations(blockchain);
 
     ForkchoiceResult result =
         failingCoordinator.updateForkChoice(
