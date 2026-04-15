@@ -20,6 +20,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -42,6 +43,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoOpBonsaiCache
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoopBonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.NoOpTrieLogManager;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
@@ -64,6 +66,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 /**
  * Unit tests for ParallelizedConcurrentTransactionProcessor (Optimistic strategy). Tests verify: -
@@ -94,6 +98,7 @@ class OptimisticTransactionProcessorUnitTest {
       ProtocolContext protocolContext,
       BlockHeader blockHeader,
       Optional<BlockHeader> maybeParentHeader,
+      WorldStateArchive worldStateArchive,
       BonsaiWorldState worldState) {}
 
   private BonsaiWorldState createEmptyWorldState() {
@@ -125,7 +130,8 @@ class OptimisticTransactionProcessorUnitTest {
     when(parentHeader.getBlockHash()).thenReturn(Hash.ZERO);
     when(parentHeader.getStateRoot()).thenReturn(Hash.EMPTY_TRIE_HASH);
 
-    return new TestEnvironment(protocolContext, blockHeader, Optional.of(parentHeader), worldState);
+    return new TestEnvironment(
+        protocolContext, blockHeader, Optional.of(parentHeader), worldStateArchive, worldState);
   }
 
   private Transaction mockTransaction() {
@@ -196,6 +202,103 @@ class OptimisticTransactionProcessorUnitTest {
           env.maybeParentHeader());
 
       verify(transactionProcessor, times(3))
+          .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+  }
+
+  @Nested
+  @DisplayName("Parent header and world state loading")
+  @MockitoSettings(
+      strictness = Strictness.LENIENT) // outer @BeforeEach builds env unused by parent-absent test
+  class ParentHeaderAndWorldStateTests {
+
+    @Test
+    @DisplayName("Does not query archive or process transaction when parent header is absent")
+    void skipsProcessingWhenParentHeaderAbsent() {
+      final ProtocolContext protocolContext = mock(ProtocolContext.class);
+      final BlockHeader blockHeader = mock(BlockHeader.class);
+      final Transaction transaction = mock(Transaction.class);
+      final BonsaiWorldState worldStateForResult = createEmptyWorldState();
+
+      processor.runAsyncBlock(
+          protocolContext,
+          blockHeader,
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          (__, ___) -> Hash.EMPTY,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          Optional.empty());
+
+      verify(protocolContext, never()).getWorldStateArchive();
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
+      assertTrue(
+          processor
+              .getProcessingResult(
+                  worldStateForResult,
+                  MINING_BENEFICIARY,
+                  transaction,
+                  0,
+                  Optional.empty(),
+                  Optional.empty())
+              .isEmpty());
+    }
+
+    @Test
+    @DisplayName("Does not process transaction when world state archive returns empty")
+    void skipsProcessingWhenArchiveHasNoWorldState() {
+      when(env.worldStateArchive().getWorldState(any())).thenReturn(Optional.empty());
+      final Transaction transaction = mock(Transaction.class);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          (__, ___) -> Hash.EMPTY,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      verify(env.worldStateArchive(), times(1)).getWorldState(any());
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
+      assertTrue(
+          processor
+              .getProcessingResult(
+                  env.worldState(),
+                  MINING_BENEFICIARY,
+                  transaction,
+                  0,
+                  Optional.empty(),
+                  Optional.empty())
+              .isEmpty());
+    }
+
+    @Test
+    @DisplayName("World state query uses the parent block header")
+    void loadWorldStateUsesParentBlockHeader() {
+      final Transaction transaction = mockTransaction();
+      stubSuccessfulTransaction(Optional.empty());
+      final BlockHeader parent = env.maybeParentHeader().orElseThrow();
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          (__, ___) -> Hash.EMPTY,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      verify(env.worldStateArchive())
+          .getWorldState(argThat((WorldStateQueryParams p) -> p.getBlockHeader() == parent));
+      verify(transactionProcessor, times(1))
           .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
   }

@@ -71,18 +71,16 @@ public abstract class ParallelBlockTransactionProcessor {
     }
   }
 
-  /** Same parent header as {@link AbstractBlockProcessor} uses for blob gas and block context. */
-  protected BonsaiWorldState getWorldState(
-      final ProtocolContext protocolContext, final Optional<BlockHeader> maybeParentHeader) {
-    return maybeParentHeader
-        .flatMap(
-            parentHeader ->
-                protocolContext
-                    .getWorldStateArchive()
-                    .getWorldState(
-                        WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(parentHeader)))
-        .map(BonsaiWorldState.class::cast)
-        .orElse(null);
+  /**
+   * World state at the parent block (same header {@link AbstractBlockProcessor} uses for blob gas).
+   * Call only when the parent header is known to be present.
+   */
+  protected Optional<BonsaiWorldState> getWorldState(
+      final ProtocolContext protocolContext, final BlockHeader parentHeader) {
+    return protocolContext
+        .getWorldStateArchive()
+        .getWorldState(WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(parentHeader))
+        .map(BonsaiWorldState.class::cast);
   }
 
   protected abstract ParallelizedTransactionContext runTransaction(
