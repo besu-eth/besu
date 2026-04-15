@@ -500,10 +500,22 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
             .log();
         return null;
       } catch (final Throwable e) {
-        LOG.warn(
-            "Something went wrong creating block for payload id {}, error {}",
-            payloadIdentifier,
-            logException(e));
+        if (isBlockCreationCancelled(payloadIdentifier)) {
+          // when the block creation is canceled, in some edge cases it is possible to have
+          // concurrency issues, so inform the user how to interpret that possibility
+          LOG.info(
+              "Got an exception after cancellation of block creation for payload id {}. "
+                  + "This is expected if you already saw the earlier "
+                  + "\"the completion of the block creation continues in a best effort mode, and could fail due to concurrency issues\" log. "
+                  + "If you do not see that earlier warning log please report this stack trace.",
+              payloadIdentifier,
+              e);
+        } else {
+          LOG.warn(
+              "Something went wrong creating block for payload id {}, error {}",
+              payloadIdentifier,
+              logException(e));
+        }
         return null;
       }
     }

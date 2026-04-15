@@ -28,6 +28,7 @@ public interface EthProtocolConfiguration {
   int DEFAULT_MAX_GET_RECEIPTS = 256;
   int DEFAULT_MAX_GET_NODE_DATA = 384;
   int DEFAULT_MAX_GET_POOLED_TRANSACTIONS = 256;
+  int DEFAULT_MAX_TRANSACTIONS_PER_MESSAGE = 4096;
   int DEFAULT_MAX_CAPABILITY = Integer.MAX_VALUE;
   int DEFAULT_MIN_CAPABILITY = 0;
 
@@ -71,6 +72,11 @@ public interface EthProtocolConfiguration {
   @Value.Default
   default int getMaxGetPooledTransactions() {
     return DEFAULT_MAX_GET_POOLED_TRANSACTIONS;
+  }
+
+  @Value.Default
+  default int getMaxTransactionsPerMessage() {
+    return DEFAULT_MAX_TRANSACTIONS_PER_MESSAGE;
   }
 
   @Value.Default
