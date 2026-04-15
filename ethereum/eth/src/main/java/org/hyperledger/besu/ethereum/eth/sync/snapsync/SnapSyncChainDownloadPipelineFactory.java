@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptEncoder;
@@ -175,6 +176,13 @@ public class SnapSyncChainDownloadPipelineFactory {
             new SyncTransactionReceiptEncoder(new SimpleNoCopyRlpEncoder()),
             Duration.ofMillis(syncConfig.getReceiptsDownloadStepTimeoutMillis()));
 
+    final DownloadAndPersistBlockAccessListsStep downloadAndPersistBlockAccessListsStep =
+        new DownloadAndPersistBlockAccessListsStep(
+            ethContext,
+            metricsSystem,
+            (DefaultBlockchain) blockchain,
+            Duration.ofMillis(syncConfig.getReceiptsDownloadStepTimeoutMillis()));
+
     final ImportSyncBlocksStep importBlocksStep =
         new ImportSyncBlocksStep(
             protocolContext,
@@ -198,6 +206,10 @@ public class SnapSyncChainDownloadPipelineFactory {
             "forwardBodiesReceipts")
         .thenProcessAsyncOrdered("downloadBodies", downloadBodiesStep, downloaderParallelism)
         .thenProcessAsyncOrdered("downloadReceipts", downloadReceiptsStep, downloaderParallelism)
+        .thenProcessAsyncOrdered(
+            "downloadAndPersistBlockAccessLists",
+            downloadAndPersistBlockAccessListsStep,
+            downloaderParallelism)
         .andFinishWith("importBlocks", importBlocksStep);
   }
 }
