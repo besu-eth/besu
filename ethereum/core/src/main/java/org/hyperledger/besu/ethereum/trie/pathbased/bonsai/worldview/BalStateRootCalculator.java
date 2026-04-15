@@ -16,11 +16,9 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.AccountChanges;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListChanges;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalRootComputation;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
@@ -29,11 +27,8 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-
-import org.apache.tuweni.units.bigints.UInt256;
 
 @SuppressWarnings("rawtypes")
 public class BalStateRootCalculator {
@@ -79,29 +74,16 @@ public class BalStateRootCalculator {
 
   private static void applyBalChanges(
       final PathBasedWorldStateUpdateAccumulator accumulator, final BlockAccessList bal) {
-    for (final AccountChanges changes : bal.accountChanges()) {
-      if (!changes.hasAnyChange()) {
-        continue;
-      }
+    for (final var changes : BlockAccessListChanges.latestChanges(bal)) {
       final Address address = changes.address();
       final MutableAccount account = accumulator.getOrCreate(address);
 
-      lastOf(changes.balanceChanges())
-          .ifPresent(c -> account.setBalance(Wei.wrap(c.postBalance())));
-      lastOf(changes.nonceChanges()).ifPresent(c -> account.setNonce(c.newNonce()));
-      lastOf(changes.codeChanges()).ifPresent(c -> account.setCode(c.newCode()));
+      changes.balance().ifPresent(account::setBalance);
+      changes.nonce().ifPresent(account::setNonce);
+      changes.code().ifPresent(account::setCode);
 
-      for (final SlotChanges slot : changes.storageChanges()) {
-        lastOf(slot.changes())
-            .ifPresent(
-                change ->
-                    slot.slot()
-                        .getSlotKey()
-                        .ifPresent(
-                            key -> {
-                              final UInt256 value = change.newValue();
-                              account.setStorageValue(key, value == null ? UInt256.ZERO : value);
-                            }));
+      for (final var storage : changes.storageChanges()) {
+        storage.slot().getSlotKey().ifPresent(key -> account.setStorageValue(key, storage.value()));
       }
     }
     accumulator.clearAccountsThatAreEmpty();
@@ -115,9 +97,5 @@ public class BalStateRootCalculator {
     final Hash root = worldState.calculateRootHash(Optional.of(updater), accumulator);
     updater.commit();
     return new BalRootComputation(root, accumulator);
-  }
-
-  private static <T> Optional<T> lastOf(final List<T> list) {
-    return list.isEmpty() ? Optional.empty() : Optional.of(list.getLast());
   }
 }

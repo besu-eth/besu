@@ -28,7 +28,6 @@ import java.util.stream.Collectors;
 
 import com.google.common.io.CharStreams;
 import org.apache.tuweni.bytes.Bytes;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -83,12 +82,5 @@ class BLS12G2MulPrecompiledContractTest {
       assertThat(actualComputation).isEqualTo(expectedComputation);
       assertThat(contract.gasRequirement(input)).isEqualTo(Long.parseLong(expectedGasUsed));
     }
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

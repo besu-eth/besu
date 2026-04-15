@@ -14,60 +14,38 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
-import static org.hyperledger.besu.services.pipeline.PipelineBuilder.createPipelineFrom;
-
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TransactionTraceParams;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.Tracer;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.processor.TransactionTrace;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.DebugTraceTransactionResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
-import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
-import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
-import org.hyperledger.besu.ethereum.vm.DebugOperationTracer;
-import org.hyperledger.besu.metrics.BesuMetricCategory;
-import org.hyperledger.besu.metrics.ObservableMetricsSystem;
-import org.hyperledger.besu.plugin.services.metrics.Counter;
-import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
-import org.hyperledger.besu.services.pipeline.Pipeline;
 
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.util.Optional;
-import java.util.concurrent.ExecutionException;
 
-public class DebugTraceBlockByNumber extends AbstractBlockParameterMethod {
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+public class DebugTraceBlockByNumber extends AbstractBlockParameterMethod
+    implements StreamingJsonRpcMethod {
 
   protected final ProtocolSchedule protocolSchedule;
-  private final LabelledMetric<Counter> outputCounter;
-  private final EthScheduler ethScheduler;
+  private final BlockchainQueries blockchainQueriesRef;
 
   public DebugTraceBlockByNumber(
-      final ProtocolSchedule protocolSchedule,
-      final BlockchainQueries blockchainQueries,
-      final ObservableMetricsSystem metricsSystem,
-      final EthScheduler ethScheduler) {
+      final ProtocolSchedule protocolSchedule, final BlockchainQueries blockchainQueries) {
     super(blockchainQueries);
     this.protocolSchedule = protocolSchedule;
-    this.outputCounter =
-        metricsSystem.createLabelledCounter(
-            BesuMetricCategory.BLOCKCHAIN,
-            "transactions_debugtraceblock_pipeline_processed_total",
-            "Number of transactions processed for each block",
-            "step",
-            "action");
-    this.ethScheduler = ethScheduler;
+    this.blockchainQueriesRef = blockchainQueries;
   }
 
   @Override
@@ -88,12 +66,57 @@ public class DebugTraceBlockByNumber extends AbstractBlockParameterMethod {
   @Override
   protected Object resultByBlockNumber(
       final JsonRpcRequestContext request, final long blockNumber) {
+    final TraceOptions traceOptions = getTraceOptions(request);
+    final Optional<Block> maybeBlock =
+        getBlockchainQueries().getBlockchain().getBlockByNumber(blockNumber);
 
     if (blockNumber == 0L) {
       return new JsonRpcErrorResponse(
           request.getRequest().getId(), RpcErrorType.GENESIS_BLOCK_NOT_TRACEABLE);
     }
 
+    return maybeBlock
+        .map(
+            block ->
+                new DebugTraceBlockStreamer(
+                    block, traceOptions, protocolSchedule, blockchainQueriesRef))
+        .orElse(null);
+  }
+
+  @Override
+  public void streamResponse(
+      final JsonRpcRequestContext requestContext, final OutputStream out, final ObjectMapper mapper)
+      throws IOException {
+    final Object result = findResultByParamType(requestContext);
+
+    if (result instanceof JsonRpcErrorResponse errorResponse) {
+      mapper.writeValue(out, errorResponse);
+      return;
+    }
+
+    final DebugTraceBlockStreamer streamer = result instanceof DebugTraceBlockStreamer s ? s : null;
+    AbstractDebugTraceBlock.writeStreamingResponse(
+        requestContext.getRequest().getId(), streamer, out, mapper);
+  }
+
+  /**
+   * Synchronous response path used by batch JSON-RPC requests. Accumulates all transaction traces
+   * in memory rather than streaming.
+   */
+  @Override
+  public JsonRpcResponse response(final JsonRpcRequestContext requestContext) {
+    final Object result = findResultByParamType(requestContext);
+    if (result instanceof JsonRpcErrorResponse errorResponse) {
+      return errorResponse;
+    }
+    if (!(result instanceof DebugTraceBlockStreamer streamer)) {
+      return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), null);
+    }
+    return new JsonRpcSuccessResponse(
+        requestContext.getRequest().getId(), streamer.accumulateAll());
+  }
+
+  private TraceOptions getTraceOptions(final JsonRpcRequestContext request) {
     final TraceOptions traceOptions;
     try {
       traceOptions =
@@ -107,64 +130,9 @@ public class DebugTraceBlockByNumber extends AbstractBlockParameterMethod {
           RpcErrorType.INVALID_TRANSACTION_TRACE_PARAMS,
           e);
     } catch (IllegalArgumentException e) {
-      // Handle invalid tracer type from TracerType.fromString()
       throw new InvalidJsonRpcParameters(
           e.getMessage(), RpcErrorType.INVALID_TRANSACTION_TRACE_PARAMS, e);
     }
-    Optional<Block> maybeBlock =
-        getBlockchainQueries().getBlockchain().getBlockByNumber(blockNumber);
-
-    return maybeBlock
-        .flatMap(
-            block ->
-                Tracer.processTracing(
-                    getBlockchainQueries(),
-                    Optional.of(block.getHeader()),
-                    traceableState -> {
-                      List<DebugTraceTransactionResult> tracesList =
-                          Collections.synchronizedList(new ArrayList<>());
-                      final ProtocolSpec protocolSpec =
-                          protocolSchedule.getByBlockHeader(block.getHeader());
-                      final MainnetTransactionProcessor transactionProcessor =
-                          protocolSpec.getTransactionProcessor();
-                      final TraceBlock.ChainUpdater chainUpdater =
-                          new TraceBlock.ChainUpdater(traceableState);
-
-                      TransactionSource transactionSource = new TransactionSource(block);
-                      DebugOperationTracer debugOperationTracer =
-                          new DebugOperationTracer(traceOptions.opCodeTracerConfig(), true);
-                      ExecuteTransactionStep executeTransactionStep =
-                          new ExecuteTransactionStep(
-                              chainUpdater,
-                              transactionProcessor,
-                              getBlockchainQueries().getBlockchain(),
-                              debugOperationTracer,
-                              protocolSpec,
-                              block);
-
-                      Pipeline<TransactionTrace> traceBlockPipeline =
-                          createPipelineFrom(
-                                  "getTransactions",
-                                  transactionSource,
-                                  4,
-                                  outputCounter,
-                                  false,
-                                  "debug_trace_block_by_number")
-                              .thenProcess("executeTransaction", executeTransactionStep)
-                              .thenProcessAsyncOrdered(
-                                  "debugTraceTransactionStep",
-                                  DebugTraceTransactionStepFactory.createAsync(
-                                      traceOptions, protocolSpec),
-                                  4)
-                              .andFinishWith("collect_results", tracesList::add);
-
-                      try {
-                        ethScheduler.startPipeline(traceBlockPipeline).get();
-                      } catch (InterruptedException | ExecutionException e) {
-                        throw new RuntimeException(e);
-                      }
-                      return Optional.of(tracesList);
-                    }))
-        .orElse(null);
+    return traceOptions;
   }
 }

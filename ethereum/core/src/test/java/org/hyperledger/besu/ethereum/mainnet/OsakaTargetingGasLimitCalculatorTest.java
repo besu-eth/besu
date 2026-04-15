@@ -24,7 +24,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 
-import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -253,12 +252,5 @@ class OsakaTargetingGasLimitCalculatorTest {
             OptionalInt.of(userMaxBlobs));
     assertThat(calculator.blockBuilderBlobGasLimit())
         .isEqualTo(osakaGasCalculator.getBlobGasPerBlob() * maxBlobs);
-  }
-
-  @Test
-  void dryRunDetector() {
-    Assertions.assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

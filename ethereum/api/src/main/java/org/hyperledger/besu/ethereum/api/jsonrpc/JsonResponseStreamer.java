@@ -61,6 +61,8 @@ public class JsonResponseStreamer extends OutputStream {
       chunked = true;
     }
 
+    StreamBackpressure.awaitDrain(response);
+
     Buffer buf = Buffer.buffer(len);
     buf.appendBytes(bbuf, off, len);
     response.write(buf).onFailure(this::handleFailure);
@@ -69,8 +71,13 @@ public class JsonResponseStreamer extends OutputStream {
   @Override
   public void close() throws IOException {
     if (!closed) {
-      response.end();
       closed = true;
+      if (chunked) {
+        // Only end the response if data was actually written.  When nothing
+        // was written the headers have not been flushed, leaving the caller
+        // free to send a proper error response with the correct status code.
+        response.end();
+      }
     }
   }
 
