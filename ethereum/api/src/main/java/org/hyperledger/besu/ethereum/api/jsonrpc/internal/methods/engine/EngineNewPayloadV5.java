@@ -21,21 +21,18 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListDecoder;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.util.List;
 import java.util.Optional;
 
 import io.vertx.core.Vertx;
-import org.apache.tuweni.bytes.Bytes;
 
 public class EngineNewPayloadV5 extends AbstractEngineNewPayload {
+  private final Optional<Long> amsterdamMilestone;
 
   public EngineNewPayloadV5(
       final Vertx vertx,
@@ -53,6 +50,7 @@ public class EngineNewPayloadV5 extends AbstractEngineNewPayload {
         ethPeers,
         engineCallListener,
         metricsSystem);
+    this.amsterdamMilestone = timestampSchedule.milestoneFor(AMSTERDAM);
   }
 
   @Override
@@ -85,28 +83,12 @@ public class EngineNewPayloadV5 extends AbstractEngineNewPayload {
     } else if (payloadParameter.getSlotNumber() == null) {
       return ValidationResult.invalid(
           RpcErrorType.INVALID_SLOT_NUMBER_PARAMS, "Missing slot number field");
+    } else if (payloadParameter.getBlockAccessList() == null
+        || payloadParameter.getBlockAccessList().isEmpty()) {
+      return ValidationResult.invalid(
+          RpcErrorType.INVALID_BLOCK_ACCESS_LIST_PARAMS, "Missing block access list field");
     }
     return ValidationResult.valid();
-  }
-
-  @Override
-  protected Optional<BlockAccessList> extractBlockAccessList(
-      final EnginePayloadParameter payloadParameter) throws InvalidBlockAccessListException {
-    final String blockAccessList = payloadParameter.getBlockAccessList();
-    if (blockAccessList == null || blockAccessList.isEmpty()) {
-      throw new InvalidBlockAccessListException("Missing block access list field");
-    }
-    final Bytes encoded;
-    try {
-      encoded = Bytes.fromHexString(blockAccessList);
-    } catch (final IllegalArgumentException e) {
-      throw new InvalidBlockAccessListException("Invalid block access list encoding", e);
-    }
-    try {
-      return Optional.of(BlockAccessListDecoder.decode(new BytesValueRLPInput(encoded, false)));
-    } catch (final RuntimeException e) {
-      throw new InvalidBlockAccessListException("Invalid block access list encoding", e);
-    }
   }
 
   @Override

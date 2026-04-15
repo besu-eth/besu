@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static java.util.stream.Collectors.toList;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.ACCEPTED;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID_BLOCK_HASH;
@@ -52,6 +51,7 @@ import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
@@ -62,6 +62,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -91,8 +92,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
   private final EthPeers ethPeers;
   private long lastExecutionTimeInNs = 0L;
 
-  protected final Optional<Long> amsterdamMilestone;
-
   public AbstractEngineNewPayload(
       final Vertx vertx,
       final ProtocolSchedule protocolSchedule,
@@ -109,8 +108,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
         "execution_time_head",
         "The execution time of the last block (head)",
         this::getLastExecutionTime);
-
-    this.amsterdamMilestone = protocolSchedule.milestoneFor(AMSTERDAM);
   }
 
   @Override
@@ -229,13 +226,13 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     final Optional<BlockAccessList> maybeBlockAccessList;
     try {
       maybeBlockAccessList = extractBlockAccessList(blockParam);
-    } catch (final InvalidBlockAccessListException e) {
+    } catch (final Exception e) {
       return respondWithInvalid(
           reqId,
           blockParam,
           mergeCoordinator.getLatestValidAncestor(blockParam.getParentHash()).orElse(null),
           INVALID,
-          e.getMessage());
+          "Invalid block access list encoding");
     }
 
     if (mergeContext.get().isSyncing()) {
@@ -522,19 +519,17 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     return ValidationResult.valid();
   }
 
-  protected Optional<BlockAccessList> extractBlockAccessList(
-      final EnginePayloadParameter payloadParameter) throws InvalidBlockAccessListException {
-    return Optional.empty();
-  }
+  private Optional<BlockAccessList> extractBlockAccessList(
+      final EnginePayloadParameter payloadParameter) {
+    final String blockAccessList = payloadParameter.getBlockAccessList();
 
-  protected static class InvalidBlockAccessListException extends Exception {
-    InvalidBlockAccessListException(final String message) {
-      super(message);
+    if (blockAccessList == null) {
+      return Optional.empty();
     }
 
-    InvalidBlockAccessListException(final String message, final Throwable cause) {
-      super(message, cause);
-    }
+    return Optional.of(
+        BlockAccessListDecoder.decode(
+            new BytesValueRLPInput(Bytes.fromHexString(blockAccessList), false)));
   }
 
   protected ValidationResult<RpcErrorType> validateBlobs(
