@@ -18,8 +18,8 @@ import static org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.Inclu
 
 import org.hyperledger.besu.datatypes.Address;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -53,30 +53,26 @@ public class EnginePayloadAttributesParameter {
     this.parentBeaconBlockRoot =
         parentBeaconBlockRoot == null ? null : Bytes32.fromHexString(parentBeaconBlockRoot);
     this.slotNumber = slotNumber == null ? null : Long.decode(slotNumber);
-    this.inclusionListTransactions =
-        validateAndDecodeInclusionListTransactions(inclusionListTransactions);
+    this.inclusionListTransactions = parseInclusionListTransactions(inclusionListTransactions);
   }
 
-  private List<Bytes> validateAndDecodeInclusionListTransactions(final List<String> transactions) {
-    if (transactions == null) {
+  private List<Bytes> parseInclusionListTransactions(final List<String> hexTransactions) {
+    if (hexTransactions == null) {
       return null;
     }
-    final List<Bytes> decoded;
-    try {
-      decoded = transactions.stream().map(Bytes::fromHexString).collect(Collectors.toList());
-    } catch (final IllegalArgumentException e) {
-      throw new IllegalArgumentException("Invalid inclusion list transaction format", e);
+
+    // perform a minimal validation on the size, to avoid continuing parsing past the max size
+    final List<Bytes> txBytes = new ArrayList<>(hexTransactions.size());
+    int totalBytes = 0;
+    for (final String hexTransaction : hexTransactions) {
+      txBytes.add(Bytes.fromHexString(hexTransaction));
+      totalBytes += txBytes.size();
+      if (totalBytes > MAX_BYTES_PER_INCLUSION_LIST) {
+        throw new IllegalArgumentException(
+            "Inclusion list exceeds maximum size of " + MAX_BYTES_PER_INCLUSION_LIST + " bytes");
+      }
     }
-    final int totalBytes = decoded.stream().mapToInt(Bytes::size).sum();
-    if (totalBytes > MAX_BYTES_PER_INCLUSION_LIST) {
-      throw new IllegalArgumentException(
-          "Inclusion list exceeds maximum size: "
-              + totalBytes
-              + " bytes > "
-              + MAX_BYTES_PER_INCLUSION_LIST
-              + " bytes");
-    }
-    return decoded;
+    return txBytes;
   }
 
   public Long getTimestamp() {
@@ -114,9 +110,7 @@ public class EnginePayloadAttributesParameter {
             .put("prevRandao", prevRandao.toHexString())
             .put("suggestedFeeRecipient", suggestedFeeRecipient.getBytes().toHexString());
     if (withdrawals != null) {
-      json.put(
-          "withdrawals",
-          withdrawals.stream().map(WithdrawalParameter::asJsonObject).collect(Collectors.toList()));
+      json.put("withdrawals", withdrawals.stream().map(WithdrawalParameter::asJsonObject).toList());
     }
     if (parentBeaconBlockRoot != null) {
       json.put("parentBeaconBlockRoot", parentBeaconBlockRoot.toHexString());
@@ -127,7 +121,7 @@ public class EnginePayloadAttributesParameter {
     if (inclusionListTransactions != null) {
       json.put(
           "inclusionListTransactions",
-          inclusionListTransactions.stream().map(Bytes::toHexString).collect(Collectors.toList()));
+          inclusionListTransactions.stream().map(Bytes::toHexString).toList());
     }
     return json.encode();
   }

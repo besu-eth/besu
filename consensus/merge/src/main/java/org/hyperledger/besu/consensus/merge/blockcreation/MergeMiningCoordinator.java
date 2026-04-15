@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
@@ -32,7 +33,6 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 /** The interface Merge mining coordinator. */
@@ -68,7 +68,7 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
         withdrawals,
         parentBeaconBlockRoot,
         slotNumber,
-        Optional.empty());
+        List.of());
   }
 
   /**
@@ -81,7 +81,7 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    * @param withdrawals the optional list of withdrawals
    * @param parentBeaconBlockRoot optional root hash of the parent beacon block
    * @param slotNumber optional slot number (EIP-7843)
-   * @param inclusionListTransactions optional list of inclusion list transactions (EIP-7805)
+   * @param inclusionListTransactions list of inclusion list transactions (EIP-7805)
    * @return the payload identifier
    */
   PayloadIdentifier preparePayload(
@@ -92,7 +92,7 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
       final Optional<List<Withdrawal>> withdrawals,
       final Optional<Bytes32> parentBeaconBlockRoot,
       final Optional<Long> slotNumber,
-      final Optional<List<Bytes>> inclusionListTransactions);
+      final List<Transaction> inclusionListTransactions);
 
   @Override
   default boolean isCompatibleWithEngineApi() {
