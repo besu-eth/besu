@@ -71,10 +71,7 @@ public abstract class ParallelBlockTransactionProcessor {
     }
   }
 
-  /**
-   * World state at the parent block (same header {@link AbstractBlockProcessor} uses for blob gas).
-   * Call only when the parent header is known to be present.
-   */
+  /** World state at the parent block. Call only when the parent header is known to be present. */
   protected Optional<BonsaiWorldState> getWorldState(
       final ProtocolContext protocolContext, final BlockHeader parentHeader) {
     return protocolContext
