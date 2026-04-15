@@ -498,7 +498,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
    * @param remotePeer the remote peer to check
    * @return {@code true} if the peer is permitted
    */
-  private boolean isPeerPermitted(final Peer localNode, final DiscoveryPeer remotePeer) {
+  private boolean isPeerPermitted(final Peer localNode, final Peer remotePeer) {
     if (localNode == null) {
       // Local node not yet initialized — reject rather than bypass identity checks.
       // The peer will be re-discovered on the next FINDNODE round.
@@ -577,23 +577,23 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
 
   private void handlePermissionsUpdate(
       final boolean addRestrictions, final Optional<List<Peer>> affectedPeers) {
-    if (nodeRecordManager.getLocalNode().isPresent() && addRestrictions) {
-      if (affectedPeers.isPresent()) {
-        affectedPeers.get().stream().filter(this::isPeerNotPermitted).forEach(this::dropPeer);
-      } else {
-        discoverySystem.get().getNodeRecordBuckets().stream()
-            .flatMap(List::stream)
-            .map(nr -> DiscoveryPeerFactory.fromNodeRecord(nr, preferIpv6Outbound))
-            .filter(this::isPeerNotPermitted)
-            .forEach(this::dropPeer);
-      }
+    if (addRestrictions) {
+      nodeRecordManager
+          .getLocalNode()
+          .ifPresent(
+              ((localNode) -> {
+                affectedPeers.ifPresentOrElse(
+                    (peers) ->
+                        peers.stream()
+                            .filter((peer) -> !isPeerPermitted(localNode, peer))
+                            .forEach(this::dropPeer),
+                    () ->
+                        discoverySystem.get().getNodeRecordBuckets().stream()
+                            .flatMap(List::stream)
+                            .map(nr -> DiscoveryPeerFactory.fromNodeRecord(nr, preferIpv6Outbound))
+                            .filter((peer) -> !isPeerPermitted(localNode, peer))
+                            .forEach(this::dropPeer));
+              }));
     }
-  }
-
-  private boolean isPeerNotPermitted(final Peer peer) {
-    return !peerPermissions.isPermitted(
-        nodeRecordManager.getLocalNode().get(),
-        peer,
-        PeerPermissions.Action.DISCOVERY_ALLOW_IN_PEER_TABLE);
   }
 }
