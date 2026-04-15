@@ -24,9 +24,15 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 
+import java.util.Locale;
+import java.util.Set;
+
 import com.google.common.base.Suppliers;
 
 public class DebugGetRawHeader extends AbstractBlockParameterMethod {
+
+  private static final Set<String> NAMED_BLOCK_TAGS =
+      Set.of("earliest", "latest", "pending", "finalized", "safe");
 
   public DebugGetRawHeader(final BlockchainQueries blockchain) {
     super(Suppliers.ofInstance(blockchain));
@@ -40,6 +46,13 @@ public class DebugGetRawHeader extends AbstractBlockParameterMethod {
   @Override
   protected BlockParameter blockParameter(final JsonRpcRequestContext request) {
     try {
+      final String rawParam = request.getRequiredParameter(0, String.class);
+      final String lower = rawParam.toLowerCase(Locale.ROOT);
+      if (!NAMED_BLOCK_TAGS.contains(lower) && !lower.startsWith("0x")) {
+        throw new InvalidJsonRpcParameters(
+            "Invalid block parameter (index 0): hex string without 0x prefix",
+            RpcErrorType.INVALID_BLOCK_PARAMS);
+      }
       return request.getRequiredParameter(0, BlockParameter.class);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcParameters(
