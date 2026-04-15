@@ -55,6 +55,16 @@ public abstract class TransactionGasAccounting {
   /** Total state gas spilled into gasRemaining from reverted frames. */
   public abstract long stateGasSpillBurned();
 
+  /**
+   * Gas that was sitting unused in the initial frame's gasRemaining at the moment of an exceptional
+   * halt (EIP-7778/EIP-8037). Paid by the sender (receipts) but must be excluded from block regular
+   * gas since no operation consumed it.
+   */
+  @Value.Default
+  public long initialFrameRegularHaltBurn() {
+    return 0L;
+  }
+
   /** Gas refunded to the sender. */
   public abstract long refundedGas();
 
@@ -101,7 +111,10 @@ public abstract class TransactionGasAccounting {
     // initialFrameStateGasSpill is already included in spillBurned AND stateGas,
     // so subtract it from spillBurned to avoid double-counting.
     final long regularGas =
-        executionGas - stateGas - (stateGasSpillBurned() - initialFrameStateGasSpill());
+        executionGas
+            - stateGas
+            - (stateGasSpillBurned() - initialFrameStateGasSpill())
+            - initialFrameRegularHaltBurn();
     if (regularGas < 0) {
       // This should not happen under normal circumstances. A negative regularGas indicates a
       // bug in gas accounting — log at error level to ensure visibility.

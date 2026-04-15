@@ -529,6 +529,7 @@ public class MainnetTransactionProcessor {
               .stateGasUsed(initialFrame.getStateGasUsed())
               .initialFrameStateGasSpill(initialFrameStateGasSpill)
               .stateGasSpillBurned(initialFrame.getStateGasSpillBurned())
+              .initialFrameRegularHaltBurn(initialFrame.getInitialFrameRegularHaltBurn())
               .refundedGas(refundedGas)
               .floorCost(floorCost)
               .regularGasLimitExceeded(regularGasLimitExceeded)

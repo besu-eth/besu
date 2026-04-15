@@ -39,6 +39,7 @@ import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallError;
 import org.hyperledger.besu.ethereum.transaction.exceptions.BlockStateCallException;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.List;
 import java.util.Map;
@@ -76,6 +77,7 @@ public class EthSimulateV1Test {
   public void setUp() {
     method =
         new EthSimulateV1(
+            null,
             blockchainQueries,
             protocolSchedule,
             transactionSimulator,
@@ -107,7 +109,7 @@ public class EthSimulateV1Test {
   public void shouldReturnInvalidParamsWhenUpfrontCostExceedsBalanceWithValidation() {
     setupMethodWithMockSimulator();
     setupBlockchainForLatest();
-    when(blockSimulator.process(any(BlockHeader.class), any()))
+    when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class)))
         .thenThrow(
             new BlockStateCallException(
                 "Upfront cost exceeds balance", BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE));
@@ -125,7 +127,7 @@ public class EthSimulateV1Test {
   public void shouldReturnOriginalErrorCodeWhenUpfrontCostExceedsBalanceWithoutValidation() {
     setupMethodWithMockSimulator();
     setupBlockchainForLatest();
-    when(blockSimulator.process(any(BlockHeader.class), any()))
+    when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class)))
         .thenThrow(
             new BlockStateCallException(
                 "Upfront cost exceeds balance", BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE));
@@ -143,7 +145,8 @@ public class EthSimulateV1Test {
   public void shouldNotReturnInvalidParamsWhenInputAndDataHaveDifferentValues() {
     setupMethodWithMockSimulator();
     setupBlockchainForLatest();
-    when(blockSimulator.process(any(BlockHeader.class), any())).thenReturn(List.of());
+    when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class)))
+        .thenReturn(List.of());
 
     // Reproduces issue #9960: both input and data provided with different values.
     // Other EL clients (Geth, Nethermind, Reth, Erigon) accept this and use input.
@@ -166,7 +169,8 @@ public class EthSimulateV1Test {
 
     final ArgumentCaptor<BlockSimulationParameter> captor =
         ArgumentCaptor.forClass(BlockSimulationParameter.class);
-    verify(blockSimulator).process(any(BlockHeader.class), captor.capture());
+    verify(blockSimulator)
+        .process(any(BlockHeader.class), captor.capture(), any(OperationTracer.class));
     final Bytes payload =
         captor.getValue().getBlockStateCalls().get(0).getCalls().get(0).getPayload().orElseThrow();
     assertThat(payload).isEqualTo(Bytes.fromHexString("0xDEADBEEF"));
@@ -202,7 +206,7 @@ public class EthSimulateV1Test {
   }
 
   private SimulateV1Parameter simulateParameter(final boolean validation) {
-    return new SimulateV1Parameter(List.of(), validation, false, false, false);
+    return new SimulateV1Parameter(List.of(), validation, false, false, false, false);
   }
 
   private JsonRpcRequestContext ethSimulateV1Request(

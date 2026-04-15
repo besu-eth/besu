@@ -93,8 +93,7 @@ public class BlockAccessListDataRequest extends SnapDataRequest {
                             0, Wei.ZERO, Hash.EMPTY_TRIE_HASH, Hash.EMPTY));
 
             final var updatedCode = accountChanges.code();
-            final Hash updatedCodeHash =
-                updatedCode.map(Hash::hash).orElse(trieAccountValue.getCodeHash());
+            final Hash updatedCodeHash = resolveUpdatedCodeHash(accountChanges, trieAccountValue);
             updatedCode.ifPresent(
                 code -> bonsaiUpdater.putCode(accountHash, updatedCodeHash, code));
 
@@ -105,8 +104,8 @@ public class BlockAccessListDataRequest extends SnapDataRequest {
 
             final PmtStateTrieAccountValue updatedValue =
                 new PmtStateTrieAccountValue(
-                    accountChanges.nonce().orElse(trieAccountValue.getNonce()),
-                    accountChanges.balance().orElse(trieAccountValue.getBalance()),
+                    resolveUpdatedNonce(accountChanges, trieAccountValue),
+                    resolveUpdatedBalance(accountChanges, trieAccountValue),
                     updatedStorageRoot,
                     updatedCodeHash);
             bonsaiUpdater.putAccountInfoState(accountHash, RLP.encode(updatedValue::writeTo));
@@ -129,6 +128,24 @@ public class BlockAccessListDataRequest extends SnapDataRequest {
         bonsaiUpdater.putStorageValueBySlotHash(accountHash, slotHash, value.toBytes());
       }
     }
+  }
+
+  private long resolveUpdatedNonce(
+      final BlockAccessListChanges.AccountFinalChanges accountChanges,
+      final PmtStateTrieAccountValue trieAccountValue) {
+    return accountChanges.nonce().orElse(trieAccountValue.getNonce());
+  }
+
+  private Wei resolveUpdatedBalance(
+      final BlockAccessListChanges.AccountFinalChanges accountChanges,
+      final PmtStateTrieAccountValue trieAccountValue) {
+    return accountChanges.balance().orElse(trieAccountValue.getBalance());
+  }
+
+  private Hash resolveUpdatedCodeHash(
+      final BlockAccessListChanges.AccountFinalChanges accountChanges,
+      final PmtStateTrieAccountValue trieAccountValue) {
+    return accountChanges.code().map(Hash::hash).orElse(trieAccountValue.getCodeHash());
   }
 
   @Override
