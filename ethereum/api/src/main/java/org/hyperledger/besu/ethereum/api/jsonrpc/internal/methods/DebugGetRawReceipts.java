@@ -28,10 +28,15 @@ import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEnc
 import org.hyperledger.besu.ethereum.rlp.RLP;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 
 import com.google.common.base.Suppliers;
 
 public class DebugGetRawReceipts extends AbstractBlockParameterOrBlockHashMethod {
+
+  private static final Set<String> NAMED_BLOCK_TAGS =
+      Set.of("earliest", "latest", "pending", "finalized", "safe");
 
   public DebugGetRawReceipts(final BlockchainQueries blockchain) {
     super(Suppliers.ofInstance(blockchain));
@@ -46,6 +51,13 @@ public class DebugGetRawReceipts extends AbstractBlockParameterOrBlockHashMethod
   protected BlockParameterOrBlockHash blockParameterOrBlockHash(
       final JsonRpcRequestContext request) {
     try {
+      final String rawParam = request.getRequiredParameter(0, String.class);
+      final String lower = rawParam.toLowerCase(Locale.ROOT);
+      if (!NAMED_BLOCK_TAGS.contains(lower) && !lower.startsWith("0x")) {
+        throw new InvalidJsonRpcParameters(
+            "Invalid block or block hash parameter (index 0): hex string without 0x prefix",
+            RpcErrorType.INVALID_BLOCK_PARAMS);
+      }
       return request.getRequiredParameter(0, BlockParameterOrBlockHash.class);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcParameters(
