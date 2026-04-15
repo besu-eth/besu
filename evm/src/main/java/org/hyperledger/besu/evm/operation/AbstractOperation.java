@@ -15,16 +15,10 @@
 package org.hyperledger.besu.evm.operation;
 
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
-import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.VarHandle;
-import java.nio.ByteOrder;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -34,19 +28,6 @@ import org.apache.tuweni.units.bigints.UInt256;
  * members for free.
  */
 public abstract class AbstractOperation implements Operation {
-
-  protected static final VarHandle LONG_BE =
-      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
-  protected static final VarHandle INT_BE =
-      MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.BIG_ENDIAN);
-
-  /** Shared underflow response for static operation methods. */
-  protected static final OperationResult UNDERFLOW_RESPONSE =
-      new OperationResult(0L, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
-
-  /** Shared overflow response for static operation methods. */
-  protected static final OperationResult OVERFLOW_RESPONSE =
-      new OperationResult(0L, ExceptionalHaltReason.TOO_MANY_STACK_ITEMS);
 
   static final Bytes BYTES_ONE = Bytes.of(1);
 
@@ -184,53 +165,5 @@ public abstract class AbstractOperation implements Operation {
         .getEip7928AccessList()
         .ifPresent(t -> t.addSlotAccessForAccount(account.getAddress(), slotKey));
     return slotValue;
-  }
-
-  /**
-   * Writes a zero-valued 256-bit word at the given stack slot.
-   *
-   * @param stack the flat limb array (4 longs per 256-bit word)
-   * @param top the slot index to write to
-   */
-  protected static void pushZero(final long[] stack, final int top) {
-    final int offset = top << 2;
-    stack[offset] = 0;
-    stack[offset + 1] = 0;
-    stack[offset + 2] = 0;
-    stack[offset + 3] = 0;
-  }
-
-  /**
-   * Writes a {@link Wei} value as four big-endian limbs at the given stack slot.
-   *
-   * @param wei the Wei value to write
-   * @param stack the flat limb array
-   * @param top the slot index to write to
-   */
-  protected static void pushWei(final Wei wei, final long[] stack, final int top) {
-    final int offset = top << 2;
-    stack[offset] = wei.u3();
-    stack[offset + 1] = wei.u2();
-    stack[offset + 2] = wei.u1();
-    stack[offset + 3] = wei.u0();
-  }
-
-  /**
-   * Extracts a 160-bit {@link Address} from a 256-bit stack word at the given depth below the top
-   * of stack.
-   *
-   * @param stack the flat limb array
-   * @param top current stack-top (item count)
-   * @param depth 0 for the topmost item, 1 for the item below, etc.
-   * @return the address formed from the lower 160 bits of the stack word
-   */
-  protected static Address toAddressAt(final long[] stack, final int top, final int depth) {
-    final int off = (top - 1 - depth) << 2;
-    byte[] bytes = new byte[20];
-    // u2 has top 4 bytes, u1 has next 8, u0 has last 8
-    INT_BE.set(bytes, 0, (int) stack[off + 1]);
-    LONG_BE.set(bytes, 4, stack[off + 2]);
-    LONG_BE.set(bytes, 12, stack[off + 3]);
-    return Address.wrap(org.apache.tuweni.bytes.Bytes.wrap(bytes));
   }
 }

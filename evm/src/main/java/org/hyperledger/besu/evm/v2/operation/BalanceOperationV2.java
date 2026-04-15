@@ -14,6 +14,11 @@
  */
 package org.hyperledger.besu.evm.v2.operation;
 
+import static org.hyperledger.besu.evm.v2.StackUtil.UNDERFLOW_RESPONSE;
+import static org.hyperledger.besu.evm.v2.StackUtil.pushWei;
+import static org.hyperledger.besu.evm.v2.StackUtil.pushZero;
+import static org.hyperledger.besu.evm.v2.StackUtil.toAddressAt;
+
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.account.Account;

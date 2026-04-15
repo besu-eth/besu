@@ -14,6 +14,9 @@
  */
 package org.hyperledger.besu.evm.v2.operation;
 
+import static org.hyperledger.besu.evm.v2.StackUtil.OVERFLOW_RESPONSE;
+import static org.hyperledger.besu.evm.v2.StackUtil.pushWei;
+
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
