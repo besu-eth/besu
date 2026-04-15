@@ -49,7 +49,10 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
    */
   public static OperationResult staticOperation(final MessageFrame frame, final long[] stack) {
     if (!frame.stackHasItems(3)) return UNDERFLOW_RESPONSE;
-    frame.setTopV2(mulMod(stack, frame.stackTopV2()));
+    int top = frame.stackTopV2();
+    mulMod(stack, top);
+    // consumed three items and produced one item
+    frame.setTopV2(top - 2);
     return mulModSuccess;
   }
 
@@ -58,13 +61,12 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
    *
    * <p>MULMOD: mulmod(a,b,m) = (a * b) mod m
    *
-   * <p>MULMOD: stack[top-3] = (stack[top-1] * stack[top-2]) mod stack[top-3], return top-2.
+   * <p>MULMOD: stack[top-3] = (stack[top-1] * stack[top-2]) mod stack[top-3].
    *
    * @param stack the flat limb array
    * @param top current stack-top (item count)
-   * @return the new stack-top after consuming three items and producing one item
    */
-  private static int mulMod(final long[] stack, final int top) {
+  private static void mulMod(final long[] stack, final int top) {
     final int aOffset = (top - 1) << 2;
     final int bOffset = (top - 2) << 2;
     final int mOffset = (top - 3) << 2;
@@ -79,6 +81,5 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
     stack[mOffset + 1] = r.u2();
     stack[mOffset + 2] = r.u1();
     stack[mOffset + 3] = r.u0();
-    return top - 2;
   }
 }
