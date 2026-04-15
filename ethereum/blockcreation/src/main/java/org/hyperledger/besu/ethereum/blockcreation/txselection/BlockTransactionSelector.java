@@ -66,11 +66,15 @@ import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Optional;
 import java.util.SequencedSet;
+import java.util.TreeSet;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -222,7 +226,7 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     // for any inclusion list txs not yet selected, evaluate and include it now
     // this is not time-limited, since failing to include any of these txs will result
     // in an invalid block
-    for (final Transaction ilTx : List.copyOf(inclusionListTransactions)) {
+    for (final Transaction ilTx : sortInclusionListTransactions(inclusionListTransactions)) {
       final TransactionSelectionResult ilResult =
           evaluateTransaction(new PendingTransaction.Local.Priority(ilTx));
       if (!ilResult.selected()) {
@@ -235,6 +239,22 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     }
 
     return transactionSelectionResults;
+  }
+
+  private List<Transaction> sortInclusionListTransactions(
+      final SequencedSet<Transaction> inclusionListTransactions) {
+    // for the moment we just make sure txs are sorted by nonce for each sender
+    // more sophisticated sorting based on effective priority fee can be implemented later
+    final Map<Address, NavigableSet<Transaction>> txsBySender = new HashMap<>();
+
+    for (final Transaction tx : inclusionListTransactions) {
+      txsBySender
+          .computeIfAbsent(
+              tx.getSender(), k -> new TreeSet<>(Comparator.comparingLong(Transaction::getNonce)))
+          .add(tx);
+    }
+
+    return txsBySender.values().stream().flatMap(NavigableSet::stream).toList();
   }
 
   public void cancel() {

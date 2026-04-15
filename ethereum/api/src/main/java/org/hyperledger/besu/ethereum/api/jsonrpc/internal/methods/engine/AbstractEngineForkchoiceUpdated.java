@@ -40,10 +40,14 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineUpdateForkchoiceResult;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -223,7 +227,8 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
                     finalWithdrawals,
                     Optional.ofNullable(payloadAttributes.getParentBeaconBlockRoot()),
                     Optional.ofNullable(payloadAttributes.getSlotNumber()),
-                    getInclusionListBytes(payloadAttributes)));
+                    validateAndDecodeInclusionListTransactions(
+                        payloadAttributes.getInclusionListTransactions())));
 
     payloadId.ifPresent(
         pid ->
@@ -409,12 +414,20 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
         forkChoice.getFinalizedBlockHash());
   }
 
-  private Optional<List<Bytes>> getInclusionListBytes(
-      final EnginePayloadAttributesParameter payloadAttributes) {
-    final List<Bytes> ilTxs = payloadAttributes.getInclusionListTransactions();
-    if (ilTxs == null || ilTxs.isEmpty()) {
-      return Optional.empty();
+  private List<Transaction> validateAndDecodeInclusionListTransactions(
+      final List<Bytes> rawTransactions) {
+    if (rawTransactions == null || rawTransactions.isEmpty()) {
+      return List.of();
     }
-    return Optional.of(ilTxs);
+
+    final List<Transaction> decoded = new ArrayList<>(rawTransactions.size());
+    for (final Bytes txBytes : rawTransactions) {
+      try {
+        decoded.add(Transaction.readFrom(RLP.input(txBytes), EncodingContext.BLOCK_BODY));
+      } catch (final IllegalArgumentException e) {
+        throw new IllegalArgumentException("Invalid inclusion list transaction format", e);
+      }
+    }
+    return decoded;
   }
 }
