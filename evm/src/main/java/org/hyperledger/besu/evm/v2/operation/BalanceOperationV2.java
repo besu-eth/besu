@@ -27,6 +27,7 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.AbstractOperation;
 
+/** The Balance operation. */
 public class BalanceOperationV2 extends AbstractOperation {
 
   /**

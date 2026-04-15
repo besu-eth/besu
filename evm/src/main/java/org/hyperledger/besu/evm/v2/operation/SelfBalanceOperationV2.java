@@ -24,6 +24,7 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.Operation;
 
+/** The Self balance operation. */
 public class SelfBalanceOperationV2 extends AbstractFixedCostOperationV2 {
 
   /**
