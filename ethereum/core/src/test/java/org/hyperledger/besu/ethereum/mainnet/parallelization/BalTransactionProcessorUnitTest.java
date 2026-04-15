@@ -29,7 +29,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -85,7 +84,10 @@ class BalTransactionProcessorUnitTest {
   @Mock private MainnetTransactionProcessor transactionProcessor;
 
   private record TestEnvironment(
-      ProtocolContext protocolContext, BlockHeader blockHeader, BonsaiWorldState worldState) {}
+      ProtocolContext protocolContext,
+      BlockHeader blockHeader,
+      Optional<BlockHeader> maybeParentHeader,
+      BonsaiWorldState worldState) {}
 
   private BonsaiWorldState createEmptyWorldState() {
     final BonsaiWorldStateKeyValueStorage storage =
@@ -106,21 +108,17 @@ class BalTransactionProcessorUnitTest {
 
   private TestEnvironment createTestEnvironment() {
     final ProtocolContext protocolContext = mock(ProtocolContext.class);
-    final MutableBlockchain blockchain = mock(MutableBlockchain.class);
-    final BlockHeader chainHeadBlockHeader = mock(BlockHeader.class);
+    final BlockHeader parentHeader = mock(BlockHeader.class);
     final BlockHeader blockHeader = mock(BlockHeader.class);
     final WorldStateArchive worldStateArchive = mock(WorldStateArchive.class);
     final BonsaiWorldState worldState = createEmptyWorldState();
 
-    when(protocolContext.getBlockchain()).thenReturn(blockchain);
-    when(blockchain.getChainHeadHeader()).thenReturn(chainHeadBlockHeader);
-    when(chainHeadBlockHeader.getHash()).thenReturn(Hash.ZERO);
-    when(chainHeadBlockHeader.getStateRoot()).thenReturn(Hash.EMPTY_TRIE_HASH);
-    when(blockHeader.getParentHash()).thenReturn(Hash.ZERO);
     when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
     when(worldStateArchive.getWorldState(any())).thenReturn(Optional.of(worldState));
+    when(parentHeader.getBlockHash()).thenReturn(Hash.ZERO);
+    when(parentHeader.getStateRoot()).thenReturn(Hash.EMPTY_TRIE_HASH);
 
-    return new TestEnvironment(protocolContext, blockHeader, worldState);
+    return new TestEnvironment(protocolContext, blockHeader, Optional.of(parentHeader), worldState);
   }
 
   private Transaction mockTransaction() {
@@ -172,7 +170,8 @@ class BalTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       verify(transactionProcessor, times(1))
           .processTransaction(
@@ -209,7 +208,8 @@ class BalTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       verify(transactionProcessor, times(3))
           .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
@@ -235,7 +235,8 @@ class BalTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       final Optional<TransactionProcessingResult> result =
           processor.getProcessingResult(
@@ -388,7 +389,8 @@ class BalTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       final Transaction[] txs = new Transaction[] {tx0, tx1, tx2};
       for (int i = 0; i < txs.length; i++) {
@@ -438,7 +440,8 @@ class BalTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       final Optional<TransactionProcessingResult> result =
           processor.getProcessingResult(

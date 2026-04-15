@@ -45,7 +45,8 @@ public abstract class ParallelBlockTransactionProcessor {
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
       final Executor executor,
-      final Optional<BlockAccessListBuilder> blockAccessListBuilder) {
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader) {
 
     futures = new CompletableFuture[transactions.size()];
 
@@ -64,18 +65,24 @@ public abstract class ParallelBlockTransactionProcessor {
                       miningBeneficiary,
                       blockHashLookup,
                       blobGasPrice,
-                      blockAccessListBuilder),
+                      blockAccessListBuilder,
+                      maybeParentHeader),
               executor);
     }
   }
 
+  /** Same parent header as {@link AbstractBlockProcessor} uses for blob gas and block context. */
   protected BonsaiWorldState getWorldState(
-      final ProtocolContext protocolContext, final BlockHeader blockHeader) {
-    return (BonsaiWorldState)
-        protocolContext
-            .getWorldStateArchive()
-            .getWorldState(WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(blockHeader))
-            .orElse(null);
+      final ProtocolContext protocolContext, final Optional<BlockHeader> maybeParentHeader) {
+    return maybeParentHeader
+        .flatMap(
+            parentHeader ->
+                protocolContext
+                    .getWorldStateArchive()
+                    .getWorldState(
+                        WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(parentHeader)))
+        .map(BonsaiWorldState.class::cast)
+        .orElse(null);
   }
 
   protected abstract ParallelizedTransactionContext runTransaction(
@@ -86,7 +93,8 @@ public abstract class ParallelBlockTransactionProcessor {
       Address miningBeneficiary,
       BlockHashLookup blockHashLookup,
       Wei blobGasPrice,
-      Optional<BlockAccessListBuilder> blockAccessListBuilder);
+      Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      Optional<BlockHeader> maybeParentHeader);
 
   public abstract Optional<TransactionProcessingResult> getProcessingResult(
       MutableWorldState worldState,

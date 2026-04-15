@@ -196,7 +196,8 @@ class BalParallelBlockProcessorIntegrationTest {
         final BlockHashLookup blockHashLookup,
         final Wei blobGasPrice,
         final Optional<BlockAccessList.BlockAccessListBuilder> blockAccessListBuilder,
-        final Optional<BlockAccessList> maybeBlockBal) {
+        final Optional<BlockAccessList> maybeBlockBal,
+        final Optional<BlockHeader> maybeParentHeader) {
       return super.run(
           protocolContext,
           blockHeader,
@@ -205,7 +206,8 @@ class BalParallelBlockProcessorIntegrationTest {
           blockHashLookup,
           blobGasPrice,
           blockAccessListBuilder,
-          Optional.of(preComputedBal));
+          Optional.of(preComputedBal),
+          maybeParentHeader);
     }
   }
 

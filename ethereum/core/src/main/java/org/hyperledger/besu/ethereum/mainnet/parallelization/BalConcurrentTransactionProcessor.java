@@ -75,9 +75,10 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final Address miningBeneficiary,
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
-      final Optional<BlockAccessListBuilder> blockAccessListBuilder) {
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader) {
 
-    final BonsaiWorldState ws = getWorldState(protocolContext, blockHeader);
+    final BonsaiWorldState ws = getWorldState(protocolContext, maybeParentHeader);
     if (ws == null) return null;
 
     try {

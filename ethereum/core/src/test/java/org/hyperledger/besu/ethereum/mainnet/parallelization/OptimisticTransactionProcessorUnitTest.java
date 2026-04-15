@@ -28,7 +28,6 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -92,7 +91,10 @@ class OptimisticTransactionProcessorUnitTest {
   }
 
   private record TestEnvironment(
-      ProtocolContext protocolContext, BlockHeader blockHeader, BonsaiWorldState worldState) {}
+      ProtocolContext protocolContext,
+      BlockHeader blockHeader,
+      Optional<BlockHeader> maybeParentHeader,
+      BonsaiWorldState worldState) {}
 
   private BonsaiWorldState createEmptyWorldState() {
     final BonsaiWorldStateKeyValueStorage storage =
@@ -113,21 +115,17 @@ class OptimisticTransactionProcessorUnitTest {
 
   private TestEnvironment createTestEnvironment() {
     final ProtocolContext protocolContext = mock(ProtocolContext.class);
-    final MutableBlockchain blockchain = mock(MutableBlockchain.class);
-    final BlockHeader chainHeadBlockHeader = mock(BlockHeader.class);
+    final BlockHeader parentHeader = mock(BlockHeader.class);
     final BlockHeader blockHeader = mock(BlockHeader.class);
     final WorldStateArchive worldStateArchive = mock(WorldStateArchive.class);
     final BonsaiWorldState worldState = createEmptyWorldState();
 
-    when(protocolContext.getBlockchain()).thenReturn(blockchain);
-    when(blockchain.getChainHeadHeader()).thenReturn(chainHeadBlockHeader);
-    when(chainHeadBlockHeader.getHash()).thenReturn(Hash.ZERO);
-    when(chainHeadBlockHeader.getStateRoot()).thenReturn(Hash.EMPTY_TRIE_HASH);
-    when(blockHeader.getParentHash()).thenReturn(Hash.ZERO);
     when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
     when(worldStateArchive.getWorldState(any())).thenReturn(Optional.of(worldState));
+    when(parentHeader.getBlockHash()).thenReturn(Hash.ZERO);
+    when(parentHeader.getStateRoot()).thenReturn(Hash.EMPTY_TRIE_HASH);
 
-    return new TestEnvironment(protocolContext, blockHeader, worldState);
+    return new TestEnvironment(protocolContext, blockHeader, Optional.of(parentHeader), worldState);
   }
 
   private Transaction mockTransaction() {
@@ -162,7 +160,8 @@ class OptimisticTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       verify(transactionProcessor, times(1))
           .processTransaction(
@@ -193,7 +192,8 @@ class OptimisticTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       verify(transactionProcessor, times(3))
           .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
@@ -219,7 +219,8 @@ class OptimisticTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       processor.getProcessingResult(
           env.worldState(), MINING_BENEFICIARY, transaction, 0, Optional.empty(), Optional.empty());
@@ -248,7 +249,8 @@ class OptimisticTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       processor.getProcessingResult(
           env.worldState(), customBeneficiary, transaction, 0, Optional.empty(), Optional.empty());
@@ -274,7 +276,8 @@ class OptimisticTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       processor.getProcessingResult(
           env.worldState(), MINING_BENEFICIARY, tx1, 0, Optional.empty(), Optional.empty());
@@ -310,7 +313,8 @@ class OptimisticTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       when(collisionDetector.hasCollision(any(), any(), any(), any())).thenReturn(true);
 
@@ -343,7 +347,8 @@ class OptimisticTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       final Optional<TransactionProcessingResult> result =
           processor.getProcessingResult(
@@ -373,7 +378,8 @@ class OptimisticTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       final Optional<TransactionProcessingResult> result =
           processor.getProcessingResult(
@@ -403,7 +409,8 @@ class OptimisticTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       when(collisionDetector.hasCollision(eq(tx1), any(), any(), any())).thenReturn(false);
       when(collisionDetector.hasCollision(eq(tx2), any(), any(), any())).thenReturn(true);
@@ -440,7 +447,8 @@ class OptimisticTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.of(balBuilder));
+          Optional.of(balBuilder),
+          env.maybeParentHeader());
 
       verify(transactionProcessor)
           .processTransaction(
@@ -475,7 +483,8 @@ class OptimisticTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.of(balBuilder));
+          Optional.of(balBuilder),
+          env.maybeParentHeader());
 
       final Optional<TransactionProcessingResult> maybeResult =
           processor.getProcessingResult(
