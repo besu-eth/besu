@@ -26,6 +26,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.forkid.ForkId;
 import org.hyperledger.besu.ethereum.p2p.EthProtocolHelper;
+import org.hyperledger.besu.ethereum.p2p.config.RlpxConfiguration;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.DiscoveryPeerV4;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.PeerTable;
 import org.hyperledger.besu.ethereum.p2p.network.exceptions.BreachOfProtocolException;
@@ -471,6 +472,7 @@ public class DeFramerTest {
         connectFuture,
         new NoOpMetricsSystem(),
         true,
-        peerLookup);
+        peerLookup,
+        RlpxConfiguration.DEFAULT_MAX_MESSAGE_SIZE);
   }
 }

@@ -41,6 +41,8 @@ are provided with different values, using input as per the execution-apis spec i
 - Upgrade besu-native libraries version to 1.5.0. This fixes the issue of besu-native/secp256r1 exporting OpenSSL symbols in JVM space. [besu-native #308](https://github.com/besu-eth/besu-native/pull/308)
 
 ### Additions and Improvements
+- Add `transactionReceipts` subscription type to `eth_subscribe` that pushes all transaction receipts when a new block is added, with optional `transactionHashes` filter to receive receipts for specific transactions only [#10190](https://github.com/besu-eth/besu/pull/10190)
+- Add `enableMemory` parameter to `debug_traceTransaction` and `debug_traceBlockByNumber`. Defaults to `false`; memory is only included in trace output when explicitly enabled. The existing `disableMemory` parameter continues to work for backwards compatibility [#10169](https://github.com/besu-eth/besu/pull/10169)
 - `--net-restrict` now supports IPv6 CIDR notation (e.g. `fd00::/64`) in addition to IPv4, enabling subnet-based peer filtering in IPv6 and dual-stack deployments [#10028](https://github.com/besu-eth/besu/pull/10028)
 - Stop EngineQosTimer as part of shutdown [#9903](https://github.com/hyperledger/besu/pull/9903)
 - Add `--max-blobs-per-transaction` CLI option to configure the maximum number of blobs per transaction [#9912](https://github.com/hyperledger/besu/pull/9912)

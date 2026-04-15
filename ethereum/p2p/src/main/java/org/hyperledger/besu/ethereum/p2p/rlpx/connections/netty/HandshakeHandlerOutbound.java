@@ -52,7 +52,8 @@ final class HandshakeHandlerOutbound extends AbstractHandshakeHandler {
       final MetricsSystem metricsSystem,
       final HandshakerProvider handshakerProvider,
       final FramerProvider framerProvider,
-      final PeerLookup peerLookup) {
+      final PeerLookup peerLookup,
+      final int maxMessageSize) {
     super(
         subProtocols,
         localNode,
@@ -63,7 +64,8 @@ final class HandshakeHandlerOutbound extends AbstractHandshakeHandler {
         handshakerProvider,
         framerProvider,
         false,
-        peerLookup);
+        peerLookup,
+        maxMessageSize);
     handshaker.prepareInitiator(
         nodeKey, SignatureAlgorithmFactory.getInstance().createPublicKey(peer.getId()));
     this.first = handshaker.firstMessage();
