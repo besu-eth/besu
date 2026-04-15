@@ -56,6 +56,9 @@ import org.apache.tuweni.bytes.Bytes32;
  *     undone on revert
  * @param stateGasSpillBurned EIP-8037 accumulated state gas that spilled from reverted child
  *     frames; NOT undone on revert (permanent burn counter for block accounting)
+ * @param initialFrameRegularHaltBurn EIP-7778/EIP-8037 gas burned when the initial frame halts
+ *     exceptionally (gasRemaining at halt time). Paid by the sender via receipts, but must be
+ *     excluded from block regular gas. Single-element long[] so it is NOT undone on revert.
  */
 public record TxValues(
     BlockHashLookup blockHashLookup,
@@ -75,7 +78,8 @@ public record TxValues(
     UndoScalar<Long> gasRefunds,
     UndoScalar<Long> stateGasUsed,
     UndoScalar<Long> stateGasReservoir,
-    long[] stateGasSpillBurned) {
+    long[] stateGasSpillBurned,
+    long[] initialFrameRegularHaltBurn) {
 
   /**
    * Creates a new TxValues for the initial (depth-0) frame of a transaction. EIP-8037 gas tracking
@@ -120,6 +124,7 @@ public record TxValues(
         new UndoScalar<>(0L),
         new UndoScalar<>(0L),
         new UndoScalar<>(0L),
+        new long[] {0L},
         new long[] {0L});
   }
 
