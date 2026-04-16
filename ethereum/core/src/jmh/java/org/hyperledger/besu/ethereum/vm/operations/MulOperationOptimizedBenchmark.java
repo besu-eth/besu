@@ -18,10 +18,15 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.MulOperationOptimized;
 import org.hyperledger.besu.evm.operation.Operation;
 
-public class MulOperationOptimizedBenchmark extends BinaryOperationBenchmark {
+public class MulOperationOptimizedBenchmark extends BinaryArithmeticOperationBenchmark {
 
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {
     return MulOperationOptimized.staticOperation(frame);
+  }
+
+  @Override
+  protected String opCode() {
+    return "MUL";
   }
 }

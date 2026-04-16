@@ -18,10 +18,15 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.SubOperation;
 
-public class SubOperationBenchmark extends BinaryOperationBenchmark {
+public class SubOperationBenchmark extends BinaryArithmeticOperationBenchmark {
 
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {
     return SubOperation.staticOperation(frame);
+  }
+
+  @Override
+  protected String opCode() {
+    return "SUB";
   }
 }
