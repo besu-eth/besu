@@ -14,9 +14,9 @@
  */
 package org.hyperledger.besu.evm.v2.operation;
 
-import static org.hyperledger.besu.evm.v2.StackUtil.OVERFLOW_RESPONSE;
-import static org.hyperledger.besu.evm.v2.StackUtil.pushWei;
-import static org.hyperledger.besu.evm.v2.StackUtil.pushZero;
+import static org.hyperledger.besu.evm.v2.operation.StackUtil.OVERFLOW_RESPONSE;
+import static org.hyperledger.besu.evm.v2.operation.StackUtil.pushWei;
+import static org.hyperledger.besu.evm.v2.operation.StackUtil.pushZero;
 
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.account.Account;

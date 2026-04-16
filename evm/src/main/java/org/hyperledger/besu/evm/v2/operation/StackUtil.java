@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.evm.v2;
+package org.hyperledger.besu.evm.v2.operation;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
@@ -26,9 +26,10 @@ import java.nio.ByteOrder;
 /**
  * Static utility for reading/writing typed values on the flat {@code long[]} V2 operand stack. Each
  * 256-bit word occupies 4 consecutive longs in big-endian limb order: {@code [u3, u2, u1, u0]}
- * where u3 is the most-significant limb.
+ * where u3 is the most-significant limb. This class has a default modifier (package-private)
+ * because it shouldn't be used outside the EVM operations
  */
-public final class StackUtil {
+final class StackUtil {
 
   private static final VarHandle LONG_BE =
       MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
@@ -51,7 +52,7 @@ public final class StackUtil {
    * @param stack the flat limb array (4 longs per 256-bit word)
    * @param top the slot index to write to
    */
-  public static void pushZero(final long[] stack, final int top) {
+  static void pushZero(final long[] stack, final int top) {
     final int offset = top << 2;
     stack[offset] = 0;
     stack[offset + 1] = 0;
@@ -66,7 +67,7 @@ public final class StackUtil {
    * @param stack the flat limb array
    * @param top the slot index to write to
    */
-  public static void pushWei(final Wei wei, final long[] stack, final int top) {
+  static void pushWei(final Wei wei, final long[] stack, final int top) {
     wei.writeLimbs(stack, top << 2);
   }
 
@@ -79,7 +80,7 @@ public final class StackUtil {
    * @param depth 0 for the topmost item, 1 for the item below, etc.
    * @return the address formed from the lower 160 bits of the stack word
    */
-  public static Address toAddressAt(final long[] stack, final int top, final int depth) {
+  static Address toAddressAt(final long[] stack, final int top, final int depth) {
     final int off = (top - 1 - depth) << 2;
     byte[] bytes = new byte[20];
     INT_BE.set(bytes, 0, (int) stack[off + 1]);

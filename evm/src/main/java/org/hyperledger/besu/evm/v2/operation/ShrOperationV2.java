@@ -14,7 +14,7 @@
  */
 package org.hyperledger.besu.evm.v2.operation;
 
-import static org.hyperledger.besu.evm.v2.StackUtil.UNDERFLOW_RESPONSE;
+import static org.hyperledger.besu.evm.v2.operation.StackUtil.UNDERFLOW_RESPONSE;
 
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.UInt256;
