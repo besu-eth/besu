@@ -625,6 +625,186 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     return sbb(x, y);
   }
 
+  /**
+   * Performs EVM SAR (arithmetic shift right) on the two top stack items.
+   *
+   * <p>Reads the shift amount (unsigned) and the value (signed) from the top two stack slots,
+   * writes {@code value >> shift} back into the value slot and decrements the top. Shifts >= 256
+   * produce 0 for positive values and -1 for negative values.
+   *
+   * @param shift 256 bit value storing the amount of bits to shift
+   * @return the result
+   */
+  public UInt256 sar(final UInt256 shift) {
+    int bitShift;
+    if (shift.u3() != 0
+        || shift.u2() != 0
+        || shift.u1() != 0
+        || Long.compareUnsigned(shift.u0(), 256) >= 0) {
+      bitShift = 256;
+    } else {
+      bitShift = (int) shift.u0();
+    }
+    long fill = (u3 < 0 ? -1L : 0);
+    return sar0(bitShift, fill);
+  }
+
+  /**
+   * Performs EVM SHR (logical shift right) on the two top stack items.
+   *
+   * <p>Reads the shift amount (unsigned) and the value from the top two stack slots, writes {@code
+   * value >>> shift} back into the value slot and decrements the top. Shifts >= 256 or a zero value
+   * produce 0.
+   *
+   * @param shift 256 bit value storing the amount of bits to shift
+   * @return the result
+   */
+  public UInt256 shr(final UInt256 shift) {
+    int bitShift;
+    if (shift.u3() != 0
+        || shift.u2() != 0
+        || shift.u1() != 0
+        || Long.compareUnsigned(shift.u0(), 256) >= 0) {
+      bitShift = 256;
+    } else {
+      bitShift = (int) shift.u0();
+    }
+    return sar0(bitShift, 0);
+  }
+
+  /**
+   * Arithmetic right-shifts a 256-bit value in place by 0..255 bits, sign-extending with {@code
+   * fill}.
+   *
+   * @param shift number of bits to shift
+   * @param fill value to prepend while shifting
+   * @return the result
+   */
+  // TODO: check perf - wiring shiftRight callers with this one
+  private UInt256 sar0(final int shift, final long fill) {
+    long w3 = u3, w2 = u2, w1 = u1, w0 = u0;
+    if (shift == 256) {
+      w3 = fill;
+      w2 = fill;
+      w1 = fill;
+      w0 = fill;
+    } else if (shift != 0) {
+      // Number of whole 64-bit words to shift (shift / 64)
+      final int wordShift = shift >>> 6;
+      // Remaining intra-word bit shift (shift % 64)
+      final int bitShift = shift & 63;
+      switch (wordShift) {
+        case 0:
+          w0 = shiftRightWord(w0, w1, bitShift);
+          w1 = shiftRightWord(w1, w2, bitShift);
+          w2 = shiftRightWord(w2, w3, bitShift);
+          w3 = shiftRightWord(w3, fill, bitShift);
+          break;
+        case 1:
+          w0 = shiftRightWord(w1, w2, bitShift);
+          w1 = shiftRightWord(w2, w3, bitShift);
+          w2 = shiftRightWord(w3, fill, bitShift);
+          w3 = fill;
+          break;
+        case 2:
+          w0 = shiftRightWord(w2, w3, bitShift);
+          w1 = shiftRightWord(w3, fill, bitShift);
+          w2 = fill;
+          w3 = fill;
+          break;
+        case 3:
+          w0 = shiftRightWord(w3, fill, bitShift);
+          w1 = fill;
+          w2 = fill;
+          w3 = fill;
+          break;
+      }
+    }
+    return new UInt256(w3, w2, w1, w0);
+  }
+
+  /**
+   * Performs EVM SHL (shift left) on the two top stack items.
+   *
+   * <p>Reads the shift amount (unsigned) and the value from the top two stack slots, writes {@code
+   * value << shift} back into the value slot and decrements the top. Shifts >= 256 or a zero value
+   * produce 0.
+   *
+   * @param shift 256 bit value storing the amount of bits to shift
+   * @return the result
+   */
+  public UInt256 shl(final UInt256 shift) {
+    int bitShift;
+    if (shift.u3() != 0
+        || shift.u2() != 0
+        || shift.u1() != 0
+        || Long.compareUnsigned(shift.u0(), 256) >= 0) {
+      bitShift = 256;
+    } else {
+      bitShift = (int) shift.u0();
+    }
+    return shl0(bitShift);
+  }
+
+  /**
+   * Left-shifts a 256-bit value in place by 1..255 bits, zero-filling from the right.
+   *
+   * @param shift number of bits to shift
+   * @return the result
+   */
+  // TODO: check perf - wiring shiftLeft callers with this one
+  private UInt256 shl0(final int shift) {
+    long w3 = u3, w2 = u2, w1 = u1, w0 = u0;
+    if (shift == 256) {
+      w3 = 0;
+      w2 = 0;
+      w1 = 0;
+      w0 = 0;
+    } else if (shift != 0) {
+      // Number of whole 64-bit words to shift (shift / 64)
+      final int wordShift = shift >>> 6;
+      // Remaining intra-word bit shift (shift % 64)
+      final int bitShift = shift & 63;
+      switch (wordShift) {
+        case 0:
+          w3 = shiftLeftWord(w3, w2, bitShift);
+          w2 = shiftLeftWord(w2, w1, bitShift);
+          w1 = shiftLeftWord(w1, w0, bitShift);
+          w0 = shiftLeftWord(w0, 0, bitShift);
+          break;
+        case 1:
+          w3 = shiftLeftWord(w2, w1, bitShift);
+          w2 = shiftLeftWord(w1, w0, bitShift);
+          w1 = shiftLeftWord(w0, 0, bitShift);
+          w0 = 0;
+          break;
+        case 2:
+          w3 = shiftLeftWord(w1, w0, bitShift);
+          w2 = shiftLeftWord(w0, 0, bitShift);
+          w1 = 0;
+          w0 = 0;
+          break;
+        case 3:
+          w3 = shiftLeftWord(w0, 0, bitShift);
+          w2 = 0;
+          w1 = 0;
+          w0 = 0;
+          break;
+      }
+    }
+    return new UInt256(w3, w2, w1, w0);
+  }
+
+  private static long shiftLeftWord(final long value, final long nextValue, final int bitShift) {
+    if (bitShift == 0) return value;
+    return (value << bitShift) | (nextValue >>> (64 - bitShift));
+  }
+
+  private static long shiftRightWord(final long value, final long prevValue, final int bitShift) {
+    if (bitShift == 0) return value;
+    return (value >>> bitShift) | (prevValue << (64 - bitShift));
+  }
+
   private static boolean isZero(final byte[] arr) {
     int index = Arrays.mismatch(arr, ZERO_BYTES);
     return (index == -1 || index >= arr.length);
@@ -1915,4 +2095,5 @@ public record UInt256(long u3, long u2, long u1, long u0) {
 
   // --------------------------------------------------------------------------
   // endregion
+
 }

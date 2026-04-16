@@ -75,10 +75,17 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final Address miningBeneficiary,
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
-      final Optional<BlockAccessListBuilder> blockAccessListBuilder) {
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader) {
 
-    final BonsaiWorldState ws = getWorldState(protocolContext, blockHeader);
-    if (ws == null) return null;
+    if (maybeParentHeader.isEmpty()) {
+      return null;
+    }
+    final BonsaiWorldState ws =
+        getWorldState(protocolContext, maybeParentHeader.get()).orElse(null);
+    if (ws == null) {
+      return null;
+    }
 
     try {
       ws.disableCacheMerkleTrieLoader();

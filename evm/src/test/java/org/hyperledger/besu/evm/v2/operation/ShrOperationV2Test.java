@@ -25,6 +25,7 @@ import org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2;
 import java.util.Arrays;
 
 import org.apache.tuweni.bytes.Bytes32;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -65,12 +66,12 @@ class ShrOperationV2Test {
             "0xff",
             "0x0000000000000000000000000000000000000000000000000000000000000001"),
         Arguments.of(
-            "0x8000000000000000000000000000000000000000000000000000000000000000", "0x100", "0x"),
+            "0x8000000000000000000000000000000000000000000000000000000000000000", "0x0100", "0x00"),
         Arguments.of(
-            "0x8000000000000000000000000000000000000000000000000000000000000000", "0x101", "0x"),
+            "0x8000000000000000000000000000000000000000000000000000000000000000", "0x0101", "0x00"),
         Arguments.of(
             "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-            "0x0",
+            "0x00",
             "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
         Arguments.of(
             "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
@@ -81,7 +82,7 @@ class ShrOperationV2Test {
             "0xff",
             "0x0000000000000000000000000000000000000000000000000000000000000001"),
         Arguments.of(
-            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "0x100", "0x"),
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "0x0100", "0x00"),
         Arguments.of(
             "0x0000000000000000000000000000000000000000000000000000000000000000",
             "0x01",
@@ -91,23 +92,23 @@ class ShrOperationV2Test {
             "0x80",
             "0x0000000000000000000000000000000000000000000000000000000000000000"),
         Arguments.of(
-            "0x0000000000000000000000000000000000000000000000000000000000000400", "0x8000", "0x"),
+            "0x0000000000000000000000000000000000000000000000000000000000000400", "0x8000", "0x00"),
         Arguments.of(
             "0x0000000000000000000000000000000000000000000000000000000000000400",
             "0x80000000",
-            "0x"),
+            "0x00"),
         Arguments.of(
             "0x0000000000000000000000000000000000000000000000000000000000000400",
             "0x8000000000000000",
-            "0x"),
+            "0x00"),
         Arguments.of(
             "0x0000000000000000000000000000000000000000000000000000000000000400",
             "0x80000000000000000000000000000000",
-            "0x"),
+            "0x00"),
         Arguments.of(
             "0x0000000000000000000000000000000000000000000000000000000000000400",
             "0x8000000000000000000000000000000000000000000000000000000000000000",
-            "0x"));
+            "0x00"));
   }
 
   @ParameterizedTest
@@ -115,22 +116,38 @@ class ShrOperationV2Test {
   void shiftOperation(final String number, final String shift, final String expectedResult) {
     final MessageFrame frame =
         new TestMessageFrameBuilderV2()
-            .pushStackItem(Bytes32.fromHexStringLenient(number))
-            .pushStackItem(Bytes32.fromHexStringLenient(shift))
+            .pushStackItem(Bytes32.fromHexString(number))
+            .pushStackItem(Bytes32.fromHexString(shift))
             .build();
     operation.execute(frame, null);
-    UInt256 expected;
-    if (expectedResult.equals("0x") || expectedResult.equals("0x0")) {
-      expected = UInt256.ZERO;
-    } else {
-      expected = UInt256.fromBytesBE(Bytes32.fromHexStringLenient(expectedResult).toArrayUnsafe());
-    }
-    assertThat(getV2StackItem(frame, 0)).isEqualTo(expected);
+    UInt256 expected = UInt256.fromBytesBE(Bytes32.fromHexString(expectedResult).toArrayUnsafe());
+    assertThat(getStackItem(frame, 0)).isEqualTo(expected);
+    assertThat(frame.stackTopV2()).isEqualTo(1);
   }
 
-  private static UInt256 getV2StackItem(final MessageFrame frame, final int offset) {
+  private static UInt256 getStackItem(final MessageFrame frame, final int offset) {
     final long[] s = frame.stackDataV2();
     final int idx = (frame.stackTopV2() - 1 - offset) << 2;
     return new UInt256(s[idx], s[idx + 1], s[idx + 2], s[idx + 3]);
+  }
+
+  @Test
+  void stackTopUpdated() {
+    final MessageFrame frame =
+        new TestMessageFrameBuilderV2()
+            .pushStackItem(Bytes32.fromHexString("0x01"))
+            .pushStackItem(Bytes32.fromHexString("0x02"))
+            .pushStackItem(Bytes32.fromHexString("0x03"))
+            .pushStackItem(
+                Bytes32.fromHexString(
+                    "0x8000000000000000000000000000000000000000000000000000000000000400"))
+            .pushStackItem(
+                Bytes32.fromHexString(
+                    "0x8000000000000000000000000000000000000000000000000000000000000000"))
+            .build();
+    operation.execute(frame, null);
+    assertThat(frame.stackTopV2()).isEqualTo(4);
+    assertThat(getStackItem(frame, 0))
+        .isEqualTo(UInt256.fromBytesBE(Bytes32.fromHexString("0x00").toArrayUnsafe()));
   }
 }
