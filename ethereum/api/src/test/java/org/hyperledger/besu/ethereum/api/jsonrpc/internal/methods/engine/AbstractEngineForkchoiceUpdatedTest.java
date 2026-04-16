@@ -255,7 +255,8 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             payloadParams.getSuggestedFeeRecipient(),
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Optional.empty(),
+            List.of());
 
     when(mergeCoordinator.preparePayload(
             mockHeader,
@@ -265,7 +266,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
-            Optional.empty()))
+            List.of()))
         .thenReturn(mockPayloadId);
 
     var res =
@@ -544,7 +545,8 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             payloadParams.getSuggestedFeeRecipient(),
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Optional.empty(),
+            List.of());
 
     when(mergeCoordinator.preparePayload(
             mockHeader,
@@ -554,7 +556,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
-            Optional.empty()))
+            List.of()))
         .thenReturn(mockPayloadId);
 
     assertSuccessWithPayloadForForkchoiceResult(
@@ -637,7 +639,8 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             payloadParams.getSuggestedFeeRecipient(),
             withdrawals,
             Optional.empty(),
-            Optional.empty());
+            Optional.empty(),
+            List.of());
 
     when(mergeCoordinator.preparePayload(
             mockHeader,
@@ -647,7 +650,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             withdrawals,
             Optional.empty(),
             Optional.empty(),
-            Optional.empty()))
+            List.of()))
         .thenReturn(mockPayloadId);
 
     assertSuccessWithPayloadForForkchoiceResult(
@@ -685,7 +688,8 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             payloadParams.getSuggestedFeeRecipient(),
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Optional.empty(),
+            List.of());
 
     when(mergeCoordinator.preparePayload(
             mockHeader,
@@ -695,7 +699,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
-            Optional.empty()))
+            List.of()))
         .thenReturn(mockPayloadId);
 
     assertSuccessWithPayloadForForkchoiceResult(

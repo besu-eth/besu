@@ -248,7 +248,11 @@ public class InclusionListWorkflowIntegrationTest {
             payloadAttrs.getPrevRandao(),
             payloadAttrs.getSuggestedFeeRecipient(),
             Optional.empty(),
-            Optional.ofNullable(payloadAttrs.getParentBeaconBlockRoot()));
+            Optional.ofNullable(payloadAttrs.getParentBeaconBlockRoot()),
+            Optional.ofNullable(payloadAttrs.getSlotNumber()),
+            payloadAttrs.getInclusionListTransactions().stream()
+                .map(Transaction::readFrom)
+                .toList());
 
     when(mergeCoordinator.preparePayload(
             any(), anyLong(), any(), any(), any(), any(), any(), any()))

@@ -50,6 +50,7 @@ import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
 
 import java.math.BigInteger;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
@@ -139,7 +140,8 @@ public class EngineGetPayloadV4Test extends AbstractEngineGetPayloadTest {
             Address.fromHexString("0x42"),
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Optional.empty(),
+            Collections.emptyList());
 
     BlobTestFixture blobTestFixture = new BlobTestFixture();
     BlobsWithCommitments bwc = blobTestFixture.createBlobsWithCommitments(1);
@@ -220,7 +222,8 @@ public class EngineGetPayloadV4Test extends AbstractEngineGetPayloadTest {
             Address.fromHexString("0x42"),
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Optional.empty(),
+            Collections.emptyList());
 
     BlockWithReceipts block =
         new BlockWithReceipts(
