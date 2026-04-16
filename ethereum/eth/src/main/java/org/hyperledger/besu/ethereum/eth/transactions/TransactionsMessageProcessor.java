@@ -38,14 +38,17 @@ class TransactionsMessageProcessor {
   private final TransactionPool transactionPool;
 
   private final TransactionPoolMetrics metrics;
+  private final int maxTransactionsPerMessage;
 
   public TransactionsMessageProcessor(
       final PeerTransactionTracker transactionTracker,
       final TransactionPool transactionPool,
-      final TransactionPoolMetrics metrics) {
+      final TransactionPoolMetrics metrics,
+      final int maxTransactionsPerMessage) {
     this.transactionTracker = transactionTracker;
     this.transactionPool = transactionPool;
     this.metrics = metrics;
+    this.maxTransactionsPerMessage = maxTransactionsPerMessage;
     metrics.initExpiredMessagesCounter(METRIC_LABEL);
   }
 
@@ -76,6 +79,17 @@ class TransactionsMessageProcessor {
       final EthPeer peer, final TransactionsMessage transactionsMessage) {
     try {
       final List<Transaction> incomingTransactions = transactionsMessage.transactions();
+
+      if (incomingTransactions.size() > maxTransactionsPerMessage) {
+        LOG.debug(
+            "Transactions message contains too many transactions ({} > {}), disconnecting: {}",
+            incomingTransactions.size(),
+            maxTransactionsPerMessage,
+            peer);
+        peer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+        return;
+      }
+
       final Collection<Transaction> freshTransactions =
           transactionTracker.receivedTransactions(peer, incomingTransactions);
 

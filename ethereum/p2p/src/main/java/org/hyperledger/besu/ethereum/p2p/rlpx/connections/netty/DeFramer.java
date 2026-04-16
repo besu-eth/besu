@@ -76,6 +76,7 @@ final class DeFramer extends ByteToMessageDecoder {
   private final PeerLookup peerLookup;
   private boolean hellosExchanged;
   private final LabelledMetric<Counter> outboundMessagesCounter;
+  private final int maxMessageSize;
   private final LabelledMetric<Counter> outboundBytesCounter;
 
   DeFramer(
@@ -87,7 +88,8 @@ final class DeFramer extends ByteToMessageDecoder {
       final CompletableFuture<PeerConnection> connectFuture,
       final MetricsSystem metricsSystem,
       final boolean inboundInitiated,
-      final PeerLookup peerLookup) {
+      final PeerLookup peerLookup,
+      final int maxMessageSize) {
     this.framer = framer;
     this.subProtocols = subProtocols;
     this.localNode = localNode;
@@ -96,6 +98,7 @@ final class DeFramer extends ByteToMessageDecoder {
     this.connectionEventDispatcher = connectionEventDispatcher;
     this.inboundInitiated = inboundInitiated;
     this.peerLookup = peerLookup;
+    this.maxMessageSize = maxMessageSize;
     this.outboundMessagesCounter =
         metricsSystem.createLabelledCounter(
             BesuMetricCategory.NETWORK,
@@ -120,6 +123,24 @@ final class DeFramer extends ByteToMessageDecoder {
     while ((message = framer.deframe(in)) != null) {
 
       if (hellosExchanged) {
+
+        if (message.getSize() > maxMessageSize) {
+          LOG.debug(
+              "Oversized message received ({} bytes > {} max), disconnecting peer {}",
+              message.getSize(),
+              maxMessageSize,
+              expectedPeer.map(Peer::getEnodeURLString).orElse("unknown"));
+          if (connectFuture.isDone() && !connectFuture.isCompletedExceptionally()) {
+            connectFuture
+                .join()
+                .disconnect(
+                    DisconnectMessage.DisconnectReason
+                        .BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+          } else {
+            ctx.close();
+          }
+          return;
+        }
 
         out.add(message);
 
