@@ -56,6 +56,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.S
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotRead;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
@@ -133,7 +134,8 @@ public class EngineGetPayloadV6Test extends AbstractEngineGetPayloadTest {
             Address.fromHexString("0x42"),
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Optional.empty(),
+            Collections.emptyList());
 
     final List<Request> requests =
         List.of(
@@ -179,7 +181,8 @@ public class EngineGetPayloadV6Test extends AbstractEngineGetPayloadTest {
             Address.fromHexString("0x42"),
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Optional.empty(),
+            Collections.emptyList());
 
     final BlockWithReceipts blockWithReceipts =
         new BlockWithReceipts(
