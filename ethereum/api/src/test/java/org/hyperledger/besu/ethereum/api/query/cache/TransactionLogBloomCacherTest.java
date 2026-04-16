@@ -293,4 +293,26 @@ public class TransactionLogBloomCacherTest {
     when(blockchain.getBlockHeader(number)).thenReturn(Optional.of(fakeHeader));
     return fakeHeader;
   }
+
+  @Test
+  public void isDiskFull_returnsTrueWhenMessageMatches() {
+    final IOException e = new IOException("write failed: No space left on device");
+
+    assertThat(TransactionLogBloomCacher.isDiskFull(e)).isTrue();
+  }
+
+  @Test
+  public void isDiskFull_returnsFalseForUnrelatedMessage() {
+    final IOException e = new IOException("permission denied");
+
+    assertThat(TransactionLogBloomCacher.isDiskFull(e)).isFalse();
+  }
+
+  @Test
+  public void isDiskFull_returnsFalseWhenMessageIsNull() {
+    final IOException e = new IOException();
+
+    assertThat(e.getMessage()).isNull();
+    assertThat(TransactionLogBloomCacher.isDiskFull(e)).isFalse();
+  }
 }
