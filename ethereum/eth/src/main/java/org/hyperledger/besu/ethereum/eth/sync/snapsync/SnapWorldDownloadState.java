@@ -31,7 +31,6 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.StorageRangeDataR
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.AccountFlatDatabaseHealingRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.StorageFlatDatabaseHealingRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldDownloadState;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
@@ -89,8 +88,6 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
 
   private final SnapSyncStatePersistenceManager snapContext;
   private final SnapSyncProcessState snapSyncState;
-  private final ProtocolSchedule protocolSchedule;
-
   // blockchain
   private final Blockchain blockchain;
   private final Long blockObserverId;
@@ -108,7 +105,6 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
       final SnapSyncStatePersistenceManager snapContext,
       final Blockchain blockchain,
       final SnapSyncProcessState snapSyncState,
-      final ProtocolSchedule protocolSchedule,
       final InMemoryTasksPriorityQueues<SnapDataRequest> pendingRequests,
       final int maxRequestsWithoutProgress,
       final long minMillisBeforeStalling,
@@ -126,7 +122,6 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
     this.snapContext = snapContext;
     this.blockchain = blockchain;
     this.snapSyncState = snapSyncState;
-    this.protocolSchedule = protocolSchedule;
     this.metricsManager = metricsManager;
     this.blockObserverId = blockchain.observeBlockAdded(createBlockchainObserver());
     this.ethContext = ethContext;
@@ -307,6 +302,12 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
       return;
     }
 
+    if (!(worldStateStorageCoordinator.updater()
+        instanceof BonsaiWorldStateKeyValueStorage.Updater bonsaiUpdater)) {
+      LOG.warn("Skipping BAL apply because world state updater is not Bonsai-compatible");
+      return;
+    }
+
     final Optional<BlockHeader> maybeFirstPivotHeader = snapSyncState.getFirstPivotBlockHeader();
     final Optional<BlockHeader> maybeLastPivotHeader = snapSyncState.getPivotBlockHeader();
 
@@ -320,22 +321,12 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
       return;
     }
 
-    final BlockHeader firstPivotHeader = maybeFirstPivotHeader.get();
-    if (!protocolSchedule.getByBlockHeader(firstPivotHeader).isBlockAccessListEnabled()) {
-      LOG.debug("Skipping BAL apply - BALs not enabled on first pivot {}", firstPivotHeader);
-      return;
-    }
-
-    final long fromBlock = firstPivotHeader.getNumber();
+    final long fromBlock = maybeFirstPivotHeader.get().getNumber();
     final long toBlock = maybeLastPivotHeader.get().getNumber();
-    if (toBlock < fromBlock) {
-      LOG.error("Attempted to apply BALs with fromBlock {} > {} toBlock", fromBlock, toBlock);
-      return;
-    }
 
     LOG.info("Applying block access lists from block {} to {}", fromBlock, toBlock);
     BlockAccessListFlatDatabaseUpdater.applyFromStoredBlockAccessLists(
-        blockchain, worldStateStorageCoordinator, fromBlock, toBlock);
+        blockchain, worldStateStorageCoordinator, bonsaiUpdater, fromBlock, toBlock);
   }
 
   @Override

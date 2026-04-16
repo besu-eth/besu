@@ -174,14 +174,14 @@ public class SnapSyncChainDownloadPipelineFactory {
             protocolSchedule,
             ethContext,
             new SyncTransactionReceiptEncoder(new SimpleNoCopyRlpEncoder()),
-            Duration.ofMillis(syncConfig.getReceiptsDownloadStepTimeoutMillis()));
+            Duration.ofMillis(syncConfig.getForwardDownloadStepTimeoutMillis()));
 
     final DownloadAndPersistBlockAccessListsStep downloadAndPersistBlockAccessListsStep =
         new DownloadAndPersistBlockAccessListsStep(
             ethContext,
             metricsSystem,
             (DefaultBlockchain) blockchain,
-            Duration.ofMillis(syncConfig.getReceiptsDownloadStepTimeoutMillis()));
+            Duration.ofMillis(syncConfig.getForwardDownloadStepTimeoutMillis()));
 
     final ImportSyncBlocksStep importBlocksStep =
         new ImportSyncBlocksStep(

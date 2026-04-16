@@ -44,6 +44,7 @@ public final class BlockAccessListFlatDatabaseUpdater {
   public static void applyFromStoredBlockAccessLists(
       final Blockchain blockchain,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
+      final BonsaiWorldStateKeyValueStorage.Updater bonsaiUpdater,
       final long fromBlock,
       final long toBlock) {
     if (toBlock < fromBlock) {
@@ -51,12 +52,6 @@ public final class BlockAccessListFlatDatabaseUpdater {
           "Skipping BAL apply due to invalid block range: fromBlock={} toBlock={}",
           fromBlock,
           toBlock);
-      return;
-    }
-
-    if (!(worldStateStorageCoordinator.updater()
-        instanceof BonsaiWorldStateKeyValueStorage.Updater bonsaiUpdater)) {
-      LOG.warn("Skipping BAL apply because world state updater is not Bonsai-compatible");
       return;
     }
 
