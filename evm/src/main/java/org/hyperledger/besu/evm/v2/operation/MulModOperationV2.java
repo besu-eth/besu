@@ -50,33 +50,39 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
   public static OperationResult staticOperation(final MessageFrame frame, final long[] stack) {
     if (!frame.stackHasItems(3)) return UNDERFLOW_RESPONSE;
     int top = frame.stackTopV2();
-    mulMod(stack, top);
-    // consumed three items and produced one item
-    frame.setTopV2(top - 2);
+    final int aOffset = (--top) << 2;
+    final int bOffset = (--top) << 2;
+    final int mOffset = (--top) << 2;
+
+    mulMod(stack, aOffset, bOffset, mOffset);
+
+    frame.setTopV2(++top);
     return mulModSuccess;
   }
 
   /**
-   * Performs EVM MULMOD (modular multiplication) on the three top stack items.
+   * Performs EVM MULMOD (modular multiplication)
    *
-   * <p>MULMOD: mulmod(a,b,m) = (a * b) mod m
+   * <p>MULMOD: mulmod(a, b, m) = (a * b) mod m
    *
    * <p>MULMOD: stack[top-3] = (stack[top-1] * stack[top-2]) mod stack[top-3].
    *
    * @param stack the flat limb array
-   * @param top current stack-top (item count)
+   * @param aOffset the stack offset of the first multiplicand
+   * @param bOffset the stack offset of the second multiplicand
+   * @param mOffset the stack offset of the modulus
    */
-  private static void mulMod(final long[] stack, final int top) {
-    final int aOffset = (top - 1) << 2;
-    final int bOffset = (top - 2) << 2;
-    final int mOffset = (top - 3) << 2;
+  private static void mulMod(
+      final long[] stack, final int aOffset, final int bOffset, final int mOffset) {
     final UInt256 valueA =
         new UInt256(stack[aOffset], stack[aOffset + 1], stack[aOffset + 2], stack[aOffset + 3]);
     final UInt256 valueB =
         new UInt256(stack[bOffset], stack[bOffset + 1], stack[bOffset + 2], stack[bOffset + 3]);
     final UInt256 modulus =
         new UInt256(stack[mOffset], stack[mOffset + 1], stack[mOffset + 2], stack[mOffset + 3]);
+
     final UInt256 r = modulus.isZero() ? UInt256.ZERO : valueA.mulMod(valueB, modulus);
+
     stack[mOffset] = r.u3();
     stack[mOffset + 1] = r.u2();
     stack[mOffset + 2] = r.u1();
