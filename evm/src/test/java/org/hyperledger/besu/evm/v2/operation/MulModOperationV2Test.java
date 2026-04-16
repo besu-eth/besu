@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evm.v2.operation;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2.getV2StackItem;
 
 import org.hyperledger.besu.evm.UInt256;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
@@ -88,7 +89,7 @@ class MulModOperationV2Test {
         expectedResult.equals("0x") || expectedResult.equals("0x0")
             ? UInt256.ZERO
             : UInt256.fromBytesBE(Bytes32.fromHexStringLenient(expectedResult).toArrayUnsafe());
-    assertThat(getStackItem(frame, 0)).isEqualTo(expected);
+    assertThat(getV2StackItem(frame, 0)).isEqualTo(expected);
   }
 
   @Test
@@ -117,11 +118,5 @@ class MulModOperationV2Test {
 
     assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
     assertThat(frame.stackTopV2()).isEqualTo(2);
-  }
-
-  private static UInt256 getStackItem(final MessageFrame frame, final int offset) {
-    final long[] s = frame.stackDataV2();
-    final int idx = (frame.stackTopV2() - 1 - offset) << 2;
-    return new UInt256(s[idx], s[idx + 1], s[idx + 2], s[idx + 3]);
   }
 }
