@@ -579,11 +579,14 @@ public class BlockSimulator {
 
     Block block = new Block(finalBlockHeader, new BlockBody(transactions, List.of(), withdrawals));
 
-    // if we have a block-aware operation tracer, trace end block here
+    // if we have a block-aware operation tracer, trace end block here.
+    // Use finalBlockHeader (not the base blockHeader) so that the block hash seen by the tracer
+    // matches the header passed to trieLogFactory.create() below — otherwise Shomei's
+    // ZkBlockImportTracerProvider.compareWithTrace() cannot find the block.
     maybeBlockAwareOperationTracer.ifPresent(
         tracer -> {
-          LOG.trace("traceEndBlock sim for {}", blockHeader.toLogString());
-          tracer.traceEndBlock(blockHeader, block.getBody());
+          LOG.trace("traceEndBlock sim for {}", finalBlockHeader.toLogString());
+          tracer.traceEndBlock(finalBlockHeader, block.getBody());
         });
 
     if (returnTrieLog && ws instanceof PathBasedWorldState) {
