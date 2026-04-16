@@ -160,6 +160,45 @@ public class TransactionGasAccountingTest {
   }
 
   @Test
+  public void initialFrameRegularHaltBurn_excludedFromRegularGas() {
+    // EIP-3607 collision scenario: CREATE tx with gas_limit=600k halts at
+    // ContractCreationProcessor.start(). chargeCreateStateGas charged 131488 state gas
+    // (spilled into gasRemaining). At halt, gasRemaining=438012 was cleared by
+    // clearGasRemaining() and captured into initialFrameRegularHaltBurn.
+    // The sender still pays the full 600k via receipts, but block regular gas must
+    // only reflect intrinsic regular (i.e. 0 executionGas attributable to the frame
+    // beyond state gas and halt burn).
+    final var result =
+        baseBuilder()
+            .txGasLimit(600_000L)
+            .remainingGas(0L)
+            .stateGasReservoir(0L)
+            .stateGasUsed(131_488L)
+            .initialFrameRegularHaltBurn(438_012L)
+            .build()
+            .calculate();
+
+    // executionGas = 600k - 0 - 0 = 600000
+    // stateGas = 131_488 + 0 = 131_488
+    // regularGas = 600_000 - 131_488 - 0 - 438_012 = 30_500
+    // gasUsedByTransaction = max(30_500, 0) + 131_488 = 161_988
+    // usedGas = 600_000 - 0 = 600_000 (sender pays full gas_limit)
+    assertThat(result.effectiveStateGas()).isEqualTo(131_488L);
+    assertThat(result.gasUsedByTransaction()).isEqualTo(161_988L);
+    assertThat(result.usedGas()).isEqualTo(600_000L);
+  }
+
+  @Test
+  public void initialFrameRegularHaltBurn_defaultsToZero() {
+    // When not set (pre-Amsterdam or non-halt paths), the field should default to 0
+    // and have no effect on the calculation.
+    final var result = baseBuilder().txGasLimit(100_000L).remainingGas(30_000L).build().calculate();
+
+    // Same as normalPath_regularGasComputedCorrectly (without refund)
+    assertThat(result.gasUsedByTransaction()).isEqualTo(70_000L);
+  }
+
+  @Test
   public void build_failsWhenFieldMissing() {
     assertThatThrownBy(() -> TransactionGasAccounting.builder().txGasLimit(100_000L).build())
         .isInstanceOf(IllegalStateException.class)
