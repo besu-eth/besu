@@ -151,6 +151,6 @@ public class SarOperationBenchmarkV2 extends BinaryOperationBenchmarkV2 {
 
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {
-    return SarOperationV2.staticOperation(frame, frame.stackDataV2());
+    return SarOperationV2.staticOperation(frame);
   }
 }

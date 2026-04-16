@@ -62,6 +62,7 @@ abstract class AbstractHandshakeHandler extends SimpleChannelInboundHandler<Byte
   private final FramerProvider framerProvider;
   private final boolean inboundInitiated;
   private final PeerLookup peerLookup;
+  private final int maxMessageSize;
 
   AbstractHandshakeHandler(
       final List<SubProtocol> subProtocols,
@@ -73,7 +74,8 @@ abstract class AbstractHandshakeHandler extends SimpleChannelInboundHandler<Byte
       final HandshakerProvider handshakerProvider,
       final FramerProvider framerProvider,
       final boolean inboundInitiated,
-      final PeerLookup peerLookup) {
+      final PeerLookup peerLookup,
+      final int maxMessageSize) {
     this.subProtocols = subProtocols;
     this.localNode = localNode;
     this.expectedPeer = expectedPeer;
@@ -84,6 +86,7 @@ abstract class AbstractHandshakeHandler extends SimpleChannelInboundHandler<Byte
     this.framerProvider = framerProvider;
     this.inboundInitiated = inboundInitiated;
     this.peerLookup = peerLookup;
+    this.maxMessageSize = maxMessageSize;
   }
 
   /**
@@ -126,7 +129,8 @@ abstract class AbstractHandshakeHandler extends SimpleChannelInboundHandler<Byte
               connectionFuture,
               metricsSystem,
               inboundInitiated,
-              peerLookup);
+              peerLookup,
+              maxMessageSize);
 
       ctx.channel()
           .pipeline()
