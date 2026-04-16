@@ -328,6 +328,22 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         applyPartialBlockAccessView(
             transactionProcessingResult.getPartialBlockAccessView(), blockAccessListBuilder);
 
+        final Optional<BlockAccessListValidationError> balSizeErrorAfterTx =
+            blockAccessListBuilder.flatMap(
+                b ->
+                    protocolSpec
+                        .getBlockAccessListValidator()
+                        .validateExecutedBlockAccessListItemSize(
+                            b.eip7928ItemCount(), blockHeader, protocolSpec));
+        if (balSizeErrorAfterTx.isPresent()) {
+          final String errorMessage = balSizeErrorAfterTx.get().errorMessage();
+          LOG.error(errorMessage);
+          if (worldState instanceof BonsaiWorldState) {
+            ((BonsaiWorldStateUpdateAccumulator) blockUpdater).reset();
+          }
+          return new BlockProcessingResult(Optional.empty(), errorMessage);
+        }
+
         if (transactionProcessingResult.isInvalid()) {
           String errorMessage =
               MessageFormat.format(
@@ -492,34 +508,23 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       try {
         if (blockAccessListBuilder.isPresent()) {
           final BlockAccessList bal = blockAccessListBuilder.get().build();
-          final Optional<Hash> headerBalHash = block.getHeader().getBalHash();
-          if (headerBalHash.isPresent()) {
-            final Hash expectedHash = BodyValidation.balHash(bal);
-            if (!headerBalHash.get().equals(expectedHash)) {
-              final String errorMessage =
-                  String.format(
-                      "Block access list hash mismatch, calculated: %s header: %s",
-                      expectedHash.getBytes().toHexString(),
-                      headerBalHash.get().getBytes().toHexString());
-              LOG.error(errorMessage);
-
-              if (balConfiguration.shouldLogBalsOnMismatch()) {
-                final String constructedBalStr = bal.toString();
-                final String blockBalStr =
-                    blockAccessList.map(Object::toString).orElse("<no BAL present for block>");
-                LOG.error(
-                    "--- BAL constructed during execution ---\n{}\n"
-                        + "--- BAL supplied for block ---\n{}",
-                    constructedBalStr,
-                    blockBalStr);
-              }
-
-              if (worldState instanceof BonsaiWorldState) {
-                ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-              }
-              return new BlockProcessingResult(
-                  Optional.empty(), errorMessage, false, Optional.of(bal));
+          final Optional<BlockAccessListValidationError> constructedBalError =
+              protocolSpec
+                  .getBlockAccessListValidator()
+                  .validateExecutedBlockAccessListAfterBuild(
+                      bal,
+                      blockHeader,
+                      blockAccessList,
+                      balConfiguration.shouldLogBalsOnMismatch());
+          if (constructedBalError.isPresent()) {
+            if (worldState instanceof BonsaiWorldState) {
+              ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
             }
+            return new BlockProcessingResult(
+                Optional.empty(),
+                constructedBalError.get().errorMessage(),
+                false,
+                Optional.of(bal));
           }
           maybeBlockAccessList = Optional.of(bal);
           blockProcessingMetrics.recordBlockAccessListMetrics(bal);
@@ -527,7 +532,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           maybeBlockAccessList = Optional.empty();
         }
       } catch (Exception e) {
-        LOG.error("Error validating BAL hash", e);
+        LOG.error("Error validating block access list", e);
         if (worldState instanceof BonsaiWorldState) {
           ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
         }

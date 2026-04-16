@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import java.util.HashSet;
@@ -34,12 +35,6 @@ import org.slf4j.LoggerFactory;
 public class MainnetBlockAccessListValidator implements BlockAccessListValidator {
 
   private static final Logger LOG = LoggerFactory.getLogger(MainnetBlockAccessListValidator.class);
-
-  /** Canonical slot order (by slot key bytes), consistent with BlockAccessListBuilder. */
-  private static int compareSlotKeysByCanonicalOrder(
-      final StorageSlotKey a, final StorageSlotKey b) {
-    return a.getSlotKey().orElseThrow().toBytes().compareTo(b.getSlotKey().orElseThrow().toBytes());
-  }
 
   private final ProtocolSchedule protocolSchedule;
 
@@ -61,6 +56,65 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
    */
   public MainnetBlockAccessListValidator(final ProtocolSchedule protocolSchedule) {
     this.protocolSchedule = protocolSchedule;
+  }
+
+  @Override
+  public Optional<BlockAccessListValidationError> validateExecutedBlockAccessListItemSize(
+      final long itemCount, final ProcessableBlockHeader blockHeader) {
+    return validateExecutedBlockAccessListItemSize(
+        itemCount, blockHeader, protocolSchedule.getByBlockHeader(blockHeader));
+  }
+
+  @Override
+  public Optional<BlockAccessListValidationError> validateExecutedBlockAccessListItemSize(
+      final long itemCount,
+      final ProcessableBlockHeader blockHeader,
+      final ProtocolSpec protocolSpecForItemCost) {
+    final long itemCost = protocolSpecForItemCost.getGasCalculator().getBlockAccessListItemCost();
+    if (itemCost <= 0) {
+      return Optional.empty();
+    }
+    final long maxItems = blockHeader.getGasLimit() / itemCost;
+    if (itemCount <= maxItems) {
+      return Optional.empty();
+    }
+    final String blockRef =
+        blockHeader instanceof BlockHeader fullHeader
+            ? fullHeader.getBlockHash().toHexString()
+            : String.format("pending#%d", blockHeader.getNumber());
+    return Optional.of(
+        new BlockAccessListValidationError(
+            String.format(
+                "Block access list size exceeds maximum allowed items for block %s with gas limit %d"
+                    + " (items %d, max %d)",
+                blockRef, blockHeader.getGasLimit(), itemCount, maxItems)));
+  }
+
+  @Override
+  public Optional<BlockAccessListValidationError> validateExecutedBlockAccessListAfterBuild(
+      final BlockAccessList executedBal,
+      final BlockHeader blockHeader,
+      final Optional<BlockAccessList> suppliedBlockAccessList,
+      final boolean logBalDetailsOnHashMismatch) {
+    if (blockHeader.getBalHash().isEmpty()) {
+      return Optional.empty();
+    }
+    final Optional<BlockAccessListValidationError> sizeError =
+        validateExecutedBlockAccessListItemSize(
+            executedBal.eip7928ItemCount(),
+            blockHeader,
+            protocolSchedule.getByBlockHeader(blockHeader));
+    if (sizeError.isPresent()) {
+      LOG.error(sizeError.get().errorMessage());
+      return sizeError;
+    }
+
+    return balHashMismatchAgainstHeaderIfAny(
+        executedBal,
+        blockHeader.getBalHash(),
+        suppliedBlockAccessList,
+        logBalDetailsOnHashMismatch,
+        true);
   }
 
   @Override
@@ -86,34 +140,17 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
       return false;
     }
 
-    final Hash providedBalHash = BodyValidation.balHash(bal);
-    if (!headerBalHash.get().equals(providedBalHash)) {
-      LOG.warn(
-          "Block access list hash mismatch for block {}: provided={}, header={}",
-          blockHeader.getBlockHash(),
-          providedBalHash,
-          headerBalHash.get());
+    final Optional<BlockAccessListValidationError> lightSizeError =
+        validateExecutedBlockAccessListItemSize(
+            bal.eip7928ItemCount(), blockHeader, protocolSchedule.getByBlockHeader(blockHeader));
+    if (lightSizeError.isPresent()) {
+      LOG.warn(lightSizeError.get().errorMessage());
       return false;
     }
 
-    final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(blockHeader);
-    final long itemCost = protocolSpec.getGasCalculator().getBlockAccessListItemCost();
-    if (itemCost > 0) {
-      long totalStorageKeys = 0;
-      for (BlockAccessList.AccountChanges accountChange : bal.accountChanges()) {
-        totalStorageKeys += accountChange.storageChanges().size();
-        totalStorageKeys += accountChange.storageReads().size();
-      }
-      final long totalAddresses = bal.accountChanges().size();
-      final long balItems = totalStorageKeys + totalAddresses;
-      final long maxItems = blockHeader.getGasLimit() / itemCost;
-      if (balItems > maxItems) {
-        LOG.warn(
-            "Block access list size exceeds maximum allowed items for block {} with gas limit {}",
-            blockHeader.getBlockHash(),
-            blockHeader.getGasLimit());
-        return false;
-      }
+    if (balHashMismatchAgainstHeaderIfAny(bal, headerBalHash, Optional.empty(), false, false)
+        .isPresent()) {
+      return false;
     }
 
     final int maxIndex = nbTransactions + 1;
@@ -122,6 +159,56 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
     }
     LOG.trace("Block access list validated successfully for block {}", blockHeader.getNumber());
     return true;
+  }
+
+  private void logBalHashMismatch(
+      final String message,
+      final boolean logAsError,
+      final BlockAccessList balForDetails,
+      final Optional<BlockAccessList> supplied,
+      final boolean logDetails) {
+    if (logAsError) {
+      LOG.error(message);
+    } else {
+      LOG.warn(message);
+    }
+    if (logDetails) {
+      LOG.error(
+          "--- BAL constructed during execution ---\n{}\n--- BAL supplied for block ---\n{}",
+          balForDetails.toString(),
+          supplied.map(Object::toString).orElse("<no BAL present for block>"));
+    }
+  }
+
+  /**
+   * When the header carries a {@code balHash}, returns empty if it matches {@code bal}; otherwise
+   * logs and returns a {@link BlockAccessListValidationError}.
+   */
+  private Optional<BlockAccessListValidationError> balHashMismatchAgainstHeaderIfAny(
+      final BlockAccessList bal,
+      final Optional<Hash> headerBalHashOpt,
+      final Optional<BlockAccessList> suppliedBlockAccessList,
+      final boolean logBalDetailsOnHashMismatch,
+      final boolean logPrimaryMessageAsError) {
+    if (headerBalHashOpt.isEmpty()) {
+      return Optional.empty();
+    }
+    final Hash headerBalHash = headerBalHashOpt.get();
+    final Hash computedHash = BodyValidation.balHash(bal);
+    if (computedHash.equals(headerBalHash)) {
+      return Optional.empty();
+    }
+    final String errorMessage =
+        String.format(
+            "Block access list hash mismatch, calculated: %s header: %s",
+            computedHash.getBytes().toHexString(), headerBalHash.getBytes().toHexString());
+    logBalHashMismatch(
+        errorMessage,
+        logPrimaryMessageAsError,
+        bal,
+        suppliedBlockAccessList,
+        logBalDetailsOnHashMismatch);
+    return Optional.of(new BlockAccessListValidationError(errorMessage));
   }
 
   /**
@@ -294,5 +381,10 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
       }
     }
     return true;
+  }
+
+  /** Canonical slot order (by slot key bytes), consistent with BlockAccessListBuilder. */
+  private int compareSlotKeysByCanonicalOrder(final StorageSlotKey a, final StorageSlotKey b) {
+    return a.getSlotKey().orElseThrow().toBytes().compareTo(b.getSlotKey().orElseThrow().toBytes());
   }
 }
