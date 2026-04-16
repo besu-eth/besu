@@ -24,7 +24,6 @@ import static org.hyperledger.besu.config.NetworkDefinition.DEV;
 import static org.hyperledger.besu.config.NetworkDefinition.EPHEMERY;
 import static org.hyperledger.besu.config.NetworkDefinition.EXPERIMENTAL_EIPS;
 import static org.hyperledger.besu.config.NetworkDefinition.FUTURE_EIPS;
-import static org.hyperledger.besu.config.NetworkDefinition.HOLESKY;
 import static org.hyperledger.besu.config.NetworkDefinition.HOODI;
 import static org.hyperledger.besu.config.NetworkDefinition.LINEA_SEPOLIA;
 import static org.hyperledger.besu.config.NetworkDefinition.LUKSO;
@@ -1919,81 +1918,6 @@ public class BesuCommandTest extends CommandTestAbstract {
     assertThat(miningArg.getValue().getTargetGasLimit()).isEmpty();
 
     verify(mockLogger, never()).warn(contains("Hoodi is deprecated and will be shutdown"));
-  }
-
-  @Test
-  public void holeskyValuesAreUsed() {
-    parseCommand("--network", "holesky");
-
-    final ArgumentCaptor<EthNetworkConfig> networkArg =
-        ArgumentCaptor.forClass(EthNetworkConfig.class);
-    final ArgumentCaptor<MiningConfiguration> miningArg =
-        ArgumentCaptor.forClass(MiningConfiguration.class);
-
-    verify(mockControllerBuilderFactory).fromEthNetworkConfig(networkArg.capture(), any());
-    verify(mockControllerBuilder).miningParameters(miningArg.capture());
-    verify(mockControllerBuilder).build();
-
-    assertThat(networkArg.getValue()).isEqualTo(EthNetworkConfig.getNetworkConfig(HOLESKY));
-
-    assertThat(commandOutput.toString(UTF_8)).isEmpty();
-    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
-    assertThat(miningArg.getValue().getTargetGasLimit()).isEmpty();
-
-    verify(mockLogger).warn(contains("Holesky is deprecated and will be shutdown"));
-  }
-
-  @Test
-  public void holeskyTargetGasLimitIsSetToHoleskyDefaultWhenNoValueSpecified() {
-    parseCommand("--network", "holesky");
-
-    final ArgumentCaptor<EthNetworkConfig> networkArg =
-        ArgumentCaptor.forClass(EthNetworkConfig.class);
-
-    final ArgumentCaptor<MiningConfiguration> miningArg =
-        ArgumentCaptor.forClass(MiningConfiguration.class);
-
-    verify(mockControllerBuilderFactory).fromEthNetworkConfig(networkArg.capture(), any());
-    verify(mockControllerBuilder).miningParameters(miningArg.capture());
-    verify(mockControllerBuilder).build();
-
-    assertThat(networkArg.getValue()).isEqualTo(EthNetworkConfig.getNetworkConfig(HOLESKY));
-
-    assertThat(miningArg.getValue().getCoinbase()).isEqualTo(Optional.empty());
-    assertThat(miningArg.getValue().getMinTransactionGasPrice()).isEqualTo(Wei.of(1000));
-    assertThat(miningArg.getValue().getExtraData())
-        .isEqualTo(BesuVersionUtils.versionForExtraData());
-    assertThat(miningArg.getValue().getTargetGasLimit()).isEmpty();
-
-    assertThat(commandOutput.toString(UTF_8)).isEmpty();
-    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
-  }
-
-  @Test
-  public void holeskyTargetGasLimitIsSetToSpecifiedValueWhenValueSpecified() {
-    long customGasLimit = 99000000;
-    parseCommand("--network", "holesky", "--target-gas-limit", String.valueOf(customGasLimit));
-
-    final ArgumentCaptor<EthNetworkConfig> networkArg =
-        ArgumentCaptor.forClass(EthNetworkConfig.class);
-
-    final ArgumentCaptor<MiningConfiguration> miningArg =
-        ArgumentCaptor.forClass(MiningConfiguration.class);
-
-    verify(mockControllerBuilderFactory).fromEthNetworkConfig(networkArg.capture(), any());
-    verify(mockControllerBuilder).miningParameters(miningArg.capture());
-    verify(mockControllerBuilder).build();
-
-    assertThat(networkArg.getValue()).isEqualTo(EthNetworkConfig.getNetworkConfig(HOLESKY));
-
-    assertThat(miningArg.getValue().getCoinbase()).isEqualTo(Optional.empty());
-    assertThat(miningArg.getValue().getMinTransactionGasPrice()).isEqualTo(Wei.of(1000));
-    assertThat(miningArg.getValue().getExtraData())
-        .isEqualTo(BesuVersionUtils.versionForExtraData());
-    assertThat(miningArg.getValue().getTargetGasLimit().getAsLong()).isEqualTo(customGasLimit);
-
-    assertThat(commandOutput.toString(UTF_8)).isEmpty();
-    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 
   @Test
