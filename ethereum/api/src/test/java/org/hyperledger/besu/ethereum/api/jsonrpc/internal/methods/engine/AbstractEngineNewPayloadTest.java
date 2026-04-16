@@ -78,7 +78,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 public abstract class AbstractEngineNewPayloadTest extends AbstractScheduledApiTest {
 
-  protected AbstractEngineNewPayload method;
+  protected ExecutionEngineJsonRpcMethod method;
   protected Optional<Bytes32> maybeParentBeaconBlockRoot = Optional.empty();
 
   public AbstractEngineNewPayloadTest() {}

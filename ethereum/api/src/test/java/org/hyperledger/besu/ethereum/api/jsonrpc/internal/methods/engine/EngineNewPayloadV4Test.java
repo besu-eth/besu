@@ -187,11 +187,12 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
     final EnginePayloadParameter payload = mockEnginePayload(mockHeader, emptyList(), null);
 
     ValidationResult<RpcErrorType> res =
-        method.validateParameters(
-            payload,
-            Optional.of(List.of()),
-            Optional.of("0x0000000000000000000000000000000000000000000000000000000000000000"),
-            Optional.of(List.of()));
+        ((AbstractEngineNewPayload) method)
+            .validateParameters(
+                payload,
+                Optional.of(List.of()),
+                Optional.of("0x0000000000000000000000000000000000000000000000000000000000000000"),
+                Optional.of(List.of()));
     assertThat(res.isValid()).isTrue();
   }
 
@@ -205,11 +206,12 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
     final EnginePayloadParameter payload = mockEnginePayload(mockHeader, emptyList(), null);
 
     ValidationResult<RpcErrorType> res =
-        method.validateParameters(
-            payload,
-            Optional.of(List.of()),
-            Optional.of("0x0000000000000000000000000000000000000000000000000000000000000000"),
-            Optional.of(emptyList()));
+        ((AbstractEngineNewPayload) method)
+            .validateParameters(
+                payload,
+                Optional.of(List.of()),
+                Optional.of("0x0000000000000000000000000000000000000000000000000000000000000000"),
+                Optional.of(emptyList()));
     assertThat(res.isValid()).isTrue();
   }
 

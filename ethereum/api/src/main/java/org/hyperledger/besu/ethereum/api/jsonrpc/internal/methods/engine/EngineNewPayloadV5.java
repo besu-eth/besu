@@ -16,43 +16,47 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 
-import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadParameter;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListDecoder;
-import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
-import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
-import org.hyperledger.besu.plugin.services.MetricsSystem;
 
-import java.util.List;
 import java.util.Optional;
 
 import io.vertx.core.Vertx;
 import org.apache.tuweni.bytes.Bytes;
 
-public class EngineNewPayloadV5 extends AbstractEngineNewPayload {
+public class EngineNewPayloadV5 extends ExecutionEngineJsonRpcMethod {
+
+  private static final NewPayloadRules RULES =
+      NewPayloadRules.builder()
+          .forkWindow(ForkWindow.from(AMSTERDAM))
+          .blobGasUsed(FieldPresence.REQUIRED)
+          .excessBlobGas(FieldPresence.REQUIRED)
+          .versionedHashes(FieldPresence.REQUIRED)
+          .parentBeaconBlockRoot(FieldPresence.REQUIRED)
+          .executionRequests(FieldPresence.REQUIRED)
+          .slotNumber(FieldPresence.REQUIRED)
+          .blobValidation(BlobValidationMode.STANDARD)
+          .blockAccessListExtractor(EngineNewPayloadV5::decodeBlockAccessList)
+          .build();
+
+  private final NewPayloadProcessor processor;
 
   public EngineNewPayloadV5(
       final Vertx vertx,
-      final ProtocolSchedule timestampSchedule,
+      final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
-      final MergeMiningCoordinator mergeCoordinator,
-      final EthPeers ethPeers,
       final EngineCallListener engineCallListener,
-      final MetricsSystem metricsSystem) {
-    super(
-        vertx,
-        timestampSchedule,
-        protocolContext,
-        mergeCoordinator,
-        ethPeers,
-        engineCallListener,
-        metricsSystem);
+      final NewPayloadProcessor processor) {
+    super(vertx, protocolSchedule, protocolContext, engineCallListener);
+    this.processor = processor;
   }
 
   @Override
@@ -61,36 +65,12 @@ public class EngineNewPayloadV5 extends AbstractEngineNewPayload {
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateParameters(
-      final EnginePayloadParameter payloadParameter,
-      final Optional<List<String>> maybeVersionedHashParam,
-      final Optional<String> maybeBeaconBlockRootParam,
-      final Optional<List<String>> maybeRequestsParam) {
-    if (payloadParameter.getBlobGasUsed() == null) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_BLOB_GAS_USED_PARAMS, "Missing blob gas used field");
-    } else if (payloadParameter.getExcessBlobGas() == null) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_EXCESS_BLOB_GAS_PARAMS, "Missing excess blob gas field");
-    } else if (maybeVersionedHashParam == null || maybeVersionedHashParam.isEmpty()) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_VERSIONED_HASH_PARAMS, "Missing versioned hashes field");
-    } else if (maybeBeaconBlockRootParam.isEmpty()) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_PARENT_BEACON_BLOCK_ROOT_PARAMS,
-          "Missing parent beacon block root field");
-    } else if (maybeRequestsParam.isEmpty()) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS, "Missing execution requests field");
-    } else if (payloadParameter.getSlotNumber() == null) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_SLOT_NUMBER_PARAMS, "Missing slot number field");
-    }
-    return ValidationResult.valid();
+  public JsonRpcResponse syncResponse(final JsonRpcRequestContext requestContext) {
+    engineCallListener.executionEngineCalled();
+    return processor.process(requestContext, RULES);
   }
 
-  @Override
-  protected Optional<BlockAccessList> extractBlockAccessList(
+  private static Optional<BlockAccessList> decodeBlockAccessList(
       final EnginePayloadParameter payloadParameter) throws InvalidBlockAccessListException {
     final String blockAccessList = payloadParameter.getBlockAccessList();
     if (blockAccessList == null || blockAccessList.isEmpty()) {
@@ -107,10 +87,5 @@ public class EngineNewPayloadV5 extends AbstractEngineNewPayload {
     } catch (final RuntimeException e) {
       throw new InvalidBlockAccessListException("Invalid block access list encoding", e);
     }
-  }
-
-  @Override
-  protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    return ForkSupportHelper.validateForkSupported(AMSTERDAM, amsterdamMilestone, blockTimestamp);
   }
 }
