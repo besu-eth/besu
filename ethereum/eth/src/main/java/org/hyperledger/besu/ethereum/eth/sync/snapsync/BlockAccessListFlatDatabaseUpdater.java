@@ -141,9 +141,13 @@ public final class BlockAccessListFlatDatabaseUpdater {
       if (value.equals(UInt256.ZERO)) {
         bonsaiUpdater.removeStorageValueBySlotHash(accountHash, slotHash);
       } else {
-        bonsaiUpdater.putStorageValueBySlotHash(accountHash, slotHash, value.toBytes());
+        bonsaiUpdater.putStorageValueBySlotHash(accountHash, slotHash, encodeStorageValue(value));
       }
     }
+  }
+
+  private static Bytes encodeStorageValue(final UInt256 storageValue) {
+    return Bytes32.leftPad(storageValue.toMinimalBytes());
   }
 
   private static long resolveUpdatedNonce(

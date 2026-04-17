@@ -41,6 +41,7 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 
@@ -114,7 +115,7 @@ class BlockAccessListFlatDatabaseUpdaterTest {
 
     assertThat(storage.getCode(Hash.hash(updatedCode), accountHash)).contains(updatedCode);
     assertThat(storage.getStorageValueByStorageSlotKey(accountHash, updatedSlot))
-        .contains(UInt256.valueOf(99).toBytes());
+        .contains(Bytes32.leftPad(UInt256.valueOf(99).toMinimalBytes()));
     assertThat(storage.getStorageValueByStorageSlotKey(accountHash, removedSlot)).isEmpty();
   }
 
