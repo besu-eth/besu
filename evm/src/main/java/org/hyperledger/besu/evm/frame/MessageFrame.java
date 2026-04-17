@@ -520,7 +520,7 @@ public class MessageFrame {
    * @param n the number of items required
    * @return true if the stack contains at least n items
    */
-  public boolean stackHasItems(final int n) {
+  public boolean stackHasItemsV2(final int n) {
     return stackTopV2 >= n;
   }
 
