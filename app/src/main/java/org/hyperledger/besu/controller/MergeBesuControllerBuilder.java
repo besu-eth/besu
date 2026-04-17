@@ -107,7 +107,10 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
 
     var mergeBestPeerComparator =
         new TransitionBestPeerComparator(
-            genesisConfigOptions.getTerminalTotalDifficulty().map(Difficulty::of).orElseThrow());
+            genesisConfigOptions
+                .getTerminalTotalDifficulty()
+                .map(Difficulty::of)
+                .orElse(Difficulty.ZERO));
     ethPeers.setBestPeerComparator(mergeBestPeerComparator);
     mergeContext.observeNewIsPostMergeState(mergeBestPeerComparator);
 

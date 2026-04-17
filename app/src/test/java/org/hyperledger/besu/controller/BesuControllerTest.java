@@ -191,4 +191,25 @@ public class BesuControllerTest {
 
     assertThat(besuControllerBuilder).isInstanceOf(TransitionBesuControllerBuilder.class);
   }
+
+  @Test
+  public void missingConsensusMechanismFallsBackToPoS() {
+    final String emptyConsensusGenesis =
+        """
+        {
+          "config": {},
+          "nonce": "0x0",
+          "timestamp": "0x0",
+          "gasLimit": "0x1388",
+          "difficulty": "0x400",
+          "alloc": {}
+        }
+        """;
+    final GenesisConfig genesis = GenesisConfig.fromConfig(emptyConsensusGenesis);
+
+    final BesuControllerBuilder besuControllerBuilder =
+        new BesuController.Builder().fromGenesisFile(genesis, SyncMode.FULL);
+
+    assertThat(besuControllerBuilder).isInstanceOf(MergeBesuControllerBuilder.class);
+  }
 }

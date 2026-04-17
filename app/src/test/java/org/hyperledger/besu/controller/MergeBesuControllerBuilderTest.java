@@ -213,6 +213,20 @@ public class MergeBesuControllerBuilderTest {
   }
 
   @Test
+  public void buildsWhenTerminalTotalDifficultyIsAbsent() {
+    when(genesisConfigOptions.getTerminalTotalDifficulty()).thenReturn(Optional.empty());
+
+    final Difficulty terminalTotalDifficulty =
+        visitWithMockConfigs(new MergeBesuControllerBuilder())
+            .build()
+            .getProtocolContext()
+            .getConsensusContext(MergeContext.class)
+            .getTerminalTotalDifficulty();
+
+    assertThat(terminalTotalDifficulty).isEqualTo(Difficulty.ZERO);
+  }
+
+  @Test
   public void assertConfiguredBlock() {
     final Blockchain mockChain = mock(Blockchain.class);
     when(mockChain.getBlockHeader(anyLong())).thenReturn(Optional.of(mock(BlockHeader.class)));
