@@ -1,12 +1,5 @@
 name: docker develop build and test only
 
-# NOTE: This workflow intentionally does not define env.registry (unlike develop.yml).
-# For fork PRs, secrets are not available, so DOCKER_ORG is empty and the Gradle
-# build falls back to default values. For non-fork PRs (branches on the main repo),
-# the DOCKER_ORG secret is available but env.registry is empty, producing an invalid
-# Docker tag (e.g. "/<org>/besu:develop") which causes the build to fail.
-# This is by design — all PRs should be created from forks, not from repo branches.
-
 on:
   pull_request:
     branches:
@@ -21,23 +14,14 @@ jobs:
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Set up Java
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
-        with:
-          distribution: temurin
-          java-version: 21
-      - name: setup gradle
-        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
-        with:
-          cache-disabled: true
 
       - name: hadoLint
         run: docker run --rm -i hadolint/hadolint < docker/Dockerfile
+
   buildDocker:
     needs: hadolint
     permissions:
       contents: read
-      packages: write
 
     strategy:
       fail-fast: false
@@ -58,29 +42,49 @@ jobs:
             echo "PLATFORM_PAIR=linux-arm64" >> $GITHUB_OUTPUT
             echo "ARCH=arm64" >> $GITHUB_OUTPUT
           fi
-
-          # Get the current date and time in the format YY.MM
-          DATE_TIME=$(date +"%y.%-m")
-          # Get the short SHA of the merge commit
-          SHORT_SHA=${GITHUB_SHA::7}
-          # Construct the build target name
-          BUILD_TARGET_NAME="${DATE_TIME}-develop-${SHORT_SHA}"
-          echo "Build Target Name: $BUILD_TARGET_NAME"
-          # Set the build target name as an environment variable
-          echo "BUILD_TARGET_NAME=${BUILD_TARGET_NAME}" >> $GITHUB_ENV
+          echo "build-date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
 
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
       - name: Set up Java
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           distribution: temurin
           java-version: 21
-      - name: setup gradle
+
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
           cache-disabled: true
-      - name: build and test docker
+
+      - name: Stage Docker build context
+        run: ./gradlew --no-daemon distDockerCopy
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build and load for testing
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        env:
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: build/docker-besu
+          load: true
+          build-args: |
+            VERSION=dev-pr
+            VCS_REF=${{ github.sha }}
+            BUILD_DATE=${{ steps.prep.outputs.build-date }}
+          tags: hyperledger/besu:test-${{ steps.prep.outputs.ARCH }}
+          cache-from: type=gha,scope=develop-pr-build-${{ steps.prep.outputs.ARCH }}
+          cache-to: type=gha,mode=max,scope=develop-pr-build-${{ steps.prep.outputs.ARCH }}
+
+      - name: Download Goss binaries
+        run: ./gradlew --no-daemon downloadGossBinaries
+
+      - name: Run Docker tests
         env:
           architecture: ${{ steps.prep.outputs.ARCH }}
-        run: ./gradlew --no-daemon testDocker -PdockerOrgName=${{ env.registry }}/${{ secrets.DOCKER_ORG }} -Pversion=${{ env.BUILD_TARGET_NAME}} -Prelease.releaseVersion=develop
+        run: |
+          mkdir -p docker/reports
+          cd docker && ./test.sh hyperledger/besu:test-${{ steps.prep.outputs.ARCH }}
