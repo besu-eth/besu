@@ -530,7 +530,7 @@ public class MessageFrame {
    * @param n the number of additional items
    * @return true if the stack can accommodate n more items
    */
-  public boolean stackHasSpace(final int n) {
+  public boolean stackHasSpaceV2(final int n) {
     return stackTopV2 + n <= stackMaxSizeV2;
   }
 
