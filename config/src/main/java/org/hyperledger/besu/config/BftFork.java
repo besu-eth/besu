@@ -109,8 +109,8 @@ public class BftFork implements Fork {
    * Gets empty block period seconds.
    *
    * <p>If both the new and deprecated keys are set in this fork config, the new key wins and a
-   * deprecation warning is emitted. If only the deprecated key is set, it is used and a
-   * deprecation warning is emitted.
+   * deprecation warning is emitted. If only the deprecated key is set, it is used and a deprecation
+   * warning is emitted.
    *
    * @return the empty block period seconds
    */

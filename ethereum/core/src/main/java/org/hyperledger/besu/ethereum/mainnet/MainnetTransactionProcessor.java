@@ -508,7 +508,7 @@ public class MainnetTransactionProcessor {
       final Wei balancePriorToRefund = sender.getBalance();
       sender.incrementBalance(refundedWei);
       LOG.atTrace()
-          .setMessage("refunded sender {}  {} wei ({} -> {})")change
+          .setMessage("refunded sender {}  {} wei ({} -> {})")
           .addArgument(senderAddress)
           .addArgument(refundedWei)
           .addArgument(balancePriorToRefund)
