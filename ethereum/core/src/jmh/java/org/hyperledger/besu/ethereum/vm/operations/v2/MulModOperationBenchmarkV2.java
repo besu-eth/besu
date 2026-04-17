@@ -12,20 +12,20 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.vm.operations;
+package org.hyperledger.besu.ethereum.vm.operations.v2;
 
+import org.hyperledger.besu.evm.UInt256;
 import org.hyperledger.besu.evm.frame.MessageFrame;
-import org.hyperledger.besu.evm.operation.MulModOperationOptimized;
 import org.hyperledger.besu.evm.operation.Operation;
+import org.hyperledger.besu.evm.v2.operation.MulModOperationV2;
 
 import java.util.concurrent.ThreadLocalRandom;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Setup;
 
-public class MulModOperationBenchmark extends TernaryOperationBenchmark {
+public class MulModOperationBenchmarkV2 extends TernaryOperationBenchmarkV2 {
 
   // Benches for (a * b) % m
 
@@ -132,12 +132,12 @@ public class MulModOperationBenchmark extends TernaryOperationBenchmark {
   @Setup(Level.Iteration)
   @Override
   public void setUp() {
-    frame = BenchmarkHelper.createMessageCallFrame();
+    frame = BenchmarkHelperV2.createMessageCallFrame();
 
-    Case scenario = Case.valueOf(caseName);
-    aPool = new Bytes[SAMPLE_SIZE];
-    bPool = new Bytes[SAMPLE_SIZE];
-    mPool = new Bytes[SAMPLE_SIZE];
+    MulModOperationBenchmarkV2.Case scenario = MulModOperationBenchmarkV2.Case.valueOf(caseName);
+    aPool = new UInt256[SAMPLE_SIZE];
+    bPool = new UInt256[SAMPLE_SIZE];
+    mPool = new UInt256[SAMPLE_SIZE];
 
     final ThreadLocalRandom random = ThreadLocalRandom.current();
     int aSize;
@@ -158,15 +158,15 @@ public class MulModOperationBenchmark extends TernaryOperationBenchmark {
       random.nextBytes(a);
       random.nextBytes(b);
       random.nextBytes(m);
-      aPool[i] = Bytes.wrap(a);
-      bPool[i] = Bytes.wrap(b);
-      mPool[i] = Bytes.wrap(m);
+      aPool[i] = BenchmarkHelperV2.bytesToUInt256(a);
+      bPool[i] = BenchmarkHelperV2.bytesToUInt256(b);
+      mPool[i] = BenchmarkHelperV2.bytesToUInt256(m);
     }
     index = 0;
   }
 
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {
-    return MulModOperationOptimized.staticOperation(frame);
+    return MulModOperationV2.staticOperation(frame, frame.stackDataV2());
   }
 }

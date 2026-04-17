@@ -133,7 +133,7 @@ public class AddModOperationBenchmark extends TernaryOperationBenchmark {
     Case scenario = Case.valueOf(caseName);
     aPool = new Bytes[SAMPLE_SIZE];
     bPool = new Bytes[SAMPLE_SIZE];
-    cPool = new Bytes[SAMPLE_SIZE];
+    mPool = new Bytes[SAMPLE_SIZE];
 
     final ThreadLocalRandom random = ThreadLocalRandom.current();
     int aSize;
@@ -156,7 +156,7 @@ public class AddModOperationBenchmark extends TernaryOperationBenchmark {
       random.nextBytes(c);
       aPool[i] = Bytes.wrap(a);
       bPool[i] = Bytes.wrap(b);
-      cPool[i] = Bytes.wrap(c);
+      mPool[i] = Bytes.wrap(c);
     }
     index = 0;
   }
