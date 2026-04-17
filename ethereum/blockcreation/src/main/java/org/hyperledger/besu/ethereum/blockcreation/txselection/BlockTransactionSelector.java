@@ -229,7 +229,6 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     final long startTime = System.nanoTime();
 
     selectorsStateManager.blockSelectionStarted();
-    resetBalScratchStateForNewSelection();
 
     pluginTimeLimitedSelection(candidatePendingTransactions, startTime);
 
@@ -517,7 +516,6 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
    */
   public TransactionSelectionResults evaluateTransactions(final List<Transaction> transactions) {
     selectorsStateManager.blockSelectionStarted();
-    resetBalScratchStateForNewSelection();
 
     transactions.forEach(
         transaction -> evaluateTransaction(new PendingTransaction.Local.Priority(transaction)));
@@ -687,10 +685,6 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     }
     return pluginTransactionSelector.evaluateTransactionPostProcessing(
         evaluationContext, processingResult);
-  }
-
-  private void resetBalScratchStateForNewSelection() {
-    currentTxnLocation.set(0);
   }
 
   /**
