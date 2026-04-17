@@ -26,6 +26,7 @@
 - Plugin API
   - `PluginTransactionSelectorFactory.create(final SelectorsStateManager selectorsStateManager)` is deprecated for removal
 - `--Xmax-tracked-seen-txs-per-peer` renamed to `--Xmax-tracked-seen-txs` (old name kept as deprecated alias will be removed in a future release)
+- BFT genesis/transition config option `xemptyblockperiodseconds` has been renamed to `emptyblockperiodseconds`. The old name continues to work as a deprecated alias and will be removed in a future release. If both are set, `emptyblockperiodseconds` wins and a warning is logged.
 - Besu will require Java JDK 25 to build and run in a future release.
 
 ### Bug fixes
