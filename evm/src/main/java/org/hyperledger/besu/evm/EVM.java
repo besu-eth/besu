@@ -54,6 +54,7 @@ import org.hyperledger.besu.evm.operation.ModOperationOptimized;
 import org.hyperledger.besu.evm.operation.MulModOperation;
 import org.hyperledger.besu.evm.operation.MulModOperationOptimized;
 import org.hyperledger.besu.evm.operation.MulOperation;
+import org.hyperledger.besu.evm.operation.MulOperationOptimized;
 import org.hyperledger.besu.evm.operation.NotOperation;
 import org.hyperledger.besu.evm.operation.NotOperationOptimized;
 import org.hyperledger.besu.evm.operation.Operation;
@@ -79,13 +80,18 @@ import org.hyperledger.besu.evm.operation.ShrOperationOptimized;
 import org.hyperledger.besu.evm.operation.SignExtendOperation;
 import org.hyperledger.besu.evm.operation.StopOperation;
 import org.hyperledger.besu.evm.operation.SubOperation;
+import org.hyperledger.besu.evm.operation.SubOperationOptimized;
 import org.hyperledger.besu.evm.operation.SwapNOperation;
 import org.hyperledger.besu.evm.operation.SwapOperation;
 import org.hyperledger.besu.evm.operation.VirtualOperation;
 import org.hyperledger.besu.evm.operation.XorOperation;
 import org.hyperledger.besu.evm.operation.XorOperationOptimized;
-import org.hyperledger.besu.evm.operation.v2.AddOperationV2;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.v2.operation.AddOperationV2;
+import org.hyperledger.besu.evm.v2.operation.MulModOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SarOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ShlOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ShrOperationV2;
 
 import java.util.Optional;
 import java.util.function.Function;
@@ -251,8 +257,14 @@ public class EVM {
                   evmConfiguration.enableOptimizedOpcodes()
                       ? AddOperationOptimized.staticOperation(frame)
                       : AddOperation.staticOperation(frame);
-              case 0x02 -> MulOperation.staticOperation(frame);
-              case 0x03 -> SubOperation.staticOperation(frame);
+              case 0x02 ->
+                  evmConfiguration.enableOptimizedOpcodes()
+                      ? MulOperationOptimized.staticOperation(frame)
+                      : MulOperation.staticOperation(frame);
+              case 0x03 ->
+                  evmConfiguration.enableOptimizedOpcodes()
+                      ? SubOperationOptimized.staticOperation(frame)
+                      : SubOperation.staticOperation(frame);
               case 0x04 ->
                   evmConfiguration.enableOptimizedOpcodes()
                       ? DivOperationOptimized.staticOperation(frame)
@@ -477,6 +489,19 @@ public class EVM {
         result =
             switch (opcode) {
               case 0x01 -> AddOperationV2.staticOperation(frame, frame.stackDataV2());
+              case 0x09 -> MulModOperationV2.staticOperation(frame, frame.stackDataV2());
+              case 0x1b ->
+                  enableConstantinople
+                      ? ShlOperationV2.staticOperation(frame)
+                      : InvalidOperation.invalidOperationResult(opcode);
+              case 0x1c ->
+                  enableConstantinople
+                      ? ShrOperationV2.staticOperation(frame)
+                      : InvalidOperation.invalidOperationResult(opcode);
+              case 0x1d ->
+                  enableConstantinople
+                      ? SarOperationV2.staticOperation(frame)
+                      : InvalidOperation.invalidOperationResult(opcode);
               // TODO: implement remaining opcodes in v2; until then fall through to v1
               default -> {
                 frame.setCurrentOperation(currentOperation);

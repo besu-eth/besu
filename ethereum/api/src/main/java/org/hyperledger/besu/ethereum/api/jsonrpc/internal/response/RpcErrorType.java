@@ -186,7 +186,7 @@ public enum RpcErrorType implements RpcMethodError {
   EXECUTION_HALTED(-32000, "Transaction processing could not be completed due to an exception"),
 
   // Execution engine failures
-  UNKNOWN_PAYLOAD(-32001, "Payload does not exist / is not available"),
+  UNKNOWN_PAYLOAD(-38001, "Unknown payload"),
   INVALID_TERMINAL_BLOCK(-32002, "Terminal block doesn't satisfy terminal block conditions"),
   INVALID_FORKCHOICE_STATE(-38002, "Invalid forkchoice state"),
   INVALID_PAYLOAD_ATTRIBUTES(-38003, "Invalid payload attributes"),
@@ -210,6 +210,7 @@ public enum RpcErrorType implements RpcMethodError {
   // Debug failures
   BLOCK_NOT_FOUND(-32000, "Block not found"),
   PARENT_BLOCK_NOT_FOUND(-32000, "Parent block not found"),
+  GENESIS_BLOCK_NOT_TRACEABLE(-32000, "genesis is not traceable"),
 
   // Permissioning/Account allowlist errors
   ACCOUNT_ALLOWLIST_NOT_ENABLED(-32000, "Account allowlist has not been enabled"),

@@ -109,8 +109,6 @@ public class SECP256R1Test {
         LocalDateTime.now(ZoneId.systemDefault())
             .format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
     suiteName(SECP256R1Test.class);
-
-    SignatureAlgorithmFactory.setInstance(SignatureAlgorithmType.create("secp256r1"));
   }
 
   @BeforeEach

@@ -23,6 +23,7 @@ import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import org.apache.tuweni.bytes.Bytes;
 
 @JsonPropertyOrder({"gas", "failed", "returnValue", "structLogs"})
 public class OpCodeLoggerTracerResult {
@@ -34,7 +35,8 @@ public class OpCodeLoggerTracerResult {
 
   public OpCodeLoggerTracerResult(final TransactionTrace transactionTrace) {
     gas = transactionTrace.getGas();
-    returnValue = transactionTrace.getResult().getOutput().toString().substring(2);
+    final Bytes output = transactionTrace.getResult().getOutput();
+    returnValue = output.isEmpty() ? "" : output.toHexString();
     structLogs = new ArrayList<>(transactionTrace.getTraceFrames().size());
     transactionTrace.getTraceFrames().parallelStream()
         .map(OpCodeLoggerTracerResult::createStructLog)

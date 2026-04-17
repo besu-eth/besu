@@ -20,14 +20,11 @@ import org.hyperledger.besu.config.BlobSchedule;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
-import org.hyperledger.besu.evm.gascalculator.OsakaGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.PragueGasCalculator;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.OptionalInt;
 
-import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -147,47 +144,6 @@ class CancunTargetingGasLimitCalculatorTest {
     assertThat(pragueTargetingGasLimitCalculator.currentBlobGasLimit()).isEqualTo(1310720);
   }
 
-  long nineBlobTargetGas = TARGET_BLOB_GAS_PER_BLOCK_OSAKA;
-  int newTargetCount = 9;
-  public static final OsakaGasCalculator osakaGasCalculator = new OsakaGasCalculator();
-  // CancunTargetingGasLimitCalculator with Osaka numbers
-  private final OsakaTargetingGasLimitCalculator osakaGasLimitCalculator =
-      new OsakaTargetingGasLimitCalculator(
-          0L,
-          FeeMarket.cancunDefault(0L, Optional.empty()),
-          osakaGasCalculator,
-          BlobSchedule.PRAGUE_DEFAULT.getMax(),
-          newTargetCount,
-          OptionalInt.empty(),
-          OptionalInt.empty());
-
-  private static final long TARGET_BLOB_GAS_PER_BLOCK_OSAKA = 0x120000;
-
-  @ParameterizedTest(name = "{index} - parent gas {0}, used gas {1}, blob target {2}")
-  @MethodSource("osakaBlobGasses")
-  public void shouldCalculateOsakaExcessBlobGasCorrectly(
-      final long parentExcess, final long used, final long expected) {
-    final long usedBlobGas = osakaGasCalculator.blobGasCost(used);
-    assertThat(osakaGasLimitCalculator.computeExcessBlobGas(parentExcess, usedBlobGas, 0L))
-        .isEqualTo(expected);
-  }
-
-  Iterable<Arguments> osakaBlobGasses() {
-
-    return List.of(
-        // New target count
-        Arguments.of(0L, 0L, 0L),
-        Arguments.of(nineBlobTargetGas, 0L, 0L),
-        Arguments.of(newTargetCount, 0L, 0L),
-        Arguments.of(0L, newTargetCount, 0L),
-        Arguments.of(1L, newTargetCount, 1L),
-        Arguments.of(
-            osakaGasCalculator.blobGasCost(newTargetCount),
-            1L,
-            osakaGasLimitCalculator.getBlobGasPerBlob()),
-        Arguments.of(nineBlobTargetGas, newTargetCount, nineBlobTargetGas));
-  }
-
   @Test
   void cancunDefaultGasLimit() {
     GasLimitCalculator gasLimitCalculator =
@@ -212,12 +168,5 @@ class CancunTargetingGasLimitCalculatorTest {
             BlobSchedule.PRAGUE_DEFAULT.getTarget());
     assertThat(gasLimitCalculator.currentBlobGasLimit()).isEqualTo(0x120000); // 9 * 131072
     assertThat(gasLimitCalculator.transactionBlobGasLimitCap()).isEqualTo(0x120000); // 9 * 131072
-  }
-
-  @Test
-  void dryRunDetector() {
-    Assertions.assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

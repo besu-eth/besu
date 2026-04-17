@@ -39,7 +39,7 @@ public abstract class FlatDbStrategyProvider {
   protected final MetricsSystem metricsSystem;
   protected final DataStorageConfiguration dataStorageConfiguration;
   protected FlatDbMode flatDbMode;
-  protected FlatDbStrategy flatDbStrategy;
+  protected volatile FlatDbStrategy flatDbStrategy;
 
   public FlatDbStrategyProvider(
       final MetricsSystem metricsSystem, final DataStorageConfiguration dataStorageConfiguration) {

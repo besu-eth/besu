@@ -258,8 +258,7 @@ public class BonsaiArchiverTests {
         .then(
             request -> {
               Object objHeader = request.getArgument(0, Optional.class).get();
-              if (objHeader instanceof BlockHeader) {
-                BlockHeader blockHeader = (BlockHeader) objHeader;
+              if (objHeader instanceof BlockHeader blockHeader) {
                 if (blockHeader.getNumber() == 101) {
                   // Mock 1 state change when block 102 is being processed, because state changes in
                   // block 101 can be archived NB: the trie log in this test for block 102 isn't
@@ -380,8 +379,7 @@ public class BonsaiArchiverTests {
         .then(
             request -> {
               Object objHeader = request.getArgument(0, Optional.class).get();
-              if (objHeader instanceof BlockHeader) {
-                BlockHeader blockHeader = (BlockHeader) objHeader;
+              if (objHeader instanceof BlockHeader blockHeader) {
                 if (blockHeader.getNumber() == 101 || blockHeader.getNumber() == 102) {
                   // Mock 1 state change when block 102 is being processed, because state changes in
                   // block 101 can be archived (and likewise for block 103). NB: the trie log in
@@ -526,8 +524,7 @@ public class BonsaiArchiverTests {
         .then(
             request -> {
               Object objHeader = request.getArgument(0, Optional.class).get();
-              if (objHeader instanceof BlockHeader) {
-                BlockHeader blockHeader = (BlockHeader) objHeader;
+              if (objHeader instanceof BlockHeader blockHeader) {
                 if (blockHeader.getNumber() == 101 || blockHeader.getNumber() == 102) {
                   // Mock 1 storage change when block 102 is being processed, because state changes
                   // in block 101 can be archived (and likewise for block 103). NB: the trie log in
@@ -544,8 +541,7 @@ public class BonsaiArchiverTests {
         .then(
             request -> {
               Object objHeader = request.getArgument(0, Optional.class).get();
-              if (objHeader instanceof BlockHeader) {
-                BlockHeader blockHeader = (BlockHeader) objHeader;
+              if (objHeader instanceof BlockHeader blockHeader) {
                 if (blockHeader.getNumber() == 101) {
                   // Mock 1 state change when block 102 is being processed, because state changes in
                   // block 101 can be archived
@@ -671,6 +667,8 @@ public class BonsaiArchiverTests {
     final BonsaiReferenceTestWorldStateStorage testWorldStateStorage =
         new BonsaiReferenceTestWorldStateStorage(bonsaiWorldStateKeyValueStorage, preImageProxy);
 
+    // Simulate post-migration state: archive migration has completed, mode is ARCHIVE
+    bonsaiWorldStateKeyValueStorage.upgradeToArchiveFlatDbMode();
     assertThat(testWorldStateStorage.getFlatDbMode()).isEqualTo(FlatDbMode.ARCHIVE);
 
     // Assume we've archived up to block 150L i.e. we're up to date with the chain head
@@ -911,6 +909,8 @@ public class BonsaiArchiverTests {
     final BonsaiReferenceTestWorldStateStorage testWorldStateStorage =
         new BonsaiReferenceTestWorldStateStorage(bonsaiWorldStateKeyValueStorage, preImageProxy);
 
+    // Simulate post-migration state: archive migration has completed, mode is ARCHIVE
+    bonsaiWorldStateKeyValueStorage.upgradeToArchiveFlatDbMode();
     assertThat(testWorldStateStorage.getFlatDbMode()).isEqualTo(FlatDbMode.ARCHIVE);
 
     // Assume we've archived up to block 150L i.e. we're up to date with the chain head

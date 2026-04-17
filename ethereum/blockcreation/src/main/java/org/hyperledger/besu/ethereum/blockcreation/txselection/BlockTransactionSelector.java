@@ -246,8 +246,12 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
 
   private Map<PendingTransaction, TransactionSelectionResult> internalTimeLimitedSelection(
       final List<PendingTransaction> candidateTransactions, final long remainingSelectionTime) {
+    final long startTimeNanos = System.nanoTime();
+
     validTxSelectionTimeoutResult = BLOCK_SELECTION_TIMEOUT;
     invalidTxSelectionTimeoutResult = BLOCK_SELECTION_TIMEOUT_INVALID_TX;
+
+    final CountDownLatch internalSelectionDone = new CountDownLatch(1);
 
     final var selectionResults =
         new ConcurrentHashMap<PendingTransaction, TransactionSelectionResult>(
@@ -256,36 +260,43 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     currTxSelectionTask =
         new FutureTask<>(
             () -> {
-              LOG.atDebug()
-                  .setMessage(
-                      "Starting internal pool transaction selection, run time capped at {}ms, stats {}")
-                  .addArgument(() -> nanosToMillis(remainingSelectionTime))
-                  .addArgument(blockSelectionContext.transactionPool()::logStats)
-                  .log();
+              try {
+                LOG.atDebug()
+                    .setMessage(
+                        "Starting internal pool transaction selection, run time capped at {}ms, stats {}")
+                    .addArgument(() -> nanosToMillis(remainingSelectionTime))
+                    .addArgument(blockSelectionContext.transactionPool()::logStats)
+                    .log();
 
-              for (PendingTransaction candidateTx : candidateTransactions) {
-                final var selectionResult = evaluateTransaction(candidateTx);
-                selectionResults.put(candidateTx, selectionResult);
-                if (selectionResult.stop()) {
-                  break;
+                for (PendingTransaction candidateTx : candidateTransactions) {
+                  final var selectionResult = evaluateTransaction(candidateTx);
+                  selectionResults.put(candidateTx, selectionResult);
+                  if (selectionResult.stop()) {
+                    break;
+                  }
                 }
+              } finally {
+                internalSelectionDone.countDown();
               }
             },
             null);
+
     ethScheduler.scheduleBlockCreationTask(
         blockSelectionContext.pendingBlockHeader().getNumber(), currTxSelectionTask);
 
     try {
       currTxSelectionTask.get(remainingSelectionTime, TimeUnit.NANOSECONDS);
-    } catch (InterruptedException | ExecutionException | CancellationException e) {
-      if (isCancelled.get()) {
-        LOG.debug(
-            "Transaction selection cancelled during execution, finalizing with current progress");
-      } else {
-        LOG.warn("Error during block transaction selection", e);
-        // force rollback
-        rollback();
-      }
+    } catch (ExecutionException e) {
+      LOG.warn("Error during block transaction selection", e);
+      // force rollback
+      rollback();
+    } catch (CancellationException e) {
+      LOG.debug(
+          "Transaction selection cancelled during execution, finalizing with current progress", e);
+    } catch (InterruptedException e) {
+      LOG.debug(
+          "Transaction selection interrupted during execution, finalizing with current progress",
+          e);
     } catch (TimeoutException e) {
       // synchronize since we want to be sure that there is no concurrent state update
       synchronized (isTimeout) {
@@ -298,6 +309,17 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
           "Interrupting the internal selection of transactions for block inclusion as it exceeds"
               + " the allowed max duration of {}ms",
           nanosToMillis(remainingSelectionTime));
+    }
+
+    // in case of a cancellation or a timeout, it is possible that the thread that is processing the
+    // tx is still running, so to avoid concurrency issues accessing the world state during the
+    // following steps (e.g. withdrawals, EL request or rewards processing) we try to wait,
+    // for a max amount of time, for the cancellation to complete, before proceeding in
+    // a best effort mode that could potentially fail.
+    if (internalSelectionDone.getCount() != 0) {
+      final long elapsedSelectionTime = System.nanoTime() - startTimeNanos;
+      final long maxWaitTime = remainingSelectionTime - elapsedSelectionTime;
+      waitForCancellationToBeProcessed("Internal", internalSelectionDone, maxWaitTime);
     }
 
     return selectionResults;
@@ -331,13 +353,14 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
 
     try {
       currTxSelectionTask.get(pluginTxsSelectionMaxTimeNanos, TimeUnit.NANOSECONDS);
-    } catch (InterruptedException | ExecutionException | CancellationException e) {
-      if (isCancelled.get()) {
-        throw new CancellationException("Cancelled during plugin transaction selection");
-      }
+    } catch (ExecutionException e) {
       LOG.error("Unhandled exception during plugin transaction selection", e);
       // force a rollback
       rollback();
+    } catch (CancellationException e) {
+      LOG.debug("Cancelled during plugin transaction selection", e);
+    } catch (InterruptedException e) {
+      LOG.debug("Interrupted during plugin transaction selection", e);
     } catch (TimeoutException e) {
       // synchronize since we want to be sure that there is no concurrent state update
       synchronized (isTimeout) {
@@ -346,43 +369,69 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
 
       // cancelling the task and interrupting the thread running it
       currTxSelectionTask.cancel(true);
-      final long elapsedPluginTxsSelectionTime = System.nanoTime() - startTime;
       LOG.warn(
           "Interrupting the plugin selection of transactions for block inclusion after {}ms,"
               + " as it exceeds the maximum configured duration of {}ms",
-          nanosToMillis(elapsedPluginTxsSelectionTime),
+          nanosToMillis(System.nanoTime() - startTime),
           nanosToMillis(pluginTxsSelectionMaxTimeNanos));
+    }
 
-      final var remainingSelectionTime =
-          blockTxsSelectionMaxTimeNanos - elapsedPluginTxsSelectionTime;
+    // in case of a cancellation or a timeout, it is possible that the thread that is processing the
+    // tx is still running, so to avoid concurrency issues accessing the world state during the
+    // following steps (e.g. withdrawals, EL request or rewards processing) we try to wait,
+    // for a max amount of time, for the cancellation to complete, before proceeding in
+    // a best effort mode that could potentially fail.
+    if (pluginSelectionDone.getCount() != 0) {
+      final long elapsedSelectionTime = System.nanoTime() - startTime;
+      final long maxWaitTime = blockTxsSelectionMaxTimeNanos - elapsedSelectionTime;
+      waitForCancellationToBeProcessed("Plugin", pluginSelectionDone, maxWaitTime);
+    }
+  }
 
+  private void waitForCancellationToBeProcessed(
+      final String context, final CountDownLatch selectionDone, final long maxWaitTimeNanos) {
+    if (maxWaitTimeNanos <= 0) {
+      LOG.info(
+          "No time remains to wait for the cancellation of the {} selection to complete normally, "
+              + "the completion of the block creation continues in a best effort mode, and could fail due to concurrency issues",
+          context);
+      return;
+    }
+
+    final long waitStartTime = System.nanoTime();
+    try {
+      // wait at max the specified time, for the thread to fully process the interrupt,
+      // before proceeding, to avoid overlapping executions.
       LOG.atTrace()
           .setMessage(
-              "Plugin transaction selection state {}, waiting {}ms for the thread to process the interrupt")
+              "{} transaction selection state {}, waiting at max {}ms for the thread to process the interrupt")
+          .addArgument(context)
           .addArgument(currTxSelectionTask::state)
-          .addArgument(() -> nanosToMillis(remainingSelectionTime))
+          .addArgument(() -> nanosToMillis(maxWaitTimeNanos))
           .log();
 
-      try {
-        // need to wait for the thread to fully process the interrupt,
-        // before proceeding, to avoid overlapping executions.
-        pluginSelectionDone.await(remainingSelectionTime, TimeUnit.NANOSECONDS);
-
+      if (selectionDone.await(maxWaitTimeNanos, TimeUnit.NANOSECONDS)) {
         LOG.atTrace()
-            .setMessage("Plugin selection cancellation processed in {}ms, task status {}")
-            .addArgument(
-                () ->
-                    nanosToMillis((System.nanoTime() - startTime) - elapsedPluginTxsSelectionTime))
+            .setMessage("{} selection cancellation processed in {}ms, task status {}")
+            .addArgument(context)
+            .addArgument(() -> nanosToMillis(System.nanoTime() - waitStartTime))
             .addArgument(currTxSelectionTask.state())
             .log();
-
-      } catch (InterruptedException ex) {
-        LOG.warn(
-            "Interrupted after waiting {}ms for the cancellation of plugin transaction selection task",
-            nanosToMillis(remainingSelectionTime),
-            ex);
-        throw new RuntimeException(ex);
+      } else {
+        LOG.info(
+            "Cancellation of {} selection not completed after waiting for {}ms, the completion of the block creation"
+                + " continues in a best effort mode, and could fail due to concurrency issues",
+            context,
+            nanosToMillis(maxWaitTimeNanos));
       }
+
+    } catch (InterruptedException ex) {
+      LOG.warn(
+          "{} interrupted after waiting {}ms for the cancellation of transaction selection task",
+          context,
+          nanosToMillis(maxWaitTimeNanos),
+          ex);
+      throw new RuntimeException(ex);
     }
   }
 

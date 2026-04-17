@@ -31,8 +31,9 @@ import org.slf4j.LoggerFactory;
  * block and determines the selection result accordingly.
  *
  * <p>For EIP-8037 multidimensional gas, this selector tracks both regular and state gas dimensions.
- * A transaction fits if its gasLimit does not exceed the remaining capacity of each dimension
- * independently. Post-processing verifies the actual gas metered stays within limits.
+ * Pre-processing checks that the transaction's gasLimit fits within the remaining regular gas
+ * capacity. State gas is only validated at the block level via max(regular, state) after
+ * transaction execution.
  */
 public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSelector<GasState> {
   private static final Logger LOG = LoggerFactory.getLogger(BlockSizeTransactionSelector.class);
@@ -108,9 +109,9 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
   }
 
   /**
-   * Checks if the transaction is too large for the block using the gas accounting strategy. For 1D
-   * gas, this checks regular gas only. For 2D gas (EIP-8037), the tx gas limit must fit within the
-   * remaining capacity of each dimension independently.
+   * Checks if the transaction is too large for the block using the gas accounting strategy. For
+   * both 1D and 2D gas, this checks regular gas capacity only. State gas is validated at the block
+   * level via max(regular, state) after transaction execution.
    *
    * <p>The post-processing check verifies that gas metered (max of regular, state) stays within the
    * block gas limit after processing reveals the actual regular/state gas split.

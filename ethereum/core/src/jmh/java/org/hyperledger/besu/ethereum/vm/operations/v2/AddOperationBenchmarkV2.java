@@ -16,7 +16,7 @@ package org.hyperledger.besu.ethereum.vm.operations.v2;
 
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.Operation;
-import org.hyperledger.besu.evm.operation.v2.AddOperationV2;
+import org.hyperledger.besu.evm.v2.operation.AddOperationV2;
 
 public class AddOperationBenchmarkV2 extends BinaryOperationBenchmarkV2 {
 

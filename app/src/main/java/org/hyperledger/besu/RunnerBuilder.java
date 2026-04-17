@@ -61,6 +61,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.logs.Log
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.pending.PendingTransactionDroppedSubscriptionService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.pending.PendingTransactionSubscriptionService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.syncing.SyncingSubscriptionService;
+import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.transactionreceipts.TransactionReceiptsSubscriptionService;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -689,6 +690,12 @@ public class RunnerBuilder {
           networkingConfiguration.discoveryConfiguration().isDiscoveryV5Enabled());
       discoveryConfiguration.setFilterOnEnrForkId(
           networkingConfiguration.discoveryConfiguration().isFilterOnEnrForkIdEnabled());
+      discoveryConfiguration.setDiscV5DiscoveryIntervalSeconds(
+          networkingConfiguration.discoveryConfiguration().getDiscV5DiscoveryIntervalSeconds());
+      discoveryConfiguration.setDiscV5DiscoveryTimeoutSeconds(
+          networkingConfiguration.discoveryConfiguration().getDiscV5DiscoveryTimeoutSeconds());
+      discoveryConfiguration.setDiscV5MinimumPeerRatio(
+          networkingConfiguration.discoveryConfiguration().getDiscV5MinimumPeerRatio());
     } else {
       discoveryConfiguration.setEnabled(false);
     }
@@ -928,6 +935,9 @@ public class RunnerBuilder {
           context.getBlockchain(), blockchainQueries, subscriptionManager);
 
       createSyncingSubscriptionService(synchronizer, subscriptionManager);
+
+      createTransactionReceiptsSubscriptionService(
+          context.getBlockchain(), blockchainQueries, subscriptionManager, protocolSchedule);
     }
 
     Optional<EngineJsonRpcService> engineJsonRpcService = Optional.empty();
@@ -1427,6 +1437,18 @@ public class RunnerBuilder {
         new NewBlockHeadersSubscriptionService(subscriptionManager, blockchainQueries);
 
     blockchain.observeBlockAdded(newBlockHeadersSubscriptionService);
+  }
+
+  private void createTransactionReceiptsSubscriptionService(
+      final Blockchain blockchain,
+      final BlockchainQueries blockchainQueries,
+      final SubscriptionManager subscriptionManager,
+      final ProtocolSchedule protocolSchedule) {
+    final TransactionReceiptsSubscriptionService transactionReceiptsSubscriptionService =
+        new TransactionReceiptsSubscriptionService(
+            subscriptionManager, blockchainQueries, protocolSchedule);
+
+    blockchain.observeBlockAdded(transactionReceiptsSubscriptionService);
   }
 
   private WebSocketService createWebsocketService(

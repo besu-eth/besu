@@ -27,10 +27,14 @@ import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.ImmutableNetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
+import org.hyperledger.besu.ethereum.p2p.discovery.DiscoveryPeer;
+import org.hyperledger.besu.ethereum.p2p.discovery.DiscoveryPeerFactory;
 import org.hyperledger.besu.ethereum.p2p.discovery.NodeRecordManager;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.DiscoveryPeerV4;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
+import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions.Action;
+import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissionsDenylist;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -54,6 +58,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -294,6 +299,42 @@ class PeerDiscoveryAgentV5Test {
   }
 
   @Test
+  public void shouldEvictPeerWhenPermissionsRevoked() {
+    final NodeRecord peerNodeRecord =
+        NodeRecordFactory.DEFAULT.fromEnr(
+            "enr:-KO4QK1ecw-CGrDDZ4YwFrhgqctD0tWMHKJhUVxsS4um3aUFe3yBHRtVL9uYKk16DurN1IdSKTOB1zNCvjBybjZ_KAq"
+                + "GAYtJ5U8wg2V0aMfGhJsZKtCAgmlkgnY0gmlwhA_MtDmJc2VjcDI1NmsxoQNXD7fj3sscyOKBiHYy14igj1vJYWdKYZH7n3T8qRpIcYRzb"
+                + "mFwwIN0Y3CCdl-DdWRwgnZf");
+    final DiscoveryPeer discoveryPeer = DiscoveryPeerFactory.fromNodeRecord(peerNodeRecord, false);
+    final PeerPermissionsDenylist denylist = PeerPermissionsDenylist.create();
+
+    when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
+
+    final PeerDiscoveryAgentV5 restrictedAgent =
+        new PeerDiscoveryAgentV5(
+            config,
+            denylist,
+            forkIdManager,
+            nodeRecordManager,
+            rlpxAgent,
+            new NoOpMetricsSystem(),
+            false,
+            (nodeRecord, listener) -> mockSystem);
+
+    try {
+      restrictedAgent.start(1234);
+      restrictedAgent.addPeer(discoveryPeer);
+      Mockito.verify(mockSystem).addNodeRecord(peerNodeRecord);
+
+      Mockito.when(mockSystem.getNodeRecordBuckets()).thenReturn(List.of(List.of(peerNodeRecord)));
+      denylist.add(discoveryPeer.getId());
+      Mockito.verify(mockSystem).deleteNodeRecord(discoveryPeer.getId());
+    } finally {
+      restrictedAgent.stop();
+    }
+  }
+
+  @Test
   void candidatePeersAllowedWithNoopPermissions() throws Exception {
     final NodeRecord peerRecord =
         NodeRecordFactory.DEFAULT.fromEnr(
@@ -318,6 +359,51 @@ class PeerDiscoveryAgentV5Test {
     // With NOOP permissions, peers are not rejected by permissions.
     // (They may still be filtered by bonding status, which is a DiscV4 concept, but the
     // permission layer itself does not block them.)
+  }
+
+  @Test
+  void discoveryRunsWhenPeerCountBelowConfiguredMinimumRatio() throws Exception {
+    // With 20 connections out of 25 max peers:
+    //   default ratio 0.8 → 20 >= 20 → hasSufficientPeers() is true → discovery stops
+    //   custom  ratio 0.9 → 20 >= 22.5 → hasSufficientPeers() is false → discovery runs
+    // This verifies that the config value is actually read rather than the old hard-coded 0.8.
+    when(rlpxAgent.getConnectionCount()).thenReturn(20);
+    when(rlpxAgent.getMaxPeers()).thenReturn(25);
+
+    final NetworkingConfiguration customConfig =
+        ImmutableNetworkingConfiguration.builder()
+            .discoveryConfiguration(
+                DiscoveryConfiguration.create()
+                    .setEnabled(true)
+                    .setAdvertisedHost("127.0.0.1")
+                    .setBindHost("0.0.0.0")
+                    .setBindPort(0)
+                    .setDiscV5MinimumPeerRatio(0.9))
+            .build();
+
+    when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
+
+    final PeerDiscoveryAgentV5 customAgent =
+        new PeerDiscoveryAgentV5(
+            customConfig,
+            PeerPermissions.NOOP,
+            forkIdManager,
+            nodeRecordManager,
+            rlpxAgent,
+            new NoOpMetricsSystem(),
+            false,
+            (nodeRecord, listener) -> mockSystem);
+
+    try {
+      customAgent.start(1234).get();
+
+      Awaitility.await()
+          .pollInterval(50, TimeUnit.MILLISECONDS)
+          .atMost(3, TimeUnit.SECONDS)
+          .untilAsserted(() -> verify(mockSystem, atLeastOnce()).searchForNewPeers());
+    } finally {
+      customAgent.stop();
+    }
   }
 
   @Test

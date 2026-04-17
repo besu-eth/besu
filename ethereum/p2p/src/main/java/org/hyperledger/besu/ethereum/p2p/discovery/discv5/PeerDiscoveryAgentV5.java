@@ -71,11 +71,6 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
 
   private static final Logger LOG = LoggerFactory.getLogger(PeerDiscoveryAgentV5.class);
 
-  /** Minimum ratio of connected peers required to switch to slow discovery cadence. */
-  private static final double MINIMUM_PEER_RATIO = 0.8;
-
-  public static final int DISCOVERY_TIMEOUT_SECONDS = 30;
-
   /**
    * Factory for creating a {@link MutableDiscoverySystem}. The default implementation uses {@link
    * org.ethereum.beacon.discovery.DiscoverySystemBuilder}; tests can inject a mock.
@@ -191,13 +186,19 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
       return CompletableFuture.failedFuture(e);
     }
 
+    peerPermissions.subscribeUpdate(this::handlePermissionsUpdate);
+
     return system
         .start()
         .thenApply(
             v -> {
               try {
                 if (!stopped.get()) {
-                  scheduler.scheduleAtFixedRate(this::discoveryTick, 0, 1, TimeUnit.SECONDS);
+                  scheduler.scheduleAtFixedRate(
+                      this::discoveryTick,
+                      0,
+                      discoveryConfig.getDiscV5DiscoveryIntervalSeconds(),
+                      TimeUnit.SECONDS);
                 }
               } catch (final RejectedExecutionException e) {
                 // Benign: stop() shut down the scheduler between the stopped check and the
@@ -410,7 +411,8 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
 
   /** Determines whether the RLPx agent has reached a sufficient number of connected peers. */
   private boolean hasSufficientPeers() {
-    return rlpxAgent.getConnectionCount() >= rlpxAgent.getMaxPeers() * MINIMUM_PEER_RATIO;
+    return rlpxAgent.getConnectionCount()
+        >= rlpxAgent.getMaxPeers() * discoveryConfig.getDiscV5MinimumPeerRatio();
   }
 
   /** Periodic discovery task that enforces adaptive cadence and triggers peer discovery. */
@@ -433,7 +435,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
     }
     system
         .searchForNewPeers()
-        .orTimeout(DISCOVERY_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .orTimeout(discoveryConfig.getDiscV5DiscoveryTimeoutSeconds(), TimeUnit.SECONDS)
         .whenComplete(
             (nodeRecords, error) -> {
               try {
@@ -496,7 +498,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
    * @param remotePeer the remote peer to check
    * @return {@code true} if the peer is permitted
    */
-  private boolean isPeerPermitted(final Peer localNode, final DiscoveryPeer remotePeer) {
+  private boolean isPeerPermitted(final Peer localNode, final Peer remotePeer) {
     if (localNode == null) {
       // Local node not yet initialized — reject rather than bypass identity checks.
       // The peer will be re-discovered on the next FINDNODE round.
@@ -571,5 +573,27 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
         "discv5_total_nodes_current",
         "Current number of total nodes tracked by the DiscV5 discovery system",
         () -> system.getBucketStats().getTotalNodeCount());
+  }
+
+  private void handlePermissionsUpdate(
+      final boolean addRestrictions, final Optional<List<Peer>> affectedPeers) {
+    if (addRestrictions) {
+      nodeRecordManager
+          .getLocalNode()
+          .ifPresent(
+              ((localNode) -> {
+                affectedPeers.ifPresentOrElse(
+                    (peers) ->
+                        peers.stream()
+                            .filter((peer) -> !isPeerPermitted(localNode, peer))
+                            .forEach(this::dropPeer),
+                    () ->
+                        discoverySystem.get().getNodeRecordBuckets().stream()
+                            .flatMap(List::stream)
+                            .map(nr -> DiscoveryPeerFactory.fromNodeRecord(nr, preferIpv6Outbound))
+                            .filter((peer) -> !isPeerPermitted(localNode, peer))
+                            .forEach(this::dropPeer));
+              }));
+    }
   }
 }
