@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.blockcreation.txselection;
 
-import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.BLOCK_ACCESS_LIST_ITEM_BUDGET_EXCEEDED;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.BLOCK_SELECTION_TIMEOUT;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.BLOCK_SELECTION_TIMEOUT_INVALID_TX;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.INTERNAL_ERROR;
@@ -31,6 +30,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.selectors.AbstractTransactionSelector;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.selectors.BlobPriceTransactionSelector;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.selectors.BlobSizeTransactionSelector;
+import org.hyperledger.besu.ethereum.blockcreation.txselection.selectors.BlockAccessListItemBudgetTransactionSelector;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.selectors.BlockRlpSizeTransactionSelector;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.selectors.BlockSizeTransactionSelector;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.selectors.MinPriorityFeePerGasTransactionSelector;
@@ -47,7 +47,6 @@ import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor;
-import org.hyperledger.besu.ethereum.mainnet.BlockAccessListValidationError;
 import org.hyperledger.besu.ethereum.mainnet.BlockGasAccountingStrategy;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -168,7 +167,8 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     this.selectorsStateManager = selectorsStateManager;
     this.transactionSelectionService = miningConfiguration.getTransactionSelectionService();
     this.transactionSelectors =
-        createTransactionSelectors(blockSelectionContext, selectorsStateManager);
+        createTransactionSelectors(
+            blockSelectionContext, selectorsStateManager, maybeBlockAccessListBuilder);
     this.pluginTransactionSelector = pluginTransactionSelector;
     this.operationTracer =
         new InterruptibleOperationTracer(pluginTransactionSelector.getOperationTracer());
@@ -183,7 +183,9 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
   }
 
   private List<AbstractTransactionSelector> createTransactionSelectors(
-      final BlockSelectionContext context, final SelectorsStateManager selectorsStateManager) {
+      final BlockSelectionContext context,
+      final SelectorsStateManager selectorsStateManager,
+      final Optional<BlockAccessList.BlockAccessListBuilder> maybeBlockAccessListBuilder) {
     return List.of(
         new SkipSenderTransactionSelector(context),
         new BlockSizeTransactionSelector(context, selectorsStateManager),
@@ -192,7 +194,8 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
         new BlobPriceTransactionSelector(context),
         new MinPriorityFeePerGasTransactionSelector(context),
         new BlockRlpSizeTransactionSelector(context, selectorsStateManager),
-        new ProcessingResultTransactionSelector(context));
+        new ProcessingResultTransactionSelector(context),
+        new BlockAccessListItemBudgetTransactionSelector(context, maybeBlockAccessListBuilder));
   }
 
   /**
@@ -682,47 +685,12 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
         return result;
       }
     }
-    final TransactionSelectionResult balBudgetResult =
-        evaluateBalItemBudgetAfterSelectors(processingResult);
-    if (!balBudgetResult.equals(SELECTED)) {
-      return balBudgetResult;
-    }
     return pluginTransactionSelector.evaluateTransactionPostProcessing(
         evaluationContext, processingResult);
   }
 
   private void resetBalScratchStateForNewSelection() {
     currentTxnLocation.set(0);
-  }
-
-  /**
-   * After all built-in selectors pass: if we are building a BAL for this block, reject the
-   * transaction when merging its partial view would exceed the EIP-7928 item budget (same rule as
-   * block import in {@link org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor}).
-   */
-  private TransactionSelectionResult evaluateBalItemBudgetAfterSelectors(
-      final TransactionProcessingResult processingResult) {
-    if (maybeBlockAccessListBuilder.isEmpty()) {
-      return SELECTED;
-    }
-    final BlockAccessList.BlockAccessListBuilder mainBuilder = maybeBlockAccessListBuilder.get();
-    final BlockAccessList committedSnapshot = mainBuilder.build();
-    final BlockAccessList.BlockAccessListBuilder probe = BlockAccessList.builder();
-    probe.mergeFrom(committedSnapshot);
-    processingResult.getPartialBlockAccessView().ifPresent(probe::apply);
-    final Optional<BlockAccessListValidationError> sizeError =
-        blockSelectionContext
-            .protocolSpec()
-            .getBlockAccessListValidator()
-            .validateExecutedBlockAccessListItemSize(
-                probe.eip7928ItemCount(),
-                blockSelectionContext.pendingBlockHeader(),
-                blockSelectionContext.protocolSpec());
-    if (sizeError.isPresent()) {
-      LOG.trace("Transaction not selected: {}", sizeError.get().errorMessage());
-      return BLOCK_ACCESS_LIST_ITEM_BUDGET_EXCEEDED;
-    }
-    return SELECTED;
   }
 
   /**

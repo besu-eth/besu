@@ -366,6 +366,66 @@ class AmsterdamBalBlockTransactionSelectorTest {
         .isEqualTo(BodyValidation.balHash(expectedBalOnlyTx1));
   }
 
+  @Test
+  void bothTransactionsSelectedWhenBlockAccessListItemBudgetAllowsThem() {
+    final ProtocolSpec chainSpec =
+        spy(protocolSchedule.getByBlockHeader(blockchain.getChainHeadHeader()));
+    final GasCalculator realGasCalculator = chainSpec.getGasCalculator();
+    final GasCalculator gasCalculator = mock(GasCalculator.class, delegatesTo(realGasCalculator));
+    lenient().when(gasCalculator.getBlockAccessListItemCost()).thenReturn(1_000_000L);
+    doReturn(gasCalculator).when(chainSpec).getGasCalculator();
+    final ProtocolSchedule scheduleStub = mock(ProtocolSchedule.class);
+    when(scheduleStub.getByBlockHeader(any())).thenReturn(chainSpec);
+
+    final ProcessableBlockHeader blockHeader = createBlock(6_000_000, Wei.ONE);
+    final BlockAccessList.BlockAccessListBuilder sharedBalBuilder = BlockAccessList.builder();
+    final BlockTransactionSelector selector =
+        createBlockSelector(
+            defaultTestMiningConfiguration,
+            transactionProcessor,
+            blockHeader,
+            AddressHelpers.ofValue(1),
+            Wei.ZERO,
+            transactionSelectionService,
+            scheduleStub,
+            Optional.of(sharedBalBuilder));
+
+    final Transaction tx1 = createTransaction(0, Wei.of(5), 100_000, SENDER1);
+    final Transaction tx2 = createTransaction(0, Wei.of(5), 100_000, SENDER2);
+
+    final AtomicInteger evaluationOrder = new AtomicInteger();
+    when(transactionProcessor.processTransaction(
+            any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        .thenAnswer(
+            inv -> {
+              final int txIndex = evaluationOrder.getAndIncrement();
+              return TransactionProcessingResult.successful(
+                  List.of(),
+                  50_000L,
+                  50_000L,
+                  Bytes.EMPTY,
+                  Optional.of(balPartialAddingTwoEip7928Items(txIndex)),
+                  ValidationResult.valid());
+            });
+
+    transactionPool.addRemoteTransactions(List.of(tx1, tx2));
+
+    final TransactionSelectionResults results = selector.buildTransactionListForBlock();
+
+    assertThat(results.getSelectedTransactions()).containsExactly(tx1, tx2);
+    assertThat(results.getNotSelectedTransactions()).isEmpty();
+
+    final BlockAccessList committedBal = sharedBalBuilder.build();
+    assertThat(committedBal.eip7928ItemCount()).isEqualTo(4L);
+
+    final BlockAccessList.BlockAccessListBuilder expectedBuilder = BlockAccessList.builder();
+    expectedBuilder.apply(balPartialAddingTwoEip7928Items(0));
+    expectedBuilder.apply(balPartialAddingTwoEip7928Items(1));
+    final BlockAccessList expectedBalBothTxs = expectedBuilder.build();
+    assertThat(BodyValidation.balHash(committedBal))
+        .isEqualTo(BodyValidation.balHash(expectedBalBothTxs));
+  }
+
   private static PartialBlockAccessView balPartialAddingTwoEip7928Items(final int txIndex) {
     final Address addr = Address.fromHexString(String.format("0x%040x", txIndex + 100L));
     final PartialBlockAccessView.PartialBlockAccessViewBuilder builder =
