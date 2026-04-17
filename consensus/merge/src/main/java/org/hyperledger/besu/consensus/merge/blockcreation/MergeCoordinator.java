@@ -26,7 +26,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.blockcreation.BlockCreationTiming;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
@@ -55,7 +54,6 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.math.BigInteger;
 import java.time.Duration;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -271,38 +269,38 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     cancelAnyExistingBlockCreationTasks(payloadIdentifier);
 
     final MergeBlockCreator mergeBlockCreator =
-        this.mergeBlockCreatorFactory.forParams(parentHeader, Optional.ofNullable(feeRecipient));
+        this.mergeBlockCreatorFactory.forParams(parentHeader, Optional.of(feeRecipient));
 
-    // put the empty block in first
-    final BlockCreationResult emptyBlockResult =
+    // put the minimal block in first, it includes only the inclusion list txs
+    final BlockCreationResult minimalBlockResult =
         mergeBlockCreator.createBlock(
-            Optional.of(Collections.emptyList()),
+            Optional.of(inclusionListTransactions),
             prevRandao,
             timestamp,
             withdrawals,
             parentBeaconBlockRoot,
             slotNumber,
             parentHeader);
-    final Block emptyBlock = emptyBlockResult.getBlock();
+    final Block minimalBlock = minimalBlockResult.getBlock();
 
     BlockProcessingResult result =
-        validateProposedBlock(emptyBlock, emptyBlockResult.getBlockAccessList());
+        validateProposedBlock(minimalBlock, minimalBlockResult.getBlockAccessList());
     if (result.isSuccessful()) {
       mergeContext.putPayloadById(
           new PayloadWrapper(
               payloadIdentifier,
-              new BlockWithReceipts(emptyBlock, result.getReceipts()),
-              emptyBlockResult.getBlockAccessList(),
+              new BlockWithReceipts(minimalBlock, result.getReceipts()),
+              minimalBlockResult.getBlockAccessList(),
               result.getRequests(),
-              BlockCreationTiming.EMPTY));
+              minimalBlockResult.getBlockCreationTimings()));
       LOG.info(
           "Start building proposals for block {} identified by {}",
-          emptyBlock.getHeader().getNumber(),
+          minimalBlock.getHeader().getNumber(),
           payloadIdentifier);
     } else {
       LOG.warn(
-          "failed to validate empty block proposal {}, reason {}",
-          emptyBlock.getHash(),
+          "failed to validate minimal block proposal {}, reason {}",
+          minimalBlock.getHash(),
           result.errorMessage);
       if (result.causedBy().isPresent()) {
         LOG.warn("caused by", result.causedBy().get());
@@ -325,7 +323,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   }
 
   private void cancelAnyExistingBlockCreationTasks(final PayloadIdentifier payloadIdentifier) {
-    if (blockCreationTasks.size() > 0) {
+    if (!blockCreationTasks.isEmpty()) {
       String existingPayloadIdsBeingBuilt =
           blockCreationTasks.keySet().stream()
               .map(PayloadIdentifier::toHexString)
