@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.snap.RetryingGetBlockAccessListsFromPeerTask;
+import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
@@ -116,8 +117,18 @@ public class DownloadAndPersistBlockAccessListsStep
     final BlockchainStorage.Updater updater = blockchain.getBlockchainStorage().updater();
     for (int i = 0; i < persistedCount; i++) {
       final BlockHeader header = balEnabledHeaders.get(i);
+      final BlockAccessList blockAccessList = blockAccessLists.get(i);
+      final var calculatedBalHash = BodyValidation.balHash(blockAccessList);
+      if (header.getBalHash().filter(calculatedBalHash::equals).isEmpty()) {
+        LOG.warn(
+            "Downloaded block access list hash {} does not match header BAL hash for block {} ({}); skipping persist",
+            calculatedBalHash,
+            header.getNumber(),
+            header.getHash());
+        continue;
+      }
       try {
-        updater.putBlockAccessList(header.getHash(), blockAccessLists.get(i));
+        updater.putBlockAccessList(header.getHash(), blockAccessList);
       } catch (final Exception exception) {
         LOG.warn(
             "Failed to persist block access list for block {} ({}); continuing with remaining BALs",
