@@ -1280,7 +1280,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             createBlock(301_000),
             AddressHelpers.ofValue(1),
             Wei.ZERO,
-            transactionSelectionService));
+            transactionSelectionService,
+            List.of()));
 
     final var tx = createTransaction(0, Wei.of(7), 100_000);
     ensureTransactionIsValid(tx);
@@ -1343,7 +1344,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
             createBlock(500_000),
             AddressHelpers.ofValue(1),
             Wei.ZERO,
-            transactionSelectionService);
+            transactionSelectionService,
+            List.of());
     selectorRef.set(selector);
 
     final var tx = createTransaction(0, Wei.of(7), 100_000);
