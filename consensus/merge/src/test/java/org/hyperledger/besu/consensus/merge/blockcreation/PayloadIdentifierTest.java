@@ -243,7 +243,7 @@ public class PayloadIdentifierTest {
             Optional.empty(),
             Optional.of(Bytes32.ZERO),
             Optional.empty(),
-                List.of());
+            List.of());
     assertThat(idForWithdrawals1).isNotEqualTo(idForWithdrawals2);
   }
 
@@ -259,7 +259,7 @@ public class PayloadIdentifierTest {
             Optional.empty(),
             Optional.of(Bytes32.fromHexStringLenient("0x1")),
             Optional.of(100L),
-                List.of());
+            List.of());
     var idForWithdrawals2 =
         PayloadIdentifier.forPayloadParams(
             Hash.ZERO,
@@ -269,7 +269,7 @@ public class PayloadIdentifierTest {
             Optional.empty(),
             Optional.of(Bytes32.fromHexStringLenient("0x1")),
             Optional.of(101L),
-                List.of());
+            List.of());
     assertThat(idForWithdrawals1).isNotEqualTo(idForWithdrawals2);
   }
 
