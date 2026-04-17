@@ -12,14 +12,14 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.vm.operations;
+package org.hyperledger.besu.ethereum.vm.operations.v2;
 
+import org.hyperledger.besu.evm.UInt256;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.Operation;
 
 import java.util.concurrent.TimeUnit;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Measurement;
@@ -32,41 +32,41 @@ import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.infra.Blackhole;
 
 @State(Scope.Thread)
-@Warmup(iterations = 3, time = 1, timeUnit = TimeUnit.SECONDS)
+@Warmup(iterations = 2, time = 1, timeUnit = TimeUnit.SECONDS)
 @OutputTimeUnit(value = TimeUnit.NANOSECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @BenchmarkMode(Mode.AverageTime)
-public abstract class TernaryOperationBenchmark {
+public abstract class TernaryOperationBenchmarkV2 {
 
   protected static final int SAMPLE_SIZE = 30_000;
 
-  protected Bytes[] aPool;
-  protected Bytes[] bPool;
-  protected Bytes[] mPool;
+  protected UInt256[] aPool;
+  protected UInt256[] bPool;
+  protected UInt256[] mPool;
   protected int index;
   protected MessageFrame frame;
 
   @Setup()
   public void setUp() {
-    frame = BenchmarkHelper.createMessageCallFrame();
-    aPool = new Bytes[SAMPLE_SIZE];
-    bPool = new Bytes[SAMPLE_SIZE];
-    mPool = new Bytes[SAMPLE_SIZE];
-    BenchmarkHelper.fillPool(aPool);
-    BenchmarkHelper.fillPool(bPool);
-    BenchmarkHelper.fillPool(mPool);
+    frame = BenchmarkHelperV2.createMessageCallFrame();
+    aPool = new UInt256[SAMPLE_SIZE];
+    bPool = new UInt256[SAMPLE_SIZE];
+    mPool = new UInt256[SAMPLE_SIZE];
+    BenchmarkHelperV2.fillUInt256Pool(aPool);
+    BenchmarkHelperV2.fillUInt256Pool(bPool);
+    BenchmarkHelperV2.fillUInt256Pool(mPool);
     index = 0;
   }
 
   @Benchmark
   public void executeOperation(final Blackhole blackhole) {
-    frame.pushStackItem(mPool[index]);
-    frame.pushStackItem(bPool[index]);
-    frame.pushStackItem(aPool[index]);
+    BenchmarkHelperV2.pushUInt256(frame, mPool[index]);
+    BenchmarkHelperV2.pushUInt256(frame, bPool[index]);
+    BenchmarkHelperV2.pushUInt256(frame, aPool[index]);
 
     blackhole.consume(invoke(frame));
 
-    frame.popStackItem();
+    frame.setTopV2(frame.stackTopV2() - 1);
 
     index = (index + 1) % SAMPLE_SIZE;
   }
