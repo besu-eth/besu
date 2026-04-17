@@ -55,6 +55,7 @@ are provided with different values, using input as per the execution-apis spec i
 - Improve syncing time of the experimental Bonsai Archive storage by migrating after a Bonsai full sync [#9979](https://github.com/besu-eth/besu/pull/9997)
 - Add `txsSelectionHighScore` metric to block creation timing log, showing the aggregate evaluation time of transactions actually included in the block, separate from the total `txsSelection` window. Helps diagnose whether selection timeouts were caused by pathological transactions vs productive work. [#9179](https://github.com/besu-eth/besu/issues/9179) 
 
+- Layered txpool: enable balance check by default [#10175](https://github.com/besu-eth/besu/pull/10175)
 
 ### Plugin API
 - Plugin API: Allow the registration of multiple PluginTransactionPoolValidatorFactory [#9964](https://github.com/hyperledger/besu/pull/9964)
