@@ -25,11 +25,14 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.SyncBlock;
+import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
 import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
@@ -73,7 +76,7 @@ class DownloadAndPersistBlockAccessListsStepTest {
             Duration.ofSeconds(2),
             headers -> {
               requestedHeaders.set(headers);
-              return CompletableFuture.completedFuture(List.of(firstBal, secondBal));
+              return completedFutureWithSyncBals(firstBal, secondBal);
             });
 
     final List<SyncBlockWithReceipts> result = step.apply(syncBlocks).join();
@@ -98,9 +101,7 @@ class DownloadAndPersistBlockAccessListsStepTest {
 
     final DownloadAndPersistBlockAccessListsStep step =
         new DownloadAndPersistBlockAccessListsStep(
-            blockchain,
-            Duration.ofSeconds(2),
-            headers -> CompletableFuture.completedFuture(List.of(firstBal)));
+            blockchain, Duration.ofSeconds(2), headers -> completedFutureWithSyncBals(firstBal));
 
     step.apply(syncBlocks).join();
 
@@ -155,7 +156,7 @@ class DownloadAndPersistBlockAccessListsStepTest {
         new DownloadAndPersistBlockAccessListsStep(
             blockchain,
             Duration.ofSeconds(2),
-            headers -> CompletableFuture.completedFuture(List.of(mismatchedBal)));
+            headers -> completedFutureWithSyncBals(mismatchedBal));
 
     step.apply(syncBlocks).join();
 
@@ -200,5 +201,15 @@ class DownloadAndPersistBlockAccessListsStepTest {
 
   private BlockHeader nonBalHeader(final long number) {
     return new BlockHeaderTestFixture().number(number).buildHeader();
+  }
+
+  private CompletableFuture<List<SyncBlockAccessList>> completedFutureWithSyncBals(
+      final BlockAccessList... blockAccessLists) {
+    return CompletableFuture.completedFuture(
+        Arrays.stream(blockAccessLists).map(this::syncBal).toList());
+  }
+
+  private SyncBlockAccessList syncBal(final BlockAccessList blockAccessList) {
+    return new SyncBlockAccessList(RLP.encode(blockAccessList::writeTo));
   }
 }

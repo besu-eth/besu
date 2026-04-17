@@ -17,11 +17,11 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 import org.hyperledger.besu.ethereum.chain.BlockchainStorage;
 import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
 import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.snap.RetryingGetBlockAccessListsFromPeerTask;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.time.Duration;
@@ -42,7 +42,7 @@ public class DownloadAndPersistBlockAccessListsStep
 
   private final DefaultBlockchain blockchain;
   private final Duration timeoutDuration;
-  private final Function<List<BlockHeader>, CompletableFuture<List<BlockAccessList>>>
+  private final Function<List<BlockHeader>, CompletableFuture<List<SyncBlockAccessList>>>
       blockAccessListDownloader;
 
   public DownloadAndPersistBlockAccessListsStep(
@@ -62,7 +62,7 @@ public class DownloadAndPersistBlockAccessListsStep
   DownloadAndPersistBlockAccessListsStep(
       final DefaultBlockchain blockchain,
       final Duration timeoutDuration,
-      final Function<List<BlockHeader>, CompletableFuture<List<BlockAccessList>>>
+      final Function<List<BlockHeader>, CompletableFuture<List<SyncBlockAccessList>>>
           blockAccessListDownloader) {
     this.blockchain = blockchain;
     this.timeoutDuration = timeoutDuration;
@@ -106,19 +106,20 @@ public class DownloadAndPersistBlockAccessListsStep
   }
 
   private void persistBlockAccessLists(
-      final List<BlockHeader> balEnabledHeaders, final List<BlockAccessList> blockAccessLists) {
-    final int persistedCount = Math.min(balEnabledHeaders.size(), blockAccessLists.size());
+      final List<BlockHeader> balEnabledHeaders,
+      final List<SyncBlockAccessList> syncBlockAccessLists) {
+    final int persistedCount = Math.min(balEnabledHeaders.size(), syncBlockAccessLists.size());
     if (persistedCount != balEnabledHeaders.size()) {
       LOG.warn(
           "Downloaded {} block access lists for {} BAL-enabled headers; persisting available subset",
-          blockAccessLists.size(),
+          syncBlockAccessLists.size(),
           balEnabledHeaders.size());
     }
     final BlockchainStorage.Updater updater = blockchain.getBlockchainStorage().updater();
     for (int i = 0; i < persistedCount; i++) {
       final BlockHeader header = balEnabledHeaders.get(i);
-      final BlockAccessList blockAccessList = blockAccessLists.get(i);
-      final var calculatedBalHash = BodyValidation.balHash(blockAccessList);
+      final SyncBlockAccessList syncBlockAccessList = syncBlockAccessLists.get(i);
+      final var calculatedBalHash = BodyValidation.balHash(syncBlockAccessList);
       if (header.getBalHash().filter(calculatedBalHash::equals).isEmpty()) {
         LOG.warn(
             "Downloaded block access list hash {} does not match header BAL hash for block {} ({}); skipping persist",
@@ -128,7 +129,7 @@ public class DownloadAndPersistBlockAccessListsStep
         continue;
       }
       try {
-        updater.putBlockAccessList(header.getHash(), blockAccessList);
+        updater.putSyncBlockAccessList(header.getHash(), syncBlockAccessList);
       } catch (final Exception exception) {
         LOG.warn(
             "Failed to persist block access list for block {} ({}); continuing with remaining BALs",

@@ -74,4 +74,37 @@ public final class BlockAccessListsMessageData {
           }
         };
   }
+
+  public static Iterable<Bytes> decodeRaw(final Bytes data, final boolean withRequestId) {
+    return () ->
+        new Iterator<>() {
+          private final RLPInput input = new BytesValueRLPInput(data, false);
+          private boolean initialized = false;
+
+          private void ensureInitialized() {
+            if (!initialized) {
+              input.enterList();
+              if (withRequestId) {
+                input.skipNext();
+              }
+              initialized = true;
+            }
+          }
+
+          @Override
+          public boolean hasNext() {
+            ensureInitialized();
+            return !input.isEndOfCurrentList();
+          }
+
+          @Override
+          public Bytes next() {
+            ensureInitialized();
+            if (!hasNext()) {
+              throw new NoSuchElementException();
+            }
+            return input.readAsRlp().raw();
+          }
+        };
+  }
 }
