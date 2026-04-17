@@ -55,12 +55,17 @@ public class TransactionSelectionResults {
   // EIP-8037: Track cumulative state gas used for multidimensional gas metering
   private long cumulativeStateGasUsed = 0;
 
+  // Sum of per-tx evaluation time for txs that were actually included in the block.
+  // Accumulated on commit so it excludes invalid, rejected, and timeout-killed txs.
+  private long selectedTxsEvaluationTimeNanos = 0;
+
   void updateSelected(
       final Transaction transaction,
       final TransactionReceipt receipt,
       final long blockGasUsed,
       final long receiptGasUsed,
-      final long stateGasUsed) {
+      final long stateGasUsed,
+      final long evaluationTimeNanos) {
     selectedTransactions.add(transaction);
     transactionsByType
         .computeIfAbsent(transaction.getType(), type -> new ArrayList<>())
@@ -69,6 +74,7 @@ public class TransactionSelectionResults {
     cumulativeRegularGasUsed += blockGasUsed;
     cumulativeReceiptGasUsed += receiptGasUsed;
     cumulativeStateGasUsed += stateGasUsed;
+    selectedTxsEvaluationTimeNanos += evaluationTimeNanos;
     LOG.atTrace()
         .setMessage(
             "New selected transaction {}, total transactions {}, cumulative block gas {}, cumulative receipt gas {}")
@@ -106,6 +112,10 @@ public class TransactionSelectionResults {
 
   public long getCumulativeStateGasUsed() {
     return cumulativeStateGasUsed;
+  }
+
+  public long getSelectedTxsEvaluationTimeNanos() {
+    return selectedTxsEvaluationTimeNanos;
   }
 
   public Map<Transaction, TransactionSelectionResult> getNotSelectedTransactions() {

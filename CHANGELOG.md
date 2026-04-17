@@ -47,7 +47,8 @@ are provided with different values, using input as per the execution-apis spec i
 - Support [EIP-8159](https://eips.ethereum.org/EIPS/eip-8159): eth/71 - block access list exchange
 - Support [EIP-8189](https://eips.ethereum.org/EIPS/eip-8189): snap/2 - block access list exchange
 - Limit pooled tx requests by size and remove pre-eth/68 transaction announcement support [#9990](https://github.com/besu-eth/besu/pull/9990)
-- Reduce tx p2p broadcast bandwidth and memory used [#9937](https://github.com/besu-eth/besu/pull/9937) 
+- Reduce tx p2p broadcast bandwidth and memory used [#9937](https://github.com/besu-eth/besu/pull/9937)
+- Add `txsSelectionHighScore` metric to block creation timing log, showing the aggregate evaluation time of transactions actually included in the block, separate from the total `txsSelection` window. Helps diagnose whether selection timeouts were caused by pathological transactions vs productive work. [#9179](https://github.com/besu-eth/besu/issues/9179) 
 
 ### Plugin API
 - Plugin API: Allow the registration of multiple PluginTransactionPoolValidatorFactory [#9964](https://github.com/hyperledger/besu/pull/9964)

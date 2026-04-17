@@ -881,8 +881,18 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
                   .getPartialBlockAccessView()
                   .ifPresent(blockAccessListBuilder::apply));
 
+      // capture the per-tx evaluation time at the moment of commit,
+      // so the accumulator only reflects txs that are definitely included in the block
+      final long evaluationTimeNanos =
+          evaluationContext.getEvaluationTimer().elapsed(TimeUnit.NANOSECONDS);
+
       transactionSelectionResults.updateSelected(
-          transaction, receipt, blockGasUsed, receiptGasUsed, processingResult.getStateGasUsed());
+          transaction,
+          receipt,
+          blockGasUsed,
+          receiptGasUsed,
+          processingResult.getStateGasUsed(),
+          evaluationTimeNanos);
 
       notifySelected(evaluationContext, processingResult);
       LOG.atTrace()
