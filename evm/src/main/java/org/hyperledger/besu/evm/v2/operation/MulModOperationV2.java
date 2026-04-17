@@ -37,24 +37,23 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
   @Override
   public Operation.OperationResult executeFixedCostOperation(
       final MessageFrame frame, final EVM evm) {
-    return staticOperation(frame, frame.stackDataV2());
+    return staticOperation(frame);
   }
 
   /**
    * Performs MulMod operation.
    *
    * @param frame the frame
-   * @param stack the v2 operand stack ({@code long[]} in big-endian limb order)
    * @return the operation result
    */
-  public static OperationResult staticOperation(final MessageFrame frame, final long[] stack) {
+  public static OperationResult staticOperation(final MessageFrame frame) {
     if (!frame.stackHasItems(3)) return UNDERFLOW_RESPONSE;
     int top = frame.stackTopV2();
     final int aOffset = (--top) << 2;
     final int bOffset = (--top) << 2;
     final int mOffset = (--top) << 2;
 
-    mulMod(stack, aOffset, bOffset, mOffset);
+    mulMod(frame.stackDataV2(), aOffset, bOffset, mOffset);
 
     frame.setTopV2(++top);
     return mulModSuccess;

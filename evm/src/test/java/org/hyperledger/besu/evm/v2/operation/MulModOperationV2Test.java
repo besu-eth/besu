@@ -98,7 +98,7 @@ class MulModOperationV2Test {
     assertThat(frame.stackTopV2()).isEqualTo(0);
 
     final Operation.OperationResult result =
-        MulModOperationV2.staticOperation(frame, frame.stackDataV2());
+        MulModOperationV2.staticOperation(frame);
 
     assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
     assertThat(frame.stackTopV2()).isEqualTo(0);
@@ -114,7 +114,7 @@ class MulModOperationV2Test {
     assertThat(frame.stackTopV2()).isEqualTo(2);
 
     final Operation.OperationResult result =
-        MulModOperationV2.staticOperation(frame, frame.stackDataV2());
+        MulModOperationV2.staticOperation(frame);
 
     assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
     assertThat(frame.stackTopV2()).isEqualTo(2);
