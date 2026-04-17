@@ -109,6 +109,7 @@ public final class BlockAccessListFlatDatabaseUpdater {
               .get(accountHash.getBytes())
               .map(RLP::input)
               .map(PmtStateTrieAccountValue::readFrom)
+              // Calling SELFDESTRUCT might result in address present in BAL but missing in trie
               .orElse(new PmtStateTrieAccountValue(0, Wei.ZERO, Hash.EMPTY_TRIE_HASH, Hash.EMPTY));
 
       final var updatedCode = accountChanges.code();

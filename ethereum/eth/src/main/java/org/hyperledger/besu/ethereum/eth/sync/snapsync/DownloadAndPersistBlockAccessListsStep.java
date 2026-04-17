@@ -39,20 +39,33 @@ public class DownloadAndPersistBlockAccessListsStep
   private static final Logger LOG =
       LoggerFactory.getLogger(DownloadAndPersistBlockAccessListsStep.class);
 
-  private final EthContext ethContext;
-  private final MetricsSystem metricsSystem;
   private final DefaultBlockchain blockchain;
   private final Duration timeoutDuration;
+  private final Function<List<BlockHeader>, CompletableFuture<List<BlockAccessList>>>
+      blockAccessListDownloader;
 
   public DownloadAndPersistBlockAccessListsStep(
       final EthContext ethContext,
       final MetricsSystem metricsSystem,
       final DefaultBlockchain blockchain,
       final Duration timeoutDuration) {
-    this.ethContext = ethContext;
-    this.metricsSystem = metricsSystem;
+    this(
+        blockchain,
+        timeoutDuration,
+        balEnabledHeaders ->
+            RetryingGetBlockAccessListsFromPeerTask.forBlockAccessLists(
+                    ethContext, balEnabledHeaders, metricsSystem)
+                .run());
+  }
+
+  DownloadAndPersistBlockAccessListsStep(
+      final DefaultBlockchain blockchain,
+      final Duration timeoutDuration,
+      final Function<List<BlockHeader>, CompletableFuture<List<BlockAccessList>>>
+          blockAccessListDownloader) {
     this.blockchain = blockchain;
     this.timeoutDuration = timeoutDuration;
+    this.blockAccessListDownloader = blockAccessListDownloader;
   }
 
   @Override
@@ -68,9 +81,8 @@ public class DownloadAndPersistBlockAccessListsStep
       return CompletableFuture.completedFuture(syncBlocksWithReceipts);
     }
 
-    return RetryingGetBlockAccessListsFromPeerTask.forBlockAccessLists(
-            ethContext, balEnabledHeaders, metricsSystem)
-        .run()
+    return blockAccessListDownloader
+        .apply(balEnabledHeaders)
         .orTimeout(timeoutDuration.toMillis(), TimeUnit.MILLISECONDS)
         .handle(
             (blockAccessLists, error) -> {
