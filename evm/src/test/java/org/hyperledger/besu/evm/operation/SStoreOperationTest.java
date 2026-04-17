@@ -215,7 +215,7 @@ class SStoreOperationTest {
 
     final long expectedStateGas =
         32L * new Eip8037StateGasCostCalculator().costPerStateByte(blockGasLimit);
-    assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas); // 37,568
+    assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas); // 4,800 at 36M gas limit
 
     // Second SSTORE: key=1, value=0 (nonzero -> 0, original=0 triggers state gas refund)
     frame.pushStackItem(UInt256.ZERO);
@@ -223,7 +223,7 @@ class SStoreOperationTest {
     final OperationResult result2 = operation.execute(frame, null);
     assertThat(result2.getHaltReason()).isNull();
 
-    // State gas refund (37,568) + regular SSTORE refund for 0->X->0 (2,800)
+    // State gas refund (4,800 at 36M) + regular SSTORE refund for 0->X->0 (2,800)
     assertThat(frame.getGasRefund()).isEqualTo(expectedStateGas + 2_800L);
     // stateGasUsed tracks gross consumption, not decremented by refunds
     assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas);
@@ -280,7 +280,7 @@ class SStoreOperationTest {
     final SStoreOperation operation =
         new SStoreOperation(amsterdamCalc, SStoreOperation.EIP_1706_MINIMUM);
 
-    final long blockGasLimit = 36_000_000L;
+    final long blockGasLimit = 100_000_000L;
     final Address address = Address.fromHexString("0x18675309");
     final ToyWorld toyWorld = new ToyWorld();
 
