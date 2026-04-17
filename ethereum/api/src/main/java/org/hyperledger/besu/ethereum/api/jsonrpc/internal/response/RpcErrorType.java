@@ -186,7 +186,7 @@ public enum RpcErrorType implements RpcMethodError {
   EXECUTION_HALTED(-32000, "Transaction processing could not be completed due to an exception"),
 
   // Execution engine failures
-  UNKNOWN_PAYLOAD(-32001, "Payload does not exist / is not available"),
+  UNKNOWN_PAYLOAD(-38001, "Unknown payload"),
   INVALID_TERMINAL_BLOCK(-32002, "Terminal block doesn't satisfy terminal block conditions"),
   INVALID_FORKCHOICE_STATE(-38002, "Invalid forkchoice state"),
   INVALID_PAYLOAD_ATTRIBUTES(-38003, "Invalid payload attributes"),

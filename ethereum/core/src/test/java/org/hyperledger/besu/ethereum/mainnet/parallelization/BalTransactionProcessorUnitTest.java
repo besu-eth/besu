@@ -18,8 +18,10 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.Worl
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -29,7 +31,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -45,6 +46,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoOpBonsaiCache
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoopBonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.NoOpTrieLogManager;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
@@ -85,7 +87,11 @@ class BalTransactionProcessorUnitTest {
   @Mock private MainnetTransactionProcessor transactionProcessor;
 
   private record TestEnvironment(
-      ProtocolContext protocolContext, BlockHeader blockHeader, BonsaiWorldState worldState) {}
+      ProtocolContext protocolContext,
+      BlockHeader blockHeader,
+      Optional<BlockHeader> maybeParentHeader,
+      WorldStateArchive worldStateArchive,
+      BonsaiWorldState worldState) {}
 
   private BonsaiWorldState createEmptyWorldState() {
     final BonsaiWorldStateKeyValueStorage storage =
@@ -106,21 +112,18 @@ class BalTransactionProcessorUnitTest {
 
   private TestEnvironment createTestEnvironment() {
     final ProtocolContext protocolContext = mock(ProtocolContext.class);
-    final MutableBlockchain blockchain = mock(MutableBlockchain.class);
-    final BlockHeader chainHeadBlockHeader = mock(BlockHeader.class);
+    final BlockHeader parentHeader = mock(BlockHeader.class);
     final BlockHeader blockHeader = mock(BlockHeader.class);
     final WorldStateArchive worldStateArchive = mock(WorldStateArchive.class);
     final BonsaiWorldState worldState = createEmptyWorldState();
 
-    when(protocolContext.getBlockchain()).thenReturn(blockchain);
-    when(blockchain.getChainHeadHeader()).thenReturn(chainHeadBlockHeader);
-    when(chainHeadBlockHeader.getHash()).thenReturn(Hash.ZERO);
-    when(chainHeadBlockHeader.getStateRoot()).thenReturn(Hash.EMPTY_TRIE_HASH);
-    when(blockHeader.getParentHash()).thenReturn(Hash.ZERO);
     when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
     when(worldStateArchive.getWorldState(any())).thenReturn(Optional.of(worldState));
+    when(parentHeader.getBlockHash()).thenReturn(Hash.ZERO);
+    when(parentHeader.getStateRoot()).thenReturn(Hash.EMPTY_TRIE_HASH);
 
-    return new TestEnvironment(protocolContext, blockHeader, worldState);
+    return new TestEnvironment(
+        protocolContext, blockHeader, Optional.of(parentHeader), worldStateArchive, worldState);
   }
 
   private Transaction mockTransaction() {
@@ -172,7 +175,8 @@ class BalTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       verify(transactionProcessor, times(1))
           .processTransaction(
@@ -209,7 +213,8 @@ class BalTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       verify(transactionProcessor, times(3))
           .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
@@ -235,7 +240,8 @@ class BalTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       final Optional<TransactionProcessingResult> result =
           processor.getProcessingResult(
@@ -248,6 +254,115 @@ class BalTransactionProcessorUnitTest {
 
       assertTrue(result.isPresent(), "Expected processing result to be present");
       assertTrue(result.get().isSuccessful(), "Expected successful result");
+    }
+  }
+
+  @Nested
+  @DisplayName("Parent header and world state loading")
+  class ParentHeaderAndWorldStateTests {
+
+    @Test
+    @DisplayName("Does not query archive or process transaction when parent header is absent")
+    void skipsProcessingWhenParentHeaderAbsent() {
+      final ProtocolContext protocolContext = mock(ProtocolContext.class);
+      final BlockHeader blockHeader = mock(BlockHeader.class);
+      final BlockAccessList blockAccessList = mock(BlockAccessList.class);
+      final Transaction transaction = mock(Transaction.class);
+      final BonsaiWorldState worldStateForResult = createEmptyWorldState();
+      final BalConcurrentTransactionProcessor processor =
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+
+      processor.runAsyncBlock(
+          protocolContext,
+          blockHeader,
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          (__, ___) -> Hash.EMPTY,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          Optional.empty());
+
+      verify(protocolContext, never()).getWorldStateArchive();
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
+      assertTrue(
+          processor
+              .getProcessingResult(
+                  worldStateForResult,
+                  MINING_BENEFICIARY,
+                  transaction,
+                  0,
+                  Optional.empty(),
+                  Optional.empty())
+              .isEmpty());
+    }
+
+    @Test
+    @DisplayName("Does not process transaction when world state archive returns empty")
+    void skipsProcessingWhenArchiveHasNoWorldState() {
+      final TestEnvironment env = createTestEnvironment();
+      when(env.worldStateArchive().getWorldState(any())).thenReturn(Optional.empty());
+      final BlockAccessList blockAccessList = mock(BlockAccessList.class);
+      final Transaction transaction = mock(Transaction.class);
+      final BalConcurrentTransactionProcessor processor =
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          (__, ___) -> Hash.EMPTY,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      verify(env.worldStateArchive(), times(1)).getWorldState(any());
+      verify(transactionProcessor, never())
+          .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
+      assertTrue(
+          processor
+              .getProcessingResult(
+                  env.worldState(),
+                  MINING_BENEFICIARY,
+                  transaction,
+                  0,
+                  Optional.empty(),
+                  Optional.empty())
+              .isEmpty());
+    }
+
+    @Test
+    @DisplayName("World state query uses the parent block header")
+    void loadWorldStateUsesParentBlockHeader() {
+      final TestEnvironment env = createTestEnvironment();
+      stubSuccessfulTransaction();
+      final BlockAccessList blockAccessList = mockEmptyBlockAccessList();
+      final Transaction transaction = mockTransaction();
+      final BlockHeader parent = env.maybeParentHeader().orElseThrow();
+      final BalConcurrentTransactionProcessor processor =
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          (__, ___) -> Hash.EMPTY,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      verify(env.worldStateArchive())
+          .getWorldState(argThat((WorldStateQueryParams p) -> p.getBlockHeader() == parent));
+      verify(transactionProcessor, times(1))
+          .processTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
   }
 
@@ -388,7 +503,8 @@ class BalTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       final Transaction[] txs = new Transaction[] {tx0, tx1, tx2};
       for (int i = 0; i < txs.length; i++) {
@@ -438,7 +554,8 @@ class BalTransactionProcessorUnitTest {
           (__, ___) -> Hash.EMPTY,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
-          Optional.empty());
+          Optional.empty(),
+          env.maybeParentHeader());
 
       final Optional<TransactionProcessingResult> result =
           processor.getProcessingResult(

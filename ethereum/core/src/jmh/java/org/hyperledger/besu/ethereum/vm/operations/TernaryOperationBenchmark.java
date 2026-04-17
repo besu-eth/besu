@@ -42,7 +42,7 @@ public abstract class TernaryOperationBenchmark {
 
   protected Bytes[] aPool;
   protected Bytes[] bPool;
-  protected Bytes[] cPool;
+  protected Bytes[] mPool;
   protected int index;
   protected MessageFrame frame;
 
@@ -51,16 +51,16 @@ public abstract class TernaryOperationBenchmark {
     frame = BenchmarkHelper.createMessageCallFrame();
     aPool = new Bytes[SAMPLE_SIZE];
     bPool = new Bytes[SAMPLE_SIZE];
-    cPool = new Bytes[SAMPLE_SIZE];
+    mPool = new Bytes[SAMPLE_SIZE];
     BenchmarkHelper.fillPool(aPool);
     BenchmarkHelper.fillPool(bPool);
-    BenchmarkHelper.fillPool(cPool);
+    BenchmarkHelper.fillPool(mPool);
     index = 0;
   }
 
   @Benchmark
   public void executeOperation(final Blackhole blackhole) {
-    frame.pushStackItem(cPool[index]);
+    frame.pushStackItem(mPool[index]);
     frame.pushStackItem(bPool[index]);
     frame.pushStackItem(aPool[index]);
 
