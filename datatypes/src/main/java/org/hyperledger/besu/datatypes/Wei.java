@@ -139,7 +139,8 @@ public final class Wei extends BaseUInt256Value<Wei> implements Quantity {
    * @param off the offset into the array where u3 should be written
    */
   public void writeLimbs(final long[] target, final int off) {
-    // TODO EVMv2 store this representation at Wei object construction time when switching from v2 to v1
+    // TODO EVMv2 store this representation at Wei object construction time when switching from v2
+    // to v1
     final byte[] b = toArrayUnsafe();
     target[off] = (long) LONG_BE.get(b, 0);
     target[off + 1] = (long) LONG_BE.get(b, 8);

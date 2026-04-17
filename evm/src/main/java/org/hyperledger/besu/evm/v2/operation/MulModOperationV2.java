@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.evm.v2.operation;
 
+import static org.hyperledger.besu.evm.v2.operation.StackUtil.UNDERFLOW_RESPONSE;
+
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.UInt256;
 import org.hyperledger.besu.evm.frame.MessageFrame;
@@ -48,7 +50,7 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
    * @return the operation result
    */
   public static OperationResult staticOperation(final MessageFrame frame, final long[] stack) {
-    if (!frame.stackHasItems(3)) return UNDERFLOW_RESPONSE;
+    if (!frame.stackHasItemsV2(3)) return UNDERFLOW_RESPONSE;
     int top = frame.stackTopV2();
     mulMod(stack, top);
     // consumed three items and produced one item
