@@ -133,7 +133,7 @@ public final class Wei extends BaseUInt256Value<Wei> implements Quantity {
 
   /**
    * Writes the 4 big-endian long limbs into the target array at the given offset. This enables
-   * zero-allocation transfer to the EVM operand stack.
+   * zero-allocation writes to the EVM operand stack; reads may allocate typed wrappers.
    *
    * @param target the target long array (typically the EVM stack)
    * @param off the offset into the array where u3 should be written
