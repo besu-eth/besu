@@ -40,34 +40,7 @@ final class EncryptedMessage {
   }
 
   /**
-   * Decrypts the ciphertext using our private key.
-   *
-   * @param msgBytes The ciphertext.
-   * @param nodeKey Abstraction of this nodes private key & associated cryptographic operations
-   * @return The plaintext.
-   * @throws InvalidCipherTextException Thrown if decryption failed.
-   */
-  public static Bytes decryptMsg(final Bytes msgBytes, final NodeKey nodeKey)
-      throws InvalidCipherTextException {
-
-    // Extract the ephemeral public key, stripping off the first byte (0x04), which designates it's
-    // an uncompressed key.
-    final SECPPublicKey ephPubKey = SIGNATURE_ALGORITHM.createPublicKey(msgBytes.slice(1, 64));
-
-    // Strip off the IV to use.
-    final Bytes iv = msgBytes.slice(65, IV_SIZE);
-
-    // Extract the encrypted payload.
-    final Bytes encrypted = msgBytes.slice(65 + IV_SIZE);
-
-    // Perform the decryption.
-    final ECIESEncryptionEngine decryptor =
-        ECIESEncryptionEngine.forDecryption(nodeKey, ephPubKey, iv);
-    return decryptor.decrypt(encrypted);
-  }
-
-  /**
-   * Decrypts the ciphertext using our private key.
+   * Decrypts an EIP-8 formatted ciphertext using our private key.
    *
    * @param msgBytes The ciphertext.
    * @param nodeKey Abstraction of this nodes private key & associated cryptographic operations
@@ -91,39 +64,7 @@ final class EncryptedMessage {
   }
 
   /**
-   * Encrypts a message for the specified peer using ECIES.
-   *
-   * @param bytes The plaintext.
-   * @param remoteKey The peer's remote key.
-   * @return The ciphertext.
-   * @throws InvalidCipherTextException Thrown if encryption failed.
-   */
-  public static Bytes encryptMsg(final Bytes bytes, final SECPPublicKey remoteKey)
-      throws InvalidCipherTextException {
-    // TODO: check size.
-    final ECIESEncryptionEngine engine = ECIESEncryptionEngine.forEncryption(remoteKey);
-
-    // Do the encryption.
-    final Bytes encrypted = engine.encrypt(bytes);
-    final Bytes iv = engine.getIv();
-    final SECPPublicKey ephPubKey = engine.getEphPubKey();
-
-    // Create the output message by concatenating the ephemeral public key (prefixed with
-    // 0x04 to designate uncompressed), IV, and encrypted bytes.
-    final MutableBytes answer =
-        MutableBytes.create(1 + ECIESHandshaker.PUBKEY_LENGTH + IV_SIZE + encrypted.size());
-
-    int offset = 0;
-    // Set the first byte as 0x04 to specify it's an uncompressed key.
-    answer.set(offset, (byte) 0x04);
-    ephPubKey.getEncodedBytes().copyTo(answer, offset += 1);
-    iv.copyTo(answer, offset += ECIESHandshaker.PUBKEY_LENGTH);
-    encrypted.copyTo(answer, offset + iv.size());
-    return answer;
-  }
-
-  /**
-   * Encrypts a message for the specified peer using ECIES.
+   * Encrypts a message for the specified peer using EIP-8 ECIES.
    *
    * @param message The plaintext.
    * @param remoteKey The peer's remote key.

@@ -582,8 +582,8 @@ public class BlockSimulator {
     // if we have a block-aware operation tracer, trace end block here
     maybeBlockAwareOperationTracer.ifPresent(
         tracer -> {
-          LOG.trace("traceEndBlock sim for {}", blockHeader.toLogString());
-          tracer.traceEndBlock(blockHeader, block.getBody());
+          LOG.trace("traceEndBlock sim for {}", finalBlockHeader.toLogString());
+          tracer.traceEndBlock(finalBlockHeader, block.getBody());
         });
 
     if (returnTrieLog && ws instanceof PathBasedWorldState) {
