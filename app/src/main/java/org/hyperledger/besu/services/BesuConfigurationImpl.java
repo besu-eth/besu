@@ -82,18 +82,6 @@ public class BesuConfigurationImpl implements BesuConfiguration {
     return this;
   }
 
-  @Deprecated
-  @Override
-  public Optional<String> getRpcHttpHost() {
-    return Optional.of(rpcHttpHost);
-  }
-
-  @Deprecated
-  @Override
-  public Optional<Integer> getRpcHttpPort() {
-    return Optional.of(rpcHttpPort);
-  }
-
   @Override
   public String getConfiguredRpcHttpHost() {
     return rpcHttpHost;

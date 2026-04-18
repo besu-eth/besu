@@ -30,22 +30,6 @@ public interface BesuConfiguration extends BesuService {
    *
    * @return the configured RPC http host.
    */
-  @Deprecated(since = "25.1.0")
-  Optional<String> getRpcHttpHost();
-
-  /**
-   * Get the configured RPC http port.
-   *
-   * @return the configured RPC http port.
-   */
-  @Deprecated(since = "25.1.0")
-  Optional<Integer> getRpcHttpPort();
-
-  /**
-   * Get the configured RPC http host.
-   *
-   * @return the configured RPC http host.
-   */
   String getConfiguredRpcHttpHost();
 
   /**
