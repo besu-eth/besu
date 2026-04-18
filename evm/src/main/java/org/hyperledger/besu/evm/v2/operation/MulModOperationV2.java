@@ -23,7 +23,7 @@ import org.hyperledger.besu.evm.operation.Operation;
 /** The Mul mod operation. */
 public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
 
-  private static final OperationResult mulModSuccess = new OperationResult(8, null);
+  private static final OperationResult MUL_MOD_SUCCESS = new OperationResult(8, null);
 
   /**
    * Instantiates a new Mul mod operation.
@@ -41,7 +41,9 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
   }
 
   /**
-   * Performs MulMod operation.
+   * Performs MULMOD operation.
+   *
+   * <p>mulmod(a, b, m) = (a * b) mod m
    *
    * @param frame the frame
    * @return the operation result
@@ -53,26 +55,7 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
     final int bOffset = (--top) << 2;
     final int mOffset = (--top) << 2;
 
-    mulMod(frame.stackDataV2(), aOffset, bOffset, mOffset);
-
-    frame.setTopV2(++top);
-    return mulModSuccess;
-  }
-
-  /**
-   * Performs EVM MULMOD (modular multiplication)
-   *
-   * <p>MULMOD: mulmod(a, b, m) = (a * b) mod m
-   *
-   * <p>MULMOD: stack[top-3] = (stack[top-1] * stack[top-2]) mod stack[top-3].
-   *
-   * @param stack the flat limb array
-   * @param aOffset the stack offset of the first multiplicand
-   * @param bOffset the stack offset of the second multiplicand
-   * @param mOffset the stack offset of the modulus
-   */
-  private static void mulMod(
-      final long[] stack, final int aOffset, final int bOffset, final int mOffset) {
+    final long[] stack = frame.stackDataV2();
     final UInt256 valueA =
         new UInt256(stack[aOffset], stack[aOffset + 1], stack[aOffset + 2], stack[aOffset + 3]);
     final UInt256 valueB =
@@ -86,5 +69,8 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
     stack[mOffset + 1] = r.u2();
     stack[mOffset + 2] = r.u1();
     stack[mOffset + 3] = r.u0();
+
+    frame.setTopV2(++top);
+    return MUL_MOD_SUCCESS;
   }
 }
