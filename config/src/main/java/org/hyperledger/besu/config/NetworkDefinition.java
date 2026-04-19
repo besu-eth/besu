@@ -36,15 +36,6 @@ public enum NetworkDefinition {
       true, // can snap sync
       true, // native required
       60_000_000L), // target gas limit
-  /** Holešky network name. */
-  HOLESKY(
-      "/holesky.json",
-      17000, // chain id
-      17000, // network id
-      true, // can snap sync
-      true, // native required
-      60_000_000L, // target gas limit
-      "November 2025"),
   /** Hoodi network name. */
   HOODI(
       "/hoodi.json",

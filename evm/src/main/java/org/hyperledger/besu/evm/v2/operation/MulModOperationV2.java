@@ -20,19 +20,18 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.Operation;
 
-/** The Shl (Shift Left) operation. */
-public class ShlOperationV2 extends AbstractFixedCostOperationV2 {
+/** The Mul mod operation. */
+public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
 
-  /** The Shl operation success result. */
-  static final OperationResult shlSuccess = new OperationResult(3, null);
+  private static final OperationResult MUL_MOD_SUCCESS = new OperationResult(8, null);
 
   /**
-   * Instantiates a new Shl operation.
+   * Instantiates a new Mul mod operation.
    *
    * @param gasCalculator the gas calculator
    */
-  public ShlOperationV2(final GasCalculator gasCalculator) {
-    super(0x1b, "SHL", 2, 1, gasCalculator, gasCalculator.getVeryLowTierGasCost());
+  public MulModOperationV2(final GasCalculator gasCalculator) {
+    super(0x09, "MULMOD", 3, 1, gasCalculator, gasCalculator.getMidTierGasCost());
   }
 
   @Override
@@ -42,36 +41,36 @@ public class ShlOperationV2 extends AbstractFixedCostOperationV2 {
   }
 
   /**
-   * Performs Shift Left operation.
+   * Performs MULMOD operation.
+   *
+   * <p>mulmod(a, b, m) = (a * b) mod m
    *
    * @param frame the frame
    * @return the operation result
    */
   public static OperationResult staticOperation(final MessageFrame frame) {
-    if (!frame.stackHasItems(2)) return UNDERFLOW_RESPONSE;
-    long[] stack = frame.stackDataV2();
+    if (!frame.stackHasItems(3)) return UNDERFLOW_RESPONSE;
     int top = frame.stackTopV2();
-    final int shiftOffset = (--top) << 2;
-    final UInt256 shift =
-        new UInt256(
-            stack[shiftOffset],
-            stack[shiftOffset + 1],
-            stack[shiftOffset + 2],
-            stack[shiftOffset + 3]);
-    final int valueOffset = (--top) << 2;
-    final UInt256 value =
-        new UInt256(
-            stack[valueOffset],
-            stack[valueOffset + 1],
-            stack[valueOffset + 2],
-            stack[valueOffset + 3]);
-    final UInt256 result = value.shl(shift);
-    int resultOffset = top << 2;
-    stack[resultOffset] = result.u3();
-    stack[resultOffset + 1] = result.u2();
-    stack[resultOffset + 2] = result.u1();
-    stack[resultOffset + 3] = result.u0();
+    final int aOffset = (--top) << 2;
+    final int bOffset = (--top) << 2;
+    final int mOffset = (--top) << 2;
+
+    final long[] stack = frame.stackDataV2();
+    final UInt256 valueA =
+        new UInt256(stack[aOffset], stack[aOffset + 1], stack[aOffset + 2], stack[aOffset + 3]);
+    final UInt256 valueB =
+        new UInt256(stack[bOffset], stack[bOffset + 1], stack[bOffset + 2], stack[bOffset + 3]);
+    final UInt256 modulus =
+        new UInt256(stack[mOffset], stack[mOffset + 1], stack[mOffset + 2], stack[mOffset + 3]);
+
+    final UInt256 r = modulus.isZero() ? UInt256.ZERO : valueA.mulMod(valueB, modulus);
+
+    stack[mOffset] = r.u3();
+    stack[mOffset + 1] = r.u2();
+    stack[mOffset + 2] = r.u1();
+    stack[mOffset + 3] = r.u0();
+
     frame.setTopV2(++top);
-    return shlSuccess;
+    return MUL_MOD_SUCCESS;
   }
 }

@@ -45,7 +45,6 @@ import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -74,8 +73,10 @@ final class DeFramer extends ByteToMessageDecoder {
   private final List<SubProtocol> subProtocols;
   private final boolean inboundInitiated;
   private final PeerLookup peerLookup;
+  private final Bytes authenticatedNodeId;
   private boolean hellosExchanged;
   private final LabelledMetric<Counter> outboundMessagesCounter;
+  private final int maxMessageSize;
   private final LabelledMetric<Counter> outboundBytesCounter;
 
   DeFramer(
@@ -87,7 +88,9 @@ final class DeFramer extends ByteToMessageDecoder {
       final CompletableFuture<PeerConnection> connectFuture,
       final MetricsSystem metricsSystem,
       final boolean inboundInitiated,
-      final PeerLookup peerLookup) {
+      final PeerLookup peerLookup,
+      final int maxMessageSize,
+      final Bytes authenticatedNodeId) {
     this.framer = framer;
     this.subProtocols = subProtocols;
     this.localNode = localNode;
@@ -96,6 +99,8 @@ final class DeFramer extends ByteToMessageDecoder {
     this.connectionEventDispatcher = connectionEventDispatcher;
     this.inboundInitiated = inboundInitiated;
     this.peerLookup = peerLookup;
+    this.maxMessageSize = maxMessageSize;
+    this.authenticatedNodeId = authenticatedNodeId;
     this.outboundMessagesCounter =
         metricsSystem.createLabelledCounter(
             BesuMetricCategory.NETWORK,
@@ -121,6 +126,24 @@ final class DeFramer extends ByteToMessageDecoder {
 
       if (hellosExchanged) {
 
+        if (message.getSize() > maxMessageSize) {
+          LOG.debug(
+              "Oversized message received ({} bytes > {} max), disconnecting peer {}",
+              message.getSize(),
+              maxMessageSize,
+              expectedPeer.map(Peer::getEnodeURLString).orElse("unknown"));
+          if (connectFuture.isDone() && !connectFuture.isCompletedExceptionally()) {
+            connectFuture
+                .join()
+                .disconnect(
+                    DisconnectMessage.DisconnectReason
+                        .BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+          } else {
+            ctx.close();
+          }
+          return;
+        }
+
         out.add(message);
 
       } else if (message.getCode() == WireMessageCodes.HELLO) {
@@ -137,6 +160,17 @@ final class DeFramer extends ByteToMessageDecoder {
           return;
         }
         LOG.trace("Received HELLO message: {}", peerInfo);
+        if (!peerInfo.getNodeId().equals(authenticatedNodeId)) {
+          LOG.debug(
+              "Peer Hello nodeId {} does not match authenticated nodeId from handshake {}. Disconnecting.",
+              peerInfo.getNodeId(),
+              authenticatedNodeId);
+          connectFuture.completeExceptionally(
+              new UnexpectedPeerConnectionException(
+                  "Hello nodeId does not match handshake identity"));
+          ctx.close();
+          return;
+        }
         if (peerInfo.getVersion() >= 5) {
           LOG.trace("Enable compression for p2pVersion: {}", peerInfo.getVersion());
           framer.enableCompression();
@@ -178,17 +212,6 @@ final class DeFramer extends ByteToMessageDecoder {
                 outboundMessagesCounter,
                 outboundBytesCounter,
                 inboundInitiated);
-
-        // Check peer is who we expected
-        if (expectedPeer.isPresent()
-            && !Objects.equals(expectedPeer.get().getId(), peerInfo.getNodeId())) {
-          final String unexpectedMsg =
-              String.format(
-                  "Expected id %s, but got %s", expectedPeer.get().getId(), peerInfo.getNodeId());
-          connectFuture.completeExceptionally(new UnexpectedPeerConnectionException(unexpectedMsg));
-          LOG.debug("{}. Disconnecting.", unexpectedMsg);
-          connection.disconnect(DisconnectMessage.DisconnectReason.UNEXPECTED_ID);
-        }
 
         // Check that we have shared caps
         if (capabilityMultiplexer.getAgreedCapabilities().isEmpty()) {
