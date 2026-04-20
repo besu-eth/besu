@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.parameters.UnsignedLongParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
@@ -21,7 +22,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.FilterParam
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.methods.WebSocketRpcRequest;
+import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.transactionreceipts.TransactionReceiptsFilterParameter;
 
+import java.util.List;
 import java.util.Optional;
 
 public class SubscriptionRequestMapper {
@@ -51,6 +54,10 @@ public class SubscriptionRequestMapper {
         case LOGS:
           {
             return parseLogsRequest(webSocketRpcRequestBody);
+          }
+        case TRANSACTION_RECEIPTS:
+          {
+            return parseTransactionReceiptsRequest(webSocketRpcRequestBody);
           }
         case NEW_PENDING_TRANSACTIONS:
         case SYNCING:
@@ -94,6 +101,22 @@ public class SubscriptionRequestMapper {
     }
     return new SubscribeRequest(
         SubscriptionType.LOGS, filterParameter, null, request.getConnectionId());
+  }
+
+  private SubscribeRequest parseTransactionReceiptsRequest(final WebSocketRpcRequest request) {
+    final Optional<TransactionReceiptsFilterParameter> filterParam;
+    try {
+      filterParam = request.getOptionalParameter(1, TransactionReceiptsFilterParameter.class);
+    } catch (JsonRpcParameterException e) {
+      throw new InvalidJsonRpcParameters(
+          "Invalid transaction receipts filter parameter (index 1)",
+          RpcErrorType.INVALID_SUBSCRIPTION_PARAMS,
+          e);
+    }
+    final List<Hash> txHashes =
+        filterParam.map(TransactionReceiptsFilterParameter::getTransactionHashes).orElse(null);
+    return new SubscribeRequest(
+        SubscriptionType.TRANSACTION_RECEIPTS, null, null, txHashes, request.getConnectionId());
   }
 
   public UnsubscribeRequest mapUnsubscribeRequest(final JsonRpcRequestContext jsonRpcRequestContext)

@@ -113,8 +113,7 @@ public class JsonRpcMethodsFactory {
                   transactionPool,
                   synchronizer,
                   dataDir,
-                  transactionSimulator,
-                  ethScheduler),
+                  transactionSimulator),
               new ExecutionEngineJsonRpcMethods(
                   miningCoordinator,
                   protocolSchedule,
@@ -137,6 +136,7 @@ public class JsonRpcMethodsFactory {
                   apiConfiguration,
                   genesisConfigOptions,
                   transactionSimulator,
+                  protocolContext.getPluginServiceManager(),
                   metricsSystem),
               new NetJsonRpcMethods(
                   p2pNetwork,

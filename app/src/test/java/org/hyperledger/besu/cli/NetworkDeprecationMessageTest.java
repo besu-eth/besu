@@ -14,12 +14,10 @@
  */
 package org.hyperledger.besu.cli;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.config.NetworkDefinition;
 
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
@@ -28,25 +26,9 @@ class NetworkDeprecationMessageTest {
   @ParameterizedTest
   @EnumSource(
       value = NetworkDefinition.class,
-      names = {"HOLESKY"})
-  void shouldGenerateDeprecationMessageForDeprecatedNetworks(final NetworkDefinition network) {
-    assertThat(NetworkDeprecationMessage.generate(network))
-        .contains(network.normalize() + " is deprecated");
-  }
-
-  @ParameterizedTest
-  @EnumSource(
-      value = NetworkDefinition.class,
       names = {"MAINNET", "SEPOLIA", "DEV", "LUKSO", "EPHEMERY", "HOODI"})
   void shouldThrowErrorForNonDeprecatedNetworks(final NetworkDefinition network) {
     assertThatThrownBy(() -> NetworkDeprecationMessage.generate(network))
         .isInstanceOf(AssertionError.class);
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

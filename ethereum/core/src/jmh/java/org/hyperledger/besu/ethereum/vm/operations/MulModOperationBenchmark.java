@@ -27,7 +27,7 @@ import org.openjdk.jmh.annotations.Setup;
 
 public class MulModOperationBenchmark extends TernaryOperationBenchmark {
 
-  // Benches for (a + b) % c
+  // Benches for (a * b) % m
 
   // Define available scenarios
   public enum Case {
@@ -40,7 +40,7 @@ public class MulModOperationBenchmark extends TernaryOperationBenchmark {
     MULMOD_128_64_64(4, 2, 2),
     MULMOD_128_128_32(4, 4, 1),
     MULMOD_128_128_64(4, 4, 2),
-    MULMOD_128_128_128(4, 4, 3),
+    MULMOD_128_128_128(4, 4, 4),
     MULMOD_192_32_32(6, 1, 1),
     MULMOD_192_64_32(6, 2, 1),
     MULMOD_192_64_64(6, 2, 2),
@@ -75,12 +75,12 @@ public class MulModOperationBenchmark extends TernaryOperationBenchmark {
 
     final int aSize;
     final int bSize;
-    final int cSize;
+    final int mSize;
 
-    Case(final int aSize, final int bSize, final int cSize) {
+    Case(final int aSize, final int bSize, final int mSize) {
       this.aSize = aSize;
       this.bSize = bSize;
-      this.cSize = cSize;
+      this.mSize = mSize;
     }
   }
 
@@ -137,30 +137,30 @@ public class MulModOperationBenchmark extends TernaryOperationBenchmark {
     Case scenario = Case.valueOf(caseName);
     aPool = new Bytes[SAMPLE_SIZE];
     bPool = new Bytes[SAMPLE_SIZE];
-    cPool = new Bytes[SAMPLE_SIZE];
+    mPool = new Bytes[SAMPLE_SIZE];
 
     final ThreadLocalRandom random = ThreadLocalRandom.current();
     int aSize;
     int bSize;
-    int cSize;
+    int mSize;
 
     for (int i = 0; i < SAMPLE_SIZE; i++) {
       if (scenario.aSize < 0) aSize = random.nextInt(1, 33);
       else aSize = scenario.aSize * 4;
       if (scenario.bSize < 0) bSize = random.nextInt(1, 33);
       else bSize = scenario.bSize * 4;
-      if (scenario.cSize < 0) cSize = random.nextInt(1, 33);
-      else cSize = scenario.cSize * 4;
+      if (scenario.mSize < 0) mSize = random.nextInt(1, 33);
+      else mSize = scenario.mSize * 4;
 
       final byte[] a = new byte[aSize];
       final byte[] b = new byte[bSize];
-      final byte[] c = new byte[cSize];
+      final byte[] m = new byte[mSize];
       random.nextBytes(a);
       random.nextBytes(b);
-      random.nextBytes(c);
+      random.nextBytes(m);
       aPool[i] = Bytes.wrap(a);
       bPool[i] = Bytes.wrap(b);
-      cPool[i] = Bytes.wrap(c);
+      mPool[i] = Bytes.wrap(m);
     }
     index = 0;
   }

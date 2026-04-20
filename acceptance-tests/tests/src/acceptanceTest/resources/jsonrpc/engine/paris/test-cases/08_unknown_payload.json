@@ -11,8 +11,8 @@
     "jsonrpc": "2.0",
     "id": 67,
     "error": {
-      "code": -32001,
-      "message": "Payload does not exist / is not available"
+      "code": -38001,
+      "message": "Unknown payload"
     }
   },
   "statusCode": 200

@@ -86,8 +86,12 @@ import org.hyperledger.besu.evm.operation.SwapOperation;
 import org.hyperledger.besu.evm.operation.VirtualOperation;
 import org.hyperledger.besu.evm.operation.XorOperation;
 import org.hyperledger.besu.evm.operation.XorOperationOptimized;
-import org.hyperledger.besu.evm.operation.v2.AddOperationV2;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.v2.operation.AddOperationV2;
+import org.hyperledger.besu.evm.v2.operation.MulModOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SarOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ShlOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ShrOperationV2;
 
 import java.util.Optional;
 import java.util.function.Function;
@@ -485,6 +489,19 @@ public class EVM {
         result =
             switch (opcode) {
               case 0x01 -> AddOperationV2.staticOperation(frame, frame.stackDataV2());
+              case 0x09 -> MulModOperationV2.staticOperation(frame);
+              case 0x1b ->
+                  enableConstantinople
+                      ? ShlOperationV2.staticOperation(frame)
+                      : InvalidOperation.invalidOperationResult(opcode);
+              case 0x1c ->
+                  enableConstantinople
+                      ? ShrOperationV2.staticOperation(frame)
+                      : InvalidOperation.invalidOperationResult(opcode);
+              case 0x1d ->
+                  enableConstantinople
+                      ? SarOperationV2.staticOperation(frame)
+                      : InvalidOperation.invalidOperationResult(opcode);
               // TODO: implement remaining opcodes in v2; until then fall through to v1
               default -> {
                 frame.setCurrentOperation(currentOperation);
