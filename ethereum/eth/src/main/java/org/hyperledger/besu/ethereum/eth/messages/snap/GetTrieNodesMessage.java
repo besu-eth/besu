@@ -19,6 +19,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
@@ -71,10 +72,6 @@ public final class GetTrieNodesMessage extends AbstractSnapMessageData {
     return SnapV1.GET_TRIE_NODES;
   }
 
-  /**
-   * Decode paths from an incoming peer message with limits to prevent memory amplification attacks.
-   * Caps total paths at MAX_TOTAL_PATHS and rejects individual paths exceeding MAX_PATH_SIZE.
-   */
   public TrieNodesPaths paths(final boolean withRequestId) {
     final RLPInput input = new BytesValueRLPInput(data, false);
     input.enterList();
@@ -86,37 +83,33 @@ public final class GetTrieNodesMessage extends AbstractSnapMessageData {
     // memory amplification attacks (a ~16 MB wire message could otherwise cause ~1 GB of heap)
     final List<List<Bytes>> pathGroups = new ArrayList<>();
     int totalPaths = 0;
-    boolean aborted = false;
 
     input.enterList();
-    while (!input.isEndOfCurrentList() && totalPaths < MAX_TOTAL_PATHS && !aborted) {
+    while (!input.isEndOfCurrentList() && totalPaths < MAX_TOTAL_PATHS) {
       input.enterList();
       final List<Bytes> group = new ArrayList<>();
       while (!input.isEndOfCurrentList() && totalPaths < MAX_TOTAL_PATHS) {
         final Bytes path = input.readBytes();
         if (path.size() > MAX_PATH_SIZE) {
-          aborted = true;
-          break;
+          throw new RLPException(
+              "Trie node path size " + path.size() + " exceeds maximum " + MAX_PATH_SIZE);
         }
         group.add(path);
         totalPaths++;
       }
-      // skip any remaining paths in this group
+      // skip any remaining paths in this group (over the total cap)
       while (!input.isEndOfCurrentList()) {
         input.skipNext();
       }
       input.leaveList();
-      // Add the group unless it was aborted due to an oversized path with no valid entries
-      if (!aborted || !group.isEmpty()) {
-        pathGroups.add(group);
-      }
+      pathGroups.add(group);
       // empty groups still count toward the limit to prevent empty-group flooding
       if (group.isEmpty()) {
         totalPaths++;
       }
     }
 
-    // skip any remaining groups
+    // skip any remaining groups (over the total cap)
     while (!input.isEndOfCurrentList()) {
       input.skipNext();
     }

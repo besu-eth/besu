@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.eth.messages.snap;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.eth.messages.snap.GetTrieNodesMessage.MAX_PATH_SIZE;
 import static org.hyperledger.besu.ethereum.eth.messages.snap.GetTrieNodesMessage.MAX_TOTAL_PATHS;
 
@@ -21,6 +22,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
@@ -111,27 +113,24 @@ public final class GetTrieNodeMessageTest {
   }
 
   @Test
-  public void oversizedPathAbortsDecoding() {
+  public void oversizedPathThrowsRLPException() {
     final Hash rootHash = Hash.wrap(Bytes32.random());
-    // First group has valid paths, second group has an oversized path
     final Bytes validPath = Bytes.of(new byte[MAX_PATH_SIZE]); // exactly at limit
     final Bytes oversizedPath = Bytes.of(new byte[MAX_PATH_SIZE + 1]); // over limit
     final List<List<Bytes>> groups =
         List.of(
             List.of(validPath, validPath), // group 0: 2 valid paths
-            List.of(oversizedPath), // group 1: oversized, triggers abort
+            List.of(oversizedPath), // group 1: oversized, triggers exception
             List.of(validPath)); // group 2: never reached
 
     final MessageData raw =
         new RawMessage(
             SnapV1.GET_TRIE_NODES, GetTrieNodesMessage.create(rootHash, groups).getData());
-    final GetTrieNodesMessage.TrieNodesPaths result =
-        GetTrieNodesMessage.readFrom(raw).paths(false);
+    final GetTrieNodesMessage message = GetTrieNodesMessage.readFrom(raw);
 
-    // Only the first group (before the oversized path) should be present
-    Assertions.assertThat(result.paths().size()).isEqualTo(1);
-    int totalPaths = result.paths().stream().mapToInt(List::size).sum();
-    Assertions.assertThat(totalPaths).isEqualTo(2);
+    assertThatThrownBy(() -> message.paths(false))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("exceeds maximum");
   }
 
   @Test

@@ -187,6 +187,10 @@ public abstract class RLP {
    */
   public static int listHeaderSize(final Bytes encoded) {
     final int prefix = encoded.get(0) & 0xFF;
+    if (prefix < 0xc0) {
+      throw new RLPException(
+          String.format("Expected an RLP list prefix (>= 0xc0) but got 0x%02x", prefix));
+    }
     return prefix <= 0xf7 ? 1 : 1 + (prefix - 0xf7);
   }
 

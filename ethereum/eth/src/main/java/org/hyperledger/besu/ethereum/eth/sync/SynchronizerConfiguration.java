@@ -517,6 +517,10 @@ public class SynchronizerConfiguration {
     }
 
     public Builder peerMaxOutstandingRequests(final int peerMaxOutstandingRequests) {
+      checkArgument(
+          peerMaxOutstandingRequests > 0 && peerMaxOutstandingRequests <= 100,
+          "peerMaxOutstandingRequests must be between 1 and 100, got %s",
+          peerMaxOutstandingRequests);
       this.peerMaxOutstandingRequests = peerMaxOutstandingRequests;
       return this;
     }
