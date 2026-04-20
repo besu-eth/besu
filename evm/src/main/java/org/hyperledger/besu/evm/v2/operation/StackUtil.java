@@ -16,12 +16,12 @@ package org.hyperledger.besu.evm.v2.operation;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
-import org.hyperledger.besu.evm.operation.Operation;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
+
+import org.apache.tuweni.bytes.Bytes;
 
 /**
  * Static utility for reading/writing typed values on the flat {@code long[]} V2 operand stack. Each
@@ -35,14 +35,6 @@ final class StackUtil {
       MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
   private static final VarHandle INT_BE =
       MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.BIG_ENDIAN);
-
-  /** Shared underflow response (zero gas cost). */
-  public static final Operation.OperationResult UNDERFLOW_RESPONSE =
-      new Operation.OperationResult(0L, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
-
-  /** Shared overflow response (zero gas cost). */
-  public static final Operation.OperationResult OVERFLOW_RESPONSE =
-      new Operation.OperationResult(0L, ExceptionalHaltReason.TOO_MANY_STACK_ITEMS);
 
   private StackUtil() {}
 
@@ -68,7 +60,14 @@ final class StackUtil {
    * @param top the slot index to write to
    */
   static void pushWei(final Wei wei, final long[] stack, final int top) {
-    wei.writeLimbs(stack, top << 2);
+    // TODO EVMv2 store this representation at Wei object construction time when switching from v2
+    // to v1
+    int offset = top << 2;
+    final byte[] b = wei.toArrayUnsafe();
+    stack[offset] = (long) LONG_BE.get(b, 0);
+    stack[offset + 1] = (long) LONG_BE.get(b, 8);
+    stack[offset + 2] = (long) LONG_BE.get(b, 16);
+    stack[offset + 3] = (long) LONG_BE.get(b, 24);
   }
 
   /**
@@ -80,12 +79,12 @@ final class StackUtil {
    * @param depth 0 for the topmost item, 1 for the item below, etc.
    * @return the address formed from the lower 160 bits of the stack word
    */
-  static Address toAddressAt(final long[] stack, final int top, final int depth) {
+  static Address readAddressAt(final long[] stack, final int top, final int depth) {
     final int off = (top - 1 - depth) << 2;
     byte[] bytes = new byte[20];
     INT_BE.set(bytes, 0, (int) stack[off + 1]);
     LONG_BE.set(bytes, 4, stack[off + 2]);
     LONG_BE.set(bytes, 12, stack[off + 3]);
-    return Address.wrap(org.apache.tuweni.bytes.Bytes.wrap(bytes));
+    return Address.wrap(Bytes.wrap(bytes));
   }
 }

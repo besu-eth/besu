@@ -18,10 +18,9 @@ import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 
 /** The Abstract fixed cost operation for V2 (long[] stack) operations. */
-abstract class AbstractFixedCostOperationV2 extends AbstractOperation {
+abstract class AbstractFixedCostOperationV2 extends AbstractOperationV2 {
 
   /** The Success response. */
   protected final OperationResult successResponse;

@@ -131,23 +131,6 @@ public final class Wei extends BaseUInt256Value<Wei> implements Quantity {
     return Wei.of(BigInteger.valueOf(eth).multiply(BigInteger.TEN.pow(18)));
   }
 
-  /**
-   * Writes the 4 big-endian long limbs into the target array at the given offset. This enables
-   * zero-allocation writes to the EVM operand stack; reads may allocate typed wrappers.
-   *
-   * @param target the target long array (typically the EVM stack)
-   * @param off the offset into the array where u3 should be written
-   */
-  public void writeLimbs(final long[] target, final int off) {
-    // TODO EVMv2 store this representation at Wei object construction time when switching from v2
-    // to v1
-    final byte[] b = toArrayUnsafe();
-    target[off] = (long) LONG_BE.get(b, 0);
-    target[off + 1] = (long) LONG_BE.get(b, 8);
-    target[off + 2] = (long) LONG_BE.get(b, 16);
-    target[off + 3] = (long) LONG_BE.get(b, 24);
-  }
-
   @Override
   public BigInteger getAsBigInteger() {
     return toBigInteger();
