@@ -45,7 +45,7 @@ import org.slf4j.LoggerFactory;
 
 public class SnapSyncChainDownloadPipelineFactory {
 
-  public record BackwardHeaderPipelineResult(
+  record BackwardHeaderPipelineResult(
       Pipeline<Long> pipeline, ImportHeadersStep importHeadersStep) {}
 
   private static final Logger LOG =
@@ -81,7 +81,7 @@ public class SnapSyncChainDownloadPipelineFactory {
    * @param chainState chain sync state containing pivot and progress
    * @return the backward header download pipeline
    */
-  public BackwardHeaderPipelineResult createBackwardHeaderDownloadPipeline(
+  BackwardHeaderPipelineResult createBackwardHeaderDownloadPipeline(
       final ChainSyncState chainState) {
     final int downloaderParallelism = syncConfig.getDownloaderParallelism();
     final int headerDownloadParallelismFactor = syncConfig.getHeaderDownloadParallelismFactor();
