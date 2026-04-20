@@ -70,7 +70,7 @@ public class PraguePreExecutionProcessor extends CancunPreExecutionProcessor {
     } catch (InvalidSystemCallAddressException e) {
       // According to EIP-2935, the system call should fail silently if no code exists at the
       // contract address
-      LOG.debug("Invalid system call address: {}", historyStorageAddress);
+      LOG.warn("Invalid system call address: {}", historyStorageAddress);
     }
     return null;
   }

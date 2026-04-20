@@ -54,7 +54,7 @@ public class CancunPreExecutionProcessor extends FrontierPreExecutionProcessor {
       processor.process(BEACON_ROOTS_ADDRESS, context, beaconRootsAddress, accessLocationTracker);
     } catch (InvalidSystemCallAddressException e) {
       // According to EIP-4788, fail silently if no code exists
-      LOG.debug("Invalid system call address: {}", BEACON_ROOTS_ADDRESS);
+      LOG.warn("Invalid system call address: {}", BEACON_ROOTS_ADDRESS);
     }
   }
 
