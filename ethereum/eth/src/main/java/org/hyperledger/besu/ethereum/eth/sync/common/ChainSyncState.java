@@ -91,22 +91,6 @@ public record ChainSyncState(
         this.headersDownloadComplete);
   }
 
-  /**
-   * Creates a new state with updated header download progress. The given header becomes the new
-   * anchor for the backward header download so that a pipeline restart resumes from this point.
-   *
-   * @param lowestImportedHeader the lowest header that was successfully imported
-   * @return new ChainSyncState instance with updated header download anchor
-   */
-  public ChainSyncState withHeaderProgress(final BlockHeader lowestImportedHeader) {
-    return new ChainSyncState(
-        firstPivotBlockHeader,
-        this.pivotBlockHeader,
-        this.blockDownloadAnchor,
-        lowestImportedHeader,
-        this.headersDownloadComplete);
-  }
-
   @Override
   public String toString() {
     return "ChainSyncState{"

@@ -44,10 +44,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class SnapSyncChainDownloadPipelineFactory {
-
-  public record BackwardHeaderPipelineResult(
-      Pipeline<Long> pipeline, ImportHeadersStep importHeadersStep) {}
-
   private static final Logger LOG =
       LoggerFactory.getLogger(SnapSyncChainDownloadPipelineFactory.class);
 
@@ -81,8 +77,7 @@ public class SnapSyncChainDownloadPipelineFactory {
    * @param chainState chain sync state containing pivot and progress
    * @return the backward header download pipeline
    */
-  public BackwardHeaderPipelineResult createBackwardHeaderDownloadPipeline(
-      final ChainSyncState chainState) {
+  public Pipeline<Long> createBackwardHeaderDownloadPipeline(final ChainSyncState chainState) {
     final int downloaderParallelism = syncConfig.getDownloaderParallelism();
     final int headerDownloadParallelismFactor = syncConfig.getHeaderDownloadParallelismFactor();
     final int headerRequestSize = syncConfig.getDownloaderHeaderRequestSize();
@@ -119,26 +114,23 @@ public class SnapSyncChainDownloadPipelineFactory {
             anchorForHeaderDownload,
             chainState.pivotBlockHeader());
 
-    final Pipeline<Long> pipeline =
-        PipelineBuilder.createPipelineFrom(
-                "backwardHeaderSource",
-                headerSource,
-                downloaderParallelism,
-                metricsSystem.createLabelledCounter(
-                    BesuMetricCategory.SYNCHRONIZER,
-                    "backward_header_download_pipeline_processed_total",
-                    "Number of entries processed by each backward header download pipeline stage",
-                    "step",
-                    "action"),
-                true,
-                "backwardHeaderSync")
-            .thenProcessAsyncOrdered(
-                "downloadBackwardHeaders",
-                downloadStep,
-                downloaderParallelism * headerDownloadParallelismFactor)
-            .andFinishWith("importHeadersStep", importHeadersStep);
-
-    return new BackwardHeaderPipelineResult(pipeline, importHeadersStep);
+    return PipelineBuilder.createPipelineFrom(
+            "backwardHeaderSource",
+            headerSource,
+            downloaderParallelism,
+            metricsSystem.createLabelledCounter(
+                BesuMetricCategory.SYNCHRONIZER,
+                "backward_header_download_pipeline_processed_total",
+                "Number of entries processed by each backward header download pipeline stage",
+                "step",
+                "action"),
+            true,
+            "backwardHeaderSync")
+        .thenProcessAsyncOrdered(
+            "downloadBackwardHeaders",
+            downloadStep,
+            downloaderParallelism * headerDownloadParallelismFactor)
+        .andFinishWith("importHeadersStep", importHeadersStep);
   }
 
   /**
