@@ -41,7 +41,6 @@ public class ProcessableBlockHeader
   // The block creation timestamp (seconds since the unix epoch)
   protected final long timestamp;
   // base fee is included for post EIP-1559 blocks
-  protected final Wei baseFee;
   // store optional base fee to compute it at build time
   protected final Optional<Wei> maybeBaseFee;
   // prevRandao is included for post-merge blocks
@@ -68,7 +67,6 @@ public class ProcessableBlockHeader
     this.number = number;
     this.gasLimit = gasLimit;
     this.timestamp = timestamp;
-    this.baseFee = baseFee;
     this.maybeBaseFee = Optional.ofNullable(baseFee);
     this.mixHashOrPrevRandao = mixHashOrPrevRandao;
     this.parentBeaconBlockRoot = parentBeaconBlockRoot;
