@@ -69,7 +69,7 @@ public class MulModOperationBenchmarkV2 extends TernaryArithmeticBenchmarkV2 {
 
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {
-    return MulModOperationV2.staticOperation(frame, frame.stackDataV2());
+    return MulModOperationV2.staticOperation(frame);
   }
 
   @Override

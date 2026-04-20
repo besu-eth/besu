@@ -23,7 +23,7 @@ import org.hyperledger.besu.evm.operation.Operation;
 /** The Mul mod operation. */
 public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
 
-  private static final OperationResult mulModSuccess = new OperationResult(8, null);
+  private static final OperationResult MUL_MOD_SUCCESS = new OperationResult(8, null);
 
   /**
    * Instantiates a new Mul mod operation.
@@ -37,49 +37,40 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
   @Override
   public Operation.OperationResult executeFixedCostOperation(
       final MessageFrame frame, final EVM evm) {
-    return staticOperation(frame, frame.stackDataV2());
+    return staticOperation(frame);
   }
 
   /**
-   * Performs MulMod operation.
+   * Performs MULMOD operation.
+   *
+   * <p>mulmod(a, b, m) = (a * b) mod m
    *
    * @param frame the frame
-   * @param stack the v2 operand stack ({@code long[]} in big-endian limb order)
    * @return the operation result
    */
-  public static OperationResult staticOperation(final MessageFrame frame, final long[] stack) {
+  public static OperationResult staticOperation(final MessageFrame frame) {
     if (!frame.stackHasItems(3)) return UNDERFLOW_RESPONSE;
     int top = frame.stackTopV2();
-    mulMod(stack, top);
-    // consumed three items and produced one item
-    frame.setTopV2(top - 2);
-    return mulModSuccess;
-  }
+    final int aOffset = (--top) << 2;
+    final int bOffset = (--top) << 2;
+    final int mOffset = (--top) << 2;
 
-  /**
-   * Performs EVM MULMOD (modular multiplication) on the three top stack items.
-   *
-   * <p>MULMOD: mulmod(a,b,m) = (a * b) mod m
-   *
-   * <p>MULMOD: stack[top-3] = (stack[top-1] * stack[top-2]) mod stack[top-3].
-   *
-   * @param stack the flat limb array
-   * @param top current stack-top (item count)
-   */
-  private static void mulMod(final long[] stack, final int top) {
-    final int aOffset = (top - 1) << 2;
-    final int bOffset = (top - 2) << 2;
-    final int mOffset = (top - 3) << 2;
+    final long[] stack = frame.stackDataV2();
     final UInt256 valueA =
         new UInt256(stack[aOffset], stack[aOffset + 1], stack[aOffset + 2], stack[aOffset + 3]);
     final UInt256 valueB =
         new UInt256(stack[bOffset], stack[bOffset + 1], stack[bOffset + 2], stack[bOffset + 3]);
     final UInt256 modulus =
         new UInt256(stack[mOffset], stack[mOffset + 1], stack[mOffset + 2], stack[mOffset + 3]);
+
     final UInt256 r = modulus.isZero() ? UInt256.ZERO : valueA.mulMod(valueB, modulus);
+
     stack[mOffset] = r.u3();
     stack[mOffset + 1] = r.u2();
     stack[mOffset + 2] = r.u1();
     stack[mOffset + 3] = r.u0();
+
+    frame.setTopV2(++top);
+    return MUL_MOD_SUCCESS;
   }
 }
