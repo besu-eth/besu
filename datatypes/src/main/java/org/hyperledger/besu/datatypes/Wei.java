@@ -14,10 +14,7 @@
  */
 package org.hyperledger.besu.datatypes;
 
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.VarHandle;
 import java.math.BigInteger;
-import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.Locale;
 
