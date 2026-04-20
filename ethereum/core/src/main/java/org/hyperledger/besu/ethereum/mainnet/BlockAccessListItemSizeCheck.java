@@ -15,9 +15,21 @@
 package org.hyperledger.besu.ethereum.mainnet;
 
 /**
- * Failure payload from {@link BlockAccessListValidator} (e.g. {@link
- * BlockAccessListValidator#validateExecutedBlockAccessListAfterBuild} or {@link
- * BlockAccessListItemSizeCheck.OverBudget}) and import-time boolean {@link
- * BlockAccessListValidator#validate}.
+ * Outcome of {@link BlockAccessListValidator#validateExecutedBlockAccessListItemSize} (EIP-7928
+ * item budget vs gas limit).
  */
-public record BlockAccessListValidationError(String errorMessage) {}
+public sealed interface BlockAccessListItemSizeCheck
+    permits BlockAccessListItemSizeCheck.WithinBudget, BlockAccessListItemSizeCheck.OverBudget {
+
+  record WithinBudget() implements BlockAccessListItemSizeCheck {}
+
+  record OverBudget(BlockAccessListValidationError error) implements BlockAccessListItemSizeCheck {}
+
+  static WithinBudget withinBudget() {
+    return new WithinBudget();
+  }
+
+  static OverBudget overBudget(final BlockAccessListValidationError error) {
+    return new OverBudget(error);
+  }
+}

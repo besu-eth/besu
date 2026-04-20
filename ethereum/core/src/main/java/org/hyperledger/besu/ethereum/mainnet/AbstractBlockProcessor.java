@@ -326,25 +326,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                 blockHashLookup,
                 transactionLocationTracker);
 
-        applyPartialBlockAccessView(
-            transactionProcessingResult.getPartialBlockAccessView(), blockAccessListBuilder);
-
-        final Optional<BlockAccessListValidationError> balSizeErrorAfterTx =
-            blockAccessListBuilder.flatMap(
-                b ->
-                    protocolSpec
-                        .getBlockAccessListValidator()
-                        .validateExecutedBlockAccessListItemSize(
-                            b.eip7928ItemCount(), blockHeader, protocolSpec));
-        if (balSizeErrorAfterTx.isPresent()) {
-          final String errorMessage = balSizeErrorAfterTx.get().errorMessage();
-          LOG.error(errorMessage);
-          if (worldState instanceof BonsaiWorldState) {
-            ((BonsaiWorldStateUpdateAccumulator) blockUpdater).reset();
-          }
-          return new BlockProcessingResult(Optional.empty(), errorMessage);
-        }
-
         if (transactionProcessingResult.isInvalid()) {
           String errorMessage =
               MessageFormat.format(
@@ -357,6 +338,25 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             ((BonsaiWorldStateUpdateAccumulator) blockUpdater).reset();
           }
           return new BlockProcessingResult(Optional.empty(), errorMessage);
+        }
+
+        applyPartialBlockAccessView(
+            transactionProcessingResult.getPartialBlockAccessView(), blockAccessListBuilder);
+
+        if (blockAccessListBuilder.isPresent()) {
+          final BlockAccessListItemSizeCheck itemSizeCheck =
+              protocolSpec
+                  .getBlockAccessListValidator()
+                  .validateExecutedBlockAccessListItemSize(
+                      blockAccessListBuilder.get().eip7928ItemCount(), blockHeader, protocolSpec);
+          if (itemSizeCheck instanceof BlockAccessListItemSizeCheck.OverBudget over) {
+            final String errorMessage = over.error().errorMessage();
+            LOG.error(errorMessage);
+            if (worldState instanceof BonsaiWorldState) {
+              ((BonsaiWorldStateUpdateAccumulator) blockUpdater).reset();
+            }
+            return new BlockProcessingResult(Optional.empty(), errorMessage);
+          }
         }
 
         if (transactionUpdater instanceof StackedUpdater<?, ?>) {

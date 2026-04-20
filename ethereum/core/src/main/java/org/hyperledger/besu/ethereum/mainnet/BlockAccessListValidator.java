@@ -52,13 +52,10 @@ public interface BlockAccessListValidator {
    * @param itemCount current BAL item count while merging partial views
    * @param blockHeader block or pending header (gas limit); during mining this is a {@link
    *     ProcessableBlockHeader}
-   * @return empty if within limit or the fork does not apply the rule; otherwise a {@link
-   *     BlockAccessListValidationError} with {@code errorMessage} for logging or {@link
-   *     org.hyperledger.besu.ethereum.BlockProcessingResult}
    */
-  default Optional<BlockAccessListValidationError> validateExecutedBlockAccessListItemSize(
+  default BlockAccessListItemSizeCheck validateExecutedBlockAccessListItemSize(
       final long itemCount, final ProcessableBlockHeader blockHeader) {
-    return Optional.empty();
+    return BlockAccessListItemSizeCheck.withinBudget();
   }
 
   /**
@@ -70,7 +67,7 @@ public interface BlockAccessListValidator {
    *
    * @param protocolSpecForItemCost spec whose gas calculator defines the EIP-7928 item cost
    */
-  default Optional<BlockAccessListValidationError> validateExecutedBlockAccessListItemSize(
+  default BlockAccessListItemSizeCheck validateExecutedBlockAccessListItemSize(
       final long itemCount,
       final ProcessableBlockHeader blockHeader,
       final ProtocolSpec protocolSpecForItemCost) {

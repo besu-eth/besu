@@ -20,7 +20,6 @@ import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECT
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -32,6 +31,7 @@ import org.hyperledger.besu.ethereum.blockcreation.txselection.TransactionEvalua
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
+import org.hyperledger.besu.ethereum.mainnet.BlockAccessListItemSizeCheck;
 import org.hyperledger.besu.ethereum.mainnet.BlockAccessListValidationError;
 import org.hyperledger.besu.ethereum.mainnet.BlockAccessListValidator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
@@ -72,36 +72,23 @@ class BlockAccessListItemBudgetTransactionSelectorTest {
     lenient().when(protocolSpec.getBlockAccessListValidator()).thenReturn(balValidator);
   }
 
-  /** Pre-processing does not look at BAL state; it always defers to later selectors. */
-  @Test
-  void preProcessingAlwaysSelected() {
-    final BlockAccessListItemBudgetTransactionSelector selector =
-        new BlockAccessListItemBudgetTransactionSelector(context(), Optional.empty());
-    assertThat(selector.evaluateTransactionPreProcessing(evalContext())).isEqualTo(SELECTED);
-  }
-
   /**
-   * Without an optional {@link BlockAccessList.BlockAccessListBuilder}, mining is not tracking a
-   * BAL for this block: post-processing returns {@code SELECTED} and the validator must not be
-   * invoked (no budget rule in this path).
+   * This selector never applies the EIP-7928 item budget in the pre-processing phase, so a
+   * transaction is never dropped at pre-processing for that reason (budget is enforced only in
+   * post-processing when a BAL builder is present).
    */
   @Test
-  void postProcessingWithoutBalBuilderSkipsValidator() {
-    final BlockAccessListItemBudgetTransactionSelector selector =
+  void preProcessingAlwaysSelectsRegardlessOfBalBuilderPresence() {
+    final TransactionEvaluationContext ctx = evalContext();
+
+    final BlockAccessListItemBudgetTransactionSelector withoutBuilder =
         new BlockAccessListItemBudgetTransactionSelector(context(), Optional.empty());
-    final TransactionProcessingResult result =
-        TransactionProcessingResult.successful(
-            List.of(),
-            21_000L,
-            0L,
-            Bytes.EMPTY,
-            Optional.of(twoItemPartial(0)),
-            ValidationResult.valid());
-    assertThat(selector.evaluateTransactionPostProcessing(evalContext(), result))
-        .isEqualTo(SELECTED);
-    verify(balValidator, never())
-        .validateExecutedBlockAccessListItemSize(
-            anyLong(), eq(pendingBlockHeader), eq(protocolSpec));
+    assertThat(withoutBuilder.evaluateTransactionPreProcessing(ctx)).isEqualTo(SELECTED);
+
+    final BlockAccessListItemBudgetTransactionSelector withBuilder =
+        new BlockAccessListItemBudgetTransactionSelector(
+            context(), Optional.of(BlockAccessList.builder()));
+    assertThat(withBuilder.evaluateTransactionPreProcessing(ctx)).isEqualTo(SELECTED);
   }
 
   /**
@@ -112,7 +99,7 @@ class BlockAccessListItemBudgetTransactionSelectorTest {
   void postProcessingWithinBudgetPassesValidatorAndReturnsSelected() {
     when(balValidator.validateExecutedBlockAccessListItemSize(
             anyLong(), eq(pendingBlockHeader), eq(protocolSpec)))
-        .thenReturn(Optional.empty());
+        .thenReturn(BlockAccessListItemSizeCheck.withinBudget());
 
     final BlockAccessList.BlockAccessListBuilder balBuilder = BlockAccessList.builder();
     final BlockAccessListItemBudgetTransactionSelector selector =
@@ -150,8 +137,9 @@ class BlockAccessListItemBudgetTransactionSelectorTest {
         .thenAnswer(
             inv ->
                 ((long) inv.getArgument(0)) > 3L
-                    ? Optional.of(new BlockAccessListValidationError("over budget"))
-                    : Optional.empty());
+                    ? BlockAccessListItemSizeCheck.overBudget(
+                        new BlockAccessListValidationError("over budget"))
+                    : BlockAccessListItemSizeCheck.withinBudget());
 
     final BlockAccessList.BlockAccessListBuilder balBuilder = BlockAccessList.builder();
     balBuilder.apply(twoItemPartial(0));
@@ -170,37 +158,6 @@ class BlockAccessListItemBudgetTransactionSelectorTest {
 
     assertThat(selector.evaluateTransactionPostProcessing(evalContext(), result))
         .isEqualTo(BLOCK_ACCESS_LIST_ITEM_BUDGET_EXCEEDED);
-  }
-
-  /**
-   * A successful tx may carry no partial; the selector still runs the budget check on the committed
-   * BAL snapshot alone. Validator sees item count 2 (only prior {@code apply} on the builder) and
-   * returns {@code SELECTED}.
-   */
-  @Test
-  void postProcessingWithEmptyPartialStillInvokesValidatorOnCommittedSnapshot() {
-    when(balValidator.validateExecutedBlockAccessListItemSize(
-            anyLong(), eq(pendingBlockHeader), eq(protocolSpec)))
-        .thenReturn(Optional.empty());
-
-    final BlockAccessList.BlockAccessListBuilder balBuilder = BlockAccessList.builder();
-    balBuilder.apply(twoItemPartial(0));
-
-    final BlockAccessListItemBudgetTransactionSelector selector =
-        new BlockAccessListItemBudgetTransactionSelector(context(), Optional.of(balBuilder));
-
-    final TransactionProcessingResult result =
-        TransactionProcessingResult.successful(
-            List.of(), 21_000L, 0L, Bytes.EMPTY, Optional.empty(), ValidationResult.valid());
-
-    assertThat(selector.evaluateTransactionPostProcessing(evalContext(), result))
-        .isEqualTo(SELECTED);
-
-    final ArgumentCaptor<Long> countCaptor = ArgumentCaptor.forClass(Long.class);
-    verify(balValidator)
-        .validateExecutedBlockAccessListItemSize(
-            countCaptor.capture(), eq(pendingBlockHeader), eq(protocolSpec));
-    assertThat(countCaptor.getValue()).isEqualTo(2L);
   }
 
   private BlockSelectionContext context() {

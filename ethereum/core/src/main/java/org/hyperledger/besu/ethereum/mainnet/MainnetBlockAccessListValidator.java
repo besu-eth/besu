@@ -59,30 +59,30 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
   }
 
   @Override
-  public Optional<BlockAccessListValidationError> validateExecutedBlockAccessListItemSize(
+  public BlockAccessListItemSizeCheck validateExecutedBlockAccessListItemSize(
       final long itemCount, final ProcessableBlockHeader blockHeader) {
     return validateExecutedBlockAccessListItemSize(
         itemCount, blockHeader, protocolSchedule.getByBlockHeader(blockHeader));
   }
 
   @Override
-  public Optional<BlockAccessListValidationError> validateExecutedBlockAccessListItemSize(
+  public BlockAccessListItemSizeCheck validateExecutedBlockAccessListItemSize(
       final long itemCount,
       final ProcessableBlockHeader blockHeader,
       final ProtocolSpec protocolSpecForItemCost) {
     final long itemCost = protocolSpecForItemCost.getGasCalculator().getBlockAccessListItemCost();
     if (itemCost <= 0) {
-      return Optional.empty();
+      return BlockAccessListItemSizeCheck.withinBudget();
     }
     final long maxItems = blockHeader.getGasLimit() / itemCost;
     if (itemCount <= maxItems) {
-      return Optional.empty();
+      return BlockAccessListItemSizeCheck.withinBudget();
     }
     final String blockRef =
         blockHeader instanceof BlockHeader fullHeader
-            ? fullHeader.getBlockHash().toHexString()
+            ? fullHeader.getBlockHash().toShortLogString()
             : String.format("pending#%d", blockHeader.getNumber());
-    return Optional.of(
+    return BlockAccessListItemSizeCheck.overBudget(
         new BlockAccessListValidationError(
             String.format(
                 "Block access list size exceeds maximum allowed items for block %s with gas limit %d"
@@ -99,14 +99,15 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
     if (blockHeader.getBalHash().isEmpty()) {
       return Optional.empty();
     }
-    final Optional<BlockAccessListValidationError> sizeError =
+    final BlockAccessListItemSizeCheck sizeCheck =
         validateExecutedBlockAccessListItemSize(
             executedBal.eip7928ItemCount(),
             blockHeader,
             protocolSchedule.getByBlockHeader(blockHeader));
-    if (sizeError.isPresent()) {
-      LOG.error(sizeError.get().errorMessage());
-      return sizeError;
+    if (sizeCheck
+        instanceof BlockAccessListItemSizeCheck.OverBudget(BlockAccessListValidationError error)) {
+      LOG.error(error.errorMessage());
+      return Optional.of(error);
     }
 
     return balHashMismatchAgainstHeaderIfAny(
@@ -140,11 +141,12 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
       return false;
     }
 
-    final Optional<BlockAccessListValidationError> lightSizeError =
+    final BlockAccessListItemSizeCheck lightSizeCheck =
         validateExecutedBlockAccessListItemSize(
             bal.eip7928ItemCount(), blockHeader, protocolSchedule.getByBlockHeader(blockHeader));
-    if (lightSizeError.isPresent()) {
-      LOG.warn(lightSizeError.get().errorMessage());
+    if (lightSizeCheck
+        instanceof BlockAccessListItemSizeCheck.OverBudget(BlockAccessListValidationError error)) {
+      LOG.warn(error.errorMessage());
       return false;
     }
 

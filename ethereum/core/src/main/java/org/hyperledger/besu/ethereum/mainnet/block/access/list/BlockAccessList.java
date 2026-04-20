@@ -59,11 +59,6 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
     return accountChanges.isEmpty();
   }
 
-  /**
-   * EIP-7928 item count: one per account plus one per distinct storage slot in {@code
-   * storage_changes} or {@code storage_reads} (same definition as {@link
-   * BlockAccessListBuilder#eip7928ItemCount()} on the builder that produced this list).
-   */
   public long eip7928ItemCount() {
     long totalStorageKeys = 0;
     for (AccountChanges accountChange : accountChanges) {
@@ -264,11 +259,6 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
               .toList());
     }
 
-    /**
-     * EIP-7928 item count for the BAL accumulated in this builder: one per account plus one per
-     * distinct storage slot in writes or reads, same as {@link BlockAccessList#eip7928ItemCount()}
-     * on {@link #build()}.
-     */
     public long eip7928ItemCount() {
       long count = accountChangesBuilders.size();
       for (AccountBuilder ab : accountChangesBuilders.values()) {

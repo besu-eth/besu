@@ -16,7 +16,7 @@ package org.hyperledger.besu.ethereum.blockcreation.txselection.selectors;
 
 import org.hyperledger.besu.ethereum.blockcreation.txselection.BlockSelectionContext;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.TransactionEvaluationContext;
-import org.hyperledger.besu.ethereum.mainnet.BlockAccessListValidationError;
+import org.hyperledger.besu.ethereum.mainnet.BlockAccessListItemSizeCheck;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
@@ -59,18 +59,24 @@ public class BlockAccessListItemBudgetTransactionSelector extends AbstractTransa
       return TransactionSelectionResult.SELECTED;
     }
     final BlockAccessList.BlockAccessListBuilder mainBuilder = maybeBlockAccessListBuilder.get();
-    final BlockAccessList committedSnapshot = mainBuilder.build();
-    final BlockAccessList.BlockAccessListBuilder probe = BlockAccessList.builder();
-    probe.mergeFrom(committedSnapshot);
-    processingResult.getPartialBlockAccessView().ifPresent(probe::apply);
-    final Optional<BlockAccessListValidationError> sizeError =
+    final long itemCount;
+    if (processingResult.getPartialBlockAccessView().isEmpty()) {
+      itemCount = mainBuilder.eip7928ItemCount();
+    } else {
+      final BlockAccessList committedSnapshot = mainBuilder.build();
+      final BlockAccessList.BlockAccessListBuilder probe = BlockAccessList.builder();
+      probe.mergeFrom(committedSnapshot);
+      probe.apply(processingResult.getPartialBlockAccessView().get());
+      itemCount = probe.eip7928ItemCount();
+    }
+    final BlockAccessListItemSizeCheck itemSizeCheck =
         context
             .protocolSpec()
             .getBlockAccessListValidator()
             .validateExecutedBlockAccessListItemSize(
-                probe.eip7928ItemCount(), context.pendingBlockHeader(), context.protocolSpec());
-    if (sizeError.isPresent()) {
-      LOG.trace("Transaction not selected: {}", sizeError.get().errorMessage());
+                itemCount, context.pendingBlockHeader(), context.protocolSpec());
+    if (itemSizeCheck instanceof BlockAccessListItemSizeCheck.OverBudget over) {
+      LOG.trace("Transaction not selected: {}", over.error().errorMessage());
       return TransactionSelectionResult.BLOCK_ACCESS_LIST_ITEM_BUDGET_EXCEEDED;
     }
     return TransactionSelectionResult.SELECTED;

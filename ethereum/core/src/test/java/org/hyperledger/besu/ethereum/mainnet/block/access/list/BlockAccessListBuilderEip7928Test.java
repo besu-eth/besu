@@ -42,6 +42,12 @@ class BlockAccessListBuilderEip7928Test {
     Assertions.assertThat(builder.eip7928ItemCount()).isEqualTo(built.eip7928ItemCount());
   }
 
+  /**
+   * Tx selection probes the EIP-7928 budget by snapshotting the committed builder ({@code
+   * mergeFrom(build())}) then applying the candidate partial; that path must agree with applying
+   * partials incrementally on one builder, or the probe count (and accept/reject decision) would be
+   * wrong.
+   */
   @Test
   void mergeFromReplayMatchesIncrementalApply() {
     final PartialBlockAccessView p0 = partialWithOneAccountAndStorageWrite(0);
