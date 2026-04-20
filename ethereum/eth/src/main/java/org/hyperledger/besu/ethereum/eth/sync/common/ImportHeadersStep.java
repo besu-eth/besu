@@ -37,7 +37,7 @@ public class ImportHeadersStep implements Consumer<List<BlockHeader>> {
   private final Hash checkpointBlockHash;
   private BlockHeader currentChildHeader;
   private final long totalHeaders;
-  private long lowestImportedBlockNumber;
+  private volatile long lowestImportedBlockNumber;
 
   public ImportHeadersStep(
       final MutableBlockchain blockchain,

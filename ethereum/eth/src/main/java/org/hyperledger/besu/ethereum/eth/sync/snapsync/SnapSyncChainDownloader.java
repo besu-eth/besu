@@ -389,6 +389,7 @@ public class SnapSyncChainDownloader
               // Mark headers download as complete and persist
               chainSyncState.updateAndGet(ChainSyncState::withHeadersDownloadComplete);
               chainSyncStateStorage.storeState(chainSyncState.get());
+              currentImportHeadersStep = null;
               LOG.debug("Persisted backward header download completion state");
 
               return null;
@@ -543,6 +544,11 @@ public class SnapSyncChainDownloader
   private void saveHeaderProgress() {
     final ImportHeadersStep importStep = currentImportHeadersStep;
     if (importStep == null) {
+      return;
+    }
+
+    // Don't save header progress if headers are already complete
+    if (chainSyncState.get().headersDownloadComplete()) {
       return;
     }
 
