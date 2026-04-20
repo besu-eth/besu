@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBlockProcessorTestSupport.MINING_BENEFICIARY;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -35,6 +36,7 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 
 import java.util.List;
@@ -150,8 +152,104 @@ class BalParallelBlockProcessorIntegrationTest {
       assertTrue(
           parResult.isSuccessful(),
           "BAL parallel import failed: " + parResult.errorMessage.orElse("(no message)"));
+      assertParallelizationRecordedInResults(seqResult, parResult, txs.length);
 
       // ========== Step 3: Compare state roots ==========
+      assertThat(parWs.rootHash())
+          .as("BAL parallel import state root must match sequential reference")
+          .isEqualTo(seqWs.rootHash());
+
+      final Optional<BlockAccessList> parBal = getBlockAccessList(parResult);
+      assertThat(parBal).as("Parallel import should also produce a BAL").isPresent();
+
+      final Hash seqBalHash = BodyValidation.balHash(generatedBal.get());
+      final Hash parBalHash = BodyValidation.balHash(parBal.get());
+      assertThat(parBalHash)
+          .as("BAL hash from parallel import must match sequential")
+          .isEqualTo(seqBalHash);
+
+      return new ComparisonResult(
+          seqWs.rootHash(), parWs.rootHash(), seqResult, parResult, seqWs, parWs);
+    }
+
+    @Override
+    protected ComparisonResult executeAndCompareParentOfChainHead(
+        final Wei baseFee, final Transaction... txs) {
+      final ExecutionContextTestFixture discoveryCtx = createFreshContext();
+      advanceCanonicalChainWithOneEmptyBlock(discoveryCtx, baseFee);
+      final Hash stateRoot =
+          discoverStateRootAtParent(
+              discoveryCtx, parentOfChainHead(discoveryCtx), baseFee, MINING_BENEFICIARY, txs);
+
+      final ExecutionContextTestFixture seqCtx = createFreshContext();
+      advanceCanonicalChainWithOneEmptyBlock(seqCtx, baseFee);
+      final BlockHeader seqTxParent = parentOfChainHead(seqCtx);
+      final MutableWorldState seqWs =
+          seqCtx
+              .getStateArchive()
+              .getWorldState(WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead(seqTxParent))
+              .orElseThrow();
+      final Block seqBlock =
+          createBlock(seqCtx, seqTxParent, stateRoot, baseFee, MINING_BENEFICIARY, txs);
+      final ProtocolSpec spec =
+          seqCtx
+              .getProtocolSchedule()
+              .getByBlockHeader(new BlockHeaderTestFixture().number(0L).buildHeader());
+      final MainnetTransactionProcessor txProcessor = spec.getTransactionProcessor();
+
+      final BlockProcessor seqProcessor =
+          new MainnetBlockProcessor(
+              txProcessor,
+              spec.getTransactionReceiptFactory(),
+              Wei.ZERO,
+              BlockHeader::getCoinbase,
+              true,
+              seqCtx.getProtocolSchedule(),
+              SEQUENTIAL_CONFIG);
+
+      final BlockProcessingResult seqResult =
+          seqProcessor.processBlock(
+              seqCtx.getProtocolContext(), seqCtx.getBlockchain(), seqWs, seqBlock);
+      assertTrue(
+          seqResult.isSuccessful(),
+          "Sequential execution failed: " + seqResult.errorMessage.orElse("(no message)"));
+
+      final Optional<BlockAccessList> generatedBal = getBlockAccessList(seqResult);
+      assertThat(generatedBal).as("Sequential execution should produce a BAL").isPresent();
+
+      final ExecutionContextTestFixture parCtx = createFreshContext();
+      advanceCanonicalChainWithOneEmptyBlock(parCtx, baseFee);
+      final BlockHeader parTxParent = parentOfChainHead(parCtx);
+      final MutableWorldState parWs =
+          parCtx
+              .getStateArchive()
+              .getWorldState(WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead(parTxParent))
+              .orElseThrow();
+      final Block parBlock =
+          createBlock(parCtx, parTxParent, stateRoot, baseFee, MINING_BENEFICIARY, txs);
+      final ProtocolSpec parSpec =
+          parCtx
+              .getProtocolSchedule()
+              .getByBlockHeader(new BlockHeaderTestFixture().number(0L).buildHeader());
+      final MainnetTransactionProcessor parTxProcessor = parSpec.getTransactionProcessor();
+
+      final BlockProcessor parProcessor = createParallelProcessor(parCtx);
+      final ParallelTransactionPreprocessing balImportPreprocessing =
+          new ParallelTransactionPreprocessingWithBal(
+              parTxProcessor, generatedBal.get(), BalConfiguration.DEFAULT);
+
+      final BlockProcessingResult parResult =
+          parProcessor.processBlock(
+              parCtx.getProtocolContext(),
+              parCtx.getBlockchain(),
+              parWs,
+              parBlock,
+              balImportPreprocessing);
+      assertTrue(
+          parResult.isSuccessful(),
+          "BAL parallel import failed: " + parResult.errorMessage.orElse("(no message)"));
+      assertParallelizationRecordedInResults(seqResult, parResult, txs.length);
+
       assertThat(parWs.rootHash())
           .as("BAL parallel import state root must match sequential reference")
           .isEqualTo(seqWs.rootHash());
@@ -196,7 +294,8 @@ class BalParallelBlockProcessorIntegrationTest {
         final BlockHashLookup blockHashLookup,
         final Wei blobGasPrice,
         final Optional<BlockAccessList.BlockAccessListBuilder> blockAccessListBuilder,
-        final Optional<BlockAccessList> maybeBlockBal) {
+        final Optional<BlockAccessList> maybeBlockBal,
+        final Optional<BlockHeader> maybeParentHeader) {
       return super.run(
           protocolContext,
           blockHeader,
@@ -205,7 +304,8 @@ class BalParallelBlockProcessorIntegrationTest {
           blockHashLookup,
           blobGasPrice,
           blockAccessListBuilder,
-          Optional.of(preComputedBal));
+          Optional.of(preComputedBal),
+          maybeParentHeader);
     }
   }
 
@@ -226,6 +326,12 @@ class BalParallelBlockProcessorIntegrationTest {
     @Override
     protected ComparisonResult executeAndCompare(final Wei baseFee, final Transaction... txs) {
       return new BalTestBase() {}.executeAndCompare(baseFee, txs);
+    }
+
+    @Override
+    protected ComparisonResult executeAndCompareParentOfChainHead(
+        final Wei baseFee, final Transaction... txs) {
+      return new BalTestBase() {}.executeAndCompareParentOfChainHead(baseFee, txs);
     }
   }
 
