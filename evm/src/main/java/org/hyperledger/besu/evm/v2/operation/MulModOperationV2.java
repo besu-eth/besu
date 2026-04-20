@@ -50,7 +50,7 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
    * @param frame the frame
    * @return the operation result
    */
-  public static OperationResult staticOperation(final MessageFrame frame, final long[] stack) {
+  public static OperationResult staticOperation(final MessageFrame frame) {
     if (!frame.stackHasItemsV2(3)) return UNDERFLOW_RESPONSE;
     int top = frame.stackTopV2();
     final int aOffset = (--top) << 2;
