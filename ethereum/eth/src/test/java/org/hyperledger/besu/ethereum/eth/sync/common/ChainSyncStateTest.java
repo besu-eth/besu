@@ -85,6 +85,34 @@ public class ChainSyncStateTest {
   }
 
   @Test
+  public void withHeaderProgressShouldUpdateHeaderDownloadAnchor() {
+    ChainSyncState initialState =
+        ChainSyncState.initialSync(pivotBlockHeader, checkpointBlockHeader, genesisBlockHeader);
+    BlockHeader progressHeader = new BlockHeaderTestFixture().number(800).buildHeader();
+
+    ChainSyncState updatedState = initialState.withHeaderProgress(progressHeader);
+
+    assertThat(updatedState.pivotBlockHeader()).isEqualTo(pivotBlockHeader);
+    assertThat(updatedState.firstPivotBlockHeader()).isEqualTo(pivotBlockHeader);
+    assertThat(updatedState.blockDownloadAnchor()).isEqualTo(checkpointBlockHeader);
+    assertThat(updatedState.headerDownloadAnchor()).isEqualTo(progressHeader);
+    assertThat(updatedState.headersDownloadComplete()).isFalse();
+  }
+
+  @Test
+  public void fromHeadShouldPreserveHeaderProgress() {
+    ChainSyncState initialState =
+        ChainSyncState.initialSync(pivotBlockHeader, checkpointBlockHeader, genesisBlockHeader);
+    BlockHeader progressHeader = new BlockHeaderTestFixture().number(800).buildHeader();
+
+    ChainSyncState withProgress = initialState.withHeaderProgress(progressHeader);
+    ChainSyncState restarted = withProgress.fromHead(chainHeadHeader);
+
+    assertThat(restarted.headerDownloadAnchor()).isEqualTo(progressHeader);
+    assertThat(restarted.blockDownloadAnchor()).isEqualTo(chainHeadHeader);
+  }
+
+  @Test
   public void fromHeadShouldUpdateBlockDownloadAnchor() {
     ChainSyncState initialState =
         ChainSyncState.initialSync(pivotBlockHeader, checkpointBlockHeader, genesisBlockHeader);
