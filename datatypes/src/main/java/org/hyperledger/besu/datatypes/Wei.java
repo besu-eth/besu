@@ -28,9 +28,6 @@ import org.apache.tuweni.units.bigints.UInt256;
 /** A particular quantity of Wei, the Ethereum currency. */
 public final class Wei extends BaseUInt256Value<Wei> implements Quantity {
 
-  private static final VarHandle LONG_BE =
-      MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.BIG_ENDIAN);
-
   /** The constant ZERO. */
   public static final Wei ZERO = of(0);
 
