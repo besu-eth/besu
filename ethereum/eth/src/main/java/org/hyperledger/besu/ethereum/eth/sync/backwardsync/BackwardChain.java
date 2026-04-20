@@ -26,7 +26,9 @@ import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 
@@ -145,6 +147,48 @@ public class BackwardChain {
     }
 
     updateFirstStoredAncestor(Optional.of(blockHeader));
+  }
+
+  /**
+   * Prepends a batch of headers already present in header storage (e.g. loaded from a previous
+   * session) to the backward chain using a single chainStorage transaction, avoiding one
+   * transaction per header. Headers must be supplied in parent-walk order (child first, then its
+   * parent, and so on).
+   *
+   * @param restoredHeaders headers to link, each the parent of the previous entry (or of the
+   *     current firstStoredAncestor for the first entry).
+   */
+  public synchronized void prependRestoredAncestorsHeaders(
+      final List<BlockHeader> restoredHeaders) {
+    if (restoredHeaders.isEmpty()) {
+      return;
+    }
+
+    int firstIndex = 0;
+    if (firstStoredAncestor.isEmpty()) {
+      updateLastStoredPivot(Optional.of(restoredHeaders.get(0)));
+      updateFirstStoredAncestor(Optional.of(restoredHeaders.get(0)));
+      firstIndex = 1;
+    }
+
+    if (firstIndex < restoredHeaders.size()) {
+      final Map<Hash, Hash> chainLinks = new LinkedHashMap<>(restoredHeaders.size() - firstIndex);
+      Hash childHash = firstStoredAncestor.orElseThrow().getHash();
+      for (int i = firstIndex; i < restoredHeaders.size(); i++) {
+        final Hash parentHash = restoredHeaders.get(i).getHash();
+        chainLinks.put(parentHash, childHash);
+        childHash = parentHash;
+      }
+      chainStorage.putAll(chainLinks);
+    }
+
+    final BlockHeader lowestRestored = restoredHeaders.get(restoredHeaders.size() - 1);
+    updateFirstStoredAncestor(Optional.of(lowestRestored));
+    LOG.atDebug()
+        .setMessage("Prepended batch of {} restored headers down to {}")
+        .addArgument(restoredHeaders::size)
+        .addArgument(lowestRestored::toLogString)
+        .log();
   }
 
   private void updateFirstStoredAncestor(final Optional<BlockHeader> maybeHeader) {
