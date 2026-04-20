@@ -14,13 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.core;
 
+import org.hyperledger.besu.ethereum.rlp.RLP;
+
 import java.util.Objects;
 
 import org.apache.tuweni.bytes.Bytes;
 
 public class SyncBlockAccessList {
-
-  private static final Bytes EMPTY_BLOCK_ACCESS_LIST_RLP = Bytes.fromHexString("0xc0");
 
   private final Bytes rlp;
 
@@ -33,7 +33,7 @@ public class SyncBlockAccessList {
   }
 
   public boolean isEmpty() {
-    return rlp.equals(EMPTY_BLOCK_ACCESS_LIST_RLP);
+    return rlp.equals(RLP.EMPTY_LIST);
   }
 
   @Override

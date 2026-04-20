@@ -100,17 +100,35 @@ public final class BlockAccessListFlatDatabaseUpdater {
             Bytes32.wrap(stateRoot.getBytes()),
             Function.identity(),
             Function.identity());
+    final BonsaiWorldStateKeyValueStorage worldStateStorageStrategy =
+        worldStateStorageCoordinator.getStrategy(BonsaiWorldStateKeyValueStorage.class);
 
     for (final var accountChanges : BlockAccessListChanges.latestChanges(bal)) {
-      final Hash accountHash = Hash.hash(accountChanges.address().getBytes());
-
-      final PmtStateTrieAccountValue trieAccountValue =
+      final Hash accountHash = accountChanges.address().addressHash();
+      final Optional<PmtStateTrieAccountValue> maybeTrieAccountValue =
           accountTrie
               .get(accountHash.getBytes())
               .map(RLP::input)
-              .map(PmtStateTrieAccountValue::readFrom)
-              // Calling SELFDESTRUCT might result in address present in BAL but missing in trie
-              .orElse(new PmtStateTrieAccountValue(0, Wei.ZERO, Hash.EMPTY_TRIE_HASH, Hash.EMPTY));
+              .map(PmtStateTrieAccountValue::readFrom);
+      if (maybeTrieAccountValue.isEmpty()) {
+        if (accountChanges.hasAnyChange()) {
+          LOG.warn(
+              "Account {} is missing from trie at state root {} but latest BAL changes are non-empty",
+              accountChanges.address(),
+              stateRoot);
+        }
+        removeAccountAndStorageFromFlatDatabase(
+            worldStateStorageStrategy, bonsaiUpdater, accountHash);
+        continue;
+      }
+      if (accountChanges.isEmpty()) {
+        LOG.warn(
+            "Account {} is present in trie at state root {} but latest BAL changes are empty",
+            accountChanges.address(),
+            stateRoot);
+        continue;
+      }
+      final PmtStateTrieAccountValue trieAccountValue = maybeTrieAccountValue.get();
 
       final var updatedCode = accountChanges.code();
       final Hash updatedCodeHash = resolveUpdatedCodeHash(accountChanges, trieAccountValue);
@@ -129,6 +147,19 @@ public final class BlockAccessListFlatDatabaseUpdater {
               updatedCodeHash);
       bonsaiUpdater.putAccountInfoState(accountHash, RLP.encode(updatedValue::writeTo));
     }
+  }
+
+  private static void removeAccountAndStorageFromFlatDatabase(
+      final BonsaiWorldStateKeyValueStorage worldStateStorageStrategy,
+      final BonsaiWorldStateKeyValueStorage.Updater bonsaiUpdater,
+      final Hash accountHash) {
+    worldStateStorageStrategy
+        .streamFlatStorages(accountHash, Bytes32.ZERO, pair -> true)
+        .keySet()
+        .forEach(
+            slotHash ->
+                bonsaiUpdater.removeStorageValueBySlotHash(accountHash, Hash.wrap(slotHash)));
+    bonsaiUpdater.removeAccountInfoState(accountHash);
   }
 
   private static void applyStorageChanges(

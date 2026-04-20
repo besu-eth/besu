@@ -120,7 +120,7 @@ class BlockAccessListFlatDatabaseUpdaterTest {
   }
 
   @Test
-  void shouldNotCreateAccountWhenTrieEntryIsMissingAndChangesInBalForAccountAreEmpty() {
+  void shouldRemoveStaleFlatStateWhenTrieEntryIsMissingAndBalContainsNoChanges() {
     final BonsaiWorldStateKeyValueStorage storage = createStorage();
     final WorldStateStorageCoordinator coordinator = new WorldStateStorageCoordinator(storage);
 
@@ -129,6 +129,17 @@ class BlockAccessListFlatDatabaseUpdaterTest {
 
     final Address newAddress = Address.fromHexString("0x2000000000000000000000000000000000000002");
     final Hash newAccountHash = Hash.hash(newAddress.getBytes());
+    final StorageSlotKey staleSlot = new StorageSlotKey(UInt256.valueOf(3));
+    final BonsaiWorldStateKeyValueStorage.Updater staleDataUpdater = storage.updater();
+    staleDataUpdater.putAccountInfoState(
+        newAccountHash,
+        RLP.encode(
+            out ->
+                new PmtStateTrieAccountValue(1L, Wei.of(2L), Hash.EMPTY_TRIE_HASH, Hash.EMPTY)
+                    .writeTo(out)));
+    staleDataUpdater.putStorageValueBySlotHash(
+        newAccountHash, staleSlot.getSlotHash(), Bytes32.leftPad(UInt256.ONE.toMinimalBytes()));
+    staleDataUpdater.commit();
 
     final BlockAccessList blockAccessList =
         new BlockAccessList(
@@ -144,6 +155,7 @@ class BlockAccessListFlatDatabaseUpdaterTest {
         blockchain, coordinator, updater, 1L, 1L);
 
     assertThat(storage.getAccount(newAccountHash)).isEmpty();
+    assertThat(storage.getStorageValueByStorageSlotKey(newAccountHash, staleSlot)).isEmpty();
   }
 
   @Test
@@ -151,12 +163,14 @@ class BlockAccessListFlatDatabaseUpdaterTest {
     final BonsaiWorldStateKeyValueStorage storage = createStorage();
     final WorldStateStorageCoordinator coordinator = new WorldStateStorageCoordinator(storage);
 
-    final Hash stateRoot = Hash.EMPTY_TRIE_HASH;
-    final MutableBlockchain blockchain = createBlockchainWithGenesis(stateRoot);
-
     final Address appliedAddress =
         Address.fromHexString("0x3000000000000000000000000000000000000003");
     final Hash appliedAccountHash = Hash.hash(appliedAddress.getBytes());
+    final PmtStateTrieAccountValue existingTrieAccount =
+        new PmtStateTrieAccountValue(0L, Wei.ZERO, Hash.EMPTY_TRIE_HASH, Hash.EMPTY);
+    final Hash stateRoot =
+        persistAccountTrieState(coordinator, storage, appliedAccountHash, existingTrieAccount);
+    final MutableBlockchain blockchain = createBlockchainWithGenesis(stateRoot);
 
     appendBlock(blockchain, blockchain.getChainHeadHeader(), stateRoot, Optional.empty());
 
