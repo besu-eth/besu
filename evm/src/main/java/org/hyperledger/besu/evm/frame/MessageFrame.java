@@ -198,6 +198,10 @@ public class MessageFrame {
   // Metadata fields.
   private final Type type;
   private State state = State.NOT_STARTED;
+  // EIP-7778/EIP-8037: Flipped to true once code execution starts; used to distinguish a halt
+  // that fires during opcode execution (halt-burn counts toward block regular gas) from a halt
+  // raised pre-execution in the processor's start() (halt-burn must be excluded).
+  private boolean codeExecuted = false;
 
   // Machine state fields.
   private long gasRemaining;
@@ -967,6 +971,46 @@ public class MessageFrame {
    */
   public long getStateGasSpillBurned() {
     return txValues.stateGasSpillBurned()[0];
+  }
+
+  /**
+   * Accumulates gas that was sitting unused in the initial frame's gasRemaining at the moment of an
+   * exceptional halt (EIP-7778/EIP-8037). The sender still pays for this gas via receipts, but it
+   * did not correspond to any executed regular or state gas, so it must be excluded from the block
+   * regular gas total. Not undone on revert.
+   *
+   * @param amount the gasRemaining snapshot taken immediately before clearGasRemaining on the
+   *     initial frame's exceptional halt
+   */
+  public void accumulateInitialFrameRegularHaltBurn(final long amount) {
+    txValues.initialFrameRegularHaltBurn()[0] += amount;
+  }
+
+  /**
+   * Returns the gas burned on the initial frame's exceptional halt.
+   *
+   * @return accumulated halt-burned gas
+   */
+  public long getInitialFrameRegularHaltBurn() {
+    return txValues.initialFrameRegularHaltBurn()[0];
+  }
+
+  /**
+   * Marks that opcode execution has started on this frame. Once set, an exceptional halt is
+   * classified as "during code execution" (halt-burned gas counts toward block regular gas) rather
+   * than pre-execution (halt-burned gas is excluded).
+   */
+  public void markCodeExecuted() {
+    this.codeExecuted = true;
+  }
+
+  /**
+   * Returns whether opcode execution has started on this frame.
+   *
+   * @return true if {@link #markCodeExecuted()} was invoked
+   */
+  public boolean isCodeExecuted() {
+    return codeExecuted;
   }
 
   /**
