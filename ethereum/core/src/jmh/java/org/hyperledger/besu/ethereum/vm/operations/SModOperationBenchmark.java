@@ -40,7 +40,7 @@ public class SModOperationBenchmark extends SignedBinaryArithmeticOperationBench
     "SMOD_64_128",
     "SMOD_192_256",
     "SMOD_128_0",
-    "SMOD_ANY_ANY"
+    "SMOD_RANDOM_RANDOM"
   })
   private String caseName;
 

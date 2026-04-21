@@ -53,7 +53,7 @@ public abstract class TernaryArithmeticOperationBenchmark extends TernaryOperati
 
     // -1 means random size
     private static int parseSizeBytes(final String s) {
-      return "ANY".equalsIgnoreCase(s) ? -1 : Integer.parseInt(s) / 8;
+      return "RANDOM".equalsIgnoreCase(s) ? -1 : Integer.parseInt(s) / 8;
     }
   }
 
@@ -100,7 +100,7 @@ public abstract class TernaryArithmeticOperationBenchmark extends TernaryOperati
    * @return the benchmark case name
    */
   protected String caseName() {
-    return opCode() + "_ANY" + "_ANY" + "_ANY";
+    return opCode() + "_RANDOM" + "_RANDOM" + "_RANDOM";
   }
 
   protected abstract String opCode();

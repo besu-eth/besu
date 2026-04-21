@@ -1,27 +1,14 @@
-/*
- * Copyright contributors to Besu.
- *
- * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
- * the License. You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
- * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
- * specific language governing permissions and limitations under the License.
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-package org.hyperledger.besu.ethereum.vm.operations;
+package org.hyperledger.besu.ethereum.vm.operations.v2;
 
 import java.math.BigInteger;
 import java.util.Random;
 
-import org.apache.tuweni.bytes.Bytes;
+import org.hyperledger.besu.ethereum.vm.operations.BenchmarkHelper;
+import org.hyperledger.besu.evm.UInt256;
 import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Setup;
 
-public abstract class BinaryArithmeticOperationBenchmark extends BinaryOperationBenchmark {
+public abstract class BinaryArithmeticOperationBenchmarkV2 extends BinaryOperationBenchmarkV2 {
   static class Case {
     final int aSizeBytes;
     final int bSizeBytes;
@@ -40,9 +27,9 @@ public abstract class BinaryArithmeticOperationBenchmark extends BinaryOperation
         return new Case(parseSizeBytes(splitString[1]), parseSizeBytes(splitString[2]));
       } catch (IllegalArgumentException t) {
         throw new IllegalArgumentException(
-            String.format(
-                "%s must have the format [%s_size_size] where size is #bits",
-                caseName, opcodeName));
+          String.format(
+            "%s must have the format [%s_size_size] where size is #bits",
+            caseName, opcodeName));
       }
     }
 
@@ -57,9 +44,10 @@ public abstract class BinaryArithmeticOperationBenchmark extends BinaryOperation
   public void setUp() {
     frame = BenchmarkHelper.createMessageCallFrame();
 
-    Case scenario = Case.fromString(opCode(), caseName());
-    aPool = new Bytes[SAMPLE_SIZE];
-    bPool = new Bytes[SAMPLE_SIZE];
+    Case
+      scenario = Case.fromString(opCode(), caseName());
+    aPool = new UInt256[SAMPLE_SIZE];
+    bPool = new UInt256[SAMPLE_SIZE];
 
     final Random random = new Random();
     int aSize;
@@ -85,8 +73,8 @@ public abstract class BinaryArithmeticOperationBenchmark extends BinaryOperation
         }
       }
 
-      aPool[i] = Bytes.wrap(a);
-      bPool[i] = Bytes.wrap(b);
+      aPool[i] = BenchmarkHelperV2.bytesToUInt256(a);
+      bPool[i] = BenchmarkHelperV2.bytesToUInt256(b);
     }
     index = 0;
   }

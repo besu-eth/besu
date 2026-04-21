@@ -17,8 +17,11 @@ package org.hyperledger.besu.ethereum.vm.operations;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.AddOperationOptimized;
 import org.hyperledger.besu.evm.operation.Operation;
+import org.openjdk.jmh.annotations.Param;
 
 public class AddOperationBenchmark extends BinaryArithmeticOperationBenchmark {
+  @Param("ADD_RANDOM_RANDOM")
+  private String caseName;
 
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {

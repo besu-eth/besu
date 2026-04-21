@@ -41,7 +41,7 @@ public class SDivOperationBenchmark extends SignedBinaryArithmeticOperationBench
     "SDIV_64_256",
     "SDIV_128_256",
     "SDIV_192_256",
-    "SDIV_ANY_ANY"
+    "SDIV_RANDOM_RANDOM"
   })
   private String caseName;
 

@@ -40,7 +40,7 @@ public class ModOperationBenchmark extends BinaryArithmeticOperationBenchmark {
     "MOD_64_128",
     "MOD_192_256",
     "MOD_128_0",
-    "MOD_ANY_ANY"
+    "MOD_RANDOM_RANDOM"
   })
   private String caseName;
 

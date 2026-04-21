@@ -63,7 +63,7 @@ public class AddModOperationBenchmark extends TernaryArithmeticOperationBenchmar
     "ADDMOD_64_64_128",
     "ADDMOD_192_192_256",
     "ADDMOD_128_256_0",
-    "ADDMOD_ANY_ANY_ANY"
+    "ADDMOD_RANDOM_RANDOM_RANDOM"
   })
   private String caseName;
 

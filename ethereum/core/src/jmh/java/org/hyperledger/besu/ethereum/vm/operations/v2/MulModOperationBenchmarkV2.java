@@ -63,7 +63,7 @@ public class MulModOperationBenchmarkV2 extends TernaryArithmeticBenchmarkV2 {
     "MULMOD_64_64_128",
     "MULMOD_192_192_256",
     "MULMOD_128_256_0",
-    "MULMOD_ANY_ANY_ANY"
+    "MULMOD_RANDOM_RANDOM_RANDOM"
   })
   private String caseName;
 
