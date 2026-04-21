@@ -303,11 +303,6 @@ public final class StatusMessage extends AbstractMessageData {
       // the message is eth/69
       final boolean isEth69Shape = in.nextIsList();
 
-      // Enforce that the declared protocolVersion matches the encoded shape. Otherwise a peer
-      // could advertise eth/69 in Hello but send the eth/68 Status layout (or vice versa), which
-      // spec-strict decoders reject. Detect the mismatch here so the handler can disconnect with
-      // a clean SUBPROTOCOL_TRIGGERED_UNPARSABLE_STATUS instead of an uncaught
-      // IllegalArgumentException from the EthStatus constructor.
       if (isEth69Shape && protocolVersion <= EthProtocolVersion.V68) {
         throw new RLPException(
             "Status with protocolVersion="
