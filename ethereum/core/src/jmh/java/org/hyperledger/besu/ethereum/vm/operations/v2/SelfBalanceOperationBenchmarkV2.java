@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -12,26 +12,26 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.vm.operations;
+package org.hyperledger.besu.ethereum.vm.operations.v2;
 
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createBonsaiInMemoryWorldStateArchive;
 import static org.mockito.Mockito.mock;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
-import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
-import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
-import org.hyperledger.besu.ethereum.core.MessageFrameTestFixture;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.evm.Code;
+import org.hyperledger.besu.evm.frame.BlockValues;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.operation.SelfBalanceOperation;
+import org.hyperledger.besu.evm.v2.operation.SelfBalanceOperationV2;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.concurrent.TimeUnit;
 
+import org.apache.tuweni.bytes.Bytes32;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Measurement;
@@ -48,14 +48,14 @@ import org.openjdk.jmh.infra.Blackhole;
 @OutputTimeUnit(value = TimeUnit.NANOSECONDS)
 @Measurement(iterations = 5, time = 1, timeUnit = TimeUnit.SECONDS)
 @BenchmarkMode(Mode.AverageTime)
-public class SelfBalanceOperationBenchmark {
+public class SelfBalanceOperationBenchmarkV2 {
 
-  private SelfBalanceOperation operation;
+  private SelfBalanceOperationV2 operation;
   private MessageFrame frame;
 
   @Setup
-  public void prepare() throws Exception {
-    operation = new SelfBalanceOperation(mock(GasCalculator.class));
+  public void setup() throws Exception {
+    operation = new SelfBalanceOperationV2(mock(GasCalculator.class));
     final Blockchain blockchain = mock(Blockchain.class);
     final Address address = Address.fromHexString("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
 
@@ -66,16 +66,26 @@ public class SelfBalanceOperationBenchmark {
     worldUpdater.getOrCreate(address).setBalance(Wei.of(1));
     worldUpdater.commit();
 
-    final ExecutionContextTestFixture executionContextTestFixture =
-        ExecutionContextTestFixture.create();
-    final BlockHeader blockHeader = new BlockHeaderTestFixture().buildHeader();
     frame =
-        new MessageFrameTestFixture()
-            .address(address)
+        MessageFrame.builder()
+            .enableEvmV2(true)
             .worldUpdater(worldUpdater)
-            .blockHeader(blockHeader)
-            .executionContextTestFixture(executionContextTestFixture)
-            .blockchain(blockchain)
+            .originator(Address.ZERO)
+            .gasPrice(Wei.ONE)
+            .blobGasPrice(Wei.ONE)
+            .blockValues(mock(BlockValues.class))
+            .miningBeneficiary(Address.ZERO)
+            .blockHashLookup((__, ___) -> Hash.ZERO)
+            .type(MessageFrame.Type.MESSAGE_CALL)
+            .initialGas(Long.MAX_VALUE)
+            .address(address)
+            .contract(address)
+            .inputData(Bytes32.ZERO)
+            .sender(Address.ZERO)
+            .value(Wei.ZERO)
+            .apparentValue(Wei.ZERO)
+            .code(Code.EMPTY_CODE)
+            .completer(__ -> {})
             .build();
 
     // Pre-warm: force trie path into memory
@@ -85,6 +95,6 @@ public class SelfBalanceOperationBenchmark {
   @Benchmark
   public void executeOperation(final Blackhole blackhole) {
     blackhole.consume(operation.execute(frame, null));
-    frame.popStackItem();
+    frame.setTopV2(frame.stackTopV2() - 1);
   }
 }

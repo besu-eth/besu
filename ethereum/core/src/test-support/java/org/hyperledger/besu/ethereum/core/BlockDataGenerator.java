@@ -860,7 +860,7 @@ public class BlockDataGenerator {
     final List<BlockAccessList.StorageChange> changes = new ArrayList<>();
 
     for (int i = 0; i < changeCount; i++) {
-      changes.add(new BlockAccessList.StorageChange(txIndex + i, uint256()));
+      changes.add(new BlockAccessList.StorageChange((long) txIndex + i, uint256()));
     }
 
     return new BlockAccessList.SlotChanges(slot, changes);
