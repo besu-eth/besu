@@ -552,21 +552,15 @@ public class SnapSyncChainDownloader
       return;
     }
 
-    final long lowestImported = importStep.getLowestImportedBlockNumber();
+    final BlockHeader lowestImported = importStep.getLowestImportedHeader();
     final long pivotNumber = chainSyncState.get().pivotBlockHeader().getNumber();
 
     // Only save if progress was actually made (lowest imported is below pivot)
-    if (lowestImported < pivotNumber) {
-      protocolContext
-          .getBlockchain()
-          .getBlockHeader(lowestImported)
-          .ifPresent(
-              header -> {
-                LOG.debug(
-                    "Saving header download progress: lowest imported header {}", lowestImported);
-                chainSyncState.updateAndGet(state -> state.withHeaderProgress(header));
-                chainSyncStateStorage.storeState(chainSyncState.get());
-              });
+    if (lowestImported.getNumber() < pivotNumber) {
+      LOG.debug(
+          "Saving header download progress: lowest imported header {}", lowestImported.getNumber());
+      chainSyncState.updateAndGet(state -> state.withHeaderProgress(lowestImported));
+      chainSyncStateStorage.storeState(chainSyncState.get());
     }
   }
 
