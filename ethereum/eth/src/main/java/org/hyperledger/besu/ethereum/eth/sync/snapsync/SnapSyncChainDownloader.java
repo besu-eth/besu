@@ -363,11 +363,14 @@ public class SnapSyncChainDownloader
 
   private CompletableFuture<Void> runStage1BackwardHeaderDownload(final ChainSyncState state) {
     LOG.debug(
-        "Stage 1: Starting backward header download from pivot {} down to stop block {}",
+        "Stage 1: Starting backward header download from pivot {} down to stop block {}, progress={}",
         state.pivotBlockHeader().getNumber(),
         state.headerDownloadAnchor() != null
             ? state.headerDownloadAnchor().getNumber()
-            : state.blockDownloadAnchor().getNumber());
+            : state.blockDownloadAnchor().getNumber(),
+        state.headerDownloadProgress() != null
+            ? state.headerDownloadProgress().getNumber()
+            : "none");
 
     final Instant stage1StartTime = Instant.now();
 

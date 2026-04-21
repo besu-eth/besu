@@ -38,7 +38,7 @@ import org.slf4j.LoggerFactory;
 public class ChainSyncStateStorage {
   private static final Logger LOG = LoggerFactory.getLogger(ChainSyncStateStorage.class);
   private static final String STATE_FILE_NAME = "chain-sync-state.rlp";
-  private static final byte FORMAT_VERSION = 2;
+  private static final byte FORMAT_VERSION = 3;
 
   private final File stateFile;
   private final File tempFile;
@@ -68,9 +68,9 @@ public class ChainSyncStateStorage {
 
         input.enterList();
 
-        // Read version
+        // Read version (accept v2 for backward compatibility)
         final byte version = input.readByte();
-        if (version != FORMAT_VERSION) {
+        if (version != FORMAT_VERSION && version != 2) {
           LOG.warn(
               "Wrong chain sync state format version: {}, expected version {}",
               version,
@@ -96,16 +96,23 @@ public class ChainSyncStateStorage {
           headerDownloadAnchor = headerReader.apply(input);
         }
 
+        BlockHeader headerDownloadProgress = null;
+        if (version >= 3 && input.nextIsList()) {
+          // Read the header download progress (v3+)
+          headerDownloadProgress = headerReader.apply(input);
+        }
+
         input.leaveList();
 
         LOG.debug(
-            "Loaded chain sync state: firstPivot={}, pivot={}, checkpoint={}, headers anchor={}, header download complete={}",
+            "Loaded chain sync state: firstPivot={}, pivot={}, checkpoint={}, headers anchor={}, header download progress={}, header download complete={}",
             firstPivotBlockHeader.getNumber(),
             pivotBlockHeader.getNumber(),
             checkpointBlockHeader.getNumber(),
             headerDownloadAnchor == null
                 ? checkpointBlockHeader.getNumber()
                 : headerDownloadAnchor.getNumber(),
+            headerDownloadProgress != null ? headerDownloadProgress.getNumber() : "null",
             headersDownloadComplete);
 
         return new ChainSyncState(
@@ -113,7 +120,8 @@ public class ChainSyncStateStorage {
             pivotBlockHeader,
             checkpointBlockHeader,
             headerDownloadAnchor,
-            headersDownloadComplete);
+            headersDownloadComplete,
+            headerDownloadProgress);
 
       } catch (final IOException e) {
         throw new IllegalStateException(
@@ -157,6 +165,11 @@ public class ChainSyncStateStorage {
         // Write headers anchor
         if (state.headerDownloadAnchor() != null) {
           state.headerDownloadAnchor().writeTo(output);
+        }
+
+        // Write header download progress
+        if (state.headerDownloadProgress() != null) {
+          state.headerDownloadProgress().writeTo(output);
         }
 
         output.endList();
