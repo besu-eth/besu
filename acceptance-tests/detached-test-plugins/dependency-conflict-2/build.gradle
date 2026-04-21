@@ -1,9 +1,12 @@
 plugins {
-    id 'net.consensys.besu-plugin-distribution' version '0.1.5'
+    id 'net.consensys.besu-plugin-distribution' version '0.2.0'
 }
 
 group = 'org.hyperledger.besu.tests'
 version = besuVersion
+besuPlugin {
+    besuVersion = version
+}
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21

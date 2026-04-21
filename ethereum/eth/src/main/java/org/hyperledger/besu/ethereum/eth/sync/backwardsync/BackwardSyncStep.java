@@ -118,7 +118,6 @@ public class BackwardSyncStep {
     }
 
     if (!blockHeaders.isEmpty()) {
-      context.getStatus().recordProgress();
       logProgress(blockHeaders.get(blockHeaders.size() - 1).getNumber());
     }
     return null;

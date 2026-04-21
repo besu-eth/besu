@@ -74,11 +74,9 @@ public class SystemCallProcessor {
     WorldUpdater systemCallUpdater = blockUpdater.updater();
     final Account maybeContract = systemCallUpdater.get(callAddress);
     if (maybeContract == null) {
-      LOG.error("Invalid system call address: {}", callAddress);
       throw new InvalidSystemCallAddressException("Invalid system call address: " + callAddress);
     }
     if (maybeContract.getCode().isEmpty()) {
-      LOG.error("Invalid system call address: {}", callAddress);
       throw new InvalidSystemCallAddressException(
           "Invalid system call, no code at address " + callAddress);
     }
