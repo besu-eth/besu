@@ -52,6 +52,7 @@ public class BalanceOperationV2 extends AbstractOperationV2 {
 
   @Override
   public OperationResult execute(final MessageFrame frame, final EVM evm) {
+    if (!frame.stackHasItemsV2(1)) return UNDERFLOW_RESPONSE;
     final long[] stack = frame.stackDataV2();
     final int top = frame.stackTopV2();
     final Address address = readAddressAt(stack, top, 0);
@@ -62,7 +63,6 @@ public class BalanceOperationV2 extends AbstractOperationV2 {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
     final Account account = getAccount(address, frame);
-    if (!frame.stackHasItemsV2(1)) return UNDERFLOW_RESPONSE;
     if (account == null) {
       pushZero(stack, top - 1);
     } else {

@@ -77,8 +77,24 @@ class BaseFeeOperationV2Test {
   }
 
   @Test
+  void shouldTriggerIvalidOperationEvenStackOverflow() {
+    final MessageFrame frame = createFrame(100, Optional.empty());
+    frame.setTopV2(MessageFrame.DEFAULT_MAX_STACK_SIZE);
+    final OperationResult result = operation.execute(frame, null);
+    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INVALID_OPERATION);
+  }
+
+  @Test
   void shouldHaltOnInsufficientGas() {
     final MessageFrame frame = createFrame(1, Optional.of(Wei.of(5L)));
+    final OperationResult result = operation.execute(frame, null);
+    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
+  }
+
+  @Test
+  void shouldHaltOnInsufficientGasEvenStackOverflow() {
+    final MessageFrame frame = createFrame(1, Optional.of(Wei.of(5L)));
+    frame.setTopV2(MessageFrame.DEFAULT_MAX_STACK_SIZE);
     final OperationResult result = operation.execute(frame, null);
     assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
   }
