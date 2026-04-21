@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.util.BesuVersionUtils;
 
 import java.nio.file.Path;
 import java.util.Optional;
@@ -133,6 +134,16 @@ public class BesuConfigurationImpl implements BesuConfiguration {
   public org.hyperledger.besu.plugin.services.storage.DataStorageConfiguration
       getDataStorageConfiguration() {
     return new DataStoreConfigurationImpl(dataStorageConfiguration);
+  }
+
+  @Override
+  public String getBesuVersion() {
+    return BesuVersionUtils.shortVersion();
+  }
+
+  @Override
+  public String getBesuCommitHash() {
+    return BesuVersionUtils.commit();
   }
 
   /**
