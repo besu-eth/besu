@@ -115,6 +115,7 @@ public final class OpCodeTracerConfigBuilder {
     this.traceOpcodes = traceOpcodes.stream().map(String::toLowerCase).collect(Collectors.toSet());
     return this;
   }
+
   /**
    * Set the maximum number of steps to trace. Zero means unlimited.
    *
