@@ -22,6 +22,7 @@ import java.lang.invoke.VarHandle;
 import java.nio.ByteOrder;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 
 /**
  * Static utility for reading/writing typed values on the flat {@code long[]} V2 operand stack. Each
@@ -64,6 +65,65 @@ final class StackUtil {
     // to v1
     int offset = top << 2;
     final byte[] b = wei.toArrayUnsafe();
+    stack[offset] = (long) LONG_BE.get(b, 0);
+    stack[offset + 1] = (long) LONG_BE.get(b, 8);
+    stack[offset + 2] = (long) LONG_BE.get(b, 16);
+    stack[offset + 3] = (long) LONG_BE.get(b, 24);
+  }
+
+  /**
+   * Writes a primitive {@code long} as a zero-extended 256-bit word at the given stack slot. The
+   * three most-significant limbs are set to zero and the value is written as the least-significant
+   * limb {@code u0}.
+   *
+   * @param value the unsigned long value to write
+   * @param stack the flat limb array
+   * @param top the slot index to write to
+   */
+  static void pushLong(final long value, final long[] stack, final int top) {
+    final int offset = top << 2;
+    stack[offset] = 0L;
+    stack[offset + 1] = 0L;
+    stack[offset + 2] = 0L;
+    stack[offset + 3] = value;
+  }
+
+  /**
+   * Writes a 160-bit {@link Address} as a right-aligned 256-bit word at the given stack slot. The
+   * upper 96 bits are zero-padded so the address occupies the low 20 bytes of the word, matching
+   * the layout expected by {@link #readAddressAt(long[], int, int)}.
+   *
+   * @param address the address to write
+   * @param stack the flat limb array
+   * @param top the slot index to write to
+   */
+  static void pushAddress(final Address address, final long[] stack, final int top) {
+    final int offset = top << 2;
+    final byte[] b = address.getBytes().toArrayUnsafe();
+    stack[offset] = 0L;
+    stack[offset + 1] = ((int) INT_BE.get(b, 0)) & 0xFFFFFFFFL;
+    stack[offset + 2] = (long) LONG_BE.get(b, 4);
+    stack[offset + 3] = (long) LONG_BE.get(b, 12);
+  }
+
+  /**
+   * Writes a {@link Bytes32} value as four big-endian limbs at the given stack slot. A {@code null}
+   * value is written as a zero word.
+   *
+   * @param value the 32-byte value to write, or {@code null} for zero
+   * @param stack the flat limb array
+   * @param top the slot index to write to
+   */
+  static void pushBytes32(final Bytes32 value, final long[] stack, final int top) {
+    final int offset = top << 2;
+    if (value == null) {
+      stack[offset] = 0L;
+      stack[offset + 1] = 0L;
+      stack[offset + 2] = 0L;
+      stack[offset + 3] = 0L;
+      return;
+    }
+    final byte[] b = value.toArrayUnsafe();
     stack[offset] = (long) LONG_BE.get(b, 0);
     stack[offset + 1] = (long) LONG_BE.get(b, 8);
     stack[offset + 2] = (long) LONG_BE.get(b, 16);
