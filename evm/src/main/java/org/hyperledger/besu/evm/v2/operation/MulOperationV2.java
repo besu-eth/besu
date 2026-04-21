@@ -27,8 +27,7 @@ import org.hyperledger.besu.evm.gascalculator.GasCalculator;
  */
 public class MulOperationV2 extends AbstractFixedCostOperationV2 {
 
-  private static final OperationResult MUL_SUCCESS =
-      new OperationResult(5, null);
+  private static final OperationResult MUL_SUCCESS = new OperationResult(5, null);
 
   /**
    * Instantiates a new Mul operation.
@@ -40,28 +39,28 @@ public class MulOperationV2 extends AbstractFixedCostOperationV2 {
   }
 
   @Override
-  public OperationResult executeFixedCostOperation(
-      final MessageFrame frame, final EVM evm) {
+  public OperationResult executeFixedCostOperation(final MessageFrame frame, final EVM evm) {
     return staticOperation(frame);
   }
 
   /**
-   * Execute the MUL opcode on the v2 long[] stack.
-   * MUL: stack[top-2] = stack[top-1] * stack[top-2], return top-1
+   * Execute the MUL opcode on the v2 long[] stack. MUL: stack[top-2] = stack[top-1] * stack[top-2],
+   * return top-1
    *
    * @param frame the message frame
    * @return the operation result
    */
-  public static OperationResult staticOperation(
-      final MessageFrame frame) {
+  public static OperationResult staticOperation(final MessageFrame frame) {
     if (!frame.stackHasItemsV2(2)) return UNDERFLOW_RESPONSE;
     long[] stack = frame.stackDataV2();
     int top = frame.stackTopV2();
     final int aOffset = (top - 1) << 2;
     final int bOffset = (top - 2) << 2;
 
-    UInt256 valueA = new UInt256(stack[aOffset], stack[aOffset + 1], stack[aOffset + 2], stack[aOffset + 3]);
-    UInt256 valueB = new UInt256(stack[bOffset], stack[bOffset + 1], stack[bOffset + 2], stack[bOffset + 3]);
+    UInt256 valueA =
+        new UInt256(stack[aOffset], stack[aOffset + 1], stack[aOffset + 2], stack[aOffset + 3]);
+    UInt256 valueB =
+        new UInt256(stack[bOffset], stack[bOffset + 1], stack[bOffset + 2], stack[bOffset + 3]);
 
     UInt256 r = valueA.mul(valueB);
 

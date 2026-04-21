@@ -46,31 +46,33 @@ class MulOperationV2Test {
    */
   static Iterable<Arguments> data() {
     return List.of(
-            // (a, b, expected)
-            // Happy path: low-limb only.
-            Arguments.of("0x02", "0x03", "0x06"),
-            // Zero identity with operand ordering: confirms b is read from the deeper slot.
-            Arguments.of("0x00", "0x03", "0x00"),
-            // 256-bit wrap: all 4 result limbs written as zero.
-            Arguments.of(
-                    "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "0x01", "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
-            // All 4 limbs populated on both inputs and the result: verifies every limb is read and
-            // written through stackDataV2(). Four distinct limb values on `a` catch any
-            // limb-index/offset mistakes in either input or the output.
-            Arguments.of(
-                    "0x1000000000000001200000000000000230000000000000034000000000000004",
-                    "0x1000000000000001100000000000000110000000000000011000000000000001",
-                    "0x490000000000000b2700000000000009e4000000000000078000000000000004"));
+        // (a, b, expected)
+        // Happy path: low-limb only.
+        Arguments.of("0x02", "0x03", "0x06"),
+        // Zero identity with operand ordering: confirms b is read from the deeper slot.
+        Arguments.of("0x00", "0x03", "0x00"),
+        // 256-bit wrap: all 4 result limbs written as zero.
+        Arguments.of(
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+            "0x01",
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+        // All 4 limbs populated on both inputs and the result: verifies every limb is read and
+        // written through stackDataV2(). Four distinct limb values on `a` catch any
+        // limb-index/offset mistakes in either input or the output.
+        Arguments.of(
+            "0x1000000000000001200000000000000230000000000000034000000000000004",
+            "0x1000000000000001100000000000000110000000000000011000000000000001",
+            "0x490000000000000b2700000000000009e4000000000000078000000000000004"));
   }
 
   @ParameterizedTest(name = "{index}: MUL({0}, {1}) = {2}")
   @MethodSource("data")
   void mulOperation(final String a, final String b, final String expectedResult) {
     final MessageFrame frame =
-            new TestMessageFrameBuilderV2()
-                    .pushStackItem(Bytes32.fromHexString(b)) // pushed first → deepest (top-2)
-                    .pushStackItem(Bytes32.fromHexString(a)) // pushed last → top (top-1)
-                    .build();
+        new TestMessageFrameBuilderV2()
+            .pushStackItem(Bytes32.fromHexString(b)) // pushed first → deepest (top-2)
+            .pushStackItem(Bytes32.fromHexString(a)) // pushed last → top (top-1)
+            .build();
     assertThat(frame.stackTopV2()).isEqualTo(2);
 
     final Operation.OperationResult result = operation.execute(frame, null);
@@ -79,7 +81,8 @@ class MulOperationV2Test {
     // MUL consumes 2 items and produces 1: net stack change is -1.
     assertThat(frame.stackTopV2()).isEqualTo(1);
 
-    final UInt256 expected = UInt256.fromBytesBE(Bytes32.fromHexString(expectedResult).toArrayUnsafe());
+    final UInt256 expected =
+        UInt256.fromBytesBE(Bytes32.fromHexString(expectedResult).toArrayUnsafe());
     assertThat(getV2StackItem(frame, 0)).isEqualTo(expected);
   }
 
@@ -97,9 +100,9 @@ class MulOperationV2Test {
   @Test
   void mulOperationUnderflowOnlyOneItem() {
     final MessageFrame frame =
-            new TestMessageFrameBuilderV2()
-                    .pushStackItem(Bytes32.fromHexString("0x01")) // top-2, missing top-1
-                    .build();
+        new TestMessageFrameBuilderV2()
+            .pushStackItem(Bytes32.fromHexString("0x01")) // top-2, missing top-1
+            .build();
     assertThat(frame.stackTopV2()).isEqualTo(1);
 
     final Operation.OperationResult result = MulOperationV2.staticOperation(frame);
@@ -113,13 +116,13 @@ class MulOperationV2Test {
     // Use a distinctive 4-limb value for the untouched deep slot so any accidental write is
     // detectable in any limb.
     final Bytes32 untouched =
-            Bytes32.fromHexString("0xdeadbeefdeadbeefcafebabecafebabe0123456789abcdeff1e2d3c4b5a69788");
+        Bytes32.fromHexString("0xdeadbeefdeadbeefcafebabecafebabe0123456789abcdeff1e2d3c4b5a69788");
     final MessageFrame frame =
-            new TestMessageFrameBuilderV2()
-                    .pushStackItem(untouched) // top-3 (untouched by MUL)
-                    .pushStackItem(Bytes32.fromHexString("0x02")) // top-2 (b)
-                    .pushStackItem(Bytes32.fromHexString("0x04")) // top-1 (a)
-                    .build();
+        new TestMessageFrameBuilderV2()
+            .pushStackItem(untouched) // top-3 (untouched by MUL)
+            .pushStackItem(Bytes32.fromHexString("0x02")) // top-2 (b)
+            .pushStackItem(Bytes32.fromHexString("0x04")) // top-1 (a)
+            .build();
     assertThat(frame.stackTopV2()).isEqualTo(3);
 
     operation.execute(frame, null);
@@ -132,10 +135,10 @@ class MulOperationV2Test {
   @Test
   void mulOperationGasCostIsLowTier() {
     final MessageFrame frame =
-            new TestMessageFrameBuilderV2()
-                    .pushStackItem(Bytes32.fromHexString("0x01"))
-                    .pushStackItem(Bytes32.fromHexString("0x02"))
-                    .build();
+        new TestMessageFrameBuilderV2()
+            .pushStackItem(Bytes32.fromHexString("0x01"))
+            .pushStackItem(Bytes32.fromHexString("0x02"))
+            .build();
 
     final Operation.OperationResult result = operation.execute(frame, null);
 
