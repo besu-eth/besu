@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -24,24 +24,34 @@ public sealed interface BlockAccessListItemSizeCheck
     permits BlockAccessListItemSizeCheck.WithinBudget, BlockAccessListItemSizeCheck.OverBudget {
 
   /** {@code true} when the running item count exceeds the EIP-7928 budget for the header. */
-  default boolean isOverBudget() {
-    return switch (this) {
-      case WithinBudget() -> false;
-      case OverBudget(BlockAccessListValidationError ignored) -> true;
-    };
-  }
+  boolean isOverBudget();
 
   /** Present only when {@link #isOverBudget()} is {@code true}. */
-  default Optional<BlockAccessListValidationError> overBudgetError() {
-    return switch (this) {
-      case WithinBudget() -> Optional.empty();
-      case OverBudget(BlockAccessListValidationError error) -> Optional.of(error);
-    };
+  Optional<BlockAccessListValidationError> overBudgetError();
+
+  record WithinBudget() implements BlockAccessListItemSizeCheck {
+    @Override
+    public boolean isOverBudget() {
+      return false;
+    }
+
+    @Override
+    public Optional<BlockAccessListValidationError> overBudgetError() {
+      return Optional.empty();
+    }
   }
 
-  record WithinBudget() implements BlockAccessListItemSizeCheck {}
+  record OverBudget(BlockAccessListValidationError error) implements BlockAccessListItemSizeCheck {
+    @Override
+    public boolean isOverBudget() {
+      return true;
+    }
 
-  record OverBudget(BlockAccessListValidationError error) implements BlockAccessListItemSizeCheck {}
+    @Override
+    public Optional<BlockAccessListValidationError> overBudgetError() {
+      return Optional.of(error);
+    }
+  }
 
   static WithinBudget withinBudget() {
     return new WithinBudget();
