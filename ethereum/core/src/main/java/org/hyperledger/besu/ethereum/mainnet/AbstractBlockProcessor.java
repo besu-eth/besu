@@ -401,7 +401,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
               String.format(
                   "block did not consume expected blob gas: header %d, transactions %d",
                   headerBlobGasUsed, currentBlobGasUsed);
-          LOG.error(errorMessage);
+          LOG.debug(errorMessage);
           if (worldState instanceof BonsaiWorldState) {
             ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
           }
@@ -427,7 +427,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   postExecutionAccessLocationTracker,
                   blockAccessListBuilder);
         } catch (final Exception e) {
-          LOG.error("failed processing withdrawals", e);
+          LOG.debug("failed processing withdrawals", e);
           if (worldState instanceof BonsaiWorldState) {
             ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
           }
@@ -450,7 +450,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                       .process(requestProcessingContext, postExecutionAccessLocationTracker));
         }
       } catch (final Exception e) {
-        LOG.error("failed processing requests", e);
+        LOG.debug("failed processing requests", e);
         if (worldState instanceof BonsaiWorldState) {
           ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
         }
@@ -473,7 +473,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   "Requests hash mismatch, calculated: %s header: %s",
                   calculatedRequestHash.getBytes().toHexString(),
                   headerRequestsHash.getBytes().toHexString());
-          LOG.error(errorMessage);
+          LOG.debug(errorMessage);
           if (worldState instanceof BonsaiWorldState) {
             ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
           }
@@ -502,13 +502,13 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                       "Block access list hash mismatch, calculated: %s header: %s",
                       expectedHash.getBytes().toHexString(),
                       headerBalHash.get().getBytes().toHexString());
-              LOG.error(errorMessage);
+              LOG.debug(errorMessage);
 
               if (balConfiguration.shouldLogBalsOnMismatch()) {
                 final String constructedBalStr = bal.toString();
                 final String blockBalStr =
                     blockAccessList.map(Object::toString).orElse("<no BAL present for block>");
-                LOG.error(
+                LOG.debug(
                     "--- BAL constructed during execution ---\n{}\n"
                         + "--- BAL supplied for block ---\n{}",
                     constructedBalStr,
@@ -528,7 +528,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           maybeBlockAccessList = Optional.empty();
         }
       } catch (Exception e) {
-        LOG.error("Error validating BAL hash", e);
+        LOG.debug("Error validating BAL hash", e);
         if (worldState instanceof BonsaiWorldState) {
           ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
         }
@@ -550,13 +550,13 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         RuntimeException rethrown = e;
         throw rethrown;
       } catch (StateRootMismatchException ex) {
-        LOG.error(
+        LOG.debug(
             "failed persisting block due to stateroot mismatch; expected {}, actual {}",
             ex.getExpectedRoot().getBytes().toHexString(),
             ex.getActualRoot().getBytes().toHexString());
         return new BlockProcessingResult(Optional.empty(), ex.getMessage());
       } catch (Exception e) {
-        LOG.error("failed persisting block", e);
+        LOG.debug("failed persisting block", e);
         return new BlockProcessingResult(Optional.empty(), e);
       }
 
