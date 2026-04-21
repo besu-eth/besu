@@ -460,8 +460,6 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    * @return The sum.
    */
   public UInt256 add(final UInt256 other) {
-    if (isZero()) return other;
-    if (other.isZero()) return this;
     return adc(other).UInt256Value();
   }
 
@@ -883,8 +881,6 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   }
 
   private UInt257 adc(final UInt256 other) {
-    if (isZero()) return new UInt257(false, other);
-    if (other.isZero()) return new UInt257(false, this);
     long z0 = u0 + other.u0;
     long carry = Long.compareUnsigned(z0, u0) < 0 ? 1 : 0;
 
