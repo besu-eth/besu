@@ -49,13 +49,12 @@ class MulOperationV2Test {
         // (a, b, expected)
         // Happy path: low-limb only.
         Arguments.of("0x02", "0x03", "0x06"),
-        // Zero identity with operand ordering: confirms b is read from the deeper slot.
+        // Zero absorbing element: 0 × b = 0, verifies MUL yields zero when a multiplicand is zero.
         Arguments.of("0x00", "0x03", "0x00"),
-        // 256-bit wrap: all 4 result limbs written as zero.
+        // 256-bit wrap: 2^255 × 2 = 2^256 ≡ 0 (mod 2^256). All 4 result limbs must be written as
+        // zero — catches bugs where high limbs are left stale after an overflowing product.
         Arguments.of(
-            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-            "0x01",
-            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+            "0x8000000000000000000000000000000000000000000000000000000000000000", "0x02", "0x00"),
         // All 4 limbs populated on both inputs and the result: verifies every limb is read and
         // written through stackDataV2(). Four distinct limb values on `a` catch any
         // limb-index/offset mistakes in either input or the output.
