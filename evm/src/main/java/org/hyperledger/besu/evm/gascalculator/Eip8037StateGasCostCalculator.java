@@ -82,18 +82,9 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
   /** Instantiates a new EIP-8037 state gas cost calculator. */
   public Eip8037StateGasCostCalculator() {}
 
-  /**
-   * Hardcoded cost per state byte for devnet-3. This value (1174) corresponds to a 100M block gas
-   * limit. The test framework cannot currently handle dynamic gas prices, so cpsb is treated as a
-   * fork constant. For devnet-4, the full EIP-8037 dynamic calculation will be restored.
-   */
-  static final long DEVNET_COST_PER_STATE_BYTE = 1174L;
-
   @Override
   public long costPerStateByte(final long blockGasLimit) {
-    // TODO(devnet-4): Restore dynamic cpsb calculation based on block gas limit:
-    // return costPerStateByteFromGasLimit(blockGasLimit);
-    return DEVNET_COST_PER_STATE_BYTE;
+    return costPerStateByteFromGasLimit(blockGasLimit);
   }
 
   /**
