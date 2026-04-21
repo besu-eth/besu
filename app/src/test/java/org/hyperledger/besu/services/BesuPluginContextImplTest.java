@@ -15,7 +15,12 @@
 package org.hyperledger.besu.services;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import org.hyperledger.besu.ethereum.core.plugins.ImmutablePluginConfiguration;
+import org.hyperledger.besu.ethereum.core.plugins.PluginConfiguration;
+import org.hyperledger.besu.plugin.PluginLifecyclePhase;
+import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.BesuService;
 
 import java.util.ArrayList;
@@ -28,9 +33,13 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-public class BesuPluginContextImplTest {
+class BesuPluginContextImplTest {
+
+  private BesuPluginContextImpl context;
+  private PluginConfiguration config;
 
   interface TestServiceA extends BesuService {}
 
@@ -38,11 +47,115 @@ public class BesuPluginContextImplTest {
 
   interface TestServiceC extends BesuService {}
 
+  @BeforeEach
+  void setUp() {
+    context = new BesuPluginContextImpl();
+    config = ImmutablePluginConfiguration.builder().externalPluginsEnabled(false).build();
+  }
+
+  @Test
+  void initialLifecyclePhaseIsUninitialized() {
+    assertThat(context.getLifecyclePhase()).isEqualTo(PluginLifecyclePhase.UNINITIALIZED);
+  }
+
+  @Test
+  void lifecyclePhaseTransitionsToInitializedAfterInitialize() {
+    context.initialize(config);
+    assertThat(context.getLifecyclePhase()).isEqualTo(PluginLifecyclePhase.INITIALIZED);
+  }
+
+  @Test
+  void lifecyclePhaseTransitionsToRegisteredAfterRegisterPlugins() {
+    context.initialize(config);
+    context.registerPlugins();
+    assertThat(context.getLifecyclePhase()).isEqualTo(PluginLifecyclePhase.REGISTERED);
+  }
+
+  @Test
+  void lifecyclePhaseTransitionsToBeforeExternalServicesFinished() {
+    context.initialize(config);
+    context.registerPlugins();
+    context.beforeExternalServices();
+    assertThat(context.getLifecyclePhase())
+        .isEqualTo(PluginLifecyclePhase.BEFORE_EXTERNAL_SERVICES_FINISHED);
+  }
+
+  @Test
+  void lifecyclePhaseTransitionsToBeforeMainLoopFinished() {
+    context.initialize(config);
+    context.registerPlugins();
+    context.beforeExternalServices();
+    context.startPlugins();
+    assertThat(context.getLifecyclePhase())
+        .isEqualTo(PluginLifecyclePhase.BEFORE_MAIN_LOOP_FINISHED);
+  }
+
+  @Test
+  void lifecyclePhaseTransitionsToAfterExternalServicesPostMainLoop() {
+    context.initialize(config);
+    context.registerPlugins();
+    context.beforeExternalServices();
+    context.startPlugins();
+    context.afterExternalServicesMainLoop();
+    assertThat(context.getLifecyclePhase())
+        .isEqualTo(PluginLifecyclePhase.AFTER_EXTERNAL_SERVICES_POST_MAIN_LOOP);
+  }
+
+  @Test
+  void afterExternalServicesMainLoopCannotBeCalledTwice() {
+    context.initialize(config);
+    context.registerPlugins();
+    context.beforeExternalServices();
+    context.startPlugins();
+    context.afterExternalServicesMainLoop();
+
+    assertThatThrownBy(() -> context.afterExternalServicesMainLoop())
+        .isInstanceOf(IllegalStateException.class);
+  }
+
+  @Test
+  void stopPluginsWorksAfterAfterExternalServicesMainLoop() {
+    context.initialize(config);
+    context.registerPlugins();
+    context.beforeExternalServices();
+    context.startPlugins();
+    context.afterExternalServicesMainLoop();
+    context.stopPlugins();
+    assertThat(context.getLifecyclePhase()).isEqualTo(PluginLifecyclePhase.STOPPED);
+  }
+
+  @Test
+  void stopPluginsWorksDirectlyFromBeforeMainLoopFinished() {
+    context.initialize(config);
+    context.registerPlugins();
+    context.beforeExternalServices();
+    context.startPlugins();
+    context.stopPlugins();
+    assertThat(context.getLifecyclePhase()).isEqualTo(PluginLifecyclePhase.STOPPED);
+  }
+
+  @Test
+  void lifecyclePhaseIsExposedThroughServiceManagerInterface() {
+    ServiceManager serviceManager = context;
+    assertThat(serviceManager.getLifecyclePhase()).isEqualTo(PluginLifecyclePhase.UNINITIALIZED);
+
+    context.initialize(config);
+    assertThat(serviceManager.getLifecyclePhase()).isEqualTo(PluginLifecyclePhase.INITIALIZED);
+  }
+
+  @Test
+  void resetStateSetsPhaseToUninitialized() {
+    context.initialize(config);
+    context.registerPlugins();
+    assertThat(context.getLifecyclePhase()).isEqualTo(PluginLifecyclePhase.REGISTERED);
+
+    context.resetState();
+    assertThat(context.getLifecyclePhase()).isEqualTo(PluginLifecyclePhase.UNINITIALIZED);
+  }
+
   @Test
   void serviceRegistrySupportsBasicAddAndGet() {
-    final BesuPluginContextImpl context = new BesuPluginContextImpl();
     final TestServiceA serviceA = new TestServiceA() {};
-
     context.addService(TestServiceA.class, serviceA);
 
     final Optional<TestServiceA> retrieved = context.getService(TestServiceA.class);
@@ -51,15 +164,12 @@ public class BesuPluginContextImplTest {
 
   @Test
   void getServiceReturnsEmptyForUnregisteredService() {
-    final BesuPluginContextImpl context = new BesuPluginContextImpl();
-
     final Optional<TestServiceA> retrieved = context.getService(TestServiceA.class);
     assertThat(retrieved).isEmpty();
   }
 
   @Test
   void serviceRegistryHandlesConcurrentReadsAndWrites() throws Exception {
-    final BesuPluginContextImpl context = new BesuPluginContextImpl();
     final int threadCount = 10;
     final int operationsPerThread = 100;
     final ExecutorService executor = Executors.newFixedThreadPool(threadCount);
@@ -113,7 +223,6 @@ public class BesuPluginContextImplTest {
 
   @Test
   void multipleServicesCanBeRegisteredAndRetrieved() {
-    final BesuPluginContextImpl context = new BesuPluginContextImpl();
     final TestServiceA serviceA = new TestServiceA() {};
     final TestServiceB serviceB = new TestServiceB() {};
     final TestServiceC serviceC = new TestServiceC() {};
@@ -125,5 +234,11 @@ public class BesuPluginContextImplTest {
     assertThat(context.getService(TestServiceA.class)).isPresent().contains(serviceA);
     assertThat(context.getService(TestServiceB.class)).isPresent().contains(serviceB);
     assertThat(context.getService(TestServiceC.class)).isPresent().contains(serviceC);
+  }
+
+  @Test
+  void defaultServiceManagerReturnsUninitializedPhase() {
+    ServiceManager defaultManager = new ServiceManager.SimpleServiceManager();
+    assertThat(defaultManager.getLifecyclePhase()).isEqualTo(PluginLifecyclePhase.UNINITIALIZED);
   }
 }
