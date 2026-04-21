@@ -100,6 +100,7 @@ public abstract class BinaryArithmeticOperationBenchmark extends BinaryOperation
 
   /**
    * The opcode under test.
+   *
    * @return the opcode name, case-insensitive.
    */
   protected abstract String opCode();
