@@ -15,8 +15,12 @@
 package org.hyperledger.besu.services;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 
+import org.hyperledger.besu.ethereum.core.plugins.PluginConfiguration;
+import org.hyperledger.besu.plugin.ServiceLifecyclePhase;
 import org.hyperledger.besu.plugin.services.BesuService;
+import org.hyperledger.besu.plugin.services.ServiceAvailability;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,9 +32,18 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+/**
+ * Unit tests for {@link BesuPluginContextImpl} covering service registry correctness, thread
+ * safety, overwrite detection, and lifecycle diagnostics.
+ */
 public class BesuPluginContextImplTest {
+
+  interface TestService extends BesuService {
+    String id();
+  }
 
   interface TestServiceA extends BesuService {}
 
@@ -38,9 +51,30 @@ public class BesuPluginContextImplTest {
 
   interface TestServiceC extends BesuService {}
 
+  /** A service declared as only fully usable from the STARTED phase. */
+  @ServiceAvailability(
+      availableFrom = ServiceLifecyclePhase.REGISTERING,
+      fullyInitializedFrom = ServiceLifecyclePhase.STARTED)
+  interface StartedOnlyService extends BesuService {}
+
+  /** A service fully available from the REGISTERING phase (no deferred initialization). */
+  @ServiceAvailability(availableFrom = ServiceLifecyclePhase.REGISTERING)
+  interface EarlyService extends BesuService {}
+
+  private BesuPluginContextImpl context;
+
+  @BeforeEach
+  void setUp() {
+    context = new BesuPluginContextImpl();
+    context.initialize(PluginConfiguration.DEFAULT);
+  }
+
+  // -------------------------------------------------------------------------
+  // Basic add and get
+  // -------------------------------------------------------------------------
+
   @Test
   void serviceRegistrySupportsBasicAddAndGet() {
-    final BesuPluginContextImpl context = new BesuPluginContextImpl();
     final TestServiceA serviceA = new TestServiceA() {};
 
     context.addService(TestServiceA.class, serviceA);
@@ -51,69 +85,12 @@ public class BesuPluginContextImplTest {
 
   @Test
   void getServiceReturnsEmptyForUnregisteredService() {
-    final BesuPluginContextImpl context = new BesuPluginContextImpl();
-
     final Optional<TestServiceA> retrieved = context.getService(TestServiceA.class);
     assertThat(retrieved).isEmpty();
   }
 
   @Test
-  void serviceRegistryHandlesConcurrentReadsAndWrites() throws Exception {
-    final BesuPluginContextImpl context = new BesuPluginContextImpl();
-    final int threadCount = 10;
-    final int operationsPerThread = 100;
-    final ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-    final CountDownLatch startLatch = new CountDownLatch(1);
-    final AtomicBoolean failed = new AtomicBoolean(false);
-    final List<Future<?>> futures = new ArrayList<>();
-
-    // Pre-register one service so readers have something to find
-    final TestServiceA serviceA = new TestServiceA() {};
-    context.addService(TestServiceA.class, serviceA);
-
-    // Half the threads write services, half read services concurrently
-    for (int i = 0; i < threadCount; i++) {
-      final int threadIndex = i;
-      futures.add(
-          executor.submit(
-              () -> {
-                try {
-                  startLatch.await();
-                  for (int op = 0; op < operationsPerThread; op++) {
-                    if (threadIndex % 2 == 0) {
-                      // Writer thread: repeatedly overwrite services
-                      context.addService(TestServiceB.class, new TestServiceB() {});
-                    } else {
-                      // Reader thread: concurrently read services
-                      context.getService(TestServiceA.class);
-                      context.getService(TestServiceB.class);
-                    }
-                  }
-                } catch (final Exception e) {
-                  failed.set(true);
-                }
-              }));
-    }
-
-    // Start all threads simultaneously
-    startLatch.countDown();
-
-    for (final Future<?> future : futures) {
-      future.get(10, TimeUnit.SECONDS);
-    }
-
-    executor.shutdown();
-    assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
-    assertThat(failed.get()).isFalse();
-
-    // Verify services are still accessible after concurrent operations
-    assertThat(context.getService(TestServiceA.class)).isPresent().contains(serviceA);
-    assertThat(context.getService(TestServiceB.class)).isPresent();
-  }
-
-  @Test
   void multipleServicesCanBeRegisteredAndRetrieved() {
-    final BesuPluginContextImpl context = new BesuPluginContextImpl();
     final TestServiceA serviceA = new TestServiceA() {};
     final TestServiceB serviceB = new TestServiceB() {};
     final TestServiceC serviceC = new TestServiceC() {};
@@ -125,5 +102,170 @@ public class BesuPluginContextImplTest {
     assertThat(context.getService(TestServiceA.class)).isPresent().contains(serviceA);
     assertThat(context.getService(TestServiceB.class)).isPresent().contains(serviceB);
     assertThat(context.getService(TestServiceC.class)).isPresent().contains(serviceC);
+  }
+
+  // -------------------------------------------------------------------------
+  // Overwrite detection
+  // -------------------------------------------------------------------------
+
+  @Test
+  void addService_firstRegistration_succeeds() {
+    final TestService svc = () -> "alpha";
+
+    assertThatCode(() -> context.addService(TestService.class, svc)).doesNotThrowAnyException();
+    assertThat(context.getService(TestService.class)).contains(svc);
+  }
+
+  @Test
+  void addService_sameInstance_doesNotOverwrite() {
+    final TestService svc = () -> "alpha";
+
+    context.addService(TestService.class, svc);
+    assertThatCode(() -> context.addService(TestService.class, svc)).doesNotThrowAnyException();
+    assertThat(context.getService(TestService.class)).contains(svc);
+  }
+
+  @Test
+  void addService_differentInstance_replacesAndServiceReturnsNew() {
+    final TestService first = () -> "first";
+    final TestService second = () -> "second";
+
+    context.addService(TestService.class, first);
+    context.addService(TestService.class, second);
+
+    assertThat(context.getService(TestService.class)).contains(second);
+  }
+
+  // -------------------------------------------------------------------------
+  // Missing service diagnostic
+  // -------------------------------------------------------------------------
+
+  @Test
+  void getService_unregisteredService_returnsEmpty() {
+    final Optional<TestService> result = context.getService(TestService.class);
+    assertThat(result).isEmpty();
+  }
+
+  @Test
+  void getService_afterRegistration_returnsService() {
+    final TestService svc = () -> "beta";
+    context.addService(TestService.class, svc);
+
+    assertThat(context.getService(TestService.class)).contains(svc);
+  }
+
+  // -------------------------------------------------------------------------
+  // Type validation
+  // -------------------------------------------------------------------------
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void addService_withConcreteClass_throwsIllegalArgumentException() {
+    final TestService svc = () -> "test";
+    org.assertj.core.api.Assertions.assertThatThrownBy(
+            () -> context.addService((Class) String.class, svc))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("Services must be Java interfaces");
+  }
+
+  // -------------------------------------------------------------------------
+  // Thread safety — ConcurrentHashMap under concurrent load
+  // -------------------------------------------------------------------------
+
+  @Test
+  void serviceRegistryHandlesConcurrentReadsAndWrites() throws Exception {
+    final int threadCount = 10;
+    final int operationsPerThread = 100;
+    final ExecutorService executor = Executors.newFixedThreadPool(threadCount);
+    final CountDownLatch startLatch = new CountDownLatch(1);
+    final AtomicBoolean failed = new AtomicBoolean(false);
+    final List<Future<?>> futures = new ArrayList<>();
+
+    final TestServiceA serviceA = new TestServiceA() {};
+    context.addService(TestServiceA.class, serviceA);
+
+    for (int i = 0; i < threadCount; i++) {
+      final int threadIndex = i;
+      futures.add(
+          executor.submit(
+              () -> {
+                try {
+                  startLatch.await();
+                  for (int op = 0; op < operationsPerThread; op++) {
+                    if (threadIndex % 2 == 0) {
+                      context.addService(TestServiceB.class, new TestServiceB() {});
+                    } else {
+                      context.getService(TestServiceA.class);
+                      context.getService(TestServiceB.class);
+                    }
+                  }
+                } catch (final Exception e) {
+                  failed.set(true);
+                }
+              }));
+    }
+
+    startLatch.countDown();
+
+    for (final Future<?> future : futures) {
+      future.get(10, TimeUnit.SECONDS);
+    }
+
+    executor.shutdown();
+    assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+    assertThat(failed.get()).isFalse();
+    assertThat(context.getService(TestServiceA.class)).isPresent().contains(serviceA);
+    assertThat(context.getService(TestServiceB.class)).isPresent();
+  }
+
+  // -------------------------------------------------------------------------
+  // @ServiceAvailability runtime checks
+  // -------------------------------------------------------------------------
+
+  @Test
+  void getService_startedOnlyService_isStillReturnedDuringRegisteringPhase() {
+    // Even when accessed too early (WARN is logged), the service must still be returned.
+    // Preventing return would be a breaking change; the warning is advisory.
+    final StartedOnlyService svc = new StartedOnlyService() {};
+    context.addService(StartedOnlyService.class, svc);
+
+    final Optional<StartedOnlyService> result = context.getService(StartedOnlyService.class);
+
+    // Service is present — the annotation check never suppresses the return value
+    assertThat(result).isPresent().contains(svc);
+  }
+
+  @Test
+  void getService_earlyService_isReturnedWithoutIssue() {
+    // EarlyService is fully usable from REGISTERING — no lifecycle restriction applies
+    final EarlyService svc = new EarlyService() {};
+    context.addService(EarlyService.class, svc);
+
+    final Optional<EarlyService> result = context.getService(EarlyService.class);
+
+    assertThat(result).isPresent().contains(svc);
+  }
+
+  @Test
+  void serviceAvailabilityAnnotation_isReadableAtRuntime() {
+    // Verify the annotation has RUNTIME retention and is readable via reflection —
+    // this is the contract that makes runtime checks possible
+    final ServiceAvailability annotation =
+        StartedOnlyService.class.getAnnotation(ServiceAvailability.class);
+
+    assertThat(annotation).isNotNull();
+    assertThat(annotation.availableFrom()).isEqualTo(ServiceLifecyclePhase.REGISTERING);
+    assertThat(annotation.fullyInitializedFrom()).isEqualTo(ServiceLifecyclePhase.STARTED);
+  }
+
+  @Test
+  void earlyServiceAvailabilityAnnotation_hasNoFullyInitializedRestriction() {
+    final ServiceAvailability annotation =
+        EarlyService.class.getAnnotation(ServiceAvailability.class);
+
+    assertThat(annotation).isNotNull();
+    assertThat(annotation.availableFrom()).isEqualTo(ServiceLifecyclePhase.REGISTERING);
+    // Default fullyInitializedFrom = UNINITIALIZED means no deferred-init restriction
+    assertThat(annotation.fullyInitializedFrom()).isEqualTo(ServiceLifecyclePhase.UNINITIALIZED);
   }
 }

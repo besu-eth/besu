@@ -46,7 +46,10 @@ public class TransactionSimulationServiceImpl implements TransactionSimulationSe
   public TransactionSimulationServiceImpl() {}
 
   /**
-   * Configure the service
+   * Configure the service.
+   *
+   * <p>This method is called internally by Besu during the STARTED lifecycle phase. Simulation
+   * methods must not be called before this point.
    *
    * @param blockchain the blockchain
    * @param transactionSimulator transaction simulator
@@ -56,8 +59,24 @@ public class TransactionSimulationServiceImpl implements TransactionSimulationSe
     this.transactionSimulator = transactionSimulator;
   }
 
+  /**
+   * Checks that this service has been fully initialized. Throws a clear {@link
+   * IllegalStateException} if called before {@link #init} to prevent confusing {@link
+   * NullPointerException}s.
+   */
+  private void checkInitialized() {
+    if (transactionSimulator == null) {
+      throw new IllegalStateException(
+          "TransactionSimulationService is not yet fully initialized. "
+              + "Simulation methods are only available after the plugin start() callback "
+              + "(i.e. during the STARTED lifecycle phase). "
+              + "Store the ServiceManager reference in register() and defer calls to start().");
+    }
+  }
+
   @Override
   public ProcessableBlockHeader simulatePendingBlockHeader() {
+    checkInitialized();
     return transactionSimulator.simulatePendingBlockHeader();
   }
 
@@ -68,6 +87,7 @@ public class TransactionSimulationServiceImpl implements TransactionSimulationSe
       final Hash blockHash,
       final OperationTracer operationTracer,
       final EnumSet<SimulationParameters> simulationParameters) {
+    checkInitialized();
 
     final CallParameter callParameter = CallParameter.fromTransaction(transaction);
 

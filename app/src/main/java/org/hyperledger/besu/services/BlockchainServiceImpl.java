@@ -53,12 +53,32 @@ public class BlockchainServiceImpl implements BlockchainService {
   /**
    * Initialize the Blockchain service.
    *
+   * <p>This method is called internally by Besu during the STARTED lifecycle phase, after the
+   * {@link org.hyperledger.besu.ethereum.controller.BesuController} has been built. Plugin methods
+   * that query blockchain state must not be called before this point.
+   *
    * @param blockchain the blockchain
    * @param protocolSchedule the protocol schedule
    */
   public void init(final MutableBlockchain blockchain, final ProtocolSchedule protocolSchedule) {
     this.protocolSchedule = protocolSchedule;
     this.blockchain = blockchain;
+  }
+
+  /**
+   * Checks that this service has been fully initialized. Throws a clear {@link
+   * IllegalStateException} if called before {@link #init} — rather than a confusing {@link
+   * NullPointerException}.
+   */
+  private void checkInitialized() {
+    if (blockchain == null) {
+      throw new IllegalStateException(
+          "BlockchainService is not yet fully initialized. "
+              + "Blockchain query methods are only available after the plugin start() callback "
+              + "(i.e. during the STARTED lifecycle phase). "
+              + "If you need to access blockchain state, store the ServiceManager reference "
+              + "in register() and defer the service call to start().");
+    }
   }
 
   /**
@@ -69,6 +89,7 @@ public class BlockchainServiceImpl implements BlockchainService {
    */
   @Override
   public Optional<BlockContext> getBlockByNumber(final long number) {
+    checkInitialized();
     return blockchain
         .getBlockByNumber(number)
         .map(block -> blockContext(block::getHeader, block::getBody));
@@ -82,6 +103,7 @@ public class BlockchainServiceImpl implements BlockchainService {
    */
   @Override
   public Optional<BlockContext> getBlockByHash(final Hash hash) {
+    checkInitialized();
     return blockchain
         .getBlockByHash(hash)
         .map(block -> blockContext(block::getHeader, block::getBody));
@@ -95,16 +117,19 @@ public class BlockchainServiceImpl implements BlockchainService {
    */
   @Override
   public Optional<BlockHeader> getBlockHeaderByHash(final Hash hash) {
+    checkInitialized();
     return blockchain.getBlockHeader(hash).map(BlockHeader.class::cast);
   }
 
   @Override
   public Hash getChainHeadHash() {
+    checkInitialized();
     return blockchain.getChainHeadHash();
   }
 
   @Override
   public BlockHeader getChainHeadHeader() {
+    checkInitialized();
     return blockchain.getChainHeadHeader();
   }
 
