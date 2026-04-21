@@ -24,18 +24,15 @@ class Eip8037StateGasCostCalculatorTest {
 
   private final Eip8037StateGasCostCalculator calculator = new Eip8037StateGasCostCalculator();
 
-  // --- Devnet-3: hardcoded cpsb tests ---
+  // --- Dynamic cpsb calculation tests ---
 
   @Test
-  void costPerStateByteReturnsHardcodedValue() {
-    // Devnet-3: cpsb is hardcoded to 1174 regardless of block gas limit
-    assertThat(calculator.costPerStateByte(36_000_000L)).isEqualTo(DEVNET_CPSB);
-    assertThat(calculator.costPerStateByte(60_000_000L)).isEqualTo(DEVNET_CPSB);
+  void costPerStateByteReturnsDynamicValue() {
+    assertThat(calculator.costPerStateByte(36_000_000L)).isEqualTo(150L);
+    assertThat(calculator.costPerStateByte(60_000_000L)).isEqualTo(662L);
     assertThat(calculator.costPerStateByte(100_000_000L)).isEqualTo(DEVNET_CPSB);
-    assertThat(calculator.costPerStateByte(0L)).isEqualTo(DEVNET_CPSB);
+    assertThat(calculator.costPerStateByte(0L)).isEqualTo(0L);
   }
-
-  // --- Dynamic cpsb calculation tests (for devnet-4 re-enablement) ---
 
   @Test
   void dynamicCostPerStateByteAt36MGasLimit() {
