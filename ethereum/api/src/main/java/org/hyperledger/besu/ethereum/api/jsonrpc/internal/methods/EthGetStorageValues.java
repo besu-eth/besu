@@ -93,7 +93,13 @@ public class EthGetStorageValues extends AbstractBlockParameterOrBlockHashMethod
       final List<String> keys = entry.getValue();
       final List<String> values = new ArrayList<>(keys.size());
       for (final String keyHex : keys) {
-        final UInt256 key = UInt256.fromHexString(keyHex);
+        final UInt256 key;
+        try {
+          key = UInt256.fromHexString(keyHex);
+        } catch (IllegalArgumentException e) {
+          throw new InvalidJsonRpcParameters(
+              "Invalid storage key parameter", RpcErrorType.INVALID_PARAMS, e);
+        }
         final UInt256 value =
             blockchainQueries.get().storageAt(address, key, blockHash).orElse(UInt256.ZERO);
         values.add(value.toHexString());

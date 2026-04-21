@@ -124,7 +124,7 @@ public class EthGetStorageValuesTest {
   @Test
   public void shouldReturnZeroForUnknownAccount() {
     when(blockchainQueries.storageAt(ADDRESS_TWO, UInt256.fromHexString(SLOT_HIGH), Hash.ZERO))
-        .thenReturn(Optional.of(UInt256.ZERO));
+        .thenReturn(Optional.empty());
 
     final JsonRpcRequestContext request =
         requestWithParams(Map.of(ADDRESS_TWO.toHexString(), List.of(SLOT_HIGH)), "latest");
