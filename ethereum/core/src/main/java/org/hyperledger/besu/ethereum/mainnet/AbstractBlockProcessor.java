@@ -349,8 +349,9 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   .getBlockAccessListValidator()
                   .validateExecutedBlockAccessListItemSize(
                       blockAccessListBuilder.get().eip7928ItemCount(), blockHeader, protocolSpec);
-          if (itemSizeCheck instanceof BlockAccessListItemSizeCheck.OverBudget over) {
-            final String errorMessage = over.error().errorMessage();
+          if (itemSizeCheck.isOverBudget()) {
+            final String errorMessage =
+                itemSizeCheck.overBudgetError().orElseThrow().errorMessage();
             LOG.error(errorMessage);
             if (worldState instanceof BonsaiWorldState) {
               ((BonsaiWorldStateUpdateAccumulator) blockUpdater).reset();

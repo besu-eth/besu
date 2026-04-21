@@ -14,12 +14,30 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
+import java.util.Optional;
+
 /**
  * Outcome of {@link BlockAccessListValidator#validateExecutedBlockAccessListItemSize} (EIP-7928
  * item budget vs gas limit).
  */
 public sealed interface BlockAccessListItemSizeCheck
     permits BlockAccessListItemSizeCheck.WithinBudget, BlockAccessListItemSizeCheck.OverBudget {
+
+  /** {@code true} when the running item count exceeds the EIP-7928 budget for the header. */
+  default boolean isOverBudget() {
+    return switch (this) {
+      case WithinBudget() -> false;
+      case OverBudget(BlockAccessListValidationError ignored) -> true;
+    };
+  }
+
+  /** Present only when {@link #isOverBudget()} is {@code true}. */
+  default Optional<BlockAccessListValidationError> overBudgetError() {
+    return switch (this) {
+      case WithinBudget() -> Optional.empty();
+      case OverBudget(BlockAccessListValidationError error) -> Optional.of(error);
+    };
+  }
 
   record WithinBudget() implements BlockAccessListItemSizeCheck {}
 

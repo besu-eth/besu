@@ -75,8 +75,10 @@ public class BlockAccessListItemBudgetTransactionSelector extends AbstractTransa
             .getBlockAccessListValidator()
             .validateExecutedBlockAccessListItemSize(
                 itemCount, context.pendingBlockHeader(), context.protocolSpec());
-    if (itemSizeCheck instanceof BlockAccessListItemSizeCheck.OverBudget over) {
-      LOG.trace("Transaction not selected: {}", over.error().errorMessage());
+    if (itemSizeCheck.isOverBudget()) {
+      LOG.trace(
+          "Transaction not selected: {}",
+          itemSizeCheck.overBudgetError().orElseThrow().errorMessage());
       return TransactionSelectionResult.BLOCK_ACCESS_LIST_ITEM_BUDGET_EXCEEDED;
     }
     return TransactionSelectionResult.SELECTED;

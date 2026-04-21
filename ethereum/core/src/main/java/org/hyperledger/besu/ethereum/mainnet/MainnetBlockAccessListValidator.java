@@ -104,8 +104,8 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
             executedBal.eip7928ItemCount(),
             blockHeader,
             protocolSchedule.getByBlockHeader(blockHeader));
-    if (sizeCheck
-        instanceof BlockAccessListItemSizeCheck.OverBudget(BlockAccessListValidationError error)) {
+    if (sizeCheck.isOverBudget()) {
+      final BlockAccessListValidationError error = sizeCheck.overBudgetError().orElseThrow();
       LOG.error(error.errorMessage());
       return Optional.of(error);
     }
@@ -144,9 +144,8 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
     final BlockAccessListItemSizeCheck lightSizeCheck =
         validateExecutedBlockAccessListItemSize(
             bal.eip7928ItemCount(), blockHeader, protocolSchedule.getByBlockHeader(blockHeader));
-    if (lightSizeCheck
-        instanceof BlockAccessListItemSizeCheck.OverBudget(BlockAccessListValidationError error)) {
-      LOG.warn(error.errorMessage());
+    if (lightSizeCheck.isOverBudget()) {
+      LOG.warn(lightSizeCheck.overBudgetError().orElseThrow().errorMessage());
       return false;
     }
 
