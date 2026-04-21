@@ -1,10 +1,25 @@
+/*
+ * Copyright contributors to Besu.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
 package org.hyperledger.besu.ethereum.vm.operations.v2;
+
+import org.hyperledger.besu.ethereum.vm.operations.BenchmarkHelper;
+import org.hyperledger.besu.evm.UInt256;
 
 import java.math.BigInteger;
 import java.util.Random;
 
-import org.hyperledger.besu.ethereum.vm.operations.BenchmarkHelper;
-import org.hyperledger.besu.evm.UInt256;
 import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Setup;
 
@@ -27,13 +42,12 @@ public abstract class BinaryArithmeticOperationBenchmarkV2 extends BinaryOperati
         return new Case(parseSizeBytes(splitString[1]), parseSizeBytes(splitString[2]));
       } catch (IllegalArgumentException t) {
         throw new IllegalArgumentException(
-          String.format(
-            "%s must have the format [%s_size_size] where size is #bits",
-            caseName, opcodeName));
+            String.format(
+                "%s must have the format [%s_size_size] where size is #bits",
+                caseName, opcodeName));
       }
     }
 
-    // -1 means random size
     private static int parseSizeBytes(final String s) {
       return "RANDOM".equalsIgnoreCase(s) ? -1 : Integer.parseInt(s) / 8;
     }
@@ -44,8 +58,7 @@ public abstract class BinaryArithmeticOperationBenchmarkV2 extends BinaryOperati
   public void setUp() {
     frame = BenchmarkHelper.createMessageCallFrame();
 
-    Case
-      scenario = Case.fromString(opCode(), caseName());
+    Case scenario = Case.fromString(opCode(), caseName());
     aPool = new UInt256[SAMPLE_SIZE];
     bPool = new UInt256[SAMPLE_SIZE];
 
@@ -85,14 +98,11 @@ public abstract class BinaryArithmeticOperationBenchmarkV2 extends BinaryOperati
    *
    * @return the benchmark case name
    */
-  protected String caseName() {
-    return opCode() + "_RANDOM" + "_RANDOM";
-  }
+  protected abstract String caseName();
 
   /**
-   * The opcode name targetted by this benchmark.
-   *
-   * @return the opcode
+   * The opcode under test.
+   * @return the opcode name, case-insensitive.
    */
   protected abstract String opCode();
 }

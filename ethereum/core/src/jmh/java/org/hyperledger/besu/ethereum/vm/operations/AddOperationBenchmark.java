@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.vm.operations;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.AddOperationOptimized;
 import org.hyperledger.besu.evm.operation.Operation;
+
 import org.openjdk.jmh.annotations.Param;
 
 public class AddOperationBenchmark extends BinaryArithmeticOperationBenchmark {
@@ -26,6 +27,11 @@ public class AddOperationBenchmark extends BinaryArithmeticOperationBenchmark {
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {
     return AddOperationOptimized.staticOperation(frame);
+  }
+
+  @Override
+  protected String caseName() {
+    return caseName;
   }
 
   @Override

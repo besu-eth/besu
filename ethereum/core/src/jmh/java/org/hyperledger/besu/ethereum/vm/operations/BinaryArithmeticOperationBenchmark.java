@@ -46,7 +46,6 @@ public abstract class BinaryArithmeticOperationBenchmark extends BinaryOperation
       }
     }
 
-    // -1 means random size
     private static int parseSizeBytes(final String s) {
       return "RANDOM".equalsIgnoreCase(s) ? -1 : Integer.parseInt(s) / 8;
     }
@@ -97,14 +96,11 @@ public abstract class BinaryArithmeticOperationBenchmark extends BinaryOperation
    *
    * @return the benchmark case name
    */
-  protected String caseName() {
-    return opCode() + "_RANDOM" + "_RANDOM";
-  }
+  protected abstract String caseName();
 
   /**
-   * The opcode name targetted by this benchmark.
-   *
-   * @return the opcode
+   * The opcode under test.
+   * @return the opcode name, case-insensitive.
    */
   protected abstract String opCode();
 }
