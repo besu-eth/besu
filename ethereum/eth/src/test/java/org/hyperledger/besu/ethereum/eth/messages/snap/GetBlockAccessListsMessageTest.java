@@ -19,11 +19,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
+import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
 import java.util.List;
-import java.util.stream.StreamSupport;
+import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 
@@ -40,9 +43,11 @@ public class GetBlockAccessListsMessageTest {
     final MessageData raw = new RawMessage(SnapV2.GET_BLOCK_ACCESS_LISTS, wrapped.getData());
 
     final GetBlockAccessListsMessage message = GetBlockAccessListsMessage.readFrom(raw);
+    final GetBlockAccessListsMessage.BlockHashes decoded = message.blockHashes(true);
 
-    assertThat(StreamSupport.stream(message.blockHashes(true).spliterator(), false))
-        .containsExactlyElementsOf(blockHashes);
+    assertThat(decoded.hashes()).containsExactlyElementsOf(blockHashes);
+    assertThat(decoded.responseBytes())
+        .isEqualTo(GetBlockAccessListsMessage.DEFAULT_RESPONSE_BYTES);
   }
 
   @Test
@@ -51,6 +56,29 @@ public class GetBlockAccessListsMessageTest {
     final MessageData raw = new RawMessage(SnapV2.GET_BLOCK_ACCESS_LISTS, initialMessage.getData());
     final GetBlockAccessListsMessage message = GetBlockAccessListsMessage.readFrom(raw);
 
-    assertThat(message.blockHashes(false)).isEmpty();
+    assertThat(message.blockHashes(false).hashes()).isEmpty();
+  }
+
+  @Test
+  public void wireFormatMatchesEip8189() {
+    // EIP-8189 wire format for GetBlockAccessLists (without request-id):
+    //   [ [hash1, hash2, ...], bytes ]
+    final Hash h1 = Hash.wrap(Bytes32.fromHexString("0x" + "11".repeat(32)));
+    final Hash h2 = Hash.wrap(Bytes32.fromHexString("0x" + "22".repeat(32)));
+    final BigInteger requestedBytes = BigInteger.valueOf(65536);
+
+    final GetBlockAccessListsMessage message =
+        GetBlockAccessListsMessage.create(Optional.empty(), List.of(h1, h2), requestedBytes);
+
+    // Decode the raw RLP bytes directly and assert the structure is [ [hash1, hash2], bytes ].
+    final Bytes encoded = message.getData();
+    final RLPInput in = new BytesValueRLPInput(encoded, false);
+    in.enterList();
+    in.enterList();
+    assertThat(in.readBytes32()).isEqualTo(h1.getBytes());
+    assertThat(in.readBytes32()).isEqualTo(h2.getBytes());
+    in.leaveList();
+    assertThat(in.readBigIntegerScalar()).isEqualTo(requestedBytes);
+    in.leaveList();
   }
 }

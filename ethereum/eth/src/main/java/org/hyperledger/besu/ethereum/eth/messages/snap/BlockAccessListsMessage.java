@@ -14,16 +14,31 @@
  */
 package org.hyperledger.besu.ethereum.eth.messages.snap;
 
-import org.hyperledger.besu.ethereum.eth.messages.BlockAccessListsMessageData;
+import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListDecoder;
+import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
+import java.util.Iterator;
+import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 
+/**
+ * snap/2 BlockAccessLists (0x09) per EIP-8189.
+ *
+ * <p>Wire format: {@code [request-id: P, [block-access-list₁, block-access-list₂, ...]]}.
+ *
+ * <p>Unavailable BALs are encoded as the RLP empty string ({@code 0x80}) at their positional
+ * index, not as an empty list.
+ */
 public final class BlockAccessListsMessage extends AbstractSnapMessageData {
 
   public BlockAccessListsMessage(final Bytes data) {
@@ -48,8 +63,21 @@ public final class BlockAccessListsMessage extends AbstractSnapMessageData {
 
   public static BlockAccessListsMessage create(
       final Optional<BigInteger> requestId, final Iterable<BlockAccessList> blockAccessLists) {
-    return new BlockAccessListsMessage(
-        BlockAccessListsMessageData.encode(requestId, blockAccessLists));
+    final BytesValueRLPOutput output = new BytesValueRLPOutput();
+    output.startList();
+    requestId.ifPresent(output::writeBigIntegerScalar);
+    output.startList();
+    for (final BlockAccessList bal : blockAccessLists) {
+      if (bal == null || bal.isEmpty()) {
+        // EIP-8189: unavailable BALs are encoded as the RLP empty string (0x80).
+        output.writeBytes(Bytes.EMPTY);
+      } else {
+        BlockAccessListEncoder.encode(bal, output);
+      }
+    }
+    output.endList();
+    output.endList();
+    return new BlockAccessListsMessage(output.encoded());
   }
 
   /**
@@ -74,6 +102,46 @@ public final class BlockAccessListsMessage extends AbstractSnapMessageData {
   }
 
   public Iterable<BlockAccessList> blockAccessLists(final boolean withRequestId) {
-    return BlockAccessListsMessageData.decode(data, withRequestId);
+    return () ->
+        new Iterator<>() {
+          private final RLPInput input = new BytesValueRLPInput(data, false);
+          private boolean initialized = false;
+
+          private void ensureInitialized() {
+            if (!initialized) {
+              input.enterList();
+              if (withRequestId) {
+                input.skipNext();
+              }
+              input.enterList();
+              initialized = true;
+            }
+          }
+
+          @Override
+          public boolean hasNext() {
+            ensureInitialized();
+            return !input.isEndOfCurrentList();
+          }
+
+          @Override
+          public BlockAccessList next() {
+            ensureInitialized();
+            if (!hasNext()) {
+              throw new NoSuchElementException();
+            }
+            // EIP-8189: a positional entry is either a BAL (RLP list) or the empty-string
+            // sentinel (0x80) for "unavailable". The sentinel decodes to an empty BAL.
+            if (input.nextIsList()) {
+              return BlockAccessListDecoder.decode(input.readAsRlp());
+            }
+            final Bytes raw = input.readBytes();
+            if (!raw.isEmpty()) {
+              throw new IllegalStateException(
+                  "Unexpected non-list, non-empty-string entry in BlockAccessLists response");
+            }
+            return new BlockAccessList(List.of());
+          }
+        };
   }
 }
