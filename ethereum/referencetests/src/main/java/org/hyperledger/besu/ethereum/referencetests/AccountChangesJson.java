@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.S
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -179,7 +180,14 @@ public class AccountChangesJson {
     }
   }
 
-  private static int decodeIndex(final String index) {
-    return index != null ? Integer.decode(index) : 0;
+  private static long decodeIndex(final String index) {
+    if (index == null) {
+      return 0L;
+    }
+    final String s = index.toLowerCase(Locale.ROOT);
+    if (s.startsWith("0x")) {
+      return Long.parseUnsignedLong(s.substring(2), 16);
+    }
+    return Long.parseUnsignedLong(index, 10);
   }
 }

@@ -95,7 +95,8 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final PathBasedWorldStateUpdateAccumulator<?> blockUpdater =
           (PathBasedWorldStateUpdateAccumulator<?>) ws.updater();
 
-      applyWritesFromPriorTransactions(blockAccessList, transactionLocation + 1, blockUpdater);
+      applyWritesFromPriorTransactions(
+          blockAccessList, (long) transactionLocation + 1L, blockUpdater);
       blockUpdater.commit();
 
       final WorldUpdater txUpdater = blockUpdater.updater();
@@ -185,7 +186,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
   private void applyWritesFromPriorTransactions(
       final BlockAccessList blockAccessList,
-      final int balIndex,
+      final long balIndex,
       final PathBasedWorldStateUpdateAccumulator<?> worldStateUpdater) {
     for (var accountChanges : blockAccessList.accountChanges()) {
       final Address address = accountChanges.address();
@@ -232,11 +233,11 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
   }
 
   private BlockAccessList.BalanceChange findLatestBalanceChange(
-      final Collection<BlockAccessList.BalanceChange> changes, final int maxIndex) {
+      final Collection<BlockAccessList.BalanceChange> changes, final long maxIndex) {
     BlockAccessList.BalanceChange latest = null;
-    int latestIndex = -1;
+    long latestIndex = -1L;
     for (var change : changes) {
-      final int txIndex = change.txIndex();
+      final long txIndex = change.txIndex();
       if (txIndex < maxIndex && txIndex > latestIndex) {
         latest = change;
         latestIndex = txIndex;
@@ -246,11 +247,11 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
   }
 
   private BlockAccessList.NonceChange findLatestNonceChange(
-      final Collection<BlockAccessList.NonceChange> changes, final int maxIndex) {
+      final Collection<BlockAccessList.NonceChange> changes, final long maxIndex) {
     BlockAccessList.NonceChange latest = null;
-    int latestIndex = -1;
+    long latestIndex = -1L;
     for (var change : changes) {
-      final int txIndex = change.txIndex();
+      final long txIndex = change.txIndex();
       if (txIndex < maxIndex && txIndex > latestIndex) {
         latest = change;
         latestIndex = txIndex;
@@ -260,11 +261,11 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
   }
 
   private BlockAccessList.CodeChange findLatestCodeChange(
-      final Collection<BlockAccessList.CodeChange> changes, final int maxIndex) {
+      final Collection<BlockAccessList.CodeChange> changes, final long maxIndex) {
     BlockAccessList.CodeChange latest = null;
-    int latestIndex = -1;
+    long latestIndex = -1L;
     for (var change : changes) {
-      final int txIndex = change.txIndex();
+      final long txIndex = change.txIndex();
       if (txIndex < maxIndex && txIndex > latestIndex) {
         latest = change;
         latestIndex = txIndex;
@@ -274,11 +275,11 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
   }
 
   private BlockAccessList.StorageChange findLatestStorageChange(
-      final Collection<BlockAccessList.StorageChange> changes, final int maxIndex) {
+      final Collection<BlockAccessList.StorageChange> changes, final long maxIndex) {
     BlockAccessList.StorageChange latest = null;
-    int latestIndex = -1;
+    long latestIndex = -1L;
     for (var change : changes) {
-      final int txIndex = change.txIndex();
+      final long txIndex = change.txIndex();
       if (txIndex < maxIndex && txIndex > latestIndex) {
         latest = change;
         latestIndex = txIndex;
