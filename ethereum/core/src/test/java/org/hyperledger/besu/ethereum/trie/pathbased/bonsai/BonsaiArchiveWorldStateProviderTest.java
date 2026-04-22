@@ -100,6 +100,25 @@ public class BonsaiArchiveWorldStateProviderTest {
   }
 
   @Test
+  void historicalQuery_atExactBoundary_migratorBehind_fallsThroughToSuper() {
+    // Models the "new block just arrived, migrator hasn't caught up yet" race:
+    // queryBlock sits exactly at head - maxLayersToLoad (the historical routing threshold),
+    // migrator progress is one block short. Gate must refuse the archive route.
+    final long queryBlockNumber = CHAIN_HEAD - MAX_LAYERS;
+    final BlockHeader boundaryHeader =
+        new BlockHeaderTestFixture().number(queryBlockNumber).buildHeader();
+    when(blockchain.getBlockHeader(boundaryHeader.getHash()))
+        .thenReturn(Optional.of(boundaryHeader));
+    provider.setArchiveMigrationProgressSupplier(() -> queryBlockNumber - 1);
+
+    final var result =
+        provider.getWorldState(
+            WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(boundaryHeader));
+
+    assertThat(result).isEmpty();
+  }
+
+  @Test
   void historicalQuery_migratorAtQueryBlock_usesArchive() {
     final long queryBlockNumber = CHAIN_HEAD - MAX_LAYERS - 1;
     final BlockHeader historicalHeader =
