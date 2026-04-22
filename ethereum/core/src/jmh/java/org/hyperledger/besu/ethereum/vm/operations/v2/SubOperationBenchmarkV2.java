@@ -17,11 +17,24 @@ package org.hyperledger.besu.ethereum.vm.operations.v2;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.v2.operation.SubOperationV2;
+import org.openjdk.jmh.annotations.Param;
 
-public class SubOperationBenchmarkV2 extends BinaryOperationBenchmarkV2 {
+public class SubOperationBenchmarkV2 extends BinaryArithmeticOperationBenchmarkV2 {
+  @Param("SUB_RANDOM_RANDOM")
+  private String caseName;
 
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {
     return SubOperationV2.staticOperation(frame);
+  }
+
+  @Override
+  protected String caseName() {
+    return caseName;
+  }
+
+  @Override
+  protected String opCode() {
+    return "SUB";
   }
 }
