@@ -68,7 +68,7 @@ public class GasPricePrioritizedTransactions extends AbstractPrioritizedTransact
 
   @Override
   protected void internalBlockAdded(final BlockHeader blockHeader, final FeeMarket feeMarket) {
-    // no-op
+    senderBalanceChecker.clear();
   }
 
   @Override
