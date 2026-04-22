@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -22,6 +23,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
@@ -156,5 +158,15 @@ public class EthGetStorageValuesTest {
       final Map<String, List<String>> requests, final String block) {
     return new JsonRpcRequestContext(
         new JsonRpcRequest("2.0", "eth_getStorageValues", new Object[] {requests, block}));
+  }
+
+  @Test
+  public void shouldThrowInvalidJsonRpcParametersForMalformedSlotHex() {
+    final JsonRpcRequestContext request =
+        requestWithParams(Map.of(ADDRESS_ONE.toHexString(), List.of("0xzz")), "latest");
+
+    assertThatThrownBy(() -> method.response(request))
+        .isInstanceOf(InvalidJsonRpcParameters.class)
+        .hasMessageContaining("Invalid storage key parameter");
   }
 }
