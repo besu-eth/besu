@@ -116,7 +116,7 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
       }
     }
 
-    final int maxIndex = nbTransactions + 1;
+    final long maxIndex = (long) nbTransactions + 1L;
     if (!validateConstraints(bal, blockHeader, maxIndex)) {
       return false;
     }
@@ -130,7 +130,7 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
    * overlap with storage_reads.
    */
   private boolean validateConstraints(
-      final BlockAccessList bal, final BlockHeader blockHeader, final int maxIndex) {
+      final BlockAccessList bal, final BlockHeader blockHeader, final long maxIndex) {
     Address prevAddress = null;
 
     for (BlockAccessList.AccountChanges account : bal.accountChanges()) {
@@ -145,7 +145,7 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
 
       final Set<StorageSlotKey> changeSlots = new HashSet<>(account.storageChanges().size());
       StorageSlotKey prevStorageSlot = null;
-      int prevStorageTxIndex = -1;
+      long prevStorageTxIndex = -1L;
 
       for (BlockAccessList.SlotChanges slotChanges : account.storageChanges()) {
         final StorageSlotKey slot = slotChanges.slot();
@@ -160,9 +160,9 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
         prevStorageSlot = slot;
         changeSlots.add(slot);
 
-        prevStorageTxIndex = -1;
+        prevStorageTxIndex = -1L;
         for (BlockAccessList.StorageChange ch : slotChanges.changes()) {
-          final int txIndex = ch.txIndex();
+          final long txIndex = ch.txIndex();
           if (txIndex < 0) {
             LOG.warn(
                 "Block access list has negative block_access_index for address {} block {}",
@@ -209,9 +209,9 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
         }
       }
 
-      int prevTxIndex = -1;
+      long prevTxIndex = -1L;
       for (BlockAccessList.BalanceChange ch : account.balanceChanges()) {
-        final int txIndex = ch.txIndex();
+        final long txIndex = ch.txIndex();
         if (txIndex < 0) {
           LOG.warn(
               "Block access list has negative block_access_index in balance_changes for address {} block {}",
@@ -237,9 +237,9 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
         prevTxIndex = txIndex;
       }
 
-      prevTxIndex = -1;
+      prevTxIndex = -1L;
       for (BlockAccessList.NonceChange ch : account.nonceChanges()) {
-        final int txIndex = ch.txIndex();
+        final long txIndex = ch.txIndex();
         if (txIndex < 0) {
           LOG.warn(
               "Block access list has negative block_access_index in nonce_changes for address {} block {}",
@@ -265,9 +265,9 @@ public class MainnetBlockAccessListValidator implements BlockAccessListValidator
         prevTxIndex = txIndex;
       }
 
-      prevTxIndex = -1;
+      prevTxIndex = -1L;
       for (BlockAccessList.CodeChange ch : account.codeChanges()) {
-        final int txIndex = ch.txIndex();
+        final long txIndex = ch.txIndex();
         if (txIndex < 0) {
           LOG.warn(
               "Block access list has negative block_access_index in code_changes for address {} block {}",

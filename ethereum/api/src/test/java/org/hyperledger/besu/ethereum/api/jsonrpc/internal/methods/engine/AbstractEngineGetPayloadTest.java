@@ -92,6 +92,7 @@ public abstract class AbstractEngineGetPayloadTest extends AbstractScheduledApiT
           Bytes32.random(),
           Address.fromHexString("0x42"),
           Optional.empty(),
+          Optional.empty(),
           Optional.empty());
   protected static final BlockHeader mockHeader =
       new BlockHeaderTestFixture().prevRandao(Bytes32.random()).buildHeader();
@@ -175,6 +176,7 @@ public abstract class AbstractEngineGetPayloadTest extends AbstractScheduledApiT
                 Bytes32.random(),
                 Address.fromHexString("0x42"),
                 Optional.empty(),
+                Optional.empty(),
                 Optional.empty()));
     assertThat(resp).isInstanceOf(JsonRpcErrorResponse.class);
     verify(engineCallListener, times(1)).executionEngineCalled();
@@ -201,6 +203,7 @@ public abstract class AbstractEngineGetPayloadTest extends AbstractScheduledApiT
             timestamp,
             Bytes32.random(),
             Address.fromHexString("0x42"),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty());
     final BlockHeader mockHeader = new BlockHeaderTestFixture().timestamp(timestamp).buildHeader();
@@ -234,6 +237,7 @@ public abstract class AbstractEngineGetPayloadTest extends AbstractScheduledApiT
             validTimestamp,
             Bytes32.random(),
             Address.fromHexString("0x42"),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty());
 
