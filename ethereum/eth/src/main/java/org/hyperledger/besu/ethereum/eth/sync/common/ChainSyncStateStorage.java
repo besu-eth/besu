@@ -87,18 +87,22 @@ public class ChainSyncStateStorage {
         // Read checkpoint block header
         final BlockHeader checkpointBlockHeader = headerReader.apply(input);
 
-        // Read optional header download anchor
-        BlockHeader headerDownloadAnchor = null;
-        if (input.nextIsList()) {
-          headerDownloadAnchor = headerReader.apply(input);
-        }
-
         // Read header complete flag
         final boolean headersDownloadComplete = input.readByte() == 1;
 
+        // Read optional header download anchor
+        BlockHeader headerDownloadAnchor = null;
+        if (input.nextIsNull()) {
+          input.skipNext();
+        } else {
+          headerDownloadAnchor = headerReader.apply(input);
+        }
+
         // Read optional header download progress
         BlockHeader headerDownloadProgress = null;
-        if (input.nextIsList()) {
+        if (input.nextIsNull()) {
+          input.skipNext();
+        } else {
           headerDownloadProgress = headerReader.apply(input);
         }
 
@@ -157,18 +161,21 @@ public class ChainSyncStateStorage {
         // Write the checkpoint block header
         state.blockDownloadAnchor().writeTo(output);
 
-        // Write optional header download
+        // Write header complete flag
+        output.writeByte((byte) (state.headersDownloadComplete() ? 1 : 0));
+
+        // Write optional header download anchor
         if (state.headerDownloadAnchor() != null) {
           state.headerDownloadAnchor().writeTo(output);
+        } else {
+          output.writeNull();
         }
-
-        // Write header complete flag (boolean byte acts as separator between the two optional
-        // headers)
-        output.writeByte((byte) (state.headersDownloadComplete() ? 1 : 0));
 
         // Write optional header download progress
         if (state.headerDownloadProgress() != null) {
           state.headerDownloadProgress().writeTo(output);
+        } else {
+          output.writeNull();
         }
 
         output.endList();
