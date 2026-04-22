@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.vm.operations.v2;
 
-import org.hyperledger.besu.ethereum.vm.operations.BenchmarkHelper;
 import org.hyperledger.besu.evm.UInt256;
 
 import java.math.BigInteger;

@@ -472,7 +472,26 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    * @return The difference.
    */
   public UInt256 sub(final UInt256 other) {
-    return sbb(other).UInt256Value();
+    // Limb 0: no incoming borrow, so a plain unsigned compare of the inputs suffices.
+    long z0 = u0 - other.u0;
+    long borrow = Long.compareUnsigned(u0, other.u0) < 0 ? 1 : 0;
+
+    // Limbs 1-3 subtract three values (u_i - other.u_i - borrow), so the borrow check
+    // needs a tie-breaker: if u_i equals other.u_i, their difference is 0 and whether
+    // we underflow depends entirely on the incoming borrow.
+    long z1 = u1 - other.u1 - borrow;
+    long underflowed = Long.compareUnsigned(u1, other.u1) < 0 ? 1 : 0;
+    long underflowIfBorrowed = Long.compareUnsigned(u1, other.u1) == 0 ? 1 : 0;
+    borrow = underflowed | (underflowIfBorrowed & borrow);
+
+    long z2 = u2 - other.u2 - borrow;
+    underflowed = Long.compareUnsigned(u2, other.u2) < 0 ? 1 : 0;
+    underflowIfBorrowed = Long.compareUnsigned(u2, other.u2) == 0 ? 1 : 0;
+    borrow = underflowed | (underflowIfBorrowed & borrow);
+
+    long z3 = u3 - other.u3 - borrow;
+    // Final borrow discarded: sub returns the wrapping result mod 2^256.
+    return new UInt256(z3, z2, z1, z0);
   }
 
   /**
@@ -917,33 +936,6 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     carry = overflowed | (overflowIfCarried & carry);
 
     return new UInt257(carry != 0, new UInt256(z3, z2, z1, z0));
-  }
-
-  // Sub with borrow
-  private UInt257 sbb(final UInt256 other) {
-    // Limb 0: no incoming borrow, so a plain unsigned compare of the inputs suffices.
-    long z0 = u0 - other.u0;
-    long borrow = Long.compareUnsigned(u0, other.u0) < 0 ? 1 : 0;
-
-    // Limbs 1-3 subtract three values (u_i - other.u_i - borrow), so the borrow check
-    // needs a tie-breaker: if u_i equals other.u_i, their difference is 0 and whether
-    // we underflow depends entirely on the incoming borrow.
-    long z1 = u1 - other.u1 - borrow;
-    long underflowed = Long.compareUnsigned(u1, other.u1) < 0 ? 1 : 0;
-    long underflowIfBorrowed = Long.compareUnsigned(u1, other.u1) == 0 ? 1 : 0;
-    borrow = underflowed | (underflowIfBorrowed & borrow);
-
-    long z2 = u2 - other.u2 - borrow;
-    underflowed = Long.compareUnsigned(u2, other.u2) < 0 ? 1 : 0;
-    underflowIfBorrowed = Long.compareUnsigned(u2, other.u2) == 0 ? 1 : 0;
-    borrow = underflowed | (underflowIfBorrowed & borrow);
-
-    long z3 = u3 - other.u3 - borrow;
-    underflowed = Long.compareUnsigned(u3, other.u3) < 0 ? 1 : 0;
-    underflowIfBorrowed = Long.compareUnsigned(u3, other.u3) == 0 ? 1 : 0;
-    borrow = underflowed | (underflowIfBorrowed & borrow);
-
-    return new UInt257(borrow != 0, new UInt256(z3, z2, z1, z0));
   }
 
   private UInt256 mac128(final long multiplier, final UInt256 carryIn) {
