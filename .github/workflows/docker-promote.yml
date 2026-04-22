@@ -72,7 +72,7 @@ jobs:
         env:
           IMAGE: ${{ env.registry }}/${{ secrets.DOCKER_ORG }}/besu
         run: |
-          set -euxo pipefail
+          set -euo pipefail
           # Per-arch single-platform tags: RC-<arch>  ->  <VERSION>-<arch>, latest-<arch>
           for ARCH in amd64 arm64; do
             docker buildx imagetools create \
