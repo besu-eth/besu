@@ -319,7 +319,7 @@ class BlockSizeTransactionSelectorTest {
     assertThat(selector.getWorkingState().regularGas()).isEqualTo(25_000_000L);
     assertThat(selector.getWorkingState().stateGas()).isEqualTo(5_000_000L);
 
-    // tx with gasLimit=5M fits: min(30M-25M, 30M-5M) = min(5M, 25M) = 5M >= 5M
+    // tx with gasLimit=5M fits: remaining_regular = 30M - 25M = 5M >= 5M
     final var tx2 = createPendingTransaction(5_000_000L);
     final var ctx2 =
         new TransactionEvaluationContext(
@@ -363,7 +363,7 @@ class BlockSizeTransactionSelectorTest {
     assertThat(selector.getWorkingState().regularGas()).isEqualTo(20_000_000L);
     assertThat(selector.getWorkingState().stateGas()).isEqualTo(10_000_000L);
 
-    // Second tx with gasLimit=10M fits: min(30M-20M, 30M-10M) = min(10M, 20M) = 10M >= 10M
+    // Second tx with gasLimit=10M fits: remaining_regular = 30M - 20M = 10M >= 10M
     final var tx2 = createPendingTransaction(10_000_000L);
     final var ctx2 =
         new TransactionEvaluationContext(
@@ -409,8 +409,9 @@ class BlockSizeTransactionSelectorTest {
     assertThat(selector.getWorkingState().regularGas()).isEqualTo(990_000L);
     assertThat(selector.getWorkingState().stateGas()).isEqualTo(10_000L);
 
-    // tx2 gasLimit=21K > min(1M-990K, 1M-10K) = min(10K, 990K) = 10K
-    // transactionTooLargeForBlock=true; effectiveGasUsed=990K, remaining=10K < 21K → blockFull
+    // tx2 gasLimit=21K > remaining_regular = 1M - 990K = 10K
+    // transactionTooLargeForBlock=true; effectiveGasUsed=max(990K,10K)=990K, remaining=10K < 21K
+    // result in blockFull
     final var tx2 = createPendingTransaction(TRANSFER_GAS_LIMIT);
     final var ctx2 =
         new TransactionEvaluationContext(

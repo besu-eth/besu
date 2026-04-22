@@ -23,7 +23,6 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.testutils.TestCodeExecutor;
 
 import org.apache.tuweni.units.bigints.UInt256;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -73,12 +72,5 @@ public class ConstantinopleSStoreOperationGasCostTest {
     System.out.println(gasLimit - frame.getRemainingGas());
     assertThat(frame.getRemainingGas()).isEqualTo(gasLimit - expectedGasUsed);
     assertThat(frame.getGasRefund()).isEqualTo(expectedGasRefund);
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

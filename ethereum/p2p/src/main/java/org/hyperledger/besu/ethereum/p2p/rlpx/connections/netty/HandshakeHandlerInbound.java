@@ -42,7 +42,8 @@ final class HandshakeHandlerInbound extends AbstractHandshakeHandler {
       final MetricsSystem metricsSystem,
       final HandshakerProvider handshakerProvider,
       final FramerProvider framerProvider,
-      final PeerLookup peerLookup) {
+      final PeerLookup peerLookup,
+      final int maxMessageSize) {
     super(
         subProtocols,
         localNode,
@@ -53,7 +54,8 @@ final class HandshakeHandlerInbound extends AbstractHandshakeHandler {
         handshakerProvider,
         framerProvider,
         true,
-        peerLookup);
+        peerLookup,
+        maxMessageSize);
     handshaker.prepareResponder(nodeKey);
   }
 

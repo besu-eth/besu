@@ -37,10 +37,10 @@ import org.apache.tuweni.units.bigints.UInt256;
 
 public class AccessLocationTracker implements Eip7928AccessList {
 
-  private final int blockAccessIndex;
+  private final long blockAccessIndex;
   private final Map<Address, AccountAccessList> touchedAccounts = new ConcurrentHashMap<>();
 
-  public AccessLocationTracker(final int blockAccessIndex) {
+  public AccessLocationTracker(final long blockAccessIndex) {
     this.blockAccessIndex = blockAccessIndex;
   }
 

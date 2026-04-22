@@ -14,9 +14,12 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.SealableBlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
+
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,16 +31,23 @@ import org.slf4j.LoggerFactory;
 public class SnapSyncProcessState extends PivotSyncState {
   private static final Logger LOG = LoggerFactory.getLogger(SnapSyncProcessState.class);
 
+  private final Optional<BlockHeader> firstPivotBlockHeader;
   private boolean isHealTrieInProgress;
   private boolean isHealFlatDatabaseInProgress;
   private boolean isWaitingBlockchain;
 
-  public SnapSyncProcessState(final PivotSyncState fastSyncState) {
+  public SnapSyncProcessState(
+      final PivotSyncState fastSyncState, final Optional<BlockHeader> firstPivotBlockHeader) {
     super(
         fastSyncState.getPivotBlockNumber(),
         fastSyncState.getPivotBlockHash(),
         fastSyncState.getPivotBlockHeader(),
         fastSyncState.isSourceTrusted());
+    this.firstPivotBlockHeader = firstPivotBlockHeader;
+  }
+
+  public Optional<BlockHeader> getFirstPivotBlockHeader() {
+    return firstPivotBlockHeader;
   }
 
   public boolean isHealTrieInProgress() {

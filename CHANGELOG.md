@@ -1,6 +1,27 @@
 # Changelog
 
-## Upcoming Release
+## Unreleased
+
+### Breaking Changes
+
+### Upcoming Breaking Changes
+- RPC changes to enhance compatibility with other ELs
+  - Block number parameter in RPCs will only support hex values. Support for non-hex (decimal) block number parameters is deprecated.
+  - This affects several RPCs, including `admin_logsRemoveCache`, `debug_getRawHeader`, `eth_call`, `eth_simulateV1`, `trace_call` and more.
+- Sunsetting features - for more context on the reasoning behind the deprecation of these features, including alternative options, read [this blog post](https://www.lfdecentralizedtrust.org/blog/sunsetting-tessera-and-simplifying-hyperledger-besu)
+  - Proof of Work consensus (PoW)
+- `--min-block-occupancy-ratio` is deprecated and will be removed in a future release
+- Plugin API
+  - `PluginTransactionSelectorFactory.create(final SelectorsStateManager selectorsStateManager)` is deprecated for removal
+- `--Xmax-tracked-seen-txs-per-peer` renamed to `--Xmax-tracked-seen-txs` (old name kept as deprecated alias will be removed in a future release)
+- Besu will require Java JDK 25 to build and run in a future release.
+
+### Bug fixes
+
+### Additions and Improvements
+
+
+## 26.4.0
 
 ### Repository Migration
 - The Besu repository has moved from `hyperledger/besu` to `besu-eth/besu`. GitHub automatically redirects all existing links from the old location.
@@ -12,12 +33,14 @@
   - Removed `TransactionSelectionResult.BLOCK_OCCUPANCY_ABOVE_THRESHOLD`, in general it could be replaced with `BLOCK_FULL`
 - Experimental Bonsai Archive column families have changed to improve performance during bonsai to archive migration. If you are using the Bonsai archive you will need to do a full resync [#10058](https://github.com/besu-eth/besu/pull/10058/changes)
 - `debug_traceTransaction` and `debug_traceBlockByNumber`: the `error` field in `StructLog` entries is now serialized as a plain string (e.g. `"INVALID_JUMP_DESTINATION"`) instead of an array of strings, aligning with the execution-apis opcode tracer spec. [#10117](https://github.com/besu-eth/besu/pull/10117)
+- `debug_traceTransaction` now returns a JSON-RPC error response (`-32000: Transaction not found`) instead of a success response with `null` result when the transaction hash is unknown [#10150](https://github.com/besu-eth/besu/pull/10150) 
+- `debug_traceBlockByNumber` now returns a JSON-RPC error response (`-32000: genesis is not traceable`) instead of a success response with `null` result when tracing the genesis block [#10133](https://github.com/besu-eth/besu/pull/10133)
+- Removed deprecated Holesky network. `--network holesky` is no longer a valid option. [#10161](https://github.com/besu-eth/besu/pull/10161)
 
 ### Upcoming Breaking Changes
 - RPC changes to enhance compatibility with other ELs
   - Block number parameter in RPCs will only support hex values. Support for non-hex (decimal) block number parameters is deprecated.
   - This affects several RPCs, including `admin_logsRemoveCache`, `debug_getRawHeader`, `eth_call`, `eth_simulateV1`, `trace_call` and more.
-- Holesky network is deprecated [#9437](https://github.com/hyperledger/besu/pull/9437)
 - Sunsetting features - for more context on the reasoning behind the deprecation of these features, including alternative options, read [this blog post](https://www.lfdecentralizedtrust.org/blog/sunsetting-tessera-and-simplifying-hyperledger-besu)
   - Proof of Work consensus (PoW)
 - `--min-block-occupancy-ratio` is deprecated and will be removed in a future release
@@ -35,10 +58,11 @@
 are provided with different values, using input as per the execution-apis spec instead of returning an error.
 - Fix eth_simulateV1 returning wrong error code when transaction gas exceeds block gas limit: now correctly returns -38015 (BLOCK_GAS_LIMIT_EXCEEDED) instead of -38014 or succeeding [#10073](https://github.com/besu-eth/besu/pull/10073)
 - Wait for peers before starting chain download. Prevents an OutOfMemory (OOM) error when the node has zero peers [#9979](https://github.com/hyperledger/besu/pull/9979)
-- Detect stall in backward sync progress and restart session if stalled for 5 min [#10045](https://github.com/besu-eth/besu/pull/10045)
 - Upgrade besu-native libraries version to 1.5.0. This fixes the issue of besu-native/secp256r1 exporting OpenSSL symbols in JVM space. [besu-native #308](https://github.com/besu-eth/besu-native/pull/308)
 
 ### Additions and Improvements
+- Add `transactionReceipts` subscription type to `eth_subscribe` that pushes all transaction receipts when a new block is added, with optional `transactionHashes` filter to receive receipts for specific transactions only [#10190](https://github.com/besu-eth/besu/pull/10190)
+- Add `enableMemory` parameter to `debug_traceTransaction` and `debug_traceBlockByNumber`. Defaults to `false`; memory is only included in trace output when explicitly enabled. The existing `disableMemory` parameter continues to work for backwards compatibility [#10169](https://github.com/besu-eth/besu/pull/10169)
 - `--net-restrict` now supports IPv6 CIDR notation (e.g. `fd00::/64`) in addition to IPv4, enabling subnet-based peer filtering in IPv6 and dual-stack deployments [#10028](https://github.com/besu-eth/besu/pull/10028)
 - Stop EngineQosTimer as part of shutdown [#9903](https://github.com/hyperledger/besu/pull/9903)
 - Add `--max-blobs-per-transaction` CLI option to configure the maximum number of blobs per transaction [#9912](https://github.com/hyperledger/besu/pull/9912)
@@ -49,18 +73,21 @@ are provided with different values, using input as per the execution-apis spec i
 - Support [EIP-8189](https://eips.ethereum.org/EIPS/eip-8189): snap/2 - block access list exchange
 - Limit pooled tx requests by size and remove pre-eth/68 transaction announcement support [#9990](https://github.com/besu-eth/besu/pull/9990)
 - Reduce tx p2p broadcast bandwidth and memory used [#9937](https://github.com/besu-eth/besu/pull/9937) 
+- Improve syncing time of the experimental Bonsai Archive storage by migrating after a Bonsai full sync [#9979](https://github.com/besu-eth/besu/pull/9997)
+- Layered txpool: enable balance check by default [#10175](https://github.com/besu-eth/besu/pull/10175)
 
 ### Plugin API
 - Plugin API: Allow the registration of multiple PluginTransactionPoolValidatorFactory [#9964](https://github.com/hyperledger/besu/pull/9964)
 - Plugin API: pass pending block header when creating selectors [#10034](https://github.com/besu-eth/besu/pull/10034)
 
 ### RPCs
-- Add blockTimestamp to transaction RPC results [#9887](https://github.com/hyperledger/besu/pull/9887)
+- Add `blockTimestamp` to transaction RPC results [#9887](https://github.com/hyperledger/besu/pull/9887)
 - Add `txpool_status` RPC method [#10002](https://github.com/hyperledger/besu/pull/10002)
 - Add `txpool_contentFrom` JSON-RPC method [#10111](https://github.com/besu-eth/besu/pull/10111)
 - Add `txpool_content` JSON-RPC method [#10120](https://github.com/besu-eth/besu/pull/10120) 
 - Add `txpool_inspect` JSON-RPC method [#10121](https://github.com/besu-eth/besu/pull/10121) 
-- Add maxUsedGas field to eth_simulateV1 results [#10066](https://github.com/besu-eth/besu/pull/10066)
+- Add `maxUsedGas` field to eth_simulateV1 results [#10066](https://github.com/besu-eth/besu/pull/10066)
+- Add `latestBlock` field to admin_peers result [#10163](https://github.com/besu-eth/besu/pull/10163)
 
 ### Performance
 - UInt256 arithmetics with long limbs [#9677](https://github.com/besu-eth/besu/pull/9677)
@@ -124,6 +151,7 @@ are provided with different values, using input as per the execution-apis spec i
 - Add ability to pass a custom tracer to block simulation [#9708](https://github.com/hyperledger/besu/pull/9708)
 - Add support for `4byteTracer` in `debug_trace*` methods to collect function selectors from internal calls via PR [#9642](https://github.com/hyperledger/besu/pull/9642). Thanks to [@JukLee0ira](https://github.com/JukLee0ira).
 - Update assertj to v3.27.7 [#9710](https://github.com/hyperledger/besu/pull/9710)
+- Update rocksdbjni lib version from 9.7.3 to 10.6.2 [#9767](https://github.com/hyperledger/besu/pull/9767)
 - Update vertx to 4.5.24 [#9645](https://github.com/hyperledger/besu/pull/9645)
 - Add byte-level metrics for P2P message exchange [#9666](https://github.com/hyperledger/besu/pull/9666)
 - Add IPv6 dual-stack support for DiscV5 peer discovery (enabled via `--Xv5-discovery-enabled`): new `--p2p-host-ipv6`, `--p2p-interface-ipv6`, and `--p2p-port-ipv6` CLI options enable a second UDP discovery socket; `--p2p-ipv6-outbound-enabled` controls whether IPv6 is preferred for outbound connections when a peer advertises both address families [#9763](https://github.com/hyperledger/besu/pull/9763); RLPx now also binds a second TCP socket on the IPv6 interface so IPv6-only peers can establish connections [#9873](https://github.com/hyperledger/besu/pull/9873)
