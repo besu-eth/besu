@@ -77,6 +77,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   protected final AtomicLong migratedBlockNumber = new AtomicLong(0);
   protected final AtomicBoolean migrationRunning = new AtomicBoolean(false);
   protected volatile OptionalLong blockObserverId = OptionalLong.empty();
+  private boolean closed = false;
 
   /**
    * Creates a new BonsaiFlatDbToArchiveMigrator.
@@ -171,7 +172,11 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
     }
   }
 
-  public void startOngoingMigration() {
+  public synchronized void startOngoingMigration() {
+    if (closed) {
+      LOG.debug("startOngoingMigration called after close; skipping");
+      return;
+    }
     if (blockObserverId.isPresent()) {
       LOG.debug("startOngoingMigration called while an observer is already registered; skipping");
       return;
@@ -230,8 +235,10 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   }
 
   @Override
-  public void close() {
+  public synchronized void close() {
+    closed = true;
     blockObserverId.ifPresent(blockchain::removeObserver);
+    blockObserverId = OptionalLong.empty();
     executorService.shutdownNow();
     try {
       if (!executorService.awaitTermination(10, TimeUnit.SECONDS)) {

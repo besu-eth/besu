@@ -433,6 +433,16 @@ public class BonsaiFlatDbToArchiveMigratorTest {
   }
 
   @Test
+  public void startOngoingMigrationAfterCloseIsNoOp() {
+    appendBlocks(3);
+    final BonsaiFlatDbToArchiveMigrator migrator = createMigrator(3);
+    migrator.close();
+
+    migrator.startOngoingMigration();
+    assertThat(migrator.blockObserverId).isEmpty();
+  }
+
+  @Test
   public void startOngoingMigrationIsIdempotent() {
     appendBlocks(3);
     final BonsaiFlatDbToArchiveMigrator migrator = createMigrator(3);
