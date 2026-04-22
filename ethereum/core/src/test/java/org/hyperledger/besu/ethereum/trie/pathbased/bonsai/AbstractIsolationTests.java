@@ -272,12 +272,17 @@ public abstract class AbstractIsolationTests {
                   getDataStorageConfiguration() {
                 return new org.hyperledger.besu.plugin.services.storage.DataStorageConfiguration() {
                   @Override
-                  public DataStorageFormat getDatabaseFormat() {
+                  public DataStorageFormat getDataStorageFormat() {
                     return DataStorageFormat.BONSAI;
                   }
 
                   @Override
                   public boolean getReceiptCompactionEnabled() {
+                    return false;
+                  }
+
+                  @Override
+                  public boolean getHashPreImageStorageEnabled() {
                     return false;
                   }
                 };

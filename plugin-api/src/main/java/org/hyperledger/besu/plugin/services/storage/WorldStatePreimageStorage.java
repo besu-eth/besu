@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.Address;
 
 import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 
@@ -39,6 +40,14 @@ public interface WorldStatePreimageStorage {
    * @return an {@link Optional} containing the {@link Address}, or empty if not found
    */
   Optional<Address> getAccountTrieKeyPreimage(Bytes32 trieKey);
+
+  /**
+   * Returns the raw preimage bytes for the given trie key.
+   *
+   * @param trieKey the hash key whose preimage is being retrieved
+   * @return an {@link Optional} containing the raw {@link Bytes} preimage, or empty if not found
+   */
+  Optional<Bytes> getRawPreimage(Bytes32 trieKey);
 
   /**
    * Creates and returns a new {@link Updater} for batching preimage write operations.

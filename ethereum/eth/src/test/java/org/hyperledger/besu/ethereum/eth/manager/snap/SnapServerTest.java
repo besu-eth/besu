@@ -40,6 +40,7 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.storage.keyvalue.WorldStatePreimageKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
 import org.hyperledger.besu.ethereum.trie.patricia.SimpleMerklePatriciaTrie;
@@ -139,7 +140,8 @@ public class SnapServerTest {
               }
             },
             storage,
-            new InMemoryKeyValueStorage());
+            new InMemoryKeyValueStorage(),
+            new WorldStatePreimageKeyValueStorage(new InMemoryKeyValueStorage()));
 
     storageCoordinator = new WorldStateStorageCoordinator(inMemoryStorage);
     storageTrie =

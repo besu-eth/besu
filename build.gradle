@@ -1272,7 +1272,7 @@ def calculateVersion() {
     return "${project.version}"
   } else {
     // If no version is supplied or it doesn't match the semantic versioning, calculate from git
-    println("Generating project version as supplied is version not semver: ${project.version}")
+    println("Generating project version, as supplied version is not semver: ${project.version}")
     def gitDetails = getGitCommitDetails(7) // Adjust length as needed
     return "${gitDetails.date}-develop-${gitDetails.hash}"
   }

@@ -36,6 +36,7 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.data.BlockHeader;
+import org.hyperledger.besu.plugin.services.storage.WorldStatePreimageStorage;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
 
 import java.util.ArrayList;
@@ -62,6 +63,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
   protected EvmConfiguration evmConfiguration;
   // Configuration that will be shared by all instances of world state at their creation
   protected final WorldStateConfig worldStateConfig;
+  protected final WorldStatePreimageStorage preimageStorage;
 
   public PathBasedWorldStateProvider(
       final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage,
@@ -92,6 +94,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
             .parallelStateRootComputationEnabled(
                 pathBasedExtraStorageConfiguration.getParallelStateRootComputationEnabled())
             .build();
+    preimageStorage = worldStateKeyValueStorage.getPreimageStorage();
   }
 
   protected void provideCachedWorldStorageManager(

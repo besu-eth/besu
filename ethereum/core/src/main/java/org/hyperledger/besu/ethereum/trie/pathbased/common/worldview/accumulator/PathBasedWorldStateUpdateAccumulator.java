@@ -48,6 +48,8 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -62,6 +64,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       LoggerFactory.getLogger(PathBasedWorldStateUpdateAccumulator.class);
   protected final Consumer<PathBasedValue<ACCOUNT>> accountPreloader;
   protected final Consumer<StorageSlotKey> storagePreloader;
+  final Cache<UInt256, Hash> slotCache = Caffeine.newBuilder().maximumSize(4000).build();
 
   private final AccountConsumingMap<PathBasedValue<ACCOUNT>> accountsToUpdate;
   private final Map<Address, PathBasedValue<Bytes>> codeToUpdate = new ConcurrentHashMap<>();
@@ -74,7 +77,6 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
   private final Map<Address, StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>>>
       storageToUpdate = new ConcurrentHashMap<>();
 
-  private final Map<UInt256, Hash> storageKeyHashLookup = new ConcurrentHashMap<>();
   protected boolean isAccumulatorStateChanged;
 
   public PathBasedWorldStateUpdateAccumulator(
@@ -210,7 +212,6 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
                   });
             });
 
-    storageKeyHashLookup.putAll(source.storageKeyHashLookup);
     this.isAccumulatorStateChanged = true;
   }
 
@@ -260,7 +261,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         createAccount(
             this,
             address,
-            hashAndSaveAccountPreImage(address),
+            address.addressHash(),
             nonce,
             balance,
             Hash.EMPTY_TRIE_HASH,
@@ -475,7 +476,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
                         final UInt256 keyUInt = storageUpdate.getKey();
                         final StorageSlotKey slotKey =
                             new StorageSlotKey(
-                                hashAndSaveSlotPreImage(keyUInt), Optional.of(keyUInt));
+                                slotCache.get(keyUInt, Hash::hash), Optional.of(keyUInt));
                         final UInt256 value = storageUpdate.getValue();
                         final PathBasedValue<UInt256> pendingValue =
                             pendingStorageUpdates.get(slotKey);
@@ -522,7 +523,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
   @Override
   public UInt256 getStorageValue(final Address address, final UInt256 slotKey) {
     StorageSlotKey storageSlotKey =
-        new StorageSlotKey(hashAndSaveSlotPreImage(slotKey), Optional.of(slotKey));
+        new StorageSlotKey(slotCache.get(slotKey, Hash::hash), Optional.of(slotKey));
     return getStorageValueByStorageSlotKey(address, storageSlotKey).orElse(UInt256.ZERO);
   }
 
@@ -561,7 +562,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
   public UInt256 getPriorStorageValue(final Address address, final UInt256 storageKey) {
     // TODO maybe log the read into the trie layer?
     StorageSlotKey storageSlotKey =
-        new StorageSlotKey(hashAndSaveSlotPreImage(storageKey), Optional.of(storageKey));
+        new StorageSlotKey(slotCache.get(storageKey, Hash::hash), Optional.of(storageKey));
     final Map<StorageSlotKey, PathBasedValue<UInt256>> localAccountStorage =
         storageToUpdate.get(address);
     if (localAccountStorage != null) {
@@ -907,21 +908,6 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     resetAccumulatorStateChanged();
     updatedAccounts.clear();
     deletedAccounts.clear();
-    storageKeyHashLookup.clear();
-  }
-
-  protected Hash hashAndSaveAccountPreImage(final Address address) {
-    // no need to save account preimage by default
-    return Hash.hash(address.getBytes());
-  }
-
-  protected Hash hashAndSaveSlotPreImage(final UInt256 slotKey) {
-    Hash hash = storageKeyHashLookup.get(slotKey);
-    if (hash == null) {
-      hash = Hash.hash(slotKey);
-      storageKeyHashLookup.put(slotKey, hash);
-    }
-    return hash;
   }
 
   public abstract PathBasedWorldStateUpdateAccumulator<ACCOUNT> copy();

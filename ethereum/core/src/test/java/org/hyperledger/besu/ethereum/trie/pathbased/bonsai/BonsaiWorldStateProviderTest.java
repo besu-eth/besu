@@ -47,12 +47,14 @@ import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
+import org.hyperledger.besu.plugin.services.storage.WorldStatePreimageStorage;
 
 import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Answers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -75,6 +77,9 @@ class BonsaiWorldStateProviderTest {
   @Mock private BonsaiCachedWorldStorageManager cachedWorldStorageManager;
   @Mock private TrieLogManager trieLogManager;
 
+  @Mock(answer = Answers.RETURNS_DEEP_STUBS)
+  private WorldStatePreimageStorage preimageStorage;
+
   private BonsaiWorldStateProvider bonsaiWorldStateArchive;
 
   @BeforeEach
@@ -85,6 +90,7 @@ class BonsaiWorldStateProviderTest {
         .thenReturn(segmentedKeyValueStorageTransaction);
     when(storageProvider.getStorageBySegmentIdentifier(any())).thenReturn(trieLogStorage);
     when(trieLogStorage.startTransaction()).thenReturn(mock(KeyValueStorageTransaction.class));
+    when(storageProvider.createWorldStatePreimageStorage()).thenReturn(preimageStorage);
   }
 
   @Test

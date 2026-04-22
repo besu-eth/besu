@@ -254,3 +254,6 @@ snapsync-synchronizer-pre-checkpoint-headers-only-enabled=true
 
 # history expiry
 history-expiry-prune=false
+
+# hash preimage storage
+hash-preimage-storage-enabled=true

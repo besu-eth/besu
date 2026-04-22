@@ -315,7 +315,7 @@ public class NearestKeyValueStorageTest {
     when(commonConfiguration.getStoragePath()).thenReturn(tempDataDir);
     when(commonConfiguration.getDataPath()).thenReturn(tempDataDir);
     DataStorageConfiguration dataStorageConfiguration = mock(DataStorageConfiguration.class);
-    when(dataStorageConfiguration.getDatabaseFormat()).thenReturn(DataStorageFormat.BONSAI);
+    when(dataStorageConfiguration.getDataStorageFormat()).thenReturn(DataStorageFormat.BONSAI);
     lenient()
         .when(commonConfiguration.getDataStorageConfiguration())
         .thenReturn(dataStorageConfiguration);

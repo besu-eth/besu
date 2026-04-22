@@ -153,7 +153,7 @@ public class BesuConfigurationImpl implements BesuConfiguration {
     }
 
     @Override
-    public DataStorageFormat getDatabaseFormat() {
+    public DataStorageFormat getDataStorageFormat() {
       return dataStorageConfiguration.getDataStorageFormat();
     }
 
@@ -165,6 +165,11 @@ public class BesuConfigurationImpl implements BesuConfiguration {
     @Override
     public boolean isHistoryExpiryPruneEnabled() {
       return dataStorageConfiguration.getHistoryExpiryPruneEnabled();
+    }
+
+    @Override
+    public boolean getHashPreImageStorageEnabled() {
+      return dataStorageConfiguration.getHashPreImageStorageEnabled();
     }
   }
 }

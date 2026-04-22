@@ -23,15 +23,21 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.CODE_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.BonsaiContext;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.StorageSubscriber;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldView;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
+import org.hyperledger.besu.evm.account.AccountStorageEntry;
+import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
@@ -40,20 +46,27 @@ import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.WorldStatePreimageStorage;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
+import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import kotlin.Pair;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.rlp.RLP;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,6 +74,8 @@ public abstract class PathBasedWorldStateKeyValueStorage
     implements WorldStateKeyValueStorage, AutoCloseable {
   private static final Logger LOG =
       LoggerFactory.getLogger(PathBasedWorldStateKeyValueStorage.class);
+
+  private final WorldStatePreimageStorage preImageProxy;
 
   // 0x776f726c64526f6f74
   public static final byte[] WORLD_ROOT_HASH_KEY = "worldRoot".getBytes(StandardCharsets.UTF_8);
@@ -89,13 +104,16 @@ public abstract class PathBasedWorldStateKeyValueStorage
                 ACCOUNT_INFO_STATE, CODE_STORAGE, ACCOUNT_STORAGE_STORAGE, TRIE_BRANCH_STORAGE));
     this.trieLogStorage =
         provider.getStorageBySegmentIdentifier(KeyValueSegmentIdentifier.TRIE_LOG_STORAGE);
+    this.preImageProxy = provider.createWorldStatePreimageStorage();
   }
 
   public PathBasedWorldStateKeyValueStorage(
       final SegmentedKeyValueStorage composedWorldStateStorage,
-      final KeyValueStorage trieLogStorage) {
+      final KeyValueStorage trieLogStorage,
+      final WorldStatePreimageStorage preImageStorage) {
     this.composedWorldStateStorage = composedWorldStateStorage;
     this.trieLogStorage = trieLogStorage;
+    this.preImageProxy = preImageStorage;
   }
 
   public abstract FlatDbMode getFlatDbMode();
@@ -111,6 +129,10 @@ public abstract class PathBasedWorldStateKeyValueStorage
 
   public KeyValueStorage getTrieLogStorage() {
     return trieLogStorage;
+  }
+
+  public WorldStatePreimageStorage getPreimageStorage() {
+    return preImageProxy;
   }
 
   public Optional<byte[]> getTrieLog(final Hash blockHash) {
@@ -180,6 +202,55 @@ public abstract class PathBasedWorldStateKeyValueStorage
                 hash.equals(rootHash)
                     || trieLogStorage.containsKey(blockHash.getBytes().toArrayUnsafe()))
         .orElse(false);
+  }
+
+  public NavigableMap<Bytes32, AccountStorageEntry> storageEntriesFrom(
+      final Hash addressHash, final Bytes32 startKeyHash, final int limit) {
+    if (preImageProxy != null) {
+      return streamFlatStorages(addressHash, startKeyHash, UInt256.MAX_VALUE, limit)
+          .entrySet()
+          // map back to slot keys using preImage provider:
+          .stream()
+          .collect(
+              Collectors.toMap(
+                  Map.Entry::getKey,
+                  e ->
+                      AccountStorageEntry.create(
+                          UInt256.fromBytes(RLP.decodeValue(e.getValue())),
+                          e.getKey(),
+                          preImageProxy.getStorageTrieKeyPreimage(e.getKey())),
+                  (a, b) -> a,
+                  TreeMap::new));
+    }
+    throw new RuntimeException("Not configured to support enumerating storage");
+  }
+
+  private static final CodeCache RLP_NO_OP_CODE_CACHE = new CodeCache();
+
+  public Stream<WorldState.StreamableAccount> streamAccounts(
+      final PathBasedWorldView context, final Bytes32 startKeyHash, final int limit) {
+    return streamFlatAccounts(startKeyHash, UInt256.MAX_VALUE, limit)
+        .entrySet()
+        // map back to addresses using preImage provider:
+        .stream()
+        .map(
+            entry ->
+                preImageProxy
+                    .getAccountTrieKeyPreimage(entry.getKey())
+                    .map(
+                        address ->
+                            new WorldState.StreamableAccount(
+                                Optional.of(address),
+                                BonsaiAccount.fromRLP(
+                                    context,
+                                    address,
+                                    entry.getValue(),
+                                    false,
+                                    RLP_NO_OP_CODE_CACHE))))
+        .filter(Optional::isPresent)
+        .map(Optional::get)
+        .filter(acct -> context.updater().getAccount(acct.getAddress().orElse(null)) != null)
+        .sorted(Comparator.comparing(account -> account.getAddress().orElse(Address.ZERO)));
   }
 
   @Override

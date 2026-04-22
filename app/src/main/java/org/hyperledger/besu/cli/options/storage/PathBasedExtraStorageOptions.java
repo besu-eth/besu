@@ -65,6 +65,7 @@ public class PathBasedExtraStorageOptions
   public static final String PARALLEL_STATE_ROOT_COMPUTATION_ENABLED =
       "--bonsai-parallel-state-root-computation-enabled";
 
+  @SuppressWarnings("ExperimentalCliOptionMustBeCorrectlyDisplayed")
   @Option(
       names = {LIMIT_TRIE_LOGS_ENABLED},
       fallbackValue = "true",
