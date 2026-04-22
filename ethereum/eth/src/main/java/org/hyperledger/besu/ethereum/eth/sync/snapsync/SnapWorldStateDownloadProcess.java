@@ -231,6 +231,10 @@ public class SnapWorldStateDownloadProcess implements WorldStateDownloadProcess 
 
       // Room for the requests we expect to do in parallel plus some buffer but not unlimited.
       final int bufferCapacity = snapSyncConfiguration.getTrienodeCountPerRequest() * 2;
+      // For root pipelines that spawn many children, we use a smaller buffer to avoid memory
+      // explosion
+      final int rootBufferCapacity = maxOutstandingRequests * 2;
+
       final LabelledMetric<Counter> outputCounter =
           metricsSystem.createLabelledCounter(
               BesuMetricCategory.SYNCHRONIZER,
@@ -269,7 +273,7 @@ public class SnapWorldStateDownloadProcess implements WorldStateDownloadProcess 
                   "dequeueAccountRequestBlocking",
                   new TaskQueueIterator<>(
                       downloadState, () -> downloadState.dequeueAccountRequestBlocking()),
-                  bufferCapacity,
+                  rootBufferCapacity,
                   outputCounter,
                   true,
                   "world_state_download")

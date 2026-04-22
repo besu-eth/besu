@@ -131,6 +131,9 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   /** Trimmed segments */
   protected List<SegmentIdentifier> trimmedSegments;
 
+  /** RocksDb block cache */
+  protected LRUCache blockCache;
+
   /**
    * Instantiates a new Rocks db columnar key value storage.
    *
@@ -170,6 +173,12 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
               .collect(Collectors.toList());
 
       setGlobalOptions(configuration, stats);
+
+      this.blockCache =
+          new LRUCache(
+              configuration.isHighSpec()
+                  ? ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC
+                  : configuration.getCacheCapacity());
 
       txOptions = new TransactionDBOptions();
       columnHandles = new ArrayList<>(columnDescriptors.size());
@@ -221,7 +230,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     } catch (RocksDBException ex) {
       // Options file is not found in the database
     }
-    BlockBasedTableConfig basedTableConfig = createBlockBasedTableConfig(segment, configuration);
+    BlockBasedTableConfig basedTableConfig = createBlockBasedTableConfig();
 
     final var options =
         new ColumnFamilyOptions()
@@ -274,22 +283,13 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   /***
    * Create a Block Base Table configuration for each segment, depending on the configuration in place
-   * and the segment itself
    *
-   * @param segment The segment related to the column family
-   * @param config RocksDB configuration
    * @return Block Base Table configuration
    */
-  private BlockBasedTableConfig createBlockBasedTableConfig(
-      final SegmentIdentifier segment, final RocksDBConfiguration config) {
-    final LRUCache cache =
-        new LRUCache(
-            config.isHighSpec() && segment.isEligibleToHighSpecFlag()
-                ? ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC
-                : config.getCacheCapacity());
+  private BlockBasedTableConfig createBlockBasedTableConfig() {
     return new BlockBasedTableConfig()
         .setFormatVersion(ROCKSDB_FORMAT_VERSION)
-        .setBlockCache(cache)
+        .setBlockCache(blockCache)
         .setFilterPolicy(new BloomFilter(10, false))
         .setPartitionFilters(true)
         .setCacheIndexAndFilterBlocks(false)
@@ -526,6 +526,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       txOptions.close();
       options.close();
       tryDeleteOptions.close();
+      blockCache.close();
       columnHandlesBySegmentIdentifier.values().stream()
           .map(RocksDbSegmentIdentifier::get)
           .forEach(ColumnFamilyHandle::close);
