@@ -53,6 +53,7 @@ import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -429,6 +430,19 @@ public class BonsaiFlatDbToArchiveMigratorTest {
         .untilAsserted(
             () ->
                 assertThat(migrator.migratedBlockNumber.get()).isGreaterThan(metricAfterMigration));
+  }
+
+  @Test
+  public void startOngoingMigrationIsIdempotent() {
+    appendBlocks(3);
+    final BonsaiFlatDbToArchiveMigrator migrator = createMigrator(3);
+
+    migrator.startOngoingMigration();
+    final OptionalLong firstId = migrator.blockObserverId;
+    assertThat(firstId).isPresent();
+
+    migrator.startOngoingMigration(); // second call — should no-op
+    assertThat(migrator.blockObserverId).isEqualTo(firstId);
   }
 
   @Test

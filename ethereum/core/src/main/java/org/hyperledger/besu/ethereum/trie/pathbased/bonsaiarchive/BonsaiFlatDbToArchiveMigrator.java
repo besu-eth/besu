@@ -171,6 +171,10 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   }
 
   public void startOngoingMigration() {
+    if (blockObserverId.isPresent()) {
+      LOG.debug("startOngoingMigration called while an observer is already registered; skipping");
+      return;
+    }
     migratedBlockNumber.set(getMigrationProgress().orElse(0L));
     blockObserverId =
         OptionalLong.of(
