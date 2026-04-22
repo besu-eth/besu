@@ -488,7 +488,7 @@ public class EVM {
       try {
         result =
             switch (opcode) {
-              case 0x01 -> AddOperationV2.staticOperation(frame, frame.stackDataV2());
+              case 0x01 -> AddOperationV2.staticOperation(frame);
               case 0x09 -> MulModOperationV2.staticOperation(frame);
               case 0x1b ->
                   enableConstantinople

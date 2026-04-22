@@ -34,7 +34,7 @@ dependencies {
   api 'io.consensys.tuweni:tuweni-bytes'
   api 'io.consensys.tuweni:tuweni-units'
   implementation 'com.google.guava:guava'
-  implementation project(':evm')
+  api project(':evm')
   compileOnly 'io.vertx:vertx-core'
 }
 
