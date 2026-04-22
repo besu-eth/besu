@@ -90,6 +90,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiArchiveWorldSta
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoopBonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiArchiver;
@@ -663,10 +664,16 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
       preloadBlockHeaderCache(blockchain, scheduler);
     }
 
-    final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader =
-        besuComponent
-            .map(BesuComponent::getCachedMerkleTrieLoader)
-            .orElseGet(() -> new BonsaiCachedMerkleTrieLoader(metricsSystem));
+    boolean balStateRootTrusted = balConfiguration.isBalStateRootTrusted();
+    final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader;
+    if (balStateRootTrusted) {
+      bonsaiCachedMerkleTrieLoader = new NoopBonsaiCachedMerkleTrieLoader();
+    } else {
+      bonsaiCachedMerkleTrieLoader =
+          besuComponent
+              .map(BesuComponent::getCachedMerkleTrieLoader)
+              .orElseGet(() -> new BonsaiCachedMerkleTrieLoader(metricsSystem));
+    }
 
     final var worldStateHealerSupplier = new AtomicReference<WorldStateHealer>();
 
