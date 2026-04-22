@@ -20,7 +20,6 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageConfiguration;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.nio.file.Path;
-import java.util.Optional;
 
 /** Generally useful configuration provided by Besu. */
 public interface BesuConfiguration extends BesuService {
