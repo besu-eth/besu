@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.p2p.config;
 
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
 import org.hyperledger.besu.util.NetworkUtility;
+import org.hyperledger.besu.util.number.ByteUnits;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -24,12 +25,14 @@ import java.util.Objects;
 import java.util.Optional;
 
 public class RlpxConfiguration {
+  public static final int DEFAULT_MAX_MESSAGE_SIZE = 10 * ByteUnits.MEGABYTE;
   public static final float DEFAULT_FRACTION_REMOTE_CONNECTIONS_ALLOWED = 0.6f;
   private String clientId = "TestClient/1.0.0";
   private String bindHost = NetworkUtility.INADDR_ANY;
   private int bindPort = 30303;
   private Optional<String> bindHostIpv6 = Optional.empty();
   private Optional<Integer> bindPortIpv6 = Optional.empty();
+  private int maxMessageSize = DEFAULT_MAX_MESSAGE_SIZE;
   private List<SubProtocol> supportedProtocols = Collections.emptyList();
 
   public static RlpxConfiguration create() {
@@ -88,6 +91,15 @@ public class RlpxConfiguration {
 
   public boolean isDualStackEnabled() {
     return bindHostIpv6.isPresent() && bindPortIpv6.isPresent();
+  }
+
+  public int getMaxMessageSize() {
+    return maxMessageSize;
+  }
+
+  public RlpxConfiguration setMaxMessageSize(final int maxMessageSize) {
+    this.maxMessageSize = maxMessageSize;
+    return this;
   }
 
   public String getClientId() {

@@ -1,5 +1,5 @@
 plugins {
-  id 'net.consensys.besu-plugin-distribution' version '0.1.5'
+  id 'net.consensys.besu-plugin-distribution' version '0.2.0'
   id 'com.diffplug.spotless' version '7.0.3'
 }
 

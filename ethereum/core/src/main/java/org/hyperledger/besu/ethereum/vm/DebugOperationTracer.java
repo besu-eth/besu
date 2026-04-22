@@ -245,11 +245,13 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
   private Optional<Bytes[]> captureMemory(final MessageFrame frame) {
     if (!options.traceMemory() || frame.memoryWordSize() == 0) {
       return Optional.empty();
-    } else if (frame.getMaybeUpdatedMemory().isEmpty()
-        && lastFrame != null
-        && lastFrame.getDepth() == frame.getDepth()
-        && lastFrame.getMemory().get().length == frame.memoryWordSize()) {
-      return lastFrame.getMemory();
+    } else if (frame.getMaybeUpdatedMemory().isEmpty() && lastFrame != null) {
+      final Optional<Bytes[]> lastMemory = lastFrame.getMemory();
+      if (lastFrame.getDepth() == frame.getDepth()
+          && lastMemory.isPresent()
+          && lastMemory.get().length == frame.memoryWordSize()) {
+        return lastMemory;
+      }
     }
     return forceCaptureMem(frame);
   }
