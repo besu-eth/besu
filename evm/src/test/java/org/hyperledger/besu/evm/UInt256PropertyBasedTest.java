@@ -1453,16 +1453,13 @@ public class UInt256PropertyBasedTest {
   // endregion
 
   // region Simple SUB tests
-  // adapted from Byte-Array SUB Tests
   // --------------------------------------------------------------------------
   @Property
-  void property_subSimple_matchesBigInteger(
+  void property_sub_matchesBigInteger(
       @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] b) {
     // Arrange
-    final byte[] a32 = toBytes32Unsigned(a);
-    final byte[] b32 = toBytes32Unsigned(b);
-    final UInt256 ua = UInt256.fromBytesBE(a32);
-    final UInt256 ub = UInt256.fromBytesBE(b32);
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ub = UInt256.fromBytesBE(b);
 
     // Act
     final BigInteger got = ua.sub(ub).toBigInteger();
@@ -1475,33 +1472,29 @@ public class UInt256PropertyBasedTest {
   }
 
   @Property
-  void property_subSimple_identity(@ForAll("unsigned1to32") final byte[] a) {
+  void property_sub_identity(@ForAll("unsigned1to32") final byte[] a) {
     // Arrange
-    final byte[] a32 = toBytes32Unsigned(a);
-    UInt256 ua = UInt256.fromBytesBE(a32);
+    UInt256 ua = UInt256.fromBytesBE(a);
 
     // Act & Assert — x - 0 = x
     assertThat(ua.sub(UInt256.ZERO)).isEqualTo(ua);
   }
 
   @Property
-  void property_subSimple_self_is_zero(@ForAll("unsigned1to32") final byte[] a) {
+  void property_sub_self_is_zero(@ForAll("unsigned1to32") final byte[] a) {
     // Arrange
-    final byte[] a32 = toBytes32Unsigned(a);
-    final UInt256 ua = UInt256.fromBytesBE(a32);
+    final UInt256 ua = UInt256.fromBytesBE(a);
 
     // Act & Assert — x - x = 0
     assertThat(ua.sub(ua)).isEqualTo(UInt256.ZERO);
   }
 
   @Property
-  void property_subSimple_add_inverse(
+  void property_sub_add_inverse(
       @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] b) {
     // Arrange
-    final byte[] a32 = toBytes32Unsigned(a);
-    final byte[] b32 = toBytes32Unsigned(b);
-    final UInt256 ua = UInt256.fromBytesBE(a32);
-    final UInt256 ub = UInt256.fromBytesBE(b32);
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ub = UInt256.fromBytesBE(b);
 
     // Act & Assert — (x + y) - y = x
     UInt256 sum = ua.add(ub);
@@ -1509,11 +1502,11 @@ public class UInt256PropertyBasedTest {
   }
 
   @Property
-  void property_subSimple_anti_commutative(
+  void property_sub_anti_commutative(
       @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] b) {
     // Arrange — fresh copies for each sub call (sub/neg may mutate input arrays)
-    UInt256 ua = UInt256.fromBytesBE(toBytes32Unsigned(a));
-    UInt256 ub = UInt256.fromBytesBE(toBytes32Unsigned(b));
+    UInt256 ua = UInt256.fromBytesBE(a);
+    UInt256 ub = UInt256.fromBytesBE(b);
     final UInt256 aMinusB = ua.sub(ub);
     final UInt256 bMinusA = ub.sub(ua);
 
@@ -1522,7 +1515,7 @@ public class UInt256PropertyBasedTest {
   }
 
   @Property
-  void property_subSimple_consistent_with_add_neg(
+  void property_sub_consistent_with_add_neg(
       @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] b) {
     // Arrange
     final UInt256 ua = UInt256.fromBytesBE(a);
@@ -1537,14 +1530,12 @@ public class UInt256PropertyBasedTest {
   }
 
   @Property
-  void property_subSimple_singleLimb_matchesBigInteger(
+  void property_sub_singleLimb_matchesBigInteger(
       @ForAll("singleLimbUnsigned1to4") final byte[] a,
       @ForAll("singleLimbUnsigned1to4") final byte[] b) {
     // Arrange
-    final byte[] a32 = toBytes32Unsigned(a);
-    final byte[] b32 = toBytes32Unsigned(b);
-    final UInt256 ua = UInt256.fromBytesBE(a32);
-    final UInt256 ub = UInt256.fromBytesBE(b32);
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ub = UInt256.fromBytesBE(b);
 
     // Act
     BigInteger got = ua.sub(ub).toBigInteger();
@@ -1556,232 +1547,127 @@ public class UInt256PropertyBasedTest {
     assertThat(got).isEqualTo(expected);
   }
 
-  // Adapted from Simple ADD tests
-  //  @Property
-  //  void property_sub_matchesBigInteger(
-  //          @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] b) {
-  //    // Arrange
-  //    final UInt256 ua = UInt256.fromBytesBE(a);
-  //    final UInt256 ub = UInt256.fromBytesBE(b);
-  //
-  //    // Act
-  //    final byte[] got = ua.sub(ub).toBytesBE();
-  //
-  //    // Assert
-  //    BigInteger A = toBigUnsigned(a);
-  //    BigInteger B = toBigUnsigned(b);
-  //    // Addition wraps around at 2^256
-  //    byte[] expected = bigUnsignedToBytes32(A.subtract(B));
-  //    assertThat(got).containsExactly(expected);
-  //  }
-  //
-  //  @Property
-  //  void property_sub_commutative(
-  //          @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] b) {
-  //    // Arrange
-  //    final UInt256 ua = UInt256.fromBytesBE(a);
-  //    final UInt256 ub = UInt256.fromBytesBE(b);
-  //
-  //    // Act & Assert
-  //    assertThat(ua.sub(ub)).isEqualTo(ub.sub(ua));
-  //  }
-  //
-  //  @Property
-  //  void property_sub_associative(
-  //          @ForAll("unsigned1to32") final byte[] a,
-  //          @ForAll("unsigned1to32") final byte[] b,
-  //          @ForAll("unsigned1to32") final byte[] c) {
-  //    // Arrange
-  //    final UInt256 ua = UInt256.fromBytesBE(a);
-  //    final UInt256 ub = UInt256.fromBytesBE(b);
-  //    final UInt256 uc = UInt256.fromBytesBE(c);
-  //
-  //    // Act & Assert
-  //    assertThat(ua.sub(ub).sub(uc)).isEqualTo(ua.sub(ub.sub(uc)));
-  //  }
-  //
-  //  @Property
-  //  void property_sub_identity(@ForAll("unsigned1to32") final byte[] a) {
-  //    // Arrange
-  //    final UInt256 ua = UInt256.fromBytesBE(a);
-  //    final UInt256 zero = UInt256.ZERO;
-  //
-  //    // Act & Assert
-  //    assertThat(ua.sub(zero)).isEqualTo(ua);
-  //    assertThat(zero.sub(ua)).isEqualTo(ua);
-  //  }
-  //
-  //  @Property
-  //  void property_sub_singleLimb_matchesBigInteger(
-  //          @ForAll("singleLimbUnsigned1to4") final byte[] a,
-  //          @ForAll("singleLimbUnsigned1to4") final byte[] b) {
-  //    // Arrange
-  //    final UInt256 ua = UInt256.fromBytesBE(a);
-  //    final UInt256 ub = UInt256.fromBytesBE(b);
-  //
-  //    // Act
-  //    final byte[] got = ua.sub(ub).toBytesBE();
-  //
-  //    // Assert
-  //    BigInteger A = toBigUnsigned(a);
-  //    BigInteger B = toBigUnsigned(b);
-  //    byte[] expected = bigUnsignedToBytes32(A.subtract(B));
-  //    assertThat(got).containsExactly(expected);
-  //  }
-  //
-  //  @Property
-  //  void property_sub_one_increment(@ForAll("unsigned1to32") final byte[] a) {
-  //    // Arrange
-  //    final UInt256 ua = UInt256.fromBytesBE(a);
-  //    final UInt256 one = UInt256.fromBytesBE(new byte[] {1});
-  //
-  //    // Act
-  //    final byte[] got = ua.sub(one).toBytesBE();
-  //
-  //    // Assert
-  //    BigInteger A = toBigUnsigned(a);
-  //    byte[] expected = bigUnsignedToBytes32(A.subtract(BigInteger.ONE));
-  //    assertThat(got).containsExactly(expected);
-  //  }
-  //
-  //  @Property
-  //  void property_sub_self_doubles(@ForAll("unsigned1to32") final byte[] a) {
-  //    // Arrange
-  //    final UInt256 ua = UInt256.fromBytesBE(a);
-  //
-  //    // Act
-  //    final byte[] got = ua.sub(ua).toBytesBE();
-  //
-  //    // Assert - verify A + A = 2 * A using BigInteger
-  //    BigInteger A = toBigUnsigned(a);
-  //    byte[] expected = bigUnsignedToBytes32(A.multiply(BigInteger.TWO));
-  //    assertThat(got).containsExactly(expected);
-  //  }
-  //
-  //  @Property
-  //  void property_sub_max_values() {
-  //    // Arrange - MAX_UINT256 = 2^256 - 1 (all bits set to 1)
-  //    final UInt256 max =
-  //            UInt256.fromBytesBE(
-  //                    new byte[] {
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF
-  //                    });
-  //    final UInt256 one = UInt256.fromBytesBE(new byte[] {1});
-  //    final UInt256 zero = UInt256.ZERO;
-  //
-  //    // Act & Assert - MAX + 1 should wrap to 0
-  //    assertThat(max.sub(one)).isEqualTo(zero);
-  //
-  //    // MAX + MAX should wrap to MAX - 1 (i.e., 2^256 - 2)
-  //    BigInteger maxBig = BigInteger.ONE.shiftLeft(256).subtract(BigInteger.ONE);
-  //    byte[] expMaxPlusMax = bigUnsignedToBytes32(maxBig.subtract(maxBig));
-  //    assertThat(max.sub(max).toBytesBE()).containsExactly(expMaxPlusMax);
-  //
-  //    // Verify MAX + MAX = 2^256 - 2 (wraps around)
-  //    final UInt256 expectedMaxPlusMax =
-  //            UInt256.fromBytesBE(
-  //                    new byte[] {
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFE // Last byte is
-  // 0xFE
-  //                    });
-  //    assertThat(max.sub(max)).isEqualTo(expectedMaxPlusMax);
-  //  }
-  //
-  //  @Property
-  //  void property_sub_max_with_random(@ForAll("unsigned1to32") final byte[] a) {
-  //    // Arrange - MAX_UINT256
-  //    final UInt256 max =
-  //            UInt256.fromBytesBE(
-  //                    new byte[] {
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF
-  //                    });
-  //    final UInt256 ua = UInt256.fromBytesBE(a);
-  //
-  //    // Act
-  //    final byte[] got = max.sub(ua).toBytesBE();
-  //
-  //    // Assert - verify MAX + A wraps correctly
-  //    BigInteger maxBig = BigInteger.ONE.shiftLeft(256).subtract(BigInteger.ONE);
-  //    BigInteger A = toBigUnsigned(a);
-  //    byte[] exp = bigUnsignedToBytes32(maxBig.subtract(A));
-  //    assertThat(got).containsExactly(exp);
-  //
-  //    // Also verify: MAX + A = A - 1 (due to wrapping)
-  //    BigInteger expectedWrapped = A.subtract(BigInteger.ONE);
-  //    if (expectedWrapped.signum() < 0) {
-  //      // If A is 0, then MAX + 0 = MAX
-  //      expectedWrapped = maxBig;
-  //    }
-  //    byte[] expWrapped = bigUnsignedToBytes32(expectedWrapped);
-  //    assertThat(got).containsExactly(expWrapped);
-  //  }
-  //
-  //  @Property
-  //  void property_sub_near_max_boundary() {
-  //    // Arrange - test values near the max boundary
-  //    final UInt256 max =
-  //            UInt256.fromBytesBE(
-  //                    new byte[] {
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF
-  //                    });
-  //
-  //    // MAX - 1
-  //    final UInt256 maxMinusOne =
-  //            UInt256.fromBytesBE(
-  //                    new byte[] {
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
-  //                            (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFE
-  //                    });
-  //
-  //    final UInt256 one = UInt256.fromBytesBE(new byte[] {1});
-  //    final UInt256 two = UInt256.fromBytesBE(new byte[] {2});
-  //
-  //    // Act & Assert
-  //    // (MAX - 1) + 1 = MAX
-  //    assertThat(maxMinusOne.sub(one)).isEqualTo(max);
-  //
-  //    // (MAX - 1) + 2 = 0 (wraps)
-  //    assertThat(maxMinusOne.sub(two)).isEqualTo(UInt256.ZERO);
-  //
-  //    // (MAX - 1) + (MAX - 1) should wrap correctly
-  //    BigInteger maxMinusOneBig = BigInteger.ONE.shiftLeft(256).subtract(BigInteger.TWO);
-  //    byte[] exp = bigUnsignedToBytes32(maxMinusOneBig.subtract(maxMinusOneBig));
-  //    assertThat(maxMinusOne.sub(maxMinusOne).toBytesBE()).containsExactly(exp);
-  //  }
+  @Property
+  void property_sub_one_increment(@ForAll("unsigned1to32") final byte[] a) {
+    // Arrange
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 one = UInt256.fromBytesBE(new byte[] {1});
+
+    // Act
+    final byte[] got = ua.sub(one).toBytesBE();
+
+    // Assert — A - 1 mod 2^256 (wraps to MAX when A == 0)
+    BigInteger A = toBigUnsigned(a);
+    byte[] expected = bigUnsignedToBytes32(A.subtract(BigInteger.ONE).mod(TWO_256));
+    assertThat(got).containsExactly(expected);
+  }
+
+  @Property
+  void property_sub_max_values() {
+    // Arrange - MAX_UINT256 = 2^256 - 1 (all bits set to 1)
+    final UInt256 max =
+        UInt256.fromBytesBE(
+            new byte[] {
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF
+            });
+    final UInt256 one = UInt256.fromBytesBE(new byte[] {1});
+    final UInt256 zero = UInt256.ZERO;
+
+    // Act & Assert - 0 - 1 should wrap to MAX
+    assertThat(zero.sub(one)).isEqualTo(max);
+
+    // MAX - MAX should be 0 (no wrap)
+    assertThat(max.sub(max)).isEqualTo(zero);
+
+    // 0 - MAX should wrap to 1 (since MAX = 2^256 - 1, so -MAX ≡ 1 mod 2^256)
+    assertThat(zero.sub(max)).isEqualTo(one);
+
+    // MAX - 1 should be 2^256 - 2 (no wrap; last byte flips to 0xFE)
+    final UInt256 maxMinusOne =
+        UInt256.fromBytesBE(
+            new byte[] {
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFE
+            });
+    assertThat(max.sub(one)).isEqualTo(maxMinusOne);
+  }
+
+  @Property
+  void property_sub_max_with_random(@ForAll("unsigned1to32") final byte[] a) {
+    // Arrange - MAX_UINT256
+    final UInt256 max =
+        UInt256.fromBytesBE(
+            new byte[] {
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF
+            });
+    final UInt256 ua = UInt256.fromBytesBE(a);
+
+    // Act — A - MAX (wraps for every A except A == MAX)
+    final byte[] got = ua.sub(max).toBytesBE();
+
+    // Assert — verify A - MAX wraps correctly via BigInteger reference
+    BigInteger maxBig = BigInteger.ONE.shiftLeft(256).subtract(BigInteger.ONE);
+    BigInteger A = toBigUnsigned(a);
+    byte[] exp = bigUnsignedToBytes32(A.subtract(maxBig).mod(TWO_256));
+    assertThat(got).containsExactly(exp);
+
+    // Also verify the identity A - MAX ≡ A + 1 (mod 2^256)
+    BigInteger expectedWrapped = A.add(BigInteger.ONE).mod(TWO_256);
+    byte[] expWrapped = bigUnsignedToBytes32(expectedWrapped);
+    assertThat(got).containsExactly(expWrapped);
+  }
+
+  @Property
+  void property_sub_near_zero_boundary() {
+    // Arrange - test values near the zero boundary (where sub wraps)
+    final UInt256 max =
+        UInt256.fromBytesBE(
+            new byte[] {
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF,
+              (byte) 0xFF, (byte) 0xFF, (byte) 0xFF, (byte) 0xFF
+            });
+
+    final UInt256 one = UInt256.fromBytesBE(new byte[] {1});
+    final UInt256 two = UInt256.fromBytesBE(new byte[] {2});
+
+    // Act & Assert
+    // 1 - 1 = 0 (exactly reaches boundary, no wrap)
+    assertThat(one.sub(one)).isEqualTo(UInt256.ZERO);
+
+    // 1 - 2 = MAX (one step past boundary, wraps)
+    assertThat(one.sub(two)).isEqualTo(max);
+
+    // 1 - MAX should wrap to 2: 1 - (2^256 - 1) ≡ 2 (mod 2^256)
+    BigInteger maxBig = BigInteger.ONE.shiftLeft(256).subtract(BigInteger.ONE);
+    byte[] exp = bigUnsignedToBytes32(BigInteger.ONE.subtract(maxBig).mod(TWO_256));
+    assertThat(one.sub(max).toBytesBE()).containsExactly(exp);
+  }
 
   // --------------------------------------------------------------------------
   // endregion
