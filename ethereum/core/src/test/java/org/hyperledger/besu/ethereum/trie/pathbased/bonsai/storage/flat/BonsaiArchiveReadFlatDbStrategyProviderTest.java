@@ -15,6 +15,11 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.CODE_STORAGE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
+import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbStrategyProvider.FLAT_DB_MODE;
 
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -44,14 +49,10 @@ public class BonsaiArchiveReadFlatDbStrategyProviderTest {
         new InMemoryKeyValueStorageProvider()
             .getStorageBySegmentIdentifiers(
                 List.of(
-                    org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier
-                        .TRIE_BRANCH_STORAGE,
-                    org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier
-                        .ACCOUNT_INFO_STATE,
-                    org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier
-                        .CODE_STORAGE,
-                    org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier
-                        .ACCOUNT_STORAGE_STORAGE));
+                    TRIE_BRANCH_STORAGE,
+                    ACCOUNT_INFO_STATE,
+                    CODE_STORAGE,
+                    ACCOUNT_STORAGE_STORAGE));
 
     final BonsaiArchiveReadFlatDbStrategyProvider provider =
         new BonsaiArchiveReadFlatDbStrategyProvider(new NoOpMetricsSystem(), CONFIG);
@@ -67,23 +68,14 @@ public class BonsaiArchiveReadFlatDbStrategyProviderTest {
         new InMemoryKeyValueStorageProvider()
             .getStorageBySegmentIdentifiers(
                 List.of(
-                    org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier
-                        .TRIE_BRANCH_STORAGE,
-                    org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier
-                        .ACCOUNT_INFO_STATE,
-                    org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier
-                        .CODE_STORAGE,
-                    org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier
-                        .ACCOUNT_STORAGE_STORAGE));
+                    TRIE_BRANCH_STORAGE,
+                    ACCOUNT_INFO_STATE,
+                    CODE_STORAGE,
+                    ACCOUNT_STORAGE_STORAGE));
 
     // Write FULL mode to the DB
     final var tx = storage.startTransaction();
-    tx.put(
-        org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier
-            .TRIE_BRANCH_STORAGE,
-        org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbStrategyProvider
-            .FLAT_DB_MODE,
-        FlatDbMode.FULL.getVersion().toArrayUnsafe());
+    tx.put(TRIE_BRANCH_STORAGE, FLAT_DB_MODE, FlatDbMode.FULL.getVersion().toArrayUnsafe());
     tx.commit();
 
     final BonsaiArchiveReadFlatDbStrategyProvider provider =
