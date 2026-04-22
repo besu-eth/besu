@@ -72,7 +72,6 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   private final Blockchain blockchain;
   private final ScheduledExecutorService executorService;
   private final BonsaiArchiveFlatDbStrategy archiveStrategy;
-  private final long boundaryDistance;
   private final AtomicBoolean shouldLogProgress = new AtomicBoolean(true);
   protected final AtomicLong migratedBlockNumber = new AtomicLong(0);
   protected final AtomicBoolean migrationRunning = new AtomicBoolean(false);
@@ -95,14 +94,12 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
       final Blockchain blockchain,
       final ScheduledExecutorService executorService,
       final MetricsSystem metricsSystem,
-      final BonsaiArchiveFlatDbStrategy archiveStrategy,
-      final long boundaryDistance) {
+      final BonsaiArchiveFlatDbStrategy archiveStrategy) {
     this.worldStateStorage = worldStateStorage;
     this.trieLogManager = trieLogManager;
     this.blockchain = blockchain;
     this.executorService = executorService;
     this.archiveStrategy = archiveStrategy;
-    this.boundaryDistance = boundaryDistance;
     metricsSystem.createLongGauge(
         BesuMetricCategory.BLOCKCHAIN,
         "bonsai_archive_migration_block",
@@ -238,7 +235,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   }
 
   private long archiveTarget(final long blockNumber) {
-    return Math.max(0, blockNumber - boundaryDistance);
+    return Math.max(0, blockNumber - trieLogManager.getMaxLayersToLoad());
   }
 
   public long getMigratedBlockNumber() {

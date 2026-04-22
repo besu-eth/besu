@@ -569,6 +569,7 @@ public class BonsaiFlatDbToArchiveMigratorTest {
 
   private BonsaiFlatDbToArchiveMigrator createMigrator(
       final MutableBlockchain blockchain, final long boundaryDistance) {
+    when(trieLogManager.getMaxLayersToLoad()).thenReturn(boundaryDistance);
     final NoOpMetricsSystem metricsSystem = new NoOpMetricsSystem();
     final BonsaiArchiveFlatDbStrategy archiveStrategy =
         new BonsaiArchiveFlatDbStrategy(metricsSystem, new CodeHashCodeStorageStrategy());
@@ -579,8 +580,7 @@ public class BonsaiFlatDbToArchiveMigratorTest {
             blockchain,
             Executors.newScheduledThreadPool(1),
             metricsSystem,
-            archiveStrategy,
-            boundaryDistance);
+            archiveStrategy);
     migrators.add(migrator);
     return migrator;
   }

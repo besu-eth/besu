@@ -1074,8 +1074,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         blockchain,
         migrationExecutor,
         metricsSystem,
-        archiveStrategy,
-        dataStorageConfiguration.getPathBasedExtraStorageConfiguration().getMaxLayersToLoad());
+        archiveStrategy);
   }
 
   /**
