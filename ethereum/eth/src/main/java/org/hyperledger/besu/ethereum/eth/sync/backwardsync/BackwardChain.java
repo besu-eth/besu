@@ -124,14 +124,7 @@ public class BackwardChain {
   }
 
   public synchronized void prependAncestorsHeader(final BlockHeader blockHeader) {
-    prependAncestorsHeader(blockHeader, false);
-  }
-
-  public synchronized void prependAncestorsHeader(
-      final BlockHeader blockHeader, final boolean alreadyStored) {
-    if (!alreadyStored) {
-      headers.put(blockHeader.getHash(), blockHeader);
-    }
+    headers.put(blockHeader.getHash(), blockHeader);
 
     if (firstStoredAncestor.isEmpty()) {
       updateLastStoredPivot(Optional.of(blockHeader));
@@ -166,23 +159,22 @@ public class BackwardChain {
 
     int firstIndex = 0;
     if (firstStoredAncestor.isEmpty()) {
-      updateLastStoredPivot(Optional.of(restoredHeaders.get(0)));
-      updateFirstStoredAncestor(Optional.of(restoredHeaders.get(0)));
+      updateLastStoredPivot(Optional.of(restoredHeaders.getFirst()));
+      updateFirstStoredAncestor(Optional.of(restoredHeaders.getFirst()));
       firstIndex = 1;
     }
 
     if (firstIndex < restoredHeaders.size()) {
       final Map<Hash, Hash> chainLinks = new LinkedHashMap<>(restoredHeaders.size() - firstIndex);
       Hash childHash = firstStoredAncestor.orElseThrow().getHash();
-      for (int i = firstIndex; i < restoredHeaders.size(); i++) {
-        final Hash parentHash = restoredHeaders.get(i).getHash();
-        chainLinks.put(parentHash, childHash);
-        childHash = parentHash;
+      for (final BlockHeader header : restoredHeaders.subList(firstIndex, restoredHeaders.size())) {
+        chainLinks.put(header.getHash(), childHash);
+        childHash = header.getHash();
       }
       chainStorage.putAll(chainLinks);
     }
 
-    final BlockHeader lowestRestored = restoredHeaders.get(restoredHeaders.size() - 1);
+    final BlockHeader lowestRestored = restoredHeaders.getLast();
     updateFirstStoredAncestor(Optional.of(lowestRestored));
     LOG.atDebug()
         .setMessage("Prepended batch of {} restored headers down to {}")
