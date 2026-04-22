@@ -76,7 +76,7 @@ public class TransactionBroadcaster
     this.transactionsMessageSender = transactionsMessageSender;
     this.newPooledTransactionHashesMessageSender = newPooledTransactionHashesMessageSender;
     this.ethContext = ethContext;
-    this.random = seed != null ? new Random(seed) : new Random();
+    this.random = seed != null ? new Random(seed) : null;
   }
 
   public void relayTransactionPoolTo(
@@ -112,7 +112,11 @@ public class TransactionBroadcaster
             .map(EthPeerImmutableAttributes::ethPeer)
             .collect(Collectors.toCollection(ArrayList::new));
 
-    Collections.shuffle(peers, random);
+    if (random != null) {
+      Collections.shuffle(peers, random);
+    } else {
+      Collections.shuffle(peers);
+    }
 
     final List<EthPeer> sendFullTransactionsPeers =
         peers.subList(0, numPeersToSendFullTransactions);
