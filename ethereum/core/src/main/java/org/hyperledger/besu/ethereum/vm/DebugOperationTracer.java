@@ -77,9 +77,6 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
 
   @Override
   public void tracePostExecution(final MessageFrame frame, final OperationResult operationResult) {
-    if (!traceOpcode) {
-      return;
-    }
     final Operation currentOperation = frame.getCurrentOperation();
     final String opcode = currentOperation.getName();
     final int opcodeNumber = (opcode != null) ? currentOperation.getOpcode() : Integer.MAX_VALUE;
@@ -101,6 +98,9 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
       final TraceFrame updatedLast =
           TraceFrame.from(lastTraceFrame).setGasRemainingPostExecution(gasRemaining).build();
       traceFrames.add(updatedLast);
+    }
+    if (!traceOpcode) {
+      return;
     }
 
     final Optional<Map<UInt256, UInt256>> storage =
