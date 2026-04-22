@@ -161,9 +161,9 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
         final SegmentedKeyValueStorageTransaction tx =
             worldStateStorage.getComposedWorldStateStorage().startLowPriorityTransaction();
         processBlock(maybeTrieLog.get(), blockNumber, tx);
-        migratedBlockNumber.incrementAndGet();
         saveProgress(blockNumber, tx);
         tx.commit();
+        migratedBlockNumber.set(blockNumber);
         logProgress(blockNumber, target.get());
       } else if (blockNumber > 0) {
         throw new IllegalStateException("No trie log found for block " + blockNumber);
@@ -223,6 +223,10 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
 
   private long archiveTarget(final long blockNumber) {
     return Math.max(0, blockNumber - boundaryDistance);
+  }
+
+  public long getMigratedBlockNumber() {
+    return migratedBlockNumber.get();
   }
 
   @Override

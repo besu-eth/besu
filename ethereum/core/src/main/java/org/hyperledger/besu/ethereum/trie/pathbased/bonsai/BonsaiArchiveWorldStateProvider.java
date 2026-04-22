@@ -33,6 +33,7 @@ import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.util.Optional;
+import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 import org.slf4j.Logger;
@@ -45,6 +46,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private final BonsaiWorldStateKeyValueStorage archiveReadStorage;
   private final CodeCache codeCache;
   private final WorldStateConfig archiveWorldStateConfig;
+  private volatile LongSupplier archiveMigrationProgressSupplier = () -> -1L;
 
   public BonsaiArchiveWorldStateProvider(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
@@ -106,11 +108,17 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
     }
   }
 
+  public void setArchiveMigrationProgressSupplier(final LongSupplier supplier) {
+    this.archiveMigrationProgressSupplier = supplier;
+  }
+
   private boolean isHistoricalQuery(final WorldStateQueryParams queryParams) {
+    final long queryBlock = queryParams.getBlockHeader().getNumber();
     return worldStateKeyValueStorage.getFlatDbMode().equals(FlatDbMode.ARCHIVE)
         && !queryParams.shouldWorldStateUpdateHead()
-        && blockchain.getChainHeadHeader().getNumber() - queryParams.getBlockHeader().getNumber()
-            >= trieLogManager.getMaxLayersToLoad();
+        && blockchain.getChainHeadHeader().getNumber() - queryBlock
+            >= trieLogManager.getMaxLayersToLoad()
+        && archiveMigrationProgressSupplier.getAsLong() >= queryBlock;
   }
 
   // Archive-specific rollback behaviour. There is no trie-log roll forward/backward, we just roll

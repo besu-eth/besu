@@ -913,6 +913,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
           || worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.PARTIAL)) {
         final BonsaiFlatDbToArchiveMigrator archiveMigrator =
             createArchiveMigrator(worldStateStorageCoordinator, worldStateArchive, blockchain);
+        ((BonsaiArchiveWorldStateProvider) worldStateArchive)
+            .setArchiveMigrationProgressSupplier(archiveMigrator::getMigratedBlockNumber);
         closeables.add(archiveMigrator);
 
         final AtomicBoolean migrationStarted = new AtomicBoolean(false);
@@ -940,6 +942,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         // Already in ARCHIVE mode (restart after migration): register ongoing migration
         final BonsaiFlatDbToArchiveMigrator archiveMigrator =
             createArchiveMigrator(worldStateStorageCoordinator, worldStateArchive, blockchain);
+        ((BonsaiArchiveWorldStateProvider) worldStateArchive)
+            .setArchiveMigrationProgressSupplier(archiveMigrator::getMigratedBlockNumber);
         archiveMigrator.startOngoingMigration();
         closeables.add(archiveMigrator);
         blockchain.observeBlockAdded(archiver);

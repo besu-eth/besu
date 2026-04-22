@@ -68,6 +68,45 @@ public class BonsaiArchiveWorldStateProviderTest {
         new BlockHeaderTestFixture().number(CHAIN_HEAD - MAX_LAYERS - 1).buildHeader();
     when(blockchain.getBlockHeader(historicalHeader.getHash()))
         .thenReturn(Optional.of(historicalHeader));
+    provider.setArchiveMigrationProgressSupplier(() -> CHAIN_HEAD);
+
+    final var result =
+        provider.getWorldState(
+            WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(historicalHeader));
+
+    assertThat(result).isPresent();
+    final BonsaiWorldState worldState = (BonsaiWorldState) result.get();
+    assertThat(worldState.getWorldStateStorage().getFlatDbStrategy())
+        .isInstanceOf(BonsaiArchiveFlatDbStrategy.class);
+  }
+
+  @Test
+  void historicalQuery_migratorBehindQueryBlock_fallsThroughToSuper() {
+    // Migrator has not yet processed the requested block.
+    // Provider should fall through to super.getWorldState(), which cannot serve blocks
+    // beyond maxLayersToLoad via trie-log rollback → empty result.
+    final long queryBlockNumber = CHAIN_HEAD - MAX_LAYERS - 1;
+    final BlockHeader historicalHeader =
+        new BlockHeaderTestFixture().number(queryBlockNumber).buildHeader();
+    when(blockchain.getBlockHeader(historicalHeader.getHash()))
+        .thenReturn(Optional.of(historicalHeader));
+    provider.setArchiveMigrationProgressSupplier(() -> queryBlockNumber - 1);
+
+    final var result =
+        provider.getWorldState(
+            WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(historicalHeader));
+
+    assertThat(result).isEmpty();
+  }
+
+  @Test
+  void historicalQuery_migratorAtQueryBlock_usesArchive() {
+    final long queryBlockNumber = CHAIN_HEAD - MAX_LAYERS - 1;
+    final BlockHeader historicalHeader =
+        new BlockHeaderTestFixture().number(queryBlockNumber).buildHeader();
+    when(blockchain.getBlockHeader(historicalHeader.getHash()))
+        .thenReturn(Optional.of(historicalHeader));
+    provider.setArchiveMigrationProgressSupplier(() -> queryBlockNumber);
 
     final var result =
         provider.getWorldState(
