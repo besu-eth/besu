@@ -202,7 +202,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   }
 
   private void catchUp(final long target) {
-    final long startBlock = getMigrationProgress().orElse(-1L) + 1;
+    final long startBlock = migratedBlockNumber.get() + 1;
     if (startBlock > target) {
       return;
     }
