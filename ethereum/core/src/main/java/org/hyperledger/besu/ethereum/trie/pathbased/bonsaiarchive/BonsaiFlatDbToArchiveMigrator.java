@@ -180,6 +180,10 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
     }
   }
 
+  /**
+   * Starts the ongoing migration of blocks to bonsai archive. This should only be called after the
+   * initial migration has been completed.
+   */
   public synchronized void startOngoingMigration() {
     if (closed) {
       LOG.debug("startOngoingMigration called after close; skipping");
@@ -238,6 +242,11 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
     return Math.max(0, blockNumber - trieLogManager.getMaxLayersToLoad());
   }
 
+  /**
+   * Returns the current migrated block.
+   *
+   * @return the highest block number that bonsai archive has migrated to
+   */
   public long getMigratedBlockNumber() {
     return migratedBlockNumber.get();
   }

@@ -98,6 +98,15 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
     return super.getWorldState(queryParams);
   }
 
+  /**
+   * Sets the supplier used by {@code isHistoricalQuery} to check the highest bonsai archive that
+   * has been migrated to bonsai archive.
+   *
+   * <p>Until this is called, the default supplier returns {@code -1}, which denies all
+   * archive-backed historical queries and falls back to trie-log rollback via {@code super}.
+   *
+   * @param supplier returns the highest block number available in Bonsai archive storage
+   */
   public void setArchiveMigrationProgressSupplier(final LongSupplier supplier) {
     this.archiveMigrationProgressSupplier = supplier;
   }
