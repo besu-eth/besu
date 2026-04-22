@@ -23,6 +23,7 @@ import java.nio.ByteOrder;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Static utility for reading/writing typed values on the flat {@code long[]} V2 operand stack. Each
@@ -90,8 +91,8 @@ final class StackUtil {
 
   /**
    * Writes a 160-bit {@link Address} as a right-aligned 256-bit word at the given stack slot. The
-   * upper 96 bits are zero-padded so the address occupies the low 20 bytes of the word, matching
-   * the layout expected by {@link #readAddressAt(long[], int, int)}.
+   * upper 96 bits are zero-padded so the address occupies the low 160-bit of the word, matching the
+   * layout expected by {@link #readAddressAt(long[], int, int)}.
    *
    * @param address the address to write
    * @param stack the flat limb array
@@ -114,7 +115,7 @@ final class StackUtil {
    * @param stack the flat limb array
    * @param top the slot index to write to
    */
-  static void pushBytes32(final Bytes32 value, final long[] stack, final int top) {
+  static void pushBytes32(final @Nullable Bytes32 value, final long[] stack, final int top) {
     final int offset = top << 2;
     if (value == null) {
       stack[offset] = 0L;
