@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsaiarchive;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy.calculateArchiveKeyWithMinSuffix;
@@ -60,6 +61,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -454,6 +456,46 @@ public class BonsaiFlatDbToArchiveMigratorTest {
 
     // head=5, boundaryDistance=2 → canonical target = 3; block 3 must still be migrated.
     assertThat(getArchivedAccountKey(3L)).isPresent();
+  }
+
+  @Test
+  public void closeDuringMigrationInterruptsAndSkipsTerminalUpgrade() throws Exception {
+    // Regression: close() during a running migration must (a) interrupt the in-flight task,
+    // (b) leave the future completing exceptionally, (c) skip the terminal DB upgrade, and
+    // (d) clean up observer + migrationRunning state. Paired with the inline-runAsync
+    // refactor, this ensures the terminal callback runs on executorService and is covered
+    // by close()'s shutdownNow + awaitTermination rather than racing on the FJ common pool.
+    appendBlocks(3);
+
+    final CountDownLatch migrationStarted = new CountDownLatch(1);
+    final CountDownLatch proceedWithMigration = new CountDownLatch(1);
+    when(trieLogManager.getTrieLogLayer(any()))
+        .thenAnswer(
+            inv -> {
+              migrationStarted.countDown();
+              try {
+                proceedWithMigration.await(30, TimeUnit.SECONDS);
+              } catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException("migration interrupted", e);
+              }
+              return Optional.of(createAccountTrieLog(Wei.ONE));
+            });
+
+    final BonsaiFlatDbToArchiveMigrator migrator = createMigrator(/*boundaryDistance*/ 0);
+    final CompletableFuture<Void> future = migrator.migrate();
+
+    assertThat(migrationStarted.await(5, TimeUnit.SECONDS)).isTrue();
+    assertThat(migrator.blockObserverId).isPresent();
+
+    migrator.close();
+
+    assertThatThrownBy(() -> future.get(5, TimeUnit.SECONDS))
+        .isInstanceOf(ExecutionException.class);
+    assertThat(migrator.blockObserverId).isEmpty();
+    assertThat(migrator.migrationRunning.get()).isFalse();
+    // Terminal DB upgrade must not run when close() interrupts mid-migration.
+    verify(worldStateStorage, never()).upgradeToArchiveFlatDbMode();
   }
 
   @Test

@@ -135,29 +135,29 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
                 }));
 
     LOG.info("Starting Bonsai Archive migration from block {}", startBlock);
-    return CompletableFuture.runAsync(() -> migrateBlocks(startBlock, target), executorService)
-        .whenComplete(
-            (result, ex) -> {
-              if (ex != null) {
-                blockObserverId.ifPresent(blockchain::removeObserver);
-                blockObserverId = OptionalLong.empty();
-                migrationRunning.set(false);
-                LOG.error("Bonsai to Bonsai archive migration failed", ex);
-              }
-            })
-        .thenRun(
-            () -> {
-              worldStateStorage.upgradeToArchiveFlatDbMode();
-              logCompletion(startBlock, target.get(), migrationStartTime);
-              migrationRunning.set(false);
-              // Hand off observers without a gap: register the ongoing observer first, then
-              // remove the bulk observer. A block arriving mid-handoff still reaches the ongoing
-              // observer; removing the bulk one first would drop any event landing in between.
-              final OptionalLong bulkObserverId = blockObserverId;
-              blockObserverId = OptionalLong.empty();
-              startOngoingMigration();
-              bulkObserverId.ifPresent(blockchain::removeObserver);
-            });
+    return CompletableFuture.runAsync(
+        () -> {
+          try {
+            migrateBlocks(startBlock, target);
+            worldStateStorage.upgradeToArchiveFlatDbMode();
+            logCompletion(startBlock, target.get(), migrationStartTime);
+            // Hand off observers without a gap: register the ongoing observer first, then
+            // remove the bulk observer. A block arriving mid-handoff still reaches the ongoing
+            // observer; removing the bulk one first would drop any event landing in between.
+            final OptionalLong bulkObserverId = blockObserverId;
+            blockObserverId = OptionalLong.empty();
+            startOngoingMigration();
+            bulkObserverId.ifPresent(blockchain::removeObserver);
+          } catch (final RuntimeException ex) {
+            blockObserverId.ifPresent(blockchain::removeObserver);
+            blockObserverId = OptionalLong.empty();
+            LOG.error("Bonsai to Bonsai archive migration failed", ex);
+            throw ex;
+          } finally {
+            migrationRunning.set(false);
+          }
+        },
+        executorService);
   }
 
   private void migrateBlocks(final long startBlock, final AtomicLong target) {

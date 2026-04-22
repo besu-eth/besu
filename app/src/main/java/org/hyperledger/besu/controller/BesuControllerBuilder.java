@@ -915,7 +915,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             createArchiveMigrator(worldStateStorageCoordinator, worldStateArchive, blockchain);
         ((BonsaiArchiveWorldStateProvider) worldStateArchive)
             .setArchiveMigrationProgressSupplier(archiveMigrator::getMigratedBlockNumber);
-        closeables.add(archiveMigrator);
+        // Close the migrator before storageProvider so callback finishes before RocksDB is closed
+        closeables.addFirst(archiveMigrator);
 
         final AtomicBoolean migrationStarted = new AtomicBoolean(false);
         final AtomicLong syncSubscriptionId = new AtomicLong();
@@ -945,7 +946,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         ((BonsaiArchiveWorldStateProvider) worldStateArchive)
             .setArchiveMigrationProgressSupplier(archiveMigrator::getMigratedBlockNumber);
         archiveMigrator.startOngoingMigration();
-        closeables.add(archiveMigrator);
+        // Close the migrator before storageProvider so callback finishes before RocksDB is closed
+        closeables.addFirst(archiveMigrator);
         blockchain.observeBlockAdded(archiver);
       }
     }
