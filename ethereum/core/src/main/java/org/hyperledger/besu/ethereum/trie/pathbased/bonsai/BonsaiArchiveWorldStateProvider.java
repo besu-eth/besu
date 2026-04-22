@@ -102,9 +102,11 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   public void close() {
     super.close();
     try {
+      // archiveReadStorage shares composedWorldStateStorage and trieLogStorage
+      // with the main storage; close() is idempotent via isClosed.
       archiveReadStorage.close();
     } catch (Exception e) {
-      // no-op, consistent with parent
+      LOG.debug("error closing archiveReadStorage", e);
     }
   }
 
