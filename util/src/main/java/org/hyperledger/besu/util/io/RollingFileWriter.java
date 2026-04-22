@@ -16,10 +16,10 @@ package org.hyperledger.besu.util.io;
 
 import java.io.Closeable;
 import java.io.DataOutputStream;
-import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.function.BiFunction;
 
@@ -51,10 +51,16 @@ public class RollingFileWriter implements Closeable {
     currentSize = 0;
     fileNumber = 0;
     final Path firstOutputFile = filenameGenerator.apply(fileNumber, compressed);
-    final File parentDir = firstOutputFile.getParent().toFile();
-    if (!parentDir.exists()) {
-      //noinspection ResultOfMethodCallIgnored
-      parentDir.mkdirs();
+    final Path parentPath = firstOutputFile.getParent();
+    if (parentPath != null) {
+      try {
+        Files.createDirectories(parentPath);
+      } catch (final IOException e) {
+        final FileNotFoundException fnfe =
+            new FileNotFoundException("Unable to create directory for rolling file: " + parentPath);
+        fnfe.initCause(e);
+        throw fnfe;
+      }
     }
     out = new FileOutputStream(firstOutputFile.toFile());
 

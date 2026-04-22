@@ -287,7 +287,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
               blockHashLookup,
               blobGasPrice,
               blockAccessListBuilder,
-              blockAccessList);
+              blockAccessList,
+              maybeParentHeader);
 
       boolean parallelizedTxFound = false;
       int nbParallelTx = 0;
@@ -325,9 +326,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                 blockHashLookup,
                 transactionLocationTracker);
 
-        applyPartialBlockAccessView(
-            transactionProcessingResult.getPartialBlockAccessView(), blockAccessListBuilder);
-
         if (transactionProcessingResult.isInvalid()) {
           String errorMessage =
               MessageFormat.format(
@@ -340,6 +338,26 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             ((BonsaiWorldStateUpdateAccumulator) blockUpdater).reset();
           }
           return new BlockProcessingResult(Optional.empty(), errorMessage);
+        }
+
+        applyPartialBlockAccessView(
+            transactionProcessingResult.getPartialBlockAccessView(), blockAccessListBuilder);
+
+        if (blockAccessListBuilder.isPresent()) {
+          final BlockAccessListItemSizeCheck itemSizeCheck =
+              protocolSpec
+                  .getBlockAccessListValidator()
+                  .validateExecutedBlockAccessListItemSize(
+                      blockAccessListBuilder.get().eip7928ItemCount(), blockHeader, protocolSpec);
+          if (itemSizeCheck.isOverBudget()) {
+            final String errorMessage =
+                itemSizeCheck.overBudgetError().orElseThrow().errorMessage();
+            LOG.error(errorMessage);
+            if (worldState instanceof BonsaiWorldState) {
+              ((BonsaiWorldStateUpdateAccumulator) blockUpdater).reset();
+            }
+            return new BlockProcessingResult(Optional.empty(), errorMessage);
+          }
         }
 
         if (transactionUpdater instanceof StackedUpdater<?, ?>) {
@@ -492,34 +510,23 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       try {
         if (blockAccessListBuilder.isPresent()) {
           final BlockAccessList bal = blockAccessListBuilder.get().build();
-          final Optional<Hash> headerBalHash = block.getHeader().getBalHash();
-          if (headerBalHash.isPresent()) {
-            final Hash expectedHash = BodyValidation.balHash(bal);
-            if (!headerBalHash.get().equals(expectedHash)) {
-              final String errorMessage =
-                  String.format(
-                      "Block access list hash mismatch, calculated: %s header: %s",
-                      expectedHash.getBytes().toHexString(),
-                      headerBalHash.get().getBytes().toHexString());
-              LOG.error(errorMessage);
-
-              if (balConfiguration.shouldLogBalsOnMismatch()) {
-                final String constructedBalStr = bal.toString();
-                final String blockBalStr =
-                    blockAccessList.map(Object::toString).orElse("<no BAL present for block>");
-                LOG.error(
-                    "--- BAL constructed during execution ---\n{}\n"
-                        + "--- BAL supplied for block ---\n{}",
-                    constructedBalStr,
-                    blockBalStr);
-              }
-
-              if (worldState instanceof BonsaiWorldState) {
-                ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-              }
-              return new BlockProcessingResult(
-                  Optional.empty(), errorMessage, false, Optional.of(bal));
+          final Optional<BlockAccessListValidationError> constructedBalError =
+              protocolSpec
+                  .getBlockAccessListValidator()
+                  .validateExecutedBlockAccessListAfterBuild(
+                      bal,
+                      blockHeader,
+                      blockAccessList,
+                      balConfiguration.shouldLogBalsOnMismatch());
+          if (constructedBalError.isPresent()) {
+            if (worldState instanceof BonsaiWorldState) {
+              ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
             }
+            return new BlockProcessingResult(
+                Optional.empty(),
+                constructedBalError.get().errorMessage(),
+                false,
+                Optional.of(bal));
           }
           maybeBlockAccessList = Optional.of(bal);
           blockProcessingMetrics.recordBlockAccessListMetrics(bal);
@@ -527,7 +534,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           maybeBlockAccessList = Optional.empty();
         }
       } catch (Exception e) {
-        LOG.error("Error validating BAL hash", e);
+        LOG.error("Error validating block access list", e);
         if (worldState instanceof BonsaiWorldState) {
           ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
         }
@@ -666,7 +673,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         final BlockHashLookup blockHashLookup,
         final Wei blobGasPrice,
         final Optional<BlockAccessListBuilder> blockAccessListBuilder,
-        final Optional<BlockAccessList> maybeBlockBal);
+        final Optional<BlockAccessList> maybeBlockBal,
+        final Optional<BlockHeader> maybeParentHeader);
 
     class NoPreprocessing implements PreprocessingFunction {
 
@@ -679,7 +687,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           final BlockHashLookup blockHashLookup,
           final Wei blobGasPrice,
           final Optional<BlockAccessListBuilder> blockAccessListBuilder,
-          final Optional<BlockAccessList> maybeBlockBal) {
+          final Optional<BlockAccessList> maybeBlockBal,
+          final Optional<BlockHeader> maybeParentHeader) {
         return Optional.empty();
       }
     }
