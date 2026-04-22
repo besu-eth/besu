@@ -15,13 +15,28 @@
 package org.hyperledger.besu.evm.gascalculator;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.when;
+
+import org.hyperledger.besu.datatypes.AccessListEntry;
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Transaction;
+
+import java.util.List;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
+@ExtendWith(MockitoExtension.class)
 class AmsterdamGasCalculatorTest {
 
   private final AmsterdamGasCalculator amsterdamGasCalculator = new AmsterdamGasCalculator();
+
+  @Mock private Transaction transaction;
 
   @Test
   void transactionFloorCostShouldBeAtLeastTransactionBaseCost() {
@@ -38,5 +53,39 @@ class AmsterdamGasCalculatorTest {
             amsterdamGasCalculator.transactionFloorCost(
                 Bytes.fromHexString("0x0001000100010001000101"), 5))
         .isEqualTo(21704L);
+  }
+
+  @Test
+  void accessListGasCostIncludesDataFloor() {
+    // EIP-2930: 2400/address + 1900/key; EIP-7981: +1280/address + 2048/key
+    // One address + zero keys  = 2400 + 1280 = 3680
+    assertThat(amsterdamGasCalculator.accessListGasCost(1, 0)).isEqualTo(3680L);
+    // One address + one key    = 3680 + 1900 + 2048 = 7628
+    assertThat(amsterdamGasCalculator.accessListGasCost(1, 1)).isEqualTo(7628L);
+    // Three addresses + five keys = 3*3680 + 5*(1900+2048) = 11040 + 19740 = 30780
+    assertThat(amsterdamGasCalculator.accessListGasCost(3, 5)).isEqualTo(30780L);
+  }
+
+  @Test
+  void transactionFloorCostWithoutAccessListMatchesCalldataOnlyFloor() {
+    when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x1, 256));
+    when(transaction.getAccessList()).thenReturn(Optional.empty());
+
+    // 21000 + 256 * 64 = 37384
+    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(37384L);
+  }
+
+  @Test
+  void transactionFloorCostIncludesAccessListBytes() {
+    // 10 calldata bytes + 1 address (20 bytes) + 2 keys (2*32 = 64 bytes) = 94 bytes
+    // 21000 + 94 * 64 = 21000 + 6016 = 27016
+    final AccessListEntry entry =
+        new AccessListEntry(
+            Address.fromHexString("0x00000000000000000000000000000000000000aa"),
+            List.of(Bytes32.ZERO, Bytes32.ZERO));
+    when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x1, 10));
+    when(transaction.getAccessList()).thenReturn(Optional.of(List.of(entry)));
+
+    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(27016L);
   }
 }
