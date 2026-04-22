@@ -53,8 +53,8 @@ public class PayloadIdentifierTest {
             Bytes32.random(),
             Address.fromHexString("0x42"),
             Optional.empty(),
+            Optional.empty(),
             Optional.empty());
-    assertThat(new PayloadIdentifier(idTest.getAsBigInteger().longValue())).isEqualTo(idTest);
     assertThat(new PayloadIdentifier(idTest.getAsBigInteger().longValue())).isEqualTo(idTest);
   }
 
@@ -92,6 +92,7 @@ public class PayloadIdentifierTest {
             prevRandao,
             Address.fromHexString("0x42"),
             Optional.of(withdrawals1),
+            Optional.empty(),
             Optional.empty());
     var idForWithdrawals2 =
         PayloadIdentifier.forPayloadParams(
@@ -100,6 +101,7 @@ public class PayloadIdentifierTest {
             prevRandao,
             Address.fromHexString("0x42"),
             Optional.of(withdrawals2),
+            Optional.empty(),
             Optional.empty());
     assertThat(idForWithdrawals1).isNotEqualTo(idForWithdrawals2);
   }
@@ -138,6 +140,7 @@ public class PayloadIdentifierTest {
             prevRandao,
             Address.fromHexString("0x42"),
             Optional.of(withdrawals1),
+            Optional.empty(),
             Optional.empty());
     var idForWithdrawals2 =
         PayloadIdentifier.forPayloadParams(
@@ -146,6 +149,7 @@ public class PayloadIdentifierTest {
             prevRandao,
             Address.fromHexString("0x42"),
             Optional.of(withdrawals2),
+            Optional.empty(),
             Optional.empty());
     assertThat(idForWithdrawals1).isEqualTo(idForWithdrawals2);
   }
@@ -160,6 +164,7 @@ public class PayloadIdentifierTest {
             prevRandao,
             Address.fromHexString("0x42"),
             Optional.empty(),
+            Optional.empty(),
             Optional.empty());
     var idForWithdrawals2 =
         PayloadIdentifier.forPayloadParams(
@@ -168,6 +173,7 @@ public class PayloadIdentifierTest {
             prevRandao,
             Address.fromHexString("0x42"),
             Optional.of(emptyList()),
+            Optional.empty(),
             Optional.empty());
     assertThat(idForWithdrawals1).isNotEqualTo(idForWithdrawals2);
   }
@@ -182,6 +188,7 @@ public class PayloadIdentifierTest {
             prevRandao,
             Address.fromHexString("0x42"),
             Optional.empty(),
+            Optional.empty(),
             Optional.empty());
     var idForWithdrawals2 =
         PayloadIdentifier.forPayloadParams(
@@ -190,7 +197,8 @@ public class PayloadIdentifierTest {
             prevRandao,
             Address.fromHexString("0x42"),
             Optional.empty(),
-            Optional.of(Bytes32.ZERO));
+            Optional.of(Bytes32.ZERO),
+            Optional.empty());
     assertThat(idForWithdrawals1).isNotEqualTo(idForWithdrawals2);
   }
 
@@ -204,7 +212,8 @@ public class PayloadIdentifierTest {
             prevRandao,
             Address.fromHexString("0x42"),
             Optional.empty(),
-            Optional.of(Bytes32.fromHexStringLenient("0x1")));
+            Optional.of(Bytes32.fromHexStringLenient("0x1")),
+            Optional.empty());
     var idForWithdrawals2 =
         PayloadIdentifier.forPayloadParams(
             Hash.ZERO,
@@ -212,7 +221,32 @@ public class PayloadIdentifierTest {
             prevRandao,
             Address.fromHexString("0x42"),
             Optional.empty(),
-            Optional.of(Bytes32.ZERO));
+            Optional.of(Bytes32.ZERO),
+            Optional.empty());
+    assertThat(idForWithdrawals1).isNotEqualTo(idForWithdrawals2);
+  }
+
+  @Test
+  public void differentSlotNumberYieldDifferentHash() {
+    final Bytes32 prevRandao = Bytes32.random();
+    var idForWithdrawals1 =
+        PayloadIdentifier.forPayloadParams(
+            Hash.ZERO,
+            1337L,
+            prevRandao,
+            Address.fromHexString("0x42"),
+            Optional.empty(),
+            Optional.of(Bytes32.fromHexStringLenient("0x1")),
+            Optional.of(100L));
+    var idForWithdrawals2 =
+        PayloadIdentifier.forPayloadParams(
+            Hash.ZERO,
+            1337L,
+            prevRandao,
+            Address.fromHexString("0x42"),
+            Optional.empty(),
+            Optional.of(Bytes32.fromHexStringLenient("0x1")),
+            Optional.of(101L));
     assertThat(idForWithdrawals1).isNotEqualTo(idForWithdrawals2);
   }
 }
