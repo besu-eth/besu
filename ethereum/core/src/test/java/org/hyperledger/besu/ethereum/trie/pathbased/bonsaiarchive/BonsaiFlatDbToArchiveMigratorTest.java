@@ -20,7 +20,9 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy.calculateArchiveKeyWithMinSuffix;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy.calculateNaturalSlotKey;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
@@ -31,6 +33,8 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
+import org.hyperledger.besu.ethereum.chain.BlockAddedObserver;
 import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -58,6 +62,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.tuweni.units.bigints.UInt256;
 import org.awaitility.Awaitility;
@@ -65,6 +70,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -368,6 +374,89 @@ public class BonsaiFlatDbToArchiveMigratorTest {
   }
 
   @Test
+  public void migrateHandsOffObserversWithoutGap() throws Exception {
+    // Behavioral regression: a canonical block arriving at the handoff between the bulk and
+    // ongoing observers must reach at least one of them. We simulate this by injecting a new
+    // canonical head from inside the spy's `removeObserver` call — the exact point where the
+    // bulk observer is being torn down. In the fixed code the ongoing observer is already
+    // registered at this moment, so the event triggers catch-up and the post-migration block
+    // gets archived. In the buggy code (remove-in-whenComplete, register-in-thenRun) no observer
+    // is live at this instant and the event is dropped, so the post-migration block stays
+    // un-archived until the *next* block arrives — which it never does in this test.
+    appendBlocks(3);
+    final MutableBlockchain spyBlockchain = spy(blockchain);
+    final BonsaiFlatDbToArchiveMigrator migrator =
+        createMigrator(spyBlockchain, /*boundaryDistance*/ 1);
+
+    final AtomicBoolean injected = new AtomicBoolean(false);
+    doAnswer(
+            invocation -> {
+              final Object result = invocation.callRealMethod();
+              if (injected.compareAndSet(false, true)) {
+                // Now the old observer has just been removed. Fire a canonical head event.
+                appendBlocks(1);
+              }
+              return result;
+            })
+        .when(spyBlockchain)
+        .removeObserver(anyLong());
+
+    migrator.migrate().get(10, TimeUnit.SECONDS);
+
+    // head after the injected block = 4; boundaryDistance=1 → archiveTarget = 3.
+    // Block 3 must be migrated via catch-up triggered by the injected block 4 event.
+    Awaitility.await()
+        .atMost(5, TimeUnit.SECONDS)
+        .untilAsserted(() -> assertThat(getArchivedAccountKey(3L)).isPresent());
+  }
+
+  @Test
+  public void migrateObserverIgnoresForkEvents() throws Exception {
+    // Regression: the bulk-migration observer must not regress `target` when a non-canonical
+    // (FORK / STORED_ONLY) event is delivered, and must only respond to canonical heads.
+    // Previously `target.set(archiveTarget(event.number))` would collapse target to 0 on a low
+    // fork event, aborting bulk migration before reaching the canonical archive target.
+    appendBlocks(5); // canonical head = 5
+    final MutableBlockchain spyBlockchain = spy(blockchain);
+
+    // Gate trie-log lookups so migrateBlocks pauses mid-flight while we inject the fork event.
+    final CountDownLatch migrationStarted = new CountDownLatch(1);
+    final CountDownLatch proceedWithMigration = new CountDownLatch(1);
+    when(trieLogManager.getTrieLogLayer(any()))
+        .thenAnswer(
+            inv -> {
+              migrationStarted.countDown();
+              proceedWithMigration.await(5, TimeUnit.SECONDS);
+              return Optional.of(createAccountTrieLog(Wei.ONE));
+            });
+
+    final BonsaiFlatDbToArchiveMigrator migrator =
+        createMigrator(spyBlockchain, /*boundaryDistance*/ 2);
+    final CompletableFuture<Void> future = migrator.migrate();
+
+    // migrate() registers its observer synchronously before returning; capture it.
+    final ArgumentCaptor<BlockAddedObserver> captor =
+        ArgumentCaptor.forClass(BlockAddedObserver.class);
+    verify(spyBlockchain, atLeastOnce()).observeBlockAdded(captor.capture());
+    final BlockAddedObserver migrateObserver = captor.getAllValues().get(0);
+
+    // Wait until migrateBlocks is actually running so the fork event is raced into its loop.
+    assertThat(migrationStarted.await(5, TimeUnit.SECONDS)).isTrue();
+
+    // Fire a FORK event at block height 1. archiveTarget(1) = max(0, 1-2) = 0;
+    // under the old `target.set(...)` this would collapse target and stop migration after block 1.
+    final Block forkBlock =
+        blockDataGenerator.block(BlockDataGenerator.BlockOptions.create().setBlockNumber(1L));
+    migrateObserver.onBlockAdded(BlockAddedEvent.createForFork(forkBlock));
+
+    proceedWithMigration.countDown();
+    future.get(10, TimeUnit.SECONDS);
+
+    // head=5, boundaryDistance=2 → canonical target = 3; block 3 must still be migrated.
+    assertThat(getArchivedAccountKey(3L)).isPresent();
+  }
+
+  @Test
   public void blockObserverPersistsAndMigratesBlockAtBoundary() throws Exception {
     // head=3, boundaryDistance=3 → initial target=0, nothing migrated initially
     appendBlocks(3);
@@ -475,6 +564,11 @@ public class BonsaiFlatDbToArchiveMigratorTest {
   }
 
   private BonsaiFlatDbToArchiveMigrator createMigrator(final long boundaryDistance) {
+    return createMigrator(this.blockchain, boundaryDistance);
+  }
+
+  private BonsaiFlatDbToArchiveMigrator createMigrator(
+      final MutableBlockchain blockchain, final long boundaryDistance) {
     final NoOpMetricsSystem metricsSystem = new NoOpMetricsSystem();
     final BonsaiArchiveFlatDbStrategy archiveStrategy =
         new BonsaiArchiveFlatDbStrategy(metricsSystem, new CodeHashCodeStorageStrategy());

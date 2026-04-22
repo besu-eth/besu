@@ -130,15 +130,20 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
     blockObserverId =
         OptionalLong.of(
             blockchain.observeBlockAdded(
-                event -> target.set(archiveTarget(event.getHeader().getNumber()))));
+                event -> {
+                  if (event.isNewCanonicalHead()) {
+                    final long newTarget = archiveTarget(event.getHeader().getNumber());
+                    target.updateAndGet(current -> Math.max(current, newTarget));
+                  }
+                }));
 
     LOG.info("Starting Bonsai Archive migration from block {}", startBlock);
     return CompletableFuture.runAsync(() -> migrateBlocks(startBlock, target), executorService)
         .whenComplete(
             (result, ex) -> {
-              blockObserverId.ifPresent(blockchain::removeObserver);
-              blockObserverId = OptionalLong.empty();
               if (ex != null) {
+                blockObserverId.ifPresent(blockchain::removeObserver);
+                blockObserverId = OptionalLong.empty();
                 migrationRunning.set(false);
                 LOG.error("Bonsai to Bonsai archive migration failed", ex);
               }
@@ -148,7 +153,13 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
               worldStateStorage.upgradeToArchiveFlatDbMode();
               logCompletion(startBlock, target.get(), migrationStartTime);
               migrationRunning.set(false);
+              // Hand off observers without a gap: register the ongoing observer first, then
+              // remove the bulk observer. A block arriving mid-handoff still reaches the ongoing
+              // observer; removing the bulk one first would drop any event landing in between.
+              final OptionalLong bulkObserverId = blockObserverId;
+              blockObserverId = OptionalLong.empty();
               startOngoingMigration();
+              bulkObserverId.ifPresent(blockchain::removeObserver);
             });
   }
 

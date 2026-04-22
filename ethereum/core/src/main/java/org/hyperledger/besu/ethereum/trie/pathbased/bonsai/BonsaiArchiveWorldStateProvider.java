@@ -98,18 +98,6 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
     return super.getWorldState(queryParams);
   }
 
-  @Override
-  public void close() {
-    super.close();
-    try {
-      // archiveReadStorage shares composedWorldStateStorage and trieLogStorage
-      // with the main storage; close() is idempotent via isClosed.
-      archiveReadStorage.close();
-    } catch (Exception e) {
-      LOG.debug("error closing archiveReadStorage", e);
-    }
-  }
-
   public void setArchiveMigrationProgressSupplier(final LongSupplier supplier) {
     this.archiveMigrationProgressSupplier = supplier;
   }
