@@ -62,6 +62,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
 
   private static final Logger LOG = LoggerFactory.getLogger(BonsaiFlatDbToArchiveMigrator.class);
   private static final int LOG_INTERVAL_SECONDS = 60;
+  private static final long CATCHUP_LOG_THRESHOLD = 32;
 
   private static final byte[] MIGRATION_PROGRESS_KEY =
       "ARCHIVE_MIGRATION_PROGRESS".getBytes(StandardCharsets.UTF_8);
@@ -197,8 +198,26 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
 
   private void catchUp(final long target) {
     final long startBlock = getMigrationProgress().orElse(-1L) + 1;
-    if (startBlock <= target) {
-      migrateBlocks(startBlock, new AtomicLong(target));
+    if (startBlock > target) {
+      return;
+    }
+    final long blocksToMigrate = target - startBlock + 1;
+    final boolean shouldLog = blocksToMigrate >= CATCHUP_LOG_THRESHOLD;
+    final Instant catchUpStart = shouldLog ? Instant.now() : null;
+    if (shouldLog) {
+      LOG.info(
+          "Bonsai archive catch-up starting: {} blocks from {} to {}",
+          blocksToMigrate,
+          startBlock,
+          target);
+    }
+    migrateBlocks(startBlock, new AtomicLong(target));
+    if (shouldLog) {
+      final Duration duration = Duration.between(catchUpStart, Instant.now());
+      LOG.info(
+          "Bonsai archive catch-up complete: {} blocks in {}",
+          blocksToMigrate,
+          DurationFormatUtils.formatDurationWords(duration.toMillis(), true, true));
     }
   }
 
