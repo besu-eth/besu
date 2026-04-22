@@ -28,7 +28,7 @@ public class BlockProcessingResult extends BlockValidationResult {
   private final boolean isPartial;
   private Optional<Integer> nbParallelizedTransactions = Optional.empty();
   private final Optional<BlockAccessList> maybeGeneratedBlockAccessList;
-  private boolean worldStateUnavailable = false;
+  private final boolean worldStateUnavailable;
 
   /** A result indicating that processing failed. */
   public static final BlockProcessingResult FAILED = new BlockProcessingResult("processing failed");
@@ -42,9 +42,15 @@ public class BlockProcessingResult extends BlockValidationResult {
    * @return a result with {@link #isWorldStateUnavailable()} returning {@code true}
    */
   public static BlockProcessingResult worldStateUnavailable(final String errorMessage) {
-    final BlockProcessingResult result = new BlockProcessingResult(errorMessage);
-    result.worldStateUnavailable = true;
-    return result;
+    return new BlockProcessingResult(errorMessage, true);
+  }
+
+  private BlockProcessingResult(final String errorMessage, final boolean worldStateUnavailable) {
+    super(errorMessage);
+    this.isPartial = false;
+    this.yield = Optional.empty();
+    this.maybeGeneratedBlockAccessList = Optional.empty();
+    this.worldStateUnavailable = worldStateUnavailable;
   }
 
   /**
@@ -81,6 +87,7 @@ public class BlockProcessingResult extends BlockValidationResult {
     this.yield = yield;
     this.isPartial = isPartial;
     this.maybeGeneratedBlockAccessList = Optional.empty();
+    this.worldStateUnavailable = false;
   }
 
   /**
@@ -106,6 +113,7 @@ public class BlockProcessingResult extends BlockValidationResult {
     this.yield = yield;
     this.isPartial = false;
     this.maybeGeneratedBlockAccessList = Optional.empty();
+    this.worldStateUnavailable = false;
   }
 
   /**
@@ -139,6 +147,7 @@ public class BlockProcessingResult extends BlockValidationResult {
     this.yield = yield;
     this.isPartial = isPartial;
     this.maybeGeneratedBlockAccessList = generatedBlockAccessList;
+    this.worldStateUnavailable = false;
   }
 
   /**
@@ -151,6 +160,7 @@ public class BlockProcessingResult extends BlockValidationResult {
     this.isPartial = false;
     this.yield = Optional.empty();
     this.maybeGeneratedBlockAccessList = Optional.empty();
+    this.worldStateUnavailable = false;
   }
 
   /**
