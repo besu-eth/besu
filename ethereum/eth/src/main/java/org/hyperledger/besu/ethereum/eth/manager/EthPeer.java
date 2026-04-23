@@ -41,7 +41,9 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.Di
 import org.hyperledger.besu.plugin.services.permissioning.NodeMessagePermissioningProvider;
 
 import java.time.Clock;
+import java.util.ArrayDeque;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -92,6 +94,9 @@ public class EthPeer implements Comparable<EthPeer> {
   private final AtomicInteger lastProtocolVersion = new AtomicInteger(0);
 
   private volatile long lastRequestTimestamp = 0;
+
+  private final int rollingWindowDurationMS = 30_000;
+  private final Deque<long[]> rollingWindowSamples = new ArrayDeque<>();
 
   private final Map<String, Map<Integer, RequestManager>> requestManagers;
 
@@ -634,6 +639,50 @@ public class EthPeer implements Comparable<EthPeer> {
 
   public double getAverageBytesPerResponse() {
     return 0.0;
+  }
+
+  /**
+   * Return the rolling average bytes per second
+   *
+   * @return bytes per second
+   */
+  public synchronized double getRollingAverageBytesPerSecond() {
+    long nowTimestamp = clock.millis();
+    removeOldByteSamples(nowTimestamp);
+    if (rollingWindowSamples.isEmpty()){
+      return 0.0;
+    }
+    long totalBytes = 0;
+    for (long[] sample : rollingWindowSamples){
+      totalBytes += sample[1];
+    }
+    long windowStart = rollingWindowSamples.peekFirst()[0];
+    long windowSizeMS = Math.max(1, nowTimestamp - windowStart); // Avoid division by 0
+    return (totalBytes * 1000.0) / windowSizeMS;
+  }
+
+  /**
+   * Record the amount of bytes for a new sample
+   *
+   * @param bytes the amount of bytes in the sample
+   */
+  public synchronized void recordBytesReceived(long bytes) {
+    long nowTimestamp = clock.millis();
+    long[] sample = {nowTimestamp, bytes};
+    rollingWindowSamples.addLast(sample);
+    removeOldByteSamples(nowTimestamp);
+  }
+
+  /**
+   * Remove byte samples older than {@code nowTimestamp} - {@code rollingWindowDurationMS}
+   *
+   * @param nowTimestamp current Timestamp
+   */
+  private void removeOldByteSamples(long nowTimestamp){
+    while (!rollingWindowSamples.isEmpty()
+            && rollingWindowSamples.peekFirst()[0] < nowTimestamp - rollingWindowDurationMS) {
+      rollingWindowSamples.pollFirst();
+    }
   }
 
   public long getLastRequestTimestamp() {
