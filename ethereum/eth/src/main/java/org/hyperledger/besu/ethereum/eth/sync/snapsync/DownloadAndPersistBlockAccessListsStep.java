@@ -21,7 +21,6 @@ import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
 import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.snap.RetryingGetBlockAccessListsFromPeerTask;
-import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.time.Duration;
@@ -30,6 +29,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,6 +59,7 @@ public class DownloadAndPersistBlockAccessListsStep
                 .run());
   }
 
+  @VisibleForTesting
   DownloadAndPersistBlockAccessListsStep(
       final DefaultBlockchain blockchain,
       final Duration timeoutDuration,
@@ -119,15 +120,6 @@ public class DownloadAndPersistBlockAccessListsStep
     for (int i = 0; i < persistedCount; i++) {
       final BlockHeader header = balEnabledHeaders.get(i);
       final SyncBlockAccessList syncBlockAccessList = syncBlockAccessLists.get(i);
-      final var calculatedBalHash = BodyValidation.balHash(syncBlockAccessList);
-      if (header.getBalHash().filter(calculatedBalHash::equals).isEmpty()) {
-        LOG.warn(
-            "Downloaded block access list hash {} does not match header BAL hash for block {} ({}); skipping persist",
-            calculatedBalHash,
-            header.getNumber(),
-            header.getHash());
-        continue;
-      }
       try {
         updater.putSyncBlockAccessList(header.getHash(), syncBlockAccessList);
       } catch (final Exception exception) {

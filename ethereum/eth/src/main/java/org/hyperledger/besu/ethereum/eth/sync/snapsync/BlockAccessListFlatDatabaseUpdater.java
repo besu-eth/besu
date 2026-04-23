@@ -44,7 +44,6 @@ public final class BlockAccessListFlatDatabaseUpdater {
   public static void applyFromStoredBlockAccessLists(
       final Blockchain blockchain,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
-      final BonsaiWorldStateKeyValueStorage.Updater bonsaiUpdater,
       final long fromBlock,
       final long toBlock) {
     if (toBlock < fromBlock) {
@@ -55,6 +54,8 @@ public final class BlockAccessListFlatDatabaseUpdater {
       return;
     }
 
+    final BonsaiWorldStateKeyValueStorage.Updater bonsaiUpdater =
+        worldStateStorageCoordinator.getStrategy(BonsaiWorldStateKeyValueStorage.class).updater();
     for (long blockNumber = fromBlock; blockNumber <= toBlock; blockNumber++) {
       try {
         final Optional<BlockHeader> maybeBlockHeader = blockchain.getBlockHeader(blockNumber);
@@ -111,6 +112,13 @@ public final class BlockAccessListFlatDatabaseUpdater {
               .get(accountHash.getBytes())
               .map(RLP::input)
               .map(PmtStateTrieAccountValue::readFrom);
+      if (maybeTrieAccountValue.isEmpty()) {
+        LOG.warn(
+            "Account {} is missing from trie at state root {} but latest BAL changes are non-empty",
+            accountChanges.address(),
+            stateRoot);
+        continue;
+      }
       final PmtStateTrieAccountValue trieAccountValue = maybeTrieAccountValue.get();
 
       final var updatedCode = accountChanges.code();

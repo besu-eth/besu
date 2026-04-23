@@ -129,7 +129,16 @@ public class GetBlockAccessListsFromPeerTask
       }
       final SyncBlockAccessList syncBlockAccessList = new SyncBlockAccessList(balRlp);
       if (!syncBlockAccessList.isEmpty()) {
-        final Hash expected = blockHeaders.get(index).getBalHash().orElseThrow();
+        final int currentIndex = index;
+        final BlockHeader blockHeader = blockHeaders.get(currentIndex);
+        final Hash expected =
+            blockHeader
+                .getBalHash()
+                .orElseThrow(
+                    () ->
+                        new ProtocolViolationException(
+                            "Missing expected block access list hash at index %d for block %s"
+                                .formatted(currentIndex, blockHeader.getHash())));
         final Hash actual = BodyValidation.balHash(syncBlockAccessList);
         if (!actual.equals(expected)) {
           throw new ProtocolViolationException(

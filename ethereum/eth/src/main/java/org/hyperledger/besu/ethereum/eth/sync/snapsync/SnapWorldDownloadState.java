@@ -302,8 +302,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
       return;
     }
 
-    if (!(worldStateStorageCoordinator.updater()
-        instanceof BonsaiWorldStateKeyValueStorage.Updater bonsaiUpdater)) {
+    if (!worldStateStorageCoordinator.getDataStorageFormat().isBonsaiFormat()) {
       LOG.warn("Skipping BAL apply because world state updater is not Bonsai-compatible");
       return;
     }
@@ -326,7 +325,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
 
     LOG.info("Applying block access lists from block {} to {}", fromBlock, toBlock);
     BlockAccessListFlatDatabaseUpdater.applyFromStoredBlockAccessLists(
-        blockchain, worldStateStorageCoordinator, bonsaiUpdater, fromBlock, toBlock);
+        blockchain, worldStateStorageCoordinator, fromBlock, toBlock);
   }
 
   @Override

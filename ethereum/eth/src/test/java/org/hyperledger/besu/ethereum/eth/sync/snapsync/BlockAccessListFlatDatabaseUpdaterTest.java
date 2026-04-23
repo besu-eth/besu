@@ -97,9 +97,8 @@ class BlockAccessListFlatDatabaseUpdaterTest {
 
     appendBlock(blockchain, parent, stateRoot, Optional.of(blockAccessList));
 
-    final BonsaiWorldStateKeyValueStorage.Updater updater = storage.updater();
     BlockAccessListFlatDatabaseUpdater.applyFromStoredBlockAccessLists(
-        blockchain, coordinator, updater, 1L, 1L);
+        blockchain, coordinator, 1L, 1L);
 
     final PmtStateTrieAccountValue updatedAccount =
         PmtStateTrieAccountValue.readFrom(
@@ -139,9 +138,8 @@ class BlockAccessListFlatDatabaseUpdaterTest {
     appendBlock(
         blockchain, blockchain.getChainHeadHeader(), stateRoot, Optional.of(blockAccessList));
 
-    final BonsaiWorldStateKeyValueStorage.Updater updater = storage.updater();
     BlockAccessListFlatDatabaseUpdater.applyFromStoredBlockAccessLists(
-        blockchain, coordinator, updater, 1L, 1L);
+        blockchain, coordinator, 1L, 1L);
 
     assertThat(storage.getAccount(newAccountHash)).isEmpty();
   }
@@ -174,9 +172,8 @@ class BlockAccessListFlatDatabaseUpdaterTest {
                     List.of())));
     appendBlock(blockchain, blockchain.getChainHeadHeader(), stateRoot, Optional.of(balAtBlock2));
 
-    final BonsaiWorldStateKeyValueStorage.Updater updater = storage.updater();
     BlockAccessListFlatDatabaseUpdater.applyFromStoredBlockAccessLists(
-        blockchain, coordinator, updater, 1L, 3L);
+        blockchain, coordinator, 1L, 3L);
 
     final PmtStateTrieAccountValue accountValue =
         PmtStateTrieAccountValue.readFrom(

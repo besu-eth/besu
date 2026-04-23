@@ -145,25 +145,6 @@ class DownloadAndPersistBlockAccessListsStepTest {
   }
 
   @Test
-  void shouldSkipPersistingWhenDownloadedBalHashDoesNotMatchHeader() {
-    final BlockAccessList expectedBal = blockDataGenerator.blockAccessList();
-    final BlockAccessList mismatchedBal = blockDataGenerator.blockAccessList();
-    final BlockHeader balHeader = balEnabledHeader(450, expectedBal);
-
-    final List<SyncBlockWithReceipts> syncBlocks = List.of(syncBlockWithHeader(balHeader));
-
-    final DownloadAndPersistBlockAccessListsStep step =
-        new DownloadAndPersistBlockAccessListsStep(
-            blockchain,
-            Duration.ofSeconds(2),
-            headers -> completedFutureWithSyncBals(mismatchedBal));
-
-    step.apply(syncBlocks).join();
-
-    assertThat(blockchain.getBlockAccessList(balHeader.getHash())).isEmpty();
-  }
-
-  @Test
   void shouldReturnImmediatelyWhenNoBalEnabledHeadersExist() {
     final BlockHeader firstHeader = nonBalHeader(500);
     final BlockHeader secondHeader = nonBalHeader(501);
