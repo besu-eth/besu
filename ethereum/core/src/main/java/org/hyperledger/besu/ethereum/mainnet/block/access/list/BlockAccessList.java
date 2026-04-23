@@ -59,6 +59,15 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
     return accountChanges.isEmpty();
   }
 
+  public long eip7928ItemCount() {
+    long totalStorageKeys = 0;
+    for (AccountChanges accountChange : accountChanges) {
+      totalStorageKeys += accountChange.storageChanges().size();
+      totalStorageKeys += accountChange.storageReads().size();
+    }
+    return (long) accountChanges.size() + totalStorageKeys;
+  }
+
   public void writeTo(final RLPOutput out) {
     BlockAccessListEncoder.encode(this, out);
   }
@@ -72,28 +81,28 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
     return "BlockAccessList{" + "accountChanges=" + accountChanges + '}';
   }
 
-  public record StorageChange(int txIndex, UInt256 newValue) {
+  public record StorageChange(long txIndex, UInt256 newValue) {
     @Override
     public String toString() {
       return "StorageChange{txIndex=" + txIndex + ", newValue=" + newValue + '}';
     }
   }
 
-  public record BalanceChange(int txIndex, Wei postBalance) {
+  public record BalanceChange(long txIndex, Wei postBalance) {
     @Override
     public String toString() {
       return "BalanceChange{txIndex=" + txIndex + ", postBalance=" + postBalance + '}';
     }
   }
 
-  public record NonceChange(int txIndex, long newNonce) {
+  public record NonceChange(long txIndex, long newNonce) {
     @Override
     public String toString() {
       return "NonceChange{txIndex=" + txIndex + ", newNonce=" + newNonce + '}';
     }
   }
 
-  public record CodeChange(int txIndex, Bytes newCode) {
+  public record CodeChange(long txIndex, Bytes newCode) {
     @Override
     public String toString() {
       return "CodeChange{txIndex=" + txIndex + ", newCode=" + newCode + '}';
@@ -157,12 +166,12 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
 
     public static AccessLocationTracker createPostExecutionAccessLocationTracker(
         final int numberOfTransactions) {
-      return new AccessLocationTracker(numberOfTransactions + 1);
+      return new AccessLocationTracker((long) numberOfTransactions + 1L);
     }
 
     public static AccessLocationTracker createTransactionAccessLocationTracker(
         final int transactionLocation) {
-      return new AccessLocationTracker(transactionLocation + 1);
+      return new AccessLocationTracker((long) transactionLocation + 1L);
     }
 
     public AccountBuilder getOrCreateAccountBuilder(final Address address) {
@@ -214,6 +223,33 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
               });
     }
 
+    /**
+     * Replays an immutable {@link BlockAccessList} into this builder so {@link #eip7928ItemCount()}
+     * matches incremental {@link #apply(PartialBlockAccessView)} calls that produced {@code bal}.
+     */
+    public void mergeFrom(final BlockAccessList bal) {
+      for (AccountChanges ac : bal.accountChanges()) {
+        final AccountBuilder ab = getOrCreateAccountBuilder(ac.address());
+        for (SlotChanges sc : ac.storageChanges()) {
+          for (StorageChange change : sc.changes()) {
+            ab.addStorageWrite(sc.slot(), change.txIndex(), change.newValue());
+          }
+        }
+        for (SlotRead sr : ac.storageReads()) {
+          ab.addStorageRead(sr.slot());
+        }
+        for (BalanceChange bc : ac.balanceChanges()) {
+          ab.addBalanceChange(bc.txIndex(), bc.postBalance());
+        }
+        for (NonceChange nc : ac.nonceChanges()) {
+          ab.addNonceChange(nc.txIndex(), nc.newNonce());
+        }
+        for (CodeChange cc : ac.codeChanges()) {
+          ab.addCodeChange(cc.txIndex(), cc.newCode());
+        }
+      }
+    }
+
     public BlockAccessList build() {
 
       return new BlockAccessList(
@@ -221,6 +257,14 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
               .map(AccountBuilder::build)
               .sorted(Comparator.comparing(ac -> ac.address().getBytes().toUnprefixedHexString()))
               .toList());
+    }
+
+    public long eip7928ItemCount() {
+      long count = accountChangesBuilders.size();
+      for (AccountBuilder ab : accountChangesBuilders.values()) {
+        count += (long) ab.slotWrites.size() + ab.slotReads.size();
+      }
+      return count;
     }
 
     public static class AccountBuilder {
@@ -281,7 +325,7 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
         }
       }
 
-      void addStorageWrite(final StorageSlotKey slot, final int txIndex, final UInt256 value) {
+      void addStorageWrite(final StorageSlotKey slot, final long txIndex, final UInt256 value) {
         final List<StorageChange> changes =
             slotWrites.computeIfAbsent(slot, __ -> new ArrayList<>());
         slotReads.remove(slot);
@@ -294,15 +338,15 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
         }
       }
 
-      void addBalanceChange(final int txIndex, final Wei postBalance) {
+      void addBalanceChange(final long txIndex, final Wei postBalance) {
         balances.add(new BalanceChange(txIndex, postBalance));
       }
 
-      void addNonceChange(final int txIndex, final long newNonce) {
+      void addNonceChange(final long txIndex, final long newNonce) {
         nonces.add(new NonceChange(txIndex, newNonce));
       }
 
-      void addCodeChange(final int txIndex, final Bytes code) {
+      void addCodeChange(final long txIndex, final Bytes code) {
         codes.add(new CodeChange(txIndex, code));
       }
 
@@ -315,7 +359,7 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
                         new SlotChanges(
                             e.getKey(),
                             e.getValue().stream()
-                                .sorted(Comparator.comparingInt(StorageChange::txIndex))
+                                .sorted(Comparator.comparingLong(StorageChange::txIndex))
                                 .collect(Collectors.toList())))
                 .collect(Collectors.toList());
 
@@ -330,7 +374,7 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
             slotChanges,
             reads,
             balances.stream().sorted(Comparator.comparingLong(BalanceChange::txIndex)).toList(),
-            nonces.stream().sorted(Comparator.comparingDouble(NonceChange::txIndex)).toList(),
+            nonces.stream().sorted(Comparator.comparingLong(NonceChange::txIndex)).toList(),
             codes.stream().sorted(Comparator.comparingLong(CodeChange::txIndex)).toList());
       }
     }
