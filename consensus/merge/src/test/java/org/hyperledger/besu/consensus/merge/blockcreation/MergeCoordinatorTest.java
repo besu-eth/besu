@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doNothing;
@@ -32,7 +33,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.config.MergeConfiguration;
@@ -1238,8 +1238,10 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     // Simulate world state roll failure (storage error, pruned trie logs, etc.)
     WorldStateArchive failingArchive = mock(WorldStateArchive.class);
-    when(failingArchive.getWorldState(any(
-            org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.class)))
+    when(failingArchive.getWorldState(
+            any(
+                org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams
+                    .class)))
         .thenReturn(Optional.empty());
 
     ProtocolContext failingProtocolContext =

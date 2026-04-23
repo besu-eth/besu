@@ -734,8 +734,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
     if (!setNewHead(blockchain, newHead)) {
       LOG.warn("Failed to move world state to new head {}", newHead.toLogString());
-      return ForkchoiceResult.withFailure(
-          INVALID, "Failed to set new head", latestValid);
+      return ForkchoiceResult.withFailure(INVALID, "Failed to set new head", latestValid);
     }
 
     // set and persist the new finalized block if it is present
