@@ -17,6 +17,7 @@ package org.hyperledger.besu.evm.v2.operation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2.getV2StackItem;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.UInt256;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
@@ -88,8 +89,8 @@ class SubOperationV2Test {
   }
 
   @Test
-  void subOperationUnderflowNoItems() {
-    final MessageFrame frame = new TestMessageFrameBuilderV2().build();
+  void shouldUnderflowNoItemsEvenWhenOOG() {
+    final MessageFrame frame = new TestMessageFrameBuilderV2().initialGas(1L).build();
     assertThat(frame.stackTopV2()).isEqualTo(0);
 
     final Operation.OperationResult result = SubOperationV2.staticOperation(frame);
@@ -99,7 +100,7 @@ class SubOperationV2Test {
   }
 
   @Test
-  void subOperationUnderflowOnlyOneItem() {
+  void shouldUnderflowOnlyOneItem() {
     final MessageFrame frame =
         new TestMessageFrameBuilderV2()
             .pushStackItem(Bytes32.fromHexString("0x01")) // top-2, missing top-1
@@ -113,7 +114,7 @@ class SubOperationV2Test {
   }
 
   @Test
-  void subOperationPreservesDeeperStackItems() {
+  void shouldPreserveDeeperStackItems() {
     // Use a distinctive 4-limb value for the untouched deep slot so any accidental write is
     // detectable in any limb.
     final Bytes32 untouched =
@@ -134,7 +135,7 @@ class SubOperationV2Test {
   }
 
   @Test
-  void subOperationGasCostIsVeryLowTier() {
+  void gasCostIsVeryLowTier() {
     final MessageFrame frame =
         new TestMessageFrameBuilderV2()
             .pushStackItem(Bytes32.fromHexString("0x01"))
@@ -144,5 +145,19 @@ class SubOperationV2Test {
     final Operation.OperationResult result = operation.execute(frame, null);
 
     assertThat(result.getGasCost()).isEqualTo(gasCalculator.getVeryLowTierGasCost());
+  }
+
+  @Test
+  void shouldHaltOnInsufficientGas() {
+    final MessageFrame frame = new TestMessageFrameBuilderV2()
+            .pushStackItem(Bytes32.ZERO)
+            .pushStackItem(Bytes32.ZERO)
+            .initialGas(1L).build();
+    assertThat(frame.stackTopV2()).isEqualTo(2);
+
+    final Operation.OperationResult result = operation.execute(frame, null);
+
+    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
+    assertThat(frame.stackTopV2()).isEqualTo(2);
   }
 }

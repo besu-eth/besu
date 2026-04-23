@@ -1504,7 +1504,7 @@ public class UInt256PropertyBasedTest {
   @Property
   void property_sub_anti_commutative(
       @ForAll("unsigned1to32") final byte[] a, @ForAll("unsigned1to32") final byte[] b) {
-    // Arrange — fresh copies for each sub call (sub/neg may mutate input arrays)
+    // Arrange
     UInt256 ua = UInt256.fromBytesBE(a);
     UInt256 ub = UInt256.fromBytesBE(b);
     final UInt256 aMinusB = ua.sub(ub);

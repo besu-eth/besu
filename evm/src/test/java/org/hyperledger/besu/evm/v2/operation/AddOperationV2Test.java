@@ -85,8 +85,8 @@ class AddOperationV2Test {
   }
 
   @Test
-  void addOperationUnderflowNoItems() {
-    final MessageFrame frame = new TestMessageFrameBuilderV2().build();
+  void shouldUnderflowNoItemsEvenWhenOOG() {
+    final MessageFrame frame = new TestMessageFrameBuilderV2().initialGas(1L).build();
     assertThat(frame.stackTopV2()).isEqualTo(0);
 
     final Operation.OperationResult result = AddOperationV2.staticOperation(frame);
@@ -96,7 +96,7 @@ class AddOperationV2Test {
   }
 
   @Test
-  void addOperationUnderflowOnlyOneItem() {
+  void shouldUnderflowOnlyOneItem() {
     final MessageFrame frame =
         new TestMessageFrameBuilderV2()
             .pushStackItem(Bytes32.fromHexString("0x01")) // top-2, missing top-1
@@ -110,7 +110,7 @@ class AddOperationV2Test {
   }
 
   @Test
-  void addOperationPreservesDeeperStackItems() {
+  void shouldPreservesDeeperStackItems() {
     // Use a distinctive 4-limb value for the untouched deep slot so any accidental write is
     // detectable in any limb.
     final Bytes32 untouched =
@@ -131,7 +131,7 @@ class AddOperationV2Test {
   }
 
   @Test
-  void addOperationGasCostIsVeryLowTier() {
+  void shouldGasCostIsVeryLowTier() {
     final MessageFrame frame =
         new TestMessageFrameBuilderV2()
             .pushStackItem(Bytes32.fromHexString("0x01"))
@@ -141,5 +141,19 @@ class AddOperationV2Test {
     final Operation.OperationResult result = operation.execute(frame, null);
 
     assertThat(result.getGasCost()).isEqualTo(gasCalculator.getVeryLowTierGasCost());
+  }
+
+  @Test
+  void shouldHaltOnInsufficientGas() {
+    final MessageFrame frame = new TestMessageFrameBuilderV2()
+            .pushStackItem(Bytes32.ZERO)
+            .pushStackItem(Bytes32.ZERO)
+            .initialGas(1L).build();
+    assertThat(frame.stackTopV2()).isEqualTo(2);
+
+    final Operation.OperationResult result = operation.execute(frame, null);
+
+    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
+    assertThat(frame.stackTopV2()).isEqualTo(2);
   }
 }
