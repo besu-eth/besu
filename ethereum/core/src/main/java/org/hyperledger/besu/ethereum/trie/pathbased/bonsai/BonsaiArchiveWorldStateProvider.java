@@ -99,8 +99,8 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   }
 
   /**
-   * Sets the supplier used by {@code isHistoricalQuery} to check the highest block number that
-   * has been migrated to Bonsai archive storage.
+   * Sets the supplier used by {@code isHistoricalQuery} to check the highest block number that has
+   * been migrated to Bonsai archive storage.
    *
    * <p>Until this is called, the default supplier returns {@code -1}, which denies all
    * archive-backed historical queries and falls back to trie-log rollback via {@code super}.
