@@ -464,6 +464,37 @@ public record UInt256(long u3, long u2, long u1, long u0) {
   }
 
   /**
+   * Subtraction
+   *
+   * <p>Compute the wrapping difference of 2 256-bits integers.
+   *
+   * @param other Integer to subtract from this integer.
+   * @return The difference.
+   */
+  public UInt256 sub(final UInt256 other) {
+    // Limb 0: no incoming borrow, so a plain unsigned compare of the inputs suffices.
+    long z0 = u0 - other.u0;
+    long borrow = Long.compareUnsigned(u0, other.u0) < 0 ? 1 : 0;
+
+    // Limbs 1-3 subtract three values (u_i - other.u_i - borrow), so the borrow check
+    // needs a tie-breaker: if u_i equals other.u_i, their difference is 0 and whether
+    // we underflow depends entirely on the incoming borrow.
+    long z1 = u1 - other.u1 - borrow;
+    long underflowed = Long.compareUnsigned(u1, other.u1) < 0 ? 1 : 0;
+    long underflowIfBorrowed = Long.compareUnsigned(u1, other.u1) == 0 ? 1 : 0;
+    borrow = underflowed | (underflowIfBorrowed & borrow);
+
+    long z2 = u2 - other.u2 - borrow;
+    underflowed = Long.compareUnsigned(u2, other.u2) < 0 ? 1 : 0;
+    underflowIfBorrowed = Long.compareUnsigned(u2, other.u2) == 0 ? 1 : 0;
+    borrow = underflowed | (underflowIfBorrowed & borrow);
+
+    long z3 = u3 - other.u3 - borrow;
+    // Final borrow discarded: sub returns the wrapping result mod 2^256.
+    return new UInt256(z3, z2, z1, z0);
+  }
+
+  /**
    * Multiplication
    *
    * <p>Compute the wrapping product of 2 256-bits integers.
@@ -880,24 +911,29 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     return new UInt256(0, u3, u2, u1);
   }
 
+  // Add with carry
   private UInt257 adc(final UInt256 other) {
+    // Limb 0: no incoming carry, so a plain unsigned-wrap check suffices.
     long z0 = u0 + other.u0;
     long carry = Long.compareUnsigned(z0, u0) < 0 ? 1 : 0;
 
+    // Limbs 1-3 add three values (u_i + other.u_i + carry), so the wrap check
+    // needs a tie-breaker: if the sum equals u_i, other.u_i was 0xFF..FF
+    // and the incoming carry alone pushed us over, which is overflow iff carry=1.
     long z1 = u1 + other.u1 + carry;
-    long overflow1 = Long.compareUnsigned(z1, u1) < 0 ? 1 : 0;
-    long overflow2 = Long.compareUnsigned(z1, u1) == 0 ? 1 : 0;
-    carry = overflow1 | (overflow2 & carry);
+    long overflowed = Long.compareUnsigned(z1, u1) < 0 ? 1 : 0;
+    long overflowIfCarried = Long.compareUnsigned(z1, u1) == 0 ? 1 : 0;
+    carry = overflowed | (overflowIfCarried & carry);
 
     long z2 = u2 + other.u2 + carry;
-    overflow1 = Long.compareUnsigned(z2, u2) < 0 ? 1 : 0;
-    overflow2 = Long.compareUnsigned(z2, u2) == 0 ? 1 : 0;
-    carry = overflow1 | (overflow2 & carry);
+    overflowed = Long.compareUnsigned(z2, u2) < 0 ? 1 : 0;
+    overflowIfCarried = Long.compareUnsigned(z2, u2) == 0 ? 1 : 0;
+    carry = overflowed | (overflowIfCarried & carry);
 
     long z3 = u3 + other.u3 + carry;
-    overflow1 = Long.compareUnsigned(z3, u3) < 0 ? 1 : 0;
-    overflow2 = Long.compareUnsigned(z3, u3) == 0 ? 1 : 0;
-    carry = overflow1 | (overflow2 & carry);
+    overflowed = Long.compareUnsigned(z3, u3) < 0 ? 1 : 0;
+    overflowIfCarried = Long.compareUnsigned(z3, u3) == 0 ? 1 : 0;
+    carry = overflowed | (overflowIfCarried & carry);
 
     return new UInt257(carry != 0, new UInt256(z3, z2, z1, z0));
   }

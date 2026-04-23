@@ -93,6 +93,7 @@ import org.hyperledger.besu.evm.v2.operation.MulOperationV2;
 import org.hyperledger.besu.evm.v2.operation.SarOperationV2;
 import org.hyperledger.besu.evm.v2.operation.ShlOperationV2;
 import org.hyperledger.besu.evm.v2.operation.ShrOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SubOperationV2;
 
 import java.util.Optional;
 import java.util.function.Function;
@@ -491,6 +492,7 @@ public class EVM {
             switch (opcode) {
               case 0x01 -> AddOperationV2.staticOperation(frame);
               case 0x02 -> MulOperationV2.staticOperation(frame);
+              case 0x03 -> SubOperationV2.staticOperation(frame);
               case 0x09 -> MulModOperationV2.staticOperation(frame);
               case 0x1b ->
                   enableConstantinople
@@ -504,7 +506,7 @@ public class EVM {
                   enableConstantinople
                       ? SarOperationV2.staticOperation(frame)
                       : InvalidOperation.invalidOperationResult(opcode);
-              // TODO: implement remaining opcodes in v2; until then fall through to v1
+              // TODO EVMv2: implement remaining opcodes in v2; until then fall through to v1
               default -> {
                 frame.setCurrentOperation(currentOperation);
                 yield currentOperation.execute(frame, this);
