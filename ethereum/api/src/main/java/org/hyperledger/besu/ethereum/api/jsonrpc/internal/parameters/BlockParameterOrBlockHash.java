@@ -79,6 +79,9 @@ public class BlockParameterOrBlockHash {
         requireCanonical = false;
       } else if (normalizedValue.length() > 16) {
         throw new IllegalArgumentException("hex number > 64 bits");
+      } else if (!normalizedValue.startsWith("0x")) {
+        throw new IllegalArgumentException(
+            "Invalid block number: must be a hex string with 0x prefix");
       } else {
         type = BlockParameterType.NUMERIC;
         number = OptionalLong.of(Long.decode(value.toString()));

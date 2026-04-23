@@ -152,7 +152,7 @@ public class DebugSetHeadTest extends AbstractJsonRpcHttpServiceTest {
 
     // move the head to number just after chain head
     var resp =
-        debugSetHead.response(debugSetHead("" + chainTip.getNumber() + 1, Optional.of(TRUE)));
+        debugSetHead.response(debugSetHead("0x" + Long.toHexString(chainTip.getNumber() + 1), Optional.of(TRUE)));
     // success with null result if block not found
     assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
     assertThat(((JsonRpcSuccessResponse) resp).getResult()).isNull();

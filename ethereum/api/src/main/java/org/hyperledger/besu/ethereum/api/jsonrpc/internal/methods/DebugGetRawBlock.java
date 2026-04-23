@@ -14,25 +14,20 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameterOrBlockHash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 
-import java.util.Locale;
-import java.util.Set;
-
 import com.google.common.base.Suppliers;
 
-public class DebugGetRawBlock extends AbstractBlockParameterMethod {
-
-  private static final Set<String> NAMED_BLOCK_TAGS =
-      Set.of("earliest", "latest", "pending", "finalized", "safe");
+public class DebugGetRawBlock extends AbstractBlockParameterOrBlockHashMethod {
 
   public DebugGetRawBlock(final BlockchainQueries blockchain) {
     super(Suppliers.ofInstance(blockchain));
@@ -44,29 +39,21 @@ public class DebugGetRawBlock extends AbstractBlockParameterMethod {
   }
 
   @Override
-  protected BlockParameter blockParameter(final JsonRpcRequestContext request) {
+  protected BlockParameterOrBlockHash blockParameterOrBlockHash(
+      final JsonRpcRequestContext request) {
     try {
-      final String rawParam = request.getRequiredParameter(0, String.class);
-      final String lower = rawParam.toLowerCase(Locale.ROOT);
-      if (!NAMED_BLOCK_TAGS.contains(lower) && !lower.startsWith("0x")) {
-        throw new InvalidJsonRpcParameters(
-            "Invalid block parameter (index 0): hex string without 0x prefix",
-            RpcErrorType.INVALID_BLOCK_PARAMS);
-      }
-      return request.getRequiredParameter(0, BlockParameter.class);
+      return request.getRequiredParameter(0, BlockParameterOrBlockHash.class);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcParameters(
-          "Invalid block parameter (index 0)", RpcErrorType.INVALID_BLOCK_PARAMS, e);
+          "Invalid block or block hash parameter (index 0)", RpcErrorType.INVALID_BLOCK_PARAMS, e);
     }
   }
 
   @Override
-  protected Object resultByBlockNumber(
-      final JsonRpcRequestContext request, final long blockNumber) {
-
+  protected Object resultByBlockHash(final JsonRpcRequestContext request, final Hash blockHash) {
     return getBlockchainQueries()
         .getBlockchain()
-        .getBlockByNumber(blockNumber)
+        .getBlockByHash(blockHash)
         .<Object>map(block -> RLP.encode(block::writeTo).toString())
         .orElseGet(
             () ->
