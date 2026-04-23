@@ -223,16 +223,6 @@ public abstract class AbstractIsolationTests {
             new BesuConfiguration() {
 
               @Override
-              public Optional<String> getRpcHttpHost() {
-                return Optional.empty();
-              }
-
-              @Override
-              public Optional<Integer> getRpcHttpPort() {
-                return Optional.empty();
-              }
-
-              @Override
               public String getConfiguredRpcHttpHost() {
                 return "";
               }
