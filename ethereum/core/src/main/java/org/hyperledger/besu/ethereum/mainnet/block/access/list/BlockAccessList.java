@@ -59,6 +59,15 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
     return accountChanges.isEmpty();
   }
 
+  public long eip7928ItemCount() {
+    long totalStorageKeys = 0;
+    for (AccountChanges accountChange : accountChanges) {
+      totalStorageKeys += accountChange.storageChanges().size();
+      totalStorageKeys += accountChange.storageReads().size();
+    }
+    return (long) accountChanges.size() + totalStorageKeys;
+  }
+
   public void writeTo(final RLPOutput out) {
     BlockAccessListEncoder.encode(this, out);
   }
@@ -214,6 +223,33 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
               });
     }
 
+    /**
+     * Replays an immutable {@link BlockAccessList} into this builder so {@link #eip7928ItemCount()}
+     * matches incremental {@link #apply(PartialBlockAccessView)} calls that produced {@code bal}.
+     */
+    public void mergeFrom(final BlockAccessList bal) {
+      for (AccountChanges ac : bal.accountChanges()) {
+        final AccountBuilder ab = getOrCreateAccountBuilder(ac.address());
+        for (SlotChanges sc : ac.storageChanges()) {
+          for (StorageChange change : sc.changes()) {
+            ab.addStorageWrite(sc.slot(), change.txIndex(), change.newValue());
+          }
+        }
+        for (SlotRead sr : ac.storageReads()) {
+          ab.addStorageRead(sr.slot());
+        }
+        for (BalanceChange bc : ac.balanceChanges()) {
+          ab.addBalanceChange(bc.txIndex(), bc.postBalance());
+        }
+        for (NonceChange nc : ac.nonceChanges()) {
+          ab.addNonceChange(nc.txIndex(), nc.newNonce());
+        }
+        for (CodeChange cc : ac.codeChanges()) {
+          ab.addCodeChange(cc.txIndex(), cc.newCode());
+        }
+      }
+    }
+
     public BlockAccessList build() {
 
       return new BlockAccessList(
@@ -221,6 +257,14 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
               .map(AccountBuilder::build)
               .sorted(Comparator.comparing(ac -> ac.address().getBytes().toUnprefixedHexString()))
               .toList());
+    }
+
+    public long eip7928ItemCount() {
+      long count = accountChangesBuilders.size();
+      for (AccountBuilder ab : accountChangesBuilders.values()) {
+        count += (long) ab.slotWrites.size() + ab.slotReads.size();
+      }
+      return count;
     }
 
     public static class AccountBuilder {
