@@ -303,15 +303,7 @@ public class BonsaiFlatDbToArchiveMigratorTest {
   }
 
   @Test
-  public void migrateHandsOffObserversWithoutGap() throws Exception {
-    // Behavioral regression: a canonical block arriving at the handoff between the bulk and
-    // ongoing observers must reach at least one of them. We simulate this by injecting a new
-    // canonical head from inside the spy's `removeObserver` call — the exact point where the
-    // bulk observer is being torn down. In the fixed code the ongoing observer is already
-    // registered at this moment, so the event triggers catch-up and the post-migration block
-    // gets archived. In the buggy code (remove-in-whenComplete, register-in-thenRun) no observer
-    // is live at this instant and the event is dropped, so the post-migration block stays
-    // un-archived until the *next* block arrives — which it never does in this test.
+  public void migrateHandsOffObserversFromInitialToOngoingWithoutGap() throws Exception {
     appendBlocks(3);
     final MutableBlockchain spyBlockchain = spy(blockchain);
     final BonsaiFlatDbToArchiveMigrator migrator =
@@ -341,30 +333,22 @@ public class BonsaiFlatDbToArchiveMigratorTest {
 
   @Test
   public void migrateObserverIgnoresForkEvents() throws Exception {
-    // Regression: the bulk-migration observer must not regress `target` when a non-canonical
-    // (FORK / STORED_ONLY) event is delivered, and must only respond to canonical heads.
-    // Previously `target.set(archiveTarget(event.number))` would collapse target to 0 on a low
-    // fork event, aborting bulk migration before reaching the canonical archive target.
     appendBlocks(5); // canonical head = 5
     final MutableBlockchain spyBlockchain = spy(blockchain);
-    // Gate trie-log lookups so migrateBlocks pauses mid-flight while we inject the fork event.
     final PausedMigration paused = pauseAtAnyTrieLogLookup();
 
     final BonsaiFlatDbToArchiveMigrator migrator =
         createMigrator(spyBlockchain, /*boundaryDistance*/ 2);
     final CompletableFuture<Void> future = migrator.migrate();
 
-    // migrate() registers its observer synchronously before returning; capture it.
     final ArgumentCaptor<BlockAddedObserver> captor =
         ArgumentCaptor.forClass(BlockAddedObserver.class);
     verify(spyBlockchain, atLeastOnce()).observeBlockAdded(captor.capture());
     final BlockAddedObserver migrateObserver = captor.getAllValues().get(0);
 
-    // Wait until migrateBlocks is actually running so the fork event is raced into its loop.
     paused.awaitStart();
 
-    // Fire a FORK event at block height 1. archiveTarget(1) = max(0, 1-2) = 0;
-    // under the old `target.set(...)` this would collapse target and stop migration after block 1.
+    // Fire a FORK event at block height 1
     final Block forkBlock =
         blockDataGenerator.block(BlockDataGenerator.BlockOptions.create().setBlockNumber(1L));
     migrateObserver.onBlockAdded(BlockAddedEvent.createForFork(forkBlock));
@@ -377,12 +361,7 @@ public class BonsaiFlatDbToArchiveMigratorTest {
   }
 
   @Test
-  public void closeDuringMigrationInterruptsAndSkipsTerminalUpgrade() throws Exception {
-    // Regression: close() during a running migration must (a) interrupt the in-flight task,
-    // (b) leave the future completing exceptionally, (c) skip the terminal DB upgrade, and
-    // (d) clean up observer + migrationRunning state. Paired with the inline-runAsync
-    // refactor, this ensures the terminal callback runs on executorService and is covered
-    // by close()'s shutdownNow + awaitTermination rather than racing on the FJ common pool.
+  public void closeDuringMigrationInterruptsAndSkipsArchiveUpgrade() throws Exception {
     appendBlocks(3);
     final PausedMigration paused = pauseAtAnyTrieLogLookup();
 
@@ -398,7 +377,6 @@ public class BonsaiFlatDbToArchiveMigratorTest {
         .isInstanceOf(ExecutionException.class);
     assertThat(migrator.blockObserverId).isEmpty();
     assertThat(migrator.migrationRunning.get()).isFalse();
-    // Terminal DB upgrade must not run when close() interrupts mid-migration.
     verify(worldStateStorage, never()).upgradeToArchiveFlatDbMode();
   }
 
