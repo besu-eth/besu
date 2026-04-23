@@ -62,6 +62,7 @@ dependencies {
   implementation project(':nat')
   implementation project(':plugin-api')
   implementation project(':plugins:rocksdb')
+  implementation project(':plugins:health')
   implementation project(':services:kvstore')
   implementation project(':util')
 

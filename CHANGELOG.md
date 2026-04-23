@@ -81,7 +81,8 @@ are provided with different values, using input as per the execution-apis spec i
 
 ### Plugin API
 - Plugin API: Allow the registration of multiple PluginTransactionPoolValidatorFactory [#9964](https://github.com/hyperledger/besu/pull/9964)
-- Plugin API: pass pending block header when creating selectors [#10034](https://github.com/besu-eth/besu/pull/10034)
+- Plugin API: pass pending block header when creating selectors [#10034](https://github.com/hyperledger/besu/pull/10034)
+- Add `HealthCheckService` plugin API enabling custom health check implementations [#7704](https://github.com/besu-eth/besu/pull/10167)
 
 ### RPCs
 - Add `blockTimestamp` to transaction RPC results [#9887](https://github.com/hyperledger/besu/pull/9887)
