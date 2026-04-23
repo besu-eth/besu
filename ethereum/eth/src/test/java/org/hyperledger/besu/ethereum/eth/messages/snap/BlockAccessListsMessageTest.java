@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import java.math.BigInteger;
 import java.util.List;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 
 public class BlockAccessListsMessageTest {
@@ -47,5 +48,21 @@ public class BlockAccessListsMessageTest {
 
     final BlockAccessListsMessage message = BlockAccessListsMessage.readFrom(raw);
     assertThat(message.blockAccessLists(false)).isEmpty();
+  }
+
+  @Test
+  public void wireFormatMatchesEip8189() {
+    // EIP-8189 (no request-id): [ [ 0x80 ] ] — outer wrapper list containing an inner list
+    // whose single entry is the RLP empty-string sentinel for an unavailable BAL.
+    final BlockAccessListsMessage message =
+        BlockAccessListsMessage.create(List.of(new BlockAccessList(List.of())));
+
+    assertThat(message.getData()).isEqualTo(Bytes.fromHexString("0xc2c180"));
+
+    // And the decoder rehydrates the empty-string sentinel as an empty BlockAccessList.
+    final BlockAccessListsMessage decoded =
+        BlockAccessListsMessage.readFrom(
+            new RawMessage(SnapV2.BLOCK_ACCESS_LISTS, message.getData()));
+    assertThat(decoded.blockAccessLists(false)).containsExactly(new BlockAccessList(List.of()));
   }
 }

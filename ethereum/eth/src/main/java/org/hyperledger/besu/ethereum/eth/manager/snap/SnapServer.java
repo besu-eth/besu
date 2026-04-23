@@ -46,6 +46,7 @@ import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.BesuEvents;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -242,11 +243,18 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
 
     final GetBlockAccessListsMessage getBlockAccessLists =
         GetBlockAccessListsMessage.readFrom(message);
-    final Iterable<Hash> blockHashes = getBlockAccessLists.blockHashes(true);
+    final GetBlockAccessListsMessage.BlockHashes request = getBlockAccessLists.blockHashes(true);
+    final List<Hash> blockHashes = request.hashes();
+    // EIP-8189: honor the client's requested soft size limit, capped at our own MAX_RESPONSE_SIZE.
+    final int clientRequestedBytes =
+        request.responseBytes().signum() <= 0
+            ? MAX_RESPONSE_SIZE
+            : request.responseBytes().min(BigInteger.valueOf(MAX_RESPONSE_SIZE)).intValue();
 
-    int responseSizeEstimate = RLP.MAX_PREFIX_SIZE;
+    int responseSizeEstimate = RLP.MAX_PREFIX_SIZE + RLP.MAX_PREFIX_SIZE; // outer + inner list
     final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
-    rlp.startList();
+    rlp.startList(); // response wrapper
+    rlp.startList(); // inner list of BALs (EIP-8189 wire format)
 
     final Optional<Blockchain> maybeBlockchain =
         protocolContext.map(ProtocolContext::getBlockchain);
@@ -262,24 +270,27 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
 
         final Optional<BlockAccessList> maybeBlockAccessList =
             blockchain.getBlockAccessList(blockHash);
-        final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
         if (maybeBlockAccessList.isPresent()) {
+          final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
           BlockAccessListEncoder.encode(maybeBlockAccessList.get(), balOutput);
+          final int encodedSize = balOutput.encodedSize();
+          if (responseSizeEstimate + encodedSize > clientRequestedBytes) {
+            break;
+          }
+          responseSizeEstimate += encodedSize;
+          rlp.writeRaw(balOutput.encoded());
         } else {
-          // Empty lists are returned for blocks where the BAL is unavailable.
-          balOutput.startList();
-          balOutput.endList();
+          // EIP-8189: unavailable BALs are returned as the RLP empty string (0x80).
+          if (responseSizeEstimate + 1 > clientRequestedBytes) {
+            break;
+          }
+          responseSizeEstimate += 1;
+          rlp.writeBytes(Bytes.EMPTY);
         }
-
-        final int encodedSize = balOutput.encodedSize();
-        if (responseSizeEstimate + encodedSize > MAX_RESPONSE_SIZE) {
-          break;
-        }
-        responseSizeEstimate += encodedSize;
-        rlp.writeRaw(balOutput.encoded());
       }
     }
-    rlp.endList();
+    rlp.endList(); // inner list
+    rlp.endList(); // response wrapper
 
     return BlockAccessListsMessage.createUnsafe(rlp.encoded());
   }
