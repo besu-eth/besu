@@ -635,8 +635,13 @@ public class EthPeer implements Comparable<EthPeer> {
     return 0.0;
   }
 
+  /**
+   * Return the total number of bytes transferred
+   *
+   * @return total bytes transferred
+   */
   public double getTotalBytesTransferred() {
-    return 0.0;
+    return totalBytesTransferred;
   }
 
   /**
