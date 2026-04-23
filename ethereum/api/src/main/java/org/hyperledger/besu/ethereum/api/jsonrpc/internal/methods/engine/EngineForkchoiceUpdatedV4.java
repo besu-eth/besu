@@ -15,11 +15,11 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EngineForkchoiceUpdatedParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadAttributesParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -52,25 +52,9 @@ public class EngineForkchoiceUpdatedV4 extends AbstractEngineForkchoiceUpdatedV4
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateParameter(
-      final EngineForkchoiceUpdatedParameter fcuParameter,
-      final Optional<EnginePayloadAttributesParameter> maybePayloadAttributes) {
-    if (fcuParameter.getHeadBlockHash() == null) {
-      return ValidationResult.invalid(
-          getInvalidPayloadAttributesError(), "Missing head block hash");
-    } else if (fcuParameter.getSafeBlockHash() == null) {
-      return ValidationResult.invalid(
-          getInvalidPayloadAttributesError(), "Missing safe block hash");
-    } else if (fcuParameter.getFinalizedBlockHash() == null) {
-      return ValidationResult.invalid(
-          getInvalidPayloadAttributesError(), "Missing finalized block hash");
-    }
-    return ValidationResult.valid();
-  }
-
-  @Override
   protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    return ForkSupportHelper.validateForkSupported(AMSTERDAM, amsterdamMilestone, blockTimestamp);
+    return ForkSupportHelper.validateForkSupported(
+        AMSTERDAM, amsterdamMilestone, BOGOTA, bogotaMilestone, blockTimestamp);
   }
 
   @Override

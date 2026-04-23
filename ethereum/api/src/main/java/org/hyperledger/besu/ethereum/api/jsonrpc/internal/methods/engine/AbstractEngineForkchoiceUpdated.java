@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.SYNCING;
@@ -65,6 +66,7 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
   private final MergeMiningCoordinator mergeCoordinator;
   protected final Optional<Long> cancunMilestone;
   protected final Optional<Long> amsterdamMilestone;
+  protected final Optional<Long> bogotaMilestone;
 
   public AbstractEngineForkchoiceUpdated(
       final Vertx vertx,
@@ -77,11 +79,21 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
     this.mergeCoordinator = mergeCoordinator;
     cancunMilestone = protocolSchedule.milestoneFor(CANCUN);
     amsterdamMilestone = protocolSchedule.milestoneFor(AMSTERDAM);
+    bogotaMilestone = protocolSchedule.milestoneFor(BOGOTA);
   }
 
   protected ValidationResult<RpcErrorType> validateParameter(
-      final EngineForkchoiceUpdatedParameter forkchoiceUpdatedParameter,
-      final Optional<EnginePayloadAttributesParameter> maybePayloadAttributes) {
+      final EngineForkchoiceUpdatedParameter fcuParameter) {
+    if (fcuParameter.getHeadBlockHash() == null) {
+      return ValidationResult.invalid(
+          getInvalidPayloadAttributesError(), "Missing head block hash");
+    } else if (fcuParameter.getSafeBlockHash() == null) {
+      return ValidationResult.invalid(
+          getInvalidPayloadAttributesError(), "Missing safe block hash");
+    } else if (fcuParameter.getFinalizedBlockHash() == null) {
+      return ValidationResult.invalid(
+          getInvalidPayloadAttributesError(), "Missing finalized block hash");
+    }
     return ValidationResult.valid();
   }
 
@@ -100,6 +112,14 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
           RpcErrorType.INVALID_ENGINE_FORKCHOICE_UPDATED_PARAMS,
           e);
     }
+
+    LOG.debug("Forkchoice parameters {}", forkChoice);
+
+    final ValidationResult<RpcErrorType> parameterValidationResult = validateParameter(forkChoice);
+    if (!parameterValidationResult.isValid()) {
+      return new JsonRpcSuccessResponse(requestId, parameterValidationResult);
+    }
+
     final Optional<EnginePayloadAttributesParameter> maybePayloadAttributes;
     try {
       maybePayloadAttributes =
@@ -111,7 +131,6 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
           e);
     }
 
-    LOG.debug("Forkchoice parameters {}", forkChoice);
     mergeContext
         .get()
         .fireNewUnverifiedForkchoiceEvent(
@@ -182,12 +201,6 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
       }
     } else {
       withdrawals = Optional.empty();
-    }
-
-    ValidationResult<RpcErrorType> parameterValidationResult =
-        validateParameter(forkChoice, maybePayloadAttributes);
-    if (!parameterValidationResult.isValid()) {
-      return new JsonRpcSuccessResponse(requestId, parameterValidationResult);
     }
 
     maybePayloadAttributes.ifPresentOrElse(
