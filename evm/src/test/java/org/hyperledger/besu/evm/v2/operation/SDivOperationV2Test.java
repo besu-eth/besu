@@ -39,26 +39,27 @@ class SDivOperationV2Test {
 
   static Iterable<Arguments> data() {
     return List.of(
-      Arguments.of("0x00", "0x00", "0x00"),
-      Arguments.of("0x01", "0x00", "0x00"),
-      Arguments.of("0x00", "0x01", "0x00"),
-      Arguments.of("0x02", "0x0a", "0x00"),
-      Arguments.of(
-        "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-        "0x00",
-        "0x00"),
-      Arguments.of("0x0a", "0x02", "0x05"),
-      Arguments.of("0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff6", "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe", "0x05"));
+        Arguments.of("0x00", "0x00", "0x00"),
+        Arguments.of("0x01", "0x00", "0x00"),
+        Arguments.of("0x00", "0x01", "0x00"),
+        Arguments.of("0x02", "0x0a", "0x00"),
+        Arguments.of(
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "0x00", "0x00"),
+        Arguments.of("0x0a", "0x02", "0x05"),
+        Arguments.of(
+            "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff6",
+            "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
+            "0x05"));
   }
 
   @ParameterizedTest(name = "sdiv({0}, {1}) = {2}")
   @MethodSource("data")
   void stackUpdatedCorrectly(final String a, final String b, final String expectedResult) {
     final MessageFrame frame =
-      new TestMessageFrameBuilderV2()
-        .pushStackItem(Bytes32.fromHexString(b))
-        .pushStackItem(Bytes32.fromHexString(a))
-        .build();
+        new TestMessageFrameBuilderV2()
+            .pushStackItem(Bytes32.fromHexString(b))
+            .pushStackItem(Bytes32.fromHexString(a))
+            .build();
     assertThat(frame.stackTopV2()).isEqualTo(2);
 
     final OperationResult result = operation.execute(frame, null);
@@ -67,15 +68,12 @@ class SDivOperationV2Test {
     assertThat(frame.stackTopV2()).isEqualTo(1);
 
     final UInt256 expected =
-      UInt256.fromBytesBE(Bytes32.fromHexString(expectedResult).toArrayUnsafe());
+        UInt256.fromBytesBE(Bytes32.fromHexString(expectedResult).toArrayUnsafe());
     assertThat(getV2StackItem(frame, 0)).isEqualTo(expected);
   }
 
   private static Stream<List<String>> operandStacks() {
-    return Stream.of(
-      List.of(),
-      List.of("0x01")
-    );
+    return Stream.of(List.of(), List.of("0x01"));
   }
 
   @ParameterizedTest(name = "stack {0}")
@@ -95,13 +93,13 @@ class SDivOperationV2Test {
   @Test
   void preservesDeeperStackItems() {
     final Bytes32 untouched =
-      Bytes32.fromHexString("0xdeadbeefdeadbeefcafebabecafebabe0123456789abcdeff1e2d3c4b5a69788");
+        Bytes32.fromHexString("0xdeadbeefdeadbeefcafebabecafebabe0123456789abcdeff1e2d3c4b5a69788");
     final MessageFrame frame =
-      new TestMessageFrameBuilderV2()
-        .pushStackItem(untouched)
-        .pushStackItem(Bytes32.fromHexString("0x02"))
-        .pushStackItem(Bytes32.fromHexString("0x0a"))
-        .build();
+        new TestMessageFrameBuilderV2()
+            .pushStackItem(untouched)
+            .pushStackItem(Bytes32.fromHexString("0x02"))
+            .pushStackItem(Bytes32.fromHexString("0x0a"))
+            .build();
     assertThat(frame.stackTopV2()).isEqualTo(3);
 
     operation.execute(frame, null);
@@ -114,10 +112,10 @@ class SDivOperationV2Test {
   @Test
   void gasCostIsVeryLowTier() {
     final MessageFrame frame =
-      new TestMessageFrameBuilderV2()
-        .pushStackItem(Bytes32.fromHexString("0x01"))
-        .pushStackItem(Bytes32.fromHexString("0x02"))
-        .build();
+        new TestMessageFrameBuilderV2()
+            .pushStackItem(Bytes32.fromHexString("0x01"))
+            .pushStackItem(Bytes32.fromHexString("0x02"))
+            .build();
 
     final OperationResult result = operation.execute(frame, null);
 

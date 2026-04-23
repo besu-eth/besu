@@ -14,11 +14,12 @@
  */
 package org.hyperledger.besu.ethereum.vm.operations.v2;
 
+import org.hyperledger.besu.evm.UInt256;
+
 import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Random;
 
-import org.hyperledger.besu.evm.UInt256;
 import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Setup;
 
