@@ -90,8 +90,8 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
     final long txRegularGasUsed =
         gasAccountingStrategy.calculateTransactionRegularGas(
             evaluationContext.getTransaction(), processingResult);
-    // EIP-8037 (per ethereum/EIPs #11532 item 6): block accounting uses the worst-case immutable
-    // intrinsic_state_gas, captured by getStateGasUsedForBlock().
+    // EIP-8037: block accounting uses the worst-case immutable intrinsic_state_gas, captured by
+    // getStateGasUsedForBlock().
     final long stateGasUsed = processingResult.getStateGasUsedForBlock();
 
     final GasState state = getWorkingState();

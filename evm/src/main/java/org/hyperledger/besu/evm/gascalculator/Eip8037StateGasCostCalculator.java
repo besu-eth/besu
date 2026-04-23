@@ -239,7 +239,7 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
             emptyAccountDelegationStateGas(blockGasLimit) * newEmptyAccounts)) {
       return false;
     }
-    // EIP-8037 (per ethereum/EIPs #11532 item 6): intrinsic state gas is sized assuming every
+    // EIP-8037: intrinsic state gas is sized assuming every
     // authority is a new empty account ((112 + 23) × cpsb per auth) and is immutable after
     // transaction validation. When an authority already exists, the 112 × cpsb portion is
     // refunded directly to state_gas_reservoir during authorization processing. The intrinsic
@@ -326,12 +326,12 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
     if (newValue.isZero() && !currentValue.get().isZero() && originalValue.get().isZero()) {
       final long blockGasLimit = frame.getBlockValues().getGasLimit();
       final long refundAmount = storageSetStateGas(blockGasLimit);
-      // EIP-8037 (per ethereum/EIPs #11532 item 2): State gas refund is credited directly to
+      // EIP-8037: State gas refund is credited directly to
       // state_gas_reservoir (bypassing the 20% refund_counter cap) and execution_state_gas_used
       // is decremented. This ensures the full state gas amount is returned regardless of the
       // refund cap, which would otherwise be insufficient at high cost_per_state_byte.
       //
-      // Frame scoping (per ethereum/EIPs #11548): the refund is applied to the frame's
+      // Frame scoping: the refund is applied to the frame's
       // UndoScalar counters (stateGasReservoir, stateGasUsed), so on revert or exceptional
       // halt of this frame — or of any ancestor frame before the refund propagates further —
       // the credit is undone via MessageFrame.rollback(). The refund therefore contributes to

@@ -177,7 +177,7 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
             .flatMap(Optional::stream)
             .findFirst();
     if (firstValidationFailure.isPresent()) {
-      // EIP-8037 (per ethereum/EIPs #11532 / spec text): on code deposit validation failure
+      // EIP-8037: on code deposit validation failure
       // (e.g. oversized code), trigger an exceptional halt. handleStateGasSpill will refund
       // execution state gas to the reservoir; intrinsic state gas (preserved past
       // advanceUndoMark) remains.

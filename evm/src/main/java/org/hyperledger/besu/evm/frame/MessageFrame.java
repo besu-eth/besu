@@ -891,11 +891,10 @@ public class MessageFrame {
   }
 
   /**
-   * Records a no-growth state gas refund (EIP-8037 per ethereum/EIPs #11548). Used by
-   * refundStorageSetStateGas, refundCreateStateGas, and refundSameTransactionSelfDestructStateGas
-   * so that {@code handleStateGasSpill} can subtract refunds-in-scope from spill credit on
-   * revert/halt — the refund must contribute nothing to a parent's reservoir when any frame in the
-   * chain fails.
+   * Records a no-growth state gas refund. Used by refundStorageSetStateGas, refundCreateStateGas,
+   * and refundSameTransactionSelfDestructStateGas so that {@code handleStateGasSpill} can subtract
+   * refunds-in-scope from spill credit on revert/halt — the refund must contribute nothing to a
+   * parent's reservoir when any frame in the chain fails.
    *
    * @param amount The refund amount being applied to state_gas_reservoir
    */

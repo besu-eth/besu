@@ -115,7 +115,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     final boolean invalidState = account.getNonce() == -1 || code == null;
 
     if (insufficientBalance || maxDepthReached || invalidState) {
-      // EIP-8037 (per ethereum/EIPs #11532 item 3): on opcode-level silent failure no account
+      // EIP-8037: on opcode-level silent failure no account
       // is created, so refund the 112 × cpsb account-creation state gas to the reservoir.
       gasCalculator().stateGasCostCalculator().refundCreateStateGas(frame);
       fail(frame);
@@ -246,7 +246,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
       frame.setReturnData(Bytes.EMPTY);
       onSuccess(frame, createdAddress);
     } else {
-      // EIP-8037 (per ethereum/EIPs #11532 / spec text): on child frame revert or exceptional
+      // EIP-8037: on child frame revert or exceptional
       // halt, the account-creation state gas (112 × cpsb) charged at this CREATE/CREATE2 opcode
       // is refunded to the reservoir — no account was created so no state gas should be paid.
       // The child's own state gas charges (e.g. inner SSTOREs, code deposits) are already

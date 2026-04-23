@@ -223,7 +223,7 @@ class SStoreOperationTest {
     final OperationResult result2 = operation.execute(frame, null);
     assertThat(result2.getHaltReason()).isNull();
 
-    // EIP-8037 (per ethereum/EIPs #11532 item 2): state gas refund is credited directly to
+    // EIP-8037: state gas refund is credited directly to
     // state_gas_reservoir (not refund_counter, bypassing the 20% cap) and stateGasUsed is
     // decremented. Regular SSTORE refund for 0→X→0 (2,800) still goes via refund_counter.
     assertThat(frame.getGasRefund()).isEqualTo(2_800L);

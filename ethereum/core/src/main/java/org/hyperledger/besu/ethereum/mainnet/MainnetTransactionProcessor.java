@@ -474,7 +474,7 @@ public class MainnetTransactionProcessor {
 
       if (txSucceeded) {
         worldUpdater.commit();
-        // EIP-8037 (per ethereum/EIPs #11532 item 4): end-of-tx refund for accounts created and
+        // EIP-8037: end-of-tx refund for accounts created and
         // self-destructed within this transaction. Must run before tx_gas_used_before_refund is
         // computed below so the sender is not charged for state that was destroyed.
         stateGasCalc.refundSameTransactionSelfDestructStateGas(initialFrame);
@@ -608,7 +608,7 @@ public class MainnetTransactionProcessor {
       final Optional<PartialBlockAccessView> partialBlockAccessView =
           accessLocationTracker.map(tracker -> tracker.createPartialBlockAccessView(worldState));
 
-      // EIP-8037 (per ethereum/EIPs #11532 item 6): for EIP-7702 authorizations targeting
+      // EIP-8037: for EIP-7702 authorizations targeting
       // existing accounts the actual state gas charged is less than the immutable worst-case
       // intrinsic_state_gas. Block accounting uses the worst case, so track the difference as
       // an overhead that is added on top of stateGasUsed at the block level.

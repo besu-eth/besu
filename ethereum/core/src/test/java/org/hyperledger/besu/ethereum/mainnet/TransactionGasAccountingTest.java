@@ -110,7 +110,7 @@ public class TransactionGasAccountingTest {
             .build()
             .calculate();
 
-    // EIP-8037 (per ethereum/EIPs #11476 + #11548): on top-level revert/halt the spill burn
+    // EIP-8037: on top-level revert/halt the spill burn
     // does not add to block_state_gas_used (handleStateGasSpill in AbstractMessageProcessor
     // restores it to the reservoir for the initial frame). effectiveStateGas == stateGasUsed.
     assertThat(result.effectiveStateGas()).isEqualTo(30_000L);
@@ -120,7 +120,7 @@ public class TransactionGasAccountingTest {
 
   @Test
   public void stateGasSpill_doubleCountingAvoided() {
-    // EIP-8037 (per ethereum/EIPs #11548): state-gas spillover absorbed by no-growth refunds in
+    // EIP-8037: state-gas spillover absorbed by no-growth refunds in
     // failed sub-frames is "burned" (sender pays, block accounting excludes from both regular
     // and state). The spillBurned is subtracted from regularGas so it is not counted as regular
     // gas; stateGas is just stateGasUsed (no initialFrameStateGasSpill addition).

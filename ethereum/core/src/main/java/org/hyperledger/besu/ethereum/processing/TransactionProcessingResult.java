@@ -53,12 +53,11 @@ public class TransactionProcessingResult
   private final long stateGasUsed;
 
   /**
-   * EIP-8037 (per ethereum/EIPs #11532 item 6): worst-case intrinsic state gas overhead beyond what
-   * was actually charged to {@link #stateGasUsed}. For EIP-7702 transactions whose authorizations
-   * target existing accounts, the intrinsic_state_gas is immutable at the worst-case (112 + 23) ×
-   * cpsb per auth, so block accounting must add 112 × cpsb per existing delegator on top of the
-   * actually-charged state gas. Sender accounting still uses the actual (refunded) value via {@link
-   * #getStateGasUsed()}.
+   * EIP-8037: worst-case intrinsic state gas overhead beyond what was actually charged to {@link
+   * #stateGasUsed}. For EIP-7702 transactions whose authorizations target existing accounts, the
+   * intrinsic_state_gas is immutable at the worst-case (112 + 23) × cpsb per auth, so block
+   * accounting must add 112 × cpsb per existing delegator on top of the actually-charged state gas.
+   * Sender accounting still uses the actual (refunded) value via {@link #getStateGasUsed()}.
    */
   private long intrinsicStateGasOverhead;
 

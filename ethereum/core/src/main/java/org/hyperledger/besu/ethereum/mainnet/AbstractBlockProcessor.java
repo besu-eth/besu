@@ -300,7 +300,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         if (!(transactionUpdater instanceof StackedUpdater<?, ?>)) {
           transactionUpdater = blockUpdater;
         }
-        // EIP-8037 (per ethereum/EIPs #11536): per-dimension 2D-aware budget check using
+        // EIP-8037: per-dimension 2D-aware budget check using
         // worst-case regular and state consumption derived from transaction intrinsics.
         if (!hasAvailableBlockBudget(
             blockHeader,
@@ -375,7 +375,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         cumulativeReceiptGasUsed +=
             BlockGasAccountingStrategy.calculateReceiptGas(
                 transaction, transactionProcessingResult);
-        // EIP-8037: Accumulate state gas used. Per ethereum/EIPs #11532 item 6, block accounting
+        // EIP-8037: Accumulate state gas used. Block accounting
         // uses the immutable worst-case intrinsic_state_gas, so include the overhead (e.g. for
         // EIP-7702 auths targeting existing accounts where 112×cpsb was refunded but block
         // accounting still counts it).

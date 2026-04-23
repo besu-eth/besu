@@ -50,6 +50,7 @@ import org.hyperledger.besu.ethereum.referencetests.ReferenceTestBlockchain;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestWorldState;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.ArrayList;
@@ -98,6 +99,9 @@ class AbstractBlockProcessorBalValidationTest {
         .thenReturn(BlockGasAccountingStrategy.FRONTIER);
     lenient().when(protocolSpec.getGasCalculator()).thenReturn(gasCalculator);
     lenient().when(gasCalculator.getBlobGasPerBlob()).thenReturn(1L);
+    final StateGasCostCalculator stateGasCalc = mock(StateGasCostCalculator.class);
+    lenient().when(gasCalculator.stateGasCostCalculator()).thenReturn(stateGasCalc);
+    lenient().when(stateGasCalc.transactionRegularGasLimit()).thenReturn(Long.MAX_VALUE);
     lenient().when(protocolSpec.getWithdrawalsProcessor()).thenReturn(Optional.empty());
     lenient().when(protocolSpec.getRequestProcessorCoordinator()).thenReturn(Optional.empty());
     lenient()
@@ -272,6 +276,7 @@ class AbstractBlockProcessorBalValidationTest {
     lenient().when(tx.getHash()).thenReturn(Hash.EMPTY);
     lenient().when(tx.getType()).thenReturn(TransactionType.FRONTIER);
     lenient().when(tx.getVersionedHashes()).thenReturn(Optional.empty());
+    lenient().when(tx.getAccessList()).thenReturn(Optional.empty());
     final List<Transaction> txs = new ArrayList<>();
     for (int i = 0; i < txCount; i++) {
       txs.add(tx);

@@ -101,7 +101,7 @@ public abstract class TransactionGasAccounting {
 
     // EIP-8037: Include leftover reservoir in remaining gas for execution gas calculation
     final long executionGas = txGasLimit() - remainingGas() - stateGasReservoir();
-    // EIP-8037 (per ethereum/EIPs #11476 + #11548): block_state_gas_used = intrinsic_state +
+    // EIP-8037: block_state_gas_used = intrinsic_state +
     // execution_state, both captured by stateGasUsed (intrinsic preserved by advanceUndoMark,
     // execution undone on top-level revert). Burned spill (state-gas spillover that wasn't
     // restored due to no-growth refunds in failed frames) is sender-paid but not counted in
