@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.prefetch.BalPrefetcher;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
@@ -38,8 +39,10 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 
 import java.time.Duration;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -56,6 +59,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
   private final MainnetTransactionProcessor transactionProcessor;
   private final BlockAccessList blockAccessList;
   private final Duration balProcessingTimeout;
+  private final Optional<BalPrefetcher> maybePrefetcher;
 
   public BalConcurrentTransactionProcessor(
       final MainnetTransactionProcessor transactionProcessor,
@@ -64,6 +68,49 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
     this.transactionProcessor = transactionProcessor;
     this.blockAccessList = blockAccessList;
     this.balProcessingTimeout = balConfiguration.getBalProcessingTimeout();
+    this.maybePrefetcher =
+        balConfiguration.isBalPreFetchReadingEnabled()
+            ? Optional.of(
+                new BalPrefetcher(
+                    balConfiguration.isBalPreFetchSortingEnabled(),
+                    balConfiguration.getBalPreFetchBatchSize()))
+            : Optional.empty();
+  }
+
+  @Override
+  public void runAsyncBlock(
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final List<Transaction> transactions,
+      final Address miningBeneficiary,
+      final BlockHashLookup blockHashLookup,
+      final Wei blobGasPrice,
+      final Executor executor,
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder) {
+
+    maybePrefetcher.ifPresent(
+        balPrefetchMechanism -> {
+          final BonsaiWorldState ws = getWorldState(protocolContext, blockHeader);
+          if (ws != null) {
+            balPrefetchMechanism
+                .prefetch(ws, blockAccessList, executor)
+                .exceptionally(
+                    ex -> {
+                      LOG.error("Prefetch failed", ex);
+                      return null;
+                    })
+                .whenComplete((result, ex) -> ws.close());
+          }
+        });
+    super.runAsyncBlock(
+        protocolContext,
+        blockHeader,
+        transactions,
+        miningBeneficiary,
+        blockHashLookup,
+        blobGasPrice,
+        executor,
+        blockAccessListBuilder);
   }
 
   @Override
@@ -92,8 +139,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final ParallelizedTransactionContext.Builder ctxBuilder =
           new ParallelizedTransactionContext.Builder();
 
-      final PathBasedWorldStateUpdateAccumulator<?> blockUpdater =
-          (PathBasedWorldStateUpdateAccumulator<?>) ws.updater();
+      final PathBasedWorldStateUpdateAccumulator<?> blockUpdater = ws.updater();
 
       applyWritesFromPriorTransactions(
           blockAccessList, (long) transactionLocation + 1L, blockUpdater);

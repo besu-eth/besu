@@ -24,8 +24,11 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.SnappedKeyValueStorage;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
 import java.util.Optional;
@@ -83,6 +86,21 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
   @Override
   public Optional<byte[]> get(final SegmentIdentifier segmentId, final byte[] key)
       throws StorageException {
+    return get(segmentId, key, null);
+  }
+
+  /**
+   * Get value with optional cache function.
+   *
+   * @param segmentId the segment identifier
+   * @param key the key
+   * @param cacheGetFunction function that takes persistent storage and returns cached value
+   * @return Optional value
+   */
+  public Optional<byte[]> get(
+      final SegmentIdentifier segmentId,
+      final byte[] key,
+      final Function<SegmentedKeyValueStorage, Optional<byte[]>> cacheGetFunction) {
     throwIfClosed();
 
     final Lock lock = rwLock.readLock();
@@ -91,14 +109,97 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
       Bytes wrapKey = Bytes.wrap(key);
       final Optional<byte[]> foundKey =
           hashValueStore.computeIfAbsent(segmentId, __ -> newSegmentMap()).get(wrapKey);
+
       if (foundKey == null) {
-        return parent.get(segmentId, key);
+        // Not in this layer, delegate to parent
+        if (parent instanceof LayeredKeyValueStorage) {
+          // Parent is also layered, continue traversing with cache function
+          return ((LayeredKeyValueStorage) parent).get(segmentId, key, cacheGetFunction);
+        } else {
+          // Parent is persistent storage - use cache if available
+          if (cacheGetFunction != null) {
+            return cacheGetFunction.apply(parent);
+          } else {
+            return parent.get(segmentId, key);
+          }
+        }
       } else {
+        // Found in this layer
         return foundKey;
       }
     } finally {
       lock.unlock();
     }
+  }
+
+  @Override
+  public List<Optional<byte[]>> multiget(final SegmentIdentifier segment, final List<byte[]> keys)
+      throws StorageException {
+    return multiget(segment, keys, null);
+  }
+
+  /**
+   * Get multiple values with optional cache function.
+   *
+   * @param segment the segment identifier
+   * @param keys the list of keys
+   * @param cacheMultigetFunction function that takes persistent storage and returns cached values
+   * @return List of Optional values
+   */
+  public List<Optional<byte[]>> multiget(
+      final SegmentIdentifier segment,
+      final List<byte[]> keys,
+      final Function<SegmentedKeyValueStorage, List<Optional<byte[]>>> cacheMultigetFunction) {
+
+    List<Optional<byte[]>> results = new ArrayList<>(Collections.nCopies(keys.size(), null));
+    List<Integer> missingIndices = new ArrayList<>();
+    List<byte[]> missingKeys = new ArrayList<>();
+
+    final Lock lock = rwLock.readLock();
+    lock.lock();
+    try {
+      final NavigableMap<Bytes, Optional<byte[]>> segmentMap =
+          hashValueStore.computeIfAbsent(segment, s -> newSegmentMap());
+
+      for (int i = 0; i < keys.size(); i++) {
+        final byte[] key = keys.get(i);
+        final Optional<byte[]> localValue = segmentMap.get(Bytes.wrap(key));
+        if (localValue != null) {
+          // Found in this layer
+          results.set(i, localValue);
+        } else {
+          // Not in this layer
+          missingIndices.add(i);
+          missingKeys.add(key);
+        }
+      }
+    } finally {
+      lock.unlock();
+    }
+
+    if (!missingIndices.isEmpty()) {
+      // Get from parent
+      List<Optional<byte[]>> parentResults;
+
+      if (parent instanceof LayeredKeyValueStorage) {
+        // Parent is also layered, continue traversing with cache function
+        parentResults =
+            ((LayeredKeyValueStorage) parent).multiget(segment, missingKeys, cacheMultigetFunction);
+      } else {
+        // Parent is persistent storage - use cache if available
+        if (cacheMultigetFunction != null) {
+          parentResults = cacheMultigetFunction.apply(parent);
+        } else {
+          parentResults = parent.multiget(segment, missingKeys);
+        }
+      }
+
+      for (int j = 0; j < missingIndices.size(); j++) {
+        results.set(missingIndices.get(j), parentResults.get(j));
+      }
+    }
+
+    return results;
   }
 
   @Override

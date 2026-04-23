@@ -320,7 +320,7 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
 
       // Assertions
       assertThat(keyValueStorage).isNotNull();
-      verify(metricsSystemMock, times(4))
+      verify(metricsSystemMock, times(5))
           .createLabelledTimer(
               eq(BesuMetricCategory.KVSTORE_ROCKSDB),
               labelledTimersMetricsNameArgs.capture(),
@@ -329,12 +329,14 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
       assertThat(labelledTimersMetricsNameArgs.getAllValues())
           .containsExactly(
               "read_latency_seconds",
+              "multi_read_latency_seconds",
               "remove_latency_seconds",
               "write_latency_seconds",
               "commit_latency_seconds");
       assertThat(labelledTimersHelpArgs.getAllValues())
           .containsExactly(
               "Latency for read from RocksDB.",
+              "Latency for multi read from RocksDB.",
               "Latency of remove requests from RocksDB.",
               "Latency for write to RocksDB.",
               "Latency for commits to RocksDB.");
