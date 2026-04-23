@@ -86,21 +86,26 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
       final Executor executor,
-      final Optional<BlockAccessListBuilder> blockAccessListBuilder) {
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader) {
 
     maybePrefetcher.ifPresent(
-        balPrefetchMechanism -> {
-          final BonsaiWorldState ws = getWorldState(protocolContext, blockHeader);
-          if (ws != null) {
-            balPrefetchMechanism
-                .prefetch(ws, blockAccessList, executor)
-                .exceptionally(
-                    ex -> {
-                      LOG.error("Prefetch failed", ex);
-                      return null;
-                    })
-                .whenComplete((result, ex) -> ws.close());
+        prefetchMechanism -> {
+          if (maybeParentHeader.isEmpty()) {
+            return;
           }
+
+          getWorldState(protocolContext, maybeParentHeader.get())
+              .ifPresent(
+                  worldState ->
+                      prefetchMechanism
+                          .prefetch(worldState, blockAccessList, executor)
+                          .exceptionally(
+                              ex -> {
+                                LOG.error("Prefetch failed", ex);
+                                return null;
+                              })
+                          .whenComplete((result, ex) -> worldState.close()));
         });
     super.runAsyncBlock(
         protocolContext,
@@ -110,7 +115,8 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
         blockHashLookup,
         blobGasPrice,
         executor,
-        blockAccessListBuilder);
+        blockAccessListBuilder,
+        maybeParentHeader);
   }
 
   @Override
