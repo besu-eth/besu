@@ -56,7 +56,7 @@ public class AddOperationV2 extends AbstractFixedCostOperationV2 {
    * @return the operation result
    */
   public static Operation.OperationResult staticOperation(final MessageFrame frame) {
-    if (!frame.stackHasItems(2)) return UNDERFLOW_RESPONSE;
+    if (!frame.stackHasItemsV2(2)) return UNDERFLOW_RESPONSE;
     long[] stack = frame.stackDataV2();
     int top = frame.stackTopV2();
     final int aOffset = (top - 1) << 2;
