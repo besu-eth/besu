@@ -33,7 +33,7 @@ dependencies {
   api 'org.apache.commons:commons-lang3'
   api 'io.consensys.tuweni:tuweni-bytes'
   api 'io.consensys.tuweni:tuweni-units'
-  implementation 'com.google.guava:guava'
+  api 'com.google.guava:guava'
   api project(':evm')
   compileOnly 'io.vertx:vertx-core'
 }
