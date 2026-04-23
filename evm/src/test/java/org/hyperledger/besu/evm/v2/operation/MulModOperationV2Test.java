@@ -93,8 +93,8 @@ class MulModOperationV2Test {
   }
 
   @Test
-  void mulModOperationUnderflowNoItems() {
-    final MessageFrame frame = new TestMessageFrameBuilderV2().build();
+  void shouldUnderflowNoItemsEvenWhenOOG() {
+    final MessageFrame frame = new TestMessageFrameBuilderV2().initialGas(1).build();
     assertThat(frame.stackTopV2()).isEqualTo(0);
 
     final Operation.OperationResult result = MulModOperationV2.staticOperation(frame);
@@ -104,7 +104,7 @@ class MulModOperationV2Test {
   }
 
   @Test
-  void mulModOperationUnderflowOnlyTwoItems() {
+  void shouldUnderflowOnlyTwoItems() {
     final MessageFrame frame =
         new TestMessageFrameBuilderV2()
             .pushStackItem(Bytes32.fromHexStringLenient("0x1")) // deepest (top-3)
@@ -115,6 +115,22 @@ class MulModOperationV2Test {
     final Operation.OperationResult result = MulModOperationV2.staticOperation(frame);
 
     assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
+    assertThat(frame.stackTopV2()).isEqualTo(2);
+  }
+
+  @Test
+  void shouldHaltOnInsufficientGas() {
+    final MessageFrame frame =
+        new TestMessageFrameBuilderV2()
+            .pushStackItem(Bytes32.ZERO)
+            .pushStackItem(Bytes32.ZERO)
+            .initialGas(1L)
+            .build();
+    assertThat(frame.stackTopV2()).isEqualTo(2);
+
+    final Operation.OperationResult result = operation.execute(frame, null);
+
+    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
     assertThat(frame.stackTopV2()).isEqualTo(2);
   }
 }
