@@ -277,16 +277,6 @@ class GenesisConfigTest {
   }
 
   @Test
-  void assertHoleskyDepositContractAddress() {
-    GenesisConfigOptions holeskyOptions =
-        GenesisConfig.fromResource("/holesky.json").getConfigOptions();
-
-    assertThat(holeskyOptions.getDepositContractAddress()).isPresent();
-    assertThat(holeskyOptions.getDepositContractAddress().get())
-        .isEqualTo(Address.fromHexString("0x4242424242424242424242424242424242424242"));
-  }
-
-  @Test
   void assertEphemeryDepositContractAddress() {
     GenesisConfigOptions ephemeryOptions =
         GenesisConfig.fromResource("/ephemery.json").getConfigOptions();

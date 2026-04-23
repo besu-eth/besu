@@ -184,6 +184,19 @@ public class TestMessageFrameBuilderV2 {
     return frame;
   }
 
+  /**
+   * Reads a 256-bit word from the V2 stack at the given depth below the current top.
+   *
+   * @param frame the message frame with a V2 stack
+   * @param offset 0 for the topmost item, 1 for the item below, etc.
+   * @return the value as a {@link UInt256}
+   */
+  public static UInt256 getV2StackItem(final MessageFrame frame, final int offset) {
+    final long[] s = frame.stackDataV2();
+    final int idx = (frame.stackTopV2() - 1 - offset) << 2;
+    return new UInt256(s[idx], s[idx + 1], s[idx + 2], s[idx + 3]);
+  }
+
   private WorldUpdater createDefaultWorldUpdater() {
     return new ToyWorld();
   }

@@ -69,10 +69,6 @@ public final class MainnetBlockHeaderValidator {
                 "extraData", BlockHeader::getExtraData, DAO_EXTRA_DATA));
   }
 
-  public static boolean validateHeaderForDaoFork(final BlockHeader header) {
-    return DAO_EXTRA_DATA.equals(header.getExtraData());
-  }
-
   static BlockHeaderValidator.Builder createLegacyFeeMarketOmmerValidator() {
     return createLegacyFeeMarketOmmerValidator(
         new EpochCalculator.DefaultEpochCalculator(), PoWHasher.ETHASH_LIGHT);

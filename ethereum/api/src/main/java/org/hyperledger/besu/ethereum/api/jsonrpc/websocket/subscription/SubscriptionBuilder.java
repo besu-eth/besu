@@ -19,6 +19,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.logs.Log
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscribeRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscriptionType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.syncing.SyncingSubscription;
+import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.transactionreceipts.TransactionReceiptsSubscription;
 
 import java.util.function.Function;
 
@@ -40,6 +41,11 @@ public class SubscriptionBuilder {
       case SYNCING:
         {
           return new SyncingSubscription(subscriptionId, connectionId, subscriptionType);
+        }
+      case TRANSACTION_RECEIPTS:
+        {
+          return new TransactionReceiptsSubscription(
+              subscriptionId, connectionId, request.getTransactionHashes());
         }
       case NEW_PENDING_TRANSACTIONS:
       default:
