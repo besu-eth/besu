@@ -45,6 +45,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
+import org.hyperledger.besu.ethereum.mainnet.BlockAccessListValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockGasAccountingStrategy;
 import org.hyperledger.besu.ethereum.mainnet.BlockGasUsedValidator;
 import org.hyperledger.besu.ethereum.mainnet.CancunTargetingGasLimitCalculator;
@@ -178,6 +179,7 @@ public class EthGetTransactionReceiptTest {
           true,
           Optional.empty(),
           Optional.empty(),
+          BlockAccessListValidator.ALWAYS_REJECT_BAL,
           new DefaultStateRootCommitterFactory(),
           BlockGasAccountingStrategy.FRONTIER,
           BlockGasUsedValidator.FRONTIER);
@@ -214,6 +216,7 @@ public class EthGetTransactionReceiptTest {
           true,
           Optional.empty(),
           Optional.empty(),
+          BlockAccessListValidator.ALWAYS_REJECT_BAL,
           new DefaultStateRootCommitterFactory(),
           BlockGasAccountingStrategy.FRONTIER,
           BlockGasUsedValidator.FRONTIER);
