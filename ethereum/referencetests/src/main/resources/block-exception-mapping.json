@@ -89,6 +89,11 @@
     "_comment_tx_sender": "Transaction sender errors",
     "TransactionException.SENDER_NOT_EOA":                       "transaction invalid Sender 0x[0-9a-f]+ has deployed code and so is not authorized to send transactions",
 
+    "_comment_tx_type_pre_fork": "Transaction type not supported on this fork — Besu emits the same error for all unsupported types",
+    "TransactionException.TYPE_NOT_SUPPORTED":                     "transaction invalid Transaction type \\w+ is invalid, accepted transaction types are",
+    "TransactionException.TYPE_1_TX_PRE_FORK":                     "transaction invalid Transaction type \\w+ is invalid, accepted transaction types are",
+    "TransactionException.TYPE_2_TX_PRE_FORK":                     "transaction invalid Transaction type \\w+ is invalid, accepted transaction types are",
+
     "_comment_tx_blob": "Blob transaction (EIP-4844) errors — type 3 tx specific validations",
     "TR_TypeNotSupportedBlob":                                   "Transaction type BLOB is invalid, accepted transaction types are|replay protected signatures is not supported",
     "TransactionException.TYPE_3_TX_BLOB_COUNT_EXCEEDED":        "Blob transaction has too many blobs: \\d+|Invalid Blob Count: \\d+|Header validation failed \\(",
