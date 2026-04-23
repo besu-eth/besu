@@ -112,12 +112,6 @@ public class GeneralStateReferenceTestTools {
 
     // These are for the older reference tests but EIP-2537 is covered by eip2537_bls_12_381_precompiles in the execution-spec-tests
     params.ignore("/stEIP2537/");
-
-    // Obsolete fixture: present in the devnet bundle but the source `test_*` no longer
-    // exists in the current execution-specs. The current spec equivalent
-    // (test_create_oog_reservoir_inflation_detection) passes; this fixture ships an
-    // older expected stateRoot computed under different ordering rules.
-    params.ignore("test_code_deposit_oog_reservoir_inflation_detection");
   }
 
   private GeneralStateReferenceTestTools() {
