@@ -32,6 +32,7 @@ import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksD
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -100,7 +101,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   private final WriteOptions tryDeleteOptions =
       new WriteOptions().setNoSlowdown(true).setIgnoreMissingColumnFamilies(true);
-  private final ReadOptions readOptions = new ReadOptions().setVerifyChecksums(false);
+  private final ReadOptions readOptions =
+      new ReadOptions().setAsyncIo(true).setVerifyChecksums(false);
   private final MetricsSystem metricsSystem;
   private final RocksDBMetricsFactory rocksDBMetricsFactory;
 
@@ -418,6 +420,27 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
     try (final OperationTimer.TimingContext ignored = metrics.getReadLatency().startTimer()) {
       return Optional.ofNullable(getDB().get(safeColumnHandle(segment), readOptions, key));
+    } catch (final RocksDBException e) {
+      throw new StorageException(e);
+    }
+  }
+
+  @Override
+  public List<Optional<byte[]>> multiget(final SegmentIdentifier segment, final List<byte[]> keys)
+      throws StorageException {
+    throwIfClosed();
+    final ColumnFamilyHandle columnHandle = safeColumnHandle(segment);
+    try (final OperationTimer.TimingContext ignored = metrics.getMultiReadLatency().startTimer()) {
+      List<byte[]> rawResult =
+          getDB().multiGetAsList(readOptions, Collections.nCopies(keys.size(), columnHandle), keys);
+      if (rawResult == null) {
+        return Collections.nCopies(keys.size(), Optional.empty());
+      }
+      List<Optional<byte[]>> result = new ArrayList<>(rawResult.size());
+      for (byte[] value : rawResult) {
+        result.add(Optional.ofNullable(value));
+      }
+      return result;
     } catch (final RocksDBException e) {
       throw new StorageException(e);
     }

@@ -21,6 +21,7 @@ import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
 public class RocksDBMetrics {
 
   private final OperationTimer readLatency;
+  private final OperationTimer multiReadLatency;
   private final OperationTimer removeLatency;
   private final OperationTimer writeLatency;
   private final OperationTimer commitLatency;
@@ -30,6 +31,7 @@ public class RocksDBMetrics {
    * Instantiates a new RocksDb metrics.
    *
    * @param readLatency the read latency
+   * @param multiReadLatency the multi read latency
    * @param removeLatency the remove latency
    * @param writeLatency the write latency
    * @param commitLatency the commit latency
@@ -37,11 +39,13 @@ public class RocksDBMetrics {
    */
   public RocksDBMetrics(
       final OperationTimer readLatency,
+      final OperationTimer multiReadLatency,
       final OperationTimer removeLatency,
       final OperationTimer writeLatency,
       final OperationTimer commitLatency,
       final Counter rollbackCount) {
     this.readLatency = readLatency;
+    this.multiReadLatency = multiReadLatency;
     this.removeLatency = removeLatency;
     this.writeLatency = writeLatency;
     this.commitLatency = commitLatency;
@@ -55,6 +59,15 @@ public class RocksDBMetrics {
    */
   public OperationTimer getReadLatency() {
     return readLatency;
+  }
+
+  /**
+   * Gets multiread latency.
+   *
+   * @return the multiread latency
+   */
+  public OperationTimer getMultiReadLatency() {
+    return multiReadLatency;
   }
 
   /**

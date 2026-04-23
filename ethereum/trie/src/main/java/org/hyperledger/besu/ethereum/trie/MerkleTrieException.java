@@ -55,6 +55,7 @@ public class MerkleTrieException extends RuntimeException {
     this.hash = hash;
     this.location = location;
     this.maybeAddress = maybeAddress;
+    new Exception().printStackTrace(System.out);
   }
 
   public Optional<Address> getMaybeAddress() {
