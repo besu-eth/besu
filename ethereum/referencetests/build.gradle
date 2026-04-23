@@ -310,7 +310,7 @@ dependencies {
   // the following will be resolved via custom ivy repository declared in root build.gradle
   referenceTestImplementation(
     group: 'ethereum', name: 'execution-spec-tests',
-    version: 'v5.3.0', classifier: 'fixtures_develop', ext: 'tar.gz'
+    version: 'v5.4.0', classifier: 'fixtures_develop', ext: 'tar.gz'
     )
   devnetTarConfig(
     group: 'ethereum', name: 'execution-spec-tests',
