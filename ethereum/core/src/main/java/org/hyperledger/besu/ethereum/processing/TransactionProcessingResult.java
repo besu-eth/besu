@@ -52,6 +52,16 @@ public class TransactionProcessingResult
 
   private final long stateGasUsed;
 
+  /**
+   * EIP-8037 (per ethereum/EIPs #11532 item 6): worst-case intrinsic state gas overhead beyond what
+   * was actually charged to {@link #stateGasUsed}. For EIP-7702 transactions whose authorizations
+   * target existing accounts, the intrinsic_state_gas is immutable at the worst-case (112 + 23) ×
+   * cpsb per auth, so block accounting must add 112 × cpsb per existing delegator on top of the
+   * actually-charged state gas. Sender accounting still uses the actual (refunded) value via {@link
+   * #getStateGasUsed()}.
+   */
+  private long intrinsicStateGasOverhead;
+
   private final List<Log> logs;
 
   private final Bytes output;
@@ -351,6 +361,40 @@ public class TransactionProcessingResult
    */
   public long getStateGasUsed() {
     return stateGasUsed;
+  }
+
+  /**
+   * Returns the EIP-8037 intrinsic state gas overhead (ethereum/EIPs #11532 item 6). Block
+   * accounting must add this on top of {@link #getStateGasUsed()} so that the worst-case
+   * intrinsic_state_gas is reflected in {@code block_state_gas_used} (e.g. for EIP-7702 auths
+   * targeting existing accounts where the actual state gas paid is less than the immutable
+   * worst-case intrinsic).
+   *
+   * @return the intrinsic state gas overhead
+   */
+  public long getIntrinsicStateGasOverhead() {
+    return intrinsicStateGasOverhead;
+  }
+
+  /**
+   * Sets the intrinsic state gas overhead. Should be invoked by the transaction processor when the
+   * actual state gas paid is less than the worst-case intrinsic (e.g. EIP-7702 authorizations
+   * targeting existing accounts).
+   *
+   * @param overhead the overhead amount
+   */
+  public void setIntrinsicStateGasOverhead(final long overhead) {
+    this.intrinsicStateGasOverhead = overhead;
+  }
+
+  /**
+   * Returns the state gas used as seen by block-level accounting (EIP-8037 worst-case intrinsic):
+   * {@link #getStateGasUsed()} plus {@link #getIntrinsicStateGasOverhead()}.
+   *
+   * @return the state gas used for block accounting
+   */
+  public long getStateGasUsedForBlock() {
+    return stateGasUsed + intrinsicStateGasOverhead;
   }
 
   /**

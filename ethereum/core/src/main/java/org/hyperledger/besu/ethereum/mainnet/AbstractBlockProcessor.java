@@ -300,15 +300,14 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         if (!(transactionUpdater instanceof StackedUpdater<?, ?>)) {
           transactionUpdater = blockUpdater;
         }
-        // EIP-8037: 2D-aware budget check — delegates to BlockGasAccountingStrategy so that
-        // block import uses the same headroom logic as block building
-        // (BlockSizeTransactionSelector).
+        // EIP-8037 (per ethereum/EIPs #11536): per-dimension 2D-aware budget check using
+        // worst-case regular and state consumption derived from transaction intrinsics.
         if (!hasAvailableBlockBudget(
             blockHeader,
             transaction,
             cumulativeRegularGasUsed,
             cumulativeStateGasUsed,
-            protocolSpec.getBlockGasAccountingStrategy())) {
+            protocolSpec)) {
           return new BlockProcessingResult(Optional.empty(), "provided gas insufficient");
         }
 
@@ -376,8 +375,11 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         cumulativeReceiptGasUsed +=
             BlockGasAccountingStrategy.calculateReceiptGas(
                 transaction, transactionProcessingResult);
-        // EIP-8037: Accumulate state gas used
-        cumulativeStateGasUsed += transactionProcessingResult.getStateGasUsed();
+        // EIP-8037: Accumulate state gas used. Per ethereum/EIPs #11532 item 6, block accounting
+        // uses the immutable worst-case intrinsic_state_gas, so include the overhead (e.g. for
+        // EIP-7702 auths targeting existing accounts where 112×cpsb was refunded but block
+        // accounting still counts it).
+        cumulativeStateGasUsed += transactionProcessingResult.getStateGasUsedForBlock();
 
         // EIP-8037: Post-processing check — verify gas metered doesn't exceed block gas limit.
         final long gasMeteredSoFar =
@@ -609,18 +611,28 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final Transaction transaction,
       final long cumulativeRegularGasUsed,
       final long cumulativeStateGasUsed,
-      final BlockGasAccountingStrategy strategy) {
+      final ProtocolSpec protocolSpec) {
+    final BlockGasAccountingStrategy strategy = protocolSpec.getBlockGasAccountingStrategy();
+    final var gasCalculator = protocolSpec.getGasCalculator();
+    final var intrinsic =
+        TransactionIntrinsicGas.of(transaction, blockHeader.getGasLimit(), gasCalculator);
     if (!strategy.hasBlockCapacity(
         transaction.getGasLimit(),
+        intrinsic.regularGas(),
+        intrinsic.stateGas(),
+        gasCalculator.stateGasCostCalculator().transactionRegularGasLimit(),
         cumulativeRegularGasUsed,
         cumulativeStateGasUsed,
         blockHeader.getGasLimit())) {
       LOG.info(
           "Block processing error: transaction gas limit {} exceeds available block budget"
-              + " (regular={}, state={}, limit={}). Block {} Transaction {}",
+              + " (regular={}, state={}, intrinsicRegular={}, intrinsicState={}, limit={})."
+              + " Block {} Transaction {}",
           transaction.getGasLimit(),
           cumulativeRegularGasUsed,
           cumulativeStateGasUsed,
+          intrinsic.regularGas(),
+          intrinsic.stateGas(),
           blockHeader.getGasLimit(),
           blockHeader.getHash().getBytes().toHexString(),
           transaction.getHash().getBytes().toHexString());
