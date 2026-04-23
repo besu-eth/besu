@@ -186,7 +186,7 @@ public class MainnetBlockValidator implements BlockValidator {
 
       if (worldState == null) {
         var retval =
-            new BlockProcessingResult(
+            BlockProcessingResult.worldStateUnavailable(
                 "Unable to process block because parent world state "
                     + parentHeader.getStateRoot()
                     + " is not available");
