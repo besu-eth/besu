@@ -21,7 +21,7 @@ import java.util.Set;
 /** The enum Transaction type. */
 public enum TransactionType {
   /** The Frontier. */
-  FRONTIER(0xf8, 0x00),
+  FRONTIER(0xf8, 0x80),
   /** Access list transaction type. */
   ACCESS_LIST(0x01),
   /** Eip1559 transaction type. */
