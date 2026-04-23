@@ -23,13 +23,21 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 public class SimulateV1Parameter extends BlockSimulationParameter {
 
+  private final boolean traceBlockImport;
+
   @JsonCreator
   public SimulateV1Parameter(
       @JsonProperty("blockStateCalls") final List<JsonBlockStateCallParameter> blockStateCalls,
       @JsonProperty("validation") final boolean validation,
       @JsonProperty("traceTransfers") final boolean traceTransfers,
       @JsonProperty("returnFullTransactions") final boolean returnFullTransactions,
-      @JsonProperty("returnTrieLog") final boolean returnTrieLog) {
+      @JsonProperty("returnTrieLog") final boolean returnTrieLog,
+      @JsonProperty("traceBlockImport") final boolean traceBlockImport) {
     super(blockStateCalls, validation, traceTransfers, returnFullTransactions, returnTrieLog);
+    this.traceBlockImport = traceBlockImport;
+  }
+
+  public boolean isTraceBlockImport() {
+    return traceBlockImport;
   }
 }

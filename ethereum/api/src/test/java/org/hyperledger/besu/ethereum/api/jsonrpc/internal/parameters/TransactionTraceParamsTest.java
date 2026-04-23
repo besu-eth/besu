@@ -85,4 +85,50 @@ public class TransactionTraceParamsTest {
         .describedAs("explicit disableMemory=true should be respected")
         .isFalse();
   }
+
+  @Test
+  public void enableMemoryTrueShouldEnableMemory() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue("{\"enableMemory\": true}", TransactionTraceParams.class);
+    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
+
+    assertThat(config.traceMemory())
+        .describedAs("enableMemory=true should enable memory tracing")
+        .isTrue();
+  }
+
+  @Test
+  public void enableMemoryFalseShouldDisableMemory() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue("{\"enableMemory\": false}", TransactionTraceParams.class);
+    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
+
+    assertThat(config.traceMemory())
+        .describedAs("enableMemory=false should disable memory tracing")
+        .isFalse();
+  }
+
+  @Test
+  public void enableMemoryShouldTakePrecedenceOverDisableMemory() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue(
+            "{\"enableMemory\": true, \"disableMemory\": true}", TransactionTraceParams.class);
+    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
+
+    assertThat(config.traceMemory())
+        .describedAs("enableMemory should take precedence over disableMemory")
+        .isTrue();
+  }
+
+  @Test
+  public void nonOpcodeTracerShouldRespectExplicitEnableMemoryFalse() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue(
+            "{\"tracer\": \"callTracer\", \"enableMemory\": false}", TransactionTraceParams.class);
+    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
+
+    assertThat(config.traceMemory())
+        .describedAs("explicit enableMemory=false should be respected for callTracer")
+        .isFalse();
+  }
 }

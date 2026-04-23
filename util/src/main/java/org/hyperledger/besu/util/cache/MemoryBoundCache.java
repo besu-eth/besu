@@ -16,6 +16,7 @@ package org.hyperledger.besu.util.cache;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import org.jspecify.annotations.Nullable;
 
 /**
  * A memory-bound cache that uses Caffeine to limit the size of the cache based on the memory
@@ -61,7 +62,7 @@ public class MemoryBoundCache<K, V> {
    * @param key the key whose associated value is to be returned
    * @return the value associated with the key, or null if not present
    */
-  public V getIfPresent(final K key) {
+  public @Nullable V getIfPresent(final K key) {
     return cache.getIfPresent(key);
   }
 

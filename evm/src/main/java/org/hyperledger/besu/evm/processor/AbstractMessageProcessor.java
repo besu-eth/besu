@@ -152,10 +152,9 @@ public abstract class AbstractMessageProcessor {
    *
    * @param frame The message frame
    */
-  private void handleStateGasSpill(final MessageFrame frame) {
+  private void handleStateGasSpill(final MessageFrame frame, final boolean isInitialFrame) {
     final long stateGasUsedBefore = frame.getStateGasUsed();
     final long reservoirBefore = frame.getStateGasReservoir();
-    final boolean isInitialFrame = frame.getMessageFrameStack().size() == 1;
 
     clearAccumulatedStateBesidesGasAndOutput(frame);
 
@@ -163,14 +162,17 @@ public abstract class AbstractMessageProcessor {
     final long reservoirRestored = frame.getStateGasReservoir() - reservoirBefore;
 
     if (isInitialFrame) {
-      // EIP-8037: Preserve the reservoir for top-level refund. Use the max of the pre-rollback
-      // value (which may include child frame refunds that must not be lost) and the post-rollback
-      // value (which reflects any reservoir drain rollback has already restored).
-      final long reservoirPostRollback = frame.getStateGasReservoir();
-      final long preservedReservoir = Math.max(reservoirPostRollback, reservoirBefore);
-      if (preservedReservoir != reservoirPostRollback) {
-        frame.setStateGasReservoir(preservedReservoir);
+      // EIP-8037: For initial-frame halt/revert, state gas consumed by ops is final for block
+      // accounting (spec: `tx_state_gas = intrinsic_state_gas + state_gas_used`). The portion
+      // that spilled from gasRemaining is already accounted via stateGasSpillBurned below; the
+      // portion drained from the reservoir (reservoirRestored) was rolled back by the undo but
+      // must still count as consumed state gas, so add it back to stateGasUsed. Then preserve
+      // the actual pre-rollback reservoir value so drain is reflected in total gas returned to
+      // the sender.
+      if (reservoirRestored > 0) {
+        frame.incrementStateGasUsed(reservoirRestored);
       }
+      frame.setStateGasReservoir(reservoirBefore);
       // Only burn the portion of state gas that actually spilled into gasRemaining (not the
       // portion that was drawn from the reservoir and has already been restored, and not the
       // portion that child frames had refunded to the reservoir).
@@ -188,12 +190,38 @@ public abstract class AbstractMessageProcessor {
   }
 
   /**
+   * Snapshots the initial frame's gasRemaining into {@code initialFrameRegularHaltBurn} when a
+   * pre-execution halt fires on the initial frame (e.g. EIP-684 CREATE collision) so that gas paid
+   * by the sender but never spent on regular or state work is excluded from block regular gas. When
+   * opcode execution has already run on the frame, the halt-burn must remain in block regular gas
+   * (no-op here).
+   *
+   * @param frame the initial (depth-0) message frame
+   */
+  private static void recordInitialFrameRegularHaltBurn(final MessageFrame frame) {
+    if (frame.isCodeExecuted()) {
+      return;
+    }
+    final long haltBurn = frame.getRemainingGas();
+    if (haltBurn > 0) {
+      frame.accumulateInitialFrameRegularHaltBurn(haltBurn);
+    }
+  }
+
+  /**
    * Gets called when the message frame encounters an exceptional halt.
    *
    * @param frame The message frame
    */
   private void exceptionalHalt(final MessageFrame frame) {
-    handleStateGasSpill(frame);
+    final boolean isInitialFrame = frame.getMessageFrameStack().size() == 1;
+
+    handleStateGasSpill(frame, isInitialFrame);
+
+    if (isInitialFrame) {
+      recordInitialFrameRegularHaltBurn(frame);
+    }
+
     frame.clearGasRemaining();
     frame.clearOutputData();
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
@@ -205,7 +233,9 @@ public abstract class AbstractMessageProcessor {
    * @param frame The message frame
    */
   protected void revert(final MessageFrame frame) {
-    handleStateGasSpill(frame);
+    final boolean isInitialFrame = frame.getMessageFrameStack().size() == 1;
+    handleStateGasSpill(frame, isInitialFrame);
+
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
   }
 
@@ -237,6 +267,7 @@ public abstract class AbstractMessageProcessor {
    * @param operationTracer The tracer recording execution
    */
   private void codeExecute(final MessageFrame frame, final OperationTracer operationTracer) {
+    frame.markCodeExecuted();
     try {
       evm.runToHalt(frame, operationTracer);
     } catch (final ModificationNotAllowedException e) {
