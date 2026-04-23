@@ -527,16 +527,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     return Optional.empty();
   }
 
-  protected static class InvalidBlockAccessListException extends Exception {
-    InvalidBlockAccessListException(final String message) {
-      super(message);
-    }
-
-    InvalidBlockAccessListException(final String message, final Throwable cause) {
-      super(message, cause);
-    }
-  }
-
   protected ValidationResult<RpcErrorType> validateBlobs(
       final List<Transaction> blobTransactions,
       final BlockHeader header,

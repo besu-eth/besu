@@ -50,6 +50,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineN
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV5;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EnginePreparePayloadDebug;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineQosTimer;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.NewPayloadProcessor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
@@ -112,6 +113,9 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
   protected Map<String, JsonRpcMethod> create() {
     final EngineQosTimer engineQosTimer = new EngineQosTimer(consensusEngineServer);
     if (mergeCoordinator.isPresent()) {
+      final NewPayloadProcessor newPayloadProcessor =
+          new NewPayloadProcessor(
+              protocolSchedule, protocolContext, mergeCoordinator.get(), ethPeers, metricsSystem);
       List<JsonRpcMethod> executionEngineApisSupported = new ArrayList<>();
       executionEngineApisSupported.addAll(
           Arrays.asList(
@@ -267,10 +271,8 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
                 consensusEngineServer,
                 protocolSchedule,
                 protocolContext,
-                mergeCoordinator.get(),
-                ethPeers,
                 engineQosTimer,
-                metricsSystem));
+                newPayloadProcessor));
         executionEngineApisSupported.add(
             new EngineForkchoiceUpdatedV4(
                 consensusEngineServer,
