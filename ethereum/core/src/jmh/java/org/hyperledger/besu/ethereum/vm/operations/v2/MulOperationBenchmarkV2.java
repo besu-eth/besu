@@ -36,6 +36,6 @@ public class MulOperationBenchmarkV2 extends BinaryArithmeticOperationBenchmarkV
 
   @Override
   protected String opCode() {
-    return "MOD";
+    return "MUL";
   }
 }
