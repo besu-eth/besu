@@ -1720,7 +1720,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
         transactionSelectionService,
         protocolSchedule,
         Optional.empty(),
-            inclusionListTransactions);
+        inclusionListTransactions);
   }
 
   protected BlockTransactionSelector createBlockSelector(
@@ -1751,7 +1751,8 @@ public abstract class AbstractBlockTransactionSelectorTest {
                 blockHeader, selectorsStateManager),
             ethScheduler,
             selectorsStateManager,
-            maybeBalBuilder, inclusionListTransactions);
+            maybeBalBuilder,
+            inclusionListTransactions);
 
     return selector;
   }
