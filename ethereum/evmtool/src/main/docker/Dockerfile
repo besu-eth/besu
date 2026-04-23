@@ -1,10 +1,10 @@
-# syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1@sha256:369c4e6584693f8e13d7a27755a6b10201798e229cdfad5eae04ea5f15a76412
 
 # Stage: Use Eclipse Temurin JRE
-FROM eclipse-temurin:25-jre AS java-base
+FROM mirror.gcr.io/library/eclipse-temurin@sha256:1bda4d9e668f44f399abed30636c34e0befb727408fba27b1e6aaefcf9df346b AS java-base
 
 # Stage: Final Besu EVMTool image
-FROM ubuntu:24.04
+FROM mirror.gcr.io/library/ubuntu:24.04@sha256:cdb5fd928fced577cfecf12c8966e830fcdf42ee481fb0b91904eeddc2fe5eff
 ARG VERSION="dev"
 ENV NO_PROXY_CACHE="-o Acquire::BrokenProxy=true -o Acquire::http::No-Cache=true -o Acquire::http::Pipeline-Depth=0"
 
