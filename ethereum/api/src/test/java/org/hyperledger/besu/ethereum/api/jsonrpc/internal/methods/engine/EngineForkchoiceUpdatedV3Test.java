@@ -44,13 +44,12 @@ import org.mockito.quality.Strictness;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
-public class EngineForkchoiceUpdatedV4Test extends AbstractEngineForkchoiceUpdatedTest {
+public class EngineForkchoiceUpdatedV3Test extends AbstractEngineForkchoiceUpdatedTest {
 
   private static final Bytes32 MOCK_PBSR = Bytes32.fromHexStringLenient("0xBEEF");
-  private static final String MOCK_SLOT = "0x1";
 
-  public EngineForkchoiceUpdatedV4Test() {
-    super(EngineForkchoiceUpdatedV4::new);
+  public EngineForkchoiceUpdatedV3Test() {
+    super(EngineForkchoiceUpdatedV3::new);
   }
 
   @Override
@@ -62,7 +61,7 @@ public class EngineForkchoiceUpdatedV4Test extends AbstractEngineForkchoiceUpdat
         Address.ECREC.toHexString(),
         withdrawals,
         MOCK_PBSR.toHexString(),
-        MOCK_SLOT,
+        null,
         null);
   }
 
@@ -73,23 +72,28 @@ public class EngineForkchoiceUpdatedV4Test extends AbstractEngineForkchoiceUpdat
   }
 
   @Override
-  protected Optional<Long> getSlotNumber(final EnginePayloadAttributesParameter params) {
-    return Optional.ofNullable(params.getSlotNumber());
+  @Test
+  public void shouldReturnExpectedMethodName() {
+    assertThat(method.getName()).isEqualTo("engine_forkchoiceUpdatedV3");
+  }
+
+  @Override
+  protected String getMethodName() {
+    return RpcMethod.ENGINE_FORKCHOICE_UPDATED_V3.getMethodName();
+  }
+
+  @Override
+  protected RpcErrorType expectedInvalidPayloadError() {
+    return RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES;
   }
 
   @Override
   protected long defaultPayloadTimestamp() {
-    return AMSTERDAM_MILESTONE + 1;
-  }
-
-  @Override
-  @Test
-  public void shouldReturnExpectedMethodName() {
-    assertThat(method.getName()).isEqualTo("engine_forkchoiceUpdatedV4");
+    return CANCUN_MILESTONE + 1;
   }
 
   @Test
-  public void shouldReturnInvalidSlotNumberWhenMissingSlotNumber() {
+  public void shouldReturnInvalidPayloadAttributesWhenMissingParentBeaconBlockRoot() {
     when(protocolSpec.getWithdrawalsValidator())
         .thenReturn(new WithdrawalsValidator.AllowedWithdrawals());
     BlockHeader mockParent =
@@ -108,9 +112,9 @@ public class EngineForkchoiceUpdatedV4Test extends AbstractEngineForkchoiceUpdat
             Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
             Address.ECREC.toString(),
             List.of(),
-            MOCK_PBSR.toHexString(),
             null,
-            List.of());
+            null,
+            null);
 
     var resp =
         resp(
@@ -120,11 +124,11 @@ public class EngineForkchoiceUpdatedV4Test extends AbstractEngineForkchoiceUpdat
 
     assertThat(resp.getType()).isEqualTo(RpcResponseType.ERROR);
     assertThat(((JsonRpcErrorResponse) resp).getErrorType())
-        .isEqualTo(RpcErrorType.INVALID_SLOT_NUMBER_PARAMS);
+        .isEqualTo(RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES);
   }
 
   @Test
-  public void shouldReturnValidPayloadAttributesWhenSlotNumberPresent() {
+  public void shouldReturnValidPayloadAttributesWhenParentBeaconBlockRootPresent() {
     when(protocolSpec.getWithdrawalsValidator())
         .thenReturn(new WithdrawalsValidator.AllowedWithdrawals());
     BlockHeader mockParent =
@@ -137,14 +141,16 @@ public class EngineForkchoiceUpdatedV4Test extends AbstractEngineForkchoiceUpdat
             .buildHeader();
     setupValidForkchoiceUpdate(mockHeader);
 
+    final Bytes32 parentBeaconBlockRoot = Bytes32.fromHexStringLenient("0xf00b45");
+
     var payloadParams =
         new EnginePayloadAttributesParameter(
             String.valueOf(defaultPayloadTimestamp()),
             Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
             Address.ECREC.toString(),
             List.of(),
-            MOCK_PBSR.toHexString(),
-            MOCK_SLOT,
+            parentBeaconBlockRoot.toHexString(),
+            null,
             null);
 
     var mockPayloadId =
@@ -154,8 +160,8 @@ public class EngineForkchoiceUpdatedV4Test extends AbstractEngineForkchoiceUpdat
             payloadParams.getPrevRandao(),
             payloadParams.getSuggestedFeeRecipient(),
             Optional.of(List.of()),
-            getParentBeaconBlockRoot(payloadParams),
-            getSlotNumber(payloadParams),
+            Optional.of(parentBeaconBlockRoot),
+            Optional.empty(),
             List.of());
 
     when(mergeCoordinator.preparePayload(
@@ -164,8 +170,8 @@ public class EngineForkchoiceUpdatedV4Test extends AbstractEngineForkchoiceUpdat
             payloadParams.getPrevRandao(),
             Address.ECREC,
             Optional.of(List.of()),
-            getParentBeaconBlockRoot(payloadParams),
-            getSlotNumber(payloadParams),
+            Optional.of(parentBeaconBlockRoot),
+            Optional.empty(),
             List.of()))
         .thenReturn(mockPayloadId);
 
@@ -175,15 +181,5 @@ public class EngineForkchoiceUpdatedV4Test extends AbstractEngineForkchoiceUpdat
         MergeMiningCoordinator.ForkchoiceResult.withResult(
             Optional.empty(), Optional.of(mockHeader)),
         VALID);
-  }
-
-  @Override
-  protected String getMethodName() {
-    return RpcMethod.ENGINE_FORKCHOICE_UPDATED_V4.getMethodName();
-  }
-
-  @Override
-  protected RpcErrorType expectedInvalidPayloadError() {
-    return RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES;
   }
 }
