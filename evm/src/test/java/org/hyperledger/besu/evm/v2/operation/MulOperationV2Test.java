@@ -86,8 +86,8 @@ class MulOperationV2Test {
   }
 
   @Test
-  void mulOperationUnderflowNoItems() {
-    final MessageFrame frame = new TestMessageFrameBuilderV2().build();
+  void shouldUnderflowNoItemsEvenOOG() {
+    final MessageFrame frame = new TestMessageFrameBuilderV2().initialGas(1L).build();
     assertThat(frame.stackTopV2()).isEqualTo(0);
 
     final Operation.OperationResult result = MulOperationV2.staticOperation(frame);
@@ -97,7 +97,7 @@ class MulOperationV2Test {
   }
 
   @Test
-  void mulOperationUnderflowOnlyOneItem() {
+  void shouldUnderflowOnlyOneItem() {
     final MessageFrame frame =
         new TestMessageFrameBuilderV2()
             .pushStackItem(Bytes32.fromHexString("0x01")) // top-2, missing top-1
@@ -111,7 +111,7 @@ class MulOperationV2Test {
   }
 
   @Test
-  void mulOperationPreservesDeeperStackItems() {
+  void shouldPreservesDeeperStackItems() {
     // Use a distinctive 4-limb value for the untouched deep slot so any accidental write is
     // detectable in any limb.
     final Bytes32 untouched =
@@ -142,5 +142,21 @@ class MulOperationV2Test {
     final Operation.OperationResult result = operation.execute(frame, null);
 
     assertThat(result.getGasCost()).isEqualTo(gasCalculator.getLowTierGasCost());
+  }
+
+  @Test
+  void shouldHaltOnInsufficientGas() {
+    final MessageFrame frame =
+        new TestMessageFrameBuilderV2()
+            .pushStackItem(Bytes32.ZERO)
+            .pushStackItem(Bytes32.ZERO)
+            .initialGas(1L)
+            .build();
+    assertThat(frame.stackTopV2()).isEqualTo(2);
+
+    final Operation.OperationResult result = operation.execute(frame, null);
+
+    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
+    assertThat(frame.stackTopV2()).isEqualTo(2);
   }
 }
