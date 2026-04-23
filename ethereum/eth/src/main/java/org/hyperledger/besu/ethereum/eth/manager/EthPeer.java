@@ -612,6 +612,30 @@ public class EthPeer implements Comparable<EthPeer> {
         .sum();
   }
 
+  public double getP50Latency() {
+    return 0.0;
+  }
+
+  public double getP95Latency() {
+    return 0.0;
+  }
+
+  public double getP99Latency() {
+    return 0.0;
+  }
+
+  public double getSuccessRate() {
+    return 0.0;
+  }
+
+  public double getTotalBytesTransferred() {
+    return 0.0;
+  }
+
+  public double getAverageBytesPerResponse() {
+    return 0.0;
+  }
+
   public long getLastRequestTimestamp() {
     return lastRequestTimestamp;
   }
