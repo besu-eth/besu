@@ -124,6 +124,7 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
           this.getName());
       return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.TIMEOUT_ERROR);
     } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
       LOG.error("Failed to get execution engine response", e);
       return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.TIMEOUT_ERROR);
     } catch (ExecutionException e) {
