@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -14,8 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -32,11 +31,15 @@ import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class EngineForkchoiceUpdatedV3 extends AbstractEngineForkchoiceUpdated {
+/**
+ * The EngineForkchoiceUpdatedV5 method for Bogotà fork with inclusionListTransaction support
+ * (EIP-7805).
+ */
+public class EngineForkchoiceUpdatedV5 extends AbstractEngineForkchoiceUpdated {
 
-  private static final Logger LOG = LoggerFactory.getLogger(EngineForkchoiceUpdatedV3.class);
+  private static final Logger LOG = LoggerFactory.getLogger(EngineForkchoiceUpdatedV5.class);
 
-  public EngineForkchoiceUpdatedV3(
+  public EngineForkchoiceUpdatedV5(
       final Vertx vertx,
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
@@ -47,13 +50,12 @@ public class EngineForkchoiceUpdatedV3 extends AbstractEngineForkchoiceUpdated {
 
   @Override
   public String getName() {
-    return RpcMethod.ENGINE_FORKCHOICE_UPDATED_V3.getMethodName();
+    return RpcMethod.ENGINE_FORKCHOICE_UPDATED_V5.getMethodName();
   }
 
   @Override
   protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    return ForkSupportHelper.validateForkSupported(
-        CANCUN, cancunMilestone, AMSTERDAM, amsterdamMilestone, blockTimestamp);
+    return ForkSupportHelper.validateForkSupported(BOGOTA, bogotaMilestone, blockTimestamp);
   }
 
   @Override
@@ -66,9 +68,18 @@ public class EngineForkchoiceUpdatedV3 extends AbstractEngineForkchoiceUpdated {
       return Optional.of(new JsonRpcErrorResponse(requestId, getInvalidPayloadAttributesError()));
     }
 
-    if (payloadAttributes.getSlotNumber() != null) {
-      LOG.error("Slot number present in payload attributes before Amsterdam hardfork");
-      return Optional.of(new JsonRpcErrorResponse(requestId, getInvalidPayloadAttributesError()));
+    if (payloadAttributes.getSlotNumber() == null) {
+      LOG.error("Slot number not present in payload attributes after Amsterdam hardfork");
+      return Optional.of(
+          new JsonRpcErrorResponse(requestId, RpcErrorType.INVALID_SLOT_NUMBER_PARAMS));
+    }
+
+    if (payloadAttributes.getInclusionListTransactions() == null) {
+      LOG.error(
+          "Inclusion list transactions not present in payload attributes after Bogota hardfork");
+      return Optional.of(
+          new JsonRpcErrorResponse(
+              requestId, RpcErrorType.INVALID_INCLUSION_LIST_TRANSACTIONS_PARAMS));
     }
 
     if (payloadAttributes.getTimestamp() == 0) {
