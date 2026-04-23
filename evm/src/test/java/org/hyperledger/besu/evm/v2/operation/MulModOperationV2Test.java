@@ -120,10 +120,12 @@ class MulModOperationV2Test {
 
   @Test
   void shouldHaltOnInsufficientGas() {
-    final MessageFrame frame = new TestMessageFrameBuilderV2()
+    final MessageFrame frame =
+        new TestMessageFrameBuilderV2()
             .pushStackItem(Bytes32.ZERO)
             .pushStackItem(Bytes32.ZERO)
-            .initialGas(1L).build();
+            .initialGas(1L)
+            .build();
     assertThat(frame.stackTopV2()).isEqualTo(2);
 
     final Operation.OperationResult result = operation.execute(frame, null);

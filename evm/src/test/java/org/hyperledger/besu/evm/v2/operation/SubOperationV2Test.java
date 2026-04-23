@@ -17,7 +17,6 @@ package org.hyperledger.besu.evm.v2.operation;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2.getV2StackItem;
 
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.UInt256;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
@@ -149,10 +148,12 @@ class SubOperationV2Test {
 
   @Test
   void shouldHaltOnInsufficientGas() {
-    final MessageFrame frame = new TestMessageFrameBuilderV2()
+    final MessageFrame frame =
+        new TestMessageFrameBuilderV2()
             .pushStackItem(Bytes32.ZERO)
             .pushStackItem(Bytes32.ZERO)
-            .initialGas(1L).build();
+            .initialGas(1L)
+            .build();
     assertThat(frame.stackTopV2()).isEqualTo(2);
 
     final Operation.OperationResult result = operation.execute(frame, null);
