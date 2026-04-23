@@ -14,8 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.systemcall;
 
-public class InvalidSystemCallAddressException extends RuntimeException {
-  public InvalidSystemCallAddressException(final String message) {
+public class SystemCallNoCodeAtAddressException extends RuntimeException {
+  public SystemCallNoCodeAtAddressException(final String message) {
     super(message);
   }
 }
