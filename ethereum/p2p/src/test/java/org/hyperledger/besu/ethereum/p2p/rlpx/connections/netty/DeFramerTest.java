@@ -112,7 +112,8 @@ public class DeFramerTest {
   private final LocalNode localNode =
       LocalNode.create(clientId, p2pVersion, capabilities, localEnode);
 
-  private final DeFramer deFramer = createDeFramer(null, Optional.empty());
+  private final Bytes authenticatedNodeId = Peer.randomId();
+  private final DeFramer deFramer = createDeFramer(null, Optional.empty(), authenticatedNodeId);
 
   @BeforeEach
   @SuppressWarnings("unchecked")
@@ -183,6 +184,7 @@ public class DeFramerTest {
 
     final Peer peer = createRemotePeer();
     final PeerInfo remotePeerInfo = createPeerInfo(peer);
+    final DeFramer deFramer = createDeFramer(null, Optional.empty(), peer.getId());
 
     final HelloMessage helloMessage = HelloMessage.create(remotePeerInfo);
     final ByteBuf data = Unpooled.wrappedBuffer(helloMessage.getData().toArray());
@@ -229,7 +231,7 @@ public class DeFramerTest {
     final Peer peer = createRemotePeer();
     final PeerInfo remotePeerInfo =
         new PeerInfo(p2pVersion, clientId, capabilities, 0, peer.getId());
-    final DeFramer deFramer = createDeFramer(null, Optional.empty());
+    final DeFramer deFramer = createDeFramer(null, Optional.empty(), peer.getId());
 
     final HelloMessage helloMessage = HelloMessage.create(remotePeerInfo);
     final ByteBuf data = Unpooled.wrappedBuffer(helloMessage.getData().toArray());
@@ -288,7 +290,7 @@ public class DeFramerTest {
         DiscoveryPeerV4.from(DefaultPeer.fromURI(enodeURLString));
     final ForkId forkId = new ForkId(Bytes.fromHexString("0x190a55ad"), 4L);
     discoveryPeer.orElseThrow().setForkId(forkId);
-    final DeFramer deFramer = createDeFramer(null, discoveryPeer);
+    final DeFramer deFramer = createDeFramer(null, discoveryPeer, peer.getId());
     final ByteBuf data = Unpooled.wrappedBuffer(helloMessage.getData().toArray());
     when(framer.deframe(eq(data)))
         .thenReturn(new RawMessage(helloMessage.getCode(), helloMessage.getData()))
@@ -304,20 +306,15 @@ public class DeFramerTest {
   }
 
   @Test
-  public void decode_handlesUnexpectedPeerId() {
+  public void decode_handlesHelloNodeIdMismatchWithHandshake() {
     final ChannelFuture future = NettyMocks.channelFuture(false);
     when(channel.closeFuture()).thenReturn(future);
 
-    final Peer peer = createRemotePeer();
+    final Bytes authenticatedId = Peer.randomId();
     final Bytes mismatchedId = Peer.randomId();
     final PeerInfo remotePeerInfo =
-        new PeerInfo(
-            p2pVersion,
-            clientId,
-            capabilities,
-            peer.getEnodeURL().getListeningPortOrZero(),
-            mismatchedId);
-    final DeFramer deFramer = createDeFramer(peer, Optional.empty());
+        new PeerInfo(p2pVersion, clientId, capabilities, 30303, mismatchedId);
+    final DeFramer deFramer = createDeFramer(null, Optional.empty(), authenticatedId);
 
     final HelloMessage helloMessage = HelloMessage.create(remotePeerInfo);
     final ByteBuf data = Unpooled.wrappedBuffer(helloMessage.getData().toArray());
@@ -331,12 +328,10 @@ public class DeFramerTest {
     assertThat(connectFuture).isCompletedExceptionally();
     assertThatThrownBy(connectFuture::get)
         .hasCauseInstanceOf(UnexpectedPeerConnectionException.class)
-        .hasMessageContaining("Expected id " + peer.getId().toString());
+        .hasMessageContaining("Hello nodeId does not match handshake identity");
 
     assertThat(out).isEmpty();
-
-    // Next phase of pipeline should be setup
-    verify(pipeline, times(1)).addLast(any(ChannelHandler[].class));
+    verify(ctx).close();
   }
 
   @Test
@@ -344,13 +339,11 @@ public class DeFramerTest {
     final ChannelFuture future = NettyMocks.channelFuture(false);
     when(channel.closeFuture()).thenReturn(future);
 
+    final Bytes nodeId = Peer.randomId();
     final PeerInfo remotePeerInfo =
         new PeerInfo(
-            p2pVersion,
-            "bla",
-            Arrays.asList(Capability.create("eth", 254)),
-            30303,
-            Peer.randomId());
+            p2pVersion, "bla", Arrays.asList(Capability.create("eth", 254)), 30303, nodeId);
+    final DeFramer deFramer = createDeFramer(null, Optional.empty(), nodeId);
     final HelloMessage helloMessage = HelloMessage.create(remotePeerInfo);
     final ByteBuf data = Unpooled.wrappedBuffer(helloMessage.getData().toArray());
     when(framer.deframe(eq(data)))
@@ -392,6 +385,7 @@ public class DeFramerTest {
     final Peer peer = createRemotePeer();
     final PeerInfo remotePeerInfo =
         new PeerInfo(p2pVersion, clientId, capabilities, 0, peer.getId());
+    final DeFramer deFramer = createDeFramer(null, Optional.empty(), peer.getId());
     final HelloMessage helloMessage = HelloMessage.create(remotePeerInfo);
     final ByteBuf data = Unpooled.wrappedBuffer(helloMessage.getData().toArray());
     when(framer.deframe(any()))
@@ -458,7 +452,9 @@ public class DeFramerTest {
   }
 
   private DeFramer createDeFramer(
-      final Peer expectedPeer, final Optional<DiscoveryPeerV4> peerInPeerTable) {
+      final Peer expectedPeer,
+      final Optional<DiscoveryPeerV4> peerInPeerTable,
+      final Bytes nodeId) {
     final PeerTable peerTable = new PeerTable(localNode.getPeerInfo().getNodeId());
     PeerLookup peerLookup = new PeerLookup();
     peerLookup.set(peer -> peerTable.get(peer).map(p -> p));
@@ -473,6 +469,7 @@ public class DeFramerTest {
         new NoOpMetricsSystem(),
         true,
         peerLookup,
-        RlpxConfiguration.DEFAULT_MAX_MESSAGE_SIZE);
+        RlpxConfiguration.DEFAULT_MAX_MESSAGE_SIZE,
+        nodeId);
   }
 }

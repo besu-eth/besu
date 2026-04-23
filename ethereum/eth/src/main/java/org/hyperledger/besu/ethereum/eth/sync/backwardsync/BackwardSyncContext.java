@@ -350,6 +350,18 @@ public class BackwardSyncContext {
       possiblyMoveHead(block);
       logBlockImportProgress(block.getHeader().getNumber());
     } else {
+      if (optResult.isWorldStateUnavailable()) {
+        LOG.warn(
+            "Backward sync halted: parent world state is unavailable while validating block {}. "
+                + "This may indicate snap sync completed with an incomplete world state. "
+                + "Call debug_resyncWorldState to repair the world state and resume syncing.",
+            block.toLogString());
+        throw new BackwardSyncException(
+            "Parent world state unavailable for block "
+                + block.toLogString()
+                + " backward sync halted. Run debug_resyncWorldState to recover.",
+            false);
+      }
       emitBadChainEvent(block);
       throw new BackwardSyncException(
           "Cannot save block "
