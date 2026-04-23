@@ -30,11 +30,8 @@ import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.SelfBalanceOperation;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
-import java.io.IOException;
-import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Measurement;
@@ -44,6 +41,7 @@ import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
 import org.openjdk.jmh.annotations.Warmup;
+import org.openjdk.jmh.infra.Blackhole;
 
 @State(Scope.Thread)
 @Warmup(iterations = 2, time = 3, timeUnit = TimeUnit.SECONDS)
@@ -52,65 +50,41 @@ import org.openjdk.jmh.annotations.Warmup;
 @BenchmarkMode(Mode.AverageTime)
 public class SelfBalanceOperationBenchmark {
 
-  private static final int NUMBER_ADDRESSES = 20000;
-  private static final Random RANDOM_GENERATOR = new Random();
   private SelfBalanceOperation operation;
-  private MessageFrame[] frames;
-  private int executingFrameIndex = 0;
-
-  private MessageFrame createMessageFrame(
-      final Blockchain blockchain,
-      final WorldUpdater worldUpdater,
-      final ExecutionContextTestFixture executionContextTestFixture,
-      final Address address) {
-    final BlockHeader blockHeader = new BlockHeaderTestFixture().buildHeader();
-    return new MessageFrameTestFixture()
-        .address(address)
-        .worldUpdater(worldUpdater)
-        .blockHeader(blockHeader)
-        .executionContextTestFixture(executionContextTestFixture)
-        .blockchain(blockchain)
-        .build();
-  }
-
-  private WorldUpdater createWorldUpdater(final Blockchain blockchain, final Address[] addresses)
-      throws IOException {
-    final WorldUpdater worldStateUpdater;
-    try (WorldStateArchive worldStateArchive = createBonsaiInMemoryWorldStateArchive(blockchain)) {
-      worldStateUpdater = worldStateArchive.getWorldState().updater();
-    }
-    for (Address address : addresses) {
-      worldStateUpdater.getOrCreate(address).setBalance(Wei.of(1));
-    }
-    worldStateUpdater.commit();
-    return worldStateUpdater;
-  }
+  private MessageFrame frame;
 
   @Setup
   public void prepare() throws Exception {
     operation = new SelfBalanceOperation(mock(GasCalculator.class));
     final Blockchain blockchain = mock(Blockchain.class);
-    final Address[] addresses = new Address[NUMBER_ADDRESSES];
-    for (int j = 0; j < addresses.length; j++) {
-      final byte[] address = new byte[Address.SIZE];
-      RANDOM_GENERATOR.nextBytes(address);
-      addresses[j] = Address.wrap(Bytes.wrap(address));
+    final Address address = Address.fromHexString("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+
+    final WorldUpdater worldUpdater;
+    try (WorldStateArchive archive = createBonsaiInMemoryWorldStateArchive(blockchain)) {
+      worldUpdater = archive.getWorldState().updater();
     }
-    frames = new MessageFrame[NUMBER_ADDRESSES];
-    final WorldUpdater worldUpdater = createWorldUpdater(blockchain, addresses);
+    worldUpdater.getOrCreate(address).setBalance(Wei.of(1));
+    worldUpdater.commit();
+
     final ExecutionContextTestFixture executionContextTestFixture =
         ExecutionContextTestFixture.create();
-    for (int i = 0; i < NUMBER_ADDRESSES; i++) {
-      frames[i] =
-          createMessageFrame(blockchain, worldUpdater, executionContextTestFixture, addresses[0]);
-    }
+    final BlockHeader blockHeader = new BlockHeaderTestFixture().buildHeader();
+    frame =
+        new MessageFrameTestFixture()
+            .address(address)
+            .worldUpdater(worldUpdater)
+            .blockHeader(blockHeader)
+            .executionContextTestFixture(executionContextTestFixture)
+            .blockchain(blockchain)
+            .build();
+
+    // Pre-warm: force trie path into memory
+    worldUpdater.get(address);
   }
 
   @Benchmark
-  public void executeOperation() {
-    final MessageFrame executingFrame = frames[executingFrameIndex++];
-    operation.execute(executingFrame, null);
-    executingFrame.popStackItem();
-    executingFrameIndex = executingFrameIndex % NUMBER_ADDRESSES;
+  public void executeOperation(final Blackhole blackhole) {
+    blackhole.consume(operation.execute(frame, null));
+    frame.popStackItem();
   }
 }

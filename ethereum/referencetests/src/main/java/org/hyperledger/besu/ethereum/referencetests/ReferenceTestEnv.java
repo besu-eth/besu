@@ -207,7 +207,8 @@ public class ReferenceTestEnv extends BlockHeader {
     if (protocolSpec.getWithdrawalsProcessor().isPresent()) {
       builder.withdrawalsRoot(BodyValidation.withdrawalsRoot(withdrawals));
     }
-    if ((baseFee == null || baseFee.isEmpty()) && protocolSpec.getFeeMarket().implementsBaseFee()) {
+    if ((maybeBaseFee.isEmpty() || maybeBaseFee.get().isEmpty())
+        && protocolSpec.getFeeMarket().implementsBaseFee()) {
       builder.baseFee(
           ((BaseFeeMarket) protocolSpec.getFeeMarket())
               .computeBaseFee(

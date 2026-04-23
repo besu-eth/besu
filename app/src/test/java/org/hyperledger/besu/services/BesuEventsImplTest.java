@@ -61,6 +61,8 @@ import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStoragePrefixedKey
 import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.data.AddedBlockContext;
 import org.hyperledger.besu.plugin.data.LogWithMetadata;
@@ -110,6 +112,8 @@ public class BesuEventsImplTest {
   @Mock private ProtocolSpec mockProtocolSpec;
   @Mock private WorldStateArchive mockWorldStateArchive;
   @Mock private MutableWorldState mockWorldState;
+  @Mock private Account mockSenderAccount;
+  @Mock private GasCalculator mockGasCalculator;
   private TransactionPool transactionPool;
   private BlockBroadcaster blockBroadcaster;
   private BesuEventsImpl serviceImpl;
@@ -141,6 +145,7 @@ public class BesuEventsImplTest {
         .when(mockProtocolSpec.getTransactionValidatorFactory())
         .thenReturn(mockTransactionValidatorFactory);
     lenient().when(mockProtocolSpec.getFeeMarket()).thenReturn(FeeMarket.london(0L));
+    lenient().when(mockProtocolSpec.getGasCalculator()).thenReturn(mockGasCalculator);
     lenient()
         .when(
             mockTransactionValidatorFactory
@@ -153,6 +158,9 @@ public class BesuEventsImplTest {
     lenient()
         .when(mockWorldStateArchive.getWorldState(any(WorldStateQueryParams.class)))
         .thenReturn(Optional.of(mockWorldState));
+    lenient().when(mockWorldStateArchive.getWorldState()).thenReturn(mockWorldState);
+    lenient().when(mockWorldState.get(any())).thenReturn(mockSenderAccount);
+    lenient().when(mockSenderAccount.getBalance()).thenReturn(Wei.of(10_000_000_000_000_000L));
 
     blockBroadcaster = new BlockBroadcaster(mockEthContext, 10 * ByteUnits.MEGABYTE);
     syncState = new SyncState(blockchain, mockEthPeers);

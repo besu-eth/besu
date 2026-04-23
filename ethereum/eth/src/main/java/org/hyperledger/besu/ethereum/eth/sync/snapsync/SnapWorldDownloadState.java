@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import static org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest.createAccountFlatHealingRangeRequest;
 import static org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest.createAccountTrieNodeDataRequest;
+import static org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest.createBlockAccessListDataRequest;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator.applyForStrategy;
 
 import org.hyperledger.besu.ethereum.chain.BlockAddedObserver;
@@ -32,6 +33,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.StorageRangeDataR
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.AccountFlatDatabaseHealingRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.StorageFlatDatabaseHealingRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldDownloadState;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
@@ -51,6 +53,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -90,6 +93,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
 
   private final SnapSyncStatePersistenceManager snapContext;
   private final SnapSyncProcessState snapSyncState;
+  private final ProtocolSchedule protocolSchedule;
 
   // blockchain
   private final Blockchain blockchain;
@@ -101,12 +105,14 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
 
   private final AtomicBoolean trieHealStartedBefore = new AtomicBoolean(false);
   private final AtomicBoolean worldStateHealFinishedNotified = new AtomicBoolean(false);
+  private final AtomicBoolean blockAccessListHealEnqueued = new AtomicBoolean(false);
 
   public SnapWorldDownloadState(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncStatePersistenceManager snapContext,
       final Blockchain blockchain,
       final SnapSyncProcessState snapSyncState,
+      final ProtocolSchedule protocolSchedule,
       final InMemoryTasksPriorityQueues<SnapDataRequest> pendingRequests,
       final int maxRequestsWithoutProgress,
       final long minMillisBeforeStalling,
@@ -124,6 +130,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
     this.snapContext = snapContext;
     this.blockchain = blockchain;
     this.snapSyncState = snapSyncState;
+    this.protocolSchedule = protocolSchedule;
     this.metricsManager = metricsManager;
     this.blockObserverId = blockchain.observeBlockAdded(createBlockchainObserver());
     this.ethContext = ethContext;
@@ -207,6 +214,9 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
         if (!snapSyncState.isHealFlatDatabaseInProgress()
             && (worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.FULL)
                 || worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.ARCHIVE))) {
+          if (enqueueBlockAccessListsForPivotRangeIfRequired()) {
+            return false;
+          }
           startFlatDatabaseHeal(header);
         }
         // If the flat database healing process is in progress or the flat database mode is not FULL
@@ -303,6 +313,50 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
         (key, value) ->
             enqueueRequest(
                 createAccountFlatHealingRangeRequest(header.getStateRoot(), key, value)));
+  }
+
+  private boolean enqueueBlockAccessListsForPivotRangeIfRequired() {
+    if (!blockAccessListHealEnqueued.compareAndSet(false, true)) {
+      return false;
+    }
+
+    final Optional<BlockHeader> maybeFirstPivotHeader = snapSyncState.getFirstPivotBlockHeader();
+    final Optional<BlockHeader> maybeLastPivotHeader = snapSyncState.getPivotBlockHeader();
+
+    LOG.debug("Starting BAL apply attempt");
+
+    if (maybeFirstPivotHeader.isEmpty() || maybeLastPivotHeader.isEmpty()) {
+      LOG.debug(
+          "Skipping BAL apply - firstPivotHeader={}, lastPivotHeader={}",
+          maybeFirstPivotHeader,
+          maybeLastPivotHeader);
+      return false;
+    }
+
+    final BlockHeader firstPivotHeader = maybeFirstPivotHeader.get();
+    if (!protocolSchedule.getByBlockHeader(firstPivotHeader).isBlockAccessListEnabled()) {
+      LOG.debug("Skipping BAL apply - BALs not enabled on first pivot {}", firstPivotHeader);
+      return false;
+    }
+
+    final long fromBlock = firstPivotHeader.getNumber();
+    final long toBlock = maybeLastPivotHeader.get().getNumber();
+    if (toBlock < fromBlock) {
+      LOG.error("Attempted to apply BALs with fromBlock {} > {} toBlock", fromBlock, toBlock);
+      return false;
+    }
+
+    LOG.info("Queueing block access list heal from block {} to {}", fromBlock, toBlock);
+    for (long blockNumber = fromBlock; blockNumber <= toBlock; blockNumber++) {
+      final Optional<BlockHeader> maybeBlockHeader = blockchain.getBlockHeader(blockNumber);
+      if (maybeBlockHeader.isPresent()) {
+        final BlockHeader blockHeader = maybeBlockHeader.get();
+        enqueueRequest(createBlockAccessListDataRequest(blockHeader.getStateRoot(), blockHeader));
+      } else {
+        LOG.warn("Unable to queue block access list heal for missing block {}", blockNumber);
+      }
+    }
+    return !pendingBlockAccessListRequests.isEmpty();
   }
 
   @Override

@@ -82,18 +82,9 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
   /** Instantiates a new EIP-8037 state gas cost calculator. */
   public Eip8037StateGasCostCalculator() {}
 
-  /**
-   * Hardcoded cost per state byte for devnet-3. This value (1174) corresponds to a 100M block gas
-   * limit. The test framework cannot currently handle dynamic gas prices, so cpsb is treated as a
-   * fork constant. For devnet-4, the full EIP-8037 dynamic calculation will be restored.
-   */
-  static final long DEVNET_COST_PER_STATE_BYTE = 1174L;
-
   @Override
   public long costPerStateByte(final long blockGasLimit) {
-    // TODO(devnet-4): Restore dynamic cpsb calculation based on block gas limit:
-    // return costPerStateByteFromGasLimit(blockGasLimit);
-    return DEVNET_COST_PER_STATE_BYTE;
+    return costPerStateByteFromGasLimit(blockGasLimit);
   }
 
   /**
@@ -239,9 +230,24 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
     }
     // New empty accounts incur additional state gas (112 * cpsb)
     final long newEmptyAccounts = totalDelegations - alreadyExistingDelegators;
-    if (newEmptyAccounts > 0) {
-      return frame.consumeStateGas(
-          emptyAccountDelegationStateGas(blockGasLimit) * newEmptyAccounts);
+    if (newEmptyAccounts > 0
+        && !frame.consumeStateGas(
+            emptyAccountDelegationStateGas(blockGasLimit) * newEmptyAccounts)) {
+      return false;
+    }
+    // EIP-8037: the intrinsic state gas is sized assuming every authority is a new empty
+    // account (emptyAccountDelegationStateGas per auth). For authorities that already exist,
+    // that pre-charge was not consumed, park it in the state gas reservoir so it is returned
+    // to the sender alongside any unused gas on halt/revert, matching the specification's
+    // set_delegation behavior (intrinsic_state_gas -= refund; state_gas_reservoir += refund).
+    if (alreadyExistingDelegators > 0) {
+      final long reservoirCredit =
+          emptyAccountDelegationStateGas(blockGasLimit) * alreadyExistingDelegators;
+      if (frame.getRemainingGas() < reservoirCredit) {
+        return false;
+      }
+      frame.decrementRemainingGas(reservoirCredit);
+      frame.incrementStateGasReservoir(reservoirCredit);
     }
     return true;
   }

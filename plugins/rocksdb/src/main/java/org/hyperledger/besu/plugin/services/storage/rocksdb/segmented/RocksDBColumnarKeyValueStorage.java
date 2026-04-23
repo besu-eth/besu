@@ -310,6 +310,10 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         .setCreateIfMissing(true)
         .setMaxOpenFiles(configuration.getMaxOpenFiles())
         .setStatistics(stats)
+        // Disable RocksDB's periodic DumpStats() to LOG (default is often 600s). Besu already
+        // exposes Statistics via Prometheus; the native dump path has been a source of JNI SIGSEGVs
+        // on some versions/platforms under load.
+        .setStatsDumpPeriodSec(0)
         .setCreateMissingColumnFamilies(true)
         .setLogFileTimeToRoll(TIME_TO_ROLL_LOG_FILE)
         .setKeepLogFileNum(NUMBER_OF_LOG_FILES_TO_KEEP)

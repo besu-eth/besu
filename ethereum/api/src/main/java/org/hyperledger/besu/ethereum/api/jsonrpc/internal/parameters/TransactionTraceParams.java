@@ -55,6 +55,13 @@ public interface TransactionTraceParams {
     return Boolean.TRUE.equals(disableMemoryNullable());
   }
 
+  @JsonProperty(value = "enableMemory")
+  @Nullable Boolean enableMemoryNullable();
+
+  default boolean enableMemory() {
+    return Boolean.TRUE.equals(enableMemoryNullable());
+  }
+
   @JsonProperty(value = "disableStack")
   @Nullable Boolean disableStackNullable();
 
@@ -103,7 +110,9 @@ public interface TransactionTraceParams {
     if (disableStorageNullable() != null) {
       builder.traceStorage(!disableStorage());
     }
-    if (disableMemoryNullable() != null) {
+    if (enableMemoryNullable() != null) {
+      builder.traceMemory(enableMemory());
+    } else if (disableMemoryNullable() != null) {
       builder.traceMemory(!disableMemory());
     } else if (tracerType != TracerType.OPCODE_TRACER) {
       // Non-opcode tracers (e.g. callTracer) need memory capture enabled for internal

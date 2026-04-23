@@ -1,5 +1,95 @@
 {
-  "request" : {"jsonrpc":"2.0","id":5,"method":"engine_forkchoiceUpdatedV3","params":[{"headBlockHash":"0x33235e7b7a78302cdb54e5ddba66c7ae49b01c1f5498bb00cd0c8ed5206784bf","safeBlockHash":"0x0000000000000000000000000000000000000000000000000000000000000000","finalizedBlockHash":"0x0000000000000000000000000000000000000000000000000000000000000000"},{"timestamp":"0x1236","prevRandao":"0xc13da06dc53836ca0766057413b9683eb9a8773bbb8fcc5691e41c25b56dda1d","suggestedFeeRecipient":"0x0000000000000000000000000000000000000000","withdrawals":[{"index":"0xb","validatorIndex":"0x0","address":"0x0000000000000000000000000000000000000000","amount":"0x64"},{"index":"0xc","validatorIndex":"0x1","address":"0x0100000000000000000000000000000000000000","amount":"0x64"},{"index":"0xd","validatorIndex":"0x2","address":"0x0200000000000000000000000000000000000000","amount":"0x64"},{"index":"0xe","validatorIndex":"0x3","address":"0x0300000000000000000000000000000000000000","amount":"0x64"},{"index":"0xf","validatorIndex":"0x4","address":"0x0400000000000000000000000000000000000000","amount":"0x64"},{"index":"0x10","validatorIndex":"0x5","address":"0x0500000000000000000000000000000000000000","amount":"0x64"},{"index":"0x11","validatorIndex":"0x6","address":"0x0600000000000000000000000000000000000000","amount":"0x64"},{"index":"0x12","validatorIndex":"0x7","address":"0x0700000000000000000000000000000000000000","amount":"0x64"},{"index":"0x13","validatorIndex":"0x8","address":"0x0800000000000000000000000000000000000000","amount":"0x64"},{"index":"0x14","validatorIndex":"0x9","address":"0x0900000000000000000000000000000000000000","amount":"0x64"}],"parentBeaconBlockRoot":"0x062367f0b23e2d49ad5e770d9ad17b83c0c1c625c3f9a290cd9572b3fc6cfc9e"}]},
-  "response" : {"jsonrpc":"2.0","id":5,"result":{"payloadStatus":{"status":"VALID","latestValidHash":"0x33235e7b7a78302cdb54e5ddba66c7ae49b01c1f5498bb00cd0c8ed5206784bf","validationError":null},"payloadId":"0x29e12df730769ab6"}},
-  "statusCode" : 200
+  "request": {
+    "jsonrpc": "2.0",
+    "id": 5,
+    "method": "engine_forkchoiceUpdatedV3",
+    "params": [
+      {
+        "headBlockHash": "0x33235e7b7a78302cdb54e5ddba66c7ae49b01c1f5498bb00cd0c8ed5206784bf",
+        "safeBlockHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "finalizedBlockHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      {
+        "timestamp": "0x1236",
+        "prevRandao": "0xc13da06dc53836ca0766057413b9683eb9a8773bbb8fcc5691e41c25b56dda1d",
+        "suggestedFeeRecipient": "0x0000000000000000000000000000000000000000",
+        "withdrawals": [
+          {
+            "index": "0xb",
+            "validatorIndex": "0x0",
+            "address": "0x0000000000000000000000000000000000000000",
+            "amount": "0x64"
+          },
+          {
+            "index": "0xc",
+            "validatorIndex": "0x1",
+            "address": "0x0100000000000000000000000000000000000000",
+            "amount": "0x64"
+          },
+          {
+            "index": "0xd",
+            "validatorIndex": "0x2",
+            "address": "0x0200000000000000000000000000000000000000",
+            "amount": "0x64"
+          },
+          {
+            "index": "0xe",
+            "validatorIndex": "0x3",
+            "address": "0x0300000000000000000000000000000000000000",
+            "amount": "0x64"
+          },
+          {
+            "index": "0xf",
+            "validatorIndex": "0x4",
+            "address": "0x0400000000000000000000000000000000000000",
+            "amount": "0x64"
+          },
+          {
+            "index": "0x10",
+            "validatorIndex": "0x5",
+            "address": "0x0500000000000000000000000000000000000000",
+            "amount": "0x64"
+          },
+          {
+            "index": "0x11",
+            "validatorIndex": "0x6",
+            "address": "0x0600000000000000000000000000000000000000",
+            "amount": "0x64"
+          },
+          {
+            "index": "0x12",
+            "validatorIndex": "0x7",
+            "address": "0x0700000000000000000000000000000000000000",
+            "amount": "0x64"
+          },
+          {
+            "index": "0x13",
+            "validatorIndex": "0x8",
+            "address": "0x0800000000000000000000000000000000000000",
+            "amount": "0x64"
+          },
+          {
+            "index": "0x14",
+            "validatorIndex": "0x9",
+            "address": "0x0900000000000000000000000000000000000000",
+            "amount": "0x64"
+          }
+        ],
+        "parentBeaconBlockRoot": "0x062367f0b23e2d49ad5e770d9ad17b83c0c1c625c3f9a290cd9572b3fc6cfc9e"
+      }
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 5,
+    "result": {
+      "payloadStatus": {
+        "status": "VALID",
+        "latestValidHash": "0x33235e7b7a78302cdb54e5ddba66c7ae49b01c1f5498bb00cd0c8ed5206784bf",
+        "validationError": null
+      },
+      "payloadId": "0x3d9d95a10fd37239"
+    }
+  },
+  "statusCode": 200
 }
