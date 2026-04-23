@@ -65,16 +65,6 @@ public class EngineForkchoiceUpdatedV4 extends AbstractEngineForkchoiceUpdatedV4
       return ValidationResult.invalid(
           getInvalidPayloadAttributesError(), "Missing finalized block hash");
     }
-    if (maybePayloadAttributes.isPresent()) {
-      if (maybePayloadAttributes.get().getParentBeaconBlockRoot() == null) {
-        return ValidationResult.invalid(
-            getInvalidPayloadAttributesError(), "Missing parent beacon block root hash");
-      }
-      if (maybePayloadAttributes.get().getSlotNumber() == null) {
-        return ValidationResult.invalid(
-            RpcErrorType.INVALID_SLOT_NUMBER_PARAMS, "Missing slot number field");
-      }
-    }
     return ValidationResult.valid();
   }
 
@@ -89,7 +79,7 @@ public class EngineForkchoiceUpdatedV4 extends AbstractEngineForkchoiceUpdatedV4
 
     if (payloadAttributes.getParentBeaconBlockRoot() == null) {
       LOG.error(
-          "Parent beacon block root hash not present in payload attributes after Amsterdam hardfork");
+          "Parent beacon block root hash not present in payload attributes after Cancun hardfork");
       return Optional.of(new JsonRpcErrorResponse(requestId, getInvalidPayloadAttributesError()));
     }
 
