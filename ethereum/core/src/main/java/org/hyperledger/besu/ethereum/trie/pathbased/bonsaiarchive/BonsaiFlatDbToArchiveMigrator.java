@@ -138,7 +138,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
     return CompletableFuture.runAsync(
         () -> {
           try {
-            migrateBlocks(startBlock, target);
+            migrateBlocks(startBlock, target, true);
             worldStateStorage.upgradeToArchiveFlatDbMode();
             logCompletion(startBlock, target.get(), migrationStartTime);
             // Hand off observers without a gap: register the ongoing observer first, then
@@ -160,7 +160,8 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
         executorService);
   }
 
-  private void migrateBlocks(final long startBlock, final AtomicLong target) {
+  private void migrateBlocks(
+      final long startBlock, final AtomicLong target, final boolean shouldLog) {
     for (long blockNumber = startBlock; blockNumber <= target.get(); blockNumber++) {
       final Optional<TrieLog> maybeTrieLog =
           blockchain
@@ -173,7 +174,9 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
         saveProgress(blockNumber, tx);
         tx.commit();
         migratedBlockNumber.set(blockNumber);
-        logProgress(blockNumber, target.get());
+        if (shouldLog) {
+          logProgress(blockNumber, target.get());
+        }
       } else if (blockNumber > 0) {
         throw new IllegalStateException("No trie log found for block " + blockNumber);
       }
@@ -228,7 +231,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
           startBlock,
           target);
     }
-    migrateBlocks(startBlock, new AtomicLong(target));
+    migrateBlocks(startBlock, new AtomicLong(target), shouldLog);
     if (shouldLog) {
       final Duration duration = Duration.between(catchUpStart, Instant.now());
       LOG.info(
@@ -267,9 +270,6 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   }
 
   private void logProgress(final long blockNumber, final long endBlock) {
-    if (blockNumber >= endBlock) {
-      return; // always 100% during ongoing migration; bulk completion logged separately
-    }
     LogUtil.throttledLog(
         () -> {
           long progressPercent = endBlock > 0 ? (blockNumber * 100) / endBlock : 0;
