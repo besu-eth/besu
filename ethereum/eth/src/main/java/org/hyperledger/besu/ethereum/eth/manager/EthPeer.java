@@ -97,6 +97,8 @@ public class EthPeer implements Comparable<EthPeer> {
 
   private final int rollingWindowDurationMS = 30_000;
   private final Deque<long[]> rollingWindowSamples = new ArrayDeque<>();
+  private volatile long totalBytesTransferred = 0;
+  private volatile long totalResponsesReceived = 0;
 
   private final Map<String, Map<Integer, RequestManager>> requestManagers;
 
@@ -637,8 +639,13 @@ public class EthPeer implements Comparable<EthPeer> {
     return 0.0;
   }
 
+  /**
+   * Return the average bytes per response
+   *
+   * @return average bytes per response
+   */
   public double getAverageBytesPerResponse() {
-    return 0.0;
+    return totalResponsesReceived == 0 ? 0.0 : (double) totalBytesTransferred / totalResponsesReceived;
   }
 
   /**
@@ -662,13 +669,15 @@ public class EthPeer implements Comparable<EthPeer> {
   }
 
   /**
-   * Record the amount of bytes for a new sample
+   * Record the amount of bytes for a new payload
    *
-   * @param bytes the amount of bytes in the sample
+   * @param bytes the amount of bytes in the payload
    */
   public synchronized void recordBytesReceived(long bytes) {
     long nowTimestamp = clock.millis();
     long[] sample = {nowTimestamp, bytes};
+    totalBytesTransferred += bytes;
+    totalResponsesReceived += 1;
     rollingWindowSamples.addLast(sample);
     removeOldByteSamples(nowTimestamp);
   }
