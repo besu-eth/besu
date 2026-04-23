@@ -59,7 +59,7 @@ public final class GetTrieNodeMessageTest {
   }
 
   @Test
-  public void totalPathsAtLimitDecodesFullly() {
+  public void totalPathsAtLimitDecodesFully() {
     final Hash rootHash = Hash.wrap(Bytes32.random());
     // Create exactly MAX_TOTAL_PATHS groups with 1 path each
     final List<List<Bytes>> groups =
