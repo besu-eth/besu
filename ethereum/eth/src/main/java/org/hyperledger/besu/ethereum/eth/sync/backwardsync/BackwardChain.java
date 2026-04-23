@@ -253,4 +253,8 @@ public class BackwardChain {
       hashesToAppend.remove(hashToRemove);
     }
   }
+
+  public synchronized List<Hash> getHashesToAppend() {
+    return new ArrayList<>(hashesToAppend);
+  }
 }
