@@ -18,10 +18,24 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.v2.operation.MulOperationV2;
 
-public class MulOperationBenchmarkV2 extends BinaryOperationBenchmarkV2 {
+import org.openjdk.jmh.annotations.Param;
+
+public class MulOperationBenchmarkV2 extends BinaryArithmeticOperationBenchmarkV2 {
+  @Param("MUL_RANDOM_RANDOM")
+  private String caseName;
 
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {
     return MulOperationV2.staticOperation(frame);
+  }
+
+  @Override
+  protected String caseName() {
+    return caseName;
+  }
+
+  @Override
+  protected String opCode() {
+    return "MOD";
   }
 }
