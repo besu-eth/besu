@@ -23,7 +23,6 @@ import org.hyperledger.besu.plugin.services.BesuConfiguration;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.nio.file.Path;
-import java.util.Optional;
 
 /** A concrete implementation of BesuConfiguration which is used in Besu plugin framework. */
 public class BesuConfigurationImpl implements BesuConfiguration {
@@ -80,18 +79,6 @@ public class BesuConfigurationImpl implements BesuConfiguration {
     this.rpcHttpPort = rpcHttpOptions.getRpcHttpPort();
     this.rpcHttpTimeoutSec = rpcHttpOptions.jsonRpcConfiguration().getHttpTimeoutSec();
     return this;
-  }
-
-  @Deprecated
-  @Override
-  public Optional<String> getRpcHttpHost() {
-    return Optional.of(rpcHttpHost);
-  }
-
-  @Deprecated
-  @Override
-  public Optional<Integer> getRpcHttpPort() {
-    return Optional.of(rpcHttpPort);
   }
 
   @Override
