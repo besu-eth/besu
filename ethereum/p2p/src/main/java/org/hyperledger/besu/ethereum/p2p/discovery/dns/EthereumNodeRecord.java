@@ -29,6 +29,7 @@ import java.util.Optional;
 
 import com.google.common.base.MoreObjects;
 import org.apache.tuweni.bytes.Bytes;
+import org.ethereum.beacon.discovery.schema.EnrField;
 import org.ethereum.beacon.discovery.schema.NodeRecord;
 import org.ethereum.beacon.discovery.schema.NodeRecordFactory;
 
@@ -88,6 +89,23 @@ public record EthereumNodeRecord(
         initTCPV6(fields),
         initUDPV6(fields),
         nodeRecord);
+  }
+
+  /**
+   * Extracts the 64-byte uncompressed public key from a NodeRecord without requiring an IP address.
+   *
+   * @param nodeRecord the NodeRecord to extract the public key from
+   * @return the 64-byte uncompressed public key (without the 0x04 prefix)
+   * @throws IllegalArgumentException if the secp256k1 key is missing or malformed
+   */
+  public static Bytes uncompressedPublicKey(final NodeRecord nodeRecord) {
+    final Object value = nodeRecord.get(EnrField.PKEY_SECP256K1);
+    if (!(value instanceof Bytes keyBytes)) {
+      throw new IllegalArgumentException("Missing secp256k1 entry in ENR");
+    }
+    var ecPoint = SECP256K1.getCurve().getCurve().decodePoint(keyBytes.toArrayUnsafe());
+    var encodedPubKey = ecPoint.getEncoded(false);
+    return Bytes.of(Arrays.copyOfRange(encodedPubKey, 1, encodedPubKey.length));
   }
 
   /**
