@@ -113,6 +113,25 @@ public final class GetTrieNodeMessageTest {
   }
 
   @Test
+  public void manyEmptyGroupsCappedAtTotalLimit() {
+    final Hash rootHash = Hash.wrap(Bytes32.random());
+    // 2,000 empty groups — each should still count toward the total cap
+    final List<List<Bytes>> groups =
+        IntStream.range(0, 2000).mapToObj(i -> List.<Bytes>of()).toList();
+
+    final MessageData raw =
+        new RawMessage(
+            SnapV1.GET_TRIE_NODES, GetTrieNodesMessage.create(rootHash, groups).getData());
+    final GetTrieNodesMessage.TrieNodesPaths result =
+        GetTrieNodesMessage.readFrom(raw).paths(false);
+
+    // Empty groups produce 0 paths but should be capped at MAX_TOTAL_PATHS groups
+    Assertions.assertThat(result.paths().size()).isEqualTo(MAX_TOTAL_PATHS);
+    int totalPaths = result.paths().stream().mapToInt(List::size).sum();
+    Assertions.assertThat(totalPaths).isZero();
+  }
+
+  @Test
   public void oversizedPathThrowsRLPException() {
     final Hash rootHash = Hash.wrap(Bytes32.random());
     final Bytes validPath = Bytes.of(new byte[MAX_PATH_SIZE]); // exactly at limit
