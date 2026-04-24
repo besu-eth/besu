@@ -43,6 +43,13 @@ class SDivOperationV2Test {
         Arguments.of("0x01", "0x00", "0x00"),
         Arguments.of("0x00", "0x01", "0x00"),
         Arguments.of("0x02", "0x0a", "0x00"),
+        Arguments.of("0x4352324235673423", "0x342423432441", "0x014a87"),
+        Arguments.of(
+            "0x43523242356734234352324235673423", "0x3424234324412342342423432441", "0x014a87"),
+        Arguments.of(
+            "0x4352324235673423435232423567342343523242356734234352324235673423",
+            "0x342423432441234234242343244123423424234324412342342423432441",
+            "0x014a87"),
         Arguments.of(
             "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "0x00", "0x00"),
         Arguments.of("0x0a", "0x02", "0x05"),

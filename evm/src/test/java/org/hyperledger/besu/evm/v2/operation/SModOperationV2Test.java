@@ -50,7 +50,16 @@ class SModOperationV2Test {
         Arguments.of(
             "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe",
             "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff6",
-            "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe"));
+            "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe"),
+        Arguments.of("0x4352324235673423", "0x2342342423432441", "0x200ffe1e12240fe2"),
+        Arguments.of(
+            "0x43523242356734234352324235673423",
+            "0x23423424234324412342342423432441",
+            "0x200ffe1e12240fe2200ffe1e12240fe2"),
+        Arguments.of(
+            "0x435232423567342343523242356734234352324235673423",
+            "0x2342342423432441234234242343244123423424234324412342342423432441",
+            "0x435232423567342343523242356734234352324235673423"));
   }
 
   @ParameterizedTest(name = "smod({0}, {1}) = {2}")
