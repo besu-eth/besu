@@ -18,6 +18,7 @@
 - BFT option `xemptyblockperiodseconds` has been taken out of experimental and been renamed `emptyblockperiodseconds`. The old config option is deprecated and will be removed in a future release.
 
 ### Bug fixes
+- `debug_getRawBlock`, `debug_getRawHeader`, and `debug_getRawReceipts` now reject non-hex block number parameters (e.g. decimal integers) with an `INVALID_BLOCK_PARAMS` error, consistent with the JSON-RPC spec. Validation is centralised in `BlockParameterOrBlockHash`. [#10240](https://github.com/besu-eth/besu/pull/10240)
 
 ### Additions and Improvements
 - The option to set a different block period for empty BFT blocks (`emptyblockperiodseconds`) is no longer experimental. The experimental flag `xemptyblockperiodseconds` will be removed in a future release.
