@@ -33,12 +33,12 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
-class AddOperationV2Test {
+class SubOperationV2Test {
   private final GasCalculator gasCalculator = new FrontierGasCalculator();
-  private final AddOperationV2 operation = new AddOperationV2(gasCalculator);
+  private final SubOperationV2 operation = new SubOperationV2(gasCalculator);
 
   /**
-   * Structural test data for add(a, b) = expected. Arithmetic correctness is covered by
+   * Structural test data for sub(a, b) = expected. Arithmetic correctness is covered by
    * UInt256PropertyBasedTest; these cases verify stack arity, limb-level read/write wiring, and
    * 256-bit wrap handling.
    *
@@ -48,24 +48,27 @@ class AddOperationV2Test {
     return List.of(
         // (a, b, expected)
         // Happy path: low-limb only.
-        Arguments.of("0x02", "0x03", "0x05"),
+        Arguments.of("0x05", "0x03", "0x02"),
         // Zero identity with operand ordering: confirms b is read from the deeper slot.
-        Arguments.of("0x00", "0x03", "0x03"),
-        // 256-bit wrap: all 4 result limbs written as zero.
+        Arguments.of("0x03", "0x00", "0x03"),
+        // Zero identity with operand ordering: confirms b is read from the deeper slot.
         Arguments.of(
-            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "0x01", "0x00"),
-        // All 4 limbs populated on both inputs and the result (no carries): verifies every limb is
+            "0x00", "0x03", "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffd"),
+        // 256-bit wrap underflow: result is all 0xFF..FF.
+        Arguments.of(
+            "0x00", "0x01", "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+        // All 4 limbs populated on both inputs and the result (no borrows): verifies every limb is
         // read and written through stackDataV2(). Four distinct limb values catch any
         // limb-index/offset mistakes.
         Arguments.of(
-            "0x1000000000000001200000000000000230000000000000034000000000000004",
+            "0x3000000000000003400000000000000450000000000000056000000000000006",
             "0x1000000000000001100000000000000110000000000000011000000000000001",
             "0x2000000000000002300000000000000340000000000000045000000000000005"));
   }
 
-  @ParameterizedTest(name = "{index}: add({0}, {1}) = {2}")
+  @ParameterizedTest(name = "{index}: sub({0}, {1}) = {2}")
   @MethodSource("data")
-  void addOperation(final String a, final String b, final String expectedResult) {
+  void subOperation(final String a, final String b, final String expectedResult) {
     final MessageFrame frame =
         new TestMessageFrameBuilderV2()
             .pushStackItem(Bytes32.fromHexString(b)) // pushed first → deepest (top-2)
@@ -76,7 +79,7 @@ class AddOperationV2Test {
     final Operation.OperationResult result = operation.execute(frame, null);
 
     assertThat(result.getHaltReason()).isNull();
-    // ADD consumes 2 items and produces 1: net stack change is -1.
+    // SUB consumes 2 items and produces 1: net stack change is -1.
     assertThat(frame.stackTopV2()).isEqualTo(1);
 
     final UInt256 expected =
@@ -89,7 +92,7 @@ class AddOperationV2Test {
     final MessageFrame frame = new TestMessageFrameBuilderV2().initialGas(1L).build();
     assertThat(frame.stackTopV2()).isEqualTo(0);
 
-    final Operation.OperationResult result = AddOperationV2.staticOperation(frame);
+    final Operation.OperationResult result = SubOperationV2.staticOperation(frame);
 
     assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
     assertThat(frame.stackTopV2()).isEqualTo(0);
@@ -103,35 +106,35 @@ class AddOperationV2Test {
             .build();
     assertThat(frame.stackTopV2()).isEqualTo(1);
 
-    final Operation.OperationResult result = AddOperationV2.staticOperation(frame);
+    final Operation.OperationResult result = SubOperationV2.staticOperation(frame);
 
     assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
     assertThat(frame.stackTopV2()).isEqualTo(1);
   }
 
   @Test
-  void shouldPreservesDeeperStackItems() {
+  void shouldPreserveDeeperStackItems() {
     // Use a distinctive 4-limb value for the untouched deep slot so any accidental write is
     // detectable in any limb.
     final Bytes32 untouched =
         Bytes32.fromHexString("0xdeadbeefdeadbeefcafebabecafebabe0123456789abcdeff1e2d3c4b5a69788");
     final MessageFrame frame =
         new TestMessageFrameBuilderV2()
-            .pushStackItem(untouched) // top-3 (untouched by ADD)
-            .pushStackItem(Bytes32.fromHexString("0x07")) // top-2 (b)
-            .pushStackItem(Bytes32.fromHexString("0x05")) // top-1 (a)
+            .pushStackItem(untouched) // top-3 (untouched by SUB)
+            .pushStackItem(Bytes32.fromHexString("0x05")) // top-2 (b)
+            .pushStackItem(Bytes32.fromHexString("0x07")) // top-1 (a)
             .build();
     assertThat(frame.stackTopV2()).isEqualTo(3);
 
     operation.execute(frame, null);
 
     assertThat(frame.stackTopV2()).isEqualTo(2);
-    assertThat(getV2StackItem(frame, 0)).isEqualTo(UInt256.fromInt(12)); // 5 + 7
+    assertThat(getV2StackItem(frame, 0)).isEqualTo(UInt256.fromInt(2)); // 7 - 5
     assertThat(getV2StackItem(frame, 1)).isEqualTo(UInt256.fromBytesBE(untouched.toArrayUnsafe()));
   }
 
   @Test
-  void shouldGasCostIsVeryLowTier() {
+  void gasCostIsVeryLowTier() {
     final MessageFrame frame =
         new TestMessageFrameBuilderV2()
             .pushStackItem(Bytes32.fromHexString("0x01"))
