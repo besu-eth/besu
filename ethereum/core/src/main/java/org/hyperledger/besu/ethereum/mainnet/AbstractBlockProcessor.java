@@ -375,10 +375,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         cumulativeReceiptGasUsed +=
             BlockGasAccountingStrategy.calculateReceiptGas(
                 transaction, transactionProcessingResult);
-        // EIP-8037: Accumulate state gas used. Block accounting
-        // uses the immutable worst-case intrinsic_state_gas, so include the overhead (e.g. for
-        // EIP-7702 auths targeting existing accounts where 112×cpsb was refunded but block
-        // accounting still counts it).
         cumulativeStateGasUsed += transactionProcessingResult.getStateGasUsedForBlock();
 
         // EIP-8037: Post-processing check — verify gas metered doesn't exceed block gas limit.

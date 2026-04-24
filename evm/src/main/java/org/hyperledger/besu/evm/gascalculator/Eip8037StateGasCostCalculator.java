@@ -17,14 +17,12 @@ package org.hyperledger.besu.evm.gascalculator;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.account.Account;
-import org.hyperledger.besu.evm.account.AccountStorageEntry;
+import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 
-import java.util.NavigableMap;
 import java.util.Set;
 import java.util.function.Supplier;
 
-import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 
 /**
@@ -269,32 +267,24 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
     }
     final Set<Address> created = initialFrame.getCreates();
     final long blockGasLimit = initialFrame.getBlockValues().getGasLimit();
-    final long cpsb = costPerStateByte(blockGasLimit);
+    final long storageSlotGas = storageSetStateGas(blockGasLimit);
     long totalRefund = 0L;
     for (final Address address : destroyed) {
       if (!created.contains(address)) {
         // Only refund for accounts both created AND destroyed in this transaction (EIP-6780).
         continue;
       }
-      final Account account = initialFrame.getWorldUpdater().get(address);
+      final MutableAccount account = initialFrame.getWorldUpdater().getAccount(address);
       if (account == null) {
         continue;
       }
-      // Account creation state gas (112 × cpsb)
-      totalRefund += STATE_BYTES_PER_ACCOUNT * cpsb;
-      // Code deposit state gas (len(code) × cpsb)
-      final int codeSize = account.getCode().size();
-      if (codeSize > 0) {
-        totalRefund += (long) codeSize * cpsb;
-      }
-      // Non-zero storage slots at tx end (32 × cpsb each). Slots that were 0→X→0 already
-      // have a final value of 0 and are not counted here — their state gas was returned by
-      // the SSTORE restoration refund.
-      final NavigableMap<Bytes32, AccountStorageEntry> entries =
-          account.storageEntriesFrom(Bytes32.ZERO, Integer.MAX_VALUE);
-      for (final AccountStorageEntry entry : entries.values()) {
-        if (!entry.getValue().isZero()) {
-          totalRefund += STATE_BYTES_PER_STORAGE_SLOT * cpsb;
+      totalRefund += createStateGas(blockGasLimit);
+      totalRefund += codeDepositStateGas(account.getCode().size(), blockGasLimit);
+      // The account was created in this transaction, so every slot it currently holds is in
+      // the updater's journaled writes — Bonsai does not support trie enumeration.
+      for (final UInt256 value : account.getUpdatedStorage().values()) {
+        if (!value.isZero()) {
+          totalRefund += storageSlotGas;
         }
       }
     }

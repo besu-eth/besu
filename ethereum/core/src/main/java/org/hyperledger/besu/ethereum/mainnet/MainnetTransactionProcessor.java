@@ -619,18 +619,16 @@ public class MainnetTransactionProcessor {
               : 0L;
 
       if (txSucceeded) {
-        final TransactionProcessingResult result =
-            TransactionProcessingResult.successful(
-                initialFrame.getLogs(),
-                gasUsedByTransaction,
-                refundedGas,
-                usedGas,
-                effectiveStateGas,
-                initialFrame.getOutputData(),
-                partialBlockAccessView,
-                validationResult);
-        result.setIntrinsicStateGasOverhead(intrinsicStateGasOverhead);
-        return result;
+        return TransactionProcessingResult.successful(
+            initialFrame.getLogs(),
+            gasUsedByTransaction,
+            refundedGas,
+            usedGas,
+            effectiveStateGas,
+            intrinsicStateGasOverhead,
+            initialFrame.getOutputData(),
+            partialBlockAccessView,
+            validationResult);
       } else {
         if (initialFrame.getExceptionalHaltReason().isPresent()) {
           LOG.debug(
@@ -644,18 +642,16 @@ public class MainnetTransactionProcessor {
               transaction.getHash(),
               initialFrame.getRevertReason().get());
         }
-        final TransactionProcessingResult result =
-            TransactionProcessingResult.failed(
-                gasUsedByTransaction,
-                refundedGas,
-                usedGas,
-                effectiveStateGas,
-                validationResult,
-                initialFrame.getRevertReason(),
-                initialFrame.getExceptionalHaltReason(),
-                partialBlockAccessView);
-        result.setIntrinsicStateGasOverhead(intrinsicStateGasOverhead);
-        return result;
+        return TransactionProcessingResult.failed(
+            gasUsedByTransaction,
+            refundedGas,
+            usedGas,
+            effectiveStateGas,
+            intrinsicStateGasOverhead,
+            validationResult,
+            initialFrame.getRevertReason(),
+            initialFrame.getExceptionalHaltReason(),
+            partialBlockAccessView);
       }
     } catch (final MerkleTrieException re) {
       operationTracer.traceEndTransaction(
