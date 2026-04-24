@@ -255,7 +255,7 @@ public class EthGetTransactionReceiptTest {
     final TransactionReceiptStatusResult result =
         (TransactionReceiptStatusResult) response.getResult();
 
-    assertThat(result.getType()).isEqualTo("0x80");
+    assertThat(result.getType()).isEqualTo("0x0");
     assertThat(result.getStatus()).isEqualTo("0x1");
   }
 
@@ -270,7 +270,7 @@ public class EthGetTransactionReceiptTest {
         (JsonRpcSuccessResponse) ethGetTransactionReceipt.response(request);
     final TransactionReceiptRootResult result = (TransactionReceiptRootResult) response.getResult();
 
-    assertThat(result.getType()).isEqualTo("0x80");
+    assertThat(result.getType()).isEqualTo("0x0");
     assertThat(result.getRoot()).isEqualTo(stateRoot.toString());
   }
 

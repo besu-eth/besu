@@ -21,7 +21,7 @@ import java.util.Set;
 /** The enum Transaction type. */
 public enum TransactionType {
   /** The Frontier. */
-  FRONTIER(0xf8, 0x80),
+  FRONTIER(0xf8, 0x00),
   /** Access list transaction type. */
   ACCESS_LIST(0x01),
   /** Eip1559 transaction type. */
@@ -52,10 +52,12 @@ public enum TransactionType {
       new TransactionType[Byte.toUnsignedInt(MAX_LEGACY_TX_OPAQUE_BYTE) + 1];
 
   private static final int MAX_ETH_SERIALIZED_TYPE =
-      EnumSet.allOf(TransactionType.class).stream()
-          .mapToInt(tt -> ethSerializedTypeIndex(tt.getEthSerializedType()))
-          .max()
-          .orElse(0);
+      Math.max(
+          EnumSet.allOf(TransactionType.class).stream()
+              .mapToInt(tt -> ethSerializedTypeIndex(tt.getEthSerializedType()))
+              .max()
+              .orElse(0),
+          0x80);
 
   private static final TransactionType[] transactionTypeByEthSerializedType =
       new TransactionType[MAX_ETH_SERIALIZED_TYPE + 1];
@@ -78,6 +80,8 @@ public enum TransactionType {
                 // Keep backwards compatibility for callers that still pass FRONTIER as 0x00
                 // (e.g. t8n JSON specs).
                 transactionTypeByEthSerializedType[0x00] = FRONTIER;
+                // Keep compatibility for decoders that may provide 0x80.
+                transactionTypeByEthSerializedType[0x80] = FRONTIER;
               } else {
                 transactionTypeByOpaqueByte[tt.getSerializedType()] = tt;
               }
