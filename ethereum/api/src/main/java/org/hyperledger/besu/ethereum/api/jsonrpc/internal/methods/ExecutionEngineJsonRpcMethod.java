@@ -27,6 +27,8 @@ import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 
 import io.vertx.core.Vertx;
@@ -43,6 +45,9 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
   }
 
   public static final long ENGINE_API_LOGGING_THRESHOLD = 60000L;
+  // Must be <= the engine HTTP timeout so Thread A is released before the HTTP timer writes a
+  // response. Uses the same default (30s) as JsonRpcConfiguration.DEFAULT_HTTP_TIMEOUT_SEC.
+  private static final long ENGINE_API_RESPONSE_TIMEOUT_MS = 30_000L;
   private final Vertx syncVertx;
   private static final Logger LOG = LoggerFactory.getLogger(ExecutionEngineJsonRpcMethod.class);
   protected final Optional<MergeContext> mergeContextOptional;
@@ -112,8 +117,14 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
                         })
                     .result()));
     try {
-      return cf.get();
+      return cf.get(ENGINE_API_RESPONSE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+    } catch (TimeoutException e) {
+      LOG.warn(
+          "Timeout waiting for engine API response for {}, releasing worker thread",
+          this.getName());
+      return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.TIMEOUT_ERROR);
     } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
       LOG.error("Failed to get execution engine response", e);
       return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.TIMEOUT_ERROR);
     } catch (ExecutionException e) {
