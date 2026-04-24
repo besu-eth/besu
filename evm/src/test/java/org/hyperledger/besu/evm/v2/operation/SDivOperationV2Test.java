@@ -110,7 +110,7 @@ class SDivOperationV2Test {
   }
 
   @Test
-  void gasCostIsVeryLowTier() {
+  void gasCost() {
     final MessageFrame frame =
         new TestMessageFrameBuilderV2()
             .pushStackItem(Bytes32.fromHexString("0x01"))
