@@ -34,7 +34,6 @@ import org.hyperledger.besu.ethereum.eth.messages.BlockHeadersMessage;
 import org.hyperledger.besu.ethereum.eth.messages.NodeDataMessage;
 import org.hyperledger.besu.ethereum.eth.messages.ReceiptsMessage;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
-import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection.PeerNotConnected;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
@@ -491,8 +490,7 @@ public class EthPeerTest {
         EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE,
         clock,
         Collections.emptyList(),
-        Bytes.random(64),
-        SynchronizerConfiguration.DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS);
+        Bytes.random(64));
   }
 
   private MockPeerConnection.PeerSendHandler getFailOnSend() {
@@ -527,8 +525,7 @@ public class EthPeerTest {
         EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE,
         clock,
         permissioningProviders,
-        Bytes.random(64),
-        SynchronizerConfiguration.DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS);
+        Bytes.random(64));
   }
 
   private PeerConnection getPeerConnection(final MockPeerConnection.PeerSendHandler onSend) {

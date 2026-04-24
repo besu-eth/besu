@@ -102,9 +102,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
   private static final String SNAP_SYNC_SAVE_PRE_CHECKPOINT_HEADERS_ONLY_FLAG =
       "--snapsync-synchronizer-pre-checkpoint-headers-only-enabled";
 
-  private static final String PEER_MAX_OUTSTANDING_REQUESTS_FLAG =
-      "--Xsynchronizer-peer-max-outstanding-requests";
-
   private static final String ERA1_IMPORT_PREPIPELINE_ENABLED_FLAG =
       "--era1-import-prepipeline-enabled";
   private static final String ERA1_DATA_URI_FLAG = "--era1-data-uri";
@@ -403,14 +400,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
       DEFAULT_SNAP_SYNC_SAVE_PRE_MERGE_HEADERS_ONLY_ENABLED;
 
   @CommandLine.Option(
-      names = PEER_MAX_OUTSTANDING_REQUESTS_FLAG,
-      hidden = true,
-      paramLabel = "<INTEGER>",
-      description = "Maximum number of outstanding requests per peer (default: ${DEFAULT-VALUE})")
-  private int peerMaxOutstandingRequests =
-      SynchronizerConfiguration.DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS;
-
-  @CommandLine.Option(
       names = ERA1_IMPORT_PREPIPELINE_ENABLED_FLAG,
       paramLabel = "<Boolean>",
       arity = "0..1",
@@ -511,7 +500,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
         config.getSnapSyncConfiguration().isSnapSyncTransactionIndexingEnabled();
     options.snapSyncSavePreCheckpointHeadersOnlyEnabled =
         config.isSnapSyncSavePreCheckpointHeadersOnlyEnabled();
-    options.peerMaxOutstandingRequests = config.getPeerMaxOutstandingRequests();
     options.era1ImportPrepipelineEnabled = config.era1ImportPrepipelineEnabled();
     options.era1DataUri = config.era1DataUri();
     options.era1ImportPrepipelineConcurrency = config.era1ImportPrepipelineConcurrency();
@@ -561,7 +549,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     builder.receiptsDownloadStepTimeoutMillis(receiptsDownloadStepTimeoutMillis);
     builder.backwardHeadersDownloadStepTimeoutMillis(backwardHeadersDownloadStepTimeoutMillis);
     builder.bodiesDownloadStepTimeoutMillis(bodiesDownloadStepTimeoutMillis);
-    builder.peerMaxOutstandingRequests(peerMaxOutstandingRequests);
     builder.era1ImportPrepipelineEnabled(era1ImportPrepipelineEnabled);
     builder.era1DataUri(era1DataUri);
     builder.era1ImportPrepipelineConcurrency(era1ImportPrepipelineConcurrency);
@@ -632,8 +619,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             OptionParser.format(snapTransactionIndexingEnabled),
             SNAP_SYNC_SAVE_PRE_CHECKPOINT_HEADERS_ONLY_FLAG,
             OptionParser.format(snapSyncSavePreCheckpointHeadersOnlyEnabled),
-            PEER_MAX_OUTSTANDING_REQUESTS_FLAG,
-            OptionParser.format(peerMaxOutstandingRequests),
             ERA1_IMPORT_PREPIPELINE_ENABLED_FLAG,
             OptionParser.format(era1ImportPrepipelineEnabled),
             ERA1_DATA_URI_FLAG,

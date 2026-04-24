@@ -29,7 +29,6 @@ import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
-import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.p2p.network.exceptions.P2PDisabledException;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.PeerInfo;
@@ -128,8 +127,7 @@ public class AdminPeersTest {
             EthProtocolConfiguration.DEFAULT_MAX_MESSAGE_SIZE,
             TestClock.fixed(),
             Collections.emptyList(),
-            Bytes.random(64),
-            SynchronizerConfiguration.DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS);
+            Bytes.random(64));
     return Lists.newArrayList(ethPeer);
   }
 

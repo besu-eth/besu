@@ -39,7 +39,6 @@ import org.hyperledger.besu.ethereum.eth.manager.RespondingEthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.manager.task.EthTask;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
-import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
@@ -127,8 +126,7 @@ public abstract class AbstractMessageTaskTest<T, R> {
                 MAX_PEERS,
                 false,
                 SyncMode.FULL,
-                new ForkIdManager(blockchain, Collections.emptyList(), Collections.emptyList()),
-                SynchronizerConfiguration.DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS));
+                new ForkIdManager(blockchain, Collections.emptyList(), Collections.emptyList())));
 
     final EthMessages ethMessages = new EthMessages();
     final EthScheduler ethScheduler =

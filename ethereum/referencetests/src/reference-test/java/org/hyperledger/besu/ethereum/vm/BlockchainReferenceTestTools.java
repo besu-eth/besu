@@ -30,7 +30,6 @@ import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
-import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
@@ -320,8 +319,7 @@ public class BlockchainReferenceTestTools {
               1,
               false,
               SyncMode.FULL,
-              new ForkIdManager(blockchain, Collections.emptyList(), Collections.emptyList()),
-              SynchronizerConfiguration.DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS);
+              new ForkIdManager(blockchain, Collections.emptyList(), Collections.emptyList()));
       final EthContext ethContext =
           new EthContext(
               ethPeers,

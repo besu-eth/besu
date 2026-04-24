@@ -209,8 +209,7 @@ public class EthProtocolManagerTestBuilder {
               25,
               false,
               SyncMode.SNAP,
-              forkIdManager,
-              SynchronizerConfiguration.DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS);
+              forkIdManager);
     }
     ethPeers.setChainHeadTracker(EthProtocolManagerTestUtil.getChainHeadTrackerMock());
     if (ethMessages == null) {

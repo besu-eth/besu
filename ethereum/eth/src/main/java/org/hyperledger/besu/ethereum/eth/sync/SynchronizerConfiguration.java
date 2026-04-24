@@ -59,8 +59,6 @@ public class SynchronizerConfiguration {
   public static final Boolean DEFAULT_ERA1_IMPORT_PREPIPELINE_ENABLED = Boolean.FALSE;
   public static final URI DEFAULT_ERA1_DATA_URI = URI.create("https://mainnet.era1.nimbus.team/");
   public static final Integer DEFAULT_ERA1_IMPORT_PREPIPELINE_CONCURRENCY = 1;
-  public static final int DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS = 5;
-
   // Fast sync config
   private final int syncPivotDistance;
   private final float fastSyncFullValidationRate;
@@ -98,9 +96,6 @@ public class SynchronizerConfiguration {
   private final boolean isPeerTaskSystemEnabled;
   private final boolean snapSyncSavePreCheckpointHeadersOnlyEnabled;
 
-  // Peer config
-  private final int peerMaxOutstandingRequests;
-
   // ERA1 import prepipeline config
   private final boolean era1ImportPrepipelineEnabled;
   private final URI era1DataUri;
@@ -134,7 +129,6 @@ public class SynchronizerConfiguration {
       final long bodiesDownloadStepTimeoutMillis,
       final boolean isPeerTaskSystemEnabled,
       final boolean snapSyncSavePreCheckpointHeadersOnlyEnabled,
-      final int peerMaxOutstandingRequests,
       final boolean era1ImportPrepipelineEnabled,
       final URI era1DataUri,
       final int era1ImportPrepipelineConcurrency) {
@@ -165,7 +159,6 @@ public class SynchronizerConfiguration {
     this.bodiesDownloadStepTimeoutMillis = bodiesDownloadStepTimeoutMillis;
     this.isPeerTaskSystemEnabled = isPeerTaskSystemEnabled;
     this.snapSyncSavePreCheckpointHeadersOnlyEnabled = snapSyncSavePreCheckpointHeadersOnlyEnabled;
-    this.peerMaxOutstandingRequests = peerMaxOutstandingRequests;
     this.era1ImportPrepipelineEnabled = era1ImportPrepipelineEnabled;
     this.era1DataUri = era1DataUri;
     this.era1ImportPrepipelineConcurrency = era1ImportPrepipelineConcurrency;
@@ -314,10 +307,6 @@ public class SynchronizerConfiguration {
     return snapSyncSavePreCheckpointHeadersOnlyEnabled;
   }
 
-  public int getPeerMaxOutstandingRequests() {
-    return peerMaxOutstandingRequests;
-  }
-
   public boolean era1ImportPrepipelineEnabled() {
     return era1ImportPrepipelineEnabled;
   }
@@ -359,7 +348,6 @@ public class SynchronizerConfiguration {
     private int worldStateTaskCacheSize = DEFAULT_WORLD_STATE_TASK_CACHE_SIZE;
     private boolean isPeerTaskSystemEnabled = false;
     private boolean snapSyncSavePreCheckpointHeadersOnlyEnabled = true;
-    private int peerMaxOutstandingRequests = DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS;
     private boolean era1ImportPrepipelineEnabled = DEFAULT_ERA1_IMPORT_PREPIPELINE_ENABLED;
     private URI era1DataUri = DEFAULT_ERA1_DATA_URI;
     private int era1ImportPrepipelineConcurrency = DEFAULT_ERA1_IMPORT_PREPIPELINE_CONCURRENCY;
@@ -516,15 +504,6 @@ public class SynchronizerConfiguration {
       return this;
     }
 
-    public Builder peerMaxOutstandingRequests(final int peerMaxOutstandingRequests) {
-      checkArgument(
-          peerMaxOutstandingRequests > 0 && peerMaxOutstandingRequests <= 100,
-          "peerMaxOutstandingRequests must be between 1 and 100, got %s",
-          peerMaxOutstandingRequests);
-      this.peerMaxOutstandingRequests = peerMaxOutstandingRequests;
-      return this;
-    }
-
     public Builder era1ImportPrepipelineEnabled(final boolean era1ImportPrepipelineEnabled) {
       this.era1ImportPrepipelineEnabled = era1ImportPrepipelineEnabled;
       return this;
@@ -569,7 +548,6 @@ public class SynchronizerConfiguration {
           bodiesDownloadStepTimeoutMillis,
           isPeerTaskSystemEnabled,
           snapSyncSavePreCheckpointHeadersOnlyEnabled,
-          peerMaxOutstandingRequests,
           era1ImportPrepipelineEnabled,
           era1DataUri,
           era1ImportPrepipelineConcurrency);

@@ -174,8 +174,7 @@ public class TestNode implements Closeable {
             25,
             false,
             SyncMode.SNAP,
-            new ForkIdManager(blockchain, Collections.emptyList(), Collections.emptyList()),
-            SynchronizerConfiguration.DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS);
+            new ForkIdManager(blockchain, Collections.emptyList(), Collections.emptyList()));
 
     final ChainHeadTracker mockCHT = getChainHeadTracker();
     ethPeers.setChainHeadTracker(mockCHT);

@@ -82,8 +82,6 @@ public class SynchronizerOptionsTest
                 .build())
         .snapSyncSavePreCheckpointHeadersOnlyEnabled(
             SnapSyncConfiguration.DEFAULT_SNAP_SYNC_SAVE_PRE_MERGE_HEADERS_ONLY_ENABLED)
-        .peerMaxOutstandingRequests(
-            SynchronizerConfiguration.DEFAULT_PEER_MAX_OUTSTANDING_REQUESTS + 2)
         .era1ImportPrepipelineEnabled(true)
         .era1DataUri(URI.create("sepolia.era1.nimbus.team/"));
   }
