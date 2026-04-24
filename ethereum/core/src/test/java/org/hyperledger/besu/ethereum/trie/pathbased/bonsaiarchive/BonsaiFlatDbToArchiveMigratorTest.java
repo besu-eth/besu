@@ -593,7 +593,9 @@ public class BonsaiFlatDbToArchiveMigratorTest {
       final CountDownLatch started, final CountDownLatch proceed) {
     started.countDown();
     try {
-      proceed.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+      if (!proceed.await(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+        throw new AssertionError("release() was not called within " + AWAIT_TIMEOUT_SECONDS + "s");
+      }
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new RuntimeException("migration interrupted", e);
