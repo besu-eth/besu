@@ -18,6 +18,7 @@
 - BFT option `xemptyblockperiodseconds` has been taken out of experimental and been renamed `emptyblockperiodseconds`. The old config option is deprecated and will be removed in a future release.
 
 ### Bug fixes
+- Fix data race in `SyncDurationMetrics` where the backing `HashMap` was mutated from multiple sync threads in parallel, causing missing or zero `sync_duration` samples. [#10277](https://github.com/besu-eth/besu/pull/10277)
 
 ### Additions and Improvements
 - The option to set a different block period for empty BFT blocks (`emptyblockperiodseconds`) is no longer experimental. The experimental flag `xemptyblockperiodseconds` will be removed in a future release.
@@ -32,6 +33,7 @@
 - Deprecated `--min-block-occupancy-ratio` for removal and make it noop. That option, that is ignored on PoS networks, is related to the deprecated PoW, and allowed to broadcast a mined block as soon as it reached a satisfying fill threshold. The option is still recognized, but it has no effect and will be completely removed in a future release. [#10036](https://github.com/besu-eth/besu/pull/10036)
 - Plugin API
   - Removed `TransactionSelectionResult.BLOCK_OCCUPANCY_ABOVE_THRESHOLD`, in general it could be replaced with `BLOCK_FULL`
+  - Removed `BesuConfiguration#getRpcHttpHost()` and `BesuConfiguration#getRpcHttpPort()` which have been deprecated since `25.1.0`. Use `getConfiguredRpcHttpHost()` and `getConfiguredRpcHttpPort()` instead. [#10268](https://github.com/besu-eth/besu/pull/10268)
 - Experimental Bonsai Archive column families have changed to improve performance during bonsai to archive migration. If you are using the Bonsai archive you will need to do a full resync [#10058](https://github.com/besu-eth/besu/pull/10058/changes)
 - `debug_traceTransaction` and `debug_traceBlockByNumber`: the `error` field in `StructLog` entries is now serialized as a plain string (e.g. `"INVALID_JUMP_DESTINATION"`) instead of an array of strings, aligning with the execution-apis opcode tracer spec. [#10117](https://github.com/besu-eth/besu/pull/10117)
 - `debug_traceTransaction` now returns a JSON-RPC error response (`-32000: Transaction not found`) instead of a success response with `null` result when the transaction hash is unknown [#10150](https://github.com/besu-eth/besu/pull/10150) 
@@ -61,6 +63,7 @@ are provided with different values, using input as per the execution-apis spec i
 - Fix eth_simulateV1 returning wrong error code when transaction gas exceeds block gas limit: now correctly returns -38015 (BLOCK_GAS_LIMIT_EXCEEDED) instead of -38014 or succeeding [#10073](https://github.com/besu-eth/besu/pull/10073)
 - Wait for peers before starting chain download. Prevents an OutOfMemory (OOM) error when the node has zero peers [#9979](https://github.com/hyperledger/besu/pull/9979)
 - Upgrade besu-native libraries version to 1.5.0. This fixes the issue of besu-native/secp256r1 exporting OpenSSL symbols in JVM space. [besu-native #308](https://github.com/besu-eth/besu-native/pull/308)
+- Speed up backward sync phase 1 relinking after a restart by batching restored ancestor header writes into a single chainStorage transaction instead of one per header [#10103](https://github.com/besu-eth/besu/issues/10103)
 - Reject Status messages whose declared `protocolVersion` field disagrees with the on-wire layout (eth/68 vs eth/69+). A malformed Status previously threw an `IllegalArgumentException` out of `EthStatus`'s constructor that escaped `handleStatusMessage`'s `RLPException` catch; the decoder now throws `RLPException` directly so the peer is cleanly disconnected with `SUBPROTOCOL_TRIGGERED_UNPARSABLE_STATUS`.
 
 ### Additions and Improvements
