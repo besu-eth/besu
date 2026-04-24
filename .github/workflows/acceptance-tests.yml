@@ -20,6 +20,7 @@ env:
 jobs:
   acceptanceTestEthereum:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     name: "Acceptance Runner"
     permissions:
       statuses: write
