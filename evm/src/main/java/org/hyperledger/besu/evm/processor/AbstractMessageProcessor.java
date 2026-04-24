@@ -136,55 +136,73 @@ public abstract class AbstractMessageProcessor {
 
   /**
    * EIP-8037: Handles state gas spill on revert/halt. When state changes are rolled back, the state
-   * gas that was consumed is restored. Any "spill" (state gas that had overflowed from the
-   * reservoir into gasRemaining) is routed back: for child frames it returns to the reservoir for
-   * parent re-use; for the initial frame it is tracked in stateGasSpillBurned for transaction-level
-   * gas accounting.
+   * gas that was consumed is restored, and any "spill" (state gas that had overflowed from the
+   * reservoir into gasRemaining) is routed back to the reservoir.
    *
-   * <p>For the initial (top-level) frame, the reservoir must be preserved for transaction-level
-   * refund. If child frames had restored state gas to the reservoir during the initial frame's
-   * execution (via their own revert/halt), that refund must not be lost when the initial frame
-   * subsequently reverts or halts. We therefore restore the reservoir to the higher of the
-   * pre-rollback value (which may include child refunds) and the post-rollback value (which
-   * reflects any reservoir drain that rollback undid). We also compute the spill contribution only
-   * from the positive part of reservoirRestored so that child-refunded gas is never counted as
-   * burned spill.
+   * <p>For child frames the spill returns to the parent's reservoir for re-use. For the initial
+   * (top-level) frame the same mechanism applies (per the EIP-8037 specification: "all consumed
+   * execution state gas (from the reservoir and any spillover from gas_left) is moved back into the
+   * state_gas_reservoir, and execution_state_gas_used is reset to zero"). The undo-mark was
+   * advanced in the transaction processor to point past the intrinsic state gas charges, so
+   * rollback restores stateGasUsed and stateGasReservoir to their post-intrinsic values; the
+   * spilled portion is then returned to the reservoir to compensate for the gas_left that was
+   * burned during execution.
    *
    * @param frame The message frame
    */
-  private void handleStateGasSpill(final MessageFrame frame, final boolean isInitialFrame) {
+  private void handleStateGasSpill(final MessageFrame frame) {
+    final boolean isInitialFrame = frame.getMessageFrameStack().size() == 1;
     final long stateGasUsedBefore = frame.getStateGasUsed();
     final long reservoirBefore = frame.getStateGasReservoir();
+    final long noGrowthRefundsBefore = frame.getNoGrowthStateGasRefunds();
 
     clearAccumulatedStateBesidesGasAndOutput(frame);
 
     final long stateGasRestored = stateGasUsedBefore - frame.getStateGasUsed();
     final long reservoirRestored = frame.getStateGasReservoir() - reservoirBefore;
-
+    final long noGrowthRefundsInScope = noGrowthRefundsBefore - frame.getNoGrowthStateGasRefunds();
+    // EIP-8037 spill restoration on revert/halt:
+    //   - Per the general spec, state gas consumed (drained from gas_left) is restored to the
+    //     reservoir so the parent (or sender on top-level failure) recovers it.
+    //   - For non-initial frames, EELS's incorporate_child_on_error subtracts the child's
+    //     state_gas_refund from what reaches the parent — so no-growth refunds (SSTORE 0→X→0,
+    //     CREATE silent/child failure) credited within the failed sub-tree do not inflate the
+    //     parent's state_gas_left. Mirror this by burning the noGrowthRefundsInScope amount and
+    //     deducting it from the (shared) reservoir, so the parent does not get the inflated
+    //     credit back. The burned amount is tracked in stateGasSpillBurned so block-level
+    //     regular gas excludes it (matches EELS, where state-gas spillover never contributes to
+    //     regular_gas_used).
+    //   - Besu uses a transaction-wide stateGasReservoir (TxValues), unlike EELS's per-frame
+    //     state_gas_left. As a result, when CREATE charges state gas that drains from a parent-
+    //     contributed reservoir and the inner frame later refunds, the rollback to frame entry
+    //     does not visibly decrease the reservoir (the consume + refund net to zero across the
+    //     UndoScalar log). We therefore base the burn on noGrowthRefundsInScope rather than the
+    //     net reservoir movement, and explicitly deduct the burned amount from the reservoir to
+    //     remove the inflation that the parent would otherwise recover via refundedGas.
+    //   - For the initial (top-level) frame, EELS preserves all in-frame refund credits in
+    //     state_gas_left at tx end (no parent to absorb them); so we don't subtract
+    //     noGrowthRefundsInScope and the spill is fully restored.
+    final long grossSpill = stateGasRestored - reservoirRestored;
+    final long burned;
+    final long restored;
     if (isInitialFrame) {
-      // EIP-8037: For initial-frame halt/revert, state gas consumed by ops is final for block
-      // accounting (spec: `tx_state_gas = intrinsic_state_gas + state_gas_used`). The portion
-      // that spilled from gasRemaining is already accounted via stateGasSpillBurned below; the
-      // portion drained from the reservoir (reservoirRestored) was rolled back by the undo but
-      // must still count as consumed state gas, so add it back to stateGasUsed. Then preserve
-      // the actual pre-rollback reservoir value so drain is reflected in total gas returned to
-      // the sender.
-      if (reservoirRestored > 0) {
-        frame.incrementStateGasUsed(reservoirRestored);
-      }
-      frame.setStateGasReservoir(reservoirBefore);
-      // Only burn the portion of state gas that actually spilled into gasRemaining (not the
-      // portion that was drawn from the reservoir and has already been restored, and not the
-      // portion that child frames had refunded to the reservoir).
-      final long spill = Math.max(0L, stateGasRestored - Math.max(0L, reservoirRestored));
-      if (spill > 0) {
-        frame.accumulateStateGasSpillBurned(spill);
-      }
+      burned = 0L;
+      restored = Math.max(0L, grossSpill);
     } else {
-      final long spill = Math.max(0L, stateGasRestored - reservoirRestored);
-      if (spill > 0) {
-        // Child frame: return spill to reservoir for parent to re-use
-        frame.incrementStateGasReservoir(spill);
+      burned = Math.max(0L, noGrowthRefundsInScope);
+      restored = Math.max(0L, grossSpill - burned);
+    }
+    if (restored > 0) {
+      frame.incrementStateGasReservoir(restored);
+    }
+    if (burned > 0) {
+      frame.accumulateStateGasSpillBurned(burned);
+      // The shared reservoir was inflated by the no-growth refund; remove the burned portion
+      // so the parent (or sender, via refundedGas) does not recover it.
+      final long currentReservoir = frame.getStateGasReservoir();
+      final long deduct = Math.min(currentReservoir, burned);
+      if (deduct > 0) {
+        frame.setStateGasReservoir(currentReservoir - deduct);
       }
     }
   }
@@ -216,7 +234,7 @@ public abstract class AbstractMessageProcessor {
   private void exceptionalHalt(final MessageFrame frame) {
     final boolean isInitialFrame = frame.getMessageFrameStack().size() == 1;
 
-    handleStateGasSpill(frame, isInitialFrame);
+    handleStateGasSpill(frame);
 
     if (isInitialFrame) {
       recordInitialFrameRegularHaltBurn(frame);
@@ -233,8 +251,7 @@ public abstract class AbstractMessageProcessor {
    * @param frame The message frame
    */
   protected void revert(final MessageFrame frame) {
-    final boolean isInitialFrame = frame.getMessageFrameStack().size() == 1;
-    handleStateGasSpill(frame, isInitialFrame);
+    handleStateGasSpill(frame);
 
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
   }

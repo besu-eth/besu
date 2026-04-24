@@ -17,8 +17,10 @@ package org.hyperledger.besu.evm.gascalculator;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 
+import java.util.Set;
 import java.util.function.Supplier;
 
 import org.apache.tuweni.units.bigints.UInt256;
@@ -235,11 +237,16 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
             emptyAccountDelegationStateGas(blockGasLimit) * newEmptyAccounts)) {
       return false;
     }
-    // EIP-8037: the intrinsic state gas is sized assuming every authority is a new empty
-    // account (emptyAccountDelegationStateGas per auth). For authorities that already exist,
-    // that pre-charge was not consumed, park it in the state gas reservoir so it is returned
-    // to the sender alongside any unused gas on halt/revert, matching the specification's
-    // set_delegation behavior (intrinsic_state_gas -= refund; state_gas_reservoir += refund).
+    // EIP-8037: intrinsic state gas is sized assuming every
+    // authority is a new empty account ((112 + 23) × cpsb per auth) and is immutable after
+    // transaction validation. When an authority already exists, the 112 × cpsb portion is
+    // refunded directly to state_gas_reservoir during authorization processing. The intrinsic
+    // value itself is not mutated; the refund is reflected in the final state_gas_reservoir.
+    //
+    // Because intrinsic state gas is not pre-deducted from tx.gas in this implementation (it is
+    // charged explicitly via consumeStateGas above, drawing from reservoir/gas_left), the
+    // reservoir credit is paired with a matching gas_left debit to preserve the sender
+    // bookkeeping invariant tx.gas - (gas_left + reservoir) = gas actually charged.
     if (alreadyExistingDelegators > 0) {
       final long reservoirCredit =
           emptyAccountDelegationStateGas(blockGasLimit) * alreadyExistingDelegators;
@@ -253,6 +260,53 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
   }
 
   @Override
+  public void refundSameTransactionSelfDestructStateGas(final MessageFrame initialFrame) {
+    final Set<Address> destroyed = initialFrame.getSelfDestructs();
+    if (destroyed.isEmpty()) {
+      return;
+    }
+    final Set<Address> created = initialFrame.getCreates();
+    final long blockGasLimit = initialFrame.getBlockValues().getGasLimit();
+    final long storageSlotGas = storageSetStateGas(blockGasLimit);
+    long totalRefund = 0L;
+    for (final Address address : destroyed) {
+      if (!created.contains(address)) {
+        // Only refund for accounts both created AND destroyed in this transaction (EIP-6780).
+        continue;
+      }
+      final MutableAccount account = initialFrame.getWorldUpdater().getAccount(address);
+      if (account == null) {
+        continue;
+      }
+      totalRefund += createStateGas(blockGasLimit);
+      totalRefund += codeDepositStateGas(account.getCode().size(), blockGasLimit);
+      // The account was created in this transaction, so every slot it currently holds is in
+      // the updater's journaled writes — Bonsai does not support trie enumeration.
+      for (final UInt256 value : account.getUpdatedStorage().values()) {
+        if (!value.isZero()) {
+          totalRefund += storageSlotGas;
+        }
+      }
+    }
+    if (totalRefund > 0L) {
+      initialFrame.incrementStateGasReservoir(totalRefund);
+      initialFrame.decrementStateGasUsed(totalRefund);
+    }
+  }
+
+  @Override
+  public void refundCreateStateGas(final MessageFrame frame) {
+    final long blockGasLimit = frame.getBlockValues().getGasLimit();
+    final long refundAmount = createStateGas(blockGasLimit);
+    frame.incrementStateGasReservoir(refundAmount);
+    frame.decrementStateGasUsed(refundAmount);
+    // Tracked as a no-growth refund so handleStateGasSpill can subtract refunds-in-scope from
+    // spill credit on revert/halt — the credit must not propagate to a parent's reservoir when
+    // any frame in the chain fails. Mirrors EELS's state_gas_refund counter.
+    frame.recordNoGrowthStateGasRefund(refundAmount);
+  }
+
+  @Override
   public void refundStorageSetStateGas(
       final MessageFrame frame,
       final UInt256 newValue,
@@ -262,9 +316,19 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
     if (newValue.isZero() && !currentValue.get().isZero() && originalValue.get().isZero()) {
       final long blockGasLimit = frame.getBlockValues().getGasLimit();
       final long refundAmount = storageSetStateGas(blockGasLimit);
-      // State gas refund goes into the regular refund counter, subject to the 1/5 cap.
-      // stateGasUsed is NOT decremented — it tracks gross state gas consumed.
-      frame.incrementGasRefund(refundAmount);
+      // EIP-8037: State gas refund is credited directly to
+      // state_gas_reservoir (bypassing the 20% refund_counter cap) and execution_state_gas_used
+      // is decremented. This ensures the full state gas amount is returned regardless of the
+      // refund cap, which would otherwise be insufficient at high cost_per_state_byte.
+      //
+      // Frame scoping: the refund is applied to the frame's
+      // UndoScalar counters (stateGasReservoir, stateGasUsed), so on revert or exceptional
+      // halt of this frame — or of any ancestor frame before the refund propagates further —
+      // the credit is undone via MessageFrame.rollback(). The refund therefore contributes to
+      // the reservoir and stateGasUsed only when the full frame chain succeeds.
+      frame.incrementStateGasReservoir(refundAmount);
+      frame.decrementStateGasUsed(refundAmount);
+      frame.recordNoGrowthStateGasRefund(refundAmount);
     }
   }
 }

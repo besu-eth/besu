@@ -59,6 +59,11 @@ import org.apache.tuweni.bytes.Bytes32;
  * @param initialFrameRegularHaltBurn EIP-7778/EIP-8037 gas burned when the initial frame halts
  *     exceptionally (gasRemaining at halt time). Paid by the sender via receipts, but must be
  *     excluded from block regular gas. Single-element long[] so it is NOT undone on revert.
+ * @param noGrowthStateGasRefunds EIP-8037: cumulative state gas refunds applied because no state
+ *     was actually grown (SSTORE 0→X→0, CREATE silent or child failure, same-tx SELFDESTRUCT).
+ *     Tracked here so {@code handleStateGasSpill} can subtract refunds-in-scope from the spill
+ *     credit on revert/halt — those refunds must contribute nothing to a parent's reservoir when
+ *     any frame in the chain fails.
  */
 public record TxValues(
     BlockHashLookup blockHashLookup,
@@ -78,6 +83,7 @@ public record TxValues(
     UndoScalar<Long> gasRefunds,
     UndoScalar<Long> stateGasUsed,
     UndoScalar<Long> stateGasReservoir,
+    UndoScalar<Long> noGrowthStateGasRefunds,
     long[] stateGasSpillBurned,
     long[] initialFrameRegularHaltBurn) {
 
@@ -124,6 +130,7 @@ public record TxValues(
         new UndoScalar<>(0L),
         new UndoScalar<>(0L),
         new UndoScalar<>(0L),
+        new UndoScalar<>(0L),
         new long[] {0L},
         new long[] {0L});
   }
@@ -142,5 +149,6 @@ public record TxValues(
     gasRefunds.undo(mark);
     stateGasUsed.undo(mark);
     stateGasReservoir.undo(mark);
+    noGrowthStateGasRefunds.undo(mark);
   }
 }

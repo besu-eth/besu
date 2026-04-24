@@ -232,6 +232,38 @@ public interface StateGasCostCalculator {
       final Supplier<UInt256> originalValue) {}
 
   /**
+   * Refunds the state gas previously charged by {@link #chargeCreateStateGas(MessageFrame)} when a
+   * CREATE/CREATE2 silently fails at the opcode level (insufficient balance, nonce overflow, stack
+   * depth limit, or address collision), before a child frame is entered. The refund is credited
+   * directly to state_gas_reservoir and execution_state_gas_used is decremented. Per EIP-8037
+   * (ethereum/EIPs #11532 item 3): no account was created, so no state gas should be paid.
+   *
+   * @param frame the message frame performing the CREATE
+   */
+  default void refundCreateStateGas(final MessageFrame frame) {}
+
+  /**
+   * Applies the end-of-transaction refund for accounts that were both created and self-destructed
+   * within the same transaction (EIP-6780). Per EIP-8037 (ethereum/EIPs #11532 item 4): for each
+   * such account, refund to state_gas_reservoir (and decrement execution_state_gas_used) the state
+   * gas for:
+   *
+   * <ul>
+   *   <li>account creation: {@code 112 × cost_per_state_byte}
+   *   <li>code deposit: {@code len(code) × cost_per_state_byte}
+   *   <li>non-zero storage slots: {@code 32 × cost_per_state_byte} per slot
+   * </ul>
+   *
+   * This must be applied before {@code tx_gas_used_before_refund} is computed so the sender is not
+   * charged for state that was destroyed. Storage slots restored to zero during execution (0→X→0)
+   * are not counted here because they have a final value of zero — the SSTORE restoration refund
+   * already returned their state gas.
+   *
+   * @param initialFrame the initial (depth-0) frame after transaction execution
+   */
+  default void refundSameTransactionSelfDestructStateGas(final MessageFrame initialFrame) {}
+
+  /**
    * Computes the intrinsic state gas for a transaction. This is the worst-case state gas charged
    * upfront (assuming all delegation targets are new accounts). Existing-account refunds are
    * applied later during processing.

@@ -16,6 +16,18 @@ package org.hyperledger.besu.evm.gascalculator;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.testutils.FakeBlockValues;
+import org.hyperledger.besu.evm.testutils.TestMessageFrameBuilder;
+import org.hyperledger.besu.evm.toy.ToyWorld;
+
+import java.util.Optional;
+
+import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 
 class Eip8037StateGasCostCalculatorTest {
@@ -137,5 +149,72 @@ class Eip8037StateGasCostCalculatorTest {
     assertThat(none.storageSetRegularGas()).isEqualTo(0L);
     assertThat(none.authBaseRegularGas()).isEqualTo(0L);
     assertThat(none.transactionRegularGasLimit()).isEqualTo(Long.MAX_VALUE);
+  }
+
+  // --- refundSameTransactionSelfDestructStateGas ---
+
+  // Uses only the updater's journaled writes rather than trie enumeration. ToyAccount mirrors
+  // Bonsai here: storageEntriesFrom throws UnsupportedOperationException, so a regression that
+  // reintroduces trie iteration would fail these tests.
+
+  @Test
+  void refundSameTxSelfDestructRefundsCreationCodeAndNonZeroStorageSlots() {
+    final long blockGasLimit = 100_000_000L;
+    final Address addr = Address.fromHexString("0x00000000000000000000000000000000000000aa");
+    final ToyWorld world = new ToyWorld();
+    final MutableAccount account = world.createAccount(addr, 1, Wei.ZERO);
+    final Bytes code = Bytes.fromHexString("0x60016002600360045050");
+    account.setCode(code);
+    account.setStorageValue(UInt256.ONE, UInt256.valueOf(42L));
+    account.setStorageValue(UInt256.valueOf(2), UInt256.valueOf(7L));
+    // 0 → X → 0: set and reset; final value is zero and should not be refunded here.
+    account.setStorageValue(UInt256.valueOf(3), UInt256.ZERO);
+
+    final MessageFrame frame = buildFrame(world, blockGasLimit);
+    frame.addCreate(addr);
+    frame.addSelfDestruct(addr);
+
+    calculator.refundSameTransactionSelfDestructStateGas(frame);
+
+    final long expected =
+        calculator.createStateGas(blockGasLimit)
+            + calculator.codeDepositStateGas(code.size(), blockGasLimit)
+            + 2L * calculator.storageSetStateGas(blockGasLimit);
+    assertThat(frame.getStateGasReservoir()).isEqualTo(expected);
+    assertThat(frame.getStateGasUsed()).isEqualTo(-expected);
+  }
+
+  @Test
+  void refundSameTxSelfDestructSkipsAccountsNotCreatedInThisTx() {
+    final long blockGasLimit = 100_000_000L;
+    final Address addr = Address.fromHexString("0x00000000000000000000000000000000000000bb");
+    final ToyWorld world = new ToyWorld();
+    world.createAccount(addr, 1, Wei.ZERO).setStorageValue(UInt256.ONE, UInt256.valueOf(42L));
+
+    final MessageFrame frame = buildFrame(world, blockGasLimit);
+    frame.addSelfDestruct(addr); // destroyed but not created in this tx — EIP-6780 no-op
+
+    calculator.refundSameTransactionSelfDestructStateGas(frame);
+
+    assertThat(frame.getStateGasReservoir()).isZero();
+    assertThat(frame.getStateGasUsed()).isZero();
+  }
+
+  @Test
+  void refundSameTxSelfDestructNoOpWhenSetEmpty() {
+    final ToyWorld world = new ToyWorld();
+    final MessageFrame frame = buildFrame(world, 100_000_000L);
+
+    calculator.refundSameTransactionSelfDestructStateGas(frame);
+
+    assertThat(frame.getStateGasReservoir()).isZero();
+    assertThat(frame.getStateGasUsed()).isZero();
+  }
+
+  private static MessageFrame buildFrame(final ToyWorld world, final long blockGasLimit) {
+    return new TestMessageFrameBuilder()
+        .worldUpdater(world)
+        .blockValues(new FakeBlockValues(1, Optional.empty(), blockGasLimit, null))
+        .build();
   }
 }

@@ -112,7 +112,6 @@ public class GeneralStateReferenceTestTools {
 
     // These are for the older reference tests but EIP-2537 is covered by eip2537_bls_12_381_precompiles in the execution-spec-tests
     params.ignore("/stEIP2537/");
-
   }
 
   private GeneralStateReferenceTestTools() {

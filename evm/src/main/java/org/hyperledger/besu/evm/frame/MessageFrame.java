@@ -871,13 +871,44 @@ public class MessageFrame {
   }
 
   /**
-   * Increment the state gas used (EIP-8037). This is NOT undone on revert since consumed gas is
-   * consumed regardless of execution outcome.
+   * Increment the state gas used (EIP-8037). This is undone on revert via UndoScalar.
    *
    * @param amount The amount of state gas to add
    */
   public void incrementStateGasUsed(final long amount) {
     txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
+  }
+
+  /**
+   * Decrement the state gas used (EIP-8037). Used for refunds (e.g., SSTORE 0→X→0 restoration,
+   * CREATE silent failure, same-tx SELFDESTRUCT). This is undone on revert via UndoScalar,
+   * providing per-frame scoping for refunds that propagate to parents only on full success.
+   *
+   * @param amount The amount of state gas to subtract
+   */
+  public void decrementStateGasUsed(final long amount) {
+    txValues.stateGasUsed().set(txValues.stateGasUsed().get() - amount);
+  }
+
+  /**
+   * Records a no-growth state gas refund. Used by refundStorageSetStateGas, refundCreateStateGas,
+   * and refundSameTransactionSelfDestructStateGas so that {@code handleStateGasSpill} can subtract
+   * refunds-in-scope from spill credit on revert/halt — the refund must contribute nothing to a
+   * parent's reservoir when any frame in the chain fails.
+   *
+   * @param amount The refund amount being applied to state_gas_reservoir
+   */
+  public void recordNoGrowthStateGasRefund(final long amount) {
+    txValues.noGrowthStateGasRefunds().set(txValues.noGrowthStateGasRefunds().get() + amount);
+  }
+
+  /**
+   * Returns the cumulative no-growth state gas refunds applied so far.
+   *
+   * @return the cumulative refunds
+   */
+  public long getNoGrowthStateGasRefunds() {
+    return txValues.noGrowthStateGasRefunds().get();
   }
 
   /**

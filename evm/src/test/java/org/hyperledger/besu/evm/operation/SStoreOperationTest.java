@@ -223,10 +223,12 @@ class SStoreOperationTest {
     final OperationResult result2 = operation.execute(frame, null);
     assertThat(result2.getHaltReason()).isNull();
 
-    // State gas refund (4,800 at 36M) + regular SSTORE refund for 0->X->0 (2,800)
-    assertThat(frame.getGasRefund()).isEqualTo(expectedStateGas + 2_800L);
-    // stateGasUsed tracks gross consumption, not decremented by refunds
-    assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas);
+    // EIP-8037: state gas refund is credited directly to
+    // state_gas_reservoir (not refund_counter, bypassing the 20% cap) and stateGasUsed is
+    // decremented. Regular SSTORE refund for 0→X→0 (2,800) still goes via refund_counter.
+    assertThat(frame.getGasRefund()).isEqualTo(2_800L);
+    assertThat(frame.getStateGasUsed()).isZero();
+    assertThat(frame.getStateGasReservoir()).isEqualTo(100_000L);
   }
 
   @Test

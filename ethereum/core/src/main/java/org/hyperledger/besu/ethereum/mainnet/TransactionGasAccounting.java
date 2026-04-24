@@ -95,36 +95,30 @@ public abstract class TransactionGasAccounting {
    */
   public GasResult calculate() {
     if (regularGasLimitExceeded()) {
-      final long effectiveStateGas = stateGasUsed() + initialFrameStateGasSpill();
+      final long effectiveStateGas = stateGasUsed();
       return new GasResult(effectiveStateGas, txGasLimit(), txGasLimit());
     }
 
     // EIP-8037: Include leftover reservoir in remaining gas for execution gas calculation
     final long executionGas = txGasLimit() - remainingGas() - stateGasReservoir();
-    // EIP-8037: Floor applies to regular gas only, not total gas.
-    // Pre-Amsterdam: stateGasUsed=0, spillBurned=0 — identical.
-    // stateGasSpillBurned: state gas that spilled into gasRemaining from reverted frames.
-    // For child frame reverts: not metered as regular or state gas (invisible to block).
-    // For initial frame revert/halt: counts as state gas for block accounting, because the
-    // transaction's state gas consumption is final regardless of execution outcome.
-    final long stateGas = stateGasUsed() + initialFrameStateGasSpill();
-    // initialFrameStateGasSpill is already included in spillBurned AND stateGas,
-    // so subtract it from spillBurned to avoid double-counting.
+    // EIP-8037: block_state_gas_used = intrinsic_state +
+    // execution_state, both captured by stateGasUsed (intrinsic preserved by advanceUndoMark,
+    // execution undone on top-level revert). Burned spill (state-gas spillover that wasn't
+    // restored due to no-growth refunds in failed frames) is sender-paid but not counted in
+    // either block dimension — exclude it from regularGas as well, matching EELS where state
+    // gas spillover never increments regular_gas_used.
+    final long stateGas = stateGasUsed();
     final long regularGas =
-        executionGas
-            - stateGas
-            - (stateGasSpillBurned() - initialFrameStateGasSpill())
-            - initialFrameRegularHaltBurn();
+        executionGas - stateGas - stateGasSpillBurned() - initialFrameRegularHaltBurn();
     if (regularGas < 0) {
       // This should not happen under normal circumstances. A negative regularGas indicates a
       // bug in gas accounting — log at error level to ensure visibility.
       LOG.error(
-          "Negative regularGas={} (executionGas={}, stateGas={}, spillBurned={}, initialSpill={})",
+          "Negative regularGas={} (executionGas={}, stateGas={}, spillBurned={})",
           regularGas,
           executionGas,
           stateGas,
-          stateGasSpillBurned(),
-          initialFrameStateGasSpill());
+          stateGasSpillBurned());
     }
     final long gasUsedByTransaction = Math.max(regularGas, floorCost()) + stateGas;
     final long usedGas = txGasLimit() - refundedGas();
