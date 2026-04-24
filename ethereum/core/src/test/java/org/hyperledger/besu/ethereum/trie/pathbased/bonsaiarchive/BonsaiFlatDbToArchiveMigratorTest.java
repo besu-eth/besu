@@ -456,6 +456,21 @@ public class BonsaiFlatDbToArchiveMigratorTest {
   }
 
   @Test
+  public void migrateAfterCloseIsNoOp() throws Exception {
+    appendBlocks(3);
+    final MutableBlockchain spyBlockchain = spy(blockchain);
+    final BonsaiFlatDbToArchiveMigrator migrator = createMigrator(spyBlockchain, BOUNDARY_DISABLED);
+    migrator.close();
+
+    final CompletableFuture<Void> future = migrator.migrate();
+
+    assertThat(future).isCompletedWithValue(null);
+    assertThat(migrator.blockObserverId).isEmpty();
+    assertThat(migrator.migrationRunning.get()).isFalse();
+    verify(spyBlockchain, never()).observeBlockAdded(any());
+  }
+
+  @Test
   public void startOngoingMigrationIsIdempotent() {
     appendBlocks(3);
     final BonsaiFlatDbToArchiveMigrator migrator = createMigrator(3);
