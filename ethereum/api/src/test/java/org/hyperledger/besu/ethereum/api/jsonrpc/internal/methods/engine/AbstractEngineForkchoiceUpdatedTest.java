@@ -282,6 +282,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             payloadParams.getPrevRandao(),
             payloadParams.getSuggestedFeeRecipient(),
             Optional.empty(),
+            Optional.empty(),
             Optional.empty());
 
     when(mergeCoordinator.preparePayload(
@@ -565,6 +566,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             payloadParams.getPrevRandao(),
             payloadParams.getSuggestedFeeRecipient(),
             Optional.empty(),
+            Optional.empty(),
             Optional.empty());
 
     when(mergeCoordinator.preparePayload(
@@ -654,6 +656,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             payloadParams.getPrevRandao(),
             payloadParams.getSuggestedFeeRecipient(),
             withdrawals,
+            Optional.empty(),
             Optional.empty());
 
     when(mergeCoordinator.preparePayload(
@@ -698,6 +701,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             payloadParams.getTimestamp(),
             payloadParams.getPrevRandao(),
             payloadParams.getSuggestedFeeRecipient(),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty());
 

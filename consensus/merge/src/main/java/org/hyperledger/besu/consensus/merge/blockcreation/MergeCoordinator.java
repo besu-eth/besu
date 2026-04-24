@@ -256,7 +256,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
             prevRandao,
             feeRecipient,
             withdrawals,
-            parentBeaconBlockRoot);
+            parentBeaconBlockRoot,
+            slotNumber);
 
     if (blockCreationTasks.containsKey(payloadIdentifier)) {
       LOG.debug(

@@ -195,6 +195,32 @@ public class BackwardSyncStepTest {
   }
 
   @Test
+  public void restoreOldNodesShouldPrependHeadersViaBatchedWrite() {
+    // Simulate a crashed previous session: the pivot is linked, but a long trail of ancestor
+    // headers was written to the headers KV store without chain links or session updates.
+    final BackwardChain backwardChain = createBackwardChain(REMOTE_HEIGHT);
+    for (int i = REMOTE_HEIGHT - 1; i >= 1; i--) {
+      headersStorage.put(
+          getBlockByNumber(i).getHeader().getHash(), getBlockByNumber(i).getHeader());
+    }
+    final BackwardChain spyChain = spy(backwardChain);
+    final BackwardSyncStep step = new BackwardSyncStep(context, spyChain);
+
+    final Hash hash = step.possibleRestoreOldNodes(spyChain.getFirstAncestorHeader().orElseThrow());
+
+    assertThat(hash).isEqualTo(getBlockByNumber(1).getHeader().getParentHash());
+    verify(spyChain, Mockito.atLeastOnce()).prependRestoredAncestorsHeaders(Mockito.anyList());
+    assertThat(spyChain.getFirstAncestorHeader().orElseThrow().getNumber()).isEqualTo(1L);
+
+    // Verify that every restored header is now linked to its child in chainStorage,
+    // so the walk from block 1 up to REMOTE_HEIGHT is intact.
+    for (int i = 1; i < REMOTE_HEIGHT; i++) {
+      assertThat(chainStorage.get(getBlockByNumber(i).getHeader().getHash()))
+          .contains(getBlockByNumber(i + 1).getHeader().getHash());
+    }
+  }
+
+  @Test
   public void shouldRequestHeaderWhenAsked() throws Exception {
     when(context.getSynchronizerConfiguration())
         .thenReturn(SynchronizerConfiguration.builder().isPeerTaskSystemEnabled(true).build());
