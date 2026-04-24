@@ -18,7 +18,6 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BytesHolder;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Log;
-import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.api.query.TransactionReceiptWithMetadata;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
@@ -101,10 +100,7 @@ public abstract class TransactionReceiptResult {
     this.transactionHash = txn.getHash().toString();
     this.transactionIndex = Quantity.create(receiptWithMetadata.getTransactionIndex());
     this.revertReason = receipt.getRevertReason().map(Bytes::toString).orElse(null);
-    this.type =
-        txn.getType().equals(TransactionType.FRONTIER)
-            ? Quantity.create(0)
-            : Quantity.create(txn.getType().getSerializedType());
+    this.type = Quantity.create(txn.getType().getEthSerializedType());
   }
 
   @JsonGetter(value = "blockHash")

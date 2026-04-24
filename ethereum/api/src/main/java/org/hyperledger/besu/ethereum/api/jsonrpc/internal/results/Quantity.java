@@ -52,7 +52,7 @@ public class Quantity {
   }
 
   public static String create(final byte value) {
-    return HEX_PREFIX + Integer.toHexString(value);
+    return HEX_PREFIX + Integer.toHexString(Byte.toUnsignedInt(value));
   }
 
   public static String create(final Bytes value) {
