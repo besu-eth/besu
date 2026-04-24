@@ -31,6 +31,8 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.ChainHead;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -139,8 +141,8 @@ public class EthGetStorageValuesTest {
   }
 
   @Test
-  public void shouldReturnTooManySlotsErrorWhenOver1024() {
-    final String[] keys = new String[1025];
+  public void shouldReturnTooManySlotsErrorWhenOverLimit() {
+    final String[] keys = new String[EthGetStorageValues.MAX_STORAGE_SLOTS + 1];
     for (int i = 0; i < keys.length; i++) {
       keys[i] = SLOT_ZERO;
     }
@@ -164,6 +166,51 @@ public class EthGetStorageValuesTest {
   public void shouldThrowInvalidJsonRpcParametersForMalformedSlotHex() {
     final JsonRpcRequestContext request =
         requestWithParams(Map.of(ADDRESS_ONE.toHexString(), List.of("0xzz")), "latest");
+
+    assertThatThrownBy(() -> method.response(request))
+        .isInstanceOf(InvalidJsonRpcParameters.class)
+        .hasMessageContaining("Invalid storage key parameter");
+  }
+
+  @Test
+  public void shouldReturnInvalidParamsWhenSlotListIsNull() {
+    final Map<String, List<String>> params = new HashMap<>();
+    params.put(ADDRESS_ONE.toHexString(), null);
+    final JsonRpcRequestContext request = requestWithParams(params, "latest");
+
+    final JsonRpcErrorResponse response = (JsonRpcErrorResponse) method.response(request);
+
+    assertThat(response.getError().getCode()).isEqualTo(-32602);
+    assertThat(response.getError().getMessage()).isEqualTo("null slot list");
+  }
+
+  @Test
+  public void shouldReturnStorageValueByBlockHash() {
+    final Hash specificBlockHash =
+        Hash.fromHexString("0xb73cee02246c6f32ac0f459934e89102c2ce904d966a4fc2ab6309c3e104b9cb");
+    final BlockHeader specificHeader = mock(BlockHeader.class);
+    when(specificHeader.getBlockHash()).thenReturn(specificBlockHash);
+    when(blockchainQueries.getBlockHeaderByHash(specificBlockHash))
+        .thenReturn(Optional.of(specificHeader));
+    when(blockchainQueries.storageAt(
+            ADDRESS_ONE, UInt256.fromHexString(SLOT_ZERO), specificBlockHash))
+        .thenReturn(Optional.of(UInt256.valueOf(42)));
+
+    final JsonRpcRequestContext request =
+        requestWithParams(
+            Map.of(ADDRESS_ONE.toHexString(), List.of(SLOT_ZERO)), specificBlockHash.toHexString());
+
+    final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
+
+    @SuppressWarnings("unchecked")
+    final Map<String, List<String>> result = (Map<String, List<String>>) response.getResult();
+    assertThat(result).containsEntry(ADDRESS_ONE.toHexString(), List.of(VALUE_FORTY_TWO));
+  }
+
+  @Test
+  public void shouldThrowInvalidJsonRpcParametersWhenSlotKeyIsNull() {
+    final JsonRpcRequestContext request =
+        requestWithParams(Map.of(ADDRESS_ONE.toHexString(), Arrays.asList("0x0", null)), "latest");
 
     assertThatThrownBy(() -> method.response(request))
         .isInstanceOf(InvalidJsonRpcParameters.class)

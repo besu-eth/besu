@@ -36,7 +36,7 @@ import org.apache.tuweni.units.bigints.UInt256;
 
 public class EthGetStorageValues extends AbstractBlockParameterOrBlockHashMethod {
 
-  private static final int MAX_STORAGE_SLOTS = 1024;
+  static final int MAX_STORAGE_SLOTS = 1024;
 
   public EthGetStorageValues(final BlockchainQueries blockchainQueries) {
     super(blockchainQueries);
@@ -70,6 +70,11 @@ public class EthGetStorageValues extends AbstractBlockParameterOrBlockHashMethod
 
     int totalSlots = 0;
     for (final List<String> keys : storageSlotsRequest.values()) {
+      if (keys == null) {
+        return new JsonRpcErrorResponse(
+            request.getRequest().getId(),
+            new JsonRpcError(RpcErrorType.INVALID_PARAMS.getCode(), "null slot list", null));
+      }
       totalSlots += keys.size();
       if (totalSlots > MAX_STORAGE_SLOTS) {
         return new JsonRpcErrorResponse(
@@ -93,6 +98,10 @@ public class EthGetStorageValues extends AbstractBlockParameterOrBlockHashMethod
       final List<String> keys = entry.getValue();
       final List<String> values = new ArrayList<>(keys.size());
       for (final String keyHex : keys) {
+        if (keyHex == null) {
+          throw new InvalidJsonRpcParameters(
+              "Invalid storage key parameter", RpcErrorType.INVALID_PARAMS);
+        }
         final UInt256 key;
         try {
           key = UInt256.fromHexString(keyHex);
