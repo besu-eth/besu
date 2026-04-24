@@ -38,7 +38,7 @@ are provided with different values, using input as per the execution-apis spec i
 - Fix eth_simulateV1 returning wrong error code when transaction gas exceeds block gas limit: now correctly returns -38015 (BLOCK_GAS_LIMIT_EXCEEDED) instead of -38014 or succeeding [#10073](https://github.com/besu-eth/besu/pull/10073)
 - Wait for peers before starting chain download. Prevents an OutOfMemory (OOM) error when the node has zero peers [#9979](https://github.com/hyperledger/besu/pull/9979)
 - Upgrade besu-native libraries version to 1.5.0. This fixes the issue of besu-native/secp256r1 exporting OpenSSL symbols in JVM space. [besu-native #308](https://github.com/besu-eth/besu-native/pull/308)
-- Fix data race in `BlockchainBasedBlockHashLookup` that could return `Hash.ZERO` for valid ancestors when shared across parallel block-processing workers, causing non-deterministic state-root divergence on Bonsai nodes.
+- Fix data race in `BlockchainBasedBlockHashLookup` that could return `Hash.ZERO` for valid ancestors when shared across parallel block-processing workers, causing non-deterministic state-root divergence on Bonsai nodes. [#10270](https://github.com/besu-eth/besu/pull/10270)
 
 ### Additions and Improvements
 - Add `transactionReceipts` subscription type to `eth_subscribe` that pushes all transaction receipts when a new block is added, with optional `transactionHashes` filter to receive receipts for specific transactions only [#10190](https://github.com/besu-eth/besu/pull/10190)
