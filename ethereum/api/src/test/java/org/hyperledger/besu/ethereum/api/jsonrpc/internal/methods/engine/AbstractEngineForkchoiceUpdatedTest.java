@@ -219,6 +219,35 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
   }
 
   @Test
+  public void shouldReturnInternalErrorWhenForkchoiceHeadCannotBeApplied() {
+    BlockHeader parent = blockHeaderBuilder.buildHeader();
+    BlockHeader mockHeader = blockHeaderBuilder.parentHash(parent.getHash()).buildHeader();
+    when(blockchain.getBlockHeader(parent.getHash())).thenReturn(Optional.of(parent));
+    when(mergeCoordinator.isDescendantOf(any(), any())).thenReturn(true);
+    when(mergeContext.isSyncing()).thenReturn(false);
+    when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), parent.getHash()))
+        .thenReturn(Optional.of(mockHeader));
+    when(mergeCoordinator.updateForkChoice(mockHeader, parent.getHash(), parent.getHash()))
+        .thenReturn(
+            ForkchoiceResult.withFailure(
+                ForkchoiceResult.Status.INTERNAL_ERROR,
+                "could not apply new head " + mockHeader.toLogString(),
+                Optional.of(parent.getHash())));
+
+    EngineForkchoiceUpdatedParameter param =
+        new EngineForkchoiceUpdatedParameter(
+            mockHeader.getBlockHash(), parent.getBlockHash(), parent.getBlockHash());
+
+    JsonRpcResponse response = resp(param, Optional.empty());
+
+    assertThat(response.getType()).isEqualTo(RpcResponseType.ERROR);
+    var errorResponse = (JsonRpcErrorResponse) response;
+    assertThat(errorResponse.getErrorType()).isEqualTo(RpcErrorType.INTERNAL_ERROR);
+    assertThat(errorResponse.getError().getCode()).isEqualTo(RpcErrorType.INTERNAL_ERROR.getCode());
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
   public void shouldReturnValidWithNewHeadAndFinalizedNoPayload() {
     BlockHeader mockParent = blockHeaderBuilder.number(9L).buildHeader();
     BlockHeader mockHeader =
