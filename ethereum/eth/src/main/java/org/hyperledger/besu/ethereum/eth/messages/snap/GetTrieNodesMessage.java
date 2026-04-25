@@ -19,17 +19,23 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.immutables.value.Value;
 
 public final class GetTrieNodesMessage extends AbstractSnapMessageData {
+
+  // Compact-encoded Keccak256 hash is at most 33 bytes (1 metadata + 32 data)
+  static final int MAX_PATH_SIZE = 33;
+  // Maximum total paths decoded across all groups, matches geth's maxTrieNodeLookups
+  static final int MAX_TOTAL_PATHS = 1024;
 
   public GetTrieNodesMessage(final Bytes data) {
     super(data);
@@ -48,17 +54,9 @@ public final class GetTrieNodesMessage extends AbstractSnapMessageData {
   }
 
   public static GetTrieNodesMessage create(
-      final Hash worldStateRootHash, final List<List<Bytes>> requests) {
-    return create(Optional.empty(), worldStateRootHash, requests);
-  }
-
-  public static GetTrieNodesMessage create(
-      final Optional<BigInteger> requestId,
-      final Hash worldStateRootHash,
-      final List<List<Bytes>> paths) {
+      final Hash worldStateRootHash, final List<List<Bytes>> paths) {
     final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
     tmp.startList();
-    requestId.ifPresent(tmp::writeBigIntegerScalar);
     tmp.writeBytes(worldStateRootHash.getBytes());
     tmp.writeList(
         paths,
@@ -70,12 +68,6 @@ public final class GetTrieNodesMessage extends AbstractSnapMessageData {
   }
 
   @Override
-  protected Bytes wrap(final BigInteger requestId) {
-    final TrieNodesPaths paths = paths(false);
-    return create(Optional.of(requestId), paths.worldStateRootHash(), paths.paths()).getData();
-  }
-
-  @Override
   public int getCode() {
     return SnapV1.GET_TRIE_NODES;
   }
@@ -84,13 +76,53 @@ public final class GetTrieNodesMessage extends AbstractSnapMessageData {
     final RLPInput input = new BytesValueRLPInput(data, false);
     input.enterList();
     if (withRequestId) input.skipNext();
-    final ImmutableTrieNodesPaths.Builder paths =
-        ImmutableTrieNodesPaths.builder()
-            .worldStateRootHash(Hash.wrap(Bytes32.wrap(input.readBytes32())))
-            .paths(input.readList(rlpInput -> rlpInput.readList(RLPInput::readBytes)))
-            .responseBytes(input.readBigIntegerScalar());
+
+    final Hash rootHash = Hash.wrap(Bytes32.wrap(input.readBytes32()));
+
+    // Decode paths with a total cap and per-path size validation to prevent
+    // memory amplification attacks (a ~16 MB wire message could otherwise cause ~1 GB of heap)
+    final List<List<Bytes>> pathGroups = new ArrayList<>();
+    int totalPaths = 0;
+
+    input.enterList();
+    while (!input.isEndOfCurrentList() && totalPaths < MAX_TOTAL_PATHS) {
+      input.enterList();
+      final List<Bytes> group = new ArrayList<>();
+      while (!input.isEndOfCurrentList() && totalPaths < MAX_TOTAL_PATHS) {
+        final Bytes path = input.readBytes();
+        if (path.size() > MAX_PATH_SIZE) {
+          throw new RLPException(
+              "Trie node path size " + path.size() + " exceeds maximum " + MAX_PATH_SIZE);
+        }
+        group.add(path);
+        totalPaths++;
+      }
+      // skip any remaining paths in this group (over the total cap)
+      while (!input.isEndOfCurrentList()) {
+        input.skipNext();
+      }
+      input.leaveList();
+      pathGroups.add(group);
+      // empty groups still count toward the limit to prevent empty-group flooding
+      if (group.isEmpty()) {
+        totalPaths++;
+      }
+    }
+
+    // skip any remaining groups (over the total cap)
+    while (!input.isEndOfCurrentList()) {
+      input.skipNext();
+    }
     input.leaveList();
-    return paths.build();
+
+    final BigInteger responseBytes = input.readBigIntegerScalar();
+    input.leaveList();
+
+    return ImmutableTrieNodesPaths.builder()
+        .worldStateRootHash(rootHash)
+        .paths(pathGroups)
+        .responseBytes(responseBytes)
+        .build();
   }
 
   @Value.Immutable
