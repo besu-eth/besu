@@ -72,10 +72,10 @@ abstract class AbstractTxPoolContent<T> implements JsonRpcMethod {
             (sender, pendingTransactionsData) -> {
               final PendingAndQueued<T> pq = getPendingAndQueued(pendingTransactionsData, render);
               if (!pq.pendingByNonce().isEmpty()) {
-                pending.put(sender.toString(), pq.pendingByNonce());
+                pending.put(sender.toChecksumString(), pq.pendingByNonce());
               }
               if (!pq.queuedByNonce().isEmpty()) {
-                queued.put(sender.toString(), pq.queuedByNonce());
+                queued.put(sender.toChecksumString(), pq.queuedByNonce());
               }
             });
     return new TransactionPoolResult<>(pending, queued);

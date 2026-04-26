@@ -22,6 +22,7 @@
 - Fix data race in `SyncDurationMetrics` where the backing `HashMap` was mutated from multiple sync threads in parallel, causing missing or zero `sync_duration` samples. [#10277](https://github.com/besu-eth/besu/pull/10277)
 
 ### Additions and Improvements
+- `txpool_content` and `txpool_contentFrom` now return sender addresses in EIP-55 mixed-case checksum format instead of lowercase. [#PLACEHOLDER](https://github.com/besu-eth/besu/pull/PLACEHOLDER)
 - The option to set a different block period for empty BFT blocks (`emptyblockperiodseconds`) is no longer experimental. The experimental flag `xemptyblockperiodseconds` will be removed in a future release.
 - Release worker threads after engine API timeout to avoid blocking subsequent requests [#10311](https://github.com/besu-eth/besu/pull/10311)
 
