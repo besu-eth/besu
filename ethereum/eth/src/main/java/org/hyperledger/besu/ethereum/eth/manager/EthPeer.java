@@ -101,6 +101,8 @@ public class EthPeer implements Comparable<EthPeer> {
   private volatile long totalResponsesReceived = 0;
   private volatile long usefulResponses = 0;
   private volatile long uselessResponses = 0;
+  private final int maxLatencySamples = 1000;
+  private final Deque<Long> latencySamples = new ArrayDeque<>(maxLatencySamples);
 
   private final Map<String, Map<Integer, RequestManager>> requestManagers;
 
@@ -623,16 +625,58 @@ public class EthPeer implements Comparable<EthPeer> {
         .sum();
   }
 
+  /**
+   * Record the latency of the newest response. Drops the oldest if more than {@code maxLatencySamples} samples
+   *
+   * @param latencyNanos the latency of the newest response
+   */
+  public synchronized void recordLatency(long latencyNanos) {
+    if (latencySamples.size() >= maxLatencySamples){
+      latencySamples.pollFirst(); // drop oldest
+    }
+    latencySamples.addLast(latencyNanos);
+  }
+
+  /**
+   * Compute the latency of the given percentile
+   *
+   * @param percentile the percentile for the computation
+   * @return latency of the given percentile
+   */
+  private long computePercentile(double percentile) {
+    if (latencySamples.isEmpty()) {
+      return 0;
+    }
+    long[] latencySamplesSorted = latencySamples.stream().mapToLong(Long::longValue).sorted().toArray(); // sort
+    int index = Math.max(0, (int) (Math.ceil(percentile / 100.0 * latencySamplesSorted.length) - 1));
+    return latencySamplesSorted[index];
+  }
+
+  /**
+   * Return the latency of the 50th percentile
+   *
+   * @return p50 latency
+   */
   public double getP50Latency() {
-    return 0.0;
+    return computePercentile(50);
   }
 
+  /**
+   * Return the latency of the 95th percentile
+   *
+   * @return p95 latency
+   */
   public double getP95Latency() {
-    return 0.0;
+    return computePercentile(95);
   }
 
+  /**
+   * Return the latency of the 99th percentile
+   *
+   * @return p99 latency
+   */
   public double getP99Latency() {
-    return 0.0;
+    return computePercentile(99);
   }
 
   /**
