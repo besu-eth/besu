@@ -18,9 +18,12 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.ethereum.p2p.rlpx.framing.SnappyCompressor;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -138,5 +141,38 @@ class RawMessageTest {
     } finally {
       executor.shutdown();
     }
+  }
+
+  @Test
+  void wrapUnwrapRoundTripWithRequestIdZero() {
+    final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
+    rlp.startList();
+    rlp.writeBytes(Bytes.of(1, 2, 3));
+    rlp.writeBytes(Bytes.of(4, 5, 6));
+    rlp.endList();
+
+    final RawMessage original = new RawMessage(CODE, rlp.encoded());
+    final MessageData wrapped = original.wrapMessageData(BigInteger.ZERO);
+    final Map.Entry<BigInteger, MessageData> unwrapped = wrapped.unwrapMessageData();
+
+    assertThat(unwrapped.getKey()).isEqualTo(BigInteger.ZERO);
+    assertThat(unwrapped.getValue().getCode()).isEqualTo(CODE);
+    assertThat(unwrapped.getValue().getData()).isEqualTo(original.getData());
+  }
+
+  @Test
+  void wrapUnwrapRoundTripWithLargeRequestId() {
+    final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
+    rlp.startList();
+    rlp.writeBytes(Bytes.of(1, 2, 3));
+    rlp.endList();
+
+    final BigInteger largeId = BigInteger.valueOf(Long.MAX_VALUE);
+    final RawMessage original = new RawMessage(CODE, rlp.encoded());
+    final MessageData wrapped = original.wrapMessageData(largeId);
+    final Map.Entry<BigInteger, MessageData> unwrapped = wrapped.unwrapMessageData();
+
+    assertThat(unwrapped.getKey()).isEqualTo(largeId);
+    assertThat(unwrapped.getValue().getData()).isEqualTo(original.getData());
   }
 }

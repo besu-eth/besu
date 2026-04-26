@@ -20,9 +20,7 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
-import java.math.BigInteger;
 import java.util.List;
-import java.util.Optional;
 
 import kotlin.collections.ArrayDeque;
 import org.apache.tuweni.bytes.Bytes;
@@ -46,23 +44,11 @@ public final class TrieNodesMessage extends AbstractSnapMessageData {
   }
 
   public static TrieNodesMessage create(final List<Bytes> nodes) {
-    return create(Optional.empty(), nodes);
-  }
-
-  public static TrieNodesMessage create(
-      final Optional<BigInteger> requestId, final List<Bytes> nodes) {
     final BytesValueRLPOutput tmp = new BytesValueRLPOutput();
     tmp.startList();
-    requestId.ifPresent(tmp::writeBigIntegerScalar);
     tmp.writeList(nodes, (node, rlpOutput) -> rlpOutput.writeBytes(node));
     tmp.endList();
     return new TrieNodesMessage(tmp.encoded());
-  }
-
-  @Override
-  protected Bytes wrap(final BigInteger requestId) {
-    final List<Bytes> nodes = nodes(false);
-    return create(Optional.of(requestId), nodes).getData();
   }
 
   @Override
