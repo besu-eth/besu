@@ -15,6 +15,20 @@
 
 apply plugin: 'java-library'
 
+compileJava {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
+    option('NullAway:AnnotatedPackages', 'org.hyperledger.besu.nat')
+    option('NullAway:JSpecifyMode', 'true')
+  }
+}
+
+tasks.named('compileTestJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+  }
+}
+
 jar {
   archiveBaseName = calculateArtifactId(project)
   manifest {
@@ -31,10 +45,14 @@ jar {
 dependencies {
   api 'org.slf4j:slf4j-api'
 
+  errorprone 'com.uber.nullaway:nullaway:0.13.1'
+
   implementation 'com.google.guava:guava'
   implementation 'com.squareup.okhttp3:okhttp'
   implementation 'org.jupnp:org.jupnp'
   implementation 'org.jupnp:org.jupnp.support'
+
+  compileOnlyApi 'org.jspecify:jspecify'
 
   // test dependencies.
   testImplementation project(path: ':ethereum:core', configuration: 'testArtifacts')
