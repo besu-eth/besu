@@ -14,14 +14,10 @@
  */
 package org.hyperledger.besu.ethereum.vm.operations.v2;
 
-import org.hyperledger.besu.ethereum.vm.operations.BenchmarkHelper;
 import org.hyperledger.besu.evm.UInt256;
 
 import java.math.BigInteger;
 import java.util.Random;
-
-import org.openjdk.jmh.annotations.Level;
-import org.openjdk.jmh.annotations.Setup;
 
 public abstract class BinaryArithmeticOperationBenchmarkV2 extends BinaryOperationBenchmarkV2 {
   static class Case {
@@ -53,10 +49,9 @@ public abstract class BinaryArithmeticOperationBenchmarkV2 extends BinaryOperati
     }
   }
 
-  @Setup(Level.Iteration)
   @Override
   public void setUp() {
-    frame = BenchmarkHelper.createMessageCallFrame();
+    frame = BenchmarkHelperV2.createMessageCallFrame();
 
     Case scenario = Case.fromString(opCode(), caseName());
     aPool = new UInt256[SAMPLE_SIZE];
