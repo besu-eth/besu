@@ -18,6 +18,7 @@
 - BFT option `xemptyblockperiodseconds` has been taken out of experimental and been renamed `emptyblockperiodseconds`. The old config option is deprecated and will be removed in a future release.
 
 ### Bug fixes
+- `eth_getBlockBy*`, `eth_getTransactionBy*`, `eth_getTransactionReceipt`, `eth_getLogs`, `txpool_content`, `txpool_contentFrom`, and `engine_getPayloadV*` now return Ethereum addresses in EIP-55 mixed-case checksum format instead of lowercase, aligning with the execution-apis spec and the behaviour of Geth and Reth. [#10327](https://github.com/besu-eth/besu/pull/10327)
 - Fix data race in `SyncDurationMetrics` where the backing `HashMap` was mutated from multiple sync threads in parallel, causing missing or zero `sync_duration` samples. [#10277](https://github.com/besu-eth/besu/pull/10277)
 
 ### Additions and Improvements

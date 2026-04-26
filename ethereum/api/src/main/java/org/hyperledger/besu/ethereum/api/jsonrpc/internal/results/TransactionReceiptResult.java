@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.BytesHolder;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.TransactionType;
@@ -78,9 +77,9 @@ public abstract class TransactionReceiptResult {
     this.receipt = receiptWithMetadata.getReceipt();
     this.blockHash = receiptWithMetadata.getBlockHash().toString();
     this.blockNumber = Quantity.create(receiptWithMetadata.getBlockNumber());
-    this.contractAddress = txn.contractAddress().map(Address::toString).orElse(null);
+    this.contractAddress = txn.contractAddress().map(Address::toChecksumString).orElse(null);
     this.cumulativeGasUsed = Quantity.create(receipt.getCumulativeGasUsed());
-    this.from = txn.getSender().toString();
+    this.from = txn.getSender().toChecksumString();
     this.gasUsed = Quantity.create(receiptWithMetadata.getGasUsed());
     this.blobGasUsed = receiptWithMetadata.getBlobGasUsed().map(Quantity::create).orElse(null);
     this.blobGasPrice = receiptWithMetadata.getBlobGasPrice().map(Quantity::create).orElse(null);
@@ -97,7 +96,7 @@ public abstract class TransactionReceiptResult {
             receiptWithMetadata.getTransactionIndex(),
             receiptWithMetadata.getLogIndexOffset());
     this.logsBloom = receipt.getBloomFilter().toString();
-    this.to = txn.getTo().map(BytesHolder::getBytes).map(Bytes::toHexString).orElse(null);
+    this.to = txn.getTo().map(Address::toChecksumString).orElse(null);
     this.transactionHash = txn.getHash().toString();
     this.transactionIndex = Quantity.create(receiptWithMetadata.getTransactionIndex());
     this.revertReason = receipt.getRevertReason().map(Bytes::toString).orElse(null);

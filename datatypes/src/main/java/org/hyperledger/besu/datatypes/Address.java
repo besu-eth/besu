@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutionException;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -236,6 +237,28 @@ public class Address extends BytesHolder {
                   out.writeLongScalar(nonce);
                   out.endList();
                 })));
+  }
+
+  /**
+   * Returns the EIP-55 mixed-case checksum encoding of this address.
+   *
+   * @return checksummed address string, e.g. {@code 0x5aAeb6053F3E94C9b9A09f33669435E7Ef1BeAed}
+   */
+  public String toChecksumString() {
+    final String hex = getBytes().toHexString().substring(2);
+    final byte[] hashBytes =
+        keccak256(Bytes.wrap(hex.getBytes(StandardCharsets.US_ASCII))).toArray();
+    final StringBuilder sb = new StringBuilder("0x");
+    for (int i = 0; i < hex.length(); i++) {
+      final char c = hex.charAt(i);
+      if (Character.isDigit(c)) {
+        sb.append(c);
+      } else {
+        final int hashNibble = (hashBytes[i / 2] >> (i % 2 == 0 ? 4 : 0)) & 0xF;
+        sb.append(hashNibble >= 8 ? Character.toUpperCase(c) : c);
+      }
+    }
+    return sb.toString();
   }
 
   /**

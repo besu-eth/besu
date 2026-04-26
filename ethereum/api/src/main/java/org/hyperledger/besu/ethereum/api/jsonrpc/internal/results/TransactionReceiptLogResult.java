@@ -57,7 +57,7 @@ public class TransactionReceiptLogResult {
       final long blockTimestamp,
       final int transactionIndex,
       final int logIndex) {
-    this.address = log.getLogger().toString();
+    this.address = log.getLogger().toChecksumString();
     this.topics = new ArrayList<>(log.getTopics().size());
 
     for (final LogTopic topic : log.getTopics()) {

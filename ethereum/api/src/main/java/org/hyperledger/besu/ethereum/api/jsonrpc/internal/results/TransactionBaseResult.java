@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
 import org.hyperledger.besu.datatypes.AccessListEntry;
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BytesHolder;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
@@ -101,7 +102,7 @@ public class TransactionBaseResult implements TransactionResult {
     this.accessList =
         transaction.getAccessList().orElse(transactionType.supportsAccessList() ? List.of() : null);
     this.chainId = transaction.getChainId().map(Quantity::create).orElse(null);
-    this.from = transaction.getSender().toString();
+    this.from = transaction.getSender().toChecksumString();
     this.gas = Quantity.create(transaction.getGasLimit());
     this.maxPriorityFeePerGas =
         transaction.getMaxPriorityFeePerGas().map(Wei::toShortHexString).orElse(null);
@@ -120,7 +121,7 @@ public class TransactionBaseResult implements TransactionResult {
     this.hash = transaction.getHash().toString();
     this.input = transaction.getPayload().toString();
     this.nonce = Quantity.create(transaction.getNonce());
-    this.to = transaction.getTo().map(a -> a.getBytes().toHexString()).orElse(null);
+    this.to = transaction.getTo().map(Address::toChecksumString).orElse(null);
     if (transactionType == TransactionType.FRONTIER) {
       this.type = Quantity.create(0);
       this.yParity = null;

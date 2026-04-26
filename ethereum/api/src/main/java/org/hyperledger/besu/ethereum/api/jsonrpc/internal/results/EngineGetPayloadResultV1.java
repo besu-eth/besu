@@ -68,7 +68,7 @@ public class EngineGetPayloadResultV1 {
     this.gasUsed = Quantity.create(header.getGasUsed());
     this.timestamp = Quantity.create(header.getTimestamp());
     this.transactions = transactions;
-    this.feeRecipient = header.getCoinbase().toString();
+    this.feeRecipient = header.getCoinbase().toChecksumString();
     this.prevRandao = header.getPrevRandao().map(Bytes32::toHexString).orElse(null);
   }
 

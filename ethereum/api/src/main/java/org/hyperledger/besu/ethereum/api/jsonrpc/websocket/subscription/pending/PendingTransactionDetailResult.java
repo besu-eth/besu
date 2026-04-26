@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.pending;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.JsonRpcResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
@@ -55,13 +56,13 @@ public class PendingTransactionDetailResult implements JsonRpcResult {
 
   public PendingTransactionDetailResult(final Transaction tx) {
     TransactionType transactionType = tx.getType();
-    this.from = tx.getSender().toString();
+    this.from = tx.getSender().toChecksumString();
     this.gas = Quantity.create(tx.getGasLimit());
     this.gasPrice = tx.getGasPrice().map(Quantity::create).orElse(null);
     this.hash = tx.getHash().toString();
     this.input = tx.getPayload().toString();
     this.nonce = Quantity.create(tx.getNonce());
-    this.to = tx.getTo().map(a -> a.getBytes().toHexString()).orElse(null);
+    this.to = tx.getTo().map(Address::toChecksumString).orElse(null);
     if (transactionType == TransactionType.FRONTIER) {
       this.type = Quantity.create(0);
       this.yParity = null;
