@@ -682,7 +682,7 @@ public class EthPeer implements Comparable<EthPeer> {
     long nowTimestamp = clock.millis();
     long[] sample = {nowTimestamp, bytes};
     totalBytesTransferred += bytes;
-    totalResponsesReceived += 1;
+    totalResponsesReceived++;
     rollingWindowSamples.addLast(sample);
     removeOldByteSamples(nowTimestamp);
   }
