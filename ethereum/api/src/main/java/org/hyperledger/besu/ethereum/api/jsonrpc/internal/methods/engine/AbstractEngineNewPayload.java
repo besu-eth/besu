@@ -174,7 +174,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
           e);
     }
 
-
     final ValidationResult<RpcErrorType> parameterValidationResult =
         validateParameters(
             blockParam,

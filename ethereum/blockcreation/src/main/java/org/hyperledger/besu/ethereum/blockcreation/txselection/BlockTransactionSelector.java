@@ -66,14 +66,15 @@ import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Optional;
-import java.util.SequencedSet;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
@@ -141,7 +142,7 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
   private volatile TransactionSelectionResult validTxSelectionTimeoutResult;
   private volatile TransactionSelectionResult invalidTxSelectionTimeoutResult;
   private volatile FutureTask<Void> currTxSelectionTask;
-  private final SequencedSet<Transaction> inclusionListTransactions;
+  private final Set<Transaction> inclusionListTransactions;
 
   public BlockTransactionSelector(
       final MiningConfiguration miningConfiguration,
@@ -188,7 +189,7 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     this.pluginTxsSelectionMaxTimeNanos =
         miningConfiguration.getPluginTxsSelectionMaxTime(blockTxsSelectionMaxTime).toNanos();
     this.maybeBlockAccessListBuilder = maybeBlockAccessListBuilder;
-    this.inclusionListTransactions = new LinkedHashSet<>(inclusionListTransactions);
+    this.inclusionListTransactions = new HashSet<>(inclusionListTransactions);
   }
 
   private List<AbstractTransactionSelector> createTransactionSelectors(
@@ -226,7 +227,7 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     // for any inclusion list txs not yet selected, evaluate and include it now
     // this is not time-limited, since failing to include any of these txs will result
     // in an invalid block
-    for (final Transaction ilTx : sortInclusionListTransactions(inclusionListTransactions)) {
+    for (final Transaction ilTx : sortTransactionList(inclusionListTransactions)) {
       final TransactionSelectionResult ilResult =
           evaluateTransaction(new PendingTransaction.Local.Priority(ilTx));
       if (!ilResult.selected()) {
@@ -241,16 +242,23 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     return transactionSelectionResults;
   }
 
-  private List<Transaction> sortInclusionListTransactions(
-      final SequencedSet<Transaction> inclusionListTransactions) {
-    // for the moment we just make sure txs are sorted by nonce for each sender
+  private List<Transaction> sortTransactionList(
+      final Collection<Transaction> inclusionListTransactions) {
+    // for the moment we just make sure txs are sorted by nonce for each sender (note that there
+    // could be multiple txs for the same nonce)
     // more sophisticated sorting based on effective priority fee can be implemented later
     final Map<Address, NavigableSet<Transaction>> txsBySender = new HashMap<>();
 
     for (final Transaction tx : inclusionListTransactions) {
       txsBySender
           .computeIfAbsent(
-              tx.getSender(), k -> new TreeSet<>(Comparator.comparingLong(Transaction::getNonce)))
+              // compare first by nonce then by hash, in case there is more than one tx with the
+              // same nonce
+              tx.getSender(),
+              k ->
+                  new TreeSet<>(
+                      Comparator.comparingLong(Transaction::getNonce)
+                          .thenComparing(Transaction::getHash)))
           .add(tx);
     }
 
@@ -558,8 +566,9 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
   public TransactionSelectionResults evaluateTransactions(final List<Transaction> transactions) {
     selectorsStateManager.blockSelectionStarted();
 
-    transactions.forEach(
-        transaction -> evaluateTransaction(new PendingTransaction.Local.Priority(transaction)));
+    sortTransactionList(transactions)
+        .forEach(
+            transaction -> evaluateTransaction(new PendingTransaction.Local.Priority(transaction)));
 
     return transactionSelectionResults;
   }
