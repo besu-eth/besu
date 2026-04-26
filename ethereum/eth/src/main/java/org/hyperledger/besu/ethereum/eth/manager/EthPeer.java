@@ -99,6 +99,8 @@ public class EthPeer implements Comparable<EthPeer> {
   private final Deque<long[]> rollingWindowSamples = new ArrayDeque<>();
   private volatile long totalBytesTransferred = 0;
   private volatile long totalResponsesReceived = 0;
+  private volatile long usefulResponses = 0;
+  private volatile long uselessResponses = 0;
 
   private final Map<String, Map<Integer, RequestManager>> requestManagers;
 
@@ -222,16 +224,18 @@ public class EthPeer implements Comparable<EthPeer> {
     reputation.recordRequestTimeout(protocolName, requestCode, this).ifPresent(this::disconnect);
   }
 
-  public void recordUselessResponse(final String requestType) {
+  public synchronized void recordUselessResponse(final String requestType) {
     LOG.atTrace()
         .setMessage("Received useless response for request type {} from peer {}")
         .addArgument(requestType)
         .addArgument(this::getLoggableId)
         .log();
+    uselessResponses++;
     reputation.recordUselessResponse(System.currentTimeMillis(), this).ifPresent(this::disconnect);
   }
 
-  public void recordUsefulResponse() {
+  public synchronized void recordUsefulResponse() {
+    usefulResponses++;
     reputation.recordUsefulResponse();
   }
 
@@ -631,8 +635,13 @@ public class EthPeer implements Comparable<EthPeer> {
     return 0.0;
   }
 
+  /**
+   * Return the success rate calculated from useful responses divided by total number of responses
+   *
+   * @return success rate
+   */
   public double getSuccessRate() {
-    return 0.0;
+    return (double) usefulResponses / (usefulResponses + uselessResponses);
   }
 
   /**
