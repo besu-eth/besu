@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.vm.operations;
+package org.hyperledger.besu.ethereum.vm.operations.v2;
 
 import org.hyperledger.besu.evm.UInt256;
 
@@ -20,17 +20,15 @@ import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Random;
 
-import org.apache.tuweni.bytes.Bytes;
-
-public abstract class SignedBinaryArithmeticOperationBenchmark
-    extends BinaryArithmeticOperationBenchmark {
+public abstract class SignedBinaryArithmeticOperationBenchmarkV2
+    extends BinaryArithmeticOperationBenchmarkV2 {
   @Override
   public void setUp() {
-    frame = BenchmarkHelper.createMessageCallFrame();
+    frame = BenchmarkHelperV2.createMessageCallFrame();
 
     Case scenario = Case.fromString(opCode(), caseName());
-    aPool = new Bytes[SAMPLE_SIZE];
-    bPool = new Bytes[SAMPLE_SIZE];
+    aPool = new UInt256[SAMPLE_SIZE];
+    bPool = new UInt256[SAMPLE_SIZE];
 
     final Random random = new Random();
     int aSize;
@@ -59,8 +57,8 @@ public abstract class SignedBinaryArithmeticOperationBenchmark
         }
       }
 
-      aPool[i] = Bytes.wrap(a);
-      bPool[i] = Bytes.wrap(b);
+      aPool[i] = BenchmarkHelperV2.bytesToUInt256(a);
+      bPool[i] = BenchmarkHelperV2.bytesToUInt256(b);
     }
     index = 0;
   }
