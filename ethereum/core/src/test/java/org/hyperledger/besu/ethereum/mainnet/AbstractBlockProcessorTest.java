@@ -146,7 +146,7 @@ abstract class AbstractBlockProcessorTest {
     when(gasCalculator.accessListGasCost(0, 0)).thenReturn(0L);
     when(gasCalculator.delegateCodeGasCost(0)).thenReturn(0L);
     when(gasCalculator.transactionIntrinsicGasCost(tx, 0L)).thenReturn(0L);
-    when(stateGasCalc.transactionIntrinsicStateGas(blockGasLimit, false, 0L)).thenReturn(0L);
+    when(stateGasCalc.transactionIntrinsicStateGas(false, 0L)).thenReturn(0L);
     when(stateGasCalc.transactionRegularGasLimit()).thenReturn(Long.MAX_VALUE);
     when(protocolSpec.getGasCalculator()).thenReturn(gasCalculator);
 

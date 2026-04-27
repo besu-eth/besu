@@ -40,27 +40,24 @@ public interface StateGasCostCalculator {
   /**
    * Returns the cost per state byte for the given block gas limit.
    *
-   * @param blockGasLimit the block gas limit
    * @return the cost per state byte
    */
-  long costPerStateByte(long blockGasLimit);
+  long costPerStateByte();
 
   /**
    * Returns the state gas for a CREATE operation (112 * cpsb).
    *
-   * @param blockGasLimit the block gas limit
    * @return the state gas for CREATE
    */
-  long createStateGas(long blockGasLimit);
+  long createStateGas();
 
   /**
    * Returns the state gas for code deposit (cpsb * codeSize).
    *
    * @param codeSize the size of the code in bytes
-   * @param blockGasLimit the block gas limit
    * @return the state gas for code deposit
    */
-  long codeDepositStateGas(int codeSize, long blockGasLimit);
+  long codeDepositStateGas(int codeSize);
 
   /**
    * Returns the regular gas for code deposit hashing (6 * ceil(codeSize/32)).
@@ -73,18 +70,16 @@ public interface StateGasCostCalculator {
   /**
    * Returns the state gas for creating a new account (112 * cpsb).
    *
-   * @param blockGasLimit the block gas limit
    * @return the state gas for new account creation
    */
-  long newAccountStateGas(long blockGasLimit);
+  long newAccountStateGas();
 
   /**
    * Returns the state gas for storage set 0->nonzero (32 * cpsb).
    *
-   * @param blockGasLimit the block gas limit
    * @return the state gas for storage set
    */
-  long storageSetStateGas(long blockGasLimit);
+  long storageSetStateGas();
 
   /**
    * Returns the regular gas for storage set (replacing the 20000 SSTORE_SET_GAS).
@@ -96,10 +91,9 @@ public interface StateGasCostCalculator {
   /**
    * Returns the state gas for EIP-7702 auth base (23 * cpsb).
    *
-   * @param blockGasLimit the block gas limit
    * @return the state gas for auth base
    */
-  long authBaseStateGas(long blockGasLimit);
+  long authBaseStateGas();
 
   /**
    * Returns the regular gas for EIP-7702 auth base.
@@ -111,10 +105,9 @@ public interface StateGasCostCalculator {
   /**
    * Returns the state gas for empty account delegation (112 * cpsb).
    *
-   * @param blockGasLimit the block gas limit
    * @return the state gas for empty account delegation
    */
-  long emptyAccountDelegationStateGas(long blockGasLimit);
+  long emptyAccountDelegationStateGas();
 
   /**
    * Returns the maximum regular gas allowed per transaction (TX_MAX_GAS_LIMIT from EIP-7825).
@@ -268,22 +261,19 @@ public interface StateGasCostCalculator {
    * upfront (assuming all delegation targets are new accounts). Existing-account refunds are
    * applied later during processing.
    *
-   * @param blockGasLimit the block gas limit
    * @param isContractCreation whether the transaction creates a contract
    * @param codeDelegationCount number of EIP-7702 code delegations
    * @return the intrinsic state gas
    */
   default long transactionIntrinsicStateGas(
-      final long blockGasLimit, final boolean isContractCreation, final long codeDelegationCount) {
+      final boolean isContractCreation, final long codeDelegationCount) {
     long stateGas = 0;
     if (isContractCreation) {
-      stateGas += createStateGas(blockGasLimit);
+      stateGas += createStateGas();
     }
     if (codeDelegationCount > 0) {
       // Worst case: all delegators are new accounts → (112 + 23) * cpsb each
-      stateGas +=
-          (emptyAccountDelegationStateGas(blockGasLimit) + authBaseStateGas(blockGasLimit))
-              * codeDelegationCount;
+      stateGas += (emptyAccountDelegationStateGas() + authBaseStateGas()) * codeDelegationCount;
     }
     return stateGas;
   }
@@ -292,17 +282,17 @@ public interface StateGasCostCalculator {
   StateGasCostCalculator NONE =
       new StateGasCostCalculator() {
         @Override
-        public long costPerStateByte(final long blockGasLimit) {
+        public long costPerStateByte() {
           return 0L;
         }
 
         @Override
-        public long createStateGas(final long blockGasLimit) {
+        public long createStateGas() {
           return 0L;
         }
 
         @Override
-        public long codeDepositStateGas(final int codeSize, final long blockGasLimit) {
+        public long codeDepositStateGas(final int codeSize) {
           return 0L;
         }
 
@@ -312,12 +302,12 @@ public interface StateGasCostCalculator {
         }
 
         @Override
-        public long newAccountStateGas(final long blockGasLimit) {
+        public long newAccountStateGas() {
           return 0L;
         }
 
         @Override
-        public long storageSetStateGas(final long blockGasLimit) {
+        public long storageSetStateGas() {
           return 0L;
         }
 
@@ -327,7 +317,7 @@ public interface StateGasCostCalculator {
         }
 
         @Override
-        public long authBaseStateGas(final long blockGasLimit) {
+        public long authBaseStateGas() {
           return 0L;
         }
 
@@ -337,7 +327,7 @@ public interface StateGasCostCalculator {
         }
 
         @Override
-        public long emptyAccountDelegationStateGas(final long blockGasLimit) {
+        public long emptyAccountDelegationStateGas() {
           return 0L;
         }
 

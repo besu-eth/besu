@@ -130,7 +130,7 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
    * @return True if the transaction is too large for the block, false otherwise.
    */
   private boolean transactionTooLargeForBlock(final Transaction transaction, final GasState state) {
-    final var intrinsic = TransactionIntrinsicGas.of(transaction, blockGasLimit, gasCalculator);
+    final var intrinsic = TransactionIntrinsicGas.of(transaction, gasCalculator);
     return !gasAccountingStrategy.hasBlockCapacity(
         transaction.getGasLimit(),
         intrinsic.regularGas(),
