@@ -42,7 +42,7 @@ public abstract class TernaryOperationBenchmarkV2 {
 
   protected UInt256[] aPool;
   protected UInt256[] bPool;
-  protected UInt256[] mPool;
+  protected UInt256[] cPool;
   protected int index;
   protected MessageFrame frame;
 
@@ -51,16 +51,16 @@ public abstract class TernaryOperationBenchmarkV2 {
     frame = BenchmarkHelperV2.createMessageCallFrame();
     aPool = new UInt256[SAMPLE_SIZE];
     bPool = new UInt256[SAMPLE_SIZE];
-    mPool = new UInt256[SAMPLE_SIZE];
+    cPool = new UInt256[SAMPLE_SIZE];
     BenchmarkHelperV2.fillUInt256Pool(aPool);
     BenchmarkHelperV2.fillUInt256Pool(bPool);
-    BenchmarkHelperV2.fillUInt256Pool(mPool);
+    BenchmarkHelperV2.fillUInt256Pool(cPool);
     index = 0;
   }
 
   @Benchmark
   public void executeOperation(final Blackhole blackhole) {
-    BenchmarkHelperV2.pushUInt256(frame, mPool[index]);
+    BenchmarkHelperV2.pushUInt256(frame, cPool[index]);
     BenchmarkHelperV2.pushUInt256(frame, bPool[index]);
     BenchmarkHelperV2.pushUInt256(frame, aPool[index]);
 

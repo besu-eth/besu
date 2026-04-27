@@ -75,6 +75,7 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStoragePrefixedKeyBlockchainStorage;
 import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
@@ -1683,7 +1684,27 @@ public abstract class AbstractBlockTransactionSelectorTest {
       final Address miningBeneficiary,
       final Wei blobGasPrice,
       final TransactionSelectionService transactionSelectionService) {
-    ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(blockchain.getChainHeadHeader());
+    return createBlockSelector(
+        miningConfiguration,
+        transactionProcessor,
+        blockHeader,
+        miningBeneficiary,
+        blobGasPrice,
+        transactionSelectionService,
+        protocolSchedule,
+        Optional.empty());
+  }
+
+  protected BlockTransactionSelector createBlockSelector(
+      final MiningConfiguration miningConfiguration,
+      final MainnetTransactionProcessor transactionProcessor,
+      final ProcessableBlockHeader blockHeader,
+      final Address miningBeneficiary,
+      final Wei blobGasPrice,
+      final TransactionSelectionService transactionSelectionService,
+      final ProtocolSchedule schedule,
+      final Optional<BlockAccessList.BlockAccessListBuilder> maybeBalBuilder) {
+    ProtocolSpec protocolSpec = schedule.getByBlockHeader(blockchain.getChainHeadHeader());
     final var selectorsStateManager = new SelectorsStateManager();
     final BlockTransactionSelector selector =
         new BlockTransactionSelector(
@@ -1693,7 +1714,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
             worldState,
             transactionPool,
             blockHeader,
-            protocolSchedule.getByBlockHeader(blockHeader).getTransactionReceiptFactory(),
+            schedule.getByBlockHeader(blockHeader).getTransactionReceiptFactory(),
             miningBeneficiary,
             blobGasPrice,
             protocolSpec,
@@ -1701,7 +1722,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
                 blockHeader, selectorsStateManager),
             ethScheduler,
             selectorsStateManager,
-            Optional.empty());
+            maybeBalBuilder);
 
     return selector;
   }
@@ -1935,7 +1956,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
     }
   }
 
-  protected enum Sender {
+  public enum Sender {
     // it is important to keep the addresses of the senders sorted, to make the tests reproducible,
     // since a different sender address can change the order in which txs are selected,
     // if all the other sorting fields are equal
