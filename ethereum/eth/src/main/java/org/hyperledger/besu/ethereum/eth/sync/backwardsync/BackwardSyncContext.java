@@ -214,7 +214,7 @@ public class BackwardSyncContext {
     }
 
     return exceptionallyCompose(
-        backwardSyncAlgorithmFactory.getBackwardSyncAlgorithm(this).executeBackwardsSync(null),
+        backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(this).executeBackwardsSync(null),
         throwable -> {
           processException(throwable);
           return ethContext

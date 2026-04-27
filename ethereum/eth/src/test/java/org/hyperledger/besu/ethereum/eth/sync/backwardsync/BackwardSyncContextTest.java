@@ -297,7 +297,7 @@ public class BackwardSyncContextTest {
 
   @Test
   public void shouldSyncUntilHash() throws Exception {
-    when(backwardSyncAlgorithmFactory.getBackwardSyncAlgorithm(context))
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
         .thenReturn(backwardSyncAlgorithm);
     when(backwardSyncAlgorithm.executeBackwardsSync(null))
         .thenReturn(CompletableFuture.completedFuture(null));
@@ -326,7 +326,7 @@ public class BackwardSyncContextTest {
 
   @Test
   public void shouldSyncUntilRemoteBranch() throws Exception {
-    when(backwardSyncAlgorithmFactory.getBackwardSyncAlgorithm(context))
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
         .thenReturn(backwardSyncAlgorithm);
     when(backwardSyncAlgorithm.executeBackwardsSync(null))
         .thenReturn(CompletableFuture.completedFuture(null));
@@ -340,7 +340,7 @@ public class BackwardSyncContextTest {
 
   @Test
   public void shouldAddExpectedBlock() throws Exception {
-    when(backwardSyncAlgorithmFactory.getBackwardSyncAlgorithm(context))
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
         .thenReturn(backwardSyncAlgorithm);
     when(backwardSyncAlgorithm.executeBackwardsSync(null))
         .thenReturn(CompletableFuture.completedFuture(null));
@@ -393,7 +393,7 @@ public class BackwardSyncContextTest {
   @Test
   public void shouldUpdateTargetHeightWhenStatusPresent() {
     // Given
-    when(backwardSyncAlgorithmFactory.getBackwardSyncAlgorithm(context))
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
         .thenReturn(backwardSyncAlgorithm);
     when(backwardSyncAlgorithm.executeBackwardsSync(null))
         .thenReturn(CompletableFuture.completedFuture(null));
@@ -533,7 +533,7 @@ public class BackwardSyncContextTest {
 
   @Test
   public void shouldFailAfterMaxNumberOfRetries() {
-    when(backwardSyncAlgorithmFactory.getBackwardSyncAlgorithm(context))
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
         .thenReturn(backwardSyncAlgorithm);
     when(backwardSyncAlgorithm.executeBackwardsSync(null))
         .thenReturn(CompletableFuture.failedFuture(new Exception()));
@@ -550,7 +550,7 @@ public class BackwardSyncContextTest {
   @Test
   public void whenBlockNotFoundInPeers_shouldRemoveBlockFromQueueAndProgressInNextSession()
       throws Exception {
-    when(backwardSyncAlgorithmFactory.getBackwardSyncAlgorithm(context))
+    when(backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(context))
         .thenReturn(backwardSyncAlgorithm);
     when(backwardSyncAlgorithm.executeBackwardsSync(null))
         .thenReturn(CompletableFuture.completedFuture(null));

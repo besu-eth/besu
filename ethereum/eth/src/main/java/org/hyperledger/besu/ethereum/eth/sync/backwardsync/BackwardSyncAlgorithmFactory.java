@@ -15,7 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.sync.backwardsync;
 
 public class BackwardSyncAlgorithmFactory {
-  public BackwardSyncAlgorithm getBackwardSyncAlgorithm(
+  public BackwardSyncAlgorithm createBackwardSyncAlgorithm(
       final BackwardSyncContext backwardSyncContext) {
     return new BackwardSyncAlgorithm(
         backwardSyncContext,
