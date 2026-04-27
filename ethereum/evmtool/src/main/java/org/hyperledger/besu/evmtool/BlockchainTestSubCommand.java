@@ -99,7 +99,7 @@ public class BlockchainTestSubCommand implements Runnable {
   public static final String COMMAND_NAME = "block-test";
 
   @Option(
-      names = {"--test-name"},
+      names = {"--test-name", "--run"},
       description =
           "Limit execution to tests whose name contains the given substring, or matches a glob pattern (using * and ?).")
   private String testName = null;
@@ -109,17 +109,36 @@ public class BlockchainTestSubCommand implements Runnable {
       description = "Output file for traces (default: stderr). Requires --json or --trace flag.")
   private String traceOutput = null;
 
+  @Option(
+      names = {"--workers"},
+      description = "Number of parallel workers for processing fixture files.",
+      defaultValue = "1")
+  private int workers = 1;
+
+  @Option(
+      names = {"--json-array"},
+      description =
+          "Output results as a JSON array: name, pass, fork, lastBlockHash, error.")
+  private boolean jsonArray = false;
+
+  private final List<com.fasterxml.jackson.databind.node.ObjectNode> jsonArrayResults =
+      java.util.Collections.synchronizedList(new ArrayList<>());
+
   @ParentCommand private final EvmToolCommand parentCommand;
 
   // picocli does it magically
   @Parameters private final List<Path> blockchainTestFiles = new ArrayList<>();
+
+  // Cache protocol schedules across all tests — creating all 30+ schedules is very expensive
+  private volatile ReferenceTestProtocolSchedules cachedSchedules;
 
   /** Helper class to track test execution results for summary reporting. */
   private static class TestResults {
     private static final String SEPARATOR = "=".repeat(80);
     private final AtomicInteger passedTests = new AtomicInteger(0);
     private final AtomicInteger failedTests = new AtomicInteger(0);
-    private final Map<String, String> failures = new LinkedHashMap<>();
+    private final Map<String, String> failures =
+        java.util.Collections.synchronizedMap(new LinkedHashMap<>());
 
     void recordPass() {
       passedTests.incrementAndGet();
@@ -177,14 +196,16 @@ public class BlockchainTestSubCommand implements Runnable {
             .constructParametricType(
                 Map.class, String.class, BlockchainReferenceTestCaseSpec.class);
     try {
-      if (blockchainTestFiles.isEmpty()) {
-        // if no state tests were specified, use standard input to get filenames
+      // Collect all JSON files (expanding directories recursively)
+      final List<Path> collectedFiles = collectFiles(blockchainTestFiles);
+
+      if (collectedFiles.isEmpty()) {
+        // if no files were specified, use standard input to get filenames
         final BufferedReader in =
             new BufferedReader(new InputStreamReader(parentCommand.in, UTF_8));
         while (true) {
           final String fileName = in.readLine();
           if (fileName == null) {
-            // Reached end-of-file. Stop the loop.
             break;
           }
           final File file = new File(fileName);
@@ -196,15 +217,41 @@ public class BlockchainTestSubCommand implements Runnable {
             parentCommand.out.println("File not found: " + fileName);
           }
         }
+      } else if (workers > 1 && collectedFiles.size() > 1) {
+        // Parallel execution
+        final var executor = java.util.concurrent.Executors.newFixedThreadPool(workers);
+        final var futures = new ArrayList<java.util.concurrent.Future<?>>();
+        for (final Path file : collectedFiles) {
+          futures.add(executor.submit(() -> {
+            try {
+              final Map<String, BlockchainReferenceTestCaseSpec> blockchainTests =
+                  blockchainTestMapper.readValue(file.toFile(), javaType);
+              executeBlockchainTest(blockchainTests, results);
+            } catch (final Exception e) {
+              results.recordFailure(file.toString(), e.getMessage());
+            }
+          }));
+        }
+        for (final var future : futures) {
+          future.get();
+        }
+        executor.shutdown();
       } else {
-        for (final Path blockchainTestFile : blockchainTestFiles) {
-          final Map<String, BlockchainReferenceTestCaseSpec> blockchainTests;
-          if ("stdin".equals(blockchainTestFile.toString())) {
-            blockchainTests = blockchainTestMapper.readValue(parentCommand.in, javaType);
-          } else {
-            blockchainTests = blockchainTestMapper.readValue(blockchainTestFile.toFile(), javaType);
+        // Sequential execution
+        for (final Path file : collectedFiles) {
+          try {
+            if ("stdin".equals(file.toString())) {
+              final Map<String, BlockchainReferenceTestCaseSpec> blockchainTests =
+                  blockchainTestMapper.readValue(parentCommand.in, javaType);
+              executeBlockchainTest(blockchainTests, results);
+            } else {
+              final Map<String, BlockchainReferenceTestCaseSpec> blockchainTests =
+                  blockchainTestMapper.readValue(file.toFile(), javaType);
+              executeBlockchainTest(blockchainTests, results);
+            }
+          } catch (final Exception e) {
+            // Skip files that fail to parse (e.g. non-fixture JSON)
           }
-          executeBlockchainTest(blockchainTests, results);
         }
       }
     } catch (final JsonProcessingException jpe) {
@@ -212,12 +259,43 @@ public class BlockchainTestSubCommand implements Runnable {
     } catch (final IOException e) {
       System.err.println("Unable to read state file");
       e.printStackTrace(System.err);
+    } catch (final Exception e) {
+      System.err.println("Error: " + e.getMessage());
+      e.printStackTrace(System.err);
     } finally {
-      // Always print summary, even if there were errors
-      if (results.hasTests()) {
+      if (jsonArray) {
+        try {
+          parentCommand.out.println(
+              new com.fasterxml.jackson.databind.ObjectMapper()
+                  .writeValueAsString(jsonArrayResults));
+        } catch (final com.fasterxml.jackson.core.JsonProcessingException e) {
+          parentCommand.out.println("[]");
+        }
+      } else if (results.hasTests()) {
         results.printSummary(parentCommand.out);
       }
     }
+  }
+
+  /** Collect all JSON files from paths, expanding directories recursively. */
+  static List<Path> collectFiles(final List<Path> paths) throws IOException {
+    final List<Path> files = new ArrayList<>();
+    for (final Path path : paths) {
+      if ("stdin".equals(path.toString())) {
+        files.add(path);
+      } else if (path.toFile().isDirectory()) {
+        try (var stream = java.nio.file.Files.walk(path)) {
+          stream
+              .filter(p -> p.toString().endsWith(".json"))
+              .filter(p -> !p.toString().contains("/.meta/"))
+              .sorted()
+              .forEach(files::add);
+        }
+      } else if (path.toFile().isFile()) {
+        files.add(path);
+      }
+    }
+    return files;
   }
 
   private void executeBlockchainTest(
@@ -276,9 +354,10 @@ public class BlockchainTestSubCommand implements Runnable {
                     genesisBlockHeader.getStateRoot(), genesisBlockHeader.getHash()))
             .orElseThrow();
 
-    final ProtocolSchedule schedule =
-        ReferenceTestProtocolSchedules.create(parentCommand.getEvmConfiguration())
-            .getByName(spec.getNetwork());
+    if (cachedSchedules == null) {
+      cachedSchedules = ReferenceTestProtocolSchedules.create(parentCommand.getEvmConfiguration());
+    }
+    final ProtocolSchedule schedule = cachedSchedules.getByName(spec.getNetwork());
 
     BlockTestTracerManager tracerManager = null;
     PrintStream traceWriter;
@@ -423,6 +502,17 @@ public class BlockchainTestSubCommand implements Runnable {
       results.recordFailure(test, failureReason);
     } else {
       results.recordPass();
+    }
+
+    if (jsonArray) {
+      final com.fasterxml.jackson.databind.node.ObjectNode result =
+          new com.fasterxml.jackson.databind.ObjectMapper().createObjectNode();
+      result.put("name", test);
+      result.put("pass", testPassed);
+      result.put("fork", spec.getNetwork());
+      result.put("lastBlockHash", blockchain.getChainHeadHash().toHexString());
+      result.put("error", failureReason);
+      jsonArrayResults.add(result);
     }
   }
 

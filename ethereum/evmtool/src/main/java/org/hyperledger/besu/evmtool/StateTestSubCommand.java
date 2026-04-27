@@ -96,9 +96,15 @@ public class StateTestSubCommand implements Runnable {
   private String fork = null;
 
   @Option(
-      names = {"--test-name"},
-      description = "Limit execution to one named test.")
+      names = {"--test-name", "--run"},
+      description = "Limit execution to one named test, or match a glob pattern (using * and ?).")
   private String testName = null;
+
+  @Option(
+      names = {"--workers"},
+      description = "Number of parallel workers for processing fixture files.",
+      defaultValue = "1")
+  private int workers = 1;
 
   @Option(
       names = {"--data-index"},
@@ -120,7 +126,23 @@ public class StateTestSubCommand implements Runnable {
       description = "Limit execution to one fork.")
   private String forkIndex = null;
 
+  @Option(
+      names = {"--json-array"},
+      description =
+          "Output results as a JSON array with standard schema: name, pass, fork, stateRoot, error.")
+  private boolean jsonArray = false;
+
   @ParentCommand private final EvmToolCommand parentCommand;
+
+  // Collected results for --json-array mode
+  private final List<ObjectNode> jsonArrayResults =
+      Collections.synchronizedList(new ArrayList<>());
+
+  // Cache protocol schedules across all tests — creating all 30+ schedules is very expensive
+  private volatile ReferenceTestProtocolSchedules cachedSchedules;
+
+  // Cached ObjectMapper for summary output — thread-safe for createObjectNode()
+  private static final ObjectMapper SHARED_OBJECT_MAPPER = JsonUtils.createObjectMapper();
 
   // picocli does it magically
   @Parameters private final List<Path> stateTestFiles = new ArrayList<>();
@@ -149,14 +171,15 @@ public class StateTestSubCommand implements Runnable {
             .getTypeFactory()
             .constructParametricType(Map.class, String.class, GeneralStateTestCaseSpec.class);
     try {
-      if (stateTestFiles.isEmpty()) {
+      final List<Path> collectedFiles = BlockchainTestSubCommand.collectFiles(stateTestFiles);
+
+      if (collectedFiles.isEmpty()) {
         // if no state tests were specified use standard input to get filenames
         final BufferedReader in =
             new BufferedReader(new InputStreamReader(parentCommand.in, UTF_8));
         while (true) {
           final String fileName = in.readLine();
           if (fileName == null) {
-            // reached end of file.  Stop the loop.
             break;
           }
           final File file = new File(fileName);
@@ -168,15 +191,40 @@ public class StateTestSubCommand implements Runnable {
             parentCommand.out.println("File not found: " + fileName);
           }
         }
+      } else if (workers > 1 && collectedFiles.size() > 1) {
+        // Parallel execution
+        final var executor = java.util.concurrent.Executors.newFixedThreadPool(workers);
+        final var futures = new ArrayList<java.util.concurrent.Future<?>>();
+        for (final Path file : collectedFiles) {
+          futures.add(executor.submit(() -> {
+            try {
+              final Map<String, GeneralStateTestCaseSpec> generalStateTests =
+                  stateTestMapper.readValue(file.toFile(), javaType);
+              executeStateTest(generalStateTests);
+            } catch (final Exception e) {
+              // Skip files that fail to parse
+            }
+          }));
+        }
+        for (final var future : futures) {
+          future.get();
+        }
+        executor.shutdown();
       } else {
-        for (final Path stateTestFile : stateTestFiles) {
-          final Map<String, GeneralStateTestCaseSpec> generalStateTests;
-          if ("stdin".equals(stateTestFile.toString())) {
-            generalStateTests = stateTestMapper.readValue(parentCommand.in, javaType);
-          } else {
-            generalStateTests = stateTestMapper.readValue(stateTestFile.toFile(), javaType);
+        for (final Path stateTestFile : collectedFiles) {
+          try {
+            if ("stdin".equals(stateTestFile.toString())) {
+              final Map<String, GeneralStateTestCaseSpec> generalStateTests =
+                  stateTestMapper.readValue(parentCommand.in, javaType);
+              executeStateTest(generalStateTests);
+            } else {
+              final Map<String, GeneralStateTestCaseSpec> generalStateTests =
+                  stateTestMapper.readValue(stateTestFile.toFile(), javaType);
+              executeStateTest(generalStateTests);
+            }
+          } catch (final Exception e) {
+            // Skip files that fail to parse
           }
-          executeStateTest(generalStateTests);
         }
       }
     } catch (final JsonProcessingException jpe) {
@@ -184,6 +232,17 @@ public class StateTestSubCommand implements Runnable {
     } catch (final IOException e) {
       System.err.println("Unable to read state file");
       e.printStackTrace(System.err);
+    } catch (final Exception e) {
+      System.err.println("Error: " + e.getMessage());
+      e.printStackTrace(System.err);
+    }
+
+    if (jsonArray) {
+      try {
+        parentCommand.out.println(SHARED_OBJECT_MAPPER.writeValueAsString(jsonArrayResults));
+      } catch (final JsonProcessingException e) {
+        parentCommand.out.println("[]");
+      }
     }
   }
 
@@ -223,7 +282,6 @@ public class StateTestSubCommand implements Runnable {
                     .build())
             : OperationTracer.NO_TRACING;
 
-    final ObjectMapper objectMapper = JsonUtils.createObjectMapper();
     for (final GeneralStateTestCaseEipSpec spec : specs) {
       if (dataIndex != null && spec.getDataIndex() != dataIndex) {
         continue;
@@ -240,7 +298,7 @@ public class StateTestSubCommand implements Runnable {
 
       final BlockHeader blockHeader = spec.getBlockHeader();
       final Transaction transaction = spec.getTransaction(0);
-      final ObjectNode summaryLine = objectMapper.createObjectNode();
+      final ObjectNode summaryLine = SHARED_OBJECT_MAPPER.createObjectNode();
       if (transaction == null) {
         if ((parentCommand.showJsonAlloc || parentCommand.showJsonResults) && isLastIteration) {
           parentCommand.out.println(
@@ -264,9 +322,10 @@ public class StateTestSubCommand implements Runnable {
         }
 
         final String forkName = fork == null ? spec.getFork() : fork;
-        final ProtocolSchedule protocolSchedule =
-            ReferenceTestProtocolSchedules.create(parentCommand.getEvmConfiguration())
-                .getByName(forkName);
+        if (cachedSchedules == null) {
+          cachedSchedules = ReferenceTestProtocolSchedules.create(parentCommand.getEvmConfiguration());
+        }
+        final ProtocolSchedule protocolSchedule = cachedSchedules.getByName(forkName);
         if (protocolSchedule == null) {
           throw new UnsupportedForkException(forkName);
         }
@@ -356,7 +415,23 @@ public class StateTestSubCommand implements Runnable {
       }
 
       if (isLastIteration) {
-        parentCommand.out.println(summaryLine);
+        if (jsonArray) {
+          final ObjectNode standardResult = SHARED_OBJECT_MAPPER.createObjectNode();
+          standardResult.put("name", summaryLine.has("test") ? summaryLine.get("test").asText() : "");
+          standardResult.put("pass", summaryLine.has("pass") && summaryLine.get("pass").asBoolean());
+          standardResult.put("fork", summaryLine.has("fork") ? summaryLine.get("fork").asText() : "");
+          standardResult.put("stateRoot", summaryLine.has("stateRoot") ? summaryLine.get("stateRoot").asText() : "");
+          String error = "";
+          if (summaryLine.has("validationError")) {
+            error = summaryLine.get("validationError").asText();
+          } else if (summaryLine.has("error")) {
+            error = summaryLine.get("error").asText();
+          }
+          standardResult.put("error", error);
+          jsonArrayResults.add(standardResult);
+        } else {
+          parentCommand.out.println(summaryLine);
+        }
       }
     }
   }

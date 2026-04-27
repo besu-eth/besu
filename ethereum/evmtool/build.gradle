@@ -39,10 +39,14 @@ dependencies {
 
   implementation project(':app')
   implementation project(':config')
+  implementation project(':consensus:merge')
   implementation project(':crypto:algorithms')
   implementation project(':datatypes')
   implementation project(':ethereum:api')
+  implementation project(':ethereum:blockcreation')
   implementation project(':ethereum:core')
+  implementation project(':ethereum:eth')
+  implementation 'org.mockito:mockito-core'
   implementation project(':ethereum:referencetests')
   implementation project(':ethereum:rlp')
   implementation project(':evm')
