@@ -954,7 +954,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       }
 
       final Optional<Hash> canonicalAtN = blockchain.getBlockHashByNumber(h.getNumber());
-      if (canonicalAtN.isPresent() && canonicalAtN.get() == h.getBlockHash()) {
+      if (canonicalAtN.isPresent() && canonicalAtN.get().equals(h.getBlockHash())) {
         return OptionalLong.of(candidateDepth);
       }
 
