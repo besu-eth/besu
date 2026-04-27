@@ -71,7 +71,6 @@ import java.util.concurrent.TimeUnit;
 
 import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -307,7 +306,7 @@ public class BackwardSyncContextTest {
     future.orTimeout(30, TimeUnit.SECONDS);
 
     future.get();
-    Assertions.assertTrue(future.isDone());
+    assertThat(future.isDone()).isTrue();
   }
 
   @Test
@@ -335,7 +334,7 @@ public class BackwardSyncContextTest {
         context.syncBackwardsUntil(getRemoteBlockByNumber(REMOTE_HEIGHT));
     future.orTimeout(30, TimeUnit.SECONDS);
     future.get();
-    Assertions.assertTrue(future.isDone());
+    assertThat(future.isDone()).isTrue();
   }
 
   @Test
@@ -359,7 +358,7 @@ public class BackwardSyncContextTest {
     future.orTimeout(30, TimeUnit.SECONDS);
 
     future.get();
-    Assertions.assertEquals(higherBlock, backwardChain.getTrustedBlock(higherBlock.getHash()));
+    assertThat(backwardChain.getTrustedBlock(higherBlock.getHash())).isEqualTo(higherBlock);
   }
 
   private void respondUntilFutureIsDone(final CompletableFuture<Void> future) {
@@ -540,11 +539,9 @@ public class BackwardSyncContextTest {
 
     final var syncFuture = context.syncBackwardsUntil(Hash.ZERO);
 
-    BackwardSyncException exception =
-        (BackwardSyncException)
-            Assertions.assertThrows(ExecutionException.class, () -> syncFuture.get()).getCause();
-    assertThat(exception.getMessage())
-        .contains("Max number of retries " + NUM_OF_RETRIES + " reached");
+    assertThatThrownBy(syncFuture::get)
+        .cause()
+        .hasMessageContaining("Max number of retries " + NUM_OF_RETRIES + " reached");
   }
 
   @Test
@@ -572,8 +569,7 @@ public class BackwardSyncContextTest {
     final CompletableFuture<Void> fcuAfterReorg =
         context.syncBackwardsUntil(getRemoteBlockByNumber(reorgBlockHeight).getHash());
     fcuAfterReorg.get();
-    Assertions.assertEquals(
-        getRemoteBlockByNumber(reorgBlockHeight).getHash(),
-        backwardChain.getHashesToAppend().getLast());
+    assertThat(backwardChain.getHashesToAppend().getLast())
+        .isEqualTo(getRemoteBlockByNumber(reorgBlockHeight).getHash());
   }
 }
