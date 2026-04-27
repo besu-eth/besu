@@ -714,14 +714,14 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     MutableBlockchain blockchain = protocolContext.getBlockchain();
     final Optional<BlockHeader> newFinalized = blockchain.getBlockHeader(finalizedBlockHash);
 
-    if (newHead.getNumber() < blockchain.getChainHeadBlockNumber()
+    /*if (newHead.getNumber() < blockchain.getChainHeadBlockNumber()
         && isDescendantOf(newHead, blockchain.getChainHeadHeader())) {
       LOG.atDebug()
           .setMessage("Ignoring update to old head {}")
           .addArgument(newHead::toLogString)
           .log();
       return ForkchoiceResult.withIgnoreUpdateToOldHead(newHead);
-    }
+    }*/
 
     final Optional<Hash> latestValid = getLatestValidAncestor(newHead);
 
