@@ -31,7 +31,7 @@ import java.util.List;
 public record TransactionIntrinsicGas(long regularGas, long stateGas) {
 
   public static TransactionIntrinsicGas of(
-      final Transaction transaction, final long blockGasLimit, final GasCalculator gasCalculator) {
+      final Transaction transaction, final GasCalculator gasCalculator) {
     final List<AccessListEntry> accessListEntries = transaction.getAccessList().orElse(List.of());
     int accessListStorageCount = 0;
     for (final var entry : accessListEntries) {
@@ -48,9 +48,7 @@ public record TransactionIntrinsicGas(long regularGas, long stateGas) {
         gasCalculator
             .stateGasCostCalculator()
             .transactionIntrinsicStateGas(
-                blockGasLimit,
-                transaction.isContractCreation(),
-                transaction.codeDelegationListSize());
+                transaction.isContractCreation(), transaction.codeDelegationListSize());
     return new TransactionIntrinsicGas(regularGas, stateGas);
   }
 }

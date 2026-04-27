@@ -126,8 +126,7 @@ class SStoreOperationTest {
     assertThat(result.getHaltReason()).isNull();
 
     // State gas: 32 * cpsb(36M) = 32 * 150 = 4_800
-    final long expectedStateGas =
-        32L * new Eip8037StateGasCostCalculator().costPerStateByte(blockGasLimit);
+    final long expectedStateGas = 32L * new Eip8037StateGasCostCalculator().costPerStateByte();
     assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas);
   }
 
@@ -213,8 +212,7 @@ class SStoreOperationTest {
     final OperationResult result1 = operation.execute(frame, null);
     assertThat(result1.getHaltReason()).isNull();
 
-    final long expectedStateGas =
-        32L * new Eip8037StateGasCostCalculator().costPerStateByte(blockGasLimit);
+    final long expectedStateGas = 32L * new Eip8037StateGasCostCalculator().costPerStateByte();
     assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas); // 4,800 at 36M gas limit
 
     // Second SSTORE: key=1, value=0 (nonzero -> 0, original=0 triggers state gas refund)
@@ -282,7 +280,6 @@ class SStoreOperationTest {
     final SStoreOperation operation =
         new SStoreOperation(amsterdamCalc, SStoreOperation.EIP_1706_MINIMUM);
 
-    final long blockGasLimit = 100_000_000L;
     final Address address = Address.fromHexString("0x18675309");
     final ToyWorld toyWorld = new ToyWorld();
 
@@ -297,13 +294,7 @@ class SStoreOperationTest {
         new TestMessageFrameBuilder()
             .address(address)
             .worldUpdater(txUpdater)
-            .blockValues(
-                new FakeBlockValues(1337) {
-                  @Override
-                  public long getGasLimit() {
-                    return blockGasLimit;
-                  }
-                })
+            .blockValues(new FakeBlockValues(1337))
             .initialGas(100_000L)
             .build();
 
@@ -317,8 +308,7 @@ class SStoreOperationTest {
     final OperationResult result = operation.execute(frame, null);
     assertThat(result.getHaltReason()).isNull();
 
-    final long expectedStateGas =
-        32L * new Eip8037StateGasCostCalculator().costPerStateByte(blockGasLimit);
+    final long expectedStateGas = 32L * new Eip8037StateGasCostCalculator().costPerStateByte();
     final long expectedSpill = expectedStateGas - 10_000L; // 27,568
 
     // Reservoir fully drained

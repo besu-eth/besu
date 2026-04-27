@@ -316,9 +316,7 @@ public class MainnetTransactionProcessor {
       final var stateGasCalc = gasCalculator.stateGasCostCalculator();
       final long intrinsicStateGas =
           stateGasCalc.transactionIntrinsicStateGas(
-              blockHeader.getGasLimit(),
-              transaction.isContractCreation(),
-              transaction.codeDelegationListSize());
+              transaction.isContractCreation(), transaction.codeDelegationListSize());
       if (transaction.getGasLimit() < intrinsicRegularGas + intrinsicStateGas) {
         LOG.trace(
             "Insufficient gas for intrinsic cost: gasLimit={}, regularIntrinsic={}, stateIntrinsic={}",
@@ -614,8 +612,7 @@ public class MainnetTransactionProcessor {
       // an overhead that is added on top of stateGasUsed at the block level.
       final long intrinsicStateGasOverhead =
           stateGasCalc.isActive() && alreadyExistingDelegators > 0
-              ? stateGasCalc.emptyAccountDelegationStateGas(blockHeader.getGasLimit())
-                  * alreadyExistingDelegators
+              ? stateGasCalc.emptyAccountDelegationStateGas() * alreadyExistingDelegators
               : 0L;
 
       if (txSucceeded) {
