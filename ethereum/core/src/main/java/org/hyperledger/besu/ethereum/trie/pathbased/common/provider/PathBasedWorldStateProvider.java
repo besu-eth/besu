@@ -246,101 +246,185 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
         .map(MutableWorldState::freezeStorage);
   }
 
+  /**
+   * Rolls {@code mutableState} to {@code blockHash} by trie logs: builds a rollback/forward hash
+   * plan, then applies it in batches (see {@link #applyTrieLogRollPlan}).
+   */
   private Optional<MutableWorldState> rollFullWorldStateToBlockHash(
       final PathBasedWorldState mutableState, final Hash blockHash) {
     if (blockHash.equals(mutableState.blockHash())) {
       return Optional.of(mutableState);
-    } else {
-      try {
-
-        final Optional<BlockHeader> maybePersistedHeader =
-            blockchain.getBlockHeader(mutableState.blockHash()).map(BlockHeader.class::cast);
-
-        final List<TrieLog> rollBacks = new ArrayList<>();
-        final List<TrieLog> rollForwards = new ArrayList<>();
-        if (maybePersistedHeader.isEmpty()) {
-          trieLogManager.getTrieLogLayer(mutableState.blockHash()).ifPresent(rollBacks::add);
-        } else {
-          BlockHeader targetHeader = blockchain.getBlockHeader(blockHash).get();
-          BlockHeader persistedHeader = maybePersistedHeader.get();
-          // roll back from persisted to even with target
-          Hash persistedBlockHash = persistedHeader.getBlockHash();
-          while (persistedHeader.getNumber() > targetHeader.getNumber()) {
-            LOG.debug("Rollback {}", persistedBlockHash);
-            rollBacks.add(trieLogManager.getTrieLogLayer(persistedBlockHash).get());
-            persistedHeader = blockchain.getBlockHeader(persistedHeader.getParentHash()).get();
-            persistedBlockHash = persistedHeader.getBlockHash();
-          }
-          // roll forward to target
-          Hash targetBlockHash = targetHeader.getBlockHash();
-          while (persistedHeader.getNumber() < targetHeader.getNumber()) {
-            LOG.debug("Rollforward {}", targetBlockHash);
-            rollForwards.add(trieLogManager.getTrieLogLayer(targetBlockHash).get());
-            targetHeader = blockchain.getBlockHeader(targetHeader.getParentHash()).get();
-            targetBlockHash = targetHeader.getBlockHash();
-          }
-
-          // roll back in tandem until we hit a shared state
-          while (!persistedBlockHash.equals(targetBlockHash)) {
-            LOG.debug("Paired Rollback {}", persistedBlockHash);
-            LOG.debug("Paired Rollforward {}", targetBlockHash);
-            rollForwards.add(trieLogManager.getTrieLogLayer(targetBlockHash).get());
-            targetHeader = blockchain.getBlockHeader(targetHeader.getParentHash()).get();
-
-            rollBacks.add(trieLogManager.getTrieLogLayer(persistedBlockHash).get());
-            persistedHeader = blockchain.getBlockHeader(persistedHeader.getParentHash()).get();
-
-            targetBlockHash = targetHeader.getBlockHash();
-            persistedBlockHash = persistedHeader.getBlockHash();
-          }
-        }
-
-        // attempt the state rolling
-        final PathBasedWorldStateUpdateAccumulator<?> pathBasedUpdater =
-            (PathBasedWorldStateUpdateAccumulator<?>) mutableState.updater();
-        try {
-          for (final TrieLog rollBack : rollBacks) {
-            LOG.debug("Attempting Rollback of {}", rollBack.getBlockHash());
-            pathBasedUpdater.rollBack(rollBack);
-          }
-          for (int i = rollForwards.size() - 1; i >= 0; i--) {
-            final var forward = rollForwards.get(i);
-            LOG.debug("Attempting Rollforward of {}", rollForwards.get(i).getBlockHash());
-            pathBasedUpdater.rollForward(forward);
-          }
-          pathBasedUpdater.commit();
-
-          mutableState.persist(blockchain.getBlockHeader(blockHash).get());
-
-          LOG.debug(
-              "Archive rolling finished, {} now at {}",
-              mutableState.getWorldStateStorage().getClass().getSimpleName(),
-              blockHash);
-          return Optional.of(mutableState);
-        } catch (final MerkleTrieException re) {
-          // need to throw to trigger the heal
-          throw re;
-        } catch (final Exception e) {
-          // if we fail we must clean up the updater
-          pathBasedUpdater.reset();
-          LOG.atDebug()
-              .setMessage("State rolling failed on {} for block hash {}")
-              .addArgument(mutableState.getWorldStateStorage().getClass().getSimpleName())
-              .addArgument(blockHash)
-              .addArgument(e)
-              .log();
-
-          return Optional.empty();
-        }
-      } catch (final RuntimeException re) {
-        LOG.info("Archive rolling failed for block hash " + blockHash, re);
-        if (re instanceof MerkleTrieException) {
-          // need to throw to trigger the heal
-          throw re;
-        }
-        throw new MerkleTrieException(
-            "invalid", Optional.of(Address.ZERO), Bytes32.wrap(Hash.EMPTY.getBytes()), Bytes.EMPTY);
+    }
+    try {
+      final List<Hash> rollbackBlockHashes = new ArrayList<>();
+      final List<Hash> forwardBlockHashes = new ArrayList<>();
+      planTrieLogRollHashes(mutableState, blockHash, rollbackBlockHashes, forwardBlockHashes);
+      if (rollbackBlockHashes.isEmpty() && forwardBlockHashes.isEmpty()) {
+        return Optional.of(mutableState);
       }
+      return applyTrieLogRollPlan(
+          mutableState,
+          blockHash,
+          rollbackBlockHashes,
+          forwardBlockHashes,
+          trieLogManager.getMaxLayersToLoad());
+    } catch (final RuntimeException re) {
+      LOG.info("Archive rolling failed for block hash " + blockHash, re);
+      if (re instanceof MerkleTrieException) {
+        throw re;
+      }
+      throw new MerkleTrieException(
+          "invalid", Optional.of(Address.ZERO), Bytes32.wrap(Hash.EMPTY.getBytes()), Bytes.EMPTY);
+    }
+  }
+
+  /**
+   * Fills {@code rollbackBlockHashes} in head-to-ancestor order (each hash is the next trie-log
+   * layer to undo). Fills {@code forwardBlockHashes} from the destination tip toward the fork
+   * ancestor; {@link #applyTrieLogRollPlan} consumes that list from the end inward so rollforwards
+   * run ancestor-to-tip.
+   *
+   * <p>When the world state's block is indexed on the chain: align heights on the old branch, then
+   * walk both forks in lockstep until a shared hash (common ancestor). When it is not indexed, only
+   * a single rollback hash is planned if a trie log exists for that block.
+   */
+  private void planTrieLogRollHashes(
+      final PathBasedWorldState mutableState,
+      final Hash destinationBlockHash,
+      final List<Hash> rollbackBlockHashes,
+      final List<Hash> forwardBlockHashes) {
+    final Optional<BlockHeader> maybePersistedHeader =
+        blockchain.getBlockHeader(mutableState.blockHash()).map(BlockHeader.class::cast);
+
+    if (maybePersistedHeader.isEmpty()) {
+      trieLogManager
+          .getTrieLogLayer(mutableState.blockHash())
+          .ifPresent(__ -> rollbackBlockHashes.add(mutableState.blockHash()));
+      return;
+    }
+
+    BlockHeader targetHeader = blockchain.getBlockHeader(destinationBlockHash).get();
+    BlockHeader persistedHeader = maybePersistedHeader.get();
+
+    Hash persistedBlockHash = persistedHeader.getBlockHash();
+    // Old chain higher than target: undo blocks until the same height as the target header.
+    while (persistedHeader.getNumber() > targetHeader.getNumber()) {
+      LOG.debug("Rollback {}", persistedBlockHash);
+      rollbackBlockHashes.add(persistedBlockHash);
+      persistedHeader = blockchain.getBlockHeader(persistedHeader.getParentHash()).get();
+      persistedBlockHash = persistedHeader.getBlockHash();
+    }
+
+    Hash targetBlockHash = targetHeader.getBlockHash();
+    // Target branch longer: record trie-log keys from target tip down toward the common height.
+    while (persistedHeader.getNumber() < targetHeader.getNumber()) {
+      LOG.debug("Rollforward {}", targetBlockHash);
+      forwardBlockHashes.add(targetBlockHash);
+      targetHeader = blockchain.getBlockHeader(targetHeader.getParentHash()).get();
+      targetBlockHash = targetHeader.getBlockHash();
+    }
+
+    // Same height but different forks: paired undo on the old head and redo on the new branch.
+    while (!persistedBlockHash.equals(targetBlockHash)) {
+      LOG.debug("Paired Rollback {}", persistedBlockHash);
+      LOG.debug("Paired Rollforward {}", targetBlockHash);
+      forwardBlockHashes.add(targetBlockHash);
+      targetHeader = blockchain.getBlockHeader(targetHeader.getParentHash()).get();
+
+      rollbackBlockHashes.add(persistedBlockHash);
+      persistedHeader = blockchain.getBlockHeader(persistedHeader.getParentHash()).get();
+
+      targetBlockHash = targetHeader.getBlockHash();
+      persistedBlockHash = persistedHeader.getBlockHash();
+    }
+  }
+
+  /** Block hash of the world state after undoing {@code blockToUndo}'s trie log layer. */
+  private Hash rollBackOne(
+      final PathBasedWorldStateUpdateAccumulator<?> updater, final Hash blockToUndo) {
+    final TrieLog layer = trieLogManager.getTrieLogLayer(blockToUndo).get();
+    LOG.debug("Attempting Rollback of {}", layer.getBlockHash());
+    updater.rollBack(layer);
+    return blockchain.getBlockHeader(layer.getBlockHash()).get().getParentHash();
+  }
+
+  /** Block hash of the world state after applying {@code blockToApply}'s trie log layer. */
+  private Hash rollForwardOne(
+      final PathBasedWorldStateUpdateAccumulator<?> updater, final Hash blockToApply) {
+    final TrieLog layer = trieLogManager.getTrieLogLayer(blockToApply).get();
+    LOG.debug("Attempting Rollforward of {}", layer.getBlockHash());
+    updater.rollForward(layer);
+    return layer.getBlockHash();
+  }
+
+  /**
+   * Applies trie logs in at most {@code maxTrieLogsPerBatch} operations per {@code commit} + {@code
+   * persist}. Trie layers are loaded from storage per hash (lists hold hashes only).
+   *
+   * <p>Within each batch, rollbacks run first (required for correctness), then rollforwards until
+   * the batch budget is used. {@code min(batch, opsLeft)} lets the last batch combine tail
+   * rollbacks and forwards in a single persist when the total remainder fits in one batch.
+   */
+  private Optional<MutableWorldState> applyTrieLogRollPlan(
+      final PathBasedWorldState mutableState,
+      final Hash finalBlockHash,
+      final List<Hash> rollbackBlockHashes,
+      final List<Hash> forwardBlockHashes,
+      final long maxTrieLogsPerBatch) {
+    final PathBasedWorldStateUpdateAccumulator<?> updater =
+        (PathBasedWorldStateUpdateAccumulator<?>) mutableState.updater();
+    final int nRollbacks = rollbackBlockHashes.size();
+    final int nForwards = forwardBlockHashes.size();
+    int iRollback = 0;
+    int iForward = nForwards - 1;
+    Hash currentBlockHash = mutableState.blockHash();
+
+    try {
+      while (iRollback < nRollbacks || iForward >= 0) {
+        final long opsLeft = (long) (nRollbacks - iRollback) + (long) (iForward + 1);
+        final int budget = (int) Math.min(maxTrieLogsPerBatch, opsLeft);
+
+        int used = 0;
+        while (used < budget && iRollback < nRollbacks) {
+          currentBlockHash = rollBackOne(updater, rollbackBlockHashes.get(iRollback++));
+          used++;
+        }
+        while (used < budget && iForward >= 0) {
+          currentBlockHash = rollForwardOne(updater, forwardBlockHashes.get(iForward--));
+          used++;
+        }
+
+        updater.commit();
+        mutableState.persist(blockchain.getBlockHeader(currentBlockHash).get());
+      }
+
+      if (!currentBlockHash.equals(finalBlockHash)) {
+        updater.reset();
+        LOG.atDebug()
+            .setMessage("State rolling finished at unexpected block hash {} (expected {})")
+            .addArgument(currentBlockHash)
+            .addArgument(finalBlockHash)
+            .log();
+        return Optional.empty();
+      }
+
+      LOG.debug(
+          "Archive rolling finished, {} now at {}",
+          mutableState.getWorldStateStorage().getClass().getSimpleName(),
+          finalBlockHash);
+      return Optional.of(mutableState);
+    } catch (final MerkleTrieException re) {
+      throw re;
+    } catch (final Exception e) {
+      updater.reset();
+      LOG.atDebug()
+          .setMessage("State rolling failed on {} for block hash {}, {}")
+          .addArgument(mutableState.getWorldStateStorage().getClass().getSimpleName())
+          .addArgument(finalBlockHash)
+          .addArgument(e)
+          .log();
+
+      return Optional.empty();
     }
   }
 
