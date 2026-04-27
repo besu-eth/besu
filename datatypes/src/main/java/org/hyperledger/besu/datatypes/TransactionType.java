@@ -51,16 +51,8 @@ public enum TransactionType {
   private static final TransactionType[] transactionTypeByOpaqueByte =
       new TransactionType[Byte.toUnsignedInt(MAX_LEGACY_TX_OPAQUE_BYTE) + 1];
 
-  private static final int MAX_ETH_SERIALIZED_TYPE =
-      Math.max(
-          EnumSet.allOf(TransactionType.class).stream()
-              .mapToInt(tt -> ethSerializedTypeIndex(tt.getEthSerializedType()))
-              .max()
-              .orElse(0),
-          0x80);
-
   private static final TransactionType[] transactionTypeByEthSerializedType =
-      new TransactionType[MAX_ETH_SERIALIZED_TYPE + 1];
+      new TransactionType[values().length];
 
   static {
     EnumSet.allOf(TransactionType.class).stream()
@@ -77,26 +69,11 @@ public enum TransactionType {
                     i++) {
                   transactionTypeByOpaqueByte[i] = FRONTIER;
                 }
-                // Keep backwards compatibility for callers that still pass FRONTIER as 0x00
-                // (e.g. t8n JSON specs).
-                transactionTypeByEthSerializedType[0x00] = FRONTIER;
-                // Keep compatibility for decoders that may provide 0x80.
-                transactionTypeByEthSerializedType[0x80] = FRONTIER;
               } else {
                 transactionTypeByOpaqueByte[tt.getSerializedType()] = tt;
               }
-              transactionTypeByEthSerializedType[
-                      ethSerializedTypeIndex(tt.getEthSerializedType())] =
-                  tt;
+              transactionTypeByEthSerializedType[tt.getEthSerializedType()] = tt;
             });
-  }
-
-  /**
-   * Byte values in Java are signed (-128..127), but ETH serialized transaction types are unsigned
-   * octets (0..255). We must convert explicitly before array indexing.
-   */
-  private static int ethSerializedTypeIndex(final byte ethSerializedType) {
-    return Byte.toUnsignedInt(ethSerializedType);
   }
 
   private final byte typeValue;
@@ -158,8 +135,7 @@ public enum TransactionType {
    */
   public static Optional<TransactionType> fromEthSerializedType(final byte ethSerializedType) {
     try {
-      return Optional.ofNullable(
-          transactionTypeByEthSerializedType[ethSerializedTypeIndex(ethSerializedType)]);
+      return Optional.ofNullable(transactionTypeByEthSerializedType[ethSerializedType]);
     } catch (final ArrayIndexOutOfBoundsException e) {
       return Optional.empty();
     }
