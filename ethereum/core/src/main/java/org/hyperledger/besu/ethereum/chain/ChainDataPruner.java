@@ -105,11 +105,7 @@ public class ChainDataPruner implements BlockAddedObserver {
   }
 
   private void recordForkBlock(final BlockAddedEvent event, final long blockNumber) {
-    final KeyValueStorageTransaction tx = prunerStorage.startTransaction();
-    final Collection<Hash> forkBlocks = prunerStorage.getForkBlocks(blockNumber);
-    forkBlocks.add(event.getHeader().getHash());
-    prunerStorage.setForkBlocks(tx, blockNumber, forkBlocks);
-    tx.commit();
+    prunerStorage.addForkBlock(blockNumber, event.getHeader().getHash());
   }
 
   private void pruneChainAndBalData(

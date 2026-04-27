@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.chain;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
@@ -29,10 +30,16 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
+import java.util.stream.IntStream;
 
 import jakarta.validation.constraints.NotNull;
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.core.LogEvent;
@@ -1610,6 +1617,46 @@ public class ChainDataPrunerTest {
 
     checkBlocks(blockchain, 1, mergeBlock - 1, Optional::isEmpty);
     checkBlocks(blockchain, mergeBlock, blockchain.getChainHeadBlockNumber(), Optional::isPresent);
+  }
+
+  @Test
+  public void addForkBlockRetainsConcurrentUpdatesAtSameHeight() throws Exception {
+    final ChainDataPrunerStorage prunerStorage =
+        new ChainDataPrunerStorage(new InMemoryKeyValueStorage());
+    final long blockNumber = 1L;
+    final int forkBlocksCount = 16;
+    final List<Hash> forkBlockHashes =
+        IntStream.range(0, forkBlocksCount).mapToObj(i -> Hash.hash(Bytes.of(i))).toList();
+    final CountDownLatch startLatch = new CountDownLatch(1);
+    final ExecutorService executor = Executors.newFixedThreadPool(forkBlocksCount);
+
+    try {
+      final List<? extends Future<?>> futures =
+          forkBlockHashes.stream()
+              .map(
+                  forkBlockHash ->
+                      executor.submit(
+                          () -> {
+                            try {
+                              startLatch.await();
+                              prunerStorage.addForkBlock(blockNumber, forkBlockHash);
+                            } catch (final InterruptedException e) {
+                              Thread.currentThread().interrupt();
+                              throw new RuntimeException(e);
+                            }
+                          }))
+              .toList();
+
+      startLatch.countDown();
+      for (final Future<?> future : futures) {
+        future.get();
+      }
+    } finally {
+      executor.shutdownNow();
+    }
+
+    assertThat(prunerStorage.getForkBlocks(blockNumber))
+        .containsExactlyInAnyOrderElementsOf(forkBlockHashes);
   }
 
   /**
