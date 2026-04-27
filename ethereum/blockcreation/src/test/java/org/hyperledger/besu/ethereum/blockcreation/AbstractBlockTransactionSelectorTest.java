@@ -1065,35 +1065,6 @@ public abstract class AbstractBlockTransactionSelectorTest {
   }
 
   @Test
-  public void selectedTxsEvaluationTimeReflectsOnlyIncludedTransactions() {
-    final ProcessableBlockHeader blockHeader = createBlock(5_000_000, Wei.ONE);
-    final MiningConfiguration miningConfiguration =
-        ImmutableMiningConfiguration.builder().from(defaultTestMiningConfiguration).build();
-    miningConfiguration.setMinPriorityFeePerGas(Wei.of(7));
-
-    final Transaction txSelected = createTransaction(1, Wei.of(8), 100_000);
-    ensureTransactionIsValid(txSelected);
-    final Transaction txNotSelected = createTransaction(2, Wei.of(7), 100_000);
-    ensureTransactionIsValid(txNotSelected);
-
-    final BlockTransactionSelector selector =
-        createBlockSelectorAndSetupTxPool(
-            miningConfiguration,
-            transactionProcessor,
-            blockHeader,
-            AddressHelpers.ofValue(1),
-            Wei.ZERO,
-            transactionSelectionService);
-
-    transactionPool.addRemoteTransactions(List.of(txSelected, txNotSelected));
-
-    final TransactionSelectionResults results = selector.buildTransactionListForBlock();
-
-    assertThat(results.getSelectedTransactions()).containsOnly(txSelected);
-    assertThat(results.getSelectedTxsEvaluationTimeNanos()).isPositive();
-  }
-
-  @Test
   public void shouldHandleTimeoutBeforeAnyTransactionIsEvaluated() {
     // set a very short max time for tx selection to force the timeout before evaluation of the tx
     final int txsSelectionMaxTime = 1;

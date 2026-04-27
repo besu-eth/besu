@@ -739,11 +739,20 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     final long receiptGasUsed =
         BlockGasAccountingStrategy.calculateReceiptGas(transaction, processingResult);
 
+    // capture the per-tx evaluation time once, so the same value is logged below
+    // and accumulated by updateSelected on commit
+    final long evaluationTimeNanos =
+        evaluationContext.getEvaluationTimer().elapsed(TimeUnit.NANOSECONDS);
+
     // queue the creation of the receipt and the update of the final results
     // these actions will be performed on commit if the pending tx is definitely selected
     selectionPendingActions.add(
         new SelectedPendingAction(
-            evaluationContext, processingResult, blockGasUsed, receiptGasUsed));
+            evaluationContext,
+            processingResult,
+            blockGasUsed,
+            receiptGasUsed,
+            evaluationTimeNanos));
 
     if (isTimeout.get()) {
       // even if this tx passed all the checks, it is too late to include it in this block,
@@ -901,16 +910,19 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     // EIP-7778: Track both block gas (for block limit) and receipt gas (for receipts)
     final long blockGasUsed; // From strategy, used for block gas limit enforcement
     final long receiptGasUsed; // Standard post-refund, used for receipt cumulativeGasUsed
+    final long evaluationTimeNanos;
 
     public SelectedPendingAction(
         final TransactionEvaluationContext evaluationContext,
         final TransactionProcessingResult processingResult,
         final long blockGasUsed,
-        final long receiptGasUsed) {
+        final long receiptGasUsed,
+        final long evaluationTimeNanos) {
       super(evaluationContext);
       this.processingResult = processingResult;
       this.blockGasUsed = blockGasUsed;
       this.receiptGasUsed = receiptGasUsed;
+      this.evaluationTimeNanos = evaluationTimeNanos;
       this.transaction = evaluationContext.getTransaction();
     }
 
@@ -929,11 +941,6 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
               processingResult
                   .getPartialBlockAccessView()
                   .ifPresent(blockAccessListBuilder::apply));
-
-      // capture the per-tx evaluation time at the moment of commit,
-      // so the accumulator only reflects txs that are definitely included in the block
-      final long evaluationTimeNanos =
-          evaluationContext.getEvaluationTimer().elapsed(TimeUnit.NANOSECONDS);
 
       transactionSelectionResults.updateSelected(
           transaction,

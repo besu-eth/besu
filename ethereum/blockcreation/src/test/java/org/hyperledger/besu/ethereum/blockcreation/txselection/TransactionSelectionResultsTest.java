@@ -15,6 +15,8 @@
 package org.hyperledger.besu.ethereum.blockcreation.txselection;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.BLOCK_SELECTION_TIMEOUT;
+import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.INVALID_TX_EVALUATION_TOO_LONG;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -43,9 +45,9 @@ public class TransactionSelectionResultsTest {
     final TransactionSelectionResults results = new TransactionSelectionResults();
     final TransactionReceipt receipt = mock(TransactionReceipt.class);
 
-    results.updateSelected(mockTx(), receipt, 21_000L, 21_000L, 0L, 1_000_000L); // 1ms
-    results.updateSelected(mockTx(), receipt, 21_000L, 21_000L, 0L, 2_000_000L); // 2ms
-    results.updateSelected(mockTx(), receipt, 21_000L, 21_000L, 0L, 500_000L); // 0.5ms
+    results.updateSelected(mockTx(), receipt, 21_000L, 21_000L, 0L, 1_000_000L);
+    results.updateSelected(mockTx(), receipt, 21_000L, 21_000L, 0L, 2_000_000L);
+    results.updateSelected(mockTx(), receipt, 21_000L, 21_000L, 0L, 500_000L);
 
     assertThat(results.getSelectedTxsEvaluationTimeNanos()).isEqualTo(3_500_000L);
   }
@@ -56,12 +58,8 @@ public class TransactionSelectionResultsTest {
     final TransactionReceipt receipt = mock(TransactionReceipt.class);
 
     results.updateSelected(mockTx(), receipt, 21_000L, 21_000L, 0L, 1_000_000L);
-    results.updateNotSelected(
-        mockTx(),
-        org.hyperledger.besu.plugin.data.TransactionSelectionResult.BLOCK_SELECTION_TIMEOUT);
-    results.updateNotSelected(
-        mockTx(),
-        org.hyperledger.besu.plugin.data.TransactionSelectionResult.INVALID_TX_EVALUATION_TOO_LONG);
+    results.updateNotSelected(mockTx(), BLOCK_SELECTION_TIMEOUT);
+    results.updateNotSelected(mockTx(), INVALID_TX_EVALUATION_TOO_LONG);
 
     assertThat(results.getSelectedTxsEvaluationTimeNanos()).isEqualTo(1_000_000L);
   }
