@@ -943,19 +943,22 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       return OptionalLong.of(0L);
     }
 
-    Optional<BlockHeader> cursor = Optional.of(newHead);
-    while (cursor.isPresent()) {
-      final BlockHeader h = cursor.get();
+    Optional<BlockHeader> candidateBlockHeader = Optional.of(newHead);
+    while (candidateBlockHeader.isPresent()) {
+      final BlockHeader h = candidateBlockHeader.get();
       final long candidateDepth = chainHead.getNumber() - h.getNumber();
+
       // Early-exit beyond the engine-API limit: the exact depth is irrelevant past that point.
       if (candidateDepth > MAX_REORG_DEPTH) {
         return OptionalLong.of(candidateDepth);
       }
+
       final Optional<Hash> canonicalAtN = blockchain.getBlockHashByNumber(h.getNumber());
-      if (canonicalAtN.isPresent() && canonicalAtN.get().equals(h.getBlockHash())) {
+      if (canonicalAtN.isPresent() && canonicalAtN.get() == h.getBlockHash()) {
         return OptionalLong.of(candidateDepth);
       }
-      cursor = blockchain.getBlockHeader(h.getParentHash());
+
+      candidateBlockHeader = blockchain.getBlockHeader(h.getParentHash());
     }
     return OptionalLong.empty();
   }
