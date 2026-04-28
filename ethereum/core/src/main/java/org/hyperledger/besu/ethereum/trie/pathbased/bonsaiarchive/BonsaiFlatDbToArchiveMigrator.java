@@ -75,6 +75,8 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   private final AtomicBoolean shouldLogProgress = new AtomicBoolean(true);
   protected final AtomicLong migratedBlockNumber = new AtomicLong(0);
   protected final AtomicBoolean migrationRunning = new AtomicBoolean(false);
+  protected final AtomicLong ongoingTarget = new AtomicLong(0);
+  protected final AtomicBoolean catchUpRunning = new AtomicBoolean(false);
   protected volatile OptionalLong blockObserverId = OptionalLong.empty();
   private boolean closed = false;
 
@@ -213,43 +215,62 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
         OptionalLong.of(
             blockchain.observeBlockAdded(
                 event -> {
-                  if (event.isNewCanonicalHead()) {
-                    final long target = archiveTarget(event.getHeader().getNumber());
-                    if (target > 0) {
-                      try {
-                        executorService.submit(() -> catchUp(target));
-                      } catch (final RejectedExecutionException e) {
-                        LOG.debug(
-                            "Bonsai migrator executor shut down; skipping migration up to block {}",
-                            target);
-                      }
-                    }
+                  if (!event.isNewCanonicalHead()) {
+                    return;
                   }
+                  final long newTarget = archiveTarget(event.getHeader().getNumber());
+                  if (newTarget <= 0) {
+                    return;
+                  }
+                  ongoingTarget.accumulateAndGet(newTarget, Math::max);
+                  scheduleCatchUpIfNeeded();
                 }));
   }
 
-  private void catchUp(final long target) {
-    final long startBlock = migratedBlockNumber.get() + 1;
-    if (startBlock > target) {
+  private void scheduleCatchUpIfNeeded() {
+    if (!catchUpRunning.compareAndSet(false, true)) {
       return;
     }
-    final long blocksToMigrate = target - startBlock + 1;
-    final boolean shouldLog = blocksToMigrate >= CATCHUP_LOG_THRESHOLD;
-    final Instant catchUpStart = shouldLog ? Instant.now() : null;
-    if (shouldLog) {
-      LOG.info(
-          "Bonsai archive catch-up starting: {} blocks from {} to {}",
-          blocksToMigrate,
-          startBlock,
-          target);
+    try {
+      executorService.submit(this::catchUp);
+    } catch (final RejectedExecutionException e) {
+      catchUpRunning.set(false);
+      LOG.debug(
+          "Bonsai migrator executor shut down; skipping migration up to block {}",
+          ongoingTarget.get());
     }
-    migrateBlocks(startBlock, new AtomicLong(target), shouldLog);
-    if (shouldLog) {
-      final Duration duration = Duration.between(catchUpStart, Instant.now());
-      LOG.info(
-          "Bonsai archive catch-up complete: {} blocks in {}",
-          blocksToMigrate,
-          DurationFormatUtils.formatDurationWords(duration.toMillis(), true, true));
+  }
+
+  private void catchUp() {
+    try {
+      final long startBlock = migratedBlockNumber.get() + 1;
+      final long initialTarget = ongoingTarget.get();
+      if (startBlock > initialTarget) {
+        return;
+      }
+      final long blocksToMigrate = initialTarget - startBlock + 1;
+      final boolean shouldLog = blocksToMigrate >= CATCHUP_LOG_THRESHOLD;
+      final Instant catchUpStart = shouldLog ? Instant.now() : null;
+      if (shouldLog) {
+        LOG.info(
+            "Bonsai archive catch-up starting: {} blocks from {} to {}",
+            blocksToMigrate,
+            startBlock,
+            initialTarget);
+      }
+      migrateBlocks(startBlock, ongoingTarget, shouldLog);
+      if (shouldLog) {
+        final Duration duration = Duration.between(catchUpStart, Instant.now());
+        LOG.info(
+            "Bonsai archive catch-up complete: {} blocks in {}",
+            (migratedBlockNumber.get() - startBlock + 1),
+            DurationFormatUtils.formatDurationWords(duration.toMillis(), true, true));
+      }
+    } finally {
+      catchUpRunning.set(false);
+      if (migratedBlockNumber.get() < ongoingTarget.get()) {
+        scheduleCatchUpIfNeeded();
+      }
     }
   }
 

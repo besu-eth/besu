@@ -63,6 +63,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -427,6 +428,46 @@ public class BonsaiFlatDbToArchiveMigratorTest {
     Awaitility.await()
         .atMost(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .untilAsserted(() -> assertThat(getArchivedAccountKey(4L)).isPresent());
+  }
+
+  @Test
+  public void ongoingMigrationCoalescesBurstOfHeadEventsIntoOneSubmit() throws Exception {
+    // boundaryDistance=1 → target = head - 1
+    when(trieLogManager.getMaxLayersToLoad()).thenReturn(1L);
+    final NoOpMetricsSystem metricsSystem = new NoOpMetricsSystem();
+    final ScheduledExecutorService spyExecutor = spy(Executors.newScheduledThreadPool(1));
+    final BonsaiFlatDbToArchiveMigrator migrator =
+        new BonsaiFlatDbToArchiveMigrator(
+            worldStateStorage,
+            trieLogManager,
+            blockchain,
+            spyExecutor,
+            metricsSystem,
+            new BonsaiArchiveFlatDbStrategy(metricsSystem, new CodeHashCodeStorageStrategy()));
+    migrators.add(migrator);
+    migrator.startOngoingMigration();
+
+    final PausedMigration pause = pauseAtAnyTrieLogLookup();
+    // head=2 → target=1: triggers a single drain submission, paused at block 1's trie-log lookup.
+    appendBlocks(2);
+    pause.awaitStart();
+
+    // Burst of head events while drain is paused. Each bumps ongoingTarget; the single-flight
+    // CAS prevents additional submissions.
+    appendBlocks(20);
+    Awaitility.await()
+        .atMost(AWAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .untilAsserted(() -> assertThat(migrator.ongoingTarget.get()).isEqualTo(21L));
+    assertThat(migrator.catchUpRunning.get()).isTrue();
+    verify(spyExecutor, times(1)).submit(any(Runnable.class));
+
+    // Release: the same in-flight drain reads the live target and walks all the way to block 21.
+    pause.release();
+    Awaitility.await()
+        .atMost(MIGRATION_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .untilAsserted(() -> assertThat(migrator.migratedBlockNumber.get()).isEqualTo(21L));
+    // No additional submissions after the burst — the moving target absorbed everything.
+    verify(spyExecutor, times(1)).submit(any(Runnable.class));
   }
 
   @Test
