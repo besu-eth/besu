@@ -622,6 +622,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                     triePaths.paths().size() < MAX_TRIE_LOOKUPS_PER_REQUEST
                         ? triePaths.paths()
                         : triePaths.paths().subList(0, MAX_TRIE_LOOKUPS_PER_REQUEST);
+                triePathLoop:
                 for (var triePath : triePathList) {
                   // first element in paths is account
                   if (triePath.size() == 1) {
@@ -636,7 +637,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                       trieNodes.add(trieNode);
                     }
                     if (!trieNodesResponseSizePredicate.shouldGetMore()) {
-                      break;
+                      break triePathLoop;
                     }
                   } else {
                     // There must be at least one element in the path otherwise it is invalid
@@ -667,15 +668,9 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                         trieNodes.add(trieNode);
                       }
                       if (!trieNodesResponseSizePredicate.shouldGetMore()) {
-                        break;
+                        break triePathLoop;
                       }
                     }
-                    if (!trieNodesResponseSizePredicate.shouldGetMore()) {
-                      break;
-                    }
-                  }
-                  if (!trieNodesResponseSizePredicate.shouldGetMore()) {
-                    break;
                   }
                 }
                 var resp = TrieNodesMessage.create(trieNodes);
