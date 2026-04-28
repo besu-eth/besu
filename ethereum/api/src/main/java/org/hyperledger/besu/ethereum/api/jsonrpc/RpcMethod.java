@@ -100,6 +100,7 @@ public enum RpcMethod {
   ETH_GET_TRANSACTION_BY_BLOCK_HASH_AND_INDEX("eth_getTransactionByBlockHashAndIndex"),
   ETH_GET_TRANSACTION_BY_BLOCK_NUMBER_AND_INDEX("eth_getTransactionByBlockNumberAndIndex"),
   ETH_GET_TRANSACTION_BY_HASH("eth_getTransactionByHash"),
+  ETH_GET_TRANSACTION_BY_SENDER_AND_NONCE("eth_getTransactionBySenderAndNonce"),
   ETH_GET_TRANSACTION_COUNT("eth_getTransactionCount"),
   ETH_GET_TRANSACTION_RECEIPT("eth_getTransactionReceipt"),
   ETH_GET_UNCLE_BY_BLOCK_HASH_AND_INDEX("eth_getUncleByBlockHashAndIndex"),
