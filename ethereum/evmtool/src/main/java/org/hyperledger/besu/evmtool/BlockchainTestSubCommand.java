@@ -118,6 +118,9 @@ public class BlockchainTestSubCommand implements Runnable {
           "Enable precompile result caching, matching the runtime behavior of `--cache-precompiles` in besu.",
       negatable = true)
   private Boolean enablePrecompileCache = false;
+      names = {"--verbose"},
+      description = "Verbose logs, listing all skipped tests")
+  private final Boolean verbose = false;
 
   @ParentCommand private final EvmToolCommand parentCommand;
 
@@ -242,10 +245,14 @@ public class BlockchainTestSubCommand implements Runnable {
                 entry -> {
                   final String test = entry.getKey();
                   if (testName != null && !matchesTestName(test)) {
-                    parentCommand.out.println("Skipping test: " + test);
+                    if (verbose) {
+                      parentCommand.out.println("Skipping test: " + test);
+                    }
                     return false;
                   }
-                  parentCommand.out.println("Considering " + test);
+                  if (verbose) {
+                    parentCommand.out.println("Considering " + test);
+                  }
                   return true;
                 })
             .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
@@ -417,7 +424,9 @@ public class BlockchainTestSubCommand implements Runnable {
           "Chain header mismatch, have %s want %s%n",
           blockchain.getChainHeadHash(), spec.getLastBlockHash());
     } else {
-      parentCommand.out.println("Chain import successful");
+      if (verbose) {
+        parentCommand.out.println("Chain import successful");
+      }
     }
 
     if (parentCommand.showJsonResults) {
