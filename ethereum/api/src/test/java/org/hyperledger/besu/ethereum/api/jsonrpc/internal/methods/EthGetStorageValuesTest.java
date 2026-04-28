@@ -229,4 +229,18 @@ public class EthGetStorageValuesTest {
         .isInstanceOf(InvalidJsonRpcParameters.class)
         .hasMessageContaining("Invalid storage key parameter");
   }
+
+  @Test
+  public void shouldReturnWorldStateUnavailableErrorWhenStateMissing() {
+    when(blockchainQueries.getAndMapWorldState(any(Hash.class), any()))
+        .thenReturn(Optional.empty());
+
+    final JsonRpcRequestContext request =
+        requestWithParams(Map.of(ADDRESS_ONE.toHexString(), List.of(SLOT_ZERO)), "latest");
+
+    final JsonRpcErrorResponse response = (JsonRpcErrorResponse) method.response(request);
+
+    assertThat(response.getError().getCode()).isEqualTo(-32000);
+    assertThat(response.getError().getMessage()).isEqualTo("World state unavailable");
+  }
 }
