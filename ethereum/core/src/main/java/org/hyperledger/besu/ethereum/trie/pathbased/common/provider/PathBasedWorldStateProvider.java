@@ -393,11 +393,6 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
   }
 
   @Override
-  public Optional<Bytes> getNodeData(final Hash hash) {
-    return Optional.empty();
-  }
-
-  @Override
   public void close() {
     try {
       worldStateKeyValueStorage.close();

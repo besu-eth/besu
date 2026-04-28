@@ -487,7 +487,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     options.era1ImportPrepipelineEnabled = config.era1ImportPrepipelineEnabled();
     options.era1DataUri = config.era1DataUri();
     options.era1ImportPrepipelineConcurrency = config.era1ImportPrepipelineConcurrency();
-    options.receiptsDownloadStepTimeoutMillis = config.getReceiptsDownloadStepTimeoutMillis();
+    options.receiptsDownloadStepTimeoutMillis = config.getForwardDownloadStepTimeoutMillis();
     options.backwardHeadersDownloadStepTimeoutMillis =
         config.getBackwardHeadersDownloadStepTimeoutMillis();
     options.bodiesDownloadStepTimeoutMillis = config.getBodiesDownloadStepTimeoutMillis();
