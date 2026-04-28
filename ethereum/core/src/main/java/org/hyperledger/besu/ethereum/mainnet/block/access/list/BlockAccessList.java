@@ -219,8 +219,6 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
       for (AccountBuilder accountBuilder : accountChangesBuilders.values()) {
         accountChanges.add(accountBuilder.build());
       }
-      // Compare raw byte arrays via the JIT-intrinsified Arrays.compareUnsigned, bypassing
-      // Bytes.compareTo (which iterates bytes through virtual get(i) calls).
       accountChanges.sort(
           (left, right) ->
               Arrays.compareUnsigned(
@@ -331,9 +329,6 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
             sortedCodes);
       }
 
-      // Schwartzian transform on slot writes: extract each slot key's raw byte array once, then
-      // sort with Arrays.compareUnsigned. Avoids both UInt256.toBytes() allocation per comparison
-      // and the byte-by-byte virtual-call loop inside Bytes.compareTo.
       private List<SlotChanges> sortedSlotChanges() {
         final int n = slotWrites.size();
         if (n == 0) {
