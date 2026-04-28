@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -30,12 +31,15 @@ import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.ChainHead;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.MutableWorldState;
+import org.hyperledger.besu.evm.account.Account;
 
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.BeforeEach;
@@ -60,6 +64,9 @@ public class EthGetStorageValuesTest {
   private final Blockchain blockchain = mock(Blockchain.class);
   private final ChainHead chainHead = mock(ChainHead.class);
   private final BlockHeader chainHeadHeader = mock(BlockHeader.class);
+  private final MutableWorldState worldState = mock(MutableWorldState.class);
+  private final Account accountOne = mock(Account.class);
+  private final Account accountTwo = mock(Account.class);
 
   private EthGetStorageValues method;
 
@@ -69,6 +76,13 @@ public class EthGetStorageValuesTest {
     when(blockchain.getChainHead()).thenReturn(chainHead);
     when(chainHead.getBlockHeader()).thenReturn(chainHeadHeader);
     when(chainHeadHeader.getBlockHash()).thenReturn(Hash.ZERO);
+    when(blockchainQueries.getAndMapWorldState(any(Hash.class), any()))
+        .thenAnswer(
+            invocation -> {
+              @SuppressWarnings("unchecked")
+              Function<MutableWorldState, Optional<Object>> mapper = invocation.getArgument(1);
+              return mapper.apply(worldState);
+            });
     method = new EthGetStorageValues(blockchainQueries);
   }
 
@@ -89,8 +103,9 @@ public class EthGetStorageValuesTest {
 
   @Test
   public void shouldReturnStorageValueForSingleAddress() {
-    when(blockchainQueries.storageAt(ADDRESS_ONE, UInt256.fromHexString(SLOT_ZERO), Hash.ZERO))
-        .thenReturn(Optional.of(UInt256.valueOf(42)));
+    when(worldState.get(ADDRESS_ONE)).thenReturn(accountOne);
+    when(accountOne.getStorageValue(UInt256.fromHexString(SLOT_ZERO)))
+        .thenReturn(UInt256.valueOf(42));
 
     final JsonRpcRequestContext request =
         requestWithParams(Map.of(ADDRESS_ONE.toHexString(), List.of(SLOT_ZERO)), "latest");
@@ -104,10 +119,11 @@ public class EthGetStorageValuesTest {
 
   @Test
   public void shouldReturnStorageValuesForMultipleAddresses() {
-    when(blockchainQueries.storageAt(ADDRESS_ONE, UInt256.fromHexString(SLOT_ZERO), Hash.ZERO))
-        .thenReturn(Optional.of(UInt256.valueOf(42)));
-    when(blockchainQueries.storageAt(ADDRESS_TWO, UInt256.fromHexString(SLOT_HIGH), Hash.ZERO))
-        .thenReturn(Optional.of(UInt256.ZERO));
+    when(worldState.get(ADDRESS_ONE)).thenReturn(accountOne);
+    when(worldState.get(ADDRESS_TWO)).thenReturn(accountTwo);
+    when(accountOne.getStorageValue(UInt256.fromHexString(SLOT_ZERO)))
+        .thenReturn(UInt256.valueOf(42));
+    when(accountTwo.getStorageValue(UInt256.fromHexString(SLOT_HIGH))).thenReturn(UInt256.ZERO);
 
     final JsonRpcRequestContext request =
         requestWithParams(
@@ -127,9 +143,6 @@ public class EthGetStorageValuesTest {
 
   @Test
   public void shouldReturnZeroForUnknownAccount() {
-    when(blockchainQueries.storageAt(ADDRESS_TWO, UInt256.fromHexString(SLOT_HIGH), Hash.ZERO))
-        .thenReturn(Optional.empty());
-
     final JsonRpcRequestContext request =
         requestWithParams(Map.of(ADDRESS_TWO.toHexString(), List.of(SLOT_HIGH)), "latest");
 
@@ -192,9 +205,9 @@ public class EthGetStorageValuesTest {
     when(specificHeader.getBlockHash()).thenReturn(specificBlockHash);
     when(blockchainQueries.getBlockHeaderByHash(specificBlockHash))
         .thenReturn(Optional.of(specificHeader));
-    when(blockchainQueries.storageAt(
-            ADDRESS_ONE, UInt256.fromHexString(SLOT_ZERO), specificBlockHash))
-        .thenReturn(Optional.of(UInt256.valueOf(42)));
+    when(worldState.get(ADDRESS_ONE)).thenReturn(accountOne);
+    when(accountOne.getStorageValue(UInt256.fromHexString(SLOT_ZERO)))
+        .thenReturn(UInt256.valueOf(42));
 
     final JsonRpcRequestContext request =
         requestWithParams(
