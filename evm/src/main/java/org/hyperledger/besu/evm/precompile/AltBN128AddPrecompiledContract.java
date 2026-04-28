@@ -26,7 +26,6 @@ import java.util.Arrays;
 import java.util.Optional;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.MutableBytes;
@@ -41,10 +40,7 @@ public class AltBN128AddPrecompiledContract extends AbstractAltBnPrecompiledCont
 
   private final long gasCost;
   private static final Cache<Integer, PrecompileInputResultTuple> bnAddCache =
-      Caffeine.newBuilder()
-          .maximumWeight(16_000_000)
-          .weigher((k, v) -> Integer.BYTES + ((PrecompileInputResultTuple) v).cachedInput().size())
-          .build();
+      AbstractPrecompiledContract.resultCacheBuilder().build();
 
   AltBN128AddPrecompiledContract(final GasCalculator gasCalculator, final long gasCost) {
     super(

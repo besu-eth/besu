@@ -26,7 +26,6 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.annotations.VisibleForTesting;
 import ethereum.ckzg4844.CKZG4844JNI;
 import jakarta.validation.constraints.NotNull;
@@ -41,10 +40,7 @@ public class KZGPointEvalPrecompiledContract implements PrecompiledContract {
 
   private static final String PRECOMPILE_NAME = "KZGPointEval";
   private static final Cache<Integer, PrecompileInputResultTuple> kzgCache =
-      Caffeine.newBuilder()
-          .maximumWeight(16_000_000)
-          .weigher((k, v) -> Integer.BYTES + ((PrecompileInputResultTuple) v).cachedInput().size())
-          .build();
+      AbstractPrecompiledContract.resultCacheBuilder().build();
 
   /** Default result caching to false unless otherwise set. */
   protected static Boolean enableResultCaching = Boolean.FALSE;
@@ -140,7 +136,7 @@ public class KZGPointEvalPrecompiledContract implements PrecompiledContract {
     Integer cacheKey = null;
 
     if (enableResultCaching) {
-      cacheKey = AbstractPrecompiledContract.getCacheKey(input, input.size());
+      cacheKey = AbstractPrecompiledContract.getCacheKey(input, 192);
       res = kzgCache.getIfPresent(cacheKey);
       if (res != null) {
         if (res.cachedInput().equals(input)) {

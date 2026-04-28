@@ -26,7 +26,6 @@ import java.math.BigInteger;
 import java.util.Optional;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
@@ -40,10 +39,7 @@ public class BLAKE2BFPrecompileContract extends AbstractPrecompiledContract {
   private static final String PRECOMPILE_NAME = "BLAKE2F";
 
   private static final Cache<Integer, PrecompileInputResultTuple> blakeCache =
-      Caffeine.newBuilder()
-          .maximumWeight(16_000_000)
-          .weigher((k, v) -> Integer.BYTES + ((PrecompileInputResultTuple) v).cachedInput().size())
-          .build();
+      AbstractPrecompiledContract.resultCacheBuilder().build();
 
   /**
    * Instantiates a new BLAKE2BF precompile contract.
@@ -89,7 +85,7 @@ public class BLAKE2BFPrecompileContract extends AbstractPrecompiledContract {
     PrecompileInputResultTuple res = null;
     Integer cacheKey = null;
     if (enableResultCaching) {
-      cacheKey = getCacheKey(input, input.size());
+      cacheKey = getCacheKey(input, MESSAGE_LENGTH_BYTES);
       res = blakeCache.getIfPresent(cacheKey);
       if (res != null) {
         if (res.cachedInput().equals(input)) {

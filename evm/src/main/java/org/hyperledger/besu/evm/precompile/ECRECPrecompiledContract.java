@@ -30,7 +30,6 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -48,10 +47,7 @@ public class ECRECPrecompiledContract extends AbstractPrecompiledContract {
   final SignatureAlgorithm signatureAlgorithm;
   private static final String PRECOMPILE_NAME = "ECREC";
   private static final Cache<Integer, PrecompileInputResultTuple> ecrecCache =
-      Caffeine.newBuilder()
-          .maximumWeight(16_000_000)
-          .weigher((k, v) -> Integer.BYTES + ((PrecompileInputResultTuple) v).cachedInput().size())
-          .build();
+      AbstractPrecompiledContract.resultCacheBuilder().build();
 
   /**
    * Instantiates a new ECREC precompiled contract with the default signature algorithm.
