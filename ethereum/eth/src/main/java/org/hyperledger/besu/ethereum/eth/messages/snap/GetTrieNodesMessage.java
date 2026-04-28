@@ -19,7 +19,6 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
-import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
@@ -33,7 +32,7 @@ import org.immutables.value.Value;
 public final class GetTrieNodesMessage extends AbstractSnapMessageData {
 
   // Compact-encoded Keccak256 hash is at most 33 bytes (1 metadata + 32 data)
-  static final int MAX_PATH_SIZE = 33;
+  public static final int MAX_PATH_SIZE = 33;
   // Maximum total paths decoded across all groups, matches geth's maxTrieNodeLookups
   static final int MAX_TOTAL_PATHS = 1024;
 
@@ -90,10 +89,6 @@ public final class GetTrieNodesMessage extends AbstractSnapMessageData {
       final List<Bytes> group = new ArrayList<>();
       while (!input.isEndOfCurrentList() && totalPaths < MAX_TOTAL_PATHS) {
         final Bytes path = input.readBytes();
-        if (path.size() > MAX_PATH_SIZE) {
-          throw new RLPException(
-              "Trie node path size " + path.size() + " exceeds maximum " + MAX_PATH_SIZE);
-        }
         group.add(path);
         totalPaths++;
       }
