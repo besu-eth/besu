@@ -187,7 +187,7 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
       if (!getWithdrawalsValidator(
               protocolSchedule.get(), newHead, maybePayloadAttributes.get().getTimestamp())
           .validateWithdrawals(withdrawals)) {
-        return new JsonRpcErrorResponse(requestId, getInvalidPayloadAttributesError());
+        return new JsonRpcErrorResponse(requestId, getInvalidWithdrawalsError());
       }
     }
 
@@ -382,6 +382,10 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
   }
 
   protected RpcErrorType getInvalidPayloadAttributesError() {
+    return RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES;
+  }
+
+  protected RpcErrorType getInvalidWithdrawalsError() {
     return RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES;
   }
 
