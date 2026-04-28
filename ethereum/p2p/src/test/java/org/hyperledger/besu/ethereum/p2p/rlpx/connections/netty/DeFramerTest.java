@@ -405,6 +405,33 @@ public class DeFramerTest {
   }
 
   @Test
+  public void decode_shouldRejectOversizedHelloMessage() {
+    final Peer peer = createRemotePeer();
+    final PeerInfo remotePeerInfo = createPeerInfo(peer);
+    final DeFramer deFramer = createDeFramer(null, Optional.empty(), peer.getId());
+
+    final HelloMessage helloMessage = HelloMessage.create(remotePeerInfo);
+    // Create a payload that exceeds MAX_HELLO_MESSAGE_SIZE
+    final byte[] oversizedPayload = new byte[DeFramer.MAX_HELLO_MESSAGE_SIZE + 1];
+    System.arraycopy(helloMessage.getData().toArray(), 0, oversizedPayload, 0,
+        Math.min(helloMessage.getData().size(), oversizedPayload.length));
+    final Bytes oversizedData = Bytes.wrap(oversizedPayload);
+
+    final ByteBuf data = Unpooled.wrappedBuffer(oversizedData.toArray());
+    when(framer.deframe(eq(data)))
+        .thenReturn(new RawMessage(WireMessageCodes.HELLO, oversizedData))
+        .thenReturn(null);
+    final List<Object> out = new ArrayList<>();
+    deFramer.decode(ctx, data, out);
+
+    assertThat(connectFuture).isDone();
+    assertThat(connectFuture).isCompletedExceptionally();
+    assertThatThrownBy(connectFuture::get).hasCauseInstanceOf(BreachOfProtocolException.class);
+    verify(ctx).close();
+    assertThat(out).isEmpty();
+  }
+
+  @Test
   public void decode_shouldHandleInvalidMessage() {
     final MessageData messageData = PingMessage.get();
     final ByteBuf data = Unpooled.wrappedBuffer(messageData.getData().toArray());
