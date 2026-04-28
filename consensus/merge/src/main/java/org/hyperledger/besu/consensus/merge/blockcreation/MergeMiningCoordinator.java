@@ -117,11 +117,13 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
       final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash);
 
   /**
-   * Returns true if the given block hash is an ancestor (inclusive) of the currently finalized
-   * block. Returns false if no finalized block is known or if the candidate hash cannot be located.
+   * Returns true if the given block hash is a strict ancestor of the currently finalized block
+   * (i.e. an older block on the same chain, not finalized itself). Returns false when no finalized
+   * block is known, when the candidate hash cannot be located, or when the candidate IS the
+   * finalized block
    *
    * @param candidateHeadHash the candidate head hash
-   * @return whether the candidate is an ancestor of the latest known finalized block
+   * @return whether the candidate is a strict ancestor of the latest known finalized block
    */
   boolean isAncestorOfFinalized(Hash candidateHeadHash);
 

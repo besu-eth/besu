@@ -920,13 +920,18 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     if (maybeFinalizedHash.isEmpty()) {
       return false;
     }
+
+    if (candidateHeadHash.equals(maybeFinalizedHash.get())) {
+      return false;
+    }
+
     final Optional<BlockHeader> finalizedHeader =
         blockchain.getBlockHeader(maybeFinalizedHash.get());
     final Optional<BlockHeader> candidateHeader = blockchain.getBlockHeader(candidateHeadHash);
     if (finalizedHeader.isEmpty() || candidateHeader.isEmpty()) {
       return false;
     }
-    // candidate is ancestor of finalized iff finalized descends from candidate
+    // candidate is a strict ancestor of finalized iff finalized descends from candidate
     return isDescendantOf(candidateHeader.get(), finalizedHeader.get());
   }
 
