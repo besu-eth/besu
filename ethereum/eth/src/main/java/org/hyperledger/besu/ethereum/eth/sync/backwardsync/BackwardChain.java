@@ -32,6 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 
 public class BackwardChain {
@@ -288,5 +289,10 @@ public class BackwardChain {
     if (hashesToAppend.contains(hashToRemove)) {
       hashesToAppend.remove(hashToRemove);
     }
+  }
+
+  @VisibleForTesting
+  synchronized List<Hash> getHashesToAppend() {
+    return new ArrayList<>(hashesToAppend);
   }
 }
