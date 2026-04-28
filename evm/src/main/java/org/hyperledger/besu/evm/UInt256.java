@@ -460,9 +460,38 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    * @return The sum.
    */
   public UInt256 add(final UInt256 other) {
-    if (isZero()) return other;
-    if (other.isZero()) return this;
     return adc(other).UInt256Value();
+  }
+
+  /**
+   * Subtraction
+   *
+   * <p>Compute the wrapping difference of 2 256-bits integers.
+   *
+   * @param other Integer to subtract from this integer.
+   * @return The difference.
+   */
+  public UInt256 sub(final UInt256 other) {
+    // Limb 0: no incoming borrow, so a plain unsigned compare of the inputs suffices.
+    long z0 = u0 - other.u0;
+    long borrow = Long.compareUnsigned(u0, other.u0) < 0 ? 1 : 0;
+
+    // Limbs 1-3 subtract three values (u_i - other.u_i - borrow), so the borrow check
+    // needs a tie-breaker: if u_i equals other.u_i, their difference is 0 and whether
+    // we underflow depends entirely on the incoming borrow.
+    long z1 = u1 - other.u1 - borrow;
+    long underflowed = Long.compareUnsigned(u1, other.u1) < 0 ? 1 : 0;
+    long underflowIfBorrowed = Long.compareUnsigned(u1, other.u1) == 0 ? 1 : 0;
+    borrow = underflowed | (underflowIfBorrowed & borrow);
+
+    long z2 = u2 - other.u2 - borrow;
+    underflowed = Long.compareUnsigned(u2, other.u2) < 0 ? 1 : 0;
+    underflowIfBorrowed = Long.compareUnsigned(u2, other.u2) == 0 ? 1 : 0;
+    borrow = underflowed | (underflowIfBorrowed & borrow);
+
+    long z3 = u3 - other.u3 - borrow;
+    // Final borrow discarded: sub returns the wrapping result mod 2^256.
+    return new UInt256(z3, z2, z1, z0);
   }
 
   /**
@@ -625,6 +654,186 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     return sbb(x, y);
   }
 
+  /**
+   * Performs EVM SAR (arithmetic shift right) on the two top stack items.
+   *
+   * <p>Reads the shift amount (unsigned) and the value (signed) from the top two stack slots,
+   * writes {@code value >> shift} back into the value slot and decrements the top. Shifts >= 256
+   * produce 0 for positive values and -1 for negative values.
+   *
+   * @param shift 256 bit value storing the amount of bits to shift
+   * @return the result
+   */
+  public UInt256 sar(final UInt256 shift) {
+    int bitShift;
+    if (shift.u3() != 0
+        || shift.u2() != 0
+        || shift.u1() != 0
+        || Long.compareUnsigned(shift.u0(), 256) >= 0) {
+      bitShift = 256;
+    } else {
+      bitShift = (int) shift.u0();
+    }
+    long fill = (u3 < 0 ? -1L : 0);
+    return sar0(bitShift, fill);
+  }
+
+  /**
+   * Performs EVM SHR (logical shift right) on the two top stack items.
+   *
+   * <p>Reads the shift amount (unsigned) and the value from the top two stack slots, writes {@code
+   * value >>> shift} back into the value slot and decrements the top. Shifts >= 256 or a zero value
+   * produce 0.
+   *
+   * @param shift 256 bit value storing the amount of bits to shift
+   * @return the result
+   */
+  public UInt256 shr(final UInt256 shift) {
+    int bitShift;
+    if (shift.u3() != 0
+        || shift.u2() != 0
+        || shift.u1() != 0
+        || Long.compareUnsigned(shift.u0(), 256) >= 0) {
+      bitShift = 256;
+    } else {
+      bitShift = (int) shift.u0();
+    }
+    return sar0(bitShift, 0);
+  }
+
+  /**
+   * Arithmetic right-shifts a 256-bit value in place by 0..255 bits, sign-extending with {@code
+   * fill}.
+   *
+   * @param shift number of bits to shift
+   * @param fill value to prepend while shifting
+   * @return the result
+   */
+  // TODO: check perf - wiring shiftRight callers with this one
+  private UInt256 sar0(final int shift, final long fill) {
+    long w3 = u3, w2 = u2, w1 = u1, w0 = u0;
+    if (shift == 256) {
+      w3 = fill;
+      w2 = fill;
+      w1 = fill;
+      w0 = fill;
+    } else if (shift != 0) {
+      // Number of whole 64-bit words to shift (shift / 64)
+      final int wordShift = shift >>> 6;
+      // Remaining intra-word bit shift (shift % 64)
+      final int bitShift = shift & 63;
+      switch (wordShift) {
+        case 0:
+          w0 = shiftRightWord(w0, w1, bitShift);
+          w1 = shiftRightWord(w1, w2, bitShift);
+          w2 = shiftRightWord(w2, w3, bitShift);
+          w3 = shiftRightWord(w3, fill, bitShift);
+          break;
+        case 1:
+          w0 = shiftRightWord(w1, w2, bitShift);
+          w1 = shiftRightWord(w2, w3, bitShift);
+          w2 = shiftRightWord(w3, fill, bitShift);
+          w3 = fill;
+          break;
+        case 2:
+          w0 = shiftRightWord(w2, w3, bitShift);
+          w1 = shiftRightWord(w3, fill, bitShift);
+          w2 = fill;
+          w3 = fill;
+          break;
+        case 3:
+          w0 = shiftRightWord(w3, fill, bitShift);
+          w1 = fill;
+          w2 = fill;
+          w3 = fill;
+          break;
+      }
+    }
+    return new UInt256(w3, w2, w1, w0);
+  }
+
+  /**
+   * Performs EVM SHL (shift left) on the two top stack items.
+   *
+   * <p>Reads the shift amount (unsigned) and the value from the top two stack slots, writes {@code
+   * value << shift} back into the value slot and decrements the top. Shifts >= 256 or a zero value
+   * produce 0.
+   *
+   * @param shift 256 bit value storing the amount of bits to shift
+   * @return the result
+   */
+  public UInt256 shl(final UInt256 shift) {
+    int bitShift;
+    if (shift.u3() != 0
+        || shift.u2() != 0
+        || shift.u1() != 0
+        || Long.compareUnsigned(shift.u0(), 256) >= 0) {
+      bitShift = 256;
+    } else {
+      bitShift = (int) shift.u0();
+    }
+    return shl0(bitShift);
+  }
+
+  /**
+   * Left-shifts a 256-bit value in place by 1..255 bits, zero-filling from the right.
+   *
+   * @param shift number of bits to shift
+   * @return the result
+   */
+  // TODO: check perf - wiring shiftLeft callers with this one
+  private UInt256 shl0(final int shift) {
+    long w3 = u3, w2 = u2, w1 = u1, w0 = u0;
+    if (shift == 256) {
+      w3 = 0;
+      w2 = 0;
+      w1 = 0;
+      w0 = 0;
+    } else if (shift != 0) {
+      // Number of whole 64-bit words to shift (shift / 64)
+      final int wordShift = shift >>> 6;
+      // Remaining intra-word bit shift (shift % 64)
+      final int bitShift = shift & 63;
+      switch (wordShift) {
+        case 0:
+          w3 = shiftLeftWord(w3, w2, bitShift);
+          w2 = shiftLeftWord(w2, w1, bitShift);
+          w1 = shiftLeftWord(w1, w0, bitShift);
+          w0 = shiftLeftWord(w0, 0, bitShift);
+          break;
+        case 1:
+          w3 = shiftLeftWord(w2, w1, bitShift);
+          w2 = shiftLeftWord(w1, w0, bitShift);
+          w1 = shiftLeftWord(w0, 0, bitShift);
+          w0 = 0;
+          break;
+        case 2:
+          w3 = shiftLeftWord(w1, w0, bitShift);
+          w2 = shiftLeftWord(w0, 0, bitShift);
+          w1 = 0;
+          w0 = 0;
+          break;
+        case 3:
+          w3 = shiftLeftWord(w0, 0, bitShift);
+          w2 = 0;
+          w1 = 0;
+          w0 = 0;
+          break;
+      }
+    }
+    return new UInt256(w3, w2, w1, w0);
+  }
+
+  private static long shiftLeftWord(final long value, final long nextValue, final int bitShift) {
+    if (bitShift == 0) return value;
+    return (value << bitShift) | (nextValue >>> (64 - bitShift));
+  }
+
+  private static long shiftRightWord(final long value, final long prevValue, final int bitShift) {
+    if (bitShift == 0) return value;
+    return (value >>> bitShift) | (prevValue << (64 - bitShift));
+  }
+
   private static boolean isZero(final byte[] arr) {
     int index = Arrays.mismatch(arr, ZERO_BYTES);
     return (index == -1 || index >= arr.length);
@@ -702,26 +911,29 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     return new UInt256(0, u3, u2, u1);
   }
 
+  // Add with carry
   private UInt257 adc(final UInt256 other) {
-    if (isZero()) return new UInt257(false, other);
-    if (other.isZero()) return new UInt257(false, this);
+    // Limb 0: no incoming carry, so a plain unsigned-wrap check suffices.
     long z0 = u0 + other.u0;
     long carry = Long.compareUnsigned(z0, u0) < 0 ? 1 : 0;
 
+    // Limbs 1-3 add three values (u_i + other.u_i + carry), so the wrap check
+    // needs a tie-breaker: if the sum equals u_i, other.u_i was 0xFF..FF
+    // and the incoming carry alone pushed us over, which is overflow iff carry=1.
     long z1 = u1 + other.u1 + carry;
-    long overflow1 = Long.compareUnsigned(z1, u1) < 0 ? 1 : 0;
-    long overflow2 = Long.compareUnsigned(z1, u1) == 0 ? 1 : 0;
-    carry = overflow1 | (overflow2 & carry);
+    long overflowed = Long.compareUnsigned(z1, u1) < 0 ? 1 : 0;
+    long overflowIfCarried = Long.compareUnsigned(z1, u1) == 0 ? 1 : 0;
+    carry = overflowed | (overflowIfCarried & carry);
 
     long z2 = u2 + other.u2 + carry;
-    overflow1 = Long.compareUnsigned(z2, u2) < 0 ? 1 : 0;
-    overflow2 = Long.compareUnsigned(z2, u2) == 0 ? 1 : 0;
-    carry = overflow1 | (overflow2 & carry);
+    overflowed = Long.compareUnsigned(z2, u2) < 0 ? 1 : 0;
+    overflowIfCarried = Long.compareUnsigned(z2, u2) == 0 ? 1 : 0;
+    carry = overflowed | (overflowIfCarried & carry);
 
     long z3 = u3 + other.u3 + carry;
-    overflow1 = Long.compareUnsigned(z3, u3) < 0 ? 1 : 0;
-    overflow2 = Long.compareUnsigned(z3, u3) == 0 ? 1 : 0;
-    carry = overflow1 | (overflow2 & carry);
+    overflowed = Long.compareUnsigned(z3, u3) < 0 ? 1 : 0;
+    overflowIfCarried = Long.compareUnsigned(z3, u3) == 0 ? 1 : 0;
+    carry = overflowed | (overflowIfCarried & carry);
 
     return new UInt257(carry != 0, new UInt256(z3, z2, z1, z0));
   }
@@ -1915,4 +2127,5 @@ public record UInt256(long u3, long u2, long u1, long u0) {
 
   // --------------------------------------------------------------------------
   // endregion
+
 }

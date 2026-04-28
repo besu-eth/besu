@@ -20,6 +20,7 @@ concurrency:
 jobs:
   referenceTestEthereum:
     runs-on: besu-research-ubuntu-8 # since eest-v5.1.0 this job needs more disk space
+    timeout-minutes: 30
     permissions:
       statuses: write
       checks: write

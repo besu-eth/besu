@@ -66,7 +66,6 @@ public class SnapWorldStateDownloader implements WorldStateDownloader {
   private final int maxOutstandingRequests;
   private final int maxNodeRequestsWithoutProgress;
   private final ProtocolContext protocolContext;
-  private final ProtocolSchedule protocolSchedule;
   private final WorldStateStorageCoordinator worldStateStorageCoordinator;
 
   private final AtomicReference<SnapWorldDownloadState> downloadState = new AtomicReference<>();
@@ -90,7 +89,6 @@ public class SnapWorldStateDownloader implements WorldStateDownloader {
       final SyncDurationMetrics syncDurationMetrics) {
     this.ethContext = ethContext;
     this.protocolContext = protocolContext;
-    this.protocolSchedule = protocolSchedule;
     this.worldStateStorageCoordinator = worldStateStorageCoordinator;
     this.snapContext = snapContext;
     this.snapTaskCollection = snapTaskCollection;
@@ -164,7 +162,6 @@ public class SnapWorldStateDownloader implements WorldStateDownloader {
               snapContext,
               protocolContext.getBlockchain(),
               snapSyncState,
-              protocolSchedule,
               snapTaskCollection,
               maxNodeRequestsWithoutProgress,
               minMillisBeforeStalling,

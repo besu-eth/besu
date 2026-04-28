@@ -102,10 +102,7 @@ public class EphemeryTest extends CommandTestAbstract {
   private final Vertx vertx = Vertx.vertx();
   private final ObservableMetricsSystem noOpMetricsSystem = new NoOpMetricsSystem();
   final SynchronizerConfiguration syncConfig =
-      SynchronizerConfiguration.builder()
-          .syncMode(SyncMode.SNAP)
-          .isPeerTaskSystemEnabled(false)
-          .build();
+      SynchronizerConfiguration.builder().syncMode(SyncMode.SNAP).build();
 
   Field cycleIdField;
   BigInteger initialCycleId;

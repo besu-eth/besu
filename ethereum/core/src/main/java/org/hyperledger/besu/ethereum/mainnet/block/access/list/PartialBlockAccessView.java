@@ -48,10 +48,10 @@ import org.apache.tuweni.units.bigints.UInt256;
  */
 public final class PartialBlockAccessView {
 
-  private final int txIndex;
+  private final long txIndex;
   private final List<AccountChanges> accountChanges;
 
-  public PartialBlockAccessView(final List<AccountChanges> accountChanges, final int txIndex) {
+  public PartialBlockAccessView(final List<AccountChanges> accountChanges, final long txIndex) {
     this.accountChanges = accountChanges;
     this.txIndex = txIndex;
   }
@@ -66,7 +66,7 @@ public final class PartialBlockAccessView {
         + '}';
   }
 
-  public int getTxIndex() {
+  public long getTxIndex() {
     return txIndex;
   }
 
@@ -166,10 +166,10 @@ public final class PartialBlockAccessView {
 
   /** Builder for PartialBlockAccessView. */
   public static class PartialBlockAccessViewBuilder {
-    private int txIndex;
+    private long txIndex;
     private final Map<Address, AccountChangesBuilder> accountBuilders = new HashMap<>();
 
-    public PartialBlockAccessViewBuilder withTxIndex(final int txIndex) {
+    public PartialBlockAccessViewBuilder withTxIndex(final long txIndex) {
       this.txIndex = txIndex;
       return this;
     }

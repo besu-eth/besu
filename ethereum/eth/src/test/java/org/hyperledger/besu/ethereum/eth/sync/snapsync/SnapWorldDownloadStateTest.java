@@ -40,8 +40,6 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePers
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.BytecodeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloadProcess;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -96,8 +94,6 @@ public class SnapWorldDownloadStateTest {
   private final DynamicPivotBlockSelector dynamicPivotBlockManager =
       mock(DynamicPivotBlockSelector.class);
   private final EthContext ethContext = mock(EthContext.class);
-  private final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
-  private final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
 
   private final TestClock clock = new TestClock();
   private SnapWorldDownloadState downloadState;
@@ -117,9 +113,6 @@ public class SnapWorldDownloadStateTest {
   public void setUp(final DataStorageFormat storageFormat) {
 
     when(metricsManager.getMetricsSystem()).thenReturn(new NoOpMetricsSystem());
-    when(protocolSchedule.getByBlockHeader(any(BlockHeader.class))).thenReturn(protocolSpec);
-    when(protocolSpec.getBlockAccessListFactory()).thenReturn(Optional.empty());
-
     if (storageFormat == DataStorageFormat.BONSAI) {
       worldStateKeyValueStorage =
           new BonsaiWorldStateKeyValueStorage(
@@ -138,7 +131,6 @@ public class SnapWorldDownloadStateTest {
             snapContext,
             blockchain,
             snapSyncState,
-            protocolSchedule,
             pendingRequests,
             MAX_REQUESTS_WITHOUT_PROGRESS,
             MIN_MILLIS_BEFORE_STALLING,

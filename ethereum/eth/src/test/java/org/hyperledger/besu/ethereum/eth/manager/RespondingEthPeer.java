@@ -38,7 +38,6 @@ import org.hyperledger.besu.ethereum.eth.messages.BlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.BlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.BlockHeadersMessage;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
-import org.hyperledger.besu.ethereum.eth.messages.NodeDataMessage;
 import org.hyperledger.besu.ethereum.eth.messages.PooledTransactionsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.ReceiptsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.StatusMessage;
@@ -67,7 +66,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import com.google.common.collect.Lists;
-import org.apache.tuweni.bytes.Bytes;
 
 public class RespondingEthPeer {
   private static final BlockDataGenerator gen = new BlockDataGenerator();
@@ -322,10 +320,6 @@ public class RespondingEthPeer {
         case EthProtocolMessages.GET_RECEIPTS:
           response = EthServer.constructGetReceiptsResponse(blockchain, msg, 200, maxMsgSize, cap);
           break;
-        case EthProtocolMessages.GET_NODE_DATA:
-          response =
-              EthServer.constructGetNodeDataResponse(worldStateArchive, msg, 200, maxMsgSize);
-          break;
         case EthProtocolMessages.GET_POOLED_TRANSACTIONS:
           response =
               EthServer.constructGetPooledTransactionsResponse(
@@ -399,13 +393,6 @@ public class RespondingEthPeer {
                       partialReceipts,
                       TransactionReceiptEncodingConfiguration.DEFAULT_NETWORK_CONFIGURATION));
           break;
-        case EthProtocolMessages.GET_NODE_DATA:
-          final NodeDataMessage nodeDataMessage = NodeDataMessage.readFrom(originalResponse);
-          final List<Bytes> originalNodeData = Lists.newArrayList(nodeDataMessage.nodeData());
-          final List<Bytes> partialNodeData =
-              originalNodeData.subList(0, (int) (originalNodeData.size() * portion));
-          partialResponse = NodeDataMessage.create(partialNodeData);
-          break;
         case EthProtocolMessages.GET_POOLED_TRANSACTIONS:
           final PooledTransactionsMessage pooledTransactionsMessage =
               PooledTransactionsMessage.readFrom(originalResponse);
@@ -436,9 +423,6 @@ public class RespondingEthPeer {
                   serializeReceiptsList(
                       Collections.emptyList(),
                       TransactionReceiptEncodingConfiguration.DEFAULT_NETWORK_CONFIGURATION));
-          break;
-        case EthProtocolMessages.GET_NODE_DATA:
-          response = NodeDataMessage.create(Collections.emptyList());
           break;
         case EthProtocolMessages.GET_POOLED_TRANSACTIONS:
           response = PooledTransactionsMessage.create(Collections.emptyList());
