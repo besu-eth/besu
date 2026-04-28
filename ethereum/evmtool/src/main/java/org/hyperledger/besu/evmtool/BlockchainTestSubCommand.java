@@ -118,6 +118,8 @@ public class BlockchainTestSubCommand implements Runnable {
           "Enable precompile result caching, matching the runtime behavior of `--cache-precompiles` in besu.",
       negatable = true)
   private Boolean enablePrecompileCache = false;
+
+  @Option(
       names = {"--verbose"},
       description = "Verbose logs, listing all skipped tests")
   private final Boolean verbose = false;
