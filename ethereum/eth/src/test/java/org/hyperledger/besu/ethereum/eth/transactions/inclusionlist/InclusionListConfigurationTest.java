@@ -23,32 +23,6 @@ class InclusionListConfigurationTest {
   @Test
   void defaultConfigurationHasStrictValidationAndDefaultSelector() {
     final InclusionListConfiguration config = InclusionListConfiguration.DEFAULT;
-    assertThat(config.validationMode()).isEqualTo(InclusionListValidationMode.STRICT);
     assertThat(config.selector()).isInstanceOf(DefaultInclusionListSelector.class);
-  }
-
-  @Test
-  void customConfigurationPreservesValues() {
-    final DefaultInclusionListSelector selector = new DefaultInclusionListSelector();
-    final InclusionListConfiguration config =
-        new InclusionListConfiguration(InclusionListValidationMode.LENIENT, selector);
-    assertThat(config.validationMode()).isEqualTo(InclusionListValidationMode.LENIENT);
-    assertThat(config.selector()).isSameAs(selector);
-  }
-
-  @Test
-  void createValidatorReturnsStrictForStrictMode() {
-    final InclusionListConfiguration config =
-        new InclusionListConfiguration(
-            InclusionListValidationMode.STRICT, new DefaultInclusionListSelector());
-    assertThat(config.createValidator()).isInstanceOf(StrictInclusionListValidator.class);
-  }
-
-  @Test
-  void createValidatorReturnsLenientForLenientMode() {
-    final InclusionListConfiguration config =
-        new InclusionListConfiguration(
-            InclusionListValidationMode.LENIENT, new DefaultInclusionListSelector());
-    assertThat(config.createValidator()).isInstanceOf(LenientInclusionListValidator.class);
   }
 }

@@ -59,17 +59,18 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListValidationResult;
 import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListValidator;
-import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.StrictInclusionListValidator;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.TransactionValidator;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 
@@ -94,7 +95,7 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
 
   private static final Hash OMMERS_HASH_CONSTANT = Hash.EMPTY_LIST_HASH;
   private static final BlockHeaderFunctions headerFunctions = new MainnetBlockHeaderFunctions();
-  private final InclusionListValidator inclusionListValidator = new StrictInclusionListValidator();
+  private final InclusionListValidator inclusionListValidator = new InclusionListValidator();
   private final MergeMiningCoordinator mergeCoordinator;
   private final EthPeers ethPeers;
   private long lastExecutionTimeInNs = 0L;
@@ -276,27 +277,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
           "Failed to decode transactions from block parameter");
     }
 
-    if (maybeInclusionListTransactions.isPresent()) {
-      try {
-        final InclusionListValidationResult result =
-            validateInclusionListTransactions(
-                maybeInclusionListTransactions.get(),
-                blockParam.getTransactions(),
-                rawTransactions);
-        if (!result.isValid()) {
-          return respondWithInvalid(
-              reqId,
-              blockParam,
-              mergeCoordinator.getLatestValidAncestor(blockParam.getParentHash()).orElse(null),
-              INCLUSION_LIST_UNSATISFIED,
-              result.getErrorMessage().orElse(""));
-        }
-      } catch (Exception e) {
-        return new JsonRpcErrorResponse(
-            reqId, RpcErrorType.INVALID_INCLUSION_LIST_TRANSACTIONS_PARAMS);
-      }
-    }
-
     if (blockParam.getExtraData() == null) {
       return respondWithInvalid(
           reqId,
@@ -416,6 +396,36 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     final BlockProcessingResult executionResult =
         mergeCoordinator.rememberBlock(block, maybeBlockAccessList);
     if (executionResult.isSuccessful()) {
+      // verify inclusion list transactions rules are satisfied
+      if (maybeInclusionListTransactions.isPresent()) {
+        try {
+          final InclusionListValidationResult result =
+              validateInclusionListTransactions(
+                  newBlockHeader,
+                  executionResult,
+                  protocolSchedule
+                      .get()
+                      .getByBlockHeader(newBlockHeader)
+                      .getTransactionValidatorFactory()
+                      .get(),
+                  protocolContext.getWorldStateArchive(),
+                  blockParam.getTransactions(),
+                  rawTransactions,
+                  maybeInclusionListTransactions.get());
+          if (!result.isValid()) {
+            return respondWithInvalid(
+                reqId,
+                blockParam,
+                mergeCoordinator.getLatestValidAncestor(blockParam.getParentHash()).orElse(null),
+                INCLUSION_LIST_UNSATISFIED,
+                result.getErrorMessage().orElse(""));
+          }
+        } catch (Exception e) {
+          return new JsonRpcErrorResponse(
+              reqId, RpcErrorType.INVALID_INCLUSION_LIST_TRANSACTIONS_PARAMS);
+        }
+      }
+
       lastExecutionTimeInNs = System.nanoTime() - startTimeNs;
       logImportedBlockInfo(
           block,
@@ -521,7 +531,9 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
       final Hash latestValidHash,
       final EngineStatus invalidStatus,
       final String validationError) {
-    if (!INVALID.equals(invalidStatus) && !INVALID_BLOCK_HASH.equals(invalidStatus)) {
+    if (!INVALID.equals(invalidStatus)
+        && !INVALID_BLOCK_HASH.equals(invalidStatus)
+        && !INCLUSION_LIST_UNSATISFIED.equals(invalidStatus)) {
       throw new IllegalArgumentException(
           "Don't call respondWithInvalid() with non-invalid status of " + invalidStatus.toString());
     }
@@ -680,9 +692,13 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
   }
 
   private InclusionListValidationResult validateInclusionListTransactions(
-      final List<String> inclusionListHexTransactions,
+      final BlockHeader newBlockHeader,
+      final BlockProcessingResult executionResult,
+      final TransactionValidator transactionValidator,
+      final WorldStateArchive worldStateArchive,
       final List<String> payloadHexTransactions,
-      final List<Bytes> payloadRawTransactions) {
+      final List<Bytes> payloadRawTransactions,
+      final List<String> inclusionListHexTransactions) {
 
     // fast happy path, to avoid decoding inclusion list transactions
     // check max size and ensure all are included in the payload
@@ -712,7 +728,13 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     final List<Bytes> inclusionListRawTransactions =
         inclusionListHexTransactions.stream().map(Bytes::fromHexString).toList();
 
-    return inclusionListValidator.validate(payloadRawTransactions, inclusionListRawTransactions);
+    return inclusionListValidator.validate(
+        newBlockHeader,
+        executionResult,
+        worldStateArchive,
+        transactionValidator,
+        payloadRawTransactions,
+        inclusionListRawTransactions);
   }
 
   private Optional<List<VersionedHash>> extractVersionedHashes(
