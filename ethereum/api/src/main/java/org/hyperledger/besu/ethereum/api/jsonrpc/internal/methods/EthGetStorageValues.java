@@ -26,11 +26,13 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
+import org.hyperledger.besu.evm.account.Account;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import org.apache.tuweni.units.bigints.UInt256;
 
@@ -69,8 +71,12 @@ public class EthGetStorageValues extends AbstractBlockParameterOrBlockHashMethod
           "Invalid storage slots request parameter (index 0)", RpcErrorType.INVALID_PARAMS, e);
     }
 
+    // Validate and pre-parse all hex keys before opening the world state. Keeping validation
+    // outside the getAndMapWorldState lambda avoids its catch-all swallowing input errors.
+    final Map<Address, List<UInt256>> parsed = new HashMap<>(storageSlotsRequest.size());
     int totalSlots = 0;
-    for (final List<String> keys : storageSlotsRequest.values()) {
+    for (final Map.Entry<Address, List<String>> entry : storageSlotsRequest.entrySet()) {
+      final List<String> keys = entry.getValue();
       if (keys == null) {
         return new JsonRpcErrorResponse(
             request.getRequest().getId(),
@@ -85,6 +91,20 @@ public class EthGetStorageValues extends AbstractBlockParameterOrBlockHashMethod
                 "too many slots (max " + MAX_STORAGE_SLOTS + ")",
                 null));
       }
+      final List<UInt256> parsedKeys = new ArrayList<>(keys.size());
+      for (final String keyHex : keys) {
+        if (keyHex == null) {
+          throw new InvalidJsonRpcParameters(
+              "Invalid storage key parameter", RpcErrorType.INVALID_PARAMS);
+        }
+        try {
+          parsedKeys.add(UInt256.fromHexString(keyHex));
+        } catch (IllegalArgumentException e) {
+          throw new InvalidJsonRpcParameters(
+              "Invalid storage key parameter", RpcErrorType.INVALID_PARAMS, e);
+        }
+      }
+      parsed.put(entry.getKey(), parsedKeys);
     }
 
     if (totalSlots == 0) {
@@ -93,29 +113,29 @@ public class EthGetStorageValues extends AbstractBlockParameterOrBlockHashMethod
           new JsonRpcError(RpcErrorType.INVALID_PARAMS.getCode(), "empty request", null));
     }
 
-    final Map<String, List<String>> result = new HashMap<>();
-    for (final Map.Entry<Address, List<String>> entry : storageSlotsRequest.entrySet()) {
-      final Address address = entry.getKey();
-      final List<String> keys = entry.getValue();
-      final List<String> values = new ArrayList<>(keys.size());
-      for (final String keyHex : keys) {
-        if (keyHex == null) {
-          throw new InvalidJsonRpcParameters(
-              "Invalid storage key parameter", RpcErrorType.INVALID_PARAMS);
-        }
-        final UInt256 key;
-        try {
-          key = UInt256.fromHexString(keyHex);
-        } catch (IllegalArgumentException e) {
-          throw new InvalidJsonRpcParameters(
-              "Invalid storage key parameter", RpcErrorType.INVALID_PARAMS, e);
-        }
-        final UInt256 value =
-            blockchainQueries.get().storageAt(address, key, blockHash).orElse(UInt256.ZERO);
-        values.add(value.toHexString());
-      }
-      result.put(address.toHexString(), values);
-    }
-    return result;
+    return blockchainQueries
+        .get()
+        .getAndMapWorldState(
+            blockHash,
+            ws -> {
+              final Map<String, List<String>> result = new HashMap<>(parsed.size());
+              for (final Map.Entry<Address, List<UInt256>> entry : parsed.entrySet()) {
+                final Address address = entry.getKey();
+                final Account account = ws.get(address);
+                final List<UInt256> keys = entry.getValue();
+                final List<String> values = new ArrayList<>(keys.size());
+                for (final UInt256 key : keys) {
+                  final UInt256 value =
+                      (account == null) ? UInt256.ZERO : account.getStorageValue(key);
+                  values.add(value.toHexString());
+                }
+                result.put(address.toHexString(), values);
+              }
+              return Optional.<Object>of(result);
+            })
+        .orElseGet(
+            () ->
+                new JsonRpcErrorResponse(
+                    request.getRequest().getId(), RpcErrorType.WORLD_STATE_UNAVAILABLE));
   }
 }
