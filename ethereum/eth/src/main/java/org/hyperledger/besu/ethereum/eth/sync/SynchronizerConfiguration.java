@@ -59,7 +59,6 @@ public class SynchronizerConfiguration {
   public static final Boolean DEFAULT_ERA1_IMPORT_PREPIPELINE_ENABLED = Boolean.FALSE;
   public static final URI DEFAULT_ERA1_DATA_URI = URI.create("https://mainnet.era1.nimbus.team/");
   public static final Integer DEFAULT_ERA1_IMPORT_PREPIPELINE_CONCURRENCY = 1;
-
   // Fast sync config
   private final int syncPivotDistance;
   private final float fastSyncFullValidationRate;
@@ -91,7 +90,7 @@ public class SynchronizerConfiguration {
   private final int computationParallelism;
   private final int maxTrailingPeers;
   private final long worldStateMinMillisBeforeStalling;
-  private final long receiptsDownloadStepTimeoutMillis;
+  private final long forwardDownloadStepTimeoutMillis;
   private final long backwardHeadersDownloadStepTimeoutMillis;
   private final long bodiesDownloadStepTimeoutMillis;
   private final boolean isPeerTaskSystemEnabled;
@@ -155,7 +154,7 @@ public class SynchronizerConfiguration {
     this.transactionsParallelism = transactionsParallelism;
     this.computationParallelism = computationParallelism;
     this.maxTrailingPeers = maxTrailingPeers;
-    this.receiptsDownloadStepTimeoutMillis = receiptsDownloadStepTimeoutMillis;
+    this.forwardDownloadStepTimeoutMillis = receiptsDownloadStepTimeoutMillis;
     this.backwardHeadersDownloadStepTimeoutMillis = backwardHeadersDownloadStepTimeoutMillis;
     this.bodiesDownloadStepTimeoutMillis = bodiesDownloadStepTimeoutMillis;
     this.isPeerTaskSystemEnabled = isPeerTaskSystemEnabled;
@@ -288,8 +287,8 @@ public class SynchronizerConfiguration {
     return maxTrailingPeers;
   }
 
-  public long getReceiptsDownloadStepTimeoutMillis() {
-    return receiptsDownloadStepTimeoutMillis;
+  public long getForwardDownloadStepTimeoutMillis() {
+    return forwardDownloadStepTimeoutMillis;
   }
 
   public long getBackwardHeadersDownloadStepTimeoutMillis() {

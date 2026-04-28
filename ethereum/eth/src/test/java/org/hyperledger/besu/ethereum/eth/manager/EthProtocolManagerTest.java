@@ -53,10 +53,8 @@ import org.hyperledger.besu.ethereum.eth.messages.BlockHeadersMessage;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockHeadersMessage;
-import org.hyperledger.besu.ethereum.eth.messages.GetNodeDataMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetReceiptsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.NewBlockMessage;
-import org.hyperledger.besu.ethereum.eth.messages.NodeDataMessage;
 import org.hyperledger.besu.ethereum.eth.messages.ReceiptsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.StatusMessage;
 import org.hyperledger.besu.ethereum.eth.messages.TransactionsMessage;
@@ -1089,60 +1087,6 @@ public final class EthProtocolManagerTest {
       // Run test
       final PeerConnection peer = setupPeer(ethManager, onSend);
       ethManager.processMessage(EthProtocol.ETH69, new DefaultMessage(peer, messageData));
-      done.get();
-    }
-  }
-
-  @Test
-  public void respondToGetNodeData() throws Exception {
-    final CompletableFuture<Void> done = new CompletableFuture<>();
-    final WorldStateArchive worldStateArchive = protocolContext.getWorldStateArchive();
-
-    try (final EthProtocolManager ethManager =
-        EthProtocolManagerTestBuilder.builder()
-            .setProtocolSchedule(protocolSchedule)
-            .setBlockchain(blockchain)
-            .setEthScheduler(new DeterministicEthScheduler(() -> false))
-            .setWorldStateArchive(protocolContext.getWorldStateArchive())
-            .setTransactionPool(transactionPool)
-            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.DEFAULT)
-            .build()) {
-      // Setup node data query
-
-      final List<Bytes> expectedResults = new ArrayList<>();
-      final List<Hash> requestedHashes = new ArrayList<>();
-
-      final long startBlock = blockchain.getChainHeadBlockNumber() - 5;
-      final int blockCount = 2;
-      for (int i = 0; i < blockCount; i++) {
-        final BlockHeader header = blockchain.getBlockHeader(startBlock + i).get();
-        requestedHashes.add(header.getStateRoot());
-        expectedResults.add(worldStateArchive.getNodeData(header.getStateRoot()).get());
-      }
-      final MessageData messageData =
-          GetNodeDataMessage.create(requestedHashes).wrapMessageData(BigInteger.ONE);
-
-      // Define handler to validate response
-      final PeerSendHandler onSend =
-          (cap, message, conn) -> {
-            if (message.getCode() == EthProtocolMessages.STATUS) {
-              // Ignore status message
-              return;
-            }
-            assertThat(message.getCode()).isEqualTo(EthProtocolMessages.NODE_DATA);
-            final NodeDataMessage receiptsMessage =
-                NodeDataMessage.readFrom(message.unwrapMessageData().getValue());
-            final List<Bytes> nodeData = receiptsMessage.nodeData();
-            assertThat(nodeData).hasSize(blockCount);
-            for (int i = 0; i < blockCount; i++) {
-              assertThat(expectedResults.get(i)).isEqualTo(nodeData.get(i));
-            }
-            done.complete(null);
-          };
-
-      // Run test
-      final PeerConnection peer = setupPeer(ethManager, onSend);
-      ethManager.processMessage(EthProtocol.LATEST, new DefaultMessage(peer, messageData));
       done.get();
     }
   }
