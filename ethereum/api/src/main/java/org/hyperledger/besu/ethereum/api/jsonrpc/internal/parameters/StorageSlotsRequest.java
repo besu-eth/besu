@@ -19,10 +19,7 @@ import org.hyperledger.besu.datatypes.Address;
 import java.util.HashMap;
 import java.util.List;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-
 /** Map of storage slot requests, indexed by address. */
-@JsonIgnoreProperties(ignoreUnknown = true)
 public class StorageSlotsRequest extends HashMap<Address, List<String>> {
 
   /** Default constructor. */
