@@ -98,12 +98,6 @@ public class ForestWorldStateArchive implements WorldStateArchive {
     // ignore for forest
   }
 
-  @Override
-  public Optional<Bytes> getNodeData(final Hash hash) {
-    // query by location is not supported, only query by content
-    return worldStateKeyValueStorage.getNodeData(Bytes32.wrap(hash.getBytes()));
-  }
-
   public ForestWorldStateKeyValueStorage getWorldStateStorage() {
     return worldStateKeyValueStorage;
   }
