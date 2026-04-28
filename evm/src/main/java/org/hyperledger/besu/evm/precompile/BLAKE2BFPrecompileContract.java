@@ -40,7 +40,10 @@ public class BLAKE2BFPrecompileContract extends AbstractPrecompiledContract {
   private static final String PRECOMPILE_NAME = "BLAKE2F";
 
   private static final Cache<Integer, PrecompileInputResultTuple> blakeCache =
-      Caffeine.newBuilder().maximumSize(1000).build();
+      Caffeine.newBuilder()
+          .maximumWeight(16_000_000)
+          .weigher((k, v) -> Integer.BYTES + ((PrecompileInputResultTuple) v).cachedInput().size())
+          .build();
 
   /**
    * Instantiates a new BLAKE2BF precompile contract.
@@ -86,7 +89,7 @@ public class BLAKE2BFPrecompileContract extends AbstractPrecompiledContract {
     PrecompileInputResultTuple res = null;
     Integer cacheKey = null;
     if (enableResultCaching) {
-      cacheKey = getCacheKey(input);
+      cacheKey = getCacheKey(input, input.size());
       res = blakeCache.getIfPresent(cacheKey);
       if (res != null) {
         if (res.cachedInput().equals(input)) {

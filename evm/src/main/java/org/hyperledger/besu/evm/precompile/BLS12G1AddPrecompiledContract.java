@@ -25,7 +25,10 @@ public class BLS12G1AddPrecompiledContract extends AbstractBLS12PrecompiledContr
 
   private static final int PARAMETER_LENGTH = 256;
   private static final Cache<Integer, PrecompileInputResultTuple> g1AddCache =
-      Caffeine.newBuilder().maximumSize(1000).build();
+      Caffeine.newBuilder()
+          .maximumWeight(16_000_000)
+          .weigher((k, v) -> Integer.BYTES + ((PrecompileInputResultTuple) v).cachedInput().size())
+          .build();
 
   /** Instantiates a new BLS12G1 Add precompiled contract. */
   BLS12G1AddPrecompiledContract() {

@@ -47,7 +47,10 @@ public class AltBN128MulPrecompiledContract extends AbstractAltBnPrecompiledCont
   private static final Bytes POINT_AT_INFINITY = Bytes.repeat((byte) 0, 64);
   private final long gasCost;
   private static final Cache<Integer, PrecompileInputResultTuple> bnMulCache =
-      Caffeine.newBuilder().maximumSize(1000).build();
+      Caffeine.newBuilder()
+          .maximumWeight(16_000_000)
+          .weigher((k, v) -> Integer.BYTES + ((PrecompileInputResultTuple) v).cachedInput().size())
+          .build();
 
   AltBN128MulPrecompiledContract(final GasCalculator gasCalculator, final long gasCost) {
     super(
@@ -76,11 +79,13 @@ public class AltBN128MulPrecompiledContract extends AbstractAltBnPrecompiledCont
 
     PrecompileInputResultTuple res;
     Integer cacheKey = null;
+    final Bytes cachedInput =
+        input.size() > PARAMETER_LENGTH ? input.slice(0, PARAMETER_LENGTH) : input;
     if (enableResultCaching) {
-      cacheKey = getCacheKey(input);
+      cacheKey = getCacheKey(input, PARAMETER_LENGTH);
       res = bnMulCache.getIfPresent(cacheKey);
       if (res != null) {
-        if (res.cachedInput().equals(input)) {
+        if (res.cachedInput().equals(cachedInput)) {
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.HIT));
           return res.cachedResult();
         } else {
@@ -89,7 +94,7 @@ public class AltBN128MulPrecompiledContract extends AbstractAltBnPrecompiledCont
               input.getClass().getSimpleName(),
               cacheKey,
               res.cachedInput().toHexString(),
-              input.toHexString());
+              cachedInput.toHexString());
 
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.FALSE_POSITIVE));
         }
@@ -101,11 +106,11 @@ public class AltBN128MulPrecompiledContract extends AbstractAltBnPrecompiledCont
     if (useNative) {
       res =
           new PrecompileInputResultTuple(
-              enableResultCaching ? input.copy() : input, computeNative(input, messageFrame));
+              enableResultCaching ? cachedInput.copy() : input, computeNative(input, messageFrame));
     } else {
       res =
           new PrecompileInputResultTuple(
-              enableResultCaching ? input.copy() : input, computeDefault(input));
+              enableResultCaching ? cachedInput.copy() : input, computeDefault(input));
     }
     if (cacheKey != null) {
       bnMulCache.put(cacheKey, res);

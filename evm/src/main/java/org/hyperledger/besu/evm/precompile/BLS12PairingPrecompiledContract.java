@@ -29,7 +29,7 @@ public class BLS12PairingPrecompiledContract extends AbstractBLS12PrecompiledCon
   private static final Cache<Integer, PrecompileInputResultTuple> pairingCache =
       Caffeine.newBuilder()
           .maximumWeight(16_000_000)
-          .weigher((k, v) -> ((PrecompileInputResultTuple) v).cachedInput().size())
+          .weigher((k, v) -> Integer.BYTES + ((PrecompileInputResultTuple) v).cachedInput().size())
           .expireAfterWrite(15, TimeUnit.MINUTES) // Evict 15 minutes after each entry is written
           .build();
 

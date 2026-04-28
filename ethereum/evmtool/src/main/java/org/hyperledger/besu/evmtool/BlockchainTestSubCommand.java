@@ -38,6 +38,9 @@ import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.AccountState;
 import org.hyperledger.besu.evm.internal.EvmConfiguration.WorldUpdaterMode;
+import org.hyperledger.besu.evm.precompile.AbstractBLS12PrecompiledContract;
+import org.hyperledger.besu.evm.precompile.AbstractPrecompiledContract;
+import org.hyperledger.besu.evm.precompile.KZGPointEvalPrecompiledContract;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
 import org.hyperledger.besu.evm.tracing.StreamingOperationTracer;
@@ -109,6 +112,13 @@ public class BlockchainTestSubCommand implements Runnable {
       description = "Output file for traces (default: stderr). Requires --json or --trace flag.")
   private String traceOutput = null;
 
+  @Option(
+      names = {"--cache-precompiles"},
+      description =
+          "Enable precompile result caching, matching the runtime behavior of `--cache-precompiles` in besu.",
+      negatable = true)
+  private Boolean enablePrecompileCache = false;
+
   @ParentCommand private final EvmToolCommand parentCommand;
 
   // picocli does it magically
@@ -168,6 +178,9 @@ public class BlockchainTestSubCommand implements Runnable {
 
   @Override
   public void run() {
+    AbstractPrecompiledContract.setPrecompileCaching(enablePrecompileCache);
+    AbstractBLS12PrecompiledContract.setPrecompileCaching(enablePrecompileCache);
+    KZGPointEvalPrecompiledContract.setPrecompileCaching(enablePrecompileCache);
     final ObjectMapper blockchainTestMapper = JsonUtils.createObjectMapper();
     final TestResults results = new TestResults();
 

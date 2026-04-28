@@ -25,7 +25,10 @@ public class BLS12MapFpToG1PrecompiledContract extends AbstractBLS12PrecompiledC
 
   private static final int PARAMETER_LENGTH = 64;
   private static final Cache<Integer, PrecompileInputResultTuple> mapFpToG1Cache =
-      Caffeine.newBuilder().maximumSize(1000).build();
+      Caffeine.newBuilder()
+          .maximumWeight(16_000_000)
+          .weigher((k, v) -> Integer.BYTES + ((PrecompileInputResultTuple) v).cachedInput().size())
+          .build();
 
   /** Instantiates a new BLS12MapFpToG1 precompiled contract. */
   BLS12MapFpToG1PrecompiledContract() {

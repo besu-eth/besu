@@ -100,12 +100,15 @@ public abstract class AbstractPrecompiledContract implements PrecompiledContract
   }
 
   /**
-   * calculate a cache key based on input bytes
+   * Calculate a cache key over the leading {@code prefixLen} bytes of {@code input}. Bytes beyond
+   * the semantic prefix are ignored.
    *
    * @param input bytes
+   * @param prefixLen number of leading bytes to include in the key
    * @return integer cache key
    */
-  public static Integer getCacheKey(final Bytes input) {
-    return Arrays.hashCode(input.toArrayUnsafe());
+  public static Integer getCacheKey(final Bytes input, final int prefixLen) {
+    final int len = Math.min(prefixLen, input.size());
+    return Arrays.hashCode(input.slice(0, len).toArray());
   }
 }

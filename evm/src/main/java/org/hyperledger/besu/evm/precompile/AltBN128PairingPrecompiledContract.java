@@ -50,7 +50,7 @@ public class AltBN128PairingPrecompiledContract extends AbstractAltBnPrecompiled
   private static final Cache<Integer, PrecompileInputResultTuple> bnPairingCache =
       Caffeine.newBuilder()
           .maximumWeight(16_000_000)
-          .weigher((k, v) -> ((PrecompileInputResultTuple) v).cachedInput().size())
+          .weigher((k, v) -> Integer.BYTES + ((PrecompileInputResultTuple) v).cachedInput().size())
           .expireAfterWrite(15, TimeUnit.MINUTES) // Evict 15 minutes after each entry is written
           .build();
 
@@ -108,7 +108,7 @@ public class AltBN128PairingPrecompiledContract extends AbstractAltBnPrecompiled
     PrecompileInputResultTuple res;
     Integer cacheKey = null;
     if (enableResultCaching) {
-      cacheKey = getCacheKey(input);
+      cacheKey = getCacheKey(input, input.size());
       res = bnPairingCache.getIfPresent(cacheKey);
       if (res != null) {
         if (res.cachedInput().equals(input)) {
