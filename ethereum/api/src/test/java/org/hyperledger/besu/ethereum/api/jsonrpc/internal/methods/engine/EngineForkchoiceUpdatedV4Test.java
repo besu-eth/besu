@@ -159,13 +159,14 @@ public class EngineForkchoiceUpdatedV4Test {
   }
 
   @Test
-  public void shouldNotConsultIsAncestorOfFinalizedWhenFinalizedHashIsZero() {
+  public void shouldNotSkipUpdateWhenFinalizedHashIsZero() {
     final BlockHeader head =
         blockHeaderBuilder.number(50L).timestamp(AMSTERDAM_MILESTONE + 1).buildHeader();
 
     when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), Hash.ZERO))
         .thenReturn(Optional.of(head));
     when(mergeCoordinator.computeReorgDepth(head)).thenReturn(OptionalLong.of(0L));
+    when(mergeCoordinator.isAncestorOfFinalized(head.getHash())).thenReturn(false);
     when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(head, Hash.ZERO, Hash.ZERO))
         .thenReturn(ForkchoiceResult.withResult(Optional.empty(), Optional.of(head)));
 
@@ -175,7 +176,6 @@ public class EngineForkchoiceUpdatedV4Test {
     final JsonRpcResponse resp = resp(param, Optional.empty());
 
     assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
-    verify(mergeCoordinator, never()).isAncestorOfFinalized(any());
     verify(mergeCoordinator, times(1))
         .updateForkChoiceWithoutLegacySkip(head, Hash.ZERO, Hash.ZERO);
   }
