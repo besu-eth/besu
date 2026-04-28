@@ -222,20 +222,20 @@ public class EVM {
    * Run to halt.
    *
    * @param frame the frame
-   * @param tracing the tracing
+   * @param operationTracer the tracing
    */
   // Note to maintainers: lots of Java idioms and OO principals are being set aside in the
   // name of performance. This is one of the hottest sections of code.
   //
   // Please benchmark before refactoring.
-  public void runToHalt(final MessageFrame frame, final OperationTracer tracing) {
+  public void runToHalt(final MessageFrame frame, final OperationTracer operationTracer) {
+	  assert operationTracer == OperationTracer.NO_TRACING;
     if (evmConfiguration.enableEvmV2()) {
-      runToHaltV2(frame, tracing);
+      runToHaltV2(frame, operationTracer);
       return;
     }
     evmSpecVersion.maybeWarnVersion();
 
-    var operationTracer = tracing == OperationTracer.NO_TRACING ? null : tracing;
     byte[] code = frame.getCode().getBytes().toArrayUnsafe();
     Operation[] operationArray = operations.getOperations();
     while (frame.getState() == MessageFrame.State.CODE_EXECUTING) {
@@ -250,9 +250,7 @@ public class EVM {
         currentOperation = endOfScriptStop;
       }
       frame.setCurrentOperation(currentOperation);
-      if (operationTracer != null) {
-        operationTracer.tracePreExecution(frame);
-      }
+      operationTracer.tracePreExecution(frame);
 
       OperationResult result;
       try {
@@ -456,9 +454,7 @@ public class EVM {
         final int opSize = result.getPcIncrement();
         frame.setPC(currentPC + opSize);
       }
-      if (operationTracer != null) {
-        operationTracer.tracePostExecution(frame, result);
-      }
+      operationTracer.tracePostExecution(frame, result);
     }
   }
 
@@ -468,10 +464,9 @@ public class EVM {
    * skeleton stub establishes the dispatch structure for incremental v2 operation rollout.
    */
   // Note: like runToHalt, this is performance-critical code. Benchmark before refactoring.
-  private void runToHaltV2(final MessageFrame frame, final OperationTracer tracing) {
+  private void runToHaltV2(final MessageFrame frame, final OperationTracer operationTracer) {
     evmSpecVersion.maybeWarnVersion();
 
-    var operationTracer = tracing == OperationTracer.NO_TRACING ? null : tracing;
     byte[] code = frame.getCode().getBytes().toArrayUnsafe();
     Operation[] operationArray = operations.getOperations();
     while (frame.getState() == MessageFrame.State.CODE_EXECUTING) {
@@ -486,9 +481,7 @@ public class EVM {
         currentOperation = endOfScriptStop;
       }
       frame.setCurrentOperation(currentOperation);
-      if (operationTracer != null) {
-        operationTracer.tracePreExecution(frame);
-      }
+      operationTracer.tracePreExecution(frame);
 
       OperationResult result;
       try {
@@ -539,9 +532,7 @@ public class EVM {
         final int opSize = result.getPcIncrement();
         frame.setPC(currentPC + opSize);
       }
-      if (operationTracer != null) {
-        operationTracer.tracePostExecution(frame, result);
-      }
+      operationTracer.tracePostExecution(frame, result);
     }
   }
 

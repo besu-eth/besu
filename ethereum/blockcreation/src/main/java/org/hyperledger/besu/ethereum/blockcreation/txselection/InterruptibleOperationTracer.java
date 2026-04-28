@@ -21,11 +21,9 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.Operation;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 import org.hyperledger.besu.evm.worldstate.WorldView;
-import org.hyperledger.besu.plugin.data.BlockBody;
-import org.hyperledger.besu.plugin.data.BlockHeader;
-import org.hyperledger.besu.plugin.data.ProcessableBlockHeader;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 
 import java.util.List;
@@ -34,33 +32,11 @@ import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
 
-public class InterruptibleOperationTracer implements BlockAwareOperationTracer {
-  private final BlockAwareOperationTracer delegate;
+public class InterruptibleOperationTracer implements OperationTracer {
+  private final OperationTracer delegate;
 
   public InterruptibleOperationTracer(final BlockAwareOperationTracer delegate) {
     this.delegate = delegate;
-  }
-
-  @Override
-  public void traceStartBlock(
-      final WorldView worldView,
-      final BlockHeader blockHeader,
-      final BlockBody blockBody,
-      final Address miningBeneficiary) {
-    delegate.traceStartBlock(worldView, blockHeader, blockBody, miningBeneficiary);
-  }
-
-  @Override
-  public void traceEndBlock(final BlockHeader blockHeader, final BlockBody blockBody) {
-    delegate.traceEndBlock(blockHeader, blockBody);
-  }
-
-  @Override
-  public void traceStartBlock(
-      final WorldView worldView,
-      final ProcessableBlockHeader processableBlockHeader,
-      final Address miningBeneficiary) {
-    delegate.traceStartBlock(worldView, processableBlockHeader, miningBeneficiary);
   }
 
   @Override
