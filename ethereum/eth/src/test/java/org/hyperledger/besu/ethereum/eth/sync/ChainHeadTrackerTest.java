@@ -76,7 +76,7 @@ public class ChainHeadTrackerTest {
     }
   }
 
-  public void setup(final DataStorageFormat storageFormat, final boolean isPeerTaskSystemEnabled) {
+  public void setup(final DataStorageFormat storageFormat) {
     blockchainSetupUtil = BlockchainSetupUtil.forTesting(storageFormat);
     blockchain = blockchainSetupUtil.getBlockchain();
     peerTaskExecutor = Mockito.mock(PeerTaskExecutor.class);
@@ -108,7 +108,7 @@ public class ChainHeadTrackerTest {
   @ArgumentsSource(ChainHeadTrackerTestArguments.class)
   public void shouldRequestHeaderChainHeadWhenNewPeerConnects(
       final DataStorageFormat storageFormat) {
-    setup(storageFormat, true);
+    setup(storageFormat);
     chainHeadTracker.getBestHeaderFromPeer(respondingPeer.getEthPeer());
 
     Assertions.assertThat(chainHeadState().getEstimatedHeight()).isZero();
@@ -120,7 +120,7 @@ public class ChainHeadTrackerTest {
   @ArgumentsSource(ChainHeadTrackerTestArguments.class)
   public void shouldIgnoreHeadersIfChainHeadHasAlreadyBeenUpdatedWhileWaiting(
       final DataStorageFormat storageFormat) {
-    setup(storageFormat, true);
+    setup(storageFormat);
     chainHeadTracker.getBestHeaderFromPeer(respondingPeer.getEthPeer());
 
     // Change the hash of the current known head
@@ -132,7 +132,7 @@ public class ChainHeadTrackerTest {
   @ParameterizedTest
   @ArgumentsSource(ChainHeadTrackerTestArguments.class)
   public void shouldCheckTrialingPeerLimits(final DataStorageFormat storageFormat) {
-    setup(storageFormat, true);
+    setup(storageFormat);
     chainHeadTracker.getBestHeaderFromPeer(respondingPeer.getEthPeer());
 
     Assertions.assertThat(chainHeadState().getEstimatedHeight()).isZero();
