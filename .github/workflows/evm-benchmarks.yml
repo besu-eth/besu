@@ -1,0 +1,119 @@
+name: EVM JMH Benchmarks
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch, tag, or commit SHA to benchmark'
+        required: true
+        default: 'main'
+      benchmark_filter:
+        description: 'JMH include pattern — leave empty to run all benchmarks (e.g. AddOperation, Keccak256)'
+        required: false
+        default: ''
+
+jobs:
+  jmh-benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Run JMH Benchmarks
+        run: |
+          FILTER="${{ inputs.benchmark_filter }}"
+          if [ -n "$FILTER" ]; then
+            ./gradlew :ethereum:core:jmh -Pincludes="$FILTER" --rerun-tasks
+          else
+            ./gradlew :ethereum:core:jmh --rerun-tasks
+          fi
+
+      - name: Capture metadata
+        run: |
+          mkdir -p benchmark-output
+          cat > benchmark-output/metadata.json << EOF
+          {
+            "sha": "${{ github.sha }}",
+            "ref": "${{ inputs.ref }}",
+            "date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "run_id": "${{ github.run_id }}",
+            "benchmark_filter": "${{ inputs.benchmark_filter || 'all' }}",
+            "runner_os": "${{ runner.os }}",
+            "runner_arch": "${{ runner.arch }}",
+            "java_version": "$(java -version 2>&1 | head -1 | tr -d '\"')",
+            "cpu_model": "$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)",
+            "cpu_cores": "$(nproc)",
+            "ram_total": "$(free -h | awk '/^Mem:/{print $2}')"
+          }
+          EOF
+
+      - name: Stage results
+        run: |
+          cp ethereum/core/build/results/jmh/results.json benchmark-output/jmh-results.json
+
+      - name: Upload benchmark artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jmh-results-${{ github.sha }}
+          path: benchmark-output/
+          retention-days: 90
+
+      - name: Persist results to benchmark-results branch
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin benchmark-results:refs/heads/benchmark-results
+          git worktree add /tmp/benchmark-results benchmark-results
+          mkdir -p /tmp/benchmark-results/data/runs/${SHA}
+          cp benchmark-output/jmh-results.json /tmp/benchmark-results/data/runs/${SHA}/results.json
+          cp benchmark-output/metadata.json /tmp/benchmark-results/data/runs/${SHA}/metadata.json
+          BENCHMARK_RESULTS=/tmp/benchmark-results python3 scripts/update_benchmark_index.py
+          cd /tmp/benchmark-results
+          git add .
+          git commit -m "data: add benchmark run ${SHA}"
+          git push origin benchmark-results
+
+      - name: Write job summary
+        run: |
+          BENCHMARK_COUNT=$(python3 -c "
+          import json
+          data = json.load(open('benchmark-output/jmh-results.json'))
+          print(len(data))
+          ")
+
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## EVM JMH Benchmark Results
+
+          | | |
+          |---|---|
+          | **Ref** | \`${{ inputs.ref }}\` |
+          | **SHA** | \`${{ github.sha }}\` |
+          | **Runner** | ${{ runner.os }} / ${{ runner.arch }} |
+          | **Filter** | \`${{ inputs.benchmark_filter || 'all' }}\` |
+          | **Benchmarks recorded** | ${BENCHMARK_COUNT} |
+          | **Artifact** | \`jmh-results-${{ github.sha }}\` — retained 90 days |
+
+          ### How to view results
+          1. Download the artifact from this run
+          2. Load \`jmh-results.json\` into [JMH Visualizer](http://jmh.morethan.io)
+
+          ### Metadata
+          $(cat benchmark-output/metadata.json)
+          EOF
