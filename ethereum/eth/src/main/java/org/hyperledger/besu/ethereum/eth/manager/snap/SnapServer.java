@@ -546,23 +546,33 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
 
     try {
       List<Bytes> codeBytes = new ArrayDeque<>();
+      final ExceedingPredicate byteCodesResponseSizePredicate =
+          new ExceedingPredicate(
+              new ResponseSizePredicate(
+                  "bytecodes",
+                  stopWatch,
+                  maxResponseBytes,
+                  maxMillisPerRequest,
+                  pair -> pair.getSecond().size() * 11 / 10));
       var codeHashList =
           (codeHashes.hashes().size() < MAX_CODE_LOOKUPS_PER_REQUEST)
               ? codeHashes.hashes()
               : codeHashes.hashes().subList(0, MAX_CODE_LOOKUPS_PER_REQUEST);
       for (Bytes32 codeHash : codeHashList) {
+        final Optional<Bytes> maybeCode;
         if (Hash.EMPTY.getBytes().equals(codeHash)) {
-          codeBytes.add(Bytes.EMPTY);
+          maybeCode = Optional.of(Bytes.EMPTY);
         } else {
-          Optional<Bytes> optCode = worldStateStorageCoordinator.getCode(Hash.wrap(codeHash), null);
-          if (optCode.isPresent()) {
-            if (!codeBytes.isEmpty()
-                && (sumListBytes(codeBytes) + optCode.get().size() > maxResponseBytes
-                    || stopWatch.getTime() > maxMillisPerRequest)) {
-              break;
-            }
-            codeBytes.add(optCode.get());
-          }
+          maybeCode = worldStateStorageCoordinator.getCode(Hash.wrap(codeHash), null);
+        }
+
+        if (maybeCode.isPresent()
+            && byteCodesResponseSizePredicate.test(new Pair<>(codeHash, maybeCode.get()))) {
+          codeBytes.add(maybeCode.get());
+        }
+
+        if (!byteCodesResponseSizePredicate.shouldGetMore()) {
+          break;
         }
       }
       var resp = ByteCodesMessage.create(codeBytes);
