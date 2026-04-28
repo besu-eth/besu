@@ -63,4 +63,13 @@ public interface PathBasedWorldView extends WorldView {
   WorldUpdater updater();
 
   CodeCache codeCache();
+
+  /**
+   * Returns the metrics collector for state-layer operations.
+   *
+   * @return the {@link StateMetricsCollector}, defaulting to {@link StateMetricsCollector#NOOP}
+   */
+  default StateMetricsCollector getStateMetricsCollector() {
+    return StateMetricsCollector.NOOP;
+  }
 }

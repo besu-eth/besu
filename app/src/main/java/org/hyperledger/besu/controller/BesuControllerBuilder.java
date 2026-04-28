@@ -222,6 +222,9 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   /** Configuration flags related to block access lists. */
   protected BalConfiguration balConfiguration = BalConfiguration.DEFAULT;
 
+  /** Slow block threshold in milliseconds (-1 = disabled). */
+  protected long slowBlockThresholdMs = -1L;
+
   /** The API configuration */
   protected ApiConfiguration apiConfiguration;
 
@@ -578,6 +581,18 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
    */
   public BesuControllerBuilder balConfiguration(final BalConfiguration balConfiguration) {
     this.balConfiguration = balConfiguration;
+    return this;
+  }
+
+  /**
+   * Sets the slow block threshold in milliseconds. Negative means disabled, 0 means log all blocks,
+   * positive means only log blocks exceeding this threshold.
+   *
+   * @param slowBlockThresholdMs the threshold in milliseconds
+   * @return the besu controller builder
+   */
+  public BesuControllerBuilder slowBlockThresholdMs(final long slowBlockThresholdMs) {
+    this.slowBlockThresholdMs = slowBlockThresholdMs;
     return this;
   }
 
@@ -1315,6 +1330,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         .withConsensusContext(consensusContext)
         .withBadBlockManager(badBlockManager)
         .withServiceManager(serviceManager)
+        .withSlowBlockThreshold(slowBlockThresholdMs)
         .build();
   }
 

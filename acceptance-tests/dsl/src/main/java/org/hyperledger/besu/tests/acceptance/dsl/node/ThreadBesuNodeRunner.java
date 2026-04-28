@@ -251,7 +251,8 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         besuController,
         runner,
         metricsSystem,
-        besuController.getMiningParameters());
+        besuController.getMiningParameters(),
+        -1L);
   }
 
   private void killRunner(final String name) {

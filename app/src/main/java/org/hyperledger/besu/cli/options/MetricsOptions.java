@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -88,7 +88,6 @@ public class MetricsOptions implements CLIOptions<MetricsConfiguration.Builder> 
     metricsOptions.metricsPushHost = config.getPushHost();
     metricsOptions.metricsPushPort = config.getPushPort();
     metricsOptions.metricsPushInterval = config.getPushInterval();
-
     return metricsOptions;
   }
 
@@ -162,6 +161,13 @@ public class MetricsOptions implements CLIOptions<MetricsConfiguration.Builder> 
       names = {"--metrics-push-prometheus-job"},
       description = "Job name to use when in push mode (default: ${DEFAULT-VALUE})")
   private String metricsPrometheusJob = "besu-client";
+
+  @CommandLine.Option(
+      names = {"--slow-block-threshold"},
+      paramLabel = MANDATORY_INTEGER_FORMAT_HELP,
+      description =
+          "Threshold in milliseconds for logging slow blocks. Negative values disable slow block logging (default: ${DEFAULT-VALUE})")
+  private Long slowBlockThresholdMs = -1L;
 
   /**
    * Returns a newly created {@link MetricsOptions} with default values.
@@ -268,6 +274,16 @@ public class MetricsOptions implements CLIOptions<MetricsConfiguration.Builder> 
    */
   public String getMetricsPrometheusJob() {
     return metricsPrometheusJob;
+  }
+
+  /**
+   * Returns the slow block threshold in milliseconds.
+   *
+   * @return the slow block threshold in milliseconds. Negative means disabled, zero logs all
+   *     blocks.
+   */
+  public Long getSlowBlockThresholdMs() {
+    return slowBlockThresholdMs;
   }
 
   /**

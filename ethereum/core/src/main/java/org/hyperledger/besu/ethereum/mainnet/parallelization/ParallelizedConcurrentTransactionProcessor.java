@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -20,10 +20,14 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.mainnet.ExecutionStats;
+import org.hyperledger.besu.ethereum.mainnet.ExecutionStatsHolder;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.SlowBlockTracer;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
+import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
@@ -53,16 +57,22 @@ public class ParallelizedConcurrentTransactionProcessor extends ParallelBlockTra
 
   private final TransactionCollisionDetector transactionCollisionDetector;
 
+  private final BlockProcessingContext blockProcessingContext;
+
   /**
    * Constructs a PreloadConcurrentTransactionProcessor with a specified transaction processor. This
    * processor is responsible for the individual processing of transactions.
    *
    * @param transactionProcessor The transaction processor for processing individual transactions.
+   * @param blockProcessingContext The block processing context containing operation tracers and
+   *     other context.
    */
   public ParallelizedConcurrentTransactionProcessor(
-      final MainnetTransactionProcessor transactionProcessor) {
+      final MainnetTransactionProcessor transactionProcessor,
+      final BlockProcessingContext blockProcessingContext) {
     this.transactionProcessor = transactionProcessor;
     this.transactionCollisionDetector = new TransactionCollisionDetector();
+    this.blockProcessingContext = blockProcessingContext;
   }
 
   @VisibleForTesting
@@ -71,6 +81,17 @@ public class ParallelizedConcurrentTransactionProcessor extends ParallelBlockTra
       final TransactionCollisionDetector transactionCollisionDetector) {
     this.transactionProcessor = transactionProcessor;
     this.transactionCollisionDetector = transactionCollisionDetector;
+    this.blockProcessingContext = null; // For testing only
+  }
+
+  @VisibleForTesting
+  public ParallelizedConcurrentTransactionProcessor(
+      final MainnetTransactionProcessor transactionProcessor,
+      final TransactionCollisionDetector transactionCollisionDetector,
+      final BlockProcessingContext blockProcessingContext) {
+    this.transactionProcessor = transactionProcessor;
+    this.transactionCollisionDetector = transactionCollisionDetector;
+    this.blockProcessingContext = blockProcessingContext;
   }
 
   @Override
@@ -95,6 +116,20 @@ public class ParallelizedConcurrentTransactionProcessor extends ParallelBlockTra
       return null;
     }
 
+    // Create a per-worker ExecutionStats if slow block tracing is active, so that state-layer
+    // metrics (account/storage reads, cache hits) from this worker thread are captured and can
+    // be merged into the block-level stats on successful parallel execution.
+    final ExecutionStats workerStats =
+        (blockProcessingContext != null
+                && BackgroundTracerFactory.hasMetricsTracer(
+                    blockProcessingContext.getOperationTracer()))
+            ? new ExecutionStats()
+            : null;
+    if (workerStats != null) {
+      ExecutionStatsHolder.set(workerStats);
+      ws.setStateMetricsCollector(workerStats);
+    }
+
     try {
       ws.disableCacheMerkleTrieLoader();
       final ParallelizedTransactionContext.Builder contextBuilder =
@@ -107,33 +142,47 @@ public class ParallelizedConcurrentTransactionProcessor extends ParallelBlockTra
               b ->
                   BlockAccessListBuilder.createTransactionAccessLocationTracker(
                       transactionLocation));
+
+      // Create the mining beneficiary tracer for parallel execution collision detection
+      final OperationTracer miningBeneficiaryTracer =
+          new OperationTracer() {
+            @Override
+            public void traceBeforeRewardTransaction(
+                final WorldView worldView,
+                final org.hyperledger.besu.datatypes.Transaction tx,
+                final Wei miningReward) {
+              /*
+               * This part checks if the mining beneficiary's account was accessed before increasing its balance for rewards.
+               * Indeed, if the transaction has interacted with the address to read or modify it,
+               * it means that the value is necessary for the proper execution of the transaction and will therefore be considered in collision detection.
+               * If this is not the case, we can ignore this address during conflict detection.
+               */
+              if (transactionCollisionDetector
+                  .getAddressesTouchedByTransaction(
+                      transaction, Optional.of(roundWorldStateUpdater))
+                  .contains(miningBeneficiary)) {
+                contextBuilder.isMiningBeneficiaryTouchedPreRewardByTransaction(true);
+              }
+              contextBuilder.miningBeneficiaryReward(miningReward);
+            }
+          };
+
+      // Create separate background tracer for parallel execution
+      // This includes a copy of EVMExecutionMetricsTracer if present in the block tracer
+      final OperationTracer backgroundBlockTracer =
+          BackgroundTracerFactory.createBackgroundTracer(blockProcessingContext);
+
+      // Compose the background tracer with the mining beneficiary tracer
+      final OperationTracer composedTracer =
+          CompositeOperationTracer.of(backgroundBlockTracer, miningBeneficiaryTracer);
+
       final TransactionProcessingResult result =
           transactionProcessor.processTransaction(
               transactionUpdater,
               blockHeader,
               transaction.detachedCopy(),
               miningBeneficiary,
-              new OperationTracer() {
-                @Override
-                public void traceBeforeRewardTransaction(
-                    final WorldView worldView,
-                    final org.hyperledger.besu.datatypes.Transaction tx,
-                    final Wei miningReward) {
-                  /*
-                   * This part checks if the mining beneficiary's account was accessed before increasing its balance for rewards.
-                   * Indeed, if the transaction has interacted with the address to read or modify it,
-                   * it means that the value is necessary for the proper execution of the transaction and will therefore be considered in collision detection.
-                   * If this is not the case, we can ignore this address during conflict detection.
-                   */
-                  if (transactionCollisionDetector
-                      .getAddressesTouchedByTransaction(
-                          transaction, Optional.of(roundWorldStateUpdater))
-                      .contains(miningBeneficiary)) {
-                    contextBuilder.isMiningBeneficiaryTouchedPreRewardByTransaction(true);
-                  }
-                  contextBuilder.miningBeneficiaryReward(miningReward);
-                }
-              },
+              composedTracer,
               blockHashLookup,
               TransactionValidationParams.processingBlock(),
               blobGasPrice,
@@ -145,7 +194,9 @@ public class ParallelizedConcurrentTransactionProcessor extends ParallelBlockTra
 
       contextBuilder
           .transactionAccumulator(ws.getAccumulator())
-          .transactionProcessingResult(result);
+          .transactionProcessingResult(result)
+          .backgroundTracer(backgroundBlockTracer)
+          .workerExecutionStats(workerStats);
 
       final ParallelizedTransactionContext parallelizedTransactionContext = contextBuilder.build();
       if (!parallelizedTransactionContext.isMiningBeneficiaryTouchedPreRewardByTransaction()) {
@@ -161,6 +212,9 @@ public class ParallelizedConcurrentTransactionProcessor extends ParallelBlockTra
       // no op as failing to get worldstate
       return null;
     } finally {
+      if (workerStats != null) {
+        ExecutionStatsHolder.clear();
+      }
       if (ws != null) ws.close();
     }
   }
@@ -240,6 +294,26 @@ public class ParallelizedConcurrentTransactionProcessor extends ParallelBlockTra
         }
 
         blockAccumulator.importStateChangesFromSource(transactionAccumulator);
+
+        // Consolidate EVM op metrics from the background tracer
+        parallelizedTransactionContext
+            .backgroundTracer()
+            .ifPresent(
+                backgroundTracer ->
+                    BackgroundTracerFactory.consolidateTracerResults(
+                        backgroundTracer, blockProcessingContext));
+
+        // Consolidate state-layer metrics (account/storage reads, cache stats) from the worker
+        parallelizedTransactionContext
+            .workerExecutionStats()
+            .ifPresent(
+                workerStats ->
+                    BackgroundTracerFactory.findSlowBlockTracer(
+                            blockProcessingContext != null
+                                ? blockProcessingContext.getOperationTracer()
+                                : OperationTracer.NO_TRACING)
+                        .map(SlowBlockTracer::getExecutionStats)
+                        .ifPresent(mainStats -> mainStats.mergeStateCountsFrom(workerStats)));
 
         if (confirmedParallelizedTransactionCounter.isPresent()) {
           confirmedParallelizedTransactionCounter.get().inc();

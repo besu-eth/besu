@@ -36,6 +36,7 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 
@@ -295,6 +296,7 @@ class BalParallelBlockProcessorIntegrationTest {
         final Wei blobGasPrice,
         final Optional<BlockAccessList.BlockAccessListBuilder> blockAccessListBuilder,
         final Optional<BlockAccessList> maybeBlockBal,
+        final BlockProcessingContext blockProcessingContext,
         final Optional<BlockHeader> maybeParentHeader) {
       return super.run(
           protocolContext,
@@ -305,6 +307,7 @@ class BalParallelBlockProcessorIntegrationTest {
           blobGasPrice,
           blockAccessListBuilder,
           Optional.of(preComputedBal),
+          blockProcessingContext,
           maybeParentHeader);
     }
   }

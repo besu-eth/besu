@@ -18,6 +18,8 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.cli.util.CommandLineUtils.DEPENDENCY_WARNING_MSG;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.lenient;
@@ -277,6 +279,43 @@ public abstract class CommandTestAbstract {
   public void initMocks() throws Exception {
     when(mockControllerBuilderFactory.fromEthNetworkConfig(any(), any()))
         .thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.synchronizerConfiguration(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.ethProtocolConfiguration(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.transactionPoolConfiguration(any()))
+        .thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.dataDirectory(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.miningParameters(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.nodeKey(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.metricsSystem(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.messagePermissioningProviders(any()))
+        .thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.clock(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.isRevertReasonEnabled(false)).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.isParallelTxProcessingEnabled(false))
+        .thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.isEarlyRoundChangeEnabled(false)).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.storageProvider(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.requiredBlocks(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.reorgLoggingThreshold(anyLong())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.dataStorageConfiguration(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.evmConfiguration(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.networkConfiguration(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.randomPeerPriority(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.maxPeers(anyInt())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.chainPruningConfiguration(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.maxPeers(anyInt())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.maxRemotelyInitiatedPeers(anyInt()))
+        .thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.besuComponent(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.balConfiguration(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.cacheLastBlocks(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.cacheLastBlockHeaders(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.isCacheLastBlockHeadersPreloadEnabled(any()))
+        .thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.genesisStateHashCacheEnabled(any()))
+        .thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.apiConfiguration(any())).thenReturn(mockControllerBuilder);
+    when(mockControllerBuilder.slowBlockThresholdMs(anyLong())).thenReturn(mockControllerBuilder);
     when(mockControllerBuilder.build()).thenReturn(mockController);
     lenient().when(mockController.getProtocolManager()).thenReturn(mockEthProtocolManager);
     lenient().when(mockController.getProtocolSchedule()).thenReturn(mockProtocolSchedule);

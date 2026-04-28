@@ -20,6 +20,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldView;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.StateMetricsCollector;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.ModificationNotAllowedException;
 import org.hyperledger.besu.evm.account.MutableAccount;
@@ -198,13 +199,25 @@ public abstract class PathBasedAccount implements MutableAccount, AccountValue {
     // cache hit, overwrite code and return it
     if (cachedCode != null) {
       code = cachedCode;
+      // Track code cache hit and code read for cross-client execution metrics
+      final StateMetricsCollector collector = context.getStateMetricsCollector();
+      collector.incrementCodeCacheHits();
+      collector.incrementCodeReads();
+      collector.addCodeBytesRead(code.getSize());
       return code;
     }
 
     // cache miss get the code from the disk, set it and put it in the cache
+    final StateMetricsCollector collector = context.getStateMetricsCollector();
+    final long startNanos = System.nanoTime();
     final Bytes byteCode = context.getCode(address, codeHash).orElse(Bytes.EMPTY);
+    collector.addStateReadTime(System.nanoTime() - startNanos);
     code = new Code(byteCode, codeHash);
     Optional.ofNullable(codeCache).ifPresent(c -> c.put(codeHash, code));
+    // Track code cache miss and code read for cross-client execution metrics
+    collector.incrementCodeCacheMisses();
+    collector.incrementCodeReads();
+    collector.addCodeBytesRead(code.getSize());
 
     return code;
   }
