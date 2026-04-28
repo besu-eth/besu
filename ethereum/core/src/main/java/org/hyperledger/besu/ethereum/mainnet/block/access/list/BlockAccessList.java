@@ -203,12 +203,13 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
     }
 
     public BlockAccessList build() {
-
-      return new BlockAccessList(
-          accountChangesBuilders.values().stream()
-              .map(AccountBuilder::build)
-              .sorted(Comparator.comparing(ac -> ac.address().getBytes().toUnprefixedHexString()))
-              .toList());
+      final List<AccountChanges> accountChanges = new ArrayList<>(accountChangesBuilders.size());
+      for (AccountBuilder accountBuilder : accountChangesBuilders.values()) {
+        accountChanges.add(accountBuilder.build());
+      }
+      accountChanges.sort(
+          (left, right) -> left.address().getBytes().compareTo(right.address().getBytes()));
+      return new BlockAccessList(accountChanges);
     }
 
     public static class AccountBuilder {
