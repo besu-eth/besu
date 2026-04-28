@@ -193,8 +193,7 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
     // https://github.com/ethereum/execution-apis/pull/786
     // paris.md point 2: skip the update only when the new head is an
     // ancestor of the latest known finalized block.
-    if (!forkChoice.getFinalizedBlockHash().getBytes().isZero()
-        && mergeCoordinator.isAncestorOfFinalized(forkChoice.getHeadBlockHash())) {
+    if (mergeCoordinator.isAncestorOfFinalized(forkChoice.getHeadBlockHash())) {
       logAtInfoFCUCall(VALID, forkChoice);
       return new JsonRpcSuccessResponse(
           requestId,

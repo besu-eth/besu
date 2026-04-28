@@ -925,14 +925,22 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       return false;
     }
 
-    final Optional<BlockHeader> finalizedHeader =
-        blockchain.getBlockHeader(maybeFinalizedHash.get());
-    final Optional<BlockHeader> candidateHeader = blockchain.getBlockHeader(candidateHeadHash);
-    if (finalizedHeader.isEmpty() || candidateHeader.isEmpty()) {
-      return false;
-    }
+    final BlockHeader finalizedHeader =
+        blockchain
+            .getBlockHeader(maybeFinalizedHash.get())
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "Finalized block header missing for hash " + maybeFinalizedHash.get()));
+    final BlockHeader candidateHeader =
+        blockchain
+            .getBlockHeader(candidateHeadHash)
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "Candidate head block header missing for hash " + candidateHeadHash));
     // candidate is a strict ancestor of finalized iff finalized descends from candidate
-    return isDescendantOf(candidateHeader.get(), finalizedHeader.get());
+    return isDescendantOf(candidateHeader, finalizedHeader);
   }
 
   @Override
@@ -944,6 +952,10 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       return OptionalLong.of(0L);
     }
     // Fast path: newHead extends canonical, or canonical extends newHead - no reorg.
+    // The check looks redundant against the loop below, but is required because the caller
+    // applies the no-reorg ancestor-of-finalized skip (paris.md point 2) AFTER this depth
+    // check; without short-circuiting here, an extension or no-op FCU would still walk back
+    // to find a common ancestor and could trip the MAX_REORG_DEPTH limit.
     if (isDescendantOf(chainHead, newHead) || isDescendantOf(newHead, chainHead)) {
       return OptionalLong.of(0L);
     }
