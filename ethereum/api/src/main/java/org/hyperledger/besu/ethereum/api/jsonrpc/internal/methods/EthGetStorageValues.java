@@ -36,6 +36,7 @@ import org.apache.tuweni.units.bigints.UInt256;
 
 public class EthGetStorageValues extends AbstractBlockParameterOrBlockHashMethod {
 
+  /** Per-call cap on total storage slots, matches geth's {@code maxGetStorageSlots}. */
   static final int MAX_STORAGE_SLOTS = 1024;
 
   public EthGetStorageValues(final BlockchainQueries blockchainQueries) {
