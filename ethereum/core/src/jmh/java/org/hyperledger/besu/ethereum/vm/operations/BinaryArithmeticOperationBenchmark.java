@@ -18,8 +18,6 @@ import java.math.BigInteger;
 import java.util.Random;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.openjdk.jmh.annotations.Level;
-import org.openjdk.jmh.annotations.Setup;
 
 public abstract class BinaryArithmeticOperationBenchmark extends BinaryOperationBenchmark {
   static class Case {
@@ -51,7 +49,6 @@ public abstract class BinaryArithmeticOperationBenchmark extends BinaryOperation
     }
   }
 
-  @Setup(Level.Iteration)
   @Override
   public void setUp() {
     frame = BenchmarkHelper.createMessageCallFrame();

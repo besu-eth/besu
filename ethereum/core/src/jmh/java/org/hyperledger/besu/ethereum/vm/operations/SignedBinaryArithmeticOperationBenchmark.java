@@ -14,17 +14,16 @@
  */
 package org.hyperledger.besu.ethereum.vm.operations;
 
+import org.hyperledger.besu.evm.UInt256;
+
 import java.math.BigInteger;
 import java.util.Arrays;
 import java.util.Random;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.openjdk.jmh.annotations.Level;
-import org.openjdk.jmh.annotations.Setup;
 
 public abstract class SignedBinaryArithmeticOperationBenchmark
     extends BinaryArithmeticOperationBenchmark {
-  @Setup(Level.Iteration)
   @Override
   public void setUp() {
     frame = BenchmarkHelper.createMessageCallFrame();
@@ -67,23 +66,13 @@ public abstract class SignedBinaryArithmeticOperationBenchmark
   }
 
   private byte[] negate(final byte[] input) {
-    if (input.length == 0) {
-      return new byte[32];
-    }
-    byte[] in = Arrays.copyOf(input, input.length);
+    byte[] in = input;
     if (in.length == 32) {
+      in = Arrays.copyOf(input, input.length);
       // mask MSB so |u| < 2^255 allowing −u 32-byte two's complement
       in[0] &= (byte) 0x7F;
     }
-    BigInteger bigInt = new BigInteger(1, in);
-    if (bigInt.equals(BigInteger.ZERO)) {
-      return new byte[32];
-    }
-    byte[] out = new byte[32];
-    Arrays.fill(out, (byte) 0xFF);
-    byte[] negBigInt = bigInt.negate().toByteArray();
-    int len = Math.min(negBigInt.length, 32);
-    System.arraycopy(negBigInt, negBigInt.length - len, out, 32 - len, len);
-    return out;
+    UInt256 value = UInt256.fromBytesBE(in);
+    return value.neg().toBytesBE();
   }
 }

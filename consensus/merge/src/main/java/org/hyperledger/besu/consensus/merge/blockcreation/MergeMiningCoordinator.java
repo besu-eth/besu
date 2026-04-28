@@ -29,12 +29,16 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 
 import org.apache.tuweni.bytes.Bytes32;
 
 /** The interface Merge mining coordinator. */
 public interface MergeMiningCoordinator extends MiningCoordinator {
+  /** The maximum number of blocks that we can reorg back to */
+  long MAX_REORG_DEPTH = 90_000L;
+
   /**
    * Prepare payload identifier.
    *
@@ -97,6 +101,43 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    */
   ForkchoiceResult updateForkChoice(
       final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash);
+
+  /**
+   * Update fork choice without applying the legacy "ignore update to old head" optimization that
+   * skips when the new head is an ancestor of the canonical chain head. Used by the post
+   * execution-apis #786 forkchoiceUpdated flow, where the narrowed skip (ancestor of finalized) is
+   * checked before this call.
+   *
+   * @param newHead the new head
+   * @param finalizedBlockHash the finalized block hash
+   * @param safeBlockHash the safe block hash
+   * @return the forkchoice result
+   */
+  ForkchoiceResult updateForkChoiceWithoutLegacySkip(
+      final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash);
+
+  /**
+   * Returns true if the given block hash is a strict ancestor of the currently finalized block
+   * (i.e. an older block on the same chain, not finalized itself). Returns false when no finalized
+   * block is known, when the candidate hash cannot be located, or when the candidate IS the
+   * finalized block
+   *
+   * @param candidateHeadHash the candidate head hash
+   * @return whether the candidate is a strict ancestor of the latest known finalized block
+   */
+  boolean isAncestorOfFinalized(Hash candidateHeadHash);
+
+  /**
+   * Computes the reorg depth that would result from switching the canonical head to {@code
+   * newHead}. Reorg depth is defined as {@code currentChainHead.number - commonAncestor(newHead,
+   * currentChainHead).number}. Returns {@link OptionalLong#empty()} when the common ancestor cannot
+   * be found. Implementations may early-exit once the depth exceeds an internal limit.
+   *
+   * @param newHead the candidate new head
+   * @return the reorg depth, or empty if the common ancestor with the canonical chain cannot be
+   *     determined
+   */
+  OptionalLong computeReorgDepth(BlockHeader newHead);
 
   /**
    * Gets latest valid ancestor.
