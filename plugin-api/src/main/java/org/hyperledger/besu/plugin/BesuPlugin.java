@@ -108,4 +108,24 @@ public interface BesuPlugin {
             .orElse("<Unknown Version>");
     return implTitle + "/" + implVersion;
   }
+
+  /**
+   * Returns the API version that this plugin was built against. This allows Besu to detect and
+   * manage breaking changes in the Plugin API.
+   *
+   * @return the API version.
+   */
+  default int getApiVersion() {
+    return 1;
+  }
+
+  /**
+   * Returns the minimum version of Besu required by this plugin.
+   *
+   * @return an optional containing the minimum Besu version, or empty if no specific version is
+   *     required.
+   */
+  default Optional<String> getMinimumBesuVersion() {
+    return Optional.empty();
+  }
 }
