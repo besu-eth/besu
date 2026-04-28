@@ -14,21 +14,16 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GRADLE_OPTS: "-Xmx1g"
-  total-runners: 14
+  GRADLE_OPTS: "-Xmx6g -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
 
 jobs:
   acceptanceTestEthereum:
-    runs-on: ubuntu-latest
+    runs-on: besu-research-ubuntu-16
     timeout-minutes: 30
     name: "Acceptance Runner"
     permissions:
       statuses: write
       checks: write
-    strategy:
-      fail-fast: true
-      matrix:
-        runner_index: [0,1,2,3,4,5,6,7,8,9,10,11,12,13]
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -39,61 +34,24 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-      - name: Install required packages
-        run:  sudo apt-get install -y xmlstarlet
       - name: setup gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
           cache-disabled: true
-      - name: List all acceptance tests
-        run: ./gradlew acceptanceTest --test-dry-run -Dorg.gradle.parallel=true -Dorg.gradle.caching=true
-      - name: Extract current test list
-        run: mkdir tmp; find . -type f -name TEST-*.xml | xargs -I{} bash -c "xmlstarlet sel -t -v '/testsuite/testcase[1]/@classname' '{}'; echo ' acceptanceTest'" | tee tmp/currentTests.list
-      - name: Get acceptance test reports
-        uses: dawidd6/action-download-artifact@e7466d1a7587ed14867642c2ca74b5bcc1e19a2d
-        continue-on-error: true
-        with:
-          branch: main
-          workflow: update-test-reports.yml
-          name: acceptance-test-results
-          path: tmp/junit-xml-reports-downloaded
-          if_no_artifact_found: ignore
-      - name: Split tests
-        run: .github/workflows/splitTestsByTime.sh tmp/junit-xml-reports-downloaded "tmp/junit-xml-reports-downloaded/acceptance-node-.*-test-results" "TEST-" ${{env.total-runners}} ${{ matrix.runner_index }} > testList.txt
-      - name: format gradle args
-        # we do not need the module task here
-        run:  cat testList.txt | cut -f 2- -d ' ' | tee gradleArgs.txt
-      - name: Upload Timing
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        if: matrix.runner_index == 0
-        with:
-          name: acceptance-tests-timing
-          path: 'tmp/timing.tsv'
-      - name: Upload Lists
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        if: matrix.runner_index == 0
-        with:
-          name: acceptance-tests-lists
-          path: 'tmp/*.list'
-      - name: Upload gradle test tasks
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          name: test-args-${{ matrix.runner_index }}.txt
-          path: '*.txt'
       - name: run acceptance tests
-        run: ./gradlew acceptanceTest `cat gradleArgs.txt` -Dorg.gradle.caching=true
-      - name: Remove downloaded test results
-        run: rm -rf tmp/junit-xml-reports-downloaded
+        env:
+          GRADLE_MAX_TEST_FORKS: 4
+        run: ./gradlew acceptanceTest
       - name: Upload Acceptance Test Results
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         with:
-          name: acceptance-node-${{matrix.runner_index}}-test-results
+          name: acceptance-test-results
           path: 'acceptance-tests/tests/build/test-results/**/TEST-*.xml'
       - name: Upload Acceptance Test HTML Reports
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
         if: success() || failure()
         with:
-          name: acceptance-node-${{matrix.runner_index}}-test-html-reports
+          name: acceptance-test-html-reports
           path: 'acceptance-tests/tests/build/reports/tests/**'
   accepttests-passed:
     name: "accepttests-passed"
