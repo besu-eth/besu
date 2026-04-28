@@ -413,7 +413,11 @@ public class DeFramerTest {
     final HelloMessage helloMessage = HelloMessage.create(remotePeerInfo);
     // Create a payload that exceeds MAX_HELLO_MESSAGE_SIZE
     final byte[] oversizedPayload = new byte[DeFramer.MAX_HELLO_MESSAGE_SIZE + 1];
-    System.arraycopy(helloMessage.getData().toArray(), 0, oversizedPayload, 0,
+    System.arraycopy(
+        helloMessage.getData().toArray(),
+        0,
+        oversizedPayload,
+        0,
         Math.min(helloMessage.getData().size(), oversizedPayload.length));
     final Bytes oversizedData = Bytes.wrap(oversizedPayload);
 

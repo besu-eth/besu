@@ -61,7 +61,7 @@ import org.slf4j.LoggerFactory;
 final class DeFramer extends ByteToMessageDecoder {
 
   private static final Logger LOG = LoggerFactory.getLogger(DeFramer.class);
-  
+
   // Maximum size of a HELLO message in bytes
   static final int MAX_HELLO_MESSAGE_SIZE = 2 * 1024;
 
