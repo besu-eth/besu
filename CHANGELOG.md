@@ -10,6 +10,7 @@
 - `eth_getFilterLogs`: cache the chain head once when resolving default `latest..latest` bounds, so a block arriving between the two reads no longer expands the queried range into `[N, N+1]` and returns extra logs. [#10368](https://github.com/besu-eth/besu/pull/10368)
 
 ### Additions and Improvements
+- Added `eth_getTransactionBySenderAndNonce` JSON-RPC method to fetch a transaction by sender and nonce from the txpool or chain history [#10346](https://github.com/besu-eth/besu/pull/10346)
 
 ## 26.5.0
 
@@ -63,6 +64,7 @@
 - Publish `besu-evm` as an API dependency from `plugin-api` [#10262](https://github.com/besu-eth/besu/pull/10262)
 - Update Gradle plugin for Besu plugin development to 0.2.0 [#10263](https://github.com/besu-eth/besu/pull/10263)
 - Rename `InvalidSystemCallAddressException` to `SystemCallNoCodeAtAddressException` to better reflect when it is thrown [#10305](https://github.com/besu-eth/besu/pull/10305)
+
 
 ## 26.4.0
 
