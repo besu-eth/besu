@@ -103,9 +103,6 @@ public final class BlockAccessListFlatDatabaseUpdater {
             Function.identity());
 
     for (final var accountChanges : BlockAccessListChanges.latestChanges(bal)) {
-      if (accountChanges.isEmpty()) {
-        continue;
-      }
       final Hash accountHash = accountChanges.address().addressHash();
       final Optional<PmtStateTrieAccountValue> maybeTrieAccountValue =
           accountTrie

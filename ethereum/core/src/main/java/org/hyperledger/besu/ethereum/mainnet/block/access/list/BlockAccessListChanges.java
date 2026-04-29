@@ -33,6 +33,10 @@ public final class BlockAccessListChanges {
     final List<AccountFinalChanges> accountFinalChanges = new ArrayList<>();
 
     for (final BlockAccessList.AccountChanges accountChanges : blockAccessList.accountChanges()) {
+      if (!accountChanges.hasAnyChange()) {
+        continue;
+      }
+
       final List<StorageFinalChange> storageFinalChanges = new ArrayList<>();
       for (final BlockAccessList.SlotChanges slotChanges : accountChanges.storageChanges()) {
         final Optional<BlockAccessList.StorageChange> latestStorageChange =
