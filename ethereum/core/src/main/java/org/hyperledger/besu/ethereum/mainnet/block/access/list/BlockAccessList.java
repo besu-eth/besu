@@ -356,13 +356,13 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
 
       AccountChanges build() {
         final List<BalanceChange> sortedBalances = new ArrayList<>(balances);
-        sortedBalances.sort(Comparator.comparingInt(BalanceChange::txIndex));
+        sortedBalances.sort(Comparator.comparingLong(BalanceChange::txIndex));
 
         final List<NonceChange> sortedNonces = new ArrayList<>(nonces);
-        sortedNonces.sort(Comparator.comparingInt(NonceChange::txIndex));
+        sortedNonces.sort(Comparator.comparingLong(NonceChange::txIndex));
 
         final List<CodeChange> sortedCodes = new ArrayList<>(codes);
-        sortedCodes.sort(Comparator.comparingInt(CodeChange::txIndex));
+        sortedCodes.sort(Comparator.comparingLong(CodeChange::txIndex));
 
         return new AccountChanges(
             address,
@@ -382,7 +382,7 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
         int i = 0;
         for (Map.Entry<StorageSlotKey, List<StorageChange>> e : slotWrites.entrySet()) {
           final List<StorageChange> changes = new ArrayList<>(e.getValue());
-          changes.sort(Comparator.comparingInt(StorageChange::txIndex));
+          changes.sort(Comparator.comparingLong(StorageChange::txIndex));
           entries[i++] =
               new SortableSlotChanges(
                   e.getKey().getSlotKey().orElseThrow().toArray(),
