@@ -155,10 +155,11 @@ public class UpnpNatManager extends AbstractNatManager {
    * Returns the first of the discovered services of the given type, if any.
    *
    * @param type is the type descriptor of the desired service
-   * @return a CompletableFuture that will provide the desired RemoteService when completed
+   * @return an Optional containing a CompletableFuture for the desired service when the type is
+   *     registered; otherwise empty
    */
-  private synchronized CompletableFuture<RemoteService> getService(final String type) {
-    return recognizedServices.computeIfAbsent(type, unused -> new CompletableFuture<>());
+  private synchronized Optional<CompletableFuture<RemoteService>> getService(final String type) {
+    return Optional.ofNullable(recognizedServices.get(type));
   }
 
   /**
@@ -169,7 +170,8 @@ public class UpnpNatManager extends AbstractNatManager {
   @VisibleForTesting
   synchronized CompletableFuture<RemoteService> getWANIPConnectionService() {
     checkState(isStarted(), "Cannot call getWANIPConnectionService() when in stopped state");
-    return getService(SERVICE_TYPE_WAN_IP_CONNECTION);
+    return getService(SERVICE_TYPE_WAN_IP_CONNECTION)
+        .orElseThrow(() -> new IllegalStateException("WANIPConnection service is not registered"));
   }
 
   /**
@@ -178,11 +180,15 @@ public class UpnpNatManager extends AbstractNatManager {
    * complete in the very near future.
    *
    * @param serviceType is the service type to wait to be discovered.
-   * @return future that will return the desired service once it is discovered, or null if the
-   *     future is cancelled.
+   * @return future that will return the desired service once it is discovered, or fail if the
+   *     service type is not registered.
    */
   private synchronized CompletableFuture<RemoteService> discoverService(final String serviceType) {
-    return getService(serviceType);
+    return getService(serviceType)
+        .orElseGet(
+            () ->
+                CompletableFuture.failedFuture(
+                    new IllegalArgumentException("Unknown NAT service type: " + serviceType)));
   }
 
   /**
@@ -312,7 +318,11 @@ public class UpnpNatManager extends AbstractNatManager {
         address -> {
           // note that this future is a dependency of externalIpQueryFuture, so it must be completed
           // by now
-          RemoteService service = getService(SERVICE_TYPE_WAN_IP_CONNECTION).join();
+          RemoteService service =
+              getService(SERVICE_TYPE_WAN_IP_CONNECTION)
+                  .orElseThrow(
+                      () -> new IllegalStateException("WANIPConnection service is not registered"))
+                  .join();
 
           // at this point, we should have the local address we discovered the IGD on,
           // so we can prime the NewInternalClient field if it was omitted
@@ -398,8 +408,14 @@ public class UpnpNatManager extends AbstractNatManager {
   private CompletableFuture<Void> releaseAllPortForwards() {
     // if we haven't observed the WANIPConnection service yet, we should have no port forwards to
     // release
-    CompletableFuture<RemoteService> wanIPConnectionServiceFuture =
+    Optional<CompletableFuture<RemoteService>> wanIPConnectionServiceFutureOptional =
         getService(SERVICE_TYPE_WAN_IP_CONNECTION);
+    if (wanIPConnectionServiceFutureOptional.isEmpty()) {
+      return CompletableFuture.completedFuture(null);
+    }
+
+    CompletableFuture<RemoteService> wanIPConnectionServiceFuture =
+        wanIPConnectionServiceFutureOptional.get();
     if (!wanIPConnectionServiceFuture.isDone()) {
       return CompletableFuture.completedFuture(null);
     }
@@ -488,14 +504,17 @@ public class UpnpNatManager extends AbstractNatManager {
       String serviceType = service.getServiceType().getType();
       if (serviceTypes.contains(serviceType)) {
         synchronized (this) {
-          // log a warning if we detect a second WANIPConnection service
-          CompletableFuture<RemoteService> existingFuture = getService(serviceType);
-          if (existingFuture.isDone()) {
-            LOG.warn(
-                "Detected multiple WANIPConnection services on network. This may interfere with NAT circumvention.");
-            continue;
-          }
-          existingFuture.complete(service);
+          getService(serviceType)
+              .ifPresent(
+                  existingFuture -> {
+                    // log a warning if we detect a second WANIPConnection service
+                    if (existingFuture.isDone()) {
+                      LOG.warn(
+                          "Detected multiple WANIPConnection services on network. This may interfere with NAT circumvention.");
+                      return;
+                    }
+                    existingFuture.complete(service);
+                  });
         }
       }
     }
