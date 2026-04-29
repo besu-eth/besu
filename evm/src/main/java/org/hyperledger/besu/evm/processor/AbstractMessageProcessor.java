@@ -82,6 +82,15 @@ public abstract class AbstractMessageProcessor {
   }
 
   /**
+   * Whether the underlying EVM has EVM v2 (long[] stack) enabled via configuration.
+   *
+   * @return true if the v2 long[] stack bridge should be used for frames
+   */
+  public boolean isEvmV2Enabled() {
+    return evm.getEvmConfiguration().enableEvmV2();
+  }
+
+  /**
    * Start.
    *
    * @param frame the frame

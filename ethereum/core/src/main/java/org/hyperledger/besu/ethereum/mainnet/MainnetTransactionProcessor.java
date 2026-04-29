@@ -362,6 +362,7 @@ public class MainnetTransactionProcessor {
               .completer(__ -> {})
               .miningBeneficiary(miningBeneficiary)
               .blockHashLookup(blockHashLookup)
+              .enableEvmV2(messageCallProcessor.isEvmV2Enabled())
               .eip2930AccessListWarmStorage(eip2930StorageList);
 
       accessLocationTracker.ifPresent(commonMessageFrameBuilder::eip7928AccessList);

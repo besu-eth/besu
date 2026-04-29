@@ -153,6 +153,7 @@ public class SystemCallProcessor {
             .inputData(inputData)
             .sender(SYSTEM_ADDRESS)
             .blockHashLookup(blockHashLookup)
+            .enableEvmV2(processor.isEvmV2Enabled())
             .code(getCode(worldUpdater.get(callAddress), processor));
 
     maybeAccessLocationTracker.ifPresent(

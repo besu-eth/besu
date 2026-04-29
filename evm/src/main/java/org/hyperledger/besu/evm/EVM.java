@@ -474,6 +474,11 @@ public class EVM {
     var operationTracer = tracing == OperationTracer.NO_TRACING ? null : tracing;
     byte[] code = frame.getCode().getBytes().toArrayUnsafe();
     Operation[] operationArray = operations.getOperations();
+    // (1) entry/re-entry sync: V1 is authoritative on entry (initial stack and after
+    // AbstractCallOperation.complete has mutated it while the loop was suspended).
+    // Within the loop V2 is authoritative; V1 is only re-synced around V1 fallback ops
+    // and before tracer callbacks.
+    frame.syncStackV1ToV2();
     while (frame.getState() == MessageFrame.State.CODE_EXECUTING) {
       Operation currentOperation;
       int opcode;
@@ -487,6 +492,7 @@ public class EVM {
       }
       frame.setCurrentOperation(currentOperation);
       if (operationTracer != null) {
+        frame.syncStackV2ToV1(); // tracer reads V1
         operationTracer.tracePreExecution(frame);
       }
 
@@ -516,8 +522,11 @@ public class EVM {
                       : InvalidOperation.invalidOperationResult(opcode);
               // TODO EVMv2: implement remaining opcodes in v2; until then fall through to v1
               default -> {
+                frame.syncStackV2ToV1(); // (2) expose V2 state to V1 op
                 frame.setCurrentOperation(currentOperation);
-                yield currentOperation.execute(frame, this);
+                OperationResult r = currentOperation.execute(frame, this);
+                frame.syncStackV1ToV2(); // (3) capture V1 op output back into V2
+                yield r;
               }
             };
       } catch (final OverflowException oe) {
@@ -540,9 +549,11 @@ public class EVM {
         frame.setPC(currentPC + opSize);
       }
       if (operationTracer != null) {
+        frame.syncStackV2ToV1(); // (5) tracer reads V1
         operationTracer.tracePostExecution(frame, result);
       }
     }
+    frame.syncStackV2ToV1(); // (4) exit: V1 is authoritative for external callers
   }
 
   /**
