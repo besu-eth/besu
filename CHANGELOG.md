@@ -18,9 +18,13 @@
 - BFT option `xemptyblockperiodseconds` has been taken out of experimental and been renamed `emptyblockperiodseconds`. The old config option is deprecated and will be removed in a future release.
 
 ### Bug fixes
+- Fix data race in `SyncDurationMetrics` where the backing `HashMap` was mutated from multiple sync threads in parallel, causing missing or zero `sync_duration` samples. [#10277](https://github.com/besu-eth/besu/pull/10277)
+- Fix CVE-2026-34480 and CVE-2026-34478 in log4j [10332](https://github.com/besu-eth/besu/pull/10332)
 
 ### Additions and Improvements
 - The option to set a different block period for empty BFT blocks (`emptyblockperiodseconds`) is no longer experimental. The experimental flag `xemptyblockperiodseconds` will be removed in a future release.
+- Release worker threads after engine API timeout to avoid blocking subsequent requests [#10311](https://github.com/besu-eth/besu/pull/10311)
+- `evmtool blocktest --verbose` flag, default off, removes noise from output [#10348](https://github.com/besu-eth/besu/pull/10348)
 
 ## 26.4.0
 
@@ -52,6 +56,7 @@
 - Besu will require Java JDK 25 to build and run in a future release.
 
 ### Bug fixes
+- `engine_newPayloadV3`/V4/V5: validate parameters before fork-support check so that missing required fields return `-32602` (`INVALID_PARAMS`) instead of `-38005` (`UNSUPPORTED_FORK`), matching the Engine API spec [#10249](https://github.com/besu-eth/besu/pull/10249)
 - Fix eth/69 snap sync receipt root mismatch by correctly identifying Frontier transaction type in SyncTransactionReceiptEncoder [#9900](https://github.com/hyperledger/besu/pull/9900)
 - Fix outstanding request counter leak in RequestManager that could cause peers to appear at capacity [#9900](https://github.com/hyperledger/besu/pull/9900)
 - BFT forks that change block period on time-based forks don't take effect [9681](https://github.com/hyperledger/besu/issues/9681)
@@ -61,6 +66,7 @@ are provided with different values, using input as per the execution-apis spec i
 - Fix eth_simulateV1 returning wrong error code when transaction gas exceeds block gas limit: now correctly returns -38015 (BLOCK_GAS_LIMIT_EXCEEDED) instead of -38014 or succeeding [#10073](https://github.com/besu-eth/besu/pull/10073)
 - Wait for peers before starting chain download. Prevents an OutOfMemory (OOM) error when the node has zero peers [#9979](https://github.com/hyperledger/besu/pull/9979)
 - Upgrade besu-native libraries version to 1.5.0. This fixes the issue of besu-native/secp256r1 exporting OpenSSL symbols in JVM space. [besu-native #308](https://github.com/besu-eth/besu-native/pull/308)
+- Speed up backward sync phase 1 relinking after a restart by batching restored ancestor header writes into a single chainStorage transaction instead of one per header [#10103](https://github.com/besu-eth/besu/issues/10103)
 - Reject Status messages whose declared `protocolVersion` field disagrees with the on-wire layout (eth/68 vs eth/69+). A malformed Status previously threw an `IllegalArgumentException` out of `EthStatus`'s constructor that escaped `handleStatusMessage`'s `RLPException` catch; the decoder now throws `RLPException` directly so the peer is cleanly disconnected with `SUBPROTOCOL_TRIGGERED_UNPARSABLE_STATUS`.
 
 ### Additions and Improvements
