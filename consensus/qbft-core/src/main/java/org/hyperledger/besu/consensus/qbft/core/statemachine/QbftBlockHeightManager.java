@@ -195,7 +195,7 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
 
     if (!isProposer) {
       // nothing to do here...
-      LOG.trace("This node is not a proposer so it will not send a proposal: " + roundIdentifier);
+      LOG.trace("This node is not a proposer so it will not send a proposal: {}", roundIdentifier);
       return;
     }
 
@@ -206,8 +206,8 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
     final Optional<BlockAccessList> blockAccessList = blockCreationResult.blockAccessList();
     if (!block.isEmpty()) {
       LOG.trace(
-          "Block is not empty and this node is a proposer so it will send a proposal: "
-              + roundIdentifier);
+          "Block is not empty and this node is a proposer so it will send a proposal: {}",
+          roundIdentifier);
       qbftRound.updateStateWithProposalAndTransmit(
           block, blockAccessList, Collections.emptyList(), Collections.emptyList());
     } else {
@@ -219,14 +219,14 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
               .checkEmptyBlockExpired(parentHeader::getTimestamp, currentTimeInMillis);
       if (emptyBlockExpired) {
         LOG.trace(
-            "Block has no transactions and this node is a proposer so it will send a proposal: "
-                + roundIdentifier);
+            "Block has no transactions and this node is a proposer so it will send a proposal: {}",
+            roundIdentifier);
         qbftRound.updateStateWithProposalAndTransmit(
             block, blockAccessList, Collections.emptyList(), Collections.emptyList());
       } else {
         LOG.trace(
-            "Block has no transactions but emptyBlockPeriodSeconds did not expired yet: "
-                + roundIdentifier);
+            "Block has no transactions but emptyBlockPeriodSeconds did not expired yet: {}",
+            roundIdentifier);
         finalState
             .getBlockTimer()
             .resetTimerForEmptyBlock(
