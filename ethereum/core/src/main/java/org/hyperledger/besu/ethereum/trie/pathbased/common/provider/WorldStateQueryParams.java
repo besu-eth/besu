@@ -24,6 +24,12 @@ import java.util.Optional;
 public class WorldStateQueryParams {
   private final BlockHeader blockHeader;
   private final boolean shouldWorldStateUpdateHead;
+
+  /**
+   * When true with head update, path-based roll throws if the trie-log plan exceeds layer budget.
+   */
+  private final boolean enforceTrieRollLayerBudget;
+
   private final Hash blockHash;
   private final Optional<Hash> stateRoot;
 
@@ -35,6 +41,7 @@ public class WorldStateQueryParams {
   private WorldStateQueryParams(final Builder builder) {
     this.blockHeader = builder.blockHeader;
     this.shouldWorldStateUpdateHead = builder.shouldWorldStateUpdateHead;
+    this.enforceTrieRollLayerBudget = builder.enforceTrieRollLayerBudget;
     this.blockHash = builder.blockHash;
     this.stateRoot = builder.stateRoot;
   }
@@ -76,6 +83,14 @@ public class WorldStateQueryParams {
   }
 
   /**
+   * When {@link #shouldWorldStateUpdateHead()} is true, whether moving the head must fail fast if
+   * the trie-log roll plan exceeds the configured layer limit (engine fork choice).
+   */
+  public boolean shouldEnforceTrieRollLayerBudget() {
+    return enforceTrieRollLayerBudget;
+  }
+
+  /**
    * Creates a new builder for WorldStateQueryParams.
    *
    * @return a new builder
@@ -103,7 +118,11 @@ public class WorldStateQueryParams {
    */
   public static WorldStateQueryParams withBlockHeaderAndNoUpdateNodeHead(
       final BlockHeader blockHeader) {
-    return newBuilder().withBlockHeader(blockHeader).withShouldWorldStateUpdateHead(false).build();
+    return newBuilder()
+        .withBlockHeader(blockHeader)
+        .withShouldWorldStateUpdateHead(false)
+        .withEnforceTrieRollLayerBudget(false)
+        .build();
   }
 
   /**
@@ -120,32 +139,7 @@ public class WorldStateQueryParams {
         .withStateRoot(stateRoot)
         .withBlockHash(blockHash)
         .withShouldWorldStateUpdateHead(true)
-        .build();
-  }
-
-  /**
-   * Should return a worldstate instance with a state root and should update the node head.
-   *
-   * @param stateRoot the state root
-   * @return an instance of WorldStateQueryParams
-   */
-  public static WorldStateQueryParams withStateRootAndUpdateNodeHead(final Hash stateRoot) {
-    return newBuilder().withStateRoot(stateRoot).withShouldWorldStateUpdateHead(true).build();
-  }
-
-  /**
-   * Creates an instance with a state root, block hash, and does not update the node head.
-   *
-   * @param stateRoot the state root
-   * @param blockHash the block hash
-   * @return an instance of WorldStateQueryParams
-   */
-  public static WorldStateQueryParams withStateRootAndBlockHashAndNoUpdateNodeHead(
-      final Hash stateRoot, final Hash blockHash) {
-    return newBuilder()
-        .withStateRoot(stateRoot)
-        .withBlockHash(blockHash)
-        .withShouldWorldStateUpdateHead(false)
+        .withEnforceTrieRollLayerBudget(true)
         .build();
   }
 
@@ -154,6 +148,7 @@ public class WorldStateQueryParams {
     if (o == null || getClass() != o.getClass()) return false;
     WorldStateQueryParams that = (WorldStateQueryParams) o;
     return shouldWorldStateUpdateHead == that.shouldWorldStateUpdateHead
+        && enforceTrieRollLayerBudget == that.enforceTrieRollLayerBudget
         && Objects.equals(blockHeader, that.blockHeader)
         && Objects.equals(blockHash, that.blockHash)
         && Objects.equals(stateRoot, that.stateRoot);
@@ -161,12 +156,14 @@ public class WorldStateQueryParams {
 
   @Override
   public int hashCode() {
-    return Objects.hash(blockHeader, shouldWorldStateUpdateHead, blockHash, stateRoot);
+    return Objects.hash(
+        blockHeader, shouldWorldStateUpdateHead, enforceTrieRollLayerBudget, blockHash, stateRoot);
   }
 
   public static class Builder {
     private BlockHeader blockHeader;
     private boolean shouldWorldStateUpdateHead = false;
+    private boolean enforceTrieRollLayerBudget = false;
     private Hash blockHash;
     private Optional<Hash> stateRoot = Optional.empty();
 
@@ -194,6 +191,17 @@ public class WorldStateQueryParams {
      */
     public Builder withShouldWorldStateUpdateHead(final boolean shouldWorldStateUpdateHead) {
       this.shouldWorldStateUpdateHead = shouldWorldStateUpdateHead;
+      return this;
+    }
+
+    /**
+     * When true with {@link #withShouldWorldStateUpdateHead(boolean) true}, path-based head rolls
+     * throw {@link
+     * org.hyperledger.besu.ethereum.trie.pathbased.common.provider.TrieLogLayerBudgetExceededException}
+     * if the planned trie-log steps exceed the layer budget.
+     */
+    public Builder withEnforceTrieRollLayerBudget(final boolean enforceTrieRollLayerBudget) {
+      this.enforceTrieRollLayerBudget = enforceTrieRollLayerBudget;
       return this;
     }
 

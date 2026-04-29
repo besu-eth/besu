@@ -1070,7 +1070,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
   }
 
   @Test
-  public void forkchoiceUpdateShouldIgnoreAncestorOfChainHead() {
+  public void forkchoiceUpdateShouldDeclineCanonicalRewindToAncestor() {
     BlockHeader terminalHeader = terminalPowBlock();
     sendNewPayloadAndForkchoiceUpdate(
         new Block(terminalHeader, BlockBody.empty()), Optional.empty(), Hash.ZERO);
@@ -1086,7 +1086,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     ForkchoiceResult res =
         coordinator.updateForkChoice(parentHeader, Hash.ZERO, terminalHeader.getHash());
 
-    assertThat(res.getStatus()).isEqualTo(ForkchoiceResult.Status.IGNORE_UPDATE_TO_OLD_HEAD);
+    assertThat(res.getStatus()).isEqualTo(ForkchoiceResult.Status.DECLINED_CANONICAL_REWIND);
     assertThat(res.shouldNotProceedToPayloadBuildProcess()).isTrue();
     assertThat(res.getNewHead().isEmpty()).isTrue();
     assertThat(res.getLatestValid().isPresent()).isTrue();

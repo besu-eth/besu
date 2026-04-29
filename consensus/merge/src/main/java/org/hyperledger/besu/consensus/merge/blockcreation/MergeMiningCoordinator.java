@@ -14,7 +14,7 @@
  */
 package org.hyperledger.besu.consensus.merge.blockcreation;
 
-import static org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult.Status.IGNORE_UPDATE_TO_OLD_HEAD;
+import static org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult.Status.DECLINED_CANONICAL_REWIND;
 import static org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult.Status.VALID;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -205,8 +205,16 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
       INVALID,
       /** Invalid payload attributes status. */
       INVALID_PAYLOAD_ATTRIBUTES,
-      /** Ignore update to old head status. */
-      IGNORE_UPDATE_TO_OLD_HEAD
+      /**
+       * Forkchoice head is a canonical ancestor of the execution tip; EL declines rewinding to it
+       * (no reorg).
+       */
+      DECLINED_CANONICAL_REWIND,
+      /**
+       * Fork choice deferred (e.g. path-based trie roll exceeds layer budget, backward sync
+       * started); engine API should return {@code SYNCING}.
+       */
+      SYNCING
     }
 
     private final Status status;
@@ -247,18 +255,18 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
     }
 
     /**
-     * Create forkchoice result with ignore update to old head.
+     * Forkchoice requested a canonical ancestor below the current tip; chain head is unchanged.
      *
-     * @param oldHead the old head
+     * @param requestedHead the forkchoice head block header
      * @return the forkchoice result
      */
-    public static ForkchoiceResult withIgnoreUpdateToOldHead(final BlockHeader oldHead) {
+    public static ForkchoiceResult withDeclinedCanonicalRewind(final BlockHeader requestedHead) {
       return new ForkchoiceResult(
-          IGNORE_UPDATE_TO_OLD_HEAD,
+          DECLINED_CANONICAL_REWIND,
           Optional.empty(),
           Optional.empty(),
           Optional.empty(),
-          Optional.of(oldHead.getHash()));
+          Optional.of(requestedHead.getHash()));
     }
 
     /**
@@ -271,6 +279,16 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
     public static ForkchoiceResult withResult(
         final Optional<BlockHeader> newFinalized, final Optional<BlockHeader> newHead) {
       return new ForkchoiceResult(VALID, Optional.empty(), newFinalized, newHead, Optional.empty());
+    }
+
+    /**
+     * Fork choice is deferred or blocked; caller should surface engine SYNCING without payload id.
+     *
+     * @return syncing forkchoice result
+     */
+    public static ForkchoiceResult withSyncing() {
+      return new ForkchoiceResult(
+          Status.SYNCING, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     /**

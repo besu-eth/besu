@@ -421,14 +421,15 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
   }
 
   @Test
-  public void shouldIgnoreUpdateToOldHeadAndNotPreparePayload() {
+  public void shouldDeclineCanonicalRewindAndNotPreparePayload() {
     BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
 
     when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))
         .thenReturn(Optional.of(mockHeader));
 
-    var ignoreOldHeadUpdateRes = ForkchoiceResult.withIgnoreUpdateToOldHead(mockHeader);
-    when(mergeCoordinator.updateForkChoice(any(), any(), any())).thenReturn(ignoreOldHeadUpdateRes);
+    var declinedCanonicalRewindRes = ForkchoiceResult.withDeclinedCanonicalRewind(mockHeader);
+    when(mergeCoordinator.updateForkChoice(any(), any(), any()))
+        .thenReturn(declinedCanonicalRewindRes);
 
     var payloadParams =
         new EnginePayloadAttributesParameter(

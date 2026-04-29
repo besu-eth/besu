@@ -16,7 +16,6 @@ package org.hyperledger.besu.consensus.merge.blockcreation;
 
 import static java.util.stream.Collectors.joining;
 import static org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult.Status.INVALID;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead;
 
 import org.hyperledger.besu.config.NetworkDefinition;
 import org.hyperledger.besu.consensus.merge.MergeContext;
@@ -49,6 +48,8 @@ import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.TrieLogLayerBudgetExceededException;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 
 import java.io.PrintWriter;
@@ -711,21 +712,20 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   @Override
   public ForkchoiceResult updateForkChoice(
       final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash) {
-    MutableBlockchain blockchain = protocolContext.getBlockchain();
+    final MutableBlockchain blockchain = protocolContext.getBlockchain();
     final Optional<BlockHeader> newFinalized = blockchain.getBlockHeader(finalizedBlockHash);
 
-    /*if (newHead.getNumber() < blockchain.getChainHeadBlockNumber()
-        && isDescendantOf(newHead, blockchain.getChainHeadHeader())) {
+    if (isForkchoiceToCanonicalAncestorBelowTip(newHead, blockchain)) {
       LOG.atDebug()
-          .setMessage("Ignoring update to old head {}")
+          .setMessage("Declining forkchoice rewind to canonical ancestor {}")
           .addArgument(newHead::toLogString)
           .log();
-      return ForkchoiceResult.withIgnoreUpdateToOldHead(newHead);
-    }*/
+      return ForkchoiceResult.withDeclinedCanonicalRewind(newHead);
+    }
 
     final Optional<Hash> latestValid = getLatestValidAncestor(newHead);
-
-    Optional<BlockHeader> parentOfNewHead = blockchain.getBlockHeader(newHead.getParentHash());
+    final Optional<BlockHeader> parentOfNewHead =
+        blockchain.getBlockHeader(newHead.getParentHash());
     if (parentOfNewHead.isPresent()
         && Long.compareUnsigned(newHead.getTimestamp(), parentOfNewHead.get().getTimestamp())
             <= 0) {
@@ -733,18 +733,41 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
           INVALID, "new head timestamp not greater than parent", latestValid);
     }
 
-    if (!setNewHead(blockchain, newHead)) {
-      LOG.warn("Failed to move world state to new head {}", newHead.toLogString());
-      return ForkchoiceResult.withFailure(INVALID, "Failed to set new head", latestValid);
-    }
+    final ForkchoiceResult forkchoiceResult =
+        setNewHead(blockchain, latestValid, newFinalized, newHead);
 
-    // set and persist the new finalized block if it is present
+    return switch (forkchoiceResult.getStatus()) {
+      case VALID ->
+          applyForkchoiceFinalizedAndSafe(blockchain, newFinalized, safeBlockHash, newHead);
+      case DECLINED_CANONICAL_REWIND -> {
+        startBackwardSyncAfterTrieLogBudgetExceeded(newHead);
+        yield ForkchoiceResult.withSyncing();
+      }
+      default -> forkchoiceResult;
+    };
+  }
+
+  /**
+   * Forkchoice head is on the canonical chain but strictly below the execution chain tip —
+   * rewinding to it would be a reorg; Besu keeps the tip and signals this to the engine layer
+   * separately.
+   */
+  private boolean isForkchoiceToCanonicalAncestorBelowTip(
+      final BlockHeader newHead, final MutableBlockchain blockchain) {
+    return newHead.getNumber() < blockchain.getChainHeadBlockNumber()
+        && isDescendantOf(newHead, blockchain.getChainHeadHeader());
+  }
+
+  private ForkchoiceResult applyForkchoiceFinalizedAndSafe(
+      final MutableBlockchain blockchain,
+      final Optional<BlockHeader> newFinalized,
+      final Hash safeBlockHash,
+      final BlockHeader newHead) {
     newFinalized.ifPresent(
         blockHeader -> {
           blockchain.setFinalized(blockHeader.getHash());
           mergeContext.setFinalized(blockHeader);
         });
-
     blockchain
         .getBlockHeader(safeBlockHash)
         .ifPresent(
@@ -752,49 +775,100 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
               blockchain.setSafeBlock(safeBlockHash);
               mergeContext.setSafeBlock(newSafeBlock);
             });
-
     return ForkchoiceResult.withResult(newFinalized, Optional.of(newHead));
   }
 
-  private boolean setNewHead(final MutableBlockchain blockchain, final BlockHeader newHead) {
+  private void startBackwardSyncAfterTrieLogBudgetExceeded(final BlockHeader newHead) {
+    LOG.atInfo()
+        .setMessage(
+            "Trie-log roll plan ops exceeds max layers; triggering backward sync for head {}")
+        .addArgument(newHead::toLogString)
+        .log();
+    protocolContext
+        .getBlockchain()
+        .getBlockByHash(newHead.getHash())
+        .map(this::appendNewPayloadToSync)
+        .orElseGet(() -> backwardSyncContext.syncBackwardsUntil(newHead.getHash()))
+        .whenComplete(
+            (result, error) -> {
+              if (error != null) {
+                LOG.error(
+                    "Backward sync after trie-log layer budget exceeded failed for head {}",
+                    newHead.toLogString(),
+                    error);
+              }
+            });
+  }
+
+  private ForkchoiceResult setNewHead(
+      final MutableBlockchain blockchain,
+      final Optional<Hash> latestValid,
+      final Optional<BlockHeader> newFinalized,
+      final BlockHeader newHead) {
 
     if (newHead.getHash().equals(blockchain.getChainHeadHash())) {
       LOG.atDebug()
           .setMessage("Nothing to do new head {} is already chain head")
           .addArgument(newHead::toLogString)
           .log();
-      return true;
+      return ForkchoiceResult.withResult(newFinalized, Optional.of(newHead));
     }
 
-    if (moveWorldStateTo(newHead)) {
-      if (newHead.getParentHash().equals(blockchain.getChainHeadHash())) {
-        LOG.atDebug()
-            .setMessage(
-                "Forwarding chain head to the block {} saved from a previous newPayload invocation")
-            .addArgument(newHead::toLogString)
-            .log();
-        return blockchain.forwardToBlock(newHead);
-      } else {
-        LOG.atDebug()
-            .setMessage("New head {} is a chain reorg, rewind chain head to it")
-            .addArgument(newHead::toLogString)
-            .log();
-        return blockchain.rewindToBlock(newHead.getHash());
-      }
+    final boolean worldStateMoved;
+    try {
+      worldStateMoved = moveWorldStateTo(newHead);
+    } catch (final TrieLogLayerBudgetExceededException e) {
+      return ForkchoiceResult.withDeclinedCanonicalRewind(newHead);
     }
-    LOG.atDebug()
-        .setMessage("Failed to move the worldstate forward to hash {}, not moving chain head")
-        .addArgument(newHead::toLogString)
-        .log();
-    return false;
+
+    if (!worldStateMoved) {
+      LOG.atDebug()
+          .setMessage("Failed to move the worldstate forward to hash {}, not moving chain head")
+          .addArgument(newHead::toLogString)
+          .log();
+      return ForkchoiceResult.withFailure(
+          INVALID, "Failed to move the worldstate forward to hash", latestValid);
+    }
+
+    final boolean chainHeadUpdated;
+    if (newHead.getParentHash().equals(blockchain.getChainHeadHash())) {
+      LOG.atDebug()
+          .setMessage(
+              "Forwarding chain head to the block {} saved from a previous newPayload invocation")
+          .addArgument(newHead::toLogString)
+          .log();
+      chainHeadUpdated = blockchain.forwardToBlock(newHead);
+    } else {
+      LOG.atDebug()
+          .setMessage("New head {} is a chain reorg, rewind chain head to it")
+          .addArgument(newHead::toLogString)
+          .log();
+      chainHeadUpdated = blockchain.rewindToBlock(newHead.getHash());
+    }
+
+    if (!chainHeadUpdated) {
+      LOG.atDebug()
+          .setMessage("Failed to advance chain head to {}, not moving chain head")
+          .addArgument(newHead::toLogString)
+          .log();
+      return ForkchoiceResult.withFailure(
+          INVALID, "Failed to move the worldstate forward to hash", latestValid);
+    }
+
+    return ForkchoiceResult.withResult(newFinalized, Optional.of(newHead));
   }
 
-  private boolean moveWorldStateTo(final BlockHeader newHead) {
-    Optional<MutableWorldState> newWorldState =
+  private boolean moveWorldStateTo(final BlockHeader newHead)
+      throws TrieLogLayerBudgetExceededException {
+    final Optional<MutableWorldState> newWorldState =
         protocolContext
             .getWorldStateArchive()
-            .getWorldState(withBlockHeaderAndUpdateNodeHead(newHead));
-
+            .getWorldState(
+                WorldStateQueryParams.newBuilder()
+                    .withBlockHeader(newHead)
+                    .withShouldWorldStateUpdateHead(true)
+                    .withEnforceTrieRollLayerBudget(true)
+                    .build());
     newWorldState.ifPresentOrElse(
         mutableWorldState ->
             LOG.atDebug()

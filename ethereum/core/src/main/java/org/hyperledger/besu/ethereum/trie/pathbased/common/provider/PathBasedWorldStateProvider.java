@@ -177,16 +177,18 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
    * retrieves the full world state from the cache.
    *
    * <p>The method follows these steps: 1. Check if the query parameters indicate that the world
-   * state should update the head. 2. If true, call {@link #getFullWorldStateFromHead(Hash)} with
-   * the block hash from the query parameters. 3. If false, call {@link
-   * #getFullWorldStateFromCache(BlockHeader)} with the block header from the query parameters.
+   * state should update the head. 2. If true, call {@code getFullWorldStateFromHead} with the block
+   * hash and whether fork choice should throw on an oversized trie-log plan. 3. If false, call
+   * {@link #getFullWorldStateFromCache(BlockHeader)} with the block header from the query
+   * parameters.
    *
    * @param queryParams the query parameters
    * @return the stateful world state, if available
    */
   protected Optional<MutableWorldState> getFullWorldState(final WorldStateQueryParams queryParams) {
     return queryParams.shouldWorldStateUpdateHead()
-        ? getFullWorldStateFromHead(queryParams.getBlockHash())
+        ? getFullWorldStateFromHead(
+            queryParams.getBlockHash(), queryParams.shouldEnforceTrieRollLayerBudget())
         : getFullWorldStateFromCache(queryParams.getBlockHeader());
   }
 
@@ -202,37 +204,28 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
    * attempt to roll the full world state to the specified block hash.
    *
    * @param blockHash the block hash
+   * @param throwIfPlanExceedsBudget if true, {@link #rollFullWorldStateToBlockHash} throws {@link
+   *     TrieLogLayerBudgetExceededException} when the trie-log plan exceeds the layer limit; if
+   *     false, the plan is always applied ({@code debug_setHead}, etc.).
    * @return the full world state, if available
    */
-  private Optional<MutableWorldState> getFullWorldStateFromHead(final Hash blockHash) {
-    return rollFullWorldStateToBlockHash(headWorldState, blockHash);
+  private Optional<MutableWorldState> getFullWorldStateFromHead(
+      final Hash blockHash, final boolean throwIfPlanExceedsBudget) {
+    return rollFullWorldStateToBlockHash(headWorldState, blockHash, throwIfPlanExceedsBudget);
   }
 
   /**
    * Gets the full world state from the cache based on the provided block header.
    *
-   * <p>This method attempts to retrieve the world state from the cache using the block header. If
-   * the block header is too old (i.e., the number of blocks between the chain head and the provided
-   * block header exceeds the maximum layers to load), a warning is logged and an empty Optional is
-   * returned.
-   *
-   * <p>The method follows these steps: 1. Check if the world state for the given block header is
-   * available in the cache. 2. If not, attempt to get the nearest world state from the cache. 3. If
-   * still not found, attempt to get the head world state. 4. If a world state is found, roll it to
-   * the block hash of the provided block header. 5. Freeze the world state and return it.
+   * <p>Resolves a base layer from the cache and rolls to the header's block hash. Chain-depth and
+   * trie-log plan limits are enforced inside {@link #rollFullWorldStateToBlockHash}; {@link
+   * TrieLogLayerBudgetExceededException} is caught and an empty result is returned with guidance
+   * for {@code --bonsai-historical-block-limit}.
    *
    * @param blockHeader the block header
    * @return the full world state, if available
    */
   private Optional<MutableWorldState> getFullWorldStateFromCache(final BlockHeader blockHeader) {
-    final BlockHeader chainHeadBlockHeader = blockchain.getChainHeadHeader();
-    if (chainHeadBlockHeader.getNumber() - blockHeader.getNumber()
-        >= trieLogManager.getMaxLayersToLoad()) {
-      LOG.warn(
-          "Exceeded the limit of historical blocks that can be loaded ({}). If you need to make older historical queries, configure your `--bonsai-historical-block-limit`.",
-          trieLogManager.getMaxLayersToLoad());
-      return Optional.empty();
-    }
     return cachedWorldStorageManager
         .getWorldState(blockHeader.getBlockHash())
         .or(() -> cachedWorldStorageManager.getNearestWorldState(blockHeader))
@@ -242,33 +235,73 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
                     blockHeaderHash ->
                         blockchain.getBlockHeader(blockHeaderHash).map(BlockHeader.class::cast)))
         .flatMap(
-            worldState -> rollFullWorldStateToBlockHash(worldState, blockHeader.getBlockHash()))
+            worldState -> {
+              try {
+                return rollFullWorldStateToBlockHash(worldState, blockHeader.getBlockHash(), true);
+              } catch (final TrieLogLayerBudgetExceededException e) {
+                logHistoricalWorldStateLimitExceeded(
+                    "trie-log roll plan size "
+                        + e.getPlannedOps()
+                        + " exceeds max layers "
+                        + e.getMaxLayersToLoad());
+                return Optional.empty();
+              }
+            })
         .map(MutableWorldState::freezeStorage);
+  }
+
+  private void logHistoricalWorldStateLimitExceeded(final String detail) {
+    LOG.warn(
+        "{}. Exceeded the limit of historical blocks that can be loaded ({}). If you need to make older historical queries, configure your `--bonsai-historical-block-limit`.",
+        detail,
+        trieLogManager.getMaxLayersToLoad());
   }
 
   /**
    * Rolls {@code mutableState} to {@code blockHash} by trie logs: builds a rollback/forward hash
    * plan, then applies it in batches (see {@link #applyTrieLogRollPlan}).
+   *
+   * @param throwIfPlanExceedsBudget when true: if the chain head is at least {@link
+   *     TrieLogManager#getMaxLayersToLoad()} blocks above the target block (cheap check, no trie
+   *     reads), or the planned trie-log steps exceed that limit, throws {@link
+   *     TrieLogLayerBudgetExceededException} before loading layers; when false, neither guard
+   *     throws and the full plan is always applied.
    */
   private Optional<MutableWorldState> rollFullWorldStateToBlockHash(
-      final PathBasedWorldState mutableState, final Hash blockHash) {
+      final PathBasedWorldState mutableState,
+      final Hash blockHash,
+      final boolean throwIfPlanExceedsBudget) {
     if (blockHash.equals(mutableState.blockHash())) {
       return Optional.of(mutableState);
     }
     try {
+      final Optional<BlockHeader> maybeDestinationHeader =
+          blockchain.getBlockHeader(blockHash).map(BlockHeader.class::cast);
+      final long maxLayers = trieLogManager.getMaxLayersToLoad();
+      if (throwIfPlanExceedsBudget && maybeDestinationHeader.isPresent()) {
+        final long depthBelowChainHead =
+            blockchain.getChainHeadHeader().getNumber() - maybeDestinationHeader.get().getNumber();
+        if (depthBelowChainHead >= maxLayers) {
+          throw new TrieLogLayerBudgetExceededException(depthBelowChainHead, maxLayers);
+        }
+      }
       final List<Hash> rollbackBlockHashes = new ArrayList<>();
       final List<Hash> forwardBlockHashes = new ArrayList<>();
-      planTrieLogRollHashes(mutableState, blockHash, rollbackBlockHashes, forwardBlockHashes);
+      planTrieLogRollHashes(
+          mutableState, maybeDestinationHeader, rollbackBlockHashes, forwardBlockHashes);
       if (rollbackBlockHashes.isEmpty() && forwardBlockHashes.isEmpty()) {
         return Optional.of(mutableState);
       }
+      final long totalOps = (long) rollbackBlockHashes.size() + (long) forwardBlockHashes.size();
+      if (throwIfPlanExceedsBudget && totalOps > maxLayers) {
+        throw new TrieLogLayerBudgetExceededException(totalOps, maxLayers);
+      }
       return applyTrieLogRollPlan(
-          mutableState,
-          blockHash,
-          rollbackBlockHashes,
-          forwardBlockHashes,
-          trieLogManager.getMaxLayersToLoad());
+          mutableState, blockHash, rollbackBlockHashes, forwardBlockHashes, maxLayers);
     } catch (final RuntimeException re) {
+      if (re instanceof TrieLogLayerBudgetExceededException) {
+        throw re;
+      }
       LOG.info("Archive rolling failed for block hash " + blockHash, re);
       if (re instanceof MerkleTrieException) {
         throw re;
@@ -287,10 +320,14 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
    * <p>When the world state's block is indexed on the chain: align heights on the old branch, then
    * walk both forks in lockstep until a shared hash (common ancestor). When it is not indexed, only
    * a single rollback hash is planned if a trie log exists for that block.
+   *
+   * @param maybeDestinationHeader {@code blockchain.getBlockHeader(destination hash)} already cast;
+   *     when the persisted state header is present, this must be present too or this method throws
+   *     {@link java.util.NoSuchElementException}.
    */
   private void planTrieLogRollHashes(
       final PathBasedWorldState mutableState,
-      final Hash destinationBlockHash,
+      final Optional<BlockHeader> maybeDestinationHeader,
       final List<Hash> rollbackBlockHashes,
       final List<Hash> forwardBlockHashes) {
     final Optional<BlockHeader> maybePersistedHeader =
@@ -303,7 +340,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
       return;
     }
 
-    BlockHeader targetHeader = blockchain.getBlockHeader(destinationBlockHash).get();
+    BlockHeader targetHeader = maybeDestinationHeader.orElseThrow();
     BlockHeader persistedHeader = maybePersistedHeader.get();
 
     Hash persistedBlockHash = persistedHeader.getBlockHash();

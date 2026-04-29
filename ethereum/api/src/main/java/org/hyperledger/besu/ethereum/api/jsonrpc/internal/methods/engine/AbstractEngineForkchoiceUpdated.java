@@ -53,6 +53,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.spi.LoggingEventBuilder;
 
+@SuppressWarnings("unused")
 public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJsonRpcMethod {
   private static final Logger LOG = LoggerFactory.getLogger(AbstractEngineForkchoiceUpdated.class);
   private final MergeMiningCoordinator mergeCoordinator;
@@ -146,6 +147,11 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
               forkChoice.getSafeBlockHash());
     }
 
+    if (ForkchoiceResult.Status.SYNCING.equals(forkchoiceResult.getStatus())) {
+      logAtDebugFCUCall(SYNCING, forkChoice);
+      return syncingResponse(requestId, forkChoice);
+    }
+
     Optional<List<Withdrawal>> withdrawals = Optional.empty();
     if (maybePayloadAttributes.isPresent()) {
       final EnginePayloadAttributesParameter payloadAttributes = maybePayloadAttributes.get();
@@ -197,14 +203,14 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
     maybePayloadAttributes.ifPresentOrElse(
         this::logPayload, () -> LOG.debug("Payload attributes are null"));
 
-    if (forkchoiceResult.shouldNotProceedToPayloadBuildProcess()) {
-      if (ForkchoiceResult.Status.IGNORE_UPDATE_TO_OLD_HEAD.equals(forkchoiceResult.getStatus())) {
+    /*if (forkchoiceResult.shouldNotProceedToPayloadBuildProcess()) {
+      if (ForkchoiceResult.Status.DECLINED_CANONICAL_REWIND.equals(forkchoiceResult.getStatus())) {
         logAtInfoFCUCall(VALID, forkChoice);
       } else {
         logAtInfoFCUCall(INVALID, forkChoice);
       }
       return handleNonValidForkchoiceUpdate(requestId, forkchoiceResult);
-    }
+    }*/
 
     // begin preparing a block if we have a non-empty payload attributes param
     final Optional<List<Withdrawal>> finalWithdrawals = withdrawals;
@@ -270,7 +276,7 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
                 new EngineUpdateForkchoiceResult(
                     INVALID, latestValid.orElse(null), null, result.getErrorMessage()));
         break;
-      case IGNORE_UPDATE_TO_OLD_HEAD:
+      case DECLINED_CANONICAL_REWIND:
         response =
             new JsonRpcSuccessResponse(
                 requestId,
