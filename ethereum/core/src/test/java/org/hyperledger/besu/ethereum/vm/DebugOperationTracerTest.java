@@ -241,6 +241,23 @@ class DebugOperationTracerTest {
   }
 
   @Test
+  void shouldNotRecordEmptyReturnDataWhenEnabled() {
+    final MessageFrame frame = validMessageFrame();
+    frame.setReturnData(Bytes.EMPTY);
+    final TraceFrame traceFrame =
+        traceFrame(
+            frame,
+            OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+                .traceStorage(false)
+                .traceMemory(false)
+                .traceStack(false)
+                .traceReturnData(true)
+                .build(),
+            false);
+    assertThat(traceFrame.getReturnData()).isEmpty();
+  }
+
+  @Test
   void shouldNotRecordReturnDataWhenDisabled() {
     final MessageFrame frame = validMessageFrame();
     frame.setReturnData(Bytes.fromHexString("0xdeadbeef"));
