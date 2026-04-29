@@ -251,16 +251,7 @@ public class StructLogTest {
 
   @Test
   public void returnDataShouldBePresentWhenCaptured() {
-    when(traceFrame.getDepth()).thenReturn(0);
-    when(traceFrame.getGasRemaining()).thenReturn(0L);
-    when(traceFrame.getGasCost()).thenReturn(OptionalLong.empty());
-    when(traceFrame.getGasRefund()).thenReturn(0L);
-    when(traceFrame.getMemory()).thenReturn(Optional.empty());
-    when(traceFrame.getOpcode()).thenReturn("PUSH1");
-    when(traceFrame.getPc()).thenReturn(0);
-    when(traceFrame.getStack()).thenReturn(Optional.empty());
-    when(traceFrame.getStorage()).thenReturn(Optional.empty());
-    when(traceFrame.getRevertReason()).thenReturn(Optional.empty());
+    setupMinimalTraceFrameForReturnDataTests();
     when(traceFrame.getReturnData()).thenReturn(Optional.of(Bytes.fromHexString("0xdeadbeef")));
 
     final StructLog log = new StructLog(traceFrame);
@@ -270,16 +261,7 @@ public class StructLogTest {
 
   @Test
   public void returnDataShouldBeNullWhenNotCaptured() {
-    when(traceFrame.getDepth()).thenReturn(0);
-    when(traceFrame.getGasRemaining()).thenReturn(0L);
-    when(traceFrame.getGasCost()).thenReturn(OptionalLong.empty());
-    when(traceFrame.getGasRefund()).thenReturn(0L);
-    when(traceFrame.getMemory()).thenReturn(Optional.empty());
-    when(traceFrame.getOpcode()).thenReturn("PUSH1");
-    when(traceFrame.getPc()).thenReturn(0);
-    when(traceFrame.getStack()).thenReturn(Optional.empty());
-    when(traceFrame.getStorage()).thenReturn(Optional.empty());
-    when(traceFrame.getRevertReason()).thenReturn(Optional.empty());
+    setupMinimalTraceFrameForReturnDataTests();
     when(traceFrame.getReturnData()).thenReturn(Optional.empty());
 
     final StructLog log = new StructLog(traceFrame);
@@ -289,6 +271,16 @@ public class StructLogTest {
 
   @Test
   public void returnDataShouldBeAbsentFromJsonWhenNotCaptured() throws Exception {
+    setupMinimalTraceFrameForReturnDataTests();
+    when(traceFrame.getReturnData()).thenReturn(Optional.empty());
+
+    final StructLog log = new StructLog(traceFrame);
+    final String json = objectMapper.writeValueAsString(log);
+
+    assertThat(json).doesNotContain("returnData");
+  }
+
+  private void setupMinimalTraceFrameForReturnDataTests() {
     when(traceFrame.getDepth()).thenReturn(0);
     when(traceFrame.getGasRemaining()).thenReturn(0L);
     when(traceFrame.getGasCost()).thenReturn(OptionalLong.empty());
@@ -299,11 +291,5 @@ public class StructLogTest {
     when(traceFrame.getStack()).thenReturn(Optional.empty());
     when(traceFrame.getStorage()).thenReturn(Optional.empty());
     when(traceFrame.getRevertReason()).thenReturn(Optional.empty());
-    when(traceFrame.getReturnData()).thenReturn(Optional.empty());
-
-    final StructLog log = new StructLog(traceFrame);
-    final String json = objectMapper.writeValueAsString(log);
-
-    assertThat(json).doesNotContain("returnData");
   }
 }
