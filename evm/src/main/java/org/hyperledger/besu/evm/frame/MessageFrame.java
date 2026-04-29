@@ -244,11 +244,21 @@ public class MessageFrame {
   private long undoMark;
 
   /**
-   * EIP-8037: index into {@link TxValues#stateChanges()} captured at frame construction. Frame-end
-   * aggregation walks events from this index onwards (skipping ones already accounted by a
-   * descendant). On rollback, the {@code UndoList} truncates events recorded since this point.
+   * EIP-8037: index into {@link TxValues#stateChanges()} delimiting this frame's byte-diff window.
+   * Initially captured at frame construction; can be re-anchored mid-frame via {@link
+   * #advanceStateGasFrameStartIndex()} to attribute frame-pre-state events (e.g., AccountCreated
+   * for a CREATE child) to the parent's range only.
    */
-  private final int stateGasFrameStartIndex;
+  private int stateGasFrameStartIndex;
+
+  /**
+   * EIP-8037: value of {@link TxValues#stateGasUsed()} at frame construction (or
+   * post-intrinsic-charge for the initial frame, see {@link #advanceUndoMark()}). Frame-end
+   * byte-diff subtracts this from the current value to derive {@code already_paid} (state gas
+   * charged by successful descendants). On rollback, {@link UndoScalar#undo} restores the counter
+   * to its undo-mark value, so reverted descendants' charges naturally disappear.
+   */
+  private long frameEntryStateGasUsed;
 
   /**
    * Builder builder.
@@ -301,6 +311,15 @@ public class MessageFrame {
     this.eip7928AccessList = eip7928AccessList;
     this.undoMark = txValues.transientStorage().mark();
     this.stateGasFrameStartIndex = txValues.stateChanges().size();
+    this.frameEntryStateGasUsed = txValues.stateGasUsed().get();
+    if (Eip8037Trace.ENABLED) {
+      Eip8037Trace.frameEnter(
+          txValues.messageFrameStack().size(),
+          contract == null ? "" : contract.toHexString(),
+          gasRemaining,
+          txValues.stateGasReservoir().get(),
+          this.frameEntryStateGasUsed);
+    }
   }
 
   /**
@@ -907,7 +926,12 @@ public class MessageFrame {
    * @param amount the amount to add to the reservoir
    */
   public void incrementStateGasReservoir(final long amount) {
-    txValues.stateGasReservoir().set(txValues.stateGasReservoir().get() + amount);
+    final long before = txValues.stateGasReservoir().get();
+    txValues.stateGasReservoir().set(before + amount);
+    if (Eip8037Trace.ENABLED) {
+      Eip8037Trace.creditReservoir(
+          txValues.messageFrameStack().size(), amount, before, before + amount);
+    }
   }
 
   /**
@@ -918,20 +942,37 @@ public class MessageFrame {
    * @return true if the gas was successfully consumed, false if insufficient gas
    */
   public boolean consumeStateGas(final long amount) {
-    final long reservoir = txValues.stateGasReservoir().get();
-    if (reservoir >= amount) {
-      txValues.stateGasReservoir().set(reservoir - amount);
+    final long reservoirBefore = txValues.stateGasReservoir().get();
+    final long gasLeftBefore = gasRemaining;
+    boolean ok;
+    if (reservoirBefore >= amount) {
+      txValues.stateGasReservoir().set(reservoirBefore - amount);
+      ok = true;
     } else {
-      // Overflow goes to gasRemaining
-      final long overflow = amount - reservoir;
+      final long overflow = amount - reservoirBefore;
       if (gasRemaining < overflow) {
-        return false;
+        ok = false;
+      } else {
+        txValues.stateGasReservoir().set(0L);
+        gasRemaining -= overflow;
+        ok = true;
       }
-      txValues.stateGasReservoir().set(0L);
-      gasRemaining -= overflow;
     }
-    txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
-    return true;
+    if (ok) {
+      txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
+    }
+    if (Eip8037Trace.ENABLED) {
+      Eip8037Trace.consumeState(
+          txValues.messageFrameStack().size(),
+          amount,
+          reservoirBefore,
+          gasLeftBefore,
+          ok,
+          txValues.stateGasReservoir().get(),
+          gasRemaining,
+          txValues.stateGasUsed().get());
+    }
+    return ok;
   }
 
   /**
@@ -953,6 +994,15 @@ public class MessageFrame {
     txValues
         .stateChanges()
         .add(new StateChange.Storage(address, key, txEntryIsZero, beforeIsZero, afterIsZero));
+    if (Eip8037Trace.ENABLED) {
+      Eip8037Trace.recStorage(
+          txValues.messageFrameStack().size(),
+          address.toHexString(),
+          key.toHexString(),
+          txEntryIsZero,
+          beforeIsZero,
+          afterIsZero);
+    }
   }
 
   /**
@@ -964,6 +1014,9 @@ public class MessageFrame {
    */
   public void recordAccountCreated(final Address address) {
     txValues.stateChanges().add(new StateChange.AccountCreated(address));
+    if (Eip8037Trace.ENABLED) {
+      Eip8037Trace.recAccountCreated(txValues.messageFrameStack().size(), address.toHexString());
+    }
   }
 
   /**
@@ -974,6 +1027,10 @@ public class MessageFrame {
    */
   public void recordCodeDeposit(final Address address, final int codeLength) {
     txValues.stateChanges().add(new StateChange.CodeDeposit(address, codeLength));
+    if (Eip8037Trace.ENABLED) {
+      Eip8037Trace.recCodeDeposit(
+          txValues.messageFrameStack().size(), address.toHexString(), codeLength);
+    }
   }
 
   /**
@@ -988,138 +1045,37 @@ public class MessageFrame {
   }
 
   /**
+   * EIP-8037: Re-anchor this frame's byte-diff window to the current end of the tx-wide state-
+   * change log.
+   *
+   * <p>Called from {@code ContractCreationProcessor.start()} after the new account, value transfer,
+   * and code-deposit events have been recorded so they're attributed to the parent frame's range,
+   * not this CREATE frame's range. Without this, the create child would double-count the {@code
+   * +112} bytes for the account it materialized — once at this depth and once at the parent depth
+   * via the same shared event log.
+   */
+  public void advanceStateGasFrameStartIndex() {
+    this.stateGasFrameStartIndex = txValues.stateChanges().size();
+    this.frameEntryStateGasUsed = txValues.stateGasUsed().get();
+  }
+
+  /**
+   * EIP-8037: Returns the value of {@code stateGasUsed} at this frame's construction. Frame-end
+   * byte-diff subtracts this from the current value to obtain {@code already_paid}.
+   *
+   * @return the frame-entry stateGasUsed snapshot
+   */
+  public long getFrameEntryStateGasUsed() {
+    return frameEntryStateGasUsed;
+  }
+
+  /**
    * EIP-8037: Returns the per-tx state-change event log. Used by frame-end aggregation.
    *
    * @return the state change list
    */
   public List<StateChange> getStateChanges() {
     return txValues.stateChanges();
-  }
-
-  /**
-   * EIP-8037 dedup ledger: marks an address as having been charged the new-account state gas for
-   * this transaction. Returns true if the address was newly added (caller should apply the charge),
-   * false if already claimed by an earlier-aggregating frame in the same call stack.
-   *
-   * @param address the address to claim
-   * @return true if newly added
-   */
-  public boolean claimStateGasNewAccountCharge(final Address address) {
-    return txValues.stateGasChargedAccounts().add(address);
-  }
-
-  /**
-   * EIP-8037 dedup ledger: marks an address as having been charged code-deposit state gas.
-   *
-   * @param address the address to claim
-   * @return true if newly added
-   */
-  public boolean claimStateGasCodeDepositCharge(final Address address) {
-    return txValues.stateGasChargedCodeDeposits().add(address);
-  }
-
-  /**
-   * EIP-8037 dedup ledger: marks a storage slot as having been charged new-slot state gas.
-   *
-   * @param address the account address
-   * @param key the storage key
-   * @return true if newly added
-   */
-  public boolean claimStateGasNewSlotCharge(final Address address, final Bytes32 key) {
-    if (txValues.stateGasChargedSlots().contains(address, key)) {
-      return false;
-    }
-    txValues.stateGasChargedSlots().put(address, key, Boolean.TRUE);
-    return true;
-  }
-
-  /**
-   * EIP-8037 dedup ledger: removes a storage slot's charge claim (used when the slot is being
-   * refunded for the 0→X→0 pattern in a frame that aggregates after the charging frame).
-   *
-   * @param address the account address
-   * @param key the storage key
-   */
-  public void releaseStateGasNewSlotCharge(final Address address, final Bytes32 key) {
-    txValues.stateGasChargedSlots().remove(address, key);
-  }
-
-  /**
-   * EIP-8037 dedup ledger: marks a storage slot as having been refunded (0→X→0).
-   *
-   * @param address the account address
-   * @param key the storage key
-   * @return true if newly added
-   */
-  public boolean claimStateGasSlotRefund(final Address address, final Bytes32 key) {
-    if (txValues.stateGasRefundedSlots().contains(address, key)) {
-      return false;
-    }
-    txValues.stateGasRefundedSlots().put(address, key, Boolean.TRUE);
-    return true;
-  }
-
-  /**
-   * EIP-8037 dedup ledger query: whether a slot is in the charged-slots ledger.
-   *
-   * @param address the account address
-   * @param key the storage key
-   * @return true if the slot has been charged
-   */
-  public boolean isStateGasNewSlotCharged(final Address address, final Bytes32 key) {
-    return txValues.stateGasChargedSlots().contains(address, key);
-  }
-
-  /**
-   * EIP-8037 dedup ledger query: whether a slot is in the refunded-slots ledger.
-   *
-   * @param address the account address
-   * @param key the storage key
-   * @return true if the slot has been refunded
-   */
-  public boolean isStateGasSlotRefunded(final Address address, final Bytes32 key) {
-    return txValues.stateGasRefundedSlots().contains(address, key);
-  }
-
-  /**
-   * EIP-8037 dedup ledger query: whether an address is in the charged-accounts ledger.
-   *
-   * @param address the address
-   * @return true if the address has been charged
-   */
-  public boolean isStateGasNewAccountCharged(final Address address) {
-    return txValues.stateGasChargedAccounts().contains(address);
-  }
-
-  /**
-   * EIP-8037 dedup ledger query: whether an address is in the charged-code-deposits ledger.
-   *
-   * @param address the address
-   * @return true if the address has been charged
-   */
-  public boolean isStateGasCodeDepositCharged(final Address address) {
-    return txValues.stateGasChargedCodeDeposits().contains(address);
-  }
-
-  /**
-   * EIP-8037: marks an event index as accounted. Subsequent ancestor aggregations will skip it.
-   * Returns true if the index was newly added.
-   *
-   * @param index the event index
-   * @return true if newly added
-   */
-  public boolean markStateGasEventAccounted(final int index) {
-    return txValues.stateGasAccountedEventIndices().add(index);
-  }
-
-  /**
-   * EIP-8037: returns whether an event index has already been accounted.
-   *
-   * @param index the event index
-   * @return true if already accounted
-   */
-  public boolean isStateGasEventAccounted(final int index) {
-    return txValues.stateGasAccountedEventIndices().contains(index);
   }
 
   /**
@@ -1566,10 +1522,12 @@ public class MessageFrame {
    * Advances the undo mark to the current point, so that subsequent rollback() calls will not undo
    * changes made before this point. Used by the transaction processor to protect intrinsic state
    * gas charges (EIP-8037 auth delegation and contract creation) from being rolled back when the
-   * initial frame's execution reverts.
+   * initial frame's execution reverts. Also re-snapshots {@code frameEntryStateGasUsed} so the
+   * byte-diff at frame-end doesn't treat intrinsic charges as "already paid by descendants".
    */
   public void advanceUndoMark() {
     this.undoMark = txValues.transientStorage().mark();
+    this.frameEntryStateGasUsed = txValues.stateGasUsed().get();
   }
 
   /**

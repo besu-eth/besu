@@ -144,10 +144,47 @@ public abstract class AbstractMessageProcessor {
    * @param frame The message frame
    */
   private void exceptionalHalt(final MessageFrame frame) {
-    clearAccumulatedStateBesidesGasAndOutput(frame);
+    rollbackPreservingDescendantStateGas(frame);
     frame.clearGasRemaining();
     frame.clearOutputData();
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
+    traceFrameExit(frame, "HALT");
+  }
+
+  /**
+   * Roll the frame back via {@link MessageFrame#rollback()}, any state-gas charged by successful
+   * descendants (which {@code UndoScalar} would otherwise discard) is preserved as a reservoir
+   * credit on the parent. The post-rollback reservoir target is {@code descendantStateGas + Re},
+   * where {@code Re} is {@code state_gas_reservoir} at the failing frame's exit and {@code
+   * descendantStateGas = state_gas_used - frame_entry_state_gas_used}. No-op for the pre-Amsterdam
+   * path where {@code stateGasCostCalculator().isActive()} returns false.
+   */
+  private void rollbackPreservingDescendantStateGas(final MessageFrame frame) {
+    final boolean active =
+        evm != null && evm.getGasCalculator().stateGasCostCalculator().isActive();
+    final long preserved =
+        active
+            ? frame.getStateGasReservoir()
+                + Math.max(0L, frame.getStateGasUsed() - frame.getFrameEntryStateGasUsed())
+            : 0L;
+    clearAccumulatedStateBesidesGasAndOutput(frame);
+    if (active) {
+      frame.setStateGasReservoir(preserved);
+    }
+  }
+
+  private void traceFrameExit(final MessageFrame frame, final String status) {
+    if (!org.hyperledger.besu.evm.frame.Eip8037Trace.ENABLED) {
+      return;
+    }
+    final org.hyperledger.besu.datatypes.Address addr = frame.getContractAddress();
+    org.hyperledger.besu.evm.frame.Eip8037Trace.frameExit(
+        frame.getMessageStackSize(),
+        addr == null ? "" : addr.toHexString(),
+        status,
+        frame.getRemainingGas(),
+        frame.getStateGasReservoir(),
+        frame.getStateGasUsed());
   }
 
   /**
@@ -158,8 +195,9 @@ public abstract class AbstractMessageProcessor {
    * @param frame The message frame
    */
   protected void revert(final MessageFrame frame) {
-    clearAccumulatedStateBesidesGasAndOutput(frame);
+    rollbackPreservingDescendantStateGas(frame);
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
+    traceFrameExit(frame, "REVERT");
   }
 
   /**
@@ -171,12 +209,17 @@ public abstract class AbstractMessageProcessor {
    */
   private void completedSuccess(final MessageFrame frame) {
     if (!evm.getGasCalculator().stateGasCostCalculator().applyFrameEndStateGasAccounting(frame)) {
+      // EIP-8037: state-gas OOG at frame-end is a "soft" failure. We preserve the unspent
+      // gas_left (only state changes are rolled back via restore_tx_state) so the parent can
+      // recover it via the call/create completion flow. Skip clearGasRemaining here.
       frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
-      exceptionalHalt(frame);
-      // exceptionalHalt sets state to COMPLETED_FAILED; the outer process() loop pops the stack.
+      rollbackPreservingDescendantStateGas(frame);
+      frame.setState(MessageFrame.State.COMPLETED_FAILED);
+      traceFrameExit(frame, "STATE_OOG");
       return;
     }
     frame.getWorldUpdater().commit();
+    traceFrameExit(frame, "SUCCESS");
     frame.getMessageFrameStack().removeFirst();
     frame.notifyCompletion();
   }

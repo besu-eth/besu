@@ -147,7 +147,12 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
             frame, Optional.of(ExceptionalHaltReason.ILLEGAL_STATE_CHANGE));
       } else {
         frame.addCreate(contractAddress);
-        if (evm.getGasCalculator().stateGasCostCalculator().isActive()) {
+        // EIP-8037: Only record AccountCreated for nested CREATEs (depth > 0). The top-level
+        // contract-creation tx pays for the new account via the tx-level intrinsic state-gas
+        // pre-charge, mirroring EELS where the diff_snapshot is taken AFTER nonce increment so
+        // the contract account "pre-exists" the byte-diff window.
+        if (evm.getGasCalculator().stateGasCostCalculator().isActive()
+            && frame.getMessageStackSize() > 1) {
           frame.recordAccountCreated(contractAddress);
         }
         contract.incrementBalance(frame.getValue());
@@ -158,6 +163,12 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
 
         contract.setNonce(initialContractNonce);
         contract.clearStorage();
+        // EIP-8037: re-anchor the byte-diff window so the AccountCreated event we just emitted
+        // belongs to the parent's range only. Without this, the CREATE child double-charges
+        // the +112 bytes (once here and once when the parent's range aggregates the event).
+        if (evm.getGasCalculator().stateGasCostCalculator().isActive()) {
+          frame.advanceStateGasFrameStartIndex();
+        }
         frame.setState(MessageFrame.State.CODE_EXECUTING);
       }
     } catch (final ModificationNotAllowedException ex) {

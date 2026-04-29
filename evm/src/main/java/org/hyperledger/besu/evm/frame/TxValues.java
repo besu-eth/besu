@@ -58,17 +58,6 @@ import org.apache.tuweni.bytes.Bytes32;
  *     undone on revert
  * @param stateChanges EIP-8037: append-only log of state-change events recorded at the opcode site;
  *     consumed by frame-end aggregation. Undone on revert.
- * @param stateGasChargedAccounts EIP-8037 dedup ledger: addresses already charged the new-account
- *     state gas at frame-end. Undone on revert.
- * @param stateGasChargedCodeDeposits EIP-8037 dedup ledger: addresses already charged the code
- *     deposit state gas at frame-end. Undone on revert.
- * @param stateGasChargedSlots EIP-8037 dedup ledger: storage slots already charged the new-slot
- *     state gas at frame-end. Undone on revert.
- * @param stateGasRefundedSlots EIP-8037 dedup ledger: storage slots already refunded for the
- *     0->X->0 case at frame-end. Undone on revert.
- * @param stateGasAccountedEventIndices EIP-8037: indices into {@code stateChanges} already consumed
- *     by some frame's aggregation. Prevents an ancestor frame from re-aggregating a successful
- *     descendant's events. Undone on revert.
  */
 public record TxValues(
     BlockHashLookup blockHashLookup,
@@ -88,12 +77,7 @@ public record TxValues(
     UndoScalar<Long> gasRefunds,
     UndoScalar<Long> stateGasUsed,
     UndoScalar<Long> stateGasReservoir,
-    UndoList<StateChange> stateChanges,
-    UndoSet<Address> stateGasChargedAccounts,
-    UndoSet<Address> stateGasChargedCodeDeposits,
-    UndoTable<Address, Bytes32, Boolean> stateGasChargedSlots,
-    UndoTable<Address, Bytes32, Boolean> stateGasRefundedSlots,
-    UndoSet<Integer> stateGasAccountedEventIndices) {
+    UndoList<StateChange> stateChanges) {
 
   /**
    * Creates a new TxValues for the initial (depth-0) frame of a transaction. EIP-8037 gas tracking
@@ -138,12 +122,7 @@ public record TxValues(
         new UndoScalar<>(0L),
         new UndoScalar<>(0L),
         new UndoScalar<>(0L),
-        new UndoList<>(new ArrayList<>()),
-        UndoSet.of(new HashSet<>()),
-        UndoSet.of(new HashSet<>()),
-        UndoTable.of(HashBasedTable.create()),
-        UndoTable.of(HashBasedTable.create()),
-        UndoSet.of(new HashSet<>()));
+        new UndoList<>(new ArrayList<>()));
   }
 
   /**
@@ -161,10 +140,5 @@ public record TxValues(
     stateGasUsed.undo(mark);
     stateGasReservoir.undo(mark);
     stateChanges.undo(mark);
-    stateGasChargedAccounts.undo(mark);
-    stateGasChargedCodeDeposits.undo(mark);
-    stateGasChargedSlots.undo(mark);
-    stateGasRefundedSlots.undo(mark);
-    stateGasAccountedEventIndices.undo(mark);
   }
 }
