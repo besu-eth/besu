@@ -35,7 +35,7 @@ import org.slf4j.LoggerFactory;
  * The EngineForkchoiceUpdatedV5 method for Bogotà fork with inclusionListTransaction support
  * (EIP-7805).
  */
-public class EngineForkchoiceUpdatedV5 extends AbstractEngineForkchoiceUpdated {
+public class EngineForkchoiceUpdatedV5 extends AbstractEngineForkchoiceUpdatedV4 {
 
   private static final Logger LOG = LoggerFactory.getLogger(EngineForkchoiceUpdatedV5.class);
 

@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static java.util.stream.Collectors.toList;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.SYNCING;
@@ -79,6 +80,8 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
   /** Amsterdam activation timestamp, if scheduled. */
   protected final Optional<Long> amsterdamMilestone;
 
+  protected final Optional<Long> bogotaMilestone;
+
   /**
    * Instantiates a new V4-spec abstract engine forkchoice updated.
    *
@@ -99,6 +102,7 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
     this.mergeCoordinator = mergeCoordinator;
     cancunMilestone = protocolSchedule.milestoneFor(CANCUN);
     amsterdamMilestone = protocolSchedule.milestoneFor(AMSTERDAM);
+    bogotaMilestone = protocolSchedule.milestoneFor(BOGOTA);
   }
 
   /**
