@@ -123,6 +123,11 @@ public class MessageCallProcessor extends AbstractMessageProcessor {
    *
    * <p>Assumes that the transaction has been validated so that the sender has the required fund as
    * of the world state of this executor.
+   *
+   * <p>EIP-8037 (PR 11573): the AccountCreated event for value transfer to a non-existent recipient
+   * is recorded by {@link org.hyperledger.besu.evm.operation.AbstractCallOperation} on the parent's
+   * CALL opcode (after the insufficient-balance / depth checks pass), so this method does not
+   * record events directly.
    */
   private void transferValue(final MessageFrame frame) {
     final MutableAccount senderAccount = frame.getWorldUpdater().getSenderAccount(frame);
@@ -181,10 +186,6 @@ public class MessageCallProcessor extends AbstractMessageProcessor {
       final PrecompiledContract contract,
       final MessageFrame frame,
       final OperationTracer operationTracer) {
-    // EIP-7778/EIP-8037: precompile execution counts as code execution for the purpose of
-    // halt-burn classification — an OOG halt below should NOT be treated as a pre-execution
-    // halt and excluded from block regular gas.
-    frame.markCodeExecuted();
     final long gasRequirement = contract.gasRequirement(frame.getInputData());
     final Bytes output;
     if (frame.getRemainingGas() < gasRequirement) {

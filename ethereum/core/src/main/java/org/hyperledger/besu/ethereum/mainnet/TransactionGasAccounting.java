@@ -20,11 +20,11 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Encapsulates the gas accounting logic for transaction processing, including EIP-8037
- * multidimensional gas.
+ * multidimensional gas under the frame-end accounting model from PR 11573.
  *
- * <p>This extracts the complex gas computation from {@link MainnetTransactionProcessor} into a
- * testable, stateless helper. Uses a generated builder (via Immutables) to prevent parameter
- * ordering mistakes — the many long fields are easily confused without named setters.
+ * <p>This extracts the gas computation from {@link MainnetTransactionProcessor} into a testable,
+ * stateless helper. Uses a generated builder (via Immutables) to prevent parameter ordering
+ * mistakes — the many long fields are easily confused without named setters.
  *
  * <p>Usage: {@code TransactionGasAccounting.builder().txGasLimit(...).remainingGas(...)...
  * .build().calculate()}
@@ -49,22 +49,6 @@ public abstract class TransactionGasAccounting {
   /** State gas consumed by the initial frame. */
   public abstract long stateGasUsed();
 
-  /** State gas spilled from the initial frame's own revert/halt. */
-  public abstract long initialFrameStateGasSpill();
-
-  /** Total state gas spilled into gasRemaining from reverted frames. */
-  public abstract long stateGasSpillBurned();
-
-  /**
-   * Gas that was sitting unused in the initial frame's gasRemaining at the moment of an exceptional
-   * halt (EIP-7778/EIP-8037). Paid by the sender (receipts) but must be excluded from block regular
-   * gas since no operation consumed it.
-   */
-  @Value.Default
-  public long initialFrameRegularHaltBurn() {
-    return 0L;
-  }
-
   /** Gas refunded to the sender. */
   public abstract long refundedGas();
 
@@ -85,10 +69,11 @@ public abstract class TransactionGasAccounting {
    * <p>Two paths:
    *
    * <ul>
-   *   <li><b>regularGasLimitExceeded=true:</b> All gas consumed. effectiveStateGas = stateGasUsed +
-   *       initialFrameStateGasSpill.
-   *   <li><b>regularGasLimitExceeded=false:</b> Computes executionGas, stateGas, regularGas with
-   *       double-counting avoidance. Floor cost applies to regularGas only.
+   *   <li><b>regularGasLimitExceeded=true:</b> All gas consumed. effectiveStateGas = stateGasUsed.
+   *   <li><b>regularGasLimitExceeded=false:</b> Computes executionGas, stateGas, regularGas via the
+   *       frame-end accounting invariant: regularGas = executionGas - stateGas (no spill
+   *       bookkeeping under PR 11573 since opcodes never charge state gas inline). Floor cost
+   *       applies to regularGas only.
    * </ul>
    *
    * @return the gas result containing effectiveStateGas, gasUsedByTransaction, and usedGas
@@ -99,26 +84,20 @@ public abstract class TransactionGasAccounting {
       return new GasResult(effectiveStateGas, txGasLimit(), txGasLimit());
     }
 
-    // EIP-8037: Include leftover reservoir in remaining gas for execution gas calculation
+    // EIP-8037: Include leftover reservoir in remaining gas for execution gas calculation.
     final long executionGas = txGasLimit() - remainingGas() - stateGasReservoir();
-    // EIP-8037: block_state_gas_used = intrinsic_state +
-    // execution_state, both captured by stateGasUsed (intrinsic preserved by advanceUndoMark,
-    // execution undone on top-level revert). Burned spill (state-gas spillover that wasn't
-    // restored due to no-growth refunds in failed frames) is sender-paid but not counted in
-    // either block dimension — exclude it from regularGas as well, matching EELS where state
-    // gas spillover never increments regular_gas_used.
+    // Under PR 11573 frame-end accounting: stateGasUsed captures the entire state-gas tally
+    // (intrinsic + frame-end aggregates). regularGas is what's left.
     final long stateGas = stateGasUsed();
-    final long regularGas =
-        executionGas - stateGas - stateGasSpillBurned() - initialFrameRegularHaltBurn();
+    final long regularGas = executionGas - stateGas;
     if (regularGas < 0) {
       // This should not happen under normal circumstances. A negative regularGas indicates a
       // bug in gas accounting — log at error level to ensure visibility.
       LOG.error(
-          "Negative regularGas={} (executionGas={}, stateGas={}, spillBurned={})",
+          "Negative regularGas={} (executionGas={}, stateGas={})",
           regularGas,
           executionGas,
-          stateGas,
-          stateGasSpillBurned());
+          stateGas);
     }
     final long gasUsedByTransaction = Math.max(regularGas, floorCost()) + stateGas;
     final long usedGas = txGasLimit() - refundedGas();

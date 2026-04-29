@@ -198,10 +198,6 @@ public class MessageFrame {
   // Metadata fields.
   private final Type type;
   private State state = State.NOT_STARTED;
-  // EIP-7778/EIP-8037: Flipped to true once code execution starts; used to distinguish a halt
-  // that fires during opcode execution (halt-burn counts toward block regular gas) from a halt
-  // raised pre-execution in the processor's start() (halt-burn must be excluded).
-  private boolean codeExecuted = false;
 
   // Machine state fields.
   private long gasRemaining;
@@ -215,7 +211,6 @@ public class MessageFrame {
   private final int stackMaxSizeV2;
   private Bytes output = Bytes.EMPTY;
   private Bytes returnData = Bytes.EMPTY;
-  private Code createdCode = null;
   private final boolean isStatic;
 
   // Transaction state fields.
@@ -247,6 +242,13 @@ public class MessageFrame {
 
   /** The mark of the undoable collections at the creation of this message frame */
   private long undoMark;
+
+  /**
+   * EIP-8037: index into {@link TxValues#stateChanges()} captured at frame construction. Frame-end
+   * aggregation walks events from this index onwards (skipping ones already accounted by a
+   * descendant). On rollback, the {@code UndoList} truncates events recorded since this point.
+   */
+  private final int stateGasFrameStartIndex;
 
   /**
    * Builder builder.
@@ -298,6 +300,7 @@ public class MessageFrame {
     this.revertReason = revertReason;
     this.eip7928AccessList = eip7928AccessList;
     this.undoMark = txValues.transientStorage().mark();
+    this.stateGasFrameStartIndex = txValues.stateChanges().size();
   }
 
   /**
@@ -377,24 +380,6 @@ public class MessageFrame {
    */
   public void setOutputData(final Bytes output) {
     this.output = output;
-  }
-
-  /**
-   * Sets the created code from CREATE* operations
-   *
-   * @param createdCode the code that was created
-   */
-  public void setCreatedCode(final Code createdCode) {
-    this.createdCode = createdCode;
-  }
-
-  /**
-   * gets the created code from CREATE* operations
-   *
-   * @return the code that was created
-   */
-  public Code getCreatedCode() {
-    return createdCode;
   }
 
   /** Clears the output data buffer. */
@@ -880,35 +865,13 @@ public class MessageFrame {
   }
 
   /**
-   * Decrement the state gas used (EIP-8037). Used for refunds (e.g., SSTORE 0→X→0 restoration,
-   * CREATE silent failure, same-tx SELFDESTRUCT). This is undone on revert via UndoScalar,
-   * providing per-frame scoping for refunds that propagate to parents only on full success.
+   * Decrement the state gas used (EIP-8037). Used by frame-end aggregation refunds (SSTORE 0→X→0)
+   * and the tx-end same-tx SELFDESTRUCT refund. Undone on revert via UndoScalar.
    *
    * @param amount The amount of state gas to subtract
    */
   public void decrementStateGasUsed(final long amount) {
     txValues.stateGasUsed().set(txValues.stateGasUsed().get() - amount);
-  }
-
-  /**
-   * Records a no-growth state gas refund. Used by refundStorageSetStateGas, refundCreateStateGas,
-   * and refundSameTransactionSelfDestructStateGas so that {@code handleStateGasSpill} can subtract
-   * refunds-in-scope from spill credit on revert/halt — the refund must contribute nothing to a
-   * parent's reservoir when any frame in the chain fails.
-   *
-   * @param amount The refund amount being applied to state_gas_reservoir
-   */
-  public void recordNoGrowthStateGasRefund(final long amount) {
-    txValues.noGrowthStateGasRefunds().set(txValues.noGrowthStateGasRefunds().get() + amount);
-  }
-
-  /**
-   * Returns the cumulative no-growth state gas refunds applied so far.
-   *
-   * @return the cumulative refunds
-   */
-  public long getNoGrowthStateGasRefunds() {
-    return txValues.noGrowthStateGasRefunds().get();
   }
 
   /**
@@ -972,88 +935,191 @@ public class MessageFrame {
   }
 
   /**
-   * Consumes state gas, draining all available gas even when the full amount cannot be covered.
-   * Always increments stateGasUsed by the full amount regardless of gas availability. Used when a
-   * transaction-level (depth-0) contract creation fails after state gas has been partially
-   * committed: we must record the charge for block accounting even though execution fails.
+   * EIP-8037: Records a state-change event at the SSTORE opcode site. Aggregated at frame-end to
+   * compute the net state-gas charge.
    *
-   * @param amount the amount of state gas to consume
-   * @return true if sufficient gas was available, false if gas was insufficient (but drained
-   *     anyway)
+   * @param address the account address whose slot was written
+   * @param key the storage key
+   * @param txEntryIsZero whether the slot's value was zero at tx-entry
+   * @param beforeIsZero whether the slot's value was zero immediately before this SSTORE
+   * @param afterIsZero whether the new value being written is zero
    */
-  public boolean consumeStateGasForced(final long amount) {
-    final long reservoir = txValues.stateGasReservoir().get();
-    if (reservoir >= amount) {
-      txValues.stateGasReservoir().set(reservoir - amount);
-      txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
-      return true;
-    } else {
-      final long overflow = amount - reservoir;
-      txValues.stateGasReservoir().set(0L);
-      final boolean sufficient = gasRemaining >= overflow;
-      gasRemaining = Math.max(0L, gasRemaining - overflow);
-      txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
-      return sufficient;
+  public void recordStorageChange(
+      final Address address,
+      final Bytes32 key,
+      final boolean txEntryIsZero,
+      final boolean beforeIsZero,
+      final boolean afterIsZero) {
+    txValues
+        .stateChanges()
+        .add(new StateChange.Storage(address, key, txEntryIsZero, beforeIsZero, afterIsZero));
+  }
+
+  /**
+   * EIP-8037: Records that an account was created at the given address. Recorded by CREATE/CREATE2,
+   * by CALL-with-value-creates-recipient, and by SELFDESTRUCT-creates-inheritor. Aggregated at
+   * frame-end.
+   *
+   * @param address the address of the newly created account
+   */
+  public void recordAccountCreated(final Address address) {
+    txValues.stateChanges().add(new StateChange.AccountCreated(address));
+  }
+
+  /**
+   * EIP-8037: Records a code deposit. Aggregated at frame-end.
+   *
+   * @param address the contract address
+   * @param codeLength the deposited code length in bytes
+   */
+  public void recordCodeDeposit(final Address address, final int codeLength) {
+    txValues.stateChanges().add(new StateChange.CodeDeposit(address, codeLength));
+  }
+
+  /**
+   * EIP-8037: Returns the index into the tx-wide state-change log captured at this frame's
+   * construction. Aggregation walks events in {@code [stateGasFrameStartIndex,
+   * stateChanges.size())} for this frame.
+   *
+   * @return the frame-start event index
+   */
+  public int getStateGasFrameStartIndex() {
+    return stateGasFrameStartIndex;
+  }
+
+  /**
+   * EIP-8037: Returns the per-tx state-change event log. Used by frame-end aggregation.
+   *
+   * @return the state change list
+   */
+  public List<StateChange> getStateChanges() {
+    return txValues.stateChanges();
+  }
+
+  /**
+   * EIP-8037 dedup ledger: marks an address as having been charged the new-account state gas for
+   * this transaction. Returns true if the address was newly added (caller should apply the charge),
+   * false if already claimed by an earlier-aggregating frame in the same call stack.
+   *
+   * @param address the address to claim
+   * @return true if newly added
+   */
+  public boolean claimStateGasNewAccountCharge(final Address address) {
+    return txValues.stateGasChargedAccounts().add(address);
+  }
+
+  /**
+   * EIP-8037 dedup ledger: marks an address as having been charged code-deposit state gas.
+   *
+   * @param address the address to claim
+   * @return true if newly added
+   */
+  public boolean claimStateGasCodeDepositCharge(final Address address) {
+    return txValues.stateGasChargedCodeDeposits().add(address);
+  }
+
+  /**
+   * EIP-8037 dedup ledger: marks a storage slot as having been charged new-slot state gas.
+   *
+   * @param address the account address
+   * @param key the storage key
+   * @return true if newly added
+   */
+  public boolean claimStateGasNewSlotCharge(final Address address, final Bytes32 key) {
+    if (txValues.stateGasChargedSlots().contains(address, key)) {
+      return false;
     }
+    txValues.stateGasChargedSlots().put(address, key, Boolean.TRUE);
+    return true;
   }
 
   /**
-   * Accumulates state gas that spilled into gasRemaining in a reverted child frame (EIP-8037). This
-   * counter is NOT undone on revert — it tracks permanently burned spill gas for block accounting.
+   * EIP-8037 dedup ledger: removes a storage slot's charge claim (used when the slot is being
+   * refunded for the 0→X→0 pattern in a frame that aggregates after the charging frame).
    *
-   * @param amount the spill amount to accumulate
+   * @param address the account address
+   * @param key the storage key
    */
-  public void accumulateStateGasSpillBurned(final long amount) {
-    txValues.stateGasSpillBurned()[0] += amount;
+  public void releaseStateGasNewSlotCharge(final Address address, final Bytes32 key) {
+    txValues.stateGasChargedSlots().remove(address, key);
   }
 
   /**
-   * Returns the total state gas spill burned by reverted child frames (EIP-8037).
+   * EIP-8037 dedup ledger: marks a storage slot as having been refunded (0→X→0).
    *
-   * @return accumulated spill burned
+   * @param address the account address
+   * @param key the storage key
+   * @return true if newly added
    */
-  public long getStateGasSpillBurned() {
-    return txValues.stateGasSpillBurned()[0];
+  public boolean claimStateGasSlotRefund(final Address address, final Bytes32 key) {
+    if (txValues.stateGasRefundedSlots().contains(address, key)) {
+      return false;
+    }
+    txValues.stateGasRefundedSlots().put(address, key, Boolean.TRUE);
+    return true;
   }
 
   /**
-   * Accumulates gas that was sitting unused in the initial frame's gasRemaining at the moment of an
-   * exceptional halt (EIP-7778/EIP-8037). The sender still pays for this gas via receipts, but it
-   * did not correspond to any executed regular or state gas, so it must be excluded from the block
-   * regular gas total. Not undone on revert.
+   * EIP-8037 dedup ledger query: whether a slot is in the charged-slots ledger.
    *
-   * @param amount the gasRemaining snapshot taken immediately before clearGasRemaining on the
-   *     initial frame's exceptional halt
+   * @param address the account address
+   * @param key the storage key
+   * @return true if the slot has been charged
    */
-  public void accumulateInitialFrameRegularHaltBurn(final long amount) {
-    txValues.initialFrameRegularHaltBurn()[0] += amount;
+  public boolean isStateGasNewSlotCharged(final Address address, final Bytes32 key) {
+    return txValues.stateGasChargedSlots().contains(address, key);
   }
 
   /**
-   * Returns the gas burned on the initial frame's exceptional halt.
+   * EIP-8037 dedup ledger query: whether a slot is in the refunded-slots ledger.
    *
-   * @return accumulated halt-burned gas
+   * @param address the account address
+   * @param key the storage key
+   * @return true if the slot has been refunded
    */
-  public long getInitialFrameRegularHaltBurn() {
-    return txValues.initialFrameRegularHaltBurn()[0];
+  public boolean isStateGasSlotRefunded(final Address address, final Bytes32 key) {
+    return txValues.stateGasRefundedSlots().contains(address, key);
   }
 
   /**
-   * Marks that opcode execution has started on this frame. Once set, an exceptional halt is
-   * classified as "during code execution" (halt-burned gas counts toward block regular gas) rather
-   * than pre-execution (halt-burned gas is excluded).
-   */
-  public void markCodeExecuted() {
-    this.codeExecuted = true;
-  }
-
-  /**
-   * Returns whether opcode execution has started on this frame.
+   * EIP-8037 dedup ledger query: whether an address is in the charged-accounts ledger.
    *
-   * @return true if {@link #markCodeExecuted()} was invoked
+   * @param address the address
+   * @return true if the address has been charged
    */
-  public boolean isCodeExecuted() {
-    return codeExecuted;
+  public boolean isStateGasNewAccountCharged(final Address address) {
+    return txValues.stateGasChargedAccounts().contains(address);
+  }
+
+  /**
+   * EIP-8037 dedup ledger query: whether an address is in the charged-code-deposits ledger.
+   *
+   * @param address the address
+   * @return true if the address has been charged
+   */
+  public boolean isStateGasCodeDepositCharged(final Address address) {
+    return txValues.stateGasChargedCodeDeposits().contains(address);
+  }
+
+  /**
+   * EIP-8037: marks an event index as accounted. Subsequent ancestor aggregations will skip it.
+   * Returns true if the index was newly added.
+   *
+   * @param index the event index
+   * @return true if newly added
+   */
+  public boolean markStateGasEventAccounted(final int index) {
+    return txValues.stateGasAccountedEventIndices().add(index);
+  }
+
+  /**
+   * EIP-8037: returns whether an event index has already been accounted.
+   *
+   * @param index the event index
+   * @return true if already accounted
+   */
+  public boolean isStateGasEventAccounted(final int index) {
+    return txValues.stateGasAccountedEventIndices().contains(index);
   }
 
   /**
