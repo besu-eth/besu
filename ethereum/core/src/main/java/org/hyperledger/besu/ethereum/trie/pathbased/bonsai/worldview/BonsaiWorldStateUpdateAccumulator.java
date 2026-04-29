@@ -28,9 +28,13 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.UpdateTrackingAccount;
 
+import java.util.HashSet;
+import java.util.Set;
+
 public class BonsaiWorldStateUpdateAccumulator
     extends PathBasedWorldStateUpdateAccumulator<BonsaiAccount> {
   private final CodeCache codeCache;
+  private final Set<Address> frontierDirtyAddresses = new HashSet<>();
 
   public BonsaiWorldStateUpdateAccumulator(
       final PathBasedWorldView world,
@@ -43,17 +47,16 @@ public class BonsaiWorldStateUpdateAccumulator
     this.codeCache = codeCache;
   }
 
+  /** Copy constructor. */
+  protected BonsaiWorldStateUpdateAccumulator(final BonsaiWorldStateUpdateAccumulator source) {
+    super(source);
+    this.codeCache = source.codeCache;
+    this.frontierDirtyAddresses.addAll(source.frontierDirtyAddresses);
+  }
+
   @Override
-  public PathBasedWorldStateUpdateAccumulator<BonsaiAccount> copy() {
-    final BonsaiWorldStateUpdateAccumulator copy =
-        new BonsaiWorldStateUpdateAccumulator(
-            wrappedWorldView(),
-            getAccountPreloader(),
-            getStoragePreloader(),
-            getEvmConfiguration(),
-            codeCache);
-    copy.cloneFromUpdater(this);
-    return copy;
+  public BonsaiWorldStateUpdateAccumulator copy() {
+    return new BonsaiWorldStateUpdateAccumulator(this);
   }
 
   @Override
@@ -100,6 +103,36 @@ public class BonsaiWorldStateUpdateAccumulator
   protected void assertCloseEnoughForDiffing(
       final BonsaiAccount source, final AccountValue account, final String context) {
     BonsaiAccount.assertCloseEnoughForDiffing(source, account, context);
+  }
+
+  @Override
+  public void commit() {
+    super.commit();
+    getDeletedAccountAddresses().forEach(frontierDirtyAddresses::add);
+    getUpdatedAccounts().forEach(account -> frontierDirtyAddresses.add(account.getAddress()));
+  }
+
+  @Override
+  public void importStateChangesFromSource(
+      final PathBasedWorldStateUpdateAccumulator<BonsaiAccount> source) {
+    super.importStateChangesFromSource(source);
+    // Parallel tx processing imports state changes here instead of via commit(),
+    // so frontierDirtyAddresses must be populated on this path as well.
+    frontierDirtyAddresses.addAll(source.getAccountsToUpdate().keySet());
+  }
+
+  public Set<Address> getFrontierDirtyAddresses() {
+    return new HashSet<>(frontierDirtyAddresses);
+  }
+
+  public void clearFrontierDirtyAddresses(final Set<Address> processed) {
+    frontierDirtyAddresses.removeAll(processed);
+  }
+
+  @Override
+  public void reset() {
+    super.reset();
+    frontierDirtyAddresses.clear();
   }
 
   @Override
