@@ -657,7 +657,7 @@ public class EthPeer implements Comparable<EthPeer> {
    *
    * @return p50 latency
    */
-  public double getP50Latency() {
+  public long getP50Latency() {
     return computePercentile(50);
   }
 
@@ -666,7 +666,7 @@ public class EthPeer implements Comparable<EthPeer> {
    *
    * @return p95 latency
    */
-  public double getP95Latency() {
+  public long getP95Latency() {
     return computePercentile(95);
   }
 
@@ -675,7 +675,7 @@ public class EthPeer implements Comparable<EthPeer> {
    *
    * @return p99 latency
    */
-  public double getP99Latency() {
+  public long getP99Latency() {
     return computePercentile(99);
   }
 
@@ -693,7 +693,7 @@ public class EthPeer implements Comparable<EthPeer> {
    *
    * @return total bytes transferred
    */
-  public double getTotalBytesTransferred() {
+  public long getTotalBytesTransferred() {
     return totalBytesTransferred;
   }
 
