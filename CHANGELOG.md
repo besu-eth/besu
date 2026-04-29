@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 26.5.0
 
 ### Breaking Changes
 - Plugin API
