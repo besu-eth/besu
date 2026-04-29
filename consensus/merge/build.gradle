@@ -63,4 +63,6 @@ dependencies {
   testImplementation 'org.mockito:mockito-core'
   testImplementation 'org.mockito:mockito-junit-jupiter'
   testImplementation project(':ethereum:core')
+  testImplementation project(path: ':ethereum:eth', configuration: 'testArtifacts')
+  testImplementation project(path: ':ethereum:eth', configuration: 'testSupportArtifacts')
 }

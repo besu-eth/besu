@@ -737,8 +737,10 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
         setNewHead(blockchain, latestValid, newFinalized, newHead);
 
     return switch (forkchoiceResult.getStatus()) {
-      case VALID ->
-          applyForkchoiceFinalizedAndSafe(blockchain, newFinalized, safeBlockHash, newHead);
+      case VALID -> {
+        applyForkchoiceFinalizedAndSafe(blockchain, newFinalized, safeBlockHash);
+        yield forkchoiceResult;
+      }
       case DECLINED_CANONICAL_REWIND -> {
         startBackwardSyncAfterTrieLogBudgetExceeded(newHead);
         yield ForkchoiceResult.withSyncing();
@@ -758,11 +760,10 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
         && isDescendantOf(newHead, blockchain.getChainHeadHeader());
   }
 
-  private ForkchoiceResult applyForkchoiceFinalizedAndSafe(
+  private void applyForkchoiceFinalizedAndSafe(
       final MutableBlockchain blockchain,
       final Optional<BlockHeader> newFinalized,
-      final Hash safeBlockHash,
-      final BlockHeader newHead) {
+      final Hash safeBlockHash) {
     newFinalized.ifPresent(
         blockHeader -> {
           blockchain.setFinalized(blockHeader.getHash());
@@ -775,7 +776,6 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
               blockchain.setSafeBlock(safeBlockHash);
               mergeContext.setSafeBlock(newSafeBlock);
             });
-    return ForkchoiceResult.withResult(newFinalized, Optional.of(newHead));
   }
 
   private void startBackwardSyncAfterTrieLogBudgetExceeded(final BlockHeader newHead) {

@@ -203,14 +203,14 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
     maybePayloadAttributes.ifPresentOrElse(
         this::logPayload, () -> LOG.debug("Payload attributes are null"));
 
-    /*if (forkchoiceResult.shouldNotProceedToPayloadBuildProcess()) {
+    if (forkchoiceResult.shouldNotProceedToPayloadBuildProcess()) {
       if (ForkchoiceResult.Status.DECLINED_CANONICAL_REWIND.equals(forkchoiceResult.getStatus())) {
         logAtInfoFCUCall(VALID, forkChoice);
       } else {
         logAtInfoFCUCall(INVALID, forkChoice);
       }
       return handleNonValidForkchoiceUpdate(requestId, forkchoiceResult);
-    }*/
+    }
 
     // begin preparing a block if we have a non-empty payload attributes param
     final Optional<List<Withdrawal>> finalWithdrawals = withdrawals;

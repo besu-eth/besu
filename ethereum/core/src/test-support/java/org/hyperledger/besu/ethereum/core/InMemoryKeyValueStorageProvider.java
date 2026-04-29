@@ -33,10 +33,13 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMer
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.ServiceManager;
+import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
@@ -111,6 +114,32 @@ public class InMemoryKeyValueStorageProvider extends KeyValueStorageProvider {
                 DataStorageConfiguration.DEFAULT_BONSAI_CONFIG),
         blockchain,
         DataStorageConfiguration.DEFAULT_BONSAI_CONFIG.getPathBasedExtraStorageConfiguration(),
+        bonsaiCachedMerkleTrieLoader,
+        serviceManager,
+        evmConfiguration,
+        throwingWorldStateHealerSupplier(),
+        new CodeCache());
+  }
+
+  public static BonsaiWorldStateProvider createBonsaiInMemoryWorldStateArchive(
+      final Blockchain blockchain,
+      final EvmConfiguration evmConfiguration,
+      final ServiceManager serviceManager,
+      final PathBasedExtraStorageConfiguration storageConfig) {
+    final DataStorageConfiguration dataConfig =
+        ImmutableDataStorageConfiguration.builder()
+            .dataStorageFormat(DataStorageFormat.BONSAI)
+            .pathBasedExtraStorageConfiguration(storageConfig)
+            .build();
+    final InMemoryKeyValueStorageProvider inMemoryKeyValueStorageProvider =
+        new InMemoryKeyValueStorageProvider();
+    final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader =
+        new BonsaiCachedMerkleTrieLoader(new NoOpMetricsSystem());
+    return new BonsaiWorldStateProvider(
+        (BonsaiWorldStateKeyValueStorage)
+            inMemoryKeyValueStorageProvider.createWorldStateStorage(dataConfig),
+        blockchain,
+        storageConfig,
         bonsaiCachedMerkleTrieLoader,
         serviceManager,
         evmConfiguration,
