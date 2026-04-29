@@ -247,7 +247,9 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
       /** Invalid payload attributes status. */
       INVALID_PAYLOAD_ATTRIBUTES,
       /** Ignore update to old head status. */
-      IGNORE_UPDATE_TO_OLD_HEAD
+      IGNORE_UPDATE_TO_OLD_HEAD,
+      /** EL could not locally apply the head (e.g. missing worldstate). */
+      INTERNAL_ERROR
     }
 
     private final Status status;

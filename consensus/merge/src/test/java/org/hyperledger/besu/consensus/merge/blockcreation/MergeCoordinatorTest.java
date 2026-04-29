@@ -924,6 +924,48 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
   }
 
   @Test
+  public void failedSetNewHeadDoesNotAdvanceFinalizedOrSafe() {
+    BlockHeader terminalHeader = terminalPowBlock();
+    sendNewPayloadAndForkchoiceUpdate(
+        new Block(terminalHeader, BlockBody.empty()), Optional.empty(), Hash.ZERO);
+
+    BlockHeader parentHeader = nextBlockHeader(terminalHeader);
+    Block parent = new Block(parentHeader, BlockBody.empty());
+    sendNewPayloadAndForkchoiceUpdate(parent, Optional.empty(), terminalHeader.getHash());
+
+    BlockHeader childHeader =
+        headerGenerator
+            .difficulty(Difficulty.ZERO)
+            .parentHash(parentHeader.getHash())
+            .gasLimit(genesisState.getBlock().getHeader().getGasLimit())
+            .number(parentHeader.getNumber() + 1)
+            .stateRoot(Hash.wrap(Bytes32.random()))
+            .timestamp(parentHeader.getTimestamp() + 12)
+            .baseFeePerGas(
+                feeMarket.computeBaseFee(
+                    genesisState.getBlock().getHeader().getNumber() + 1,
+                    parentHeader.getBaseFee().orElse(Wei.of(0x3b9aca00)),
+                    0,
+                    15000000L))
+            .buildHeader();
+    Block child = new Block(childHeader, BlockBody.empty());
+    blockchain.storeBlock(child, List.of());
+
+    ForkchoiceResult result =
+        coordinator.updateForkChoice(childHeader, childHeader.getHash(), childHeader.getHash());
+
+    assertThat(result.getStatus()).isEqualTo(ForkchoiceResult.Status.INTERNAL_ERROR);
+    assertThat(result.shouldNotProceedToPayloadBuildProcess()).isTrue();
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(parentHeader.getHash());
+
+    verify(blockchain, never()).forwardToBlock(childHeader);
+    verify(blockchain, never()).setFinalized(childHeader.getHash());
+    verify(mergeContext, never()).setFinalized(childHeader);
+    verify(blockchain, never()).setSafeBlock(childHeader.getHash());
+    verify(mergeContext, never()).setSafeBlock(childHeader);
+  }
+
+  @Test
   public void latestValidAncestorDescendsFromFinalizedBlock() {
     BlockHeader terminalHeader = terminalPowBlock();
     sendNewPayloadAndForkchoiceUpdate(

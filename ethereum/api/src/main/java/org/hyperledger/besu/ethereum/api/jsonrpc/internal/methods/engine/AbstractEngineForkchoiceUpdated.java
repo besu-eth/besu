@@ -280,6 +280,10 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
                 new EngineUpdateForkchoiceResult(
                     VALID, latestValid.orElse(null), null, result.getErrorMessage()));
         break;
+      case INTERNAL_ERROR:
+        LOG.warn("FCU could not be applied: {}", result.getErrorMessage().orElse("internal error"));
+        response = new JsonRpcErrorResponse(requestId, RpcErrorType.INTERNAL_ERROR);
+        break;
       default:
         throw new AssertionError(
             "ForkchoiceResult.Status "
