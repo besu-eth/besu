@@ -99,25 +99,11 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
       return new OperationResult(cost, ExceptionalHaltReason.CODE_TOO_LARGE);
     }
 
-    // EIP-8037: Deduct regular gas before charging state gas (ordering requirement).
-    frame.decrementRemainingGas(cost);
-
-    // EIP-8037: Charge state gas for CREATE operation.
-    if (!gasCalculator().stateGasCostCalculator().chargeCreateStateGas(frame)) {
-      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
-    }
-
-    // Add regular gas back — the EVM loop will deduct it via the OperationResult.
-    frame.incrementRemainingGas(cost);
-
     final boolean insufficientBalance = value.compareTo(account.getBalance()) > 0;
     final boolean maxDepthReached = frame.getDepth() >= 1024;
     final boolean invalidState = account.getNonce() == -1 || code == null;
 
     if (insufficientBalance || maxDepthReached || invalidState) {
-      // EIP-8037: on opcode-level silent failure no account
-      // is created, so refund the 112 × cpsb account-creation state gas to the reservoir.
-      gasCalculator().stateGasCostCalculator().refundCreateStateGas(frame);
       fail(frame);
       // Set soft failure reason for callTracer compatibility
       final SoftFailureReason softFailureReason =
@@ -246,12 +232,6 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
       frame.setReturnData(Bytes.EMPTY);
       onSuccess(frame, createdAddress);
     } else {
-      // EIP-8037: on child frame revert or exceptional
-      // halt, the account-creation state gas (112 × cpsb) charged at this CREATE/CREATE2 opcode
-      // is refunded to the reservoir — no account was created so no state gas should be paid.
-      // The child's own state gas charges (e.g. inner SSTOREs, code deposits) are already
-      // refunded into the reservoir by handleStateGasSpill in AbstractMessageProcessor.
-      gasCalculator().stateGasCostCalculator().refundCreateStateGas(frame);
       frame.setReturnData(childFrame.getOutputData());
       frame.pushStackItem(Bytes.EMPTY);
       onFailure(frame, childFrame.getExceptionalHaltReason());

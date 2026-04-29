@@ -15,40 +15,40 @@
 package org.hyperledger.besu.evm.gascalculator;
 
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.frame.StateChange;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
-import java.util.function.Supplier;
 
+import com.google.common.collect.HashBasedTable;
+import com.google.common.collect.Table;
+import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 
 /**
- * EIP-8037 state gas cost calculator implementation.
+ * EIP-8037 state gas cost calculator implementing the frame-end accounting model from <a
+ * href="https://github.com/ethereum/EIPs/pull/11573">EIP PR 11573</a>.
  *
- * <p>Computes state gas costs based on a dynamic cost_per_state_byte (cpsb) derived from the block
- * gas limit:
- *
- * <pre>
- *   cpsb = ceil(((gas_limit / 2) * 7200 * 365) / TARGET_STATE_GROWTH_PER_YEAR)
- * </pre>
- *
- * <p>Where TARGET_STATE_GROWTH_PER_YEAR = 100 * 1024^3 bytes (100 GiB).
+ * <p>cost_per_state_byte (cpsb) is a fixed constant of 1174.
  */
 public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
   /**
    * Number of state bytes per new account (20-byte address + 8-byte nonce + 32-byte balance +
    * 32-byte code hash + 20-byte storage root = 112 bytes).
    */
-  static final int STATE_BYTES_PER_ACCOUNT = 112;
+  static final int STATE_BYTES_PER_NEW_ACCOUNT = 112;
 
-  /** Number of state bytes per storage slot (32 bytes for key + value). */
-  static final int STATE_BYTES_PER_STORAGE_SLOT = 32;
+  /** Number of state bytes per storage slot set (32 bytes for key + value). */
+  static final int STATE_BYTES_PER_STORAGE_SET = 32;
 
-  /** Number of state bytes per auth delegation (23 bytes). */
-  static final int STATE_BYTES_PER_AUTH = 23;
+  /** Base number of state bytes per auth delegation (23 bytes). */
+  static final int STATE_BYTES_PER_AUTH_BASE = 23;
 
   /**
    * Regular gas for storage set (GAS_STORAGE_UPDATE - GAS_COLD_SLOAD = 5000 - 2100 = 2900). The
@@ -61,12 +61,6 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
    * The state portion (23 * cpsb) is charged separately.
    */
   static final long AUTH_BASE_REGULAR_GAS = 7_500L;
-
-  /** Offset added before quantization, subtracted after. */
-  static final int CPSB_OFFSET = 9578;
-
-  /** Number of significant bits retained in quantized cpsb. */
-  static final int CPSB_SIGNIFICANT_BITS = 5;
 
   /** Keccak256 word gas cost for code deposit hashing. */
   static final long KECCAK256_WORD_GAS_COST = 6L;
@@ -86,7 +80,7 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
 
   @Override
   public long createStateGas() {
-    return STATE_BYTES_PER_ACCOUNT * costPerStateByte();
+    return STATE_BYTES_PER_NEW_ACCOUNT * costPerStateByte();
   }
 
   @Override
@@ -107,7 +101,7 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
 
   @Override
   public long storageSetStateGas() {
-    return STATE_BYTES_PER_STORAGE_SLOT * costPerStateByte();
+    return STATE_BYTES_PER_STORAGE_SET * costPerStateByte();
   }
 
   @Override
@@ -117,7 +111,7 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
 
   @Override
   public long authBaseStateGas() {
-    return STATE_BYTES_PER_AUTH * costPerStateByte();
+    return STATE_BYTES_PER_AUTH_BASE * costPerStateByte();
   }
 
   @Override
@@ -140,54 +134,6 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
     return true;
   }
 
-  // ---- Charge method overrides ----
-
-  @Override
-  public boolean chargeStorageSetStateGas(
-      final MessageFrame frame,
-      final UInt256 newValue,
-      final Supplier<UInt256> currentValue,
-      final Supplier<UInt256> originalValue) {
-    final UInt256 currentVal = currentValue.get();
-    final UInt256 originalVal = originalValue.get();
-    // State gas applies only for the SSTORE_SET case: original is zero and we're setting nonzero
-    if (originalVal.isZero() && currentVal.isZero() && !newValue.isZero()) {
-      return frame.consumeStateGas(storageSetStateGas());
-    }
-    return true;
-  }
-
-  @Override
-  public boolean chargeCreateStateGas(final MessageFrame frame) {
-    return frame.consumeStateGas(createStateGas());
-  }
-
-  @Override
-  public boolean chargeCodeDepositStateGas(final MessageFrame frame, final int codeSize) {
-    return frame.consumeStateGas(codeDepositStateGas(codeSize));
-  }
-
-  @Override
-  public boolean chargeCallNewAccountStateGas(
-      final MessageFrame frame, final Address recipientAddress, final Wei transferValue) {
-    if (!transferValue.isZero()) {
-      final Account recipient = frame.getWorldUpdater().get(recipientAddress);
-      if (recipient == null || recipient.isEmpty()) {
-        return frame.consumeStateGas(newAccountStateGas());
-      }
-    }
-    return true;
-  }
-
-  @Override
-  public boolean chargeSelfDestructNewAccountStateGas(
-      final MessageFrame frame, final Account beneficiary, final Wei originatorBalance) {
-    if ((beneficiary == null || beneficiary.isEmpty()) && !originatorBalance.isZero()) {
-      return frame.consumeStateGas(newAccountStateGas());
-    }
-    return true;
-  }
-
   @Override
   public boolean chargeCodeDelegationStateGas(
       final MessageFrame frame, final long totalDelegations, final long alreadyExistingDelegators) {
@@ -201,16 +147,14 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
         && !frame.consumeStateGas(emptyAccountDelegationStateGas() * newEmptyAccounts)) {
       return false;
     }
-    // EIP-8037: intrinsic state gas is sized assuming every
-    // authority is a new empty account ((112 + 23) × cpsb per auth) and is immutable after
-    // transaction validation. When an authority already exists, the 112 × cpsb portion is
-    // refunded directly to state_gas_reservoir during authorization processing. The intrinsic
-    // value itself is not mutated; the refund is reflected in the final state_gas_reservoir.
-    //
-    // Because intrinsic state gas is not pre-deducted from tx.gas in this implementation (it is
-    // charged explicitly via consumeStateGas above, drawing from reservoir/gas_left), the
-    // reservoir credit is paired with a matching gas_left debit to preserve the sender
-    // bookkeeping invariant tx.gas - (gas_left + reservoir) = gas actually charged.
+    // EIP-8037: intrinsic state gas is sized assuming every authority is a new empty account
+    // ((112 + 23) × cpsb per auth) and is immutable after transaction validation. When an
+    // authority already exists, the 112 × cpsb portion is refunded directly to
+    // state_gas_reservoir during authorization processing. Because intrinsic state gas is not
+    // pre-deducted from tx.gas in this implementation (it is charged explicitly via consumeStateGas
+    // above, drawing from reservoir/gas_left), the reservoir credit is paired with a matching
+    // gas_left debit to preserve the sender bookkeeping invariant
+    //   tx.gas - (gas_left + reservoir) = gas actually charged.
     if (alreadyExistingDelegators > 0) {
       final long reservoirCredit = emptyAccountDelegationStateGas() * alreadyExistingDelegators;
       if (frame.getRemainingGas() < reservoirCredit) {
@@ -218,6 +162,113 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
       }
       frame.decrementRemainingGas(reservoirCredit);
       frame.incrementStateGasReservoir(reservoirCredit);
+    }
+    return true;
+  }
+
+  // ---- Frame-end aggregation ----
+
+  @Override
+  public boolean applyFrameEndStateGasAccounting(final MessageFrame frame) {
+    final List<StateChange> events = frame.getStateChanges();
+    final int frameStart = frame.getStateGasFrameStartIndex();
+    final int end = events.size();
+    if (frameStart >= end) {
+      return true;
+    }
+
+    // Per-cell aggregate flags: tx-entry value, frame-entry value, frame-exit value (all "isZero").
+    final Table<Address, Bytes32, FrameStorageFlags> storageAgg = HashBasedTable.create();
+    final Set<Address> accountAgg = new HashSet<>();
+    final Map<Address, Integer> codeAgg = new HashMap<>();
+    final List<Integer> consumedIndices = new ArrayList<>();
+
+    for (int i = frameStart; i < end; i++) {
+      if (frame.isStateGasEventAccounted(i)) {
+        continue;
+      }
+      final StateChange change = events.get(i);
+      consumedIndices.add(i);
+      switch (change) {
+        case StateChange.Storage s -> {
+          FrameStorageFlags slot = storageAgg.get(s.address(), s.key());
+          if (slot == null) {
+            storageAgg.put(
+                s.address(),
+                s.key(),
+                new FrameStorageFlags(s.txEntryIsZero(), s.beforeIsZero(), s.afterIsZero()));
+          } else {
+            slot.exitIsZero = s.afterIsZero();
+          }
+        }
+        case StateChange.AccountCreated a -> accountAgg.add(a.address());
+        case StateChange.CodeDeposit c -> codeAgg.put(c.address(), c.codeLength());
+      }
+    }
+
+    if (consumedIndices.isEmpty()) {
+      return true;
+    }
+
+    long totalCharge = 0L;
+    long totalRefund = 0L;
+    final List<Runnable> pendingLedgerUpdates = new ArrayList<>();
+
+    for (final Table.Cell<Address, Bytes32, FrameStorageFlags> cell : storageAgg.cellSet()) {
+      final Address addr = cell.getRowKey();
+      final Bytes32 key = cell.getColumnKey();
+      final FrameStorageFlags slot = cell.getValue();
+      if (slot.entryIsZero == slot.exitIsZero) {
+        // Either 0→...→0 or non-zero→...→non-zero — no state-gas effect.
+        continue;
+      }
+
+      if (!slot.exitIsZero && slot.txEntryIsZero && !frame.isStateGasNewSlotCharged(addr, key)) {
+        // New slot: frame-exit non-zero AND tx-entry zero.
+        totalCharge += storageSetStateGas();
+        pendingLedgerUpdates.add(() -> frame.claimStateGasNewSlotCharge(addr, key));
+      } else if (slot.exitIsZero
+          && !slot.entryIsZero
+          && slot.txEntryIsZero
+          && !frame.isStateGasSlotRefunded(addr, key)) {
+        // Cleared slot, zero at tx start: refund is unconditional; the matching charge is booked
+        // elsewhere (other frames' aggregation) and the once-only ledger balances them.
+        totalRefund += storageSetStateGas();
+        pendingLedgerUpdates.add(() -> frame.claimStateGasSlotRefund(addr, key));
+      }
+      // Other transitions: no state-gas effect; SSTORE handles the regular-gas refund.
+    }
+
+    for (final Address addr : accountAgg) {
+      if (!frame.isStateGasNewAccountCharged(addr)) {
+        totalCharge += newAccountStateGas();
+        pendingLedgerUpdates.add(() -> frame.claimStateGasNewAccountCharge(addr));
+      }
+    }
+
+    for (final Map.Entry<Address, Integer> entry : codeAgg.entrySet()) {
+      final Address addr = entry.getKey();
+      final int length = entry.getValue();
+      if (!frame.isStateGasCodeDepositCharged(addr)) {
+        totalCharge += codeDepositStateGas(length);
+        pendingLedgerUpdates.add(() -> frame.claimStateGasCodeDepositCharge(addr));
+      }
+    }
+
+    // Apply refund first to raise the gas budget available to cover the charge.
+    if (totalRefund > 0L) {
+      frame.incrementStateGasReservoir(totalRefund);
+      frame.decrementStateGasUsed(totalRefund);
+    }
+    if (totalCharge > 0L && !frame.consumeStateGas(totalCharge)) {
+      return false;
+    }
+
+    for (final int idx : consumedIndices) {
+      frame.markStateGasEventAccounted(idx);
+    }
+    for (final Runnable update : pendingLedgerUpdates) {
+      update.run();
     }
     return true;
   }
@@ -243,7 +294,9 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
       totalRefund += createStateGas();
       totalRefund += codeDepositStateGas(account.getCode().size());
       // The account was created in this transaction, so every slot it currently holds is in
-      // the updater's journaled writes — Bonsai does not support trie enumeration.
+      // the updater's journaled writes — Bonsai does not support trie enumeration. Slots whose
+      // final value is non-zero are exactly the slots whose new-slot charge has not already been
+      // compensated by the frame-end 0→X→0 refund.
       for (final UInt256 value : account.getUpdatedStorage().values()) {
         if (!value.isZero()) {
           totalRefund += storageSlotGas;
@@ -256,39 +309,17 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
     }
   }
 
-  @Override
-  public void refundCreateStateGas(final MessageFrame frame) {
-    final long refundAmount = createStateGas();
-    frame.incrementStateGasReservoir(refundAmount);
-    frame.decrementStateGasUsed(refundAmount);
-    // Tracked as a no-growth refund so handleStateGasSpill can subtract refunds-in-scope from
-    // spill credit on revert/halt — the credit must not propagate to a parent's reservoir when
-    // any frame in the chain fails. Mirrors EELS's state_gas_refund counter.
-    frame.recordNoGrowthStateGasRefund(refundAmount);
-  }
+  /** Per-cell aggregate state used by {@link #applyFrameEndStateGasAccounting}. */
+  private static final class FrameStorageFlags {
+    final boolean txEntryIsZero;
+    final boolean entryIsZero;
+    boolean exitIsZero;
 
-  @Override
-  public void refundStorageSetStateGas(
-      final MessageFrame frame,
-      final UInt256 newValue,
-      final Supplier<UInt256> currentValue,
-      final Supplier<UInt256> originalValue) {
-    // Only refund for 0→X→0: original is zero, current is nonzero, new is zero
-    if (newValue.isZero() && !currentValue.get().isZero() && originalValue.get().isZero()) {
-      final long refundAmount = storageSetStateGas();
-      // EIP-8037: State gas refund is credited directly to
-      // state_gas_reservoir (bypassing the 20% refund_counter cap) and execution_state_gas_used
-      // is decremented. This ensures the full state gas amount is returned regardless of the
-      // refund cap, which would otherwise be insufficient at high cost_per_state_byte.
-      //
-      // Frame scoping: the refund is applied to the frame's
-      // UndoScalar counters (stateGasReservoir, stateGasUsed), so on revert or exceptional
-      // halt of this frame — or of any ancestor frame before the refund propagates further —
-      // the credit is undone via MessageFrame.rollback(). The refund therefore contributes to
-      // the reservoir and stateGasUsed only when the full frame chain succeeds.
-      frame.incrementStateGasReservoir(refundAmount);
-      frame.decrementStateGasUsed(refundAmount);
-      frame.recordNoGrowthStateGasRefund(refundAmount);
+    FrameStorageFlags(
+        final boolean txEntryIsZero, final boolean entryIsZero, final boolean exitIsZero) {
+      this.txEntryIsZero = txEntryIsZero;
+      this.entryIsZero = entryIsZero;
+      this.exitIsZero = exitIsZero;
     }
   }
 }

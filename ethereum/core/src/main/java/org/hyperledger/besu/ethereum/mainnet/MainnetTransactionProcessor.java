@@ -417,9 +417,15 @@ public class MainnetTransactionProcessor {
         initialFrame.setGasRemaining(gasLeft);
         initialFrame.setStateGasReservoir(reservoir);
       }
-      // EIP-8037: Charge state gas for intrinsic costs
+      // EIP-8037 (PR 11573): Intrinsic state-gas charges. Contract-creation accounts are claimed in
+      // the dedup ledger so the initial frame's frame-end aggregation does not re-charge.
       if (transaction.isContractCreation()) {
-        stateGasCalc.chargeCreateStateGas(initialFrame);
+        if (!initialFrame.consumeStateGas(stateGasCalc.createStateGas())) {
+          LOG.debug(
+              "Transaction {} insufficient gas for intrinsic CREATE state gas",
+              transaction.getHash());
+        }
+        initialFrame.claimStateGasNewAccountCharge(initialFrame.getContractAddress());
       }
       if (transaction.getType().equals(TransactionType.DELEGATE_CODE)) {
         stateGasCalc.chargeCodeDelegationStateGas(
@@ -432,18 +438,9 @@ public class MainnetTransactionProcessor {
 
       Deque<MessageFrame> messageFrameStack = initialFrame.getMessageFrameStack();
 
-      // EIP-8037: Track spillBurned before the initial frame's final processing step.
-      // When the initial frame reverts/halts, its state gas spill should count as state gas
-      // for block accounting. Child frame spills (tracked earlier) should not.
-      long spillBurnedBeforeInitialFinal = 0;
       while (!messageFrameStack.isEmpty()) {
-        if (messageFrameStack.size() == 1) {
-          spillBurnedBeforeInitialFinal = initialFrame.getStateGasSpillBurned();
-        }
         process(messageFrameStack.peekFirst(), operationTracer);
       }
-      final long initialFrameStateGasSpill =
-          initialFrame.getStateGasSpillBurned() - spillBurnedBeforeInitialFinal;
 
       // EIP-8037: Runtime TX_MAX_GAS_LIMIT enforcement on regular gas only.
       // With multidimensional gas, tx.gasLimit can exceed TX_MAX_GAS_LIMIT to accommodate
@@ -527,9 +524,6 @@ public class MainnetTransactionProcessor {
               .remainingGas(initialFrame.getRemainingGas())
               .stateGasReservoir(initialFrame.getStateGasReservoir())
               .stateGasUsed(initialFrame.getStateGasUsed())
-              .initialFrameStateGasSpill(initialFrameStateGasSpill)
-              .stateGasSpillBurned(initialFrame.getStateGasSpillBurned())
-              .initialFrameRegularHaltBurn(initialFrame.getInitialFrameRegularHaltBurn())
               .refundedGas(refundedGas)
               .floorCost(floorCost)
               .regularGasLimitExceeded(regularGasLimitExceeded)

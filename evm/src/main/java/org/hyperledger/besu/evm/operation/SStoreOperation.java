@@ -96,30 +96,17 @@ public class SStoreOperation extends AbstractOperation {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    // EIP-8037: Deduct regular gas before charging state gas (ordering requirement).
-    // State gas draws from the reservoir first, then from gasRemaining; deducting regular
-    // gas first ensures the reservoir/gasRemaining split is correct.
-    frame.decrementRemainingGas(cost);
-
     // Increment the refund counter.
     frame.incrementGasRefund(
         gasCalculator()
             .calculateStorageRefundAmount(newValue, currentValueSupplier, originalValueSupplier));
 
-    // EIP-8037: Refund state gas for 0→X→0 (storage set then clear)
-    gasCalculator()
-        .stateGasCostCalculator()
-        .refundStorageSetStateGas(frame, newValue, currentValueSupplier, originalValueSupplier);
-
-    // EIP-8037: Charge state gas for storage set (0 -> nonzero)
-    if (!gasCalculator()
-        .stateGasCostCalculator()
-        .chargeStorageSetStateGas(frame, newValue, currentValueSupplier, originalValueSupplier)) {
-      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    if (gasCalculator().stateGasCostCalculator().isActive()) {
+      final UInt256 currentValue = currentValueSupplier.get();
+      final UInt256 originalValue = originalValueSupplier.get();
+      frame.recordStorageChange(
+          address, key, originalValue.isZero(), currentValue.isZero(), newValue.isZero());
     }
-
-    // Add regular gas back — the EVM loop will deduct it via the OperationResult.
-    frame.incrementRemainingGas(cost);
 
     account.setStorageValue(key, newValue);
     frame.storageWasUpdated(key, newValue);
