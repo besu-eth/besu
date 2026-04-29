@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -46,6 +46,7 @@ import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.stream.Collectors;
 
 import io.vertx.core.Vertx;
@@ -53,16 +54,41 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.spi.LoggingEventBuilder;
 
-// TODO: once we are confident in AbstractEngineForkchoiceUpdatedV4, replace this implementation
-// with the V4 logic (narrowed no-reorg skip + MAX_REORG_DEPTH check) and drop the duplicated
-// class. See https://github.com/ethereum/execution-apis/pull/786.
-public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJsonRpcMethod {
-  private static final Logger LOG = LoggerFactory.getLogger(AbstractEngineForkchoiceUpdated.class);
-  private final MergeMiningCoordinator mergeCoordinator;
+/**
+ * Abstract base for engine_forkchoiceUpdated implementations targeting the post execution-apis #786
+ * spec (Amsterdam+). Differs from {@link AbstractEngineForkchoiceUpdated} in two ways:
+ *
+ * <ol>
+ *   <li>The no-reorg "skip update" optimization (paris.md point 2) is narrowed to fire only when
+ *       the head is an ancestor of the latest known finalized block (rather than any ancestor of
+ *       the canonical head).
+ *   <li>A new {@code -38006: Too deep reorg} error is returned when the requested reorg depth
+ *       exceeds {@link MergeMiningCoordinator#MAX_REORG_DEPTH}.
+ * </ol>
+ */
+public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJsonRpcMethod {
+  private static final Logger LOG =
+      LoggerFactory.getLogger(AbstractEngineForkchoiceUpdatedV4.class);
+
+  /** The merge mining coordinator. */
+  protected final MergeMiningCoordinator mergeCoordinator;
+
+  /** Cancun activation timestamp, if scheduled. */
   protected final Optional<Long> cancunMilestone;
+
+  /** Amsterdam activation timestamp, if scheduled. */
   protected final Optional<Long> amsterdamMilestone;
 
-  public AbstractEngineForkchoiceUpdated(
+  /**
+   * Instantiates a new V4-spec abstract engine forkchoice updated.
+   *
+   * @param vertx the vertx
+   * @param protocolSchedule the protocol schedule
+   * @param protocolContext the protocol context
+   * @param mergeCoordinator the merge coordinator
+   * @param engineCallListener the engine call listener
+   */
+  public AbstractEngineForkchoiceUpdatedV4(
       final Vertx vertx,
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
@@ -75,6 +101,13 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
     amsterdamMilestone = protocolSchedule.milestoneFor(AMSTERDAM);
   }
 
+  /**
+   * Validates the FCU parameter shape. Override to enforce version-specific requirements.
+   *
+   * @param forkchoiceUpdatedParameter the FCU parameter
+   * @param maybePayloadAttributes the optional payload attributes
+   * @return the validation result
+   */
   protected ValidationResult<RpcErrorType> validateParameter(
       final EngineForkchoiceUpdatedParameter forkchoiceUpdatedParameter,
       final Optional<EnginePayloadAttributesParameter> maybePayloadAttributes) {
@@ -96,6 +129,7 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
           RpcErrorType.INVALID_ENGINE_FORKCHOICE_UPDATED_PARAMS,
           e);
     }
+
     final Optional<EnginePayloadAttributesParameter> maybePayloadAttributes;
     try {
       maybePayloadAttributes =
@@ -136,18 +170,40 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
       return syncingResponse(requestId, forkChoice);
     }
 
-    ForkchoiceResult forkchoiceResult = null;
     if (!isValidForkchoiceState(
         forkChoice.getSafeBlockHash(), forkChoice.getFinalizedBlockHash(), maybeNewHead.get())) {
       logAtInfoFCUCall(INVALID, forkChoice);
       return new JsonRpcErrorResponse(requestId, RpcErrorType.INVALID_FORKCHOICE_STATE);
-    } else {
-      forkchoiceResult =
-          mergeCoordinator.updateForkChoice(
-              maybeNewHead.get(),
-              forkChoice.getFinalizedBlockHash(),
-              forkChoice.getSafeBlockHash());
     }
+
+    // https://github.com/ethereum/execution-apis/pull/786
+    // paris.md point 6: reject when the implied reorg depth exceeds the
+    // implementation-specific limit.
+    final OptionalLong reorgDepth = mergeCoordinator.computeReorgDepth(maybeNewHead.get());
+    if (reorgDepth.isPresent() && reorgDepth.getAsLong() > MergeMiningCoordinator.MAX_REORG_DEPTH) {
+      LOG.atWarn()
+          .setMessage("Rejecting forkchoiceUpdated: reorg depth {} exceeds limit {}")
+          .addArgument(reorgDepth::getAsLong)
+          .addArgument(MergeMiningCoordinator.MAX_REORG_DEPTH)
+          .log();
+      logAtInfoFCUCall(INVALID, forkChoice);
+      return new JsonRpcErrorResponse(requestId, RpcErrorType.TOO_DEEP_REORG);
+    }
+
+    // https://github.com/ethereum/execution-apis/pull/786
+    // paris.md point 2: skip the update only when the new head is an
+    // ancestor of the latest known finalized block.
+    if (mergeCoordinator.isAncestorOfFinalized(forkChoice.getHeadBlockHash())) {
+      logAtInfoFCUCall(VALID, forkChoice);
+      return new JsonRpcSuccessResponse(
+          requestId,
+          new EngineUpdateForkchoiceResult(
+              VALID, forkChoice.getHeadBlockHash(), null, Optional.empty()));
+    }
+
+    final ForkchoiceResult forkchoiceResult =
+        mergeCoordinator.updateForkChoiceWithoutLegacySkip(
+            maybeNewHead.get(), forkChoice.getFinalizedBlockHash(), forkChoice.getSafeBlockHash());
 
     Optional<List<Withdrawal>> withdrawals = Optional.empty();
     if (maybePayloadAttributes.isPresent()) {
@@ -201,11 +257,7 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
         this::logPayload, () -> LOG.debug("Payload attributes are null"));
 
     if (forkchoiceResult.shouldNotProceedToPayloadBuildProcess()) {
-      if (ForkchoiceResult.Status.IGNORE_UPDATE_TO_OLD_HEAD.equals(forkchoiceResult.getStatus())) {
-        logAtInfoFCUCall(VALID, forkChoice);
-      } else {
-        logAtInfoFCUCall(INVALID, forkChoice);
-      }
+      logAtInfoFCUCall(INVALID, forkChoice);
       return handleNonValidForkchoiceUpdate(requestId, forkchoiceResult);
     }
 
@@ -242,9 +294,24 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
             Optional.empty()));
   }
 
+  /**
+   * Validates payload attributes for the specific FCU version.
+   *
+   * @param requestId the request id
+   * @param payloadAttribute the payload attribute
+   * @return optional error response if invalid
+   */
   protected abstract Optional<JsonRpcErrorResponse> isPayloadAttributesValid(
       final Object requestId, final EnginePayloadAttributesParameter payloadAttribute);
 
+  /**
+   * Validates that payload attributes are relevant for the new head (e.g. timestamp ordering).
+   *
+   * @param requestId the request id
+   * @param payloadAttributes the payload attributes
+   * @param headBlockHeader the head block header
+   * @return optional error response if not relevant
+   */
   protected Optional<JsonRpcErrorResponse> isPayloadAttributeRelevantToNewHead(
       final Object requestId,
       final EnginePayloadAttributesParameter payloadAttributes,
@@ -261,33 +328,20 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
 
   private JsonRpcResponse handleNonValidForkchoiceUpdate(
       final Object requestId, final ForkchoiceResult result) {
-    JsonRpcResponse response;
-
     final Optional<Hash> latestValid = result.getLatestValid();
 
-    switch (result.getStatus()) {
-      case INVALID:
-        response =
-            new JsonRpcSuccessResponse(
-                requestId,
-                new EngineUpdateForkchoiceResult(
-                    INVALID, latestValid.orElse(null), null, result.getErrorMessage()));
-        break;
-      case IGNORE_UPDATE_TO_OLD_HEAD:
-        response =
-            new JsonRpcSuccessResponse(
-                requestId,
-                new EngineUpdateForkchoiceResult(
-                    VALID, latestValid.orElse(null), null, result.getErrorMessage()));
-        break;
-      default:
-        throw new AssertionError(
-            "ForkchoiceResult.Status "
-                + result.getStatus()
-                + " not handled in EngineForkchoiceUpdated.handleForkchoiceError");
+    // IGNORE_UPDATE_TO_OLD_HEAD is unreachable here: updateForkChoiceWithoutLegacySkip never emits
+    // it, and the narrowed skip is handled before the FCU call.
+    if (result.getStatus() == ForkchoiceResult.Status.INVALID) {
+      return new JsonRpcSuccessResponse(
+          requestId,
+          new EngineUpdateForkchoiceResult(
+              INVALID, latestValid.orElse(null), null, result.getErrorMessage()));
     }
-
-    return response;
+    throw new AssertionError(
+        "ForkchoiceResult.Status "
+            + result.getStatus()
+            + " not handled in EngineForkchoiceUpdatedV4.handleNonValidForkchoiceUpdate");
   }
 
   private void logPayload(final EnginePayloadAttributesParameter payloadAttributes) {
@@ -340,8 +394,7 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
 
     // A zero value is only allowed, if the transition block is not yet finalized.
     // Once we have at least one finalized block, the transition block has either been finalized
-    // directly
-    // or through one of its descendants.
+    // directly or through one of its descendants.
     if (safeBlockHash.getBytes().isZero()) {
       return finalizedBlockHash.getBytes().isZero();
     }
@@ -373,24 +426,21 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
         requestId, new EngineUpdateForkchoiceResult(SYNCING, null, null, Optional.empty()));
   }
 
-  protected boolean requireTerminalPoWBlockValidation() {
-    return false;
-  }
-
-  protected RpcErrorType getInvalidParametersError() {
-    return RpcErrorType.INVALID_PARAMS;
-  }
-
+  /**
+   * Returns the rpc error to use for invalid payload attributes.
+   *
+   * @return the rpc error
+   */
   protected RpcErrorType getInvalidPayloadAttributesError() {
     return RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES;
   }
 
-  private static final String logMessage = "FCU({}) | head: {} | safe: {} | finalized: {}";
+  private static final String LOG_MESSAGE = "FCU({}) | head: {} | safe: {} | finalized: {}";
 
   private void logAtInfoFCUCall(
       final EngineStatus status, final EngineForkchoiceUpdatedParameter forkChoice) {
     LOG.info(
-        logMessage,
+        LOG_MESSAGE,
         status.name(),
         forkChoice.getHeadBlockHash().toShortLogString(),
         forkChoice.getSafeBlockHash().toShortLogString(),
@@ -400,7 +450,7 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
   private void logAtDebugFCUCall(
       final EngineStatus status, final EngineForkchoiceUpdatedParameter forkChoice) {
     LOG.debug(
-        logMessage,
+        LOG_MESSAGE,
         status.name(),
         forkChoice.getHeadBlockHash(),
         forkChoice.getSafeBlockHash(),
