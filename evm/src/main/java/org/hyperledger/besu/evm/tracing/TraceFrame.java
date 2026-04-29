@@ -910,6 +910,7 @@ public class TraceFrame {
         .add("stack", stack)
         .add("memory", memory)
         .add("storage", storage)
+        .add("returnData", returnData)
         .toString();
   }
 }
