@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 
 import org.apache.tuweni.bytes.Bytes32;
@@ -183,6 +184,23 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
   public ForkchoiceResult updateForkChoice(
       final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash) {
     return mergeCoordinator.updateForkChoice(newHead, finalizedBlockHash, safeBlockHash);
+  }
+
+  @Override
+  public ForkchoiceResult updateForkChoiceWithoutLegacySkip(
+      final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash) {
+    return mergeCoordinator.updateForkChoiceWithoutLegacySkip(
+        newHead, finalizedBlockHash, safeBlockHash);
+  }
+
+  @Override
+  public boolean isAncestorOfFinalized(final Hash candidateHeadHash) {
+    return mergeCoordinator.isAncestorOfFinalized(candidateHeadHash);
+  }
+
+  @Override
+  public OptionalLong computeReorgDepth(final BlockHeader newHead) {
+    return mergeCoordinator.computeReorgDepth(newHead);
   }
 
   @Override
