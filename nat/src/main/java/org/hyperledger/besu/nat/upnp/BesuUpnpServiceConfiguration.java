@@ -140,8 +140,7 @@ class BesuUpnpServiceConfiguration implements UpnpServiceConfiguration {
 
   @Override
   @SuppressWarnings("NullAway") // jupnp interface allows null for "no stream server"
-  public StreamServer<?> createStreamServer(
-      final NetworkAddressFactory networkAddressFactory) {
+  public StreamServer<?> createStreamServer(final NetworkAddressFactory networkAddressFactory) {
     return null;
   }
 
