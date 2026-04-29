@@ -68,6 +68,7 @@ are provided with different values, using input as per the execution-apis spec i
 - Upgrade besu-native libraries version to 1.5.0. This fixes the issue of besu-native/secp256r1 exporting OpenSSL symbols in JVM space. [besu-native #308](https://github.com/besu-eth/besu-native/pull/308)
 - Speed up backward sync phase 1 relinking after a restart by batching restored ancestor header writes into a single chainStorage transaction instead of one per header [#10103](https://github.com/besu-eth/besu/issues/10103)
 - Reject Status messages whose declared `protocolVersion` field disagrees with the on-wire layout (eth/68 vs eth/69+). A malformed Status previously threw an `IllegalArgumentException` out of `EthStatus`'s constructor that escaped `handleStatusMessage`'s `RLPException` catch; the decoder now throws `RLPException` directly so the peer is cleanly disconnected with `SUBPROTOCOL_TRIGGERED_UNPARSABLE_STATUS`.
+- Fix data race in `BlockchainBasedBlockHashLookup` that could return `Hash.ZERO` for valid ancestors when shared across parallel block-processing workers, causing non-deterministic state-root divergence on Bonsai nodes. [#10270](https://github.com/besu-eth/besu/pull/10270)
 
 ### Additions and Improvements
 - Add `transactionReceipts` subscription type to `eth_subscribe` that pushes all transaction receipts when a new block is added, with optional `transactionHashes` filter to receive receipts for specific transactions only [#10190](https://github.com/besu-eth/besu/pull/10190)
