@@ -16,6 +16,7 @@ package org.hyperledger.besu.nat.upnp;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
+import static java.util.Objects.requireNonNull;
 
 import org.hyperledger.besu.nat.NatMethod;
 import org.hyperledger.besu.nat.core.AbstractNatManager;
@@ -157,7 +158,7 @@ public class UpnpNatManager extends AbstractNatManager {
    * @return a CompletableFuture that will provide the desired RemoteService when completed
    */
   private synchronized CompletableFuture<RemoteService> getService(final String type) {
-    return recognizedServices.get(type);
+    return recognizedServices.computeIfAbsent(type, unused -> new CompletableFuture<>());
   }
 
   /**
@@ -181,7 +182,7 @@ public class UpnpNatManager extends AbstractNatManager {
    *     future is cancelled.
    */
   private synchronized CompletableFuture<RemoteService> discoverService(final String serviceType) {
-    return recognizedServices.get(serviceType);
+    return getService(serviceType);
   }
 
   /**
@@ -246,7 +247,7 @@ public class UpnpNatManager extends AbstractNatManager {
                       LOG.info(
                           "External IP address {} detected for internal address {}",
                           result,
-                          discoveredOnLocalAddress.get());
+                          discoveredOnLocalAddress.orElse("unknown"));
 
                       externalIpQueryFuture.complete(result);
                     }
@@ -316,7 +317,9 @@ public class UpnpNatManager extends AbstractNatManager {
           // at this point, we should have the local address we discovered the IGD on,
           // so we can prime the NewInternalClient field if it was omitted
           if (null == portMapping.getInternalClient()) {
-            portMapping.setInternalClient(discoveredOnLocalAddress.get());
+            portMapping.setInternalClient(
+                discoveredOnLocalAddress.orElseThrow(
+                    () -> new IllegalStateException("No local address discovered for UPnP")));
           }
 
           // our query, which will be handled asynchronously by the jupnp library
@@ -337,12 +340,12 @@ public class UpnpNatManager extends AbstractNatManager {
 
                   synchronized (forwardedPorts) {
                     final NatServiceType natServiceType =
-                        NatServiceType.fromString(portMapping.getDescription());
+                        NatServiceType.fromString(requireNonNull(portMapping.getDescription()));
                     final NatPortMapping natPortMapping =
                         new NatPortMapping(
                             natServiceType,
                             NetworkProtocol.valueOf(portMapping.getProtocol().name()),
-                            portMapping.getInternalClient(),
+                            requireNonNull(portMapping.getInternalClient()),
                             portMapping.getRemoteHost(),
                             portMapping.getExternalPort().getValue().intValue(),
                             portMapping.getInternalPort().getValue().intValue());
@@ -487,6 +490,9 @@ public class UpnpNatManager extends AbstractNatManager {
         synchronized (this) {
           // log a warning if we detect a second WANIPConnection service
           CompletableFuture<RemoteService> existingFuture = recognizedServices.get(serviceType);
+          if (existingFuture == null) {
+            existingFuture = getService(serviceType);
+          }
           if (existingFuture.isDone()) {
             LOG.warn(
                 "Detected multiple WANIPConnection services on network. This may interfere with NAT circumvention.");
@@ -508,7 +514,7 @@ public class UpnpNatManager extends AbstractNatManager {
       case TCP:
         return PortMapping.Protocol.TCP;
     }
-    return null;
+    throw new IllegalStateException("Unsupported network protocol: " + protocol);
   }
 
   private PortMapping toJupnpPortMapping(final NatPortMapping natPortMapping) {

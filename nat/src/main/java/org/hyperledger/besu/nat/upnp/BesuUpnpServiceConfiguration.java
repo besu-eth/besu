@@ -20,6 +20,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
+import org.jspecify.annotations.Nullable;
 import org.jupnp.DefaultUpnpServiceConfiguration;
 import org.jupnp.UpnpServiceConfiguration;
 import org.jupnp.binding.xml.DeviceDescriptorBinder;
@@ -138,9 +139,10 @@ class BesuUpnpServiceConfiguration implements UpnpServiceConfiguration {
     return new DatagramIOImpl(new DatagramIOConfigurationImpl());
   }
 
-  @SuppressWarnings("rawtypes") // superclass uses raw types
   @Override
-  public StreamServer createStreamServer(final NetworkAddressFactory networkAddressFactory) {
+  @SuppressWarnings("NullAway")
+  public @Nullable StreamServer<?> createStreamServer(
+      final NetworkAddressFactory networkAddressFactory) {
     return null;
   }
 
@@ -190,17 +192,20 @@ class BesuUpnpServiceConfiguration implements UpnpServiceConfiguration {
   }
 
   @Override
-  public Integer getRemoteDeviceMaxAgeSeconds() {
+  @SuppressWarnings("NullAway")
+  public @Nullable Integer getRemoteDeviceMaxAgeSeconds() {
     return null;
   }
 
   @Override
-  public UpnpHeaders getDescriptorRetrievalHeaders(final RemoteDeviceIdentity identity) {
+  @SuppressWarnings("NullAway")
+  public @Nullable UpnpHeaders getDescriptorRetrievalHeaders(final RemoteDeviceIdentity identity) {
     return null;
   }
 
   @Override
-  public UpnpHeaders getEventSubscriptionHeaders(final RemoteService service) {
+  @SuppressWarnings("NullAway")
+  public @Nullable UpnpHeaders getEventSubscriptionHeaders(final RemoteService service) {
     return null;
   }
 
