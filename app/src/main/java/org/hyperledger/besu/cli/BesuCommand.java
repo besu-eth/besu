@@ -861,9 +861,15 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         suppressInfoLog();
       }
       besuPluginContext.initialize(PluginsConfigurationOptions.fromCommandLine(commandLine));
+      // register plugin CLI options before registering plugins
+      besuPluginContext.registerPluginCliOptions();
+      final String[] args = parseResult.originalArgs().toArray(new String[0]);
+      // re-parse so plugin CLI options are available during registration
+      commandLine.parseArgs(args);
       besuPluginContext.registerPlugins();
       commandLine.setExecutionStrategy(nextStep);
-      return commandLine.execute(parseResult.originalArgs().toArray(new String[0]));
+      // execute() re-parses args, which also covers options registered during register()
+      return commandLine.execute(args);
     };
   }
 
