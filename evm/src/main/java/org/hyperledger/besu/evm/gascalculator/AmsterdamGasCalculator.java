@@ -177,7 +177,8 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
       final Address recipientAddress,
       final boolean accountIsWarm) {
     // Same as SpuriousDragon but do NOT add newAccountGasCost().
-    // State gas for new accounts (112 * cpsb) is charged via chargeCallNewAccountStateGas.
+    // EIP-8037 (PR 11573): state gas for new accounts (112 * cpsb) is charged at frame-end
+    // aggregation against an AccountCreated event recorded by AbstractCallOperation.
     return staticCallCost;
   }
 

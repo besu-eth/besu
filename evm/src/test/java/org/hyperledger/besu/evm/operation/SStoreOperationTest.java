@@ -97,7 +97,6 @@ class SStoreOperationTest {
     final SStoreOperation operation =
         new SStoreOperation(amsterdamCalc, SStoreOperation.EIP_1706_MINIMUM);
 
-    final long blockGasLimit = 36_000_000L;
     final Address address = Address.fromHexString("0x18675309");
     final ToyWorld toyWorld = new ToyWorld();
     final WorldUpdater worldStateUpdater = toyWorld.updater();
@@ -106,17 +105,12 @@ class SStoreOperationTest {
         new TestMessageFrameBuilder()
             .address(address)
             .worldUpdater(worldStateUpdater)
-            .blockValues(
-                new FakeBlockValues(1337) {
-                  @Override
-                  public long getGasLimit() {
-                    return blockGasLimit;
-                  }
-                })
+            .blockValues(new FakeBlockValues(1337))
             .initialGas(100_000L)
             .build();
     worldStateUpdater.getOrCreate(address).setBalance(Wei.of(1));
     worldStateUpdater.commit();
+    frame.setStateGasReservoir(100_000L);
 
     // key=1, newValue=42 (0 -> nonzero triggers state gas)
     frame.pushStackItem(UInt256.valueOf(42));
@@ -125,8 +119,15 @@ class SStoreOperationTest {
     final OperationResult result = operation.execute(frame, null);
     assertThat(result.getHaltReason()).isNull();
 
-    // State gas: 32 * cpsb(36M) = 32 * 150 = 4_800
-    final long expectedStateGas = 32L * new Eip8037StateGasCostCalculator().costPerStateByte();
+    // EIP-8037 (PR 11573): SSTORE only records an event; state gas is charged at frame end.
+    assertThat(frame.getStateGasUsed()).isZero();
+
+    // Apply frame-end aggregation
+    final Eip8037StateGasCostCalculator calc = new Eip8037StateGasCostCalculator();
+    assertThat(calc.applyFrameEndStateGasAccounting(frame)).isTrue();
+
+    // State gas: 32 * cpsb = 32 * 1174 = 37_568
+    final long expectedStateGas = 32L * calc.costPerStateByte();
     assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas);
   }
 
@@ -175,12 +176,11 @@ class SStoreOperationTest {
   }
 
   @Test
-  void sstoreZeroToNonzeroToZeroRefundsStateGas() {
+  void sstoreZeroToNonzeroToZeroIsNetZeroAfterFrameEnd() {
     final GasCalculator amsterdamCalc = new AmsterdamGasCalculator();
     final SStoreOperation operation =
         new SStoreOperation(amsterdamCalc, SStoreOperation.EIP_1706_MINIMUM);
 
-    final long blockGasLimit = 36_000_000L;
     final Address address = Address.fromHexString("0x18675309");
     final ToyWorld toyWorld = new ToyWorld();
 
@@ -195,36 +195,32 @@ class SStoreOperationTest {
         new TestMessageFrameBuilder()
             .address(address)
             .worldUpdater(txUpdater)
-            .blockValues(
-                new FakeBlockValues(1337) {
-                  @Override
-                  public long getGasLimit() {
-                    return blockGasLimit;
-                  }
-                })
+            .blockValues(new FakeBlockValues(1337))
             .initialGas(100_000L)
             .build();
     frame.setStateGasReservoir(100_000L);
 
-    // First SSTORE: key=1, value=42 (0 -> nonzero, triggers state gas)
+    // First SSTORE: key=1, value=42 (0 -> nonzero — records an event, no inline charge)
     frame.pushStackItem(UInt256.valueOf(42));
     frame.pushStackItem(UInt256.ONE);
     final OperationResult result1 = operation.execute(frame, null);
     assertThat(result1.getHaltReason()).isNull();
+    assertThat(frame.getStateGasUsed()).isZero();
 
-    final long expectedStateGas = 32L * new Eip8037StateGasCostCalculator().costPerStateByte();
-    assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas); // 4,800 at 36M gas limit
-
-    // Second SSTORE: key=1, value=0 (nonzero -> 0, original=0 triggers state gas refund)
+    // Second SSTORE: key=1, value=0 (nonzero -> 0 — records an event)
     frame.pushStackItem(UInt256.ZERO);
     frame.pushStackItem(UInt256.ONE);
     final OperationResult result2 = operation.execute(frame, null);
     assertThat(result2.getHaltReason()).isNull();
 
-    // EIP-8037: state gas refund is credited directly to
-    // state_gas_reservoir (not refund_counter, bypassing the 20% cap) and stateGasUsed is
-    // decremented. Regular SSTORE refund for 0→X→0 (2,800) still goes via refund_counter.
+    // EIP-8037 (PR 11573): frame-end aggregation collapses 0 -> X -> 0 to net zero state gas.
+    final Eip8037StateGasCostCalculator calc = new Eip8037StateGasCostCalculator();
+    assertThat(calc.applyFrameEndStateGasAccounting(frame)).isTrue();
+
+    // Regular SSTORE refund for 0->X->0 (2_800) still goes via refund_counter.
     assertThat(frame.getGasRefund()).isEqualTo(2_800L);
+    // No net state gas charge — neither the 0->X charge nor a 0->X->0 refund is applied because
+    // both transitions cancel during aggregation.
     assertThat(frame.getStateGasUsed()).isZero();
     assertThat(frame.getStateGasReservoir()).isEqualTo(100_000L);
   }
@@ -275,7 +271,7 @@ class SStoreOperationTest {
   }
 
   @Test
-  void sstoreStateGasSpillsFromReservoirToGasRemaining() {
+  void frameEndStateGasSpillsFromReservoirToGasRemaining() {
     final GasCalculator amsterdamCalc = new AmsterdamGasCalculator();
     final SStoreOperation operation =
         new SStoreOperation(amsterdamCalc, SStoreOperation.EIP_1706_MINIMUM);
@@ -300,24 +296,24 @@ class SStoreOperationTest {
 
     // Set reservoir to less than what the SSTORE will need
     frame.setStateGasReservoir(10_000L);
-    final long gasBeforeSstore = frame.getRemainingGas();
 
-    // SSTORE 0 -> nonzero: needs 37,568 state gas but only 10k in reservoir
+    // SSTORE 0 -> nonzero: records an event (no inline charge). Frame-end aggregation will draw
+    // 32 * cpsb = 37_568 state gas; the reservoir holds only 10k so 27_568 spills into
+    // gasRemaining.
     frame.pushStackItem(UInt256.valueOf(42));
     frame.pushStackItem(UInt256.ONE);
     final OperationResult result = operation.execute(frame, null);
     assertThat(result.getHaltReason()).isNull();
 
-    final long expectedStateGas = 32L * new Eip8037StateGasCostCalculator().costPerStateByte();
-    final long expectedSpill = expectedStateGas - 10_000L; // 27,568
+    final long gasBeforeAggregation = frame.getRemainingGas();
+    final Eip8037StateGasCostCalculator calc = new Eip8037StateGasCostCalculator();
+    assertThat(calc.applyFrameEndStateGasAccounting(frame)).isTrue();
 
-    // Reservoir fully drained
+    final long expectedStateGas = 32L * calc.costPerStateByte();
+    final long expectedSpill = expectedStateGas - 10_000L;
+
     assertThat(frame.getStateGasReservoir()).isEqualTo(0L);
-    // Total state gas consumed
     assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas);
-    // gasRemaining decreased by the spill amount only (regular SSTORE cost is deducted by the
-    // EVM after execute returns, not by the operation itself)
-    final long expectedRemainingGas = gasBeforeSstore - expectedSpill;
-    assertThat(frame.getRemainingGas()).isEqualTo(expectedRemainingGas);
+    assertThat(frame.getRemainingGas()).isEqualTo(gasBeforeAggregation - expectedSpill);
   }
 }

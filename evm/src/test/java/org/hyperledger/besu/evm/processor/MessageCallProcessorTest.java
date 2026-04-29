@@ -24,14 +24,17 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.precompile.PrecompileContractRegistry;
 import org.hyperledger.besu.evm.precompile.PrecompiledContract;
 import org.hyperledger.besu.evm.testutils.TestMessageFrameBuilder;
 import org.hyperledger.besu.evm.toy.ToyWorld;
 
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Answers;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -39,9 +42,20 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class MessageCallProcessorTest extends AbstractMessageProcessorTest<MessageCallProcessor> {
 
-  @Mock EVM evm;
+  @Mock(answer = Answers.RETURNS_DEEP_STUBS)
+  EVM evm;
+
   @Mock PrecompileContractRegistry precompileContractRegistry;
   @Mock PrecompiledContract contract;
+
+  @BeforeEach
+  void stubStateGasCalculator() {
+    // EIP-8037: completedSuccess() consults evm.getGasCalculator().stateGasCostCalculator() at
+    // frame end. With deep-stubbed mocks the chain is non-null but returns Mockito defaults; force
+    // the no-op calculator so applyFrameEndStateGasAccounting returns true cleanly.
+    org.mockito.Mockito.when(evm.getGasCalculator().stateGasCostCalculator())
+        .thenReturn(StateGasCostCalculator.NONE);
+  }
 
   @Override
   protected MessageCallProcessor getAbstractMessageProcessor() {
