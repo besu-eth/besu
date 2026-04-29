@@ -69,6 +69,13 @@ public interface TransactionTraceParams {
     return Boolean.TRUE.equals(disableStackNullable());
   }
 
+  @JsonProperty(value = "enableReturnData")
+  @Nullable Boolean enableReturnDataNullable();
+
+  default boolean enableReturnData() {
+    return Boolean.TRUE.equals(enableReturnDataNullable());
+  }
+
   @JsonProperty("tracer")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   @Nullable String tracer();
@@ -121,6 +128,9 @@ public interface TransactionTraceParams {
     }
     if (disableStackNullable() != null) {
       builder.traceStack(!disableStack());
+    }
+    if (enableReturnDataNullable() != null) {
+      builder.traceReturnData(enableReturnData());
     }
     var opCodeTracerConfig = builder.traceOpcodes(opcodes()).build();
 
