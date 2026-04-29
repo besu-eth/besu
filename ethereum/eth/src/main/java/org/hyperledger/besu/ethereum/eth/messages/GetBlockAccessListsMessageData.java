@@ -30,7 +30,10 @@ public final class GetBlockAccessListsMessageData {
   public static Bytes encode(final Iterable<Hash> blockHashes) {
     final BytesValueRLPOutput output = new BytesValueRLPOutput();
     output.startList();
+    // request-id is prepended before sending the message
+    output.startList();
     blockHashes.forEach(hash -> output.writeBytes(hash.getBytes()));
+    output.endList();
     output.endList();
     return output.encoded();
   }
@@ -47,6 +50,7 @@ public final class GetBlockAccessListsMessageData {
               if (withRequestId) {
                 input.skipNext();
               }
+              input.enterList();
               initialized = true;
             }
           }

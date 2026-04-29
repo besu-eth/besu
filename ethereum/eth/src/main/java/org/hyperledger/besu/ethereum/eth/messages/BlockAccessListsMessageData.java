@@ -33,6 +33,8 @@ public final class BlockAccessListsMessageData {
   public static Bytes encode(final Iterable<Optional<BlockAccessList>> blockAccessLists) {
     final BytesValueRLPOutput output = new BytesValueRLPOutput();
     output.startList();
+    // request-id is prepended before sending the message
+    output.startList();
     blockAccessLists.forEach(
         blockAccessList -> {
           if (blockAccessList.isPresent()) {
@@ -41,6 +43,7 @@ public final class BlockAccessListsMessageData {
             output.writeBytes(Bytes.EMPTY);
           }
         });
+    output.endList();
     output.endList();
     return output.encoded();
   }
@@ -57,6 +60,7 @@ public final class BlockAccessListsMessageData {
               if (withRequestId) {
                 input.skipNext();
               }
+              input.enterList();
               initialized = true;
             }
           }
@@ -90,6 +94,7 @@ public final class BlockAccessListsMessageData {
               if (withRequestId) {
                 input.skipNext();
               }
+              input.enterList();
               initialized = true;
             }
           }
