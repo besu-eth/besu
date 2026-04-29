@@ -56,7 +56,7 @@ public final class BlockAccessListDecoder {
                     scIn.readList(
                         changeIn -> {
                           changeIn.enterList();
-                          int txIndex = changeIn.readIntScalar();
+                          long txIndex = changeIn.readUnsignedIntScalar();
                           UInt256 newVal = UInt256.fromBytes(changeIn.readBytes());
                           changeIn.leaveList();
                           return new StorageChange(txIndex, newVal);
@@ -72,7 +72,7 @@ public final class BlockAccessListDecoder {
           acctIn.readList(
               bcIn -> {
                 bcIn.enterList();
-                int txIndex = bcIn.readIntScalar();
+                long txIndex = bcIn.readUnsignedIntScalar();
                 Wei postBalance = Wei.of(UInt256.fromBytes(bcIn.readBytes()));
                 bcIn.leaveList();
                 return new BalanceChange(txIndex, postBalance);
@@ -82,7 +82,7 @@ public final class BlockAccessListDecoder {
           acctIn.readList(
               ncIn -> {
                 ncIn.enterList();
-                int txIndex = ncIn.readIntScalar();
+                long txIndex = ncIn.readUnsignedIntScalar();
                 long newNonce = ncIn.readLongScalar();
                 ncIn.leaveList();
                 return new NonceChange(txIndex, newNonce);
@@ -92,7 +92,7 @@ public final class BlockAccessListDecoder {
           acctIn.readList(
               ccIn -> {
                 ccIn.enterList();
-                int txIndex = ccIn.readIntScalar();
+                long txIndex = ccIn.readUnsignedIntScalar();
                 Bytes newCode = ccIn.readBytes();
                 ccIn.leaveList();
                 return new CodeChange(txIndex, newCode);

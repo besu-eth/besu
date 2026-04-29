@@ -86,20 +86,22 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
       final Executor executor,
-      final Optional<BlockAccessListBuilder> blockAccessListBuilder) {
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader) {
 
     maybePrefetcher.ifPresent(
         balPrefetchMechanism -> {
-          final BonsaiWorldState ws = getWorldState(protocolContext, blockHeader);
-          if (ws != null) {
+          final Optional<BonsaiWorldState> maybeWorldState =
+              getWorldState(protocolContext, blockHeader);
+          if (maybeWorldState.isPresent()) {
             balPrefetchMechanism
-                .prefetch(ws, blockAccessList, executor)
+                .prefetch(maybeWorldState.get(), blockAccessList, executor)
                 .exceptionally(
                     ex -> {
                       LOG.error("Prefetch failed", ex);
                       return null;
                     })
-                .whenComplete((result, ex) -> ws.close());
+                .whenComplete((result, ex) -> maybeWorldState.get().close());
           }
         });
     super.runAsyncBlock(
@@ -110,7 +112,8 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
         blockHashLookup,
         blobGasPrice,
         executor,
-        blockAccessListBuilder);
+        blockAccessListBuilder,
+        maybeParentHeader);
   }
 
   @Override
@@ -122,10 +125,17 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final Address miningBeneficiary,
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
-      final Optional<BlockAccessListBuilder> blockAccessListBuilder) {
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader) {
 
-    final BonsaiWorldState ws = getWorldState(protocolContext, blockHeader);
-    if (ws == null) return null;
+    if (maybeParentHeader.isEmpty()) {
+      return null;
+    }
+    final BonsaiWorldState ws =
+        getWorldState(protocolContext, maybeParentHeader.get()).orElse(null);
+    if (ws == null) {
+      return null;
+    }
 
     try {
       ws.disableCacheMerkleTrieLoader();
@@ -134,7 +144,8 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
       final PathBasedWorldStateUpdateAccumulator<?> blockUpdater = ws.updater();
 
-      applyWritesFromPriorTransactions(blockAccessList, transactionLocation + 1, blockUpdater);
+      applyWritesFromPriorTransactions(
+          blockAccessList, (long) transactionLocation + 1L, blockUpdater);
       blockUpdater.commit();
 
       final WorldUpdater txUpdater = blockUpdater.updater();
@@ -224,7 +235,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
   private void applyWritesFromPriorTransactions(
       final BlockAccessList blockAccessList,
-      final int balIndex,
+      final long balIndex,
       final PathBasedWorldStateUpdateAccumulator<?> worldStateUpdater) {
     for (var accountChanges : blockAccessList.accountChanges()) {
       final Address address = accountChanges.address();
@@ -271,11 +282,11 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
   }
 
   private BlockAccessList.BalanceChange findLatestBalanceChange(
-      final Collection<BlockAccessList.BalanceChange> changes, final int maxIndex) {
+      final Collection<BlockAccessList.BalanceChange> changes, final long maxIndex) {
     BlockAccessList.BalanceChange latest = null;
-    int latestIndex = -1;
+    long latestIndex = -1L;
     for (var change : changes) {
-      final int txIndex = change.txIndex();
+      final long txIndex = change.txIndex();
       if (txIndex < maxIndex && txIndex > latestIndex) {
         latest = change;
         latestIndex = txIndex;
@@ -285,11 +296,11 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
   }
 
   private BlockAccessList.NonceChange findLatestNonceChange(
-      final Collection<BlockAccessList.NonceChange> changes, final int maxIndex) {
+      final Collection<BlockAccessList.NonceChange> changes, final long maxIndex) {
     BlockAccessList.NonceChange latest = null;
-    int latestIndex = -1;
+    long latestIndex = -1L;
     for (var change : changes) {
-      final int txIndex = change.txIndex();
+      final long txIndex = change.txIndex();
       if (txIndex < maxIndex && txIndex > latestIndex) {
         latest = change;
         latestIndex = txIndex;
@@ -299,11 +310,11 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
   }
 
   private BlockAccessList.CodeChange findLatestCodeChange(
-      final Collection<BlockAccessList.CodeChange> changes, final int maxIndex) {
+      final Collection<BlockAccessList.CodeChange> changes, final long maxIndex) {
     BlockAccessList.CodeChange latest = null;
-    int latestIndex = -1;
+    long latestIndex = -1L;
     for (var change : changes) {
-      final int txIndex = change.txIndex();
+      final long txIndex = change.txIndex();
       if (txIndex < maxIndex && txIndex > latestIndex) {
         latest = change;
         latestIndex = txIndex;
@@ -313,11 +324,11 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
   }
 
   private BlockAccessList.StorageChange findLatestStorageChange(
-      final Collection<BlockAccessList.StorageChange> changes, final int maxIndex) {
+      final Collection<BlockAccessList.StorageChange> changes, final long maxIndex) {
     BlockAccessList.StorageChange latest = null;
-    int latestIndex = -1;
+    long latestIndex = -1L;
     for (var change : changes) {
-      final int txIndex = change.txIndex();
+      final long txIndex = change.txIndex();
       if (txIndex < maxIndex && txIndex > latestIndex) {
         latest = change;
         latestIndex = txIndex;

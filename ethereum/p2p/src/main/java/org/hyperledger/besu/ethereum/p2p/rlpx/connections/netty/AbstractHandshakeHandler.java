@@ -130,7 +130,8 @@ abstract class AbstractHandshakeHandler extends SimpleChannelInboundHandler<Byte
               metricsSystem,
               inboundInitiated,
               peerLookup,
-              maxMessageSize);
+              maxMessageSize,
+              nodeId);
 
       ctx.channel()
           .pipeline()

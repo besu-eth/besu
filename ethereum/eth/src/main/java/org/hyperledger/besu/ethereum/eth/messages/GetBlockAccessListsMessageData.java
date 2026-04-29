@@ -19,21 +19,17 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
-import java.math.BigInteger;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
-import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 
 public final class GetBlockAccessListsMessageData {
   private GetBlockAccessListsMessageData() {}
 
-  public static Bytes encode(
-      final Optional<BigInteger> requestId, final Iterable<Hash> blockHashes) {
+  public static Bytes encode(final Iterable<Hash> blockHashes) {
     final BytesValueRLPOutput output = new BytesValueRLPOutput();
     output.startList();
-    requestId.ifPresent(output::writeBigIntegerScalar);
     blockHashes.forEach(hash -> output.writeBytes(hash.getBytes()));
     output.endList();
     return output.encoded();

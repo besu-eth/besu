@@ -31,7 +31,6 @@ import org.hyperledger.besu.ethereum.eth.EthPeerTestUtil;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.messages.BlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.BlockHeadersMessage;
-import org.hyperledger.besu.ethereum.eth.messages.NodeDataMessage;
 import org.hyperledger.besu.ethereum.eth.messages.ReceiptsMessage;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
@@ -87,16 +86,6 @@ public class EthPeerTest {
   }
 
   @Test
-  public void getNodeDataStream() throws PeerNotConnected {
-    final ResponseStreamSupplier getStream =
-        (peer) -> peer.getNodeData(asList(gen.hash(), gen.hash()));
-    final MessageData targetMessage = NodeDataMessage.create(singletonList(gen.bytesValue()));
-    final MessageData otherMessage = BlockHeadersMessage.create(asList(gen.header(), gen.header()));
-
-    messageStream(getStream, targetMessage, otherMessage);
-  }
-
-  @Test
   public void shouldHaveAvailableCapacityUntilOutstandingRequestLimitIsReached()
       throws PeerNotConnected {
     final EthPeer peer = createPeer();
@@ -111,15 +100,15 @@ public class EthPeerTest {
     assertThat(peer.hasAvailableRequestCapacity()).isTrue();
     assertThat(peer.outstandingRequests()).isEqualTo(2);
 
-    peer.getNodeData(asList(gen.hash(), gen.hash()));
+    peer.getHeadersByHash(gen.hash(), 4, 1, false);
     assertThat(peer.hasAvailableRequestCapacity()).isTrue();
     assertThat(peer.outstandingRequests()).isEqualTo(3);
 
-    peer.getHeadersByHash(gen.hash(), 4, 1, false);
+    peer.getHeadersByNumber(1, 1, 1, false);
     assertThat(peer.hasAvailableRequestCapacity()).isTrue();
     assertThat(peer.outstandingRequests()).isEqualTo(4);
 
-    peer.getHeadersByNumber(1, 1, 1, false);
+    peer.getPooledTransactions(asList(gen.hash()));
     assertThat(peer.hasAvailableRequestCapacity()).isFalse();
     assertThat(peer.outstandingRequests()).isEqualTo(5);
 
@@ -138,10 +127,6 @@ public class EthPeerTest {
 
     clock.stepMillis(10_000);
     peer.getBodies(asList(gen.hash(), gen.hash()));
-    assertThat(peer.getLastRequestTimestamp()).isEqualTo(clock.millis());
-
-    clock.stepMillis(10_000);
-    peer.getNodeData(asList(gen.hash(), gen.hash()));
     assertThat(peer.getLastRequestTimestamp()).isEqualTo(clock.millis());
 
     clock.stepMillis(10_000);
@@ -174,26 +159,14 @@ public class EthPeerTest {
                 bodiesClosedCount.incrementAndGet();
               }
             });
-    // NodeData stream
-    final AtomicInteger nodeDataClosedCount = new AtomicInteger(0);
-    peer.getNodeData(asList(gen.hash(), gen.hash()))
-        .then(
-            (closed, msg, p) -> {
-              if (closed) {
-                nodeDataClosedCount.incrementAndGet();
-              }
-            });
-
     // Sanity check
     assertThat(headersClosedCount.get()).isEqualTo(0);
     assertThat(bodiesClosedCount.get()).isEqualTo(0);
-    assertThat(nodeDataClosedCount.get()).isEqualTo(0);
 
     // Disconnect and check
     peer.handleDisconnect();
     assertThat(headersClosedCount.get()).isEqualTo(1);
     assertThat(bodiesClosedCount.get()).isEqualTo(1);
-    assertThat(nodeDataClosedCount.get()).isEqualTo(1);
   }
 
   @Test

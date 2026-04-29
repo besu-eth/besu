@@ -33,6 +33,10 @@ import org.slf4j.LoggerFactory;
  */
 public final class BesuVersionUtils {
   private static final Logger LOG = LoggerFactory.getLogger(BesuVersionUtils.class);
+
+  /** Sentinel value used when the version or commit metadata is not available. */
+  public static final String UNKNOWN = "UNKNOWN";
+
   private static final String CLIENT = "besu";
   private static final String VERSION;
   private static final String OS = PlatformDetector.getOS();
@@ -66,8 +70,8 @@ public final class BesuVersionUtils {
             Optional.ofNullable(implVersion).orElse("NONE/null"));
       }
     }
-    COMMIT = commit;
-    VERSION = implVersion;
+    COMMIT = commit != null ? commit : UNKNOWN;
+    VERSION = implVersion != null ? implVersion : UNKNOWN;
   }
 
   private BesuVersionUtils() {}
@@ -75,7 +79,8 @@ public final class BesuVersionUtils {
   /**
    * Generate version-only Besu version
    *
-   * @return Besu version in format such as "v23.1.0" or "v23.1.1-dev-ac23d311"
+   * @return Besu version in format such as "v23.1.0" or "v23.1.1-dev-ac23d311", or {@value
+   *     #UNKNOWN} if not available
    */
   public static String shortVersion() {
     return VERSION;
@@ -117,7 +122,7 @@ public final class BesuVersionUtils {
   /**
    * Generate the commit hash for this besu version
    *
-   * @return the commit hash for this besu version
+   * @return the commit hash for this besu version, or {@value #UNKNOWN} if not available
    */
   public static String commit() {
     return COMMIT;
