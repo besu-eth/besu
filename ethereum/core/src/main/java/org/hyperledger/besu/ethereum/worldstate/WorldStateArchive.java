@@ -63,8 +63,6 @@ public interface WorldStateArchive extends Closeable {
    */
   void resetArchiveStateTo(BlockHeader blockHeader);
 
-  Optional<Bytes> getNodeData(Hash hash);
-
   /**
    * Retrieves an account proof based on the provided parameters.
    *

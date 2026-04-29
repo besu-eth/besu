@@ -14,11 +14,9 @@
  */
 package org.hyperledger.besu.ethereum.eth.manager;
 
-import static java.util.Collections.singletonList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.eth.core.Utils.serializeReceiptsList;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -45,11 +43,9 @@ import org.hyperledger.besu.ethereum.eth.messages.BlockHeadersMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockHeadersMessage;
-import org.hyperledger.besu.ethereum.eth.messages.GetNodeDataMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetPaginatedReceiptsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetPooledTransactionsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetReceiptsMessage;
-import org.hyperledger.besu.ethereum.eth.messages.NodeDataMessage;
 import org.hyperledger.besu.ethereum.eth.messages.PaginatedReceiptsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.PooledTransactionsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.ReceiptsMessage;
@@ -58,7 +54,6 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -76,81 +71,9 @@ public class EthServerTest {
 
   private final BlockDataGenerator dataGenerator = new BlockDataGenerator(0);
   private final Blockchain blockchain = mock(Blockchain.class);
-  private final WorldStateArchive worldStateArchive = mock(WorldStateArchive.class);
   private final TransactionPool transactionPool = mock(TransactionPool.class);
   private final EthPeer ethPeer = mock(EthPeer.class);
   private final EthMessages ethMessages = new EthMessages();
-
-  @Test
-  public void shouldHandleDataBeingUnavailableWhenRespondingToNodeDataRequests() {
-    final Map<Hash, Bytes> nodeData = setupNodeData(1);
-    setupEthServer();
-
-    final List<Hash> hashes = new ArrayList<>(nodeData.keySet());
-    hashes.add(dataGenerator.hash()); // Add unknown hash
-    final List<Bytes> expectedResult = new ArrayList<>(nodeData.values());
-
-    assertThat(
-            ethMessages.dispatch(
-                new EthMessage(ethPeer, GetNodeDataMessage.create(hashes)), EthProtocol.LATEST))
-        .contains(NodeDataMessage.create(expectedResult));
-  }
-
-  @Test
-  public void shouldLimitNumberOfResponsesToNodeDataRequests() {
-    final int limit = 2;
-    final Map<Hash, Bytes> nodeData = setupNodeData(3);
-    setupEthServer(b -> b.maxGetNodeData(limit));
-
-    final List<Hash> hashes = new ArrayList<>(nodeData.keySet());
-    final List<Bytes> expectedResult =
-        hashes.stream().limit(limit).map(nodeData::get).collect(Collectors.toList());
-
-    assertThat(
-            ethMessages.dispatch(
-                new EthMessage(ethPeer, GetNodeDataMessage.create(hashes)), EthProtocol.LATEST))
-        .contains(NodeDataMessage.create(expectedResult));
-  }
-
-  @Test
-  public void shouldLimitTheNumberOfNodeDataResponsesLookedUpNotTheNumberReturned() {
-    final Map<Hash, Bytes> nodeData = setupNodeData(2);
-    setupEthServer(b -> b.maxGetNodeData(2));
-
-    final List<Hash> knownHashes = new ArrayList<>(nodeData.keySet());
-    final List<Hash> hashes =
-        List.of(
-            knownHashes.get(0),
-            dataGenerator.hash(), // Insert a hash that will return an empty response
-            knownHashes.get(1));
-    final List<Bytes> expectedResult = singletonList(nodeData.get(knownHashes.get(0)));
-
-    assertThat(
-            ethMessages.dispatch(
-                new EthMessage(ethPeer, GetNodeDataMessage.create(hashes)), EthProtocol.LATEST))
-        .contains(NodeDataMessage.create(expectedResult));
-  }
-
-  @Test
-  public void shouldLimitNodeDataByMessageSize() {
-    final Map<Hash, Bytes> nodeData = setupNodeData(10);
-    final List<Hash> hashes = new ArrayList<>(nodeData.keySet());
-    int sizeLimit = RLP.MAX_PREFIX_SIZE;
-    final List<Bytes> expectedResult = new ArrayList<>();
-    for (int i = 0; i < 4; i++) {
-      final Bytes data = nodeData.get(hashes.get(i));
-      expectedResult.add(data);
-      sizeLimit += calculateRlpEncodedSize(data);
-    }
-
-    final int messageSizeLimit = sizeLimit;
-    setupEthServer(b -> b.maxMessageSize(messageSizeLimit));
-
-    assertThat(
-            ethMessages.dispatch(
-                new EthMessage(ethPeer, GetNodeDataMessage.create(hashes)), EthProtocol.LATEST))
-        .contains(NodeDataMessage.create(expectedResult));
-  }
 
   @Test
   public void shouldLimitBlockHeadersByMessageSize() {
@@ -712,22 +635,7 @@ public class EthServerTest {
     final var configBuilder = ImmutableEthProtocolConfiguration.builder();
     final EthProtocolConfiguration ethConfig = configModifier.apply(configBuilder).build();
 
-    new EthServer(blockchain, worldStateArchive, transactionPool, ethMessages, ethConfig);
-  }
-
-  private Map<Hash, Bytes> setupNodeData(final int count) {
-    // Return empty value unless otherwise specified
-    when(worldStateArchive.getNodeData(any())).thenReturn(Optional.empty());
-
-    final Map<Hash, Bytes> nodeDataByHash = new HashMap<>();
-    for (int i = 0; i < count; i++) {
-      final Hash hash = dataGenerator.hash();
-      final Bytes data = dataGenerator.bytesValue(10, 30);
-      when(worldStateArchive.getNodeData(hash)).thenReturn(Optional.of(data));
-      nodeDataByHash.put(hash, data);
-    }
-
-    return nodeDataByHash;
+    new EthServer(blockchain, transactionPool, ethMessages, ethConfig);
   }
 
   private List<Block> setupBlocks(final int count) {
@@ -775,12 +683,6 @@ public class EthServerTest {
 
   private int calculateRlpEncodedSize(final Transaction tx) {
     return RLP.encode(tx::writeTo).size();
-  }
-
-  private int calculateRlpEncodedSize(final Bytes data) {
-    final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
-    rlp.writeBytes(data);
-    return rlp.encodedSize();
   }
 
   private int calculateRlpEncodedSize(final List<TransactionReceipt> receipts) {
