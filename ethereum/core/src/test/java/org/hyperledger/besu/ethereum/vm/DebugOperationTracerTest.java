@@ -225,14 +225,12 @@ class DebugOperationTracerTest {
   @Test
   void shouldRecordReturnDataWhenEnabled() {
     final MessageFrame frame = validMessageFrame();
+    setupStorageForCapture(frame);
     frame.setReturnData(Bytes.fromHexString("0xdeadbeef"));
     final TraceFrame traceFrame =
         traceFrame(
             frame,
             OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
-                .traceStorage(false)
-                .traceMemory(false)
-                .traceStack(false)
                 .traceReturnData(true)
                 .build(),
             false);
@@ -243,14 +241,12 @@ class DebugOperationTracerTest {
   @Test
   void shouldNotRecordEmptyReturnDataWhenEnabled() {
     final MessageFrame frame = validMessageFrame();
+    setupStorageForCapture(frame);
     frame.setReturnData(Bytes.EMPTY);
     final TraceFrame traceFrame =
         traceFrame(
             frame,
             OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
-                .traceStorage(false)
-                .traceMemory(false)
-                .traceStack(false)
                 .traceReturnData(true)
                 .build(),
             false);
@@ -260,14 +256,12 @@ class DebugOperationTracerTest {
   @Test
   void shouldNotRecordReturnDataWhenDisabled() {
     final MessageFrame frame = validMessageFrame();
+    setupStorageForCapture(frame);
     frame.setReturnData(Bytes.fromHexString("0xdeadbeef"));
     final TraceFrame traceFrame =
         traceFrame(
             frame,
             OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
-                .traceStorage(false)
-                .traceMemory(false)
-                .traceStack(false)
                 .traceReturnData(false)
                 .build(),
             false);
