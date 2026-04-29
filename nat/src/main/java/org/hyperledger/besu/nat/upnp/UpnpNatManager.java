@@ -345,7 +345,7 @@ public class UpnpNatManager extends AbstractNatManager {
                         new NatPortMapping(
                             natServiceType,
                             NetworkProtocol.valueOf(portMapping.getProtocol().name()),
-                            requireNonNull(portMapping.getInternalClient()),
+                            portMapping.getInternalClient(),
                             portMapping.getRemoteHost(),
                             portMapping.getExternalPort().getValue().intValue(),
                             portMapping.getInternalPort().getValue().intValue());
@@ -489,10 +489,7 @@ public class UpnpNatManager extends AbstractNatManager {
       if (serviceTypes.contains(serviceType)) {
         synchronized (this) {
           // log a warning if we detect a second WANIPConnection service
-          CompletableFuture<RemoteService> existingFuture = recognizedServices.get(serviceType);
-          if (existingFuture == null) {
-            existingFuture = getService(serviceType);
-          }
+          CompletableFuture<RemoteService> existingFuture = getService(serviceType);
           if (existingFuture.isDone()) {
             LOG.warn(
                 "Detected multiple WANIPConnection services on network. This may interfere with NAT circumvention.");

@@ -20,7 +20,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
-import org.jspecify.annotations.Nullable;
 import org.jupnp.DefaultUpnpServiceConfiguration;
 import org.jupnp.UpnpServiceConfiguration;
 import org.jupnp.binding.xml.DeviceDescriptorBinder;
@@ -140,8 +139,8 @@ class BesuUpnpServiceConfiguration implements UpnpServiceConfiguration {
   }
 
   @Override
-  @SuppressWarnings("NullAway")
-  public @Nullable StreamServer<?> createStreamServer(
+  @SuppressWarnings("NullAway") // jupnp interface allows null for "no stream server"
+  public StreamServer<?> createStreamServer(
       final NetworkAddressFactory networkAddressFactory) {
     return null;
   }
@@ -192,20 +191,20 @@ class BesuUpnpServiceConfiguration implements UpnpServiceConfiguration {
   }
 
   @Override
-  @SuppressWarnings("NullAway")
-  public @Nullable Integer getRemoteDeviceMaxAgeSeconds() {
+  @SuppressWarnings("NullAway") // jupnp interface allows null for "no limit"
+  public Integer getRemoteDeviceMaxAgeSeconds() {
     return null;
   }
 
   @Override
-  @SuppressWarnings("NullAway")
-  public @Nullable UpnpHeaders getDescriptorRetrievalHeaders(final RemoteDeviceIdentity identity) {
+  @SuppressWarnings("NullAway") // jupnp interface allows null for "no extra headers"
+  public UpnpHeaders getDescriptorRetrievalHeaders(final RemoteDeviceIdentity identity) {
     return null;
   }
 
   @Override
-  @SuppressWarnings("NullAway")
-  public @Nullable UpnpHeaders getEventSubscriptionHeaders(final RemoteService service) {
+  @SuppressWarnings("NullAway") // jupnp interface allows null for "no extra headers"
+  public UpnpHeaders getEventSubscriptionHeaders(final RemoteService service) {
     return null;
   }
 
