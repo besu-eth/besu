@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.mainnet.systemcall;
 
+/** Thrown when a system call target address has no code deployed (or the account does not exist). */
 public class SystemCallNoCodeAtAddressException extends RuntimeException {
   public SystemCallNoCodeAtAddressException(final String message) {
     super(message);
