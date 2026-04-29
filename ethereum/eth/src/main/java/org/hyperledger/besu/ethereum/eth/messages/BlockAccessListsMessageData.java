@@ -23,17 +23,24 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 
 public final class BlockAccessListsMessageData {
   private BlockAccessListsMessageData() {}
 
-  public static Bytes encode(final Iterable<BlockAccessList> blockAccessLists) {
+  public static Bytes encode(final Iterable<Optional<BlockAccessList>> blockAccessLists) {
     final BytesValueRLPOutput output = new BytesValueRLPOutput();
     output.startList();
     blockAccessLists.forEach(
-        blockAccessList -> BlockAccessListEncoder.encode(blockAccessList, output));
+        blockAccessList -> {
+          if (blockAccessList.isPresent()) {
+            BlockAccessListEncoder.encode(blockAccessList.get(), output);
+          } else {
+            output.writeBytes(Bytes.EMPTY);
+          }
+        });
     output.endList();
     return output.encoded();
   }

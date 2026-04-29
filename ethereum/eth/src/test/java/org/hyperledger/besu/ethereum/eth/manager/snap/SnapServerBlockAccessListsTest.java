@@ -103,8 +103,8 @@ class SnapServerBlockAccessListsTest {
             snapServer.constructGetBlockAccessListsResponse(
                 request.wrapMessageData(BigInteger.ONE));
 
-    assertThat(response.blockAccessLists(false))
-        .containsExactly(available, new BlockAccessList(List.of()));
+    assertThat(response.blockAccessListsRaw(false))
+        .containsExactly(encodeRlp(available), Bytes.of(0x80));
   }
 
   @Test
@@ -156,7 +156,7 @@ class SnapServerBlockAccessListsTest {
             snapServer.constructGetBlockAccessListsResponse(
                 request.wrapMessageData(BigInteger.ONE));
 
-    assertThat(response.blockAccessLists(false)).hasSize(SNAP_MAX_ENTRIES_PER_REQUEST);
+    assertThat(response.blockAccessListsRaw(false)).hasSize(SNAP_MAX_ENTRIES_PER_REQUEST);
     verify(blockchain, never()).getBlockAccessList(hashPastLimit);
   }
 
@@ -214,10 +214,10 @@ class SnapServerBlockAccessListsTest {
             snapServer.constructGetBlockAccessListsResponse(
                 request.wrapMessageData(BigInteger.ONE));
 
-    final List<BlockAccessList> responseBlockAccessLists = new ArrayList<>();
-    response.blockAccessLists(false).forEach(responseBlockAccessLists::add);
+    final List<Bytes> responseBlockAccessLists = new ArrayList<>();
+    response.blockAccessListsRaw(false).forEach(responseBlockAccessLists::add);
     assertThat(responseBlockAccessLists).hasSize(SNAP_MAX_ENTRIES_PER_REQUEST);
-    assertThat(responseBlockAccessLists.getFirst()).isEqualTo(firstAvailable);
+    assertThat(responseBlockAccessLists.getFirst()).isEqualTo(encodeRlp(firstAvailable));
     verify(blockchain, never()).getBlockAccessList(hashPastLimit);
   }
 
@@ -250,8 +250,12 @@ class SnapServerBlockAccessListsTest {
   }
 
   private int calculateRlpEncodedSize(final BlockAccessList blockAccessList) {
+    return encodeRlp(blockAccessList).size();
+  }
+
+  private Bytes encodeRlp(final BlockAccessList blockAccessList) {
     final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
     BlockAccessListEncoder.encode(blockAccessList, rlp);
-    return rlp.encodedSize();
+    return rlp.encoded();
   }
 }

@@ -506,7 +506,7 @@ public class EthServerTest {
         GetBlockAccessListsMessage.create(List.of(availableHash, unavailableHash));
 
     final BlockAccessListsMessage expected =
-        BlockAccessListsMessage.create(List.of(available, new BlockAccessList(List.of())));
+        BlockAccessListsMessage.create(List.of(Optional.of(available), Optional.empty()));
 
     assertThat(ethMessages.dispatch(new EthMessage(ethPeer, request), EthProtocol.LATEST))
         .contains(expected);
@@ -532,7 +532,8 @@ public class EthServerTest {
     final GetBlockAccessListsMessage request = GetBlockAccessListsMessage.create(hashes);
 
     final BlockAccessListsMessage expected =
-        BlockAccessListsMessage.create(accessLists.subList(0, limit));
+        BlockAccessListsMessage.create(
+            accessLists.subList(0, limit).stream().map(Optional::of).toList());
 
     assertThat(ethMessages.dispatch(new EthMessage(ethPeer, request), EthProtocol.LATEST))
         .contains(expected);
@@ -566,7 +567,8 @@ public class EthServerTest {
     setupEthServer(b -> b.maxMessageSize(messageSizeLimit));
 
     final GetBlockAccessListsMessage request = GetBlockAccessListsMessage.create(hashes);
-    final BlockAccessListsMessage expected = BlockAccessListsMessage.create(expectedAccessLists);
+    final BlockAccessListsMessage expected =
+        BlockAccessListsMessage.create(expectedAccessLists.stream().map(Optional::of).toList());
 
     assertThat(ethMessages.dispatch(new EthMessage(ethPeer, request), EthProtocol.LATEST))
         .contains(expected);
@@ -596,7 +598,7 @@ public class EthServerTest {
 
     // With requestLimit=2, the 3rd hash must not be looked up or included.
     final BlockAccessListsMessage expected =
-        BlockAccessListsMessage.create(List.of(firstAvailable, new BlockAccessList(List.of())));
+        BlockAccessListsMessage.create(List.of(Optional.of(firstAvailable), Optional.empty()));
 
     assertThat(ethMessages.dispatch(new EthMessage(ethPeer, request), EthProtocol.LATEST))
         .contains(expected);
@@ -727,8 +729,12 @@ public class EthServerTest {
   }
 
   private int calculateRlpEncodedSize(final BlockAccessList blockAccessList) {
+    return encodeRlp(blockAccessList).size();
+  }
+
+  private Bytes encodeRlp(final BlockAccessList blockAccessList) {
     final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
     BlockAccessListEncoder.encode(blockAccessList, rlp);
-    return rlp.encodedSize();
+    return rlp.encoded();
   }
 }

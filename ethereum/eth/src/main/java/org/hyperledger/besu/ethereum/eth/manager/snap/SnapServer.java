@@ -244,8 +244,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
     final Iterable<Hash> blockHashes = getBlockAccessLists.blockHashes(true);
 
     int responseSizeEstimate = RLP.MAX_PREFIX_SIZE;
-    final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
-    rlp.startList();
+    final List<Optional<BlockAccessList>> blockAccessLists = new ArrayList<>();
 
     final Optional<Blockchain> maybeBlockchain =
         protocolContext.map(ProtocolContext::getBlockchain);
@@ -261,13 +260,12 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
 
         final Optional<BlockAccessList> maybeBlockAccessList =
             blockchain.getBlockAccessList(blockHash);
+
         final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
         if (maybeBlockAccessList.isPresent()) {
           BlockAccessListEncoder.encode(maybeBlockAccessList.get(), balOutput);
         } else {
-          // Empty lists are returned for blocks where the BAL is unavailable.
-          balOutput.startList();
-          balOutput.endList();
+          balOutput.writeBytes(Bytes.EMPTY);
         }
 
         final int encodedSize = balOutput.encodedSize();
@@ -275,12 +273,11 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
           break;
         }
         responseSizeEstimate += encodedSize;
-        rlp.writeRaw(balOutput.encoded());
+        blockAccessLists.add(maybeBlockAccessList);
       }
     }
-    rlp.endList();
 
-    return BlockAccessListsMessage.createUnsafe(rlp.encoded());
+    return BlockAccessListsMessage.create(blockAccessLists);
   }
 
   MessageData constructGetAccountRangeResponse(final MessageData message) {

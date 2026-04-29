@@ -428,7 +428,7 @@ public class RespondingEthPeer {
           response = PooledTransactionsMessage.create(Collections.emptyList());
           break;
         case EthProtocolMessages.GET_BLOCK_ACCESS_LISTS:
-          response = BlockAccessListsMessage.create(Collections.emptyList());
+          response = BlockAccessListsMessage.create(List.of());
           break;
       }
       return Optional.ofNullable(response);
