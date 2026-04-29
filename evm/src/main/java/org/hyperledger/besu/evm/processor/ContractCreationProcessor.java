@@ -163,6 +163,12 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
 
         contract.setNonce(initialContractNonce);
         contract.clearStorage();
+        // EIP-8037: re-anchor the byte-diff window so the AccountCreated event we just emitted
+        // belongs to the parent's range only. Without this, the CREATE child double-charges
+        // the +112 bytes (once here and once when the parent's range aggregates the event).
+        if (evm.getGasCalculator().stateGasCostCalculator().isActive()) {
+          frame.advanceStateGasFrameStartIndex();
+        }
         frame.setState(MessageFrame.State.CODE_EXECUTING);
       }
     } catch (final ModificationNotAllowedException ex) {

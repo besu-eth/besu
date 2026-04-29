@@ -244,11 +244,12 @@ public class MessageFrame {
   private long undoMark;
 
   /**
-   * EIP-8037: index into {@link TxValues#stateChanges()} captured at frame construction. Frame-end
-   * byte-diff walks events from this index onwards. On rollback, the {@code UndoList} truncates
-   * events recorded since this point.
+   * EIP-8037: index into {@link TxValues#stateChanges()} delimiting this frame's byte-diff window.
+   * Initially captured at frame construction; can be re-anchored mid-frame via {@link
+   * #advanceStateGasFrameStartIndex()} to attribute frame-pre-state events (e.g., AccountCreated
+   * for a CREATE child) to the parent's range only.
    */
-  private final int stateGasFrameStartIndex;
+  private int stateGasFrameStartIndex;
 
   /**
    * EIP-8037: value of {@link TxValues#stateGasUsed()} at frame construction (or
@@ -311,6 +312,14 @@ public class MessageFrame {
     this.undoMark = txValues.transientStorage().mark();
     this.stateGasFrameStartIndex = txValues.stateChanges().size();
     this.frameEntryStateGasUsed = txValues.stateGasUsed().get();
+    if (Eip8037Trace.ENABLED) {
+      Eip8037Trace.frameEnter(
+          txValues.messageFrameStack().size(),
+          contract == null ? "" : contract.toHexString(),
+          gasRemaining,
+          txValues.stateGasReservoir().get(),
+          this.frameEntryStateGasUsed);
+    }
   }
 
   /**
@@ -917,7 +926,12 @@ public class MessageFrame {
    * @param amount the amount to add to the reservoir
    */
   public void incrementStateGasReservoir(final long amount) {
-    txValues.stateGasReservoir().set(txValues.stateGasReservoir().get() + amount);
+    final long before = txValues.stateGasReservoir().get();
+    txValues.stateGasReservoir().set(before + amount);
+    if (Eip8037Trace.ENABLED) {
+      Eip8037Trace.creditReservoir(
+          txValues.messageFrameStack().size(), amount, before, before + amount);
+    }
   }
 
   /**
@@ -928,20 +942,37 @@ public class MessageFrame {
    * @return true if the gas was successfully consumed, false if insufficient gas
    */
   public boolean consumeStateGas(final long amount) {
-    final long reservoir = txValues.stateGasReservoir().get();
-    if (reservoir >= amount) {
-      txValues.stateGasReservoir().set(reservoir - amount);
+    final long reservoirBefore = txValues.stateGasReservoir().get();
+    final long gasLeftBefore = gasRemaining;
+    boolean ok;
+    if (reservoirBefore >= amount) {
+      txValues.stateGasReservoir().set(reservoirBefore - amount);
+      ok = true;
     } else {
-      // Overflow goes to gasRemaining
-      final long overflow = amount - reservoir;
+      final long overflow = amount - reservoirBefore;
       if (gasRemaining < overflow) {
-        return false;
+        ok = false;
+      } else {
+        txValues.stateGasReservoir().set(0L);
+        gasRemaining -= overflow;
+        ok = true;
       }
-      txValues.stateGasReservoir().set(0L);
-      gasRemaining -= overflow;
     }
-    txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
-    return true;
+    if (ok) {
+      txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
+    }
+    if (Eip8037Trace.ENABLED) {
+      Eip8037Trace.consumeState(
+          txValues.messageFrameStack().size(),
+          amount,
+          reservoirBefore,
+          gasLeftBefore,
+          ok,
+          txValues.stateGasReservoir().get(),
+          gasRemaining,
+          txValues.stateGasUsed().get());
+    }
+    return ok;
   }
 
   /**
@@ -963,6 +994,15 @@ public class MessageFrame {
     txValues
         .stateChanges()
         .add(new StateChange.Storage(address, key, txEntryIsZero, beforeIsZero, afterIsZero));
+    if (Eip8037Trace.ENABLED) {
+      Eip8037Trace.recStorage(
+          txValues.messageFrameStack().size(),
+          address.toHexString(),
+          key.toHexString(),
+          txEntryIsZero,
+          beforeIsZero,
+          afterIsZero);
+    }
   }
 
   /**
@@ -974,6 +1014,9 @@ public class MessageFrame {
    */
   public void recordAccountCreated(final Address address) {
     txValues.stateChanges().add(new StateChange.AccountCreated(address));
+    if (Eip8037Trace.ENABLED) {
+      Eip8037Trace.recAccountCreated(txValues.messageFrameStack().size(), address.toHexString());
+    }
   }
 
   /**
@@ -984,6 +1027,10 @@ public class MessageFrame {
    */
   public void recordCodeDeposit(final Address address, final int codeLength) {
     txValues.stateChanges().add(new StateChange.CodeDeposit(address, codeLength));
+    if (Eip8037Trace.ENABLED) {
+      Eip8037Trace.recCodeDeposit(
+          txValues.messageFrameStack().size(), address.toHexString(), codeLength);
+    }
   }
 
   /**
@@ -995,6 +1042,21 @@ public class MessageFrame {
    */
   public int getStateGasFrameStartIndex() {
     return stateGasFrameStartIndex;
+  }
+
+  /**
+   * EIP-8037: Re-anchor this frame's byte-diff window to the current end of the tx-wide state-
+   * change log.
+   *
+   * <p>Called from {@code ContractCreationProcessor.start()} after the new account, value transfer,
+   * and code-deposit events have been recorded so they're attributed to the parent frame's range,
+   * not this CREATE frame's range. Without this, the create child would double-count the {@code
+   * +112} bytes for the account it materialized — once at this depth and once at the parent depth
+   * via the same shared event log.
+   */
+  public void advanceStateGasFrameStartIndex() {
+    this.stateGasFrameStartIndex = txValues.stateChanges().size();
+    this.frameEntryStateGasUsed = txValues.stateGasUsed().get();
   }
 
   /**

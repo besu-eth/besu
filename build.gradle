@@ -399,7 +399,9 @@ configure(allprojects - project(':platform')) {
       'test.ethereum.state.eip',
       'root.log.level',
       'evm.log.level',
-      'acctests.keepLogsOfPassingTests'
+      'acctests.keepLogsOfPassingTests',
+      'eip8037.trace',
+      'eip8037.trace.file'
     ]
     for (String name : toImport) {
       if (System.getProperty(name) != null) {
@@ -758,6 +760,14 @@ subprojects {
   tasks.withType(Test) {
     // If GRADLE_MAX_TEST_FORKS is not set, use half the available processors
     maxParallelForks = (System.getenv('GRADLE_MAX_TEST_FORKS') ?: (Runtime.runtime.availableProcessors().intdiv(2) ?: 1)).toInteger()
+    // Forward EIP-8037 trace flags so any Test task can produce JSON-line state-gas traces.
+    if (System.getProperty('eip8037.trace') != null) {
+      systemProperty 'eip8037.trace', System.getProperty('eip8037.trace')
+      maxParallelForks = 1
+    }
+    if (System.getProperty('eip8037.trace.file') != null) {
+      systemProperty 'eip8037.trace.file', System.getProperty('eip8037.trace.file')
+    }
   }
 
   tasks.withType(JavaCompile) {

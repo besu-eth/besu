@@ -2124,8 +2124,8 @@
          </artifact>
       </component>
       <component group="ethereum" name="execution-spec-tests" version="snobal-devnet-5@v8037.0.0">
-         <artifact name="execution-spec-tests-snobal-devnet-5@v8037.0.0-fixtures_snobal-devnet-5.tar.gz">
-            <sha256 value="0b0d5b14e9f2b7d3a7037f42703d76c2baf2b20cb550bd6b34ea761b7fd407df" origin="Manual"/>
+         <artifact name="execution-spec-tests-snobal-devnet-5@v8037.0.1-fixtures_snobal-devnet-5.tar.gz">
+            <sha256 value="cc3554ae5646794ec6a4a1b813c6913708f5bd37c0d1aecfcc701e232db7e344" origin="Manual"/>
          </artifact>
       </component>
       <component group="ethereum" name="execution-spec-tests" version="v5.3.0">

@@ -16,6 +16,7 @@ package org.hyperledger.besu.evm.gascalculator;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.frame.Eip8037Trace;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.frame.StateChange;
 
@@ -233,20 +234,47 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
       }
     }
 
+    // This frame's net growth cost minus what its successful descendants already paid.
+    // We branch on the comparison so `charge` and `refund` can be named as always-positive
+    // quantities.
     final long growthCost = byteDiff * costPerStateByte();
     final long alreadyPaid = frame.getStateGasUsed() - frame.getFrameEntryStateGasUsed();
-    final long thisCost = growthCost - alreadyPaid;
 
-    if (thisCost > 0L) {
-      // consumeStateGas drains the reservoir first then spills into gasRemaining; on success it
-      // increments stateGasUsed by `thisCost`, which is exactly what EELS does.
-      return frame.consumeStateGas(thisCost);
-    } else if (thisCost < 0L) {
-      // Net-shrink: credit the reservoir directly. Per EELS, do NOT decrement stateGasUsed —
-      // the over-credit is bounded when an ancestor's growthCost flips positive and recharges.
-      frame.incrementStateGasReservoir(-thisCost);
+    final boolean ok;
+    final String action;
+    if (growthCost > alreadyPaid) {
+      // Net-grow residual: charge the difference. consumeStateGas drains the reservoir first then
+      // spills into gasRemaining; on success it increments stateGasUsed by `charge`.
+      final long charge = growthCost - alreadyPaid;
+      ok = frame.consumeStateGas(charge);
+      action = "CHARGE";
+    } else if (growthCost < alreadyPaid) {
+      // Net-shrink residual: descendants over-paid (e.g., a child set a slot this frame later
+      // cleared). Credit the over-payment back to the reservoir. We do NOT decrement
+      // stateGasUsed — the over-credit is bounded when an ancestor's growthCost flips positive
+      // and recharges.
+      final long refund = alreadyPaid - growthCost;
+      frame.incrementStateGasReservoir(refund);
+      ok = true;
+      action = "REFUND";
+    } else {
+      ok = true;
+      action = "NOOP";
     }
-    return true;
+    if (Eip8037Trace.ENABLED) {
+      Eip8037Trace.applyFrame(
+          frame.getMessageStackSize(),
+          byteDiff,
+          growthCost,
+          alreadyPaid,
+          growthCost - alreadyPaid,
+          action,
+          ok,
+          frame.getStateGasReservoir(),
+          frame.getRemainingGas(),
+          frame.getStateGasUsed());
+    }
+    return ok;
   }
 
   @Override
