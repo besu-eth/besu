@@ -87,7 +87,6 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
                         ? forceCaptureMem(frame)
                         : Optional.empty());
     final Optional<Bytes> returnData = captureReturnData(frame);
-    final Optional<Bytes[]> memory = captureMemory(frame);
     final Optional<Bytes[]> stackPostExecution = captureStack(frame);
 
     if (!traceFrames.isEmpty()) {
