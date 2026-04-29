@@ -19,7 +19,6 @@ compileJava {
   options.errorprone {
     check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
     option('NullAway:AnnotatedPackages', 'org.hyperledger.besu.nat')
-    option('NullAway:JSpecifyMode', 'true')
   }
 }
 
@@ -45,7 +44,7 @@ jar {
 dependencies {
   api 'org.slf4j:slf4j-api'
 
-  errorprone 'com.uber.nullaway:nullaway:0.13.1'
+  errorprone 'com.uber.nullaway:nullaway'
 
   implementation 'com.google.guava:guava'
   implementation 'com.squareup.okhttp3:okhttp'
