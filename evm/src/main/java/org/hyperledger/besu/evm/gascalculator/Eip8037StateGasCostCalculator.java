@@ -19,7 +19,6 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.frame.StateChange;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -166,109 +165,86 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
     return true;
   }
 
-  // ---- Frame-end aggregation ----
+  // ---- Frame-end byte-diff accounting (matches EELS apply_frame_state_gas) ----
 
   @Override
   public boolean applyFrameEndStateGasAccounting(final MessageFrame frame) {
     final List<StateChange> events = frame.getStateChanges();
     final int frameStart = frame.getStateGasFrameStartIndex();
     final int end = events.size();
-    if (frameStart >= end) {
-      return true;
-    }
 
-    // Per-cell aggregate flags: tx-entry value, frame-entry value, frame-exit value (all "isZero").
-    final Table<Address, Bytes32, FrameStorageFlags> storageAgg = HashBasedTable.create();
-    final Set<Address> accountAgg = new HashSet<>();
-    final Map<Address, Integer> codeAgg = new HashMap<>();
-    final List<Integer> consumedIndices = new ArrayList<>();
-
+    // Build the touch list from events in [frameStart, end) — INCLUDING events emitted by
+    // descendants, since their first-seen `before` carries this frame's frame-entry value.
+    // For each (addr, slot): keep the FIRST event's flags (tx-entry / frame-entry zero) and
+    // overwrite exit on each later event so the LAST event's `after` is the frame-exit value.
+    final Table<Address, Bytes32, StorageDelta> storage = HashBasedTable.create();
+    final Set<Address> accountsCreated = new HashSet<>();
+    final Map<Address, Integer> codeDeposits = new HashMap<>();
     for (int i = frameStart; i < end; i++) {
-      if (frame.isStateGasEventAccounted(i)) {
-        continue;
-      }
-      final StateChange change = events.get(i);
-      consumedIndices.add(i);
-      switch (change) {
+      switch (events.get(i)) {
         case StateChange.Storage s -> {
-          FrameStorageFlags slot = storageAgg.get(s.address(), s.key());
-          if (slot == null) {
-            storageAgg.put(
+          final StorageDelta d = storage.get(s.address(), s.key());
+          if (d == null) {
+            storage.put(
                 s.address(),
                 s.key(),
-                new FrameStorageFlags(s.txEntryIsZero(), s.beforeIsZero(), s.afterIsZero()));
+                new StorageDelta(s.txEntryIsZero(), s.beforeIsZero(), s.afterIsZero()));
           } else {
-            slot.exitIsZero = s.afterIsZero();
+            d.exitIsZero = s.afterIsZero();
           }
         }
-        case StateChange.AccountCreated a -> accountAgg.add(a.address());
-        case StateChange.CodeDeposit c -> codeAgg.put(c.address(), c.codeLength());
+        case StateChange.AccountCreated a -> accountsCreated.add(a.address());
+        case StateChange.CodeDeposit c -> codeDeposits.put(c.address(), c.codeLength());
       }
     }
 
-    if (consumedIndices.isEmpty()) {
-      return true;
+    long byteDiff = 0L;
+
+    // Storage 4-case rule from EIP-8037 / EELS compute_state_byte_diff.
+    for (final Table.Cell<Address, Bytes32, StorageDelta> cell : storage.cellSet()) {
+      final StorageDelta d = cell.getValue();
+      if (!d.exitIsZero && d.entryIsZero && d.txEntryIsZero) {
+        byteDiff += STATE_BYTES_PER_STORAGE_SET; // new slot
+      } else if (d.exitIsZero && !d.entryIsZero && d.txEntryIsZero) {
+        byteDiff -= STATE_BYTES_PER_STORAGE_SET; // cleared from tx-zero (in-tx unwind)
+      }
+      // Other transitions (cleared from tx-nonzero, non-zero→non-zero, transient): 0.
     }
 
-    long totalCharge = 0L;
-    long totalRefund = 0L;
-    final List<Runnable> pendingLedgerUpdates = new ArrayList<>();
-
-    for (final Table.Cell<Address, Bytes32, FrameStorageFlags> cell : storageAgg.cellSet()) {
-      final Address addr = cell.getRowKey();
-      final Bytes32 key = cell.getColumnKey();
-      final FrameStorageFlags slot = cell.getValue();
-      if (slot.entryIsZero == slot.exitIsZero) {
-        // Either 0→...→0 or non-zero→...→non-zero — no state-gas effect.
-        continue;
-      }
-
-      if (!slot.exitIsZero && slot.txEntryIsZero && !frame.isStateGasNewSlotCharged(addr, key)) {
-        // New slot: frame-exit non-zero AND tx-entry zero.
-        totalCharge += storageSetStateGas();
-        pendingLedgerUpdates.add(() -> frame.claimStateGasNewSlotCharge(addr, key));
-      } else if (slot.exitIsZero
-          && !slot.entryIsZero
-          && slot.txEntryIsZero
-          && !frame.isStateGasSlotRefunded(addr, key)) {
-        // Cleared slot, zero at tx start: refund is unconditional; the matching charge is booked
-        // elsewhere (other frames' aggregation) and the once-only ledger balances them.
-        totalRefund += storageSetStateGas();
-        pendingLedgerUpdates.add(() -> frame.claimStateGasSlotRefund(addr, key));
-      }
-      // Other transitions: no state-gas effect; SSTORE handles the regular-gas refund.
-    }
-
-    for (final Address addr : accountAgg) {
-      if (!frame.isStateGasNewAccountCharged(addr)) {
-        totalCharge += newAccountStateGas();
-        pendingLedgerUpdates.add(() -> frame.claimStateGasNewAccountCharge(addr));
+    // Account creation: +112 per address that is materialised at frame-exit. Reverted child
+    // frames have their AccountCreated events truncated by UndoList rollback, so the touch list
+    // here is exactly the set of accounts whose creation persisted.
+    if (!accountsCreated.isEmpty()) {
+      for (final Address addr : accountsCreated) {
+        final var live = frame.getWorldUpdater().get(addr);
+        if (live != null && !live.isEmpty()) {
+          byteDiff += STATE_BYTES_PER_NEW_ACCOUNT;
+        }
       }
     }
 
-    for (final Map.Entry<Address, Integer> entry : codeAgg.entrySet()) {
-      final Address addr = entry.getKey();
-      final int length = entry.getValue();
-      if (!frame.isStateGasCodeDepositCharged(addr)) {
-        totalCharge += codeDepositStateGas(length);
-        pendingLedgerUpdates.add(() -> frame.claimStateGasCodeDepositCharge(addr));
+    // Code deposit: +len(code) per address whose code persisted to frame-exit.
+    if (!codeDeposits.isEmpty()) {
+      for (final Map.Entry<Address, Integer> entry : codeDeposits.entrySet()) {
+        final var live = frame.getWorldUpdater().get(entry.getKey());
+        if (live != null && live.getCode() != null && !live.getCode().isEmpty()) {
+          byteDiff += entry.getValue();
+        }
       }
     }
 
-    // Apply refund first to raise the gas budget available to cover the charge.
-    if (totalRefund > 0L) {
-      frame.incrementStateGasReservoir(totalRefund);
-      frame.decrementStateGasUsed(totalRefund);
-    }
-    if (totalCharge > 0L && !frame.consumeStateGas(totalCharge)) {
-      return false;
-    }
+    final long growthCost = byteDiff * costPerStateByte();
+    final long alreadyPaid = frame.getStateGasUsed() - frame.getFrameEntryStateGasUsed();
+    final long thisCost = growthCost - alreadyPaid;
 
-    for (final int idx : consumedIndices) {
-      frame.markStateGasEventAccounted(idx);
-    }
-    for (final Runnable update : pendingLedgerUpdates) {
-      update.run();
+    if (thisCost > 0L) {
+      // consumeStateGas drains the reservoir first then spills into gasRemaining; on success it
+      // increments stateGasUsed by `thisCost`, which is exactly what EELS does.
+      return frame.consumeStateGas(thisCost);
+    } else if (thisCost < 0L) {
+      // Net-shrink: credit the reservoir directly. Per EELS, do NOT decrement stateGasUsed —
+      // the over-credit is bounded when an ancestor's growthCost flips positive and recharges.
+      frame.incrementStateGasReservoir(-thisCost);
     }
     return true;
   }
@@ -310,13 +286,12 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
   }
 
   /** Per-cell aggregate state used by {@link #applyFrameEndStateGasAccounting}. */
-  private static final class FrameStorageFlags {
+  private static final class StorageDelta {
     final boolean txEntryIsZero;
     final boolean entryIsZero;
     boolean exitIsZero;
 
-    FrameStorageFlags(
-        final boolean txEntryIsZero, final boolean entryIsZero, final boolean exitIsZero) {
+    StorageDelta(final boolean txEntryIsZero, final boolean entryIsZero, final boolean exitIsZero) {
       this.txEntryIsZero = txEntryIsZero;
       this.entryIsZero = entryIsZero;
       this.exitIsZero = exitIsZero;

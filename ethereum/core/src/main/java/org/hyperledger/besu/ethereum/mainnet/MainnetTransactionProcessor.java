@@ -417,23 +417,27 @@ public class MainnetTransactionProcessor {
         initialFrame.setGasRemaining(gasLeft);
         initialFrame.setStateGasReservoir(reservoir);
       }
-      // EIP-8037 (PR 11573): Intrinsic state-gas charges. Contract-creation accounts are claimed in
-      // the dedup ledger so the initial frame's frame-end aggregation does not re-charge.
+      // EIP-8037: Pre-charge intrinsic state gas (contract-creation account, EIP-7702 auth bases).
+      // Per spec, intrinsic_state_gas counts toward block_state_gas regardless of tx outcome
+      // (including exceptional halt), so we charge it before code execution. The byte-diff at
+      // frame-end skips the top-level contract-creation address (mirrors EELS's snapshot taken
+      // after nonce increment, so the account appears to "pre-exist" the frame).
       if (transaction.isContractCreation()) {
         if (!initialFrame.consumeStateGas(stateGasCalc.createStateGas())) {
           LOG.debug(
               "Transaction {} insufficient gas for intrinsic CREATE state gas",
               transaction.getHash());
         }
-        initialFrame.claimStateGasNewAccountCharge(initialFrame.getContractAddress());
       }
       if (transaction.getType().equals(TransactionType.DELEGATE_CODE)) {
         stateGasCalc.chargeCodeDelegationStateGas(
             initialFrame, transaction.codeDelegationListSize(), alreadyExistingDelegators);
       }
-      // EIP-8037: Advance the undo mark so intrinsic state gas charges (auth delegation,
-      // contract creation) are not rolled back if the initial frame's execution reverts.
-      // These are transaction-level costs that persist regardless of execution outcome.
+      // EIP-8037: Advance the undo mark so intrinsic state-gas charges (auth delegation, contract
+      // creation) are not rolled back if the initial frame's execution reverts/halts — those are
+      // tx-level costs that must persist for block_state_gas accounting per the spec. Also
+      // re-snapshots frameEntryStateGasUsed so byte-diff doesn't treat intrinsic charges as
+      // already-paid.
       initialFrame.advanceUndoMark();
 
       Deque<MessageFrame> messageFrameStack = initialFrame.getMessageFrameStack();
