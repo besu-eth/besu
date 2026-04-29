@@ -92,9 +92,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMer
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiArchiver;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsaiarchive.BonsaiFlatDbToArchiveMigrator;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.CodeHashCodeStorageStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogPruner;
@@ -896,47 +894,31 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     closeables.add(protocolContext.getWorldStateArchive());
     closeables.add(storageProvider);
 
-    if (DataStorageFormat.X_BONSAI_ARCHIVE.equals(
-        dataStorageConfiguration.getDataStorageFormat())) {
-      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage =
-          worldStateStorageCoordinator.getStrategy(BonsaiWorldStateKeyValueStorage.class);
-      final BonsaiArchiver archiver =
-          createBonsaiArchiver(
-              worldStateKeyValueStorage,
-              blockchain,
-              scheduler,
-              ((BonsaiWorldStateProvider) worldStateArchive).getTrieLogManager());
+    if (DataStorageFormat.X_BONSAI_ARCHIVE.equals(dataStorageConfiguration.getDataStorageFormat())
+        && (worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.FULL)
+            || worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.PARTIAL))) {
+      final BonsaiFlatDbToArchiveMigrator archiveMigrator =
+          createArchiveMigrator(worldStateStorageCoordinator, worldStateArchive, blockchain);
+      closeables.add(archiveMigrator);
 
-      if (worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.FULL)
-          || worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.PARTIAL)) {
-        final BonsaiFlatDbToArchiveMigrator archiveMigrator =
-            createArchiveMigrator(worldStateStorageCoordinator, worldStateArchive, blockchain);
-        closeables.add(archiveMigrator);
-
-        final AtomicBoolean migrationStarted = new AtomicBoolean(false);
-        final AtomicLong syncSubscriptionId = new AtomicLong();
-        syncSubscriptionId.set(
-            synchronizer.subscribeInSync(
-                (inSync) -> {
-                  if (inSync && migrationStarted.compareAndSet(false, true)) {
-                    synchronizer.unsubscribeInSync(syncSubscriptionId.get());
-                    LOG.info("Node is in sync, starting Bonsai archive migration");
-                    archiveMigrator
-                        .migrate()
-                        .thenRun(() -> blockchain.observeBlockAdded(archiver))
-                        .exceptionally(
-                            error -> {
-                              LOG.error(
-                                  "Archive migration failed, archiver will remain disabled until restart",
-                                  error);
-                              return null;
-                            });
-                  }
-                },
-                0));
-      } else {
-        blockchain.observeBlockAdded(archiver);
-      }
+      final AtomicBoolean migrationStarted = new AtomicBoolean(false);
+      final AtomicLong syncSubscriptionId = new AtomicLong();
+      syncSubscriptionId.set(
+          synchronizer.subscribeInSync(
+              (inSync) -> {
+                if (inSync && migrationStarted.compareAndSet(false, true)) {
+                  synchronizer.unsubscribeInSync(syncSubscriptionId.get());
+                  LOG.info("Node is in sync, starting Bonsai archive migration");
+                  archiveMigrator
+                      .migrate()
+                      .exceptionally(
+                          error -> {
+                            LOG.error("Archive migration failed", error);
+                            return null;
+                          });
+                }
+              },
+              0));
     }
 
     return new BesuController(
@@ -1025,24 +1007,6 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     trieLogPruner.initialize();
 
     return trieLogPruner;
-  }
-
-  private BonsaiArchiver createBonsaiArchiver(
-      final WorldStateKeyValueStorage worldStateStorage,
-      final Blockchain blockchain,
-      final EthScheduler scheduler,
-      final TrieLogManager trieLogManager) {
-    final BonsaiArchiver archiver =
-        new BonsaiArchiver(
-            (PathBasedWorldStateKeyValueStorage) worldStateStorage,
-            blockchain,
-            scheduler::executeServiceTask,
-            trieLogManager,
-            metricsSystem);
-
-    archiver.initialize();
-    LOG.info("Bonsai archiver initialised");
-    return archiver;
   }
 
   private BonsaiFlatDbToArchiveMigrator createArchiveMigrator(
