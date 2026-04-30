@@ -452,7 +452,8 @@ class DebugOperationTracerTest {
     traceFrame(frame, tracer, anOperation);
 
     assertThat(tracer.getTraceFrames()).hasSize(1);
-    assertThat(tracer.getTraceFrames().get(0).getGasRemainingPostExecution()).isGreaterThan(0);
+    assertThat(tracer.getTraceFrames().get(0).getGasRemainingPostExecution())
+        .isNotEqualTo(OptionalLong.empty());
   }
 
   @Test
