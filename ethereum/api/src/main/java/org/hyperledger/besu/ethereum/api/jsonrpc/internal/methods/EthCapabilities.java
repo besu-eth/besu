@@ -57,17 +57,18 @@ public class EthCapabilities implements JsonRpcMethod {
 
     final Optional<Long> maybeOldestBlock = blockchain.getEarliestBlockNumber();
 
-    // TODO: state should report disabled=true when the node is running with --sync-mode=SNAP
-    // (the default) or does not have a full state DB. See
-    // https://github.com/besu-eth/besu/issues/10371
-    addResource(result, "state", false, Optional.empty());
+    final var genesisHeader = blockchain.getGenesisBlockHeader();
+    final boolean stateDisabled =
+        !blockchainQueries
+            .getWorldStateArchive()
+            .isWorldStateAvailable(genesisHeader.getStateRoot(), genesisHeader.getHash());
+
+    addResource(result, "state", stateDisabled, Optional.empty());
     addResource(result, "tx", false, maybeOldestBlock);
     addResource(result, "logs", false, maybeOldestBlock);
     addResource(result, "receipts", false, maybeOldestBlock);
     addResource(result, "blocks", false, maybeOldestBlock);
-    // TODO: same as state — disabled detection needed for stateproofs. See
-    // https://github.com/besu-eth/besu/issues/10371
-    addResource(result, "stateproofs", false, Optional.empty());
+    addResource(result, "stateproofs", stateDisabled, Optional.empty());
 
     return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), result);
   }
