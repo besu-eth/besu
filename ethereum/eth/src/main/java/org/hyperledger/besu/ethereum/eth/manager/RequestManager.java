@@ -64,6 +64,7 @@ public class RequestManager {
     final BigInteger requestId = BigInteger.valueOf(requestIdCounter.getAndIncrement());
     final ResponseStream stream = createStream(requestId);
     sender.send(messageData.wrapMessageData(requestId));
+    stream.setSentTimestamp(System.nanoTime());
     return stream;
   }
 
@@ -75,6 +76,10 @@ public class RequestManager {
           .ifPresentOrElse(
               responseStream -> {
                 responseStream.releaseOutstandingRequest();
+                long latency = System.nanoTime() - responseStream.getSentTimestamp();
+                long payloadSize = requestIdAndEthMessage.getValue().getSize();
+                peer.recordLatency(latency);
+                peer.recordBytesReceived(payloadSize);
                 responseStream.processMessage(requestIdAndEthMessage.getValue());
               },
               // Consider incorrect requestIds to be a useless response; too
@@ -166,6 +171,7 @@ public class RequestManager {
     private final Queue<Response> bufferedResponses = new ConcurrentLinkedQueue<>();
     private volatile boolean closed = false;
     private volatile ResponseCallback responseCallback = null;
+    private long sentTimestamp;
 
     public ResponseStream(
         final EthPeer peer,
@@ -210,6 +216,14 @@ public class RequestManager {
 
     public EthPeer getPeer() {
       return peer;
+    }
+
+    void setSentTimestamp(long timestamp) {
+      this.sentTimestamp = timestamp;
+    }
+
+    long getSentTimestamp() {
+      return this.sentTimestamp;
     }
 
     private void processMessage(final MessageData message) {
