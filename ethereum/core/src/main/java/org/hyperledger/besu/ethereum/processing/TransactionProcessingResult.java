@@ -61,6 +61,15 @@ public class TransactionProcessingResult
    */
   private final long intrinsicStateGasOverhead;
 
+  /**
+   * EIP-8037: cumulative state-gas spillover that was rolled back from {@code stateGasUsed} but
+   * whose {@code gasRemaining} consumption persisted. Block-gas accounting attributes this to the
+   * state dimension so it doesn't leak into regular gas. Mutable, populated by {@code
+   * MainnetTransactionProcessor} from {@code initialFrame.getStateGasSpilledLost()} after the
+   * result is constructed.
+   */
+  private long stateGasSpilledLost;
+
   private final List<Log> logs;
 
   private final Bytes output;
@@ -472,6 +481,26 @@ public class TransactionProcessingResult
    */
   public long getStateGasUsed() {
     return stateGasUsed;
+  }
+
+  /**
+   * Returns the cumulative spillover that was rolled back from {@code stateGasUsed} but persisted
+   * in {@code gasRemaining} consumption. Used by Amsterdam block-gas accounting to attribute lost
+   * spillover to the state dimension rather than letting it leak into regular gas.
+   *
+   * @return cumulative lost spillover across the transaction
+   */
+  public long getStateGasSpilledLost() {
+    return stateGasSpilledLost;
+  }
+
+  /**
+   * Sets the cumulative lost spillover. Populated post-construction by the transaction processor.
+   *
+   * @param stateGasSpilledLost cumulative lost spillover across the transaction
+   */
+  public void setStateGasSpilledLost(final long stateGasSpilledLost) {
+    this.stateGasSpilledLost = stateGasSpilledLost;
   }
 
   /**

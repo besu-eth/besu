@@ -420,8 +420,7 @@ public class MainnetTransactionProcessor {
       // EIP-8037: Pre-charge intrinsic state gas (contract-creation account, EIP-7702 auth bases).
       // Per spec, intrinsic_state_gas counts toward block_state_gas regardless of tx outcome
       // (including exceptional halt), so we charge it before code execution. The byte-diff at
-      // frame-end skips the top-level contract-creation address (mirrors EELS's snapshot taken
-      // after nonce increment, so the account appears to "pre-exist" the frame).
+      // frame-end skips the top-level contract-creation address.
       if (transaction.isContractCreation()) {
         if (!initialFrame.consumeStateGas(stateGasCalc.createStateGas())) {
           LOG.debug(
@@ -613,17 +612,19 @@ public class MainnetTransactionProcessor {
               ? stateGasCalc.emptyAccountDelegationStateGas() * alreadyExistingDelegators
               : 0L;
 
+      final TransactionProcessingResult result;
       if (txSucceeded) {
-        return TransactionProcessingResult.successful(
-            initialFrame.getLogs(),
-            gasUsedByTransaction,
-            refundedGas,
-            usedGas,
-            effectiveStateGas,
-            intrinsicStateGasOverhead,
-            initialFrame.getOutputData(),
-            partialBlockAccessView,
-            validationResult);
+        result =
+            TransactionProcessingResult.successful(
+                initialFrame.getLogs(),
+                gasUsedByTransaction,
+                refundedGas,
+                usedGas,
+                effectiveStateGas,
+                intrinsicStateGasOverhead,
+                initialFrame.getOutputData(),
+                partialBlockAccessView,
+                validationResult);
       } else {
         if (initialFrame.getExceptionalHaltReason().isPresent()) {
           LOG.debug(
@@ -637,17 +638,20 @@ public class MainnetTransactionProcessor {
               transaction.getHash(),
               initialFrame.getRevertReason().get());
         }
-        return TransactionProcessingResult.failed(
-            gasUsedByTransaction,
-            refundedGas,
-            usedGas,
-            effectiveStateGas,
-            intrinsicStateGasOverhead,
-            validationResult,
-            initialFrame.getRevertReason(),
-            initialFrame.getExceptionalHaltReason(),
-            partialBlockAccessView);
+        result =
+            TransactionProcessingResult.failed(
+                gasUsedByTransaction,
+                refundedGas,
+                usedGas,
+                effectiveStateGas,
+                intrinsicStateGasOverhead,
+                validationResult,
+                initialFrame.getRevertReason(),
+                initialFrame.getExceptionalHaltReason(),
+                partialBlockAccessView);
       }
+      result.setStateGasSpilledLost(initialFrame.getStateGasSpilledLost());
+      return result;
     } catch (final MerkleTrieException re) {
       operationTracer.traceEndTransaction(
           worldState.updater(),

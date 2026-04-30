@@ -166,7 +166,7 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
     return true;
   }
 
-  // ---- Frame-end byte-diff accounting (matches EELS apply_frame_state_gas) ----
+  // ---- Frame-end byte-diff accounting ----
 
   @Override
   public boolean applyFrameEndStateGasAccounting(final MessageFrame frame) {
@@ -201,7 +201,7 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
 
     long byteDiff = 0L;
 
-    // Storage 4-case rule from EIP-8037 / EELS compute_state_byte_diff.
+    // Storage 4-case rule from EIP-8037
     for (final Table.Cell<Address, Bytes32, StorageDelta> cell : storage.cellSet()) {
       final StorageDelta d = cell.getValue();
       if (!d.exitIsZero && d.entryIsZero && d.txEntryIsZero) {

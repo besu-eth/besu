@@ -884,8 +884,10 @@ public class MessageFrame {
   }
 
   /**
-   * Decrement the state gas used (EIP-8037). Used by frame-end aggregation refunds (SSTORE 0→X→0)
-   * and the tx-end same-tx SELFDESTRUCT refund. Undone on revert via UndoScalar.
+   * Decrement the state gas used (EIP-8037). Used by the tx-end same-tx SELFDESTRUCT refund — the
+   * destroyed account's create/code/slot charges are returned to the reservoir, so the cumulative
+   * "charged" total must also drop (otherwise block-gas accounting would still attribute that gas
+   * to the state dimension).
    *
    * @param amount The amount of state gas to subtract
    */
@@ -900,6 +902,29 @@ public class MessageFrame {
    */
   public long getStateGasUsed() {
     return txValues.stateGasUsed().get();
+  }
+
+  /**
+   * Returns the cumulative spillover (state gas that drained {@code gasRemaining} after the
+   * reservoir emptied) that has been rolled back from {@link #getStateGasUsed()} via {@link
+   * TxValues#undoChanges} but whose gas-left consumption persists. Block-gas accounting subtracts
+   * this from the regular dimension so it lands in the state dimension instead.
+   *
+   * @return cumulative lost spillover across the transaction
+   */
+  public long getStateGasSpilledLost() {
+    return txValues.stateGasSpilledLost().get();
+  }
+
+  /**
+   * Decrement the lost-spillover tracker, clamped at zero since the credit may exceed the lost
+   * spillover (e.g. when the descendant charge drained the reservoir rather than spilling).
+   *
+   * @param amount the amount to subtract
+   */
+  public void decrementStateGasSpilledLost(final long amount) {
+    final var lost = txValues.stateGasSpilledLost();
+    lost.set(Math.max(0L, lost.get() - amount));
   }
 
   /**
@@ -945,6 +970,7 @@ public class MessageFrame {
     final long reservoirBefore = txValues.stateGasReservoir().get();
     final long gasLeftBefore = gasRemaining;
     boolean ok;
+    long spilled = 0L;
     if (reservoirBefore >= amount) {
       txValues.stateGasReservoir().set(reservoirBefore - amount);
       ok = true;
@@ -955,11 +981,15 @@ public class MessageFrame {
       } else {
         txValues.stateGasReservoir().set(0L);
         gasRemaining -= overflow;
+        spilled = overflow;
         ok = true;
       }
     }
     if (ok) {
       txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
+      if (spilled > 0L) {
+        txValues.stateGasSpilledTotal().set(txValues.stateGasSpilledTotal().get() + spilled);
+      }
     }
     if (Eip8037Trace.ENABLED) {
       Eip8037Trace.consumeState(

@@ -149,8 +149,7 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
         frame.addCreate(contractAddress);
         // EIP-8037: Only record AccountCreated for nested CREATEs (depth > 0). The top-level
         // contract-creation tx pays for the new account via the tx-level intrinsic state-gas
-        // pre-charge, mirroring EELS where the diff_snapshot is taken AFTER nonce increment so
-        // the contract account "pre-exists" the byte-diff window.
+        // pre-charge, so that the contract account "pre-exists" the byte-diff window.
         if (evm.getGasCalculator().stateGasCostCalculator().isActive()
             && frame.getMessageStackSize() > 1) {
           frame.recordAccountCreated(contractAddress);
