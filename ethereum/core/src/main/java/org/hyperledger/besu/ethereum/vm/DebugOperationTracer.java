@@ -315,7 +315,6 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     traceFrames = new ArrayList<>();
     lastFrame = null;
     preExecutionStorageKey = Optional.empty();
-    inputData = null;
   }
 
   public List<TraceFrame> copyTraceFrames() {
