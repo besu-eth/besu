@@ -42,7 +42,7 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
    * Number of state bytes per new account (20-byte address + 8-byte nonce + 32-byte balance +
    * 32-byte code hash + 20-byte storage root = 112 bytes).
    */
-  static final int STATE_BYTES_PER_ACCOUNT = 112;
+  static final int STATE_BYTES_PER_NEW_ACCOUNT = 112;
 
   /** Number of state bytes per storage slot (32 bytes for key + value). */
   static final int STATE_BYTES_PER_STORAGE_SLOT = 32;
@@ -62,12 +62,6 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
    */
   static final long AUTH_BASE_REGULAR_GAS = 7_500L;
 
-  /** Offset added before quantization, subtracted after. */
-  static final int CPSB_OFFSET = 9578;
-
-  /** Number of significant bits retained in quantized cpsb. */
-  static final int CPSB_SIGNIFICANT_BITS = 5;
-
   /** Keccak256 word gas cost for code deposit hashing. */
   static final long KECCAK256_WORD_GAS_COST = 6L;
 
@@ -86,7 +80,7 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
 
   @Override
   public long createStateGas() {
-    return STATE_BYTES_PER_ACCOUNT * costPerStateByte();
+    return STATE_BYTES_PER_NEW_ACCOUNT * costPerStateByte();
   }
 
   @Override
@@ -148,10 +142,7 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
       final UInt256 newValue,
       final Supplier<UInt256> currentValue,
       final Supplier<UInt256> originalValue) {
-    final UInt256 currentVal = currentValue.get();
-    final UInt256 originalVal = originalValue.get();
-    // State gas applies only for the SSTORE_SET case: original is zero and we're setting nonzero
-    if (originalVal.isZero() && currentVal.isZero() && !newValue.isZero()) {
+    if (StorageTransition.of(newValue, currentValue, originalValue).isStorageSet()) {
       return frame.consumeStateGas(storageSetStateGas());
     }
     return true;
@@ -258,13 +249,7 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
 
   @Override
   public void refundCreateStateGas(final MessageFrame frame) {
-    final long refundAmount = createStateGas();
-    frame.incrementStateGasReservoir(refundAmount);
-    frame.decrementStateGasUsed(refundAmount);
-    // Tracked as a no-growth refund so handleStateGasSpill can subtract refunds-in-scope from
-    // spill credit on revert/halt — the credit must not propagate to a parent's reservoir when
-    // any frame in the chain fails. Mirrors EELS's state_gas_refund counter.
-    frame.recordNoGrowthStateGasRefund(refundAmount);
+    applyNoGrowthRefund(frame, createStateGas());
   }
 
   @Override
@@ -273,22 +258,54 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
       final UInt256 newValue,
       final Supplier<UInt256> currentValue,
       final Supplier<UInt256> originalValue) {
-    // Only refund for 0→X→0: original is zero, current is nonzero, new is zero
-    if (newValue.isZero() && !currentValue.get().isZero() && originalValue.get().isZero()) {
-      final long refundAmount = storageSetStateGas();
-      // EIP-8037: State gas refund is credited directly to
-      // state_gas_reservoir (bypassing the 20% refund_counter cap) and execution_state_gas_used
-      // is decremented. This ensures the full state gas amount is returned regardless of the
-      // refund cap, which would otherwise be insufficient at high cost_per_state_byte.
-      //
-      // Frame scoping: the refund is applied to the frame's
-      // UndoScalar counters (stateGasReservoir, stateGasUsed), so on revert or exceptional
-      // halt of this frame — or of any ancestor frame before the refund propagates further —
-      // the credit is undone via MessageFrame.rollback(). The refund therefore contributes to
-      // the reservoir and stateGasUsed only when the full frame chain succeeds.
-      frame.incrementStateGasReservoir(refundAmount);
-      frame.decrementStateGasUsed(refundAmount);
-      frame.recordNoGrowthStateGasRefund(refundAmount);
+    if (StorageTransition.of(newValue, currentValue, originalValue).isUnwoundSet()) {
+      applyNoGrowthRefund(frame, storageSetStateGas());
+    }
+  }
+
+  /**
+   * Applies a no-growth state-gas refund: credits {@code amount} back to the reservoir, decrements
+   * {@code stateGasUsed}, and records the refund in the no-growth counter.
+   *
+   * <p>The credit goes directly to {@code state_gas_reservoir}, bypassing the 20% refund-counter
+   * cap, so the full amount is returned regardless of cost_per_state_byte. The refund mutates the
+   * frame's {@code UndoScalar} counters and is therefore undone via {@link MessageFrame#rollback()}
+   * on revert/halt — it contributes to the reservoir only when the full frame chain succeeds.
+   *
+   * <p>The amount is also recorded via {@link MessageFrame#recordNoGrowthStateGasRefund(long)} so
+   * {@code AbstractMessageProcessor.handleStateGasSpill} can subtract refunds-in-scope from the
+   * spill credit on revert/halt — those refunds must contribute nothing to a parent's reservoir
+   * when any frame in the chain fails. Mirrors the {@code state_gas_refund} counter.
+   */
+  private static void applyNoGrowthRefund(final MessageFrame frame, final long amount) {
+    frame.incrementStateGasReservoir(amount);
+    frame.decrementStateGasUsed(amount);
+    frame.recordNoGrowthStateGasRefund(amount);
+  }
+
+  /**
+   * The three booleans that determine SSTORE state-gas treatment under EIP-8037: the slot's value
+   * at tx-entry (original), at the SSTORE site (current), and the new value being written.
+   */
+  private record StorageTransition(
+      boolean originalIsZero, boolean currentIsZero, boolean newIsZero) {
+
+    static StorageTransition of(
+        final UInt256 newValue,
+        final Supplier<UInt256> currentValue,
+        final Supplier<UInt256> originalValue) {
+      return new StorageTransition(
+          originalValue.get().isZero(), currentValue.get().isZero(), newValue.isZero());
+    }
+
+    /** SSTORE_SET (0 → 0 → X): the only transition that consumes storage-set state gas. */
+    boolean isStorageSet() {
+      return originalIsZero && currentIsZero && !newIsZero;
+    }
+
+    /** In-tx unwind (0 → X → 0): the only transition that refunds storage-set state gas. */
+    boolean isUnwoundSet() {
+      return originalIsZero && !currentIsZero && newIsZero;
     }
   }
 }

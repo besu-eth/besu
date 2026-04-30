@@ -20,6 +20,7 @@ import org.hyperledger.besu.evm.ModificationNotAllowedException;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.contractvalidation.ContractValidationRule;
+import org.hyperledger.besu.evm.frame.Eip8037Trace;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.log.TransferLogEmitter;
@@ -147,6 +148,9 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
             frame, Optional.of(ExceptionalHaltReason.ILLEGAL_STATE_CHANGE));
       } else {
         frame.addCreate(contractAddress);
+        if (Eip8037Trace.ENABLED) {
+          Eip8037Trace.recAccountCreated(frame.getDepth(), contractAddress.toHexString());
+        }
         contract.incrementBalance(frame.getValue());
 
         // Emit transfer log for nonzero value contract creation (no-op before Amsterdam)
@@ -226,6 +230,10 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
 
     final MutableAccount contract = frame.getWorldUpdater().getOrCreate(frame.getContractAddress());
     contract.setCode(contractCode);
+    if (Eip8037Trace.ENABLED) {
+      Eip8037Trace.recCodeDeposit(
+          frame.getDepth(), frame.getContractAddress().toHexString(), contractCode.size());
+    }
     LOG.trace(
         "Successful creation of contract {} with code of size {} (Gas remaining: {})",
         frame.getContractAddress(),

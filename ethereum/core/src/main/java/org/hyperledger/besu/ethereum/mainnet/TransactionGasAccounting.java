@@ -56,6 +56,18 @@ public abstract class TransactionGasAccounting {
   public abstract long stateGasSpillBurned();
 
   /**
+   * Reservoir gas drained for an in-scope charge whose matching no-growth refund was nullified by a
+   * reverted ancestor (EIP-8037). UndoScalar rollback restored the reservoir to its frame-entry
+   * value, so the loss is tracked here and folded into accounting at tx end: subtracted from the
+   * effective reservoir (raising {@code gasUsedByTransaction}) and credited to {@code
+   * effectiveStateGas} (so block-regular still excludes it).
+   */
+  @Value.Default
+  public long stateGasReservoirBurn() {
+    return 0L;
+  }
+
+  /**
    * Gas that was sitting unused in the initial frame's gasRemaining at the moment of an exceptional
    * halt (EIP-7778/EIP-8037). Paid by the sender (receipts) but must be excluded from block regular
    * gas since no operation consumed it.
@@ -73,6 +85,18 @@ public abstract class TransactionGasAccounting {
 
   /** Whether the regular gas limit was exceeded (EIP-8037). */
   public abstract boolean regularGasLimitExceeded();
+
+  /**
+   * Whether the transaction failed (initial frame revert/halt). When true, the reservoir burn is
+   * applied — the lost drain propagates to the user via a higher {@code gasUsedByTransaction}. When
+   * false (tx succeeded), the drain stays restored in the reservoir for the user, matching spec
+   * semantics where caller's incorporate_child_on_error subtracts the refund only if caller is in
+   * the revert chain.
+   */
+  @Value.Default
+  public boolean txFailed() {
+    return false;
+  }
 
   /** Creates a new builder. */
   public static ImmutableTransactionGasAccounting.Builder builder() {
@@ -99,20 +123,21 @@ public abstract class TransactionGasAccounting {
       return new GasResult(effectiveStateGas, txGasLimit(), txGasLimit());
     }
 
-    // EIP-8037: Include leftover reservoir in remaining gas for execution gas calculation
+    // EIP-8037: gasUsedByTransaction (used for block-regular accounting via
+    // BlockGasAccountingStrategy.AMSTERDAM = gasUsedByTransaction - stateGasUsed) reflects ONLY
+    // legitimate consumption: actual state growth + actual regular execution. Burned gas-left
+    // spill (charge drained from gasRemaining in a reverted frame, cancelled by an in-scope
+    // no-growth refund) is sender-paid (visible in receipt cumulative via the refund
+    // calculation) but excluded from block-regular — revert spillover never increments
+    // regular_gas_used. The reservoir burn (drain that stays paid because the matching refund
+    // was eaten by a reverted ancestor's incorporate-on-error) is similarly excluded from block
+    // dimensions: it belongs to neither block_regular nor block_state, only to the receipt-level
+    // cumulative via state_gas_left = 0.
     final long executionGas = txGasLimit() - remainingGas() - stateGasReservoir();
-    // EIP-8037: block_state_gas_used = intrinsic_state +
-    // execution_state, both captured by stateGasUsed (intrinsic preserved by advanceUndoMark,
-    // execution undone on top-level revert). Burned spill (state-gas spillover that wasn't
-    // restored due to no-growth refunds in failed frames) is sender-paid but not counted in
-    // either block dimension — exclude it from regularGas as well, matching EELS where state
-    // gas spillover never increments regular_gas_used.
     final long stateGas = stateGasUsed();
     final long regularGas =
         executionGas - stateGas - stateGasSpillBurned() - initialFrameRegularHaltBurn();
     if (regularGas < 0) {
-      // This should not happen under normal circumstances. A negative regularGas indicates a
-      // bug in gas accounting — log at error level to ensure visibility.
       LOG.error(
           "Negative regularGas={} (executionGas={}, stateGas={}, spillBurned={})",
           regularGas,
