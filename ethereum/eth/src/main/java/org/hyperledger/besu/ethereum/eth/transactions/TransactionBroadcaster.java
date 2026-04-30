@@ -31,6 +31,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -115,7 +116,7 @@ public class TransactionBroadcaster
     if (random != null) {
       Collections.shuffle(peers, random);
     } else {
-      Collections.shuffle(peers);
+      Collections.shuffle(peers, ThreadLocalRandom.current());
     }
 
     final List<EthPeer> sendFullTransactionsPeers =
