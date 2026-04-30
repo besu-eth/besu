@@ -144,7 +144,7 @@ public abstract class AbstractMessageProcessor {
    * @param frame The message frame
    */
   private void exceptionalHalt(final MessageFrame frame) {
-    rollbackPreservingDescendantStateGas(frame);
+    rollbackOnError(frame);
     frame.clearGasRemaining();
     frame.clearOutputData();
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
@@ -152,24 +152,25 @@ public abstract class AbstractMessageProcessor {
   }
 
   /**
-   * Roll the frame back via {@link MessageFrame#rollback()}, any state-gas charged by successful
-   * descendants (which {@code UndoScalar} would otherwise discard) is preserved as a reservoir
-   * credit on the parent. The post-rollback reservoir target is {@code descendantStateGas + Re},
-   * where {@code Re} is {@code state_gas_reservoir} at the failing frame's exit and {@code
-   * descendantStateGas = state_gas_used - frame_entry_state_gas_used}. No-op for the pre-Amsterdam
-   * path where {@code stateGasCostCalculator().isActive()} returns false.
+   * Rolls the frame back. For nested frames this just discards every change since frame entry. For
+   * the top-level frame, it additionally moves the descendant state-gas charges into the reservoir
+   * before rollback. That credit is what the sender refund pool draws from. No-op for the
+   * pre-Amsterdam path where {@code stateGasCostCalculator().isActive()} is false.
    */
-  private void rollbackPreservingDescendantStateGas(final MessageFrame frame) {
+  private void rollbackOnError(final MessageFrame frame) {
+    final boolean topLevel = frame.getDepth() == 0;
     final boolean active =
-        evm != null && evm.getGasCalculator().stateGasCostCalculator().isActive();
-    final long preserved =
-        active
-            ? frame.getStateGasReservoir()
-                + Math.max(0L, frame.getStateGasUsed() - frame.getFrameEntryStateGasUsed())
-            : 0L;
+        topLevel && evm != null && evm.getGasCalculator().stateGasCostCalculator().isActive();
+    final long descendantStateGas =
+        active ? Math.max(0L, frame.getStateGasUsed() - frame.getFrameEntryStateGasUsed()) : 0L;
+    final long reservoirAtExit = active ? frame.getStateGasReservoir() : 0L;
     clearAccumulatedStateBesidesGasAndOutput(frame);
     if (active) {
-      frame.setStateGasReservoir(preserved);
+      frame.setStateGasReservoir(reservoirAtExit + descendantStateGas);
+      // Refunding descendant state-gas back to the reservoir must also offset the
+      // rollback-induced lost spillover so block-gas accounting doesn't keep attributing
+      // those bytes to the state dimension.
+      frame.decrementStateGasSpilledLost(descendantStateGas);
     }
   }
 
@@ -195,7 +196,7 @@ public abstract class AbstractMessageProcessor {
    * @param frame The message frame
    */
   protected void revert(final MessageFrame frame) {
-    rollbackPreservingDescendantStateGas(frame);
+    rollbackOnError(frame);
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
     traceFrameExit(frame, "REVERT");
   }
@@ -213,7 +214,7 @@ public abstract class AbstractMessageProcessor {
       // gas_left (only state changes are rolled back via restore_tx_state) so the parent can
       // recover it via the call/create completion flow. Skip clearGasRemaining here.
       frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
-      rollbackPreservingDescendantStateGas(frame);
+      rollbackOnError(frame);
       frame.setState(MessageFrame.State.COMPLETED_FAILED);
       traceFrameExit(frame, "STATE_OOG");
       return;

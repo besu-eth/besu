@@ -120,7 +120,13 @@ public interface BlockGasAccountingStrategy {
         @Override
         public long calculateTransactionRegularGas(
             final Transaction transaction, final TransactionProcessingResult result) {
-          return result.getEstimateGasUsedByTransaction() - result.getStateGasUsed();
+          // Subtract both: (a) state gas that "stuck" through any rollback (in stateGasUsed) and
+          // (b) state-gas spillover that was rolled back from stateGasUsed but still consumed
+          // gas_left. (b) would otherwise leak into the regular dimension since gas_left isn't
+          // restored on rollback.
+          return result.getEstimateGasUsedByTransaction()
+              - result.getStateGasUsed()
+              - result.getStateGasSpilledLost();
         }
 
         @Override

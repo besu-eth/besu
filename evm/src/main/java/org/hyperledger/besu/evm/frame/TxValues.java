@@ -29,6 +29,7 @@ import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 
 import com.google.common.collect.HashBasedTable;
 import org.apache.tuweni.bytes.Bytes32;
@@ -58,6 +59,16 @@ import org.apache.tuweni.bytes.Bytes32;
  *     undone on revert
  * @param stateChanges EIP-8037: append-only log of state-change events recorded at the opcode site;
  *     consumed by frame-end aggregation. Undone on revert.
+ * @param stateGasSpilledTotal EIP-8037: cumulative state-gas <em>spillover</em> from {@link
+ *     MessageFrame#consumeStateGas} (the portion that drained {@code gasRemaining} after the
+ *     reservoir was empty). UndoScalar — rolls back with {@link #undoChanges} alongside the
+ *     reservoir; the {@code stateGasSpilledLost} counter records the rolled-back delta separately
+ *     since {@code gasRemaining} itself is not restored on rollback.
+ * @param stateGasSpilledLost EIP-8037: cumulative spillover that was rolled back from {@link
+ *     #stateGasUsed} via {@link #undoChanges} but whose gas-left consumption survives the rollback.
+ *     Mutable counter that persists across rollbacks. Decremented by reservoir credits that
+ *     effectively offset the lost spillover (top-level error handler). Block-gas accounting
+ *     attributes this to the state dimension instead of letting it leak into regular gas.
  */
 public record TxValues(
     BlockHashLookup blockHashLookup,
@@ -77,7 +88,9 @@ public record TxValues(
     UndoScalar<Long> gasRefunds,
     UndoScalar<Long> stateGasUsed,
     UndoScalar<Long> stateGasReservoir,
-    UndoList<StateChange> stateChanges) {
+    UndoList<StateChange> stateChanges,
+    UndoScalar<Long> stateGasSpilledTotal,
+    AtomicLong stateGasSpilledLost) {
 
   /**
    * Creates a new TxValues for the initial (depth-0) frame of a transaction. EIP-8037 gas tracking
@@ -122,7 +135,9 @@ public record TxValues(
         new UndoScalar<>(0L),
         new UndoScalar<>(0L),
         new UndoScalar<>(0L),
-        new UndoList<>(new ArrayList<>()));
+        new UndoList<>(new ArrayList<>()),
+        new UndoScalar<>(0L),
+        new AtomicLong());
   }
 
   /**
@@ -131,6 +146,7 @@ public record TxValues(
    * @param mark the mark to which it should be rolled back to
    */
   public void undoChanges(final long mark) {
+    final long spilledBefore = stateGasSpilledTotal.get();
     warmedUpAddresses.undo(mark);
     warmedUpStorage.undo(mark);
     transientStorage.undo(mark);
@@ -140,5 +156,10 @@ public record TxValues(
     stateGasUsed.undo(mark);
     stateGasReservoir.undo(mark);
     stateChanges.undo(mark);
+    stateGasSpilledTotal.undo(mark);
+    // Spillover that just rolled back from `stateGasUsed` still consumed `gasRemaining`
+    // (gas_left isn't restored on rollback). Stash the delta non-undoably so block-gas
+    // accounting can attribute it to the state dimension.
+    stateGasSpilledLost.addAndGet(Math.max(0L, spilledBefore - stateGasSpilledTotal.get()));
   }
 }
