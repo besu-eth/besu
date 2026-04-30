@@ -543,6 +543,18 @@ public interface GasCalculator {
   long transactionFloorCost(final Bytes transactionPayload, final long payloadZeroBytes);
 
   /**
+   * Returns the floor gas cost of a transaction. Unlike the payload-only overload, this variant can
+   * incorporate additional transaction-level data (e.g. access list bytes under EIP-7981) when
+   * computing the floor.
+   *
+   * @param transaction The transaction
+   * @return the transaction's floor gas cost
+   */
+  default long transactionFloorCost(final Transaction transaction) {
+    return transactionFloorCost(transaction.getPayload(), transaction.getPayloadZeroBytes());
+  }
+
+  /**
    * Returns the gas cost of the explicitly declared access list.
    *
    * @param accessListEntries The access list entries
