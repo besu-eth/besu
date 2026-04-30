@@ -214,7 +214,8 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
   }
 
   @Override
-  public void refundSameTransactionSelfDestructStateGas(final MessageFrame initialFrame) {
+  public void refundSameTransactionSelfDestructStateGas(
+      final MessageFrame initialFrame, final long intrinsicStateGas) {
     final Set<Address> destroyed = initialFrame.getSelfDestructs();
     if (destroyed.isEmpty()) {
       return;
@@ -242,8 +243,17 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
       }
     }
     if (totalRefund > 0L) {
-      initialFrame.incrementStateGasReservoir(totalRefund);
-      initialFrame.decrementStateGasUsed(totalRefund);
+      // Cap refund at execution-time state gas only — never eat into the intrinsic charge the
+      // user paid upfront. Matches geth/nethermind/erigon/ethrex semantics: the same-tx-
+      // selfdestruct refund returns state gas spent during EVM execution (inner CREATEs, code
+      // deposits, storage growth), not the intrinsic charge for the top-level CREATE itself.
+      final long executionStateGas =
+          Math.max(0L, initialFrame.getStateGasUsed() - intrinsicStateGas);
+      final long capped = Math.min(totalRefund, executionStateGas);
+      if (capped > 0L) {
+        initialFrame.incrementStateGasReservoir(capped);
+        initialFrame.decrementStateGasUsed(capped);
+      }
     }
   }
 

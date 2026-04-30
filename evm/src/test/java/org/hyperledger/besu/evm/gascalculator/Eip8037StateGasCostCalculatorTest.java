@@ -131,7 +131,7 @@ class Eip8037StateGasCostCalculatorTest {
     frame.addCreate(addr);
     frame.addSelfDestruct(addr);
 
-    calculator.refundSameTransactionSelfDestructStateGas(frame);
+    calculator.refundSameTransactionSelfDestructStateGas(frame, 0L);
 
     final long expected =
         calculator.createStateGas()
@@ -150,7 +150,7 @@ class Eip8037StateGasCostCalculatorTest {
     final MessageFrame frame = buildFrame(world);
     frame.addSelfDestruct(addr); // destroyed but not created in this tx — EIP-6780 no-op
 
-    calculator.refundSameTransactionSelfDestructStateGas(frame);
+    calculator.refundSameTransactionSelfDestructStateGas(frame, 0L);
 
     assertThat(frame.getStateGasReservoir()).isZero();
     assertThat(frame.getStateGasUsed()).isZero();
@@ -161,7 +161,7 @@ class Eip8037StateGasCostCalculatorTest {
     final ToyWorld world = new ToyWorld();
     final MessageFrame frame = buildFrame(world);
 
-    calculator.refundSameTransactionSelfDestructStateGas(frame);
+    calculator.refundSameTransactionSelfDestructStateGas(frame, 0L);
 
     assertThat(frame.getStateGasReservoir()).isZero();
     assertThat(frame.getStateGasUsed()).isZero();

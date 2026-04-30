@@ -253,8 +253,11 @@ public interface StateGasCostCalculator {
    * already returned their state gas.
    *
    * @param initialFrame the initial (depth-0) frame after transaction execution
+   * @param intrinsicStateGas the intrinsic state gas charged at tx start; the refund is capped so
+   *     it does not eat into this amount — only execution-time state gas is eligible
    */
-  default void refundSameTransactionSelfDestructStateGas(final MessageFrame initialFrame) {}
+  default void refundSameTransactionSelfDestructStateGas(
+      final MessageFrame initialFrame, final long intrinsicStateGas) {}
 
   /**
    * Computes the intrinsic state gas for a transaction. This is the worst-case state gas charged
