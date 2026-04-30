@@ -198,6 +198,10 @@ public class MessageFrame {
   // Metadata fields.
   private final Type type;
   private State state = State.NOT_STARTED;
+  // EIP-7778/EIP-8037: Flipped to true once code execution starts; used to distinguish a halt
+  // that fires during opcode execution (halt-burn counts toward block regular gas) from a halt
+  // raised pre-execution in the processor's start() (halt-burn must be excluded).
+  private boolean codeExecuted = false;
 
   // Machine state fields.
   private long gasRemaining;
@@ -211,6 +215,7 @@ public class MessageFrame {
   private final int stackMaxSizeV2;
   private Bytes output = Bytes.EMPTY;
   private Bytes returnData = Bytes.EMPTY;
+  private Code createdCode = null;
   private final boolean isStatic;
 
   // Transaction state fields.
@@ -242,23 +247,6 @@ public class MessageFrame {
 
   /** The mark of the undoable collections at the creation of this message frame */
   private long undoMark;
-
-  /**
-   * EIP-8037: index into {@link TxValues#stateChanges()} delimiting this frame's byte-diff window.
-   * Initially captured at frame construction; can be re-anchored mid-frame via {@link
-   * #advanceStateGasFrameStartIndex()} to attribute frame-pre-state events (e.g., AccountCreated
-   * for a CREATE child) to the parent's range only.
-   */
-  private int stateGasFrameStartIndex;
-
-  /**
-   * EIP-8037: value of {@link TxValues#stateGasUsed()} at frame construction (or
-   * post-intrinsic-charge for the initial frame, see {@link #advanceUndoMark()}). Frame-end
-   * byte-diff subtracts this from the current value to derive {@code already_paid} (state gas
-   * charged by successful descendants). On rollback, {@link UndoScalar#undo} restores the counter
-   * to its undo-mark value, so reverted descendants' charges naturally disappear.
-   */
-  private long frameEntryStateGasUsed;
 
   /**
    * Builder builder.
@@ -310,16 +298,6 @@ public class MessageFrame {
     this.revertReason = revertReason;
     this.eip7928AccessList = eip7928AccessList;
     this.undoMark = txValues.transientStorage().mark();
-    this.stateGasFrameStartIndex = txValues.stateChanges().size();
-    this.frameEntryStateGasUsed = txValues.stateGasUsed().get();
-    if (Eip8037Trace.ENABLED) {
-      Eip8037Trace.frameEnter(
-          txValues.messageFrameStack().size(),
-          contract == null ? "" : contract.toHexString(),
-          gasRemaining,
-          txValues.stateGasReservoir().get(),
-          this.frameEntryStateGasUsed);
-    }
   }
 
   /**
@@ -399,6 +377,24 @@ public class MessageFrame {
    */
   public void setOutputData(final Bytes output) {
     this.output = output;
+  }
+
+  /**
+   * Sets the created code from CREATE* operations
+   *
+   * @param createdCode the code that was created
+   */
+  public void setCreatedCode(final Code createdCode) {
+    this.createdCode = createdCode;
+  }
+
+  /**
+   * gets the created code from CREATE* operations
+   *
+   * @return the code that was created
+   */
+  public Code getCreatedCode() {
+    return createdCode;
   }
 
   /** Clears the output data buffer. */
@@ -884,15 +880,35 @@ public class MessageFrame {
   }
 
   /**
-   * Decrement the state gas used (EIP-8037). Used by the tx-end same-tx SELFDESTRUCT refund — the
-   * destroyed account's create/code/slot charges are returned to the reservoir, so the cumulative
-   * "charged" total must also drop (otherwise block-gas accounting would still attribute that gas
-   * to the state dimension).
+   * Decrement the state gas used (EIP-8037). Used for refunds (e.g., SSTORE 0→X→0 restoration,
+   * CREATE silent failure, same-tx SELFDESTRUCT). This is undone on revert via UndoScalar,
+   * providing per-frame scoping for refunds that propagate to parents only on full success.
    *
    * @param amount The amount of state gas to subtract
    */
   public void decrementStateGasUsed(final long amount) {
     txValues.stateGasUsed().set(txValues.stateGasUsed().get() - amount);
+  }
+
+  /**
+   * Records a no-growth state gas refund. Used by refundStorageSetStateGas, refundCreateStateGas,
+   * and refundSameTransactionSelfDestructStateGas so that {@code handleStateGasSpill} can subtract
+   * refunds-in-scope from spill credit on revert/halt — the refund must contribute nothing to a
+   * parent's reservoir when any frame in the chain fails.
+   *
+   * @param amount The refund amount being applied to state_gas_reservoir
+   */
+  public void recordNoGrowthStateGasRefund(final long amount) {
+    txValues.noGrowthStateGasRefunds().set(txValues.noGrowthStateGasRefunds().get() + amount);
+  }
+
+  /**
+   * Returns the cumulative no-growth state gas refunds applied so far.
+   *
+   * @return the cumulative refunds
+   */
+  public long getNoGrowthStateGasRefunds() {
+    return txValues.noGrowthStateGasRefunds().get();
   }
 
   /**
@@ -902,29 +918,6 @@ public class MessageFrame {
    */
   public long getStateGasUsed() {
     return txValues.stateGasUsed().get();
-  }
-
-  /**
-   * Returns the cumulative spillover (state gas that drained {@code gasRemaining} after the
-   * reservoir emptied) that has been rolled back from {@link #getStateGasUsed()} via {@link
-   * TxValues#undoChanges} but whose gas-left consumption persists. Block-gas accounting subtracts
-   * this from the regular dimension so it lands in the state dimension instead.
-   *
-   * @return cumulative lost spillover across the transaction
-   */
-  public long getStateGasSpilledLost() {
-    return txValues.stateGasSpilledLost().get();
-  }
-
-  /**
-   * Decrement the lost-spillover tracker, clamped at zero since the credit may exceed the lost
-   * spillover (e.g. when the descendant charge drained the reservoir rather than spilling).
-   *
-   * @param amount the amount to subtract
-   */
-  public void decrementStateGasSpilledLost(final long amount) {
-    final var lost = txValues.stateGasSpilledLost();
-    lost.set(Math.max(0L, lost.get() - amount));
   }
 
   /**
@@ -951,12 +944,7 @@ public class MessageFrame {
    * @param amount the amount to add to the reservoir
    */
   public void incrementStateGasReservoir(final long amount) {
-    final long before = txValues.stateGasReservoir().get();
-    txValues.stateGasReservoir().set(before + amount);
-    if (Eip8037Trace.ENABLED) {
-      Eip8037Trace.creditReservoir(
-          txValues.messageFrameStack().size(), amount, before, before + amount);
-    }
+    txValues.stateGasReservoir().set(txValues.stateGasReservoir().get() + amount);
   }
 
   /**
@@ -967,145 +955,105 @@ public class MessageFrame {
    * @return true if the gas was successfully consumed, false if insufficient gas
    */
   public boolean consumeStateGas(final long amount) {
-    final long reservoirBefore = txValues.stateGasReservoir().get();
-    final long gasLeftBefore = gasRemaining;
-    boolean ok;
-    long spilled = 0L;
-    if (reservoirBefore >= amount) {
-      txValues.stateGasReservoir().set(reservoirBefore - amount);
-      ok = true;
+    final long reservoir = txValues.stateGasReservoir().get();
+    if (reservoir >= amount) {
+      txValues.stateGasReservoir().set(reservoir - amount);
     } else {
-      final long overflow = amount - reservoirBefore;
+      // Overflow goes to gasRemaining
+      final long overflow = amount - reservoir;
       if (gasRemaining < overflow) {
-        ok = false;
-      } else {
-        txValues.stateGasReservoir().set(0L);
-        gasRemaining -= overflow;
-        spilled = overflow;
-        ok = true;
+        return false;
       }
+      txValues.stateGasReservoir().set(0L);
+      gasRemaining -= overflow;
     }
-    if (ok) {
+    txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
+    return true;
+  }
+
+  /**
+   * Consumes state gas, draining all available gas even when the full amount cannot be covered.
+   * Always increments stateGasUsed by the full amount regardless of gas availability. Used when a
+   * transaction-level (depth-0) contract creation fails after state gas has been partially
+   * committed: we must record the charge for block accounting even though execution fails.
+   *
+   * @param amount the amount of state gas to consume
+   * @return true if sufficient gas was available, false if gas was insufficient (but drained
+   *     anyway)
+   */
+  public boolean consumeStateGasForced(final long amount) {
+    final long reservoir = txValues.stateGasReservoir().get();
+    if (reservoir >= amount) {
+      txValues.stateGasReservoir().set(reservoir - amount);
       txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
-      if (spilled > 0L) {
-        txValues.stateGasSpilledTotal().set(txValues.stateGasSpilledTotal().get() + spilled);
-      }
-    }
-    if (Eip8037Trace.ENABLED) {
-      Eip8037Trace.consumeState(
-          txValues.messageFrameStack().size(),
-          amount,
-          reservoirBefore,
-          gasLeftBefore,
-          ok,
-          txValues.stateGasReservoir().get(),
-          gasRemaining,
-          txValues.stateGasUsed().get());
-    }
-    return ok;
-  }
-
-  /**
-   * EIP-8037: Records a state-change event at the SSTORE opcode site. Aggregated at frame-end to
-   * compute the net state-gas charge.
-   *
-   * @param address the account address whose slot was written
-   * @param key the storage key
-   * @param txEntryIsZero whether the slot's value was zero at tx-entry
-   * @param beforeIsZero whether the slot's value was zero immediately before this SSTORE
-   * @param afterIsZero whether the new value being written is zero
-   */
-  public void recordStorageChange(
-      final Address address,
-      final Bytes32 key,
-      final boolean txEntryIsZero,
-      final boolean beforeIsZero,
-      final boolean afterIsZero) {
-    txValues
-        .stateChanges()
-        .add(new StateChange.Storage(address, key, txEntryIsZero, beforeIsZero, afterIsZero));
-    if (Eip8037Trace.ENABLED) {
-      Eip8037Trace.recStorage(
-          txValues.messageFrameStack().size(),
-          address.toHexString(),
-          key.toHexString(),
-          txEntryIsZero,
-          beforeIsZero,
-          afterIsZero);
+      return true;
+    } else {
+      final long overflow = amount - reservoir;
+      txValues.stateGasReservoir().set(0L);
+      final boolean sufficient = gasRemaining >= overflow;
+      gasRemaining = Math.max(0L, gasRemaining - overflow);
+      txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
+      return sufficient;
     }
   }
 
   /**
-   * EIP-8037: Records that an account was created at the given address. Recorded by CREATE/CREATE2,
-   * by CALL-with-value-creates-recipient, and by SELFDESTRUCT-creates-inheritor. Aggregated at
-   * frame-end.
+   * Accumulates state gas that spilled into gasRemaining in a reverted child frame (EIP-8037). This
+   * counter is NOT undone on revert — it tracks permanently burned spill gas for block accounting.
    *
-   * @param address the address of the newly created account
+   * @param amount the spill amount to accumulate
    */
-  public void recordAccountCreated(final Address address) {
-    txValues.stateChanges().add(new StateChange.AccountCreated(address));
-    if (Eip8037Trace.ENABLED) {
-      Eip8037Trace.recAccountCreated(txValues.messageFrameStack().size(), address.toHexString());
-    }
+  public void accumulateStateGasSpillBurned(final long amount) {
+    txValues.stateGasSpillBurned()[0] += amount;
   }
 
   /**
-   * EIP-8037: Records a code deposit. Aggregated at frame-end.
+   * Returns the total state gas spill burned by reverted child frames (EIP-8037).
    *
-   * @param address the contract address
-   * @param codeLength the deposited code length in bytes
+   * @return accumulated spill burned
    */
-  public void recordCodeDeposit(final Address address, final int codeLength) {
-    txValues.stateChanges().add(new StateChange.CodeDeposit(address, codeLength));
-    if (Eip8037Trace.ENABLED) {
-      Eip8037Trace.recCodeDeposit(
-          txValues.messageFrameStack().size(), address.toHexString(), codeLength);
-    }
+  public long getStateGasSpillBurned() {
+    return txValues.stateGasSpillBurned()[0];
   }
 
   /**
-   * EIP-8037: Returns the index into the tx-wide state-change log captured at this frame's
-   * construction. Aggregation walks events in {@code [stateGasFrameStartIndex,
-   * stateChanges.size())} for this frame.
+   * Accumulates gas that was sitting unused in the initial frame's gasRemaining at the moment of an
+   * exceptional halt (EIP-7778/EIP-8037). The sender still pays for this gas via receipts, but it
+   * did not correspond to any executed regular or state gas, so it must be excluded from the block
+   * regular gas total. Not undone on revert.
    *
-   * @return the frame-start event index
+   * @param amount the gasRemaining snapshot taken immediately before clearGasRemaining on the
+   *     initial frame's exceptional halt
    */
-  public int getStateGasFrameStartIndex() {
-    return stateGasFrameStartIndex;
+  public void accumulateInitialFrameRegularHaltBurn(final long amount) {
+    txValues.initialFrameRegularHaltBurn()[0] += amount;
   }
 
   /**
-   * EIP-8037: Re-anchor this frame's byte-diff window to the current end of the tx-wide state-
-   * change log.
+   * Returns the gas burned on the initial frame's exceptional halt.
    *
-   * <p>Called from {@code ContractCreationProcessor.start()} after the new account, value transfer,
-   * and code-deposit events have been recorded so they're attributed to the parent frame's range,
-   * not this CREATE frame's range. Without this, the create child would double-count the {@code
-   * +112} bytes for the account it materialized — once at this depth and once at the parent depth
-   * via the same shared event log.
+   * @return accumulated halt-burned gas
    */
-  public void advanceStateGasFrameStartIndex() {
-    this.stateGasFrameStartIndex = txValues.stateChanges().size();
-    this.frameEntryStateGasUsed = txValues.stateGasUsed().get();
+  public long getInitialFrameRegularHaltBurn() {
+    return txValues.initialFrameRegularHaltBurn()[0];
   }
 
   /**
-   * EIP-8037: Returns the value of {@code stateGasUsed} at this frame's construction. Frame-end
-   * byte-diff subtracts this from the current value to obtain {@code already_paid}.
-   *
-   * @return the frame-entry stateGasUsed snapshot
+   * Marks that opcode execution has started on this frame. Once set, an exceptional halt is
+   * classified as "during code execution" (halt-burned gas counts toward block regular gas) rather
+   * than pre-execution (halt-burned gas is excluded).
    */
-  public long getFrameEntryStateGasUsed() {
-    return frameEntryStateGasUsed;
+  public void markCodeExecuted() {
+    this.codeExecuted = true;
   }
 
   /**
-   * EIP-8037: Returns the per-tx state-change event log. Used by frame-end aggregation.
+   * Returns whether opcode execution has started on this frame.
    *
-   * @return the state change list
+   * @return true if {@link #markCodeExecuted()} was invoked
    */
-  public List<StateChange> getStateChanges() {
-    return txValues.stateChanges();
+  public boolean isCodeExecuted() {
+    return codeExecuted;
   }
 
   /**
@@ -1552,12 +1500,10 @@ public class MessageFrame {
    * Advances the undo mark to the current point, so that subsequent rollback() calls will not undo
    * changes made before this point. Used by the transaction processor to protect intrinsic state
    * gas charges (EIP-8037 auth delegation and contract creation) from being rolled back when the
-   * initial frame's execution reverts. Also re-snapshots {@code frameEntryStateGasUsed} so the
-   * byte-diff at frame-end doesn't treat intrinsic charges as "already paid by descendants".
+   * initial frame's execution reverts.
    */
   public void advanceUndoMark() {
     this.undoMark = txValues.transientStorage().mark();
-    this.frameEntryStateGasUsed = txValues.stateGasUsed().get();
   }
 
   /**

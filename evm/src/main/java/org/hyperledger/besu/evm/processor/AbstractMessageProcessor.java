@@ -20,12 +20,10 @@ import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.ModificationNotAllowedException;
 import org.hyperledger.besu.evm.account.Account;
-import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.ArrayList;
-import java.util.Optional;
 import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -137,90 +135,134 @@ public abstract class AbstractMessageProcessor {
   }
 
   /**
-   * Gets called when the message frame encounters an exceptional halt. Under EIP-8037 (PR 11573)
-   * frame-end accounting, a halted frame produces no state-gas debits or credits — its recorded
-   * events are dropped via {@link MessageFrame#rollback()} and no charges or refunds are applied.
+   * EIP-8037: Handles state gas spill on revert/halt. When state changes are rolled back, the state
+   * gas that was consumed is restored, and any "spill" (state gas that had overflowed from the
+   * reservoir into gasRemaining) is routed back to the reservoir.
+   *
+   * <p>For child frames the spill returns to the parent's reservoir for re-use. For the initial
+   * (top-level) frame the same mechanism applies (per the EIP-8037 specification: "all consumed
+   * execution state gas (from the reservoir and any spillover from gas_left) is moved back into the
+   * state_gas_reservoir, and execution_state_gas_used is reset to zero"). The undo-mark was
+   * advanced in the transaction processor to point past the intrinsic state gas charges, so
+   * rollback restores stateGasUsed and stateGasReservoir to their post-intrinsic values; the
+   * spilled portion is then returned to the reservoir to compensate for the gas_left that was
+   * burned during execution.
+   *
+   * @param frame The message frame
+   */
+  private void handleStateGasSpill(final MessageFrame frame) {
+    final boolean isInitialFrame = frame.getMessageFrameStack().size() == 1;
+    final long stateGasUsedBefore = frame.getStateGasUsed();
+    final long reservoirBefore = frame.getStateGasReservoir();
+    final long noGrowthRefundsBefore = frame.getNoGrowthStateGasRefunds();
+
+    clearAccumulatedStateBesidesGasAndOutput(frame);
+
+    final long stateGasRestored = stateGasUsedBefore - frame.getStateGasUsed();
+    final long reservoirRestored = frame.getStateGasReservoir() - reservoirBefore;
+    final long noGrowthRefundsInScope = noGrowthRefundsBefore - frame.getNoGrowthStateGasRefunds();
+    // EIP-8037 spill restoration on revert/halt:
+    //   - Per the general spec, state gas consumed (drained from gas_left) is restored to the
+    //     reservoir so the parent (or sender on top-level failure) recovers it.
+    //   - For non-initial frames, EELS's incorporate_child_on_error subtracts the child's
+    //     state_gas_refund from what reaches the parent — so no-growth refunds (SSTORE 0→X→0,
+    //     CREATE silent/child failure) credited within the failed sub-tree do not inflate the
+    //     parent's state_gas_left. Mirror this by burning the noGrowthRefundsInScope amount and
+    //     deducting it from the (shared) reservoir, so the parent does not get the inflated
+    //     credit back. The burned amount is tracked in stateGasSpillBurned so block-level
+    //     regular gas excludes it (matches EELS, where state-gas spillover never contributes to
+    //     regular_gas_used).
+    //   - Besu uses a transaction-wide stateGasReservoir (TxValues), unlike EELS's per-frame
+    //     state_gas_left. As a result, when CREATE charges state gas that drains from a parent-
+    //     contributed reservoir and the inner frame later refunds, the rollback to frame entry
+    //     does not visibly decrease the reservoir (the consume + refund net to zero across the
+    //     UndoScalar log). We therefore base the burn on noGrowthRefundsInScope rather than the
+    //     net reservoir movement, and explicitly deduct the burned amount from the reservoir to
+    //     remove the inflation that the parent would otherwise recover via refundedGas.
+    //   - For the initial (top-level) frame, EELS preserves all in-frame refund credits in
+    //     state_gas_left at tx end (no parent to absorb them); so we don't subtract
+    //     noGrowthRefundsInScope and the spill is fully restored.
+    final long grossSpill = stateGasRestored - reservoirRestored;
+    final long burned;
+    final long restored;
+    if (isInitialFrame) {
+      burned = 0L;
+      restored = Math.max(0L, grossSpill);
+    } else {
+      burned = Math.max(0L, noGrowthRefundsInScope);
+      restored = Math.max(0L, grossSpill - burned);
+    }
+    if (restored > 0) {
+      frame.incrementStateGasReservoir(restored);
+    }
+    if (burned > 0) {
+      frame.accumulateStateGasSpillBurned(burned);
+      // The shared reservoir was inflated by the no-growth refund; remove the burned portion
+      // so the parent (or sender, via refundedGas) does not recover it.
+      final long currentReservoir = frame.getStateGasReservoir();
+      final long deduct = Math.min(currentReservoir, burned);
+      if (deduct > 0) {
+        frame.setStateGasReservoir(currentReservoir - deduct);
+      }
+    }
+  }
+
+  /**
+   * Snapshots the initial frame's gasRemaining into {@code initialFrameRegularHaltBurn} when a
+   * pre-execution halt fires on the initial frame (e.g. EIP-684 CREATE collision) so that gas paid
+   * by the sender but never spent on regular or state work is excluded from block regular gas. When
+   * opcode execution has already run on the frame, the halt-burn must remain in block regular gas
+   * (no-op here).
+   *
+   * @param frame the initial (depth-0) message frame
+   */
+  private static void recordInitialFrameRegularHaltBurn(final MessageFrame frame) {
+    if (frame.isCodeExecuted()) {
+      return;
+    }
+    final long haltBurn = frame.getRemainingGas();
+    if (haltBurn > 0) {
+      frame.accumulateInitialFrameRegularHaltBurn(haltBurn);
+    }
+  }
+
+  /**
+   * Gets called when the message frame encounters an exceptional halt.
    *
    * @param frame The message frame
    */
   private void exceptionalHalt(final MessageFrame frame) {
-    rollbackOnError(frame);
+    final boolean isInitialFrame = frame.getMessageFrameStack().size() == 1;
+
+    handleStateGasSpill(frame);
+
+    if (isInitialFrame) {
+      recordInitialFrameRegularHaltBurn(frame);
+    }
+
     frame.clearGasRemaining();
     frame.clearOutputData();
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
-    traceFrameExit(frame, "HALT");
   }
 
   /**
-   * Rolls the frame back. For nested frames this just discards every change since frame entry. For
-   * the top-level frame, it additionally moves the descendant state-gas charges into the reservoir
-   * before rollback. That credit is what the sender refund pool draws from. No-op for the
-   * pre-Amsterdam path where {@code stateGasCostCalculator().isActive()} is false.
-   */
-  private void rollbackOnError(final MessageFrame frame) {
-    final boolean topLevel = frame.getDepth() == 0;
-    final boolean active =
-        topLevel && evm != null && evm.getGasCalculator().stateGasCostCalculator().isActive();
-    final long descendantStateGas =
-        active ? Math.max(0L, frame.getStateGasUsed() - frame.getFrameEntryStateGasUsed()) : 0L;
-    final long reservoirAtExit = active ? frame.getStateGasReservoir() : 0L;
-    clearAccumulatedStateBesidesGasAndOutput(frame);
-    if (active) {
-      frame.setStateGasReservoir(reservoirAtExit + descendantStateGas);
-      // Refunding descendant state-gas back to the reservoir must also offset the
-      // rollback-induced lost spillover so block-gas accounting doesn't keep attributing
-      // those bytes to the state dimension.
-      frame.decrementStateGasSpilledLost(descendantStateGas);
-    }
-  }
-
-  private void traceFrameExit(final MessageFrame frame, final String status) {
-    if (!org.hyperledger.besu.evm.frame.Eip8037Trace.ENABLED) {
-      return;
-    }
-    final org.hyperledger.besu.datatypes.Address addr = frame.getContractAddress();
-    org.hyperledger.besu.evm.frame.Eip8037Trace.frameExit(
-        frame.getMessageStackSize(),
-        addr == null ? "" : addr.toHexString(),
-        status,
-        frame.getRemainingGas(),
-        frame.getStateGasReservoir(),
-        frame.getStateGasUsed());
-  }
-
-  /**
-   * Gets called when the message frame requests a revert. Under EIP-8037 (PR 11573) frame-end
-   * accounting, a reverted frame produces no state-gas debits or credits — its recorded events are
-   * dropped via {@link MessageFrame#rollback()}.
+   * Gets called when the message frame requests a revert.
    *
    * @param frame The message frame
    */
   protected void revert(final MessageFrame frame) {
-    rollbackOnError(frame);
+    handleStateGasSpill(frame);
+
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
-    traceFrameExit(frame, "REVERT");
   }
 
   /**
-   * Gets called when the message frame completes successfully. EIP-8037 frame-end aggregation runs
-   * here against the frame's recorded state-change events; an OOG outcome transitions the frame to
-   * {@link MessageFrame.State#EXCEPTIONAL_HALT}.
+   * Gets called when the message frame completes successfully.
    *
    * @param frame The message frame
    */
   private void completedSuccess(final MessageFrame frame) {
-    if (!evm.getGasCalculator().stateGasCostCalculator().applyFrameEndStateGasAccounting(frame)) {
-      // EIP-8037: state-gas OOG at frame-end is a "soft" failure. We preserve the unspent
-      // gas_left (only state changes are rolled back via restore_tx_state) so the parent can
-      // recover it via the call/create completion flow. Skip clearGasRemaining here.
-      frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
-      rollbackOnError(frame);
-      frame.setState(MessageFrame.State.COMPLETED_FAILED);
-      traceFrameExit(frame, "STATE_OOG");
-      return;
-    }
     frame.getWorldUpdater().commit();
-    traceFrameExit(frame, "SUCCESS");
     frame.getMessageFrameStack().removeFirst();
     frame.notifyCompletion();
   }
@@ -242,6 +284,7 @@ public abstract class AbstractMessageProcessor {
    * @param operationTracer The tracer recording execution
    */
   private void codeExecute(final MessageFrame frame, final OperationTracer operationTracer) {
+    frame.markCodeExecuted();
     try {
       evm.runToHalt(frame, operationTracer);
     } catch (final ModificationNotAllowedException e) {

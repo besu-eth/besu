@@ -55,9 +55,9 @@ class ContractCreationProcessorTest
     messageFrame.setGasRemaining(10600L);
 
     processor.codeSuccess(messageFrame, OperationTracer.NO_TRACING);
-    // EIP-8037 (PR 11573): validation failures use EXCEPTIONAL_HALT; recorded events are dropped
-    // via UndoList rollback so no state gas is charged. gasRemaining is cleared by
-    // exceptionalHalt() in process(), not codeSuccess() in isolation.
+    // EIP-8037: validation failures use EXCEPTIONAL_HALT so handleStateGasSpill refunds
+    // execution state gas to the reservoir; gasRemaining is cleared by exceptionalHalt() in
+    // process(), not codeSuccess() in isolation.
     assertThat(messageFrame.getState()).isEqualTo(EXCEPTIONAL_HALT);
   }
 
@@ -102,9 +102,9 @@ class ContractCreationProcessorTest
     messageFrame.setGasRemaining(10_000_000L);
 
     processor.codeSuccess(messageFrame, OperationTracer.NO_TRACING);
-    // EIP-8037 (PR 11573): validation failures use EXCEPTIONAL_HALT; recorded events are dropped
-    // via UndoList rollback so no state gas is charged. gasRemaining is cleared by
-    // exceptionalHalt() in process(), not codeSuccess() in isolation.
+    // EIP-8037: validation failures use EXCEPTIONAL_HALT so handleStateGasSpill refunds
+    // execution state gas to the reservoir; gasRemaining is cleared by exceptionalHalt() in
+    // process(), not codeSuccess() in isolation.
     assertThat(messageFrame.getState()).isEqualTo(EXCEPTIONAL_HALT);
   }
 
@@ -143,9 +143,9 @@ class ContractCreationProcessorTest
     messageFrame.setGasRemaining(10_000_000L);
 
     processor.codeSuccess(messageFrame, OperationTracer.NO_TRACING);
-    // EIP-8037 (PR 11573): validation failures use EXCEPTIONAL_HALT; recorded events are dropped
-    // via UndoList rollback so no state gas is charged. gasRemaining is cleared by
-    // exceptionalHalt() in process(), not codeSuccess() in isolation.
+    // EIP-8037: validation failures use EXCEPTIONAL_HALT so handleStateGasSpill refunds
+    // execution state gas to the reservoir; gasRemaining is cleared by exceptionalHalt() in
+    // process(), not codeSuccess() in isolation.
     assertThat(messageFrame.getState()).isEqualTo(EXCEPTIONAL_HALT);
   }
 

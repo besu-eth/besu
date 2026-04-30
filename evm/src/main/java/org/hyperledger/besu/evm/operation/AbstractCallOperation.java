@@ -237,6 +237,13 @@ public abstract class AbstractCallOperation extends AbstractOperation {
     }
     frame.decrementRemainingGas(cost);
 
+    // EIP-8037: Charge state gas for new account creation in CALL
+    if (!gasCalculator()
+        .stateGasCostCalculator()
+        .chargeCallNewAccountStateGas(frame, recipientAddress, transferValue)) {
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+
     frame.clearReturnData();
 
     final Account account = getAccount(frame.getRecipientAddress(), frame);
@@ -259,17 +266,6 @@ public abstract class AbstractCallOperation extends AbstractOperation {
       final SoftFailureReason softFailureReason =
           insufficientBalance ? LEGACY_INSUFFICIENT_BALANCE : LEGACY_MAX_CALL_DEPTH;
       return new OperationResult(cost, 1, softFailureReason, gasAvailableForChildCall);
-    }
-
-    // EIP-8037: record value-transfer account creation in the caller's scope after the
-    // soft-fail checks. The caller pays the 112×cpsb charge at its frame-end — child frames
-    // typically don't have enough gas to cover it.
-    if (!transferValue.isZero() && gasCalculator().stateGasCostCalculator().isActive()) {
-      final Account recipient =
-          recipientAddress.equals(to) ? contract : frame.getWorldUpdater().get(recipientAddress);
-      if (recipient == null || recipient.isEmpty()) {
-        frame.recordAccountCreated(recipientAddress);
-      }
     }
 
     final Bytes inputData = frame.readMutableMemory(inputDataOffset(frame), inputDataLength(frame));
