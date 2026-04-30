@@ -1294,6 +1294,26 @@ public abstract class MainnetProtocolSpecs {
         .hardforkId(AMSTERDAM);
   }
 
+  static ProtocolSpecBuilder bogotaDefinition(
+      final Optional<BigInteger> chainId,
+      final boolean enableRevertReason,
+      final GenesisConfigOptions genesisConfigOptions,
+      final EvmConfiguration evmConfiguration,
+      final MiningConfiguration miningConfiguration,
+      final boolean isParallelTxProcessingEnabled,
+      final BalConfiguration balConfiguration,
+      final MetricsSystem metricsSystem) {
+    return amsterdamDefinition(
+        chainId,
+        enableRevertReason,
+        genesisConfigOptions,
+        evmConfiguration,
+        miningConfiguration,
+        isParallelTxProcessingEnabled,
+        balConfiguration,
+        metricsSystem);
+  }
+
   private static ProtocolSpecBuilder applyBlobSchedule(
       final ProtocolSpecBuilder builder,
       final GenesisConfigOptions genesisConfigOptions,
