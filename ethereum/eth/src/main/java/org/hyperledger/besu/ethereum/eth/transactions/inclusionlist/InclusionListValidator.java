@@ -18,17 +18,22 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
+import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
+import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidator;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
+import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
-import org.hyperledger.besu.evm.worldstate.WorldState;
+import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 
 import java.util.List;
 import java.util.Optional;
@@ -58,10 +63,10 @@ public class InclusionListValidator {
   private static final Logger LOG = LoggerFactory.getLogger(InclusionListValidator.class);
 
   public InclusionListValidationResult validate(
+      final ProtocolSpec protocolSpec,
+      final ProtocolContext protocolContext,
       final BlockHeader newBlockHeader,
       final BlockProcessingResult blockProcessingResult,
-      final WorldStateArchive worldStateArchive,
-      final TransactionValidator transactionValidator,
       final List<Bytes> inclusionListTransactions) {
 
     final BlockProcessingOutputs blockProcessingOutputs =
@@ -73,8 +78,9 @@ public class InclusionListValidator {
         newBlockHeader.getGasLimit() - blockProcessingOutputs.getCumulativeBlockGasUsed();
     final WorldStateQueryParams worldStateQueryParams =
         WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(newBlockHeader);
-    try (final WorldState worldState =
-        worldStateArchive
+    try (final MutableWorldState worldState =
+        protocolContext
+            .getWorldStateArchive()
             .getWorldState(worldStateQueryParams)
             .orElseThrow(
                 () ->
@@ -88,6 +94,15 @@ public class InclusionListValidator {
           .addArgument(blockProcessingResult.getReceipts().size())
           .addArgument(blockGasLeft)
           .log();
+
+      final TransactionValidator transactionValidator =
+          protocolSpec.getTransactionValidatorFactory().get();
+      final MainnetTransactionProcessor transactionProcessor =
+          protocolSpec.getTransactionProcessor();
+      final BlockHashLookup blockHashLookup =
+          protocolSpec
+              .getPreExecutionProcessor()
+              .createBlockHashLookup(protocolContext.getBlockchain(), newBlockHeader);
 
       // Apply the 3-step conditional algorithm for each IL transaction
       for (int i = 0; i < inclusionListTransactions.size(); i++) {
@@ -132,6 +147,22 @@ public class InclusionListValidator {
                   tx, worldState.get(sender), TransactionValidationParams.processingBlock());
           if (!senderValidationResult.isValid()) {
             LOG.info("Tx {} not valid reason {}", tx.toTraceLog(), senderValidationResult);
+            continue;
+          }
+
+          // now process the tx
+          final TransactionProcessingResult processingResult =
+              transactionProcessor.processTransaction(
+                  worldState.updater(),
+                  newBlockHeader,
+                  tx,
+                  newBlockHeader.getCoinbase(),
+                  OperationTracer.NO_TRACING,
+                  blockHashLookup,
+                  TransactionValidationParams.mining(),
+                  Wei.ZERO);
+          if (processingResult.isInvalid()) {
+            LOG.info("Tx {} invalid after processing reason {}", tx.toTraceLog(), processingResult);
             continue;
           }
 

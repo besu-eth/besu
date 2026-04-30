@@ -62,14 +62,12 @@ import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
-import org.hyperledger.besu.ethereum.mainnet.TransactionValidator;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 
@@ -327,13 +325,15 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     final var blobTransactions =
         transactions.stream().filter(transaction -> transaction.getType().supportsBlob()).toList();
 
-    ValidationResult<RpcErrorType> blobValidationResult =
+    final ProtocolSpec protocolSpec = protocolSchedule.get().getByBlockHeader(newBlockHeader);
+
+    final ValidationResult<RpcErrorType> blobValidationResult =
         validateBlobs(
             blobTransactions,
             newBlockHeader,
             maybeParentHeader,
             maybeVersionedHashes,
-            protocolSchedule.get().getByBlockHeader(newBlockHeader));
+            protocolSpec);
     if (!blobValidationResult.isValid()) {
       return respondWithInvalid(
           reqId,
@@ -399,14 +399,10 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
         try {
           final InclusionListValidationResult result =
               validateInclusionListTransactions(
+                  protocolSpec,
+                  protocolContext,
                   newBlockHeader,
                   executionResult,
-                  protocolSchedule
-                      .get()
-                      .getByBlockHeader(newBlockHeader)
-                      .getTransactionValidatorFactory()
-                      .get(),
-                  protocolContext.getWorldStateArchive(),
                   Set.copyOf(blockParam.getTransactions()),
                   maybeInclusionListTransactions.get());
           if (!result.isValid()) {
@@ -689,10 +685,10 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
   }
 
   private InclusionListValidationResult validateInclusionListTransactions(
+      final ProtocolSpec protocolSpec,
+      final ProtocolContext protocolContext,
       final BlockHeader newBlockHeader,
       final BlockProcessingResult executionResult,
-      final TransactionValidator transactionValidator,
-      final WorldStateArchive worldStateArchive,
       final Set<String> payloadHexTransactions,
       final List<String> inclusionListHexTransactions) {
 
@@ -718,11 +714,7 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     }
 
     return inclusionListValidator.validate(
-        newBlockHeader,
-        executionResult,
-        worldStateArchive,
-        transactionValidator,
-        notConfirmedILTxs);
+        protocolSpec, protocolContext, newBlockHeader, executionResult, notConfirmedILTxs);
   }
 
   private Optional<List<VersionedHash>> extractVersionedHashes(
