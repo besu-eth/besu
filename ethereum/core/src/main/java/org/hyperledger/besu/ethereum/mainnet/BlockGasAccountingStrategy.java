@@ -120,13 +120,7 @@ public interface BlockGasAccountingStrategy {
         @Override
         public long calculateTransactionRegularGas(
             final Transaction transaction, final TransactionProcessingResult result) {
-          // Subtract both: (a) state gas that "stuck" through any rollback (in stateGasUsed) and
-          // (b) state-gas spillover that was rolled back from stateGasUsed but still consumed
-          // gas_left. (b) would otherwise leak into the regular dimension since gas_left isn't
-          // restored on rollback.
-          return result.getEstimateGasUsedByTransaction()
-              - result.getStateGasUsed()
-              - result.getStateGasSpilledLost();
+          return result.getEstimateGasUsedByTransaction() - result.getStateGasUsed();
         }
 
         @Override
@@ -153,14 +147,16 @@ public interface BlockGasAccountingStrategy {
             final long cumulativeRegularGas,
             final long cumulativeStateGas,
             final long blockGasLimit) {
-          // EIP-8037 (current spec): per-dimension block gas limit enforcement uses raw tx.gas
-          // for the regular dimension, NOT tx.gas - intrinsic_state. The regular check is
-          // min(TX_MAX_GAS_LIMIT, tx.gas) <= regular_gas_available. The state check is
-          // tx.gas <= state_gas_available.
+          // EIP-8037: per-dimension block gas limit enforcement.
+          // Worst-case regular consumption is capped at TX_MAX_GAS_LIMIT and at
+          // tx.gas - intrinsic_state_gas; worst-case state consumption is tx.gas -
+          // intrinsic_regular_gas. Both must fit in their respective remaining budgets.
           final long regularAvailable = Math.max(0L, blockGasLimit - cumulativeRegularGas);
           final long stateAvailable = Math.max(0L, blockGasLimit - cumulativeStateGas);
-          final long regularRequest = Math.min(txMaxGasLimit, txGasLimit);
-          return regularRequest <= regularAvailable && txGasLimit <= stateAvailable;
+          final long worstCaseRegular =
+              Math.min(txMaxGasLimit, Math.max(0L, txGasLimit - intrinsicStateGas));
+          final long worstCaseState = Math.max(0L, txGasLimit - intrinsicRegularGas);
+          return worstCaseRegular <= regularAvailable && worstCaseState <= stateAvailable;
         }
 
         @Override

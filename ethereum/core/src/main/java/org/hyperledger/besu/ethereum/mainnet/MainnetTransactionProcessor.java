@@ -417,33 +417,33 @@ public class MainnetTransactionProcessor {
         initialFrame.setGasRemaining(gasLeft);
         initialFrame.setStateGasReservoir(reservoir);
       }
-      // EIP-8037: Pre-charge intrinsic state gas (contract-creation account, EIP-7702 auth bases).
-      // Per spec, intrinsic_state_gas counts toward block_state_gas regardless of tx outcome
-      // (including exceptional halt), so we charge it before code execution. The byte-diff at
-      // frame-end skips the top-level contract-creation address.
+      // EIP-8037: Charge state gas for intrinsic costs
       if (transaction.isContractCreation()) {
-        if (!initialFrame.consumeStateGas(stateGasCalc.createStateGas())) {
-          LOG.debug(
-              "Transaction {} insufficient gas for intrinsic CREATE state gas",
-              transaction.getHash());
-        }
+        stateGasCalc.chargeCreateStateGas(initialFrame);
       }
       if (transaction.getType().equals(TransactionType.DELEGATE_CODE)) {
         stateGasCalc.chargeCodeDelegationStateGas(
             initialFrame, transaction.codeDelegationListSize(), alreadyExistingDelegators);
       }
-      // EIP-8037: Advance the undo mark so intrinsic state-gas charges (auth delegation, contract
-      // creation) are not rolled back if the initial frame's execution reverts/halts — those are
-      // tx-level costs that must persist for block_state_gas accounting per the spec. Also
-      // re-snapshots frameEntryStateGasUsed so byte-diff doesn't treat intrinsic charges as
-      // already-paid.
+      // EIP-8037: Advance the undo mark so intrinsic state gas charges (auth delegation,
+      // contract creation) are not rolled back if the initial frame's execution reverts.
+      // These are transaction-level costs that persist regardless of execution outcome.
       initialFrame.advanceUndoMark();
 
       Deque<MessageFrame> messageFrameStack = initialFrame.getMessageFrameStack();
 
+      // EIP-8037: Track spillBurned before the initial frame's final processing step.
+      // When the initial frame reverts/halts, its state gas spill should count as state gas
+      // for block accounting. Child frame spills (tracked earlier) should not.
+      long spillBurnedBeforeInitialFinal = 0;
       while (!messageFrameStack.isEmpty()) {
+        if (messageFrameStack.size() == 1) {
+          spillBurnedBeforeInitialFinal = initialFrame.getStateGasSpillBurned();
+        }
         process(messageFrameStack.peekFirst(), operationTracer);
       }
+      final long initialFrameStateGasSpill =
+          initialFrame.getStateGasSpillBurned() - spillBurnedBeforeInitialFinal;
 
       // EIP-8037: Runtime TX_MAX_GAS_LIMIT enforcement on regular gas only.
       // With multidimensional gas, tx.gasLimit can exceed TX_MAX_GAS_LIMIT to accommodate
@@ -527,6 +527,9 @@ public class MainnetTransactionProcessor {
               .remainingGas(initialFrame.getRemainingGas())
               .stateGasReservoir(initialFrame.getStateGasReservoir())
               .stateGasUsed(initialFrame.getStateGasUsed())
+              .initialFrameStateGasSpill(initialFrameStateGasSpill)
+              .stateGasSpillBurned(initialFrame.getStateGasSpillBurned())
+              .initialFrameRegularHaltBurn(initialFrame.getInitialFrameRegularHaltBurn())
               .refundedGas(refundedGas)
               .floorCost(floorCost)
               .regularGasLimitExceeded(regularGasLimitExceeded)
@@ -612,19 +615,17 @@ public class MainnetTransactionProcessor {
               ? stateGasCalc.emptyAccountDelegationStateGas() * alreadyExistingDelegators
               : 0L;
 
-      final TransactionProcessingResult result;
       if (txSucceeded) {
-        result =
-            TransactionProcessingResult.successful(
-                initialFrame.getLogs(),
-                gasUsedByTransaction,
-                refundedGas,
-                usedGas,
-                effectiveStateGas,
-                intrinsicStateGasOverhead,
-                initialFrame.getOutputData(),
-                partialBlockAccessView,
-                validationResult);
+        return TransactionProcessingResult.successful(
+            initialFrame.getLogs(),
+            gasUsedByTransaction,
+            refundedGas,
+            usedGas,
+            effectiveStateGas,
+            intrinsicStateGasOverhead,
+            initialFrame.getOutputData(),
+            partialBlockAccessView,
+            validationResult);
       } else {
         if (initialFrame.getExceptionalHaltReason().isPresent()) {
           LOG.debug(
@@ -638,20 +639,17 @@ public class MainnetTransactionProcessor {
               transaction.getHash(),
               initialFrame.getRevertReason().get());
         }
-        result =
-            TransactionProcessingResult.failed(
-                gasUsedByTransaction,
-                refundedGas,
-                usedGas,
-                effectiveStateGas,
-                intrinsicStateGasOverhead,
-                validationResult,
-                initialFrame.getRevertReason(),
-                initialFrame.getExceptionalHaltReason(),
-                partialBlockAccessView);
+        return TransactionProcessingResult.failed(
+            gasUsedByTransaction,
+            refundedGas,
+            usedGas,
+            effectiveStateGas,
+            intrinsicStateGasOverhead,
+            validationResult,
+            initialFrame.getRevertReason(),
+            initialFrame.getExceptionalHaltReason(),
+            partialBlockAccessView);
       }
-      result.setStateGasSpilledLost(initialFrame.getStateGasSpilledLost());
-      return result;
     } catch (final MerkleTrieException re) {
       operationTracer.traceEndTransaction(
           worldState.updater(),
