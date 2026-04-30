@@ -245,7 +245,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
     final int maxResponseBytes =
         Math.min(getBlockAccessLists.responseBytes(true).intValue(), MAX_RESPONSE_SIZE);
 
-    int responseSizeEstimate = RLP.MAX_PREFIX_SIZE;
+    final StopWatch stopWatch = StopWatch.createStarted();
     final List<Optional<BlockAccessList>> blockAccessLists = new ArrayList<>();
 
     final Optional<Blockchain> maybeBlockchain =
@@ -253,29 +253,33 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
 
     if (maybeBlockchain.isPresent()) {
       final var blockchain = maybeBlockchain.get();
-      int count = 0;
+      final ExceedingPredicate<Optional<BlockAccessList>> blockAccessListsResponseSizePredicate =
+          new ExceedingPredicate<>(
+              new ResponseSizePredicate<>(
+                  "block access lists",
+                  stopWatch,
+                  maxResponseBytes,
+                  maxMillisPerRequest,
+                  maybeBlockAccessList -> {
+                    final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
+                    if (maybeBlockAccessList.isPresent()) {
+                      BlockAccessListEncoder.encode(maybeBlockAccessList.get(), balOutput);
+                    } else {
+                      balOutput.writeBytes(Bytes.EMPTY);
+                    }
+                    return balOutput.encodedSize();
+                  }));
       for (final Hash blockHash : blockHashes) {
-        if (count >= MAX_ENTRIES_PER_REQUEST) {
-          break;
-        }
-        count++;
-
         final Optional<BlockAccessList> maybeBlockAccessList =
             blockchain.getBlockAccessList(blockHash);
 
-        final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
-        if (maybeBlockAccessList.isPresent()) {
-          BlockAccessListEncoder.encode(maybeBlockAccessList.get(), balOutput);
-        } else {
-          balOutput.writeBytes(Bytes.EMPTY);
+        if (blockAccessListsResponseSizePredicate.test(maybeBlockAccessList)) {
+          blockAccessLists.add(maybeBlockAccessList);
         }
 
-        final int encodedSize = balOutput.encodedSize();
-        if (responseSizeEstimate + encodedSize > maxResponseBytes) {
+        if (!blockAccessListsResponseSizePredicate.shouldGetMore()) {
           break;
         }
-        responseSizeEstimate += encodedSize;
-        blockAccessLists.add(maybeBlockAccessList);
       }
     }
 
