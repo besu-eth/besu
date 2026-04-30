@@ -58,7 +58,7 @@ import org.apache.tuweni.bytes.Bytes32;
   "withdrawalsRoot",
   "withdrawals",
   "requestsHash",
-  "balHash",
+  "blockAccessListHash",
   "slotNumber"
 })
 public class BlockResult implements JsonRpcResult {
@@ -293,7 +293,7 @@ public class BlockResult implements JsonRpcResult {
     return requestsHash;
   }
 
-  @JsonGetter(value = "balHash")
+  @JsonGetter(value = "blockAccessListHash")
   public String getBalHash() {
     return balHash;
   }
