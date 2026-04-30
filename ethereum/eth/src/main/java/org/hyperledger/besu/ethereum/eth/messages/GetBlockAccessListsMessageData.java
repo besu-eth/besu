@@ -50,6 +50,22 @@ public final class GetBlockAccessListsMessageData {
     return decode(data, withRequestId, false);
   }
 
+  public static BigInteger decodeResponseBytes(final Bytes data, final boolean withRequestId) {
+    final RLPInput input = new BytesValueRLPInput(data, false);
+    input.enterList();
+    if (withRequestId) {
+      input.skipNext();
+    }
+    input.enterList();
+    while (!input.isEndOfCurrentList()) {
+      input.skipNext();
+    }
+    input.leaveListLenient();
+    final BigInteger responseBytes = input.readBigIntegerScalar();
+    input.leaveListLenient();
+    return responseBytes;
+  }
+
   public static Iterable<Hash> decode(
       final Bytes data, final boolean withRequestId, final boolean withResponseBytes) {
     return () ->

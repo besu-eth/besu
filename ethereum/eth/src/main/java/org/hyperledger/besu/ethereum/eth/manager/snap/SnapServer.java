@@ -242,6 +242,8 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
     final GetBlockAccessListsMessage getBlockAccessLists =
         GetBlockAccessListsMessage.readFrom(message);
     final Iterable<Hash> blockHashes = getBlockAccessLists.blockHashes(true);
+    final int maxResponseBytes =
+        Math.min(getBlockAccessLists.responseBytes(true).intValue(), MAX_RESPONSE_SIZE);
 
     int responseSizeEstimate = RLP.MAX_PREFIX_SIZE;
     final List<Optional<BlockAccessList>> blockAccessLists = new ArrayList<>();
@@ -269,7 +271,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
         }
 
         final int encodedSize = balOutput.encodedSize();
-        if (responseSizeEstimate + encodedSize > MAX_RESPONSE_SIZE) {
+        if (responseSizeEstimate + encodedSize > maxResponseBytes) {
           break;
         }
         responseSizeEstimate += encodedSize;

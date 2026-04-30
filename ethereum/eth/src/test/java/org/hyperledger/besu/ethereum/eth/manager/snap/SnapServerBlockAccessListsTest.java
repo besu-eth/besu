@@ -35,7 +35,9 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.ImmutableSnapSyncConfigur
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.AccountChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.CodeChange;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -183,9 +185,11 @@ class SnapServerBlockAccessListsTest {
             snapServer.constructGetBlockAccessListsResponse(
                 request.wrapMessageData(BigInteger.ONE));
 
-    assertThat(response.blockAccessLists(false))
-        .containsExactly(
-            largeBlockAccessList, largeBlockAccessList, largeBlockAccessList, largeBlockAccessList);
+    final int maxResponseBytes =
+        Math.min(AbstractSnapMessageData.SIZE_REQUEST.intValue(), SNAP_MAX_RESPONSE_SIZE);
+    final int expectedEntries = Math.max(1, (maxResponseBytes - RLP.MAX_PREFIX_SIZE) / encodedSize);
+
+    assertThat(response.blockAccessLists(false)).hasSize(expectedEntries);
   }
 
   @Test
