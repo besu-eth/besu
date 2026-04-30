@@ -16,14 +16,18 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.filter;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
+import org.hyperledger.besu.ethereum.api.query.LogsQuery;
 import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -227,6 +231,27 @@ public class FilterManagerTest {
     filterManager.pendingTransactionChanges("foo");
 
     verify(filter).resetExpireTime();
+  }
+
+  @Test
+  public void logsForLatestLatestFilterResolvesHeadOnce() {
+    // A filter installed with no fromBlock/toBlock defaults to latest..latest.
+    // headBlockNumber() must be read once and reused for both bounds; otherwise
+    // a block landing between the two reads makes the range straddle into
+    // [N, N+1] and returns logs the caller did not ask for.
+    final LogsQuery logsQuery = new LogsQuery.Builder().build();
+    final String filterId = "latest-latest";
+    filterRepository.save(
+        new LogFilter(filterId, BlockParameter.LATEST, BlockParameter.LATEST, logsQuery));
+
+    when(blockchainQueries.headBlockNumber()).thenReturn(100L, 101L);
+    when(blockchainQueries.matchingLogs(anyLong(), anyLong(), any(LogsQuery.class), any()))
+        .thenReturn(Collections.emptyList());
+
+    filterManager.logs(filterId);
+
+    verify(blockchainQueries, times(1)).headBlockNumber();
+    verify(blockchainQueries).matchingLogs(eq(100L), eq(100L), eq(logsQuery), any());
   }
 
   private Hash appendBlockToBlockchain() {

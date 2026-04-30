@@ -12,10 +12,9 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
+package org.hyperledger.besu.plugin.services.worldstate;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
@@ -55,8 +54,15 @@ public interface StateRootCommitter {
       WorldStateKeyValueStorage.Updater stateUpdater,
       BlockHeader blockHeader);
 
+  /** Cancels any ongoing state root computation. */
   default void cancel() {}
 
+  /**
+   * Wraps this committer with timing instrumentation.
+   *
+   * @param timer the timer used to measure execution time
+   * @return a new committer that delegates to this instance while recording timing metrics
+   */
   default StateRootCommitter timed(final OperationTimer timer) {
     final StateRootCommitter delegate = this;
     return new StateRootCommitter() {
