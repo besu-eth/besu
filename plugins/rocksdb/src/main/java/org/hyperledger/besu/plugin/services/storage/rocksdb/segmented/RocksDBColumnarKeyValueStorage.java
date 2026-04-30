@@ -113,6 +113,9 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   /** RocksDb transactionDB options */
   protected TransactionDBOptions txOptions;
 
+  private final List<LRUCache> blockCaches = new ArrayList<>();
+  private final List<ColumnFamilyOptions> columnFamilyOptionsList = new ArrayList<>();
+
   /** RocksDb statistics */
   protected final Statistics stats = new Statistics();
 
@@ -223,17 +226,18 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     }
     BlockBasedTableConfig basedTableConfig = createBlockBasedTableConfig(segment, configuration);
 
-    final var options =
+    final var cfOptions =
         new ColumnFamilyOptions()
             .setTtl(0)
             .setCompressionType(CompressionType.LZ4_COMPRESSION)
             .setTableFormatConfig(basedTableConfig)
             .setLevelCompactionDynamicLevelBytes(dynamicLevelBytes);
+    columnFamilyOptionsList.add(cfOptions);
     if (segment.containsStaticData()) {
-      configureBlobDBForSegment(segment, configuration, options);
+      configureBlobDBForSegment(segment, configuration, cfOptions);
     }
 
-    return new ColumnFamilyDescriptor(segment.getId(), options);
+    return new ColumnFamilyDescriptor(segment.getId(), cfOptions);
   }
 
   private static void configureBlobDBForSegment(
@@ -287,6 +291,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
             config.isHighSpec() && segment.isEligibleToHighSpecFlag()
                 ? ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC
                 : config.getCacheCapacity());
+    blockCaches.add(cache);
     return new BlockBasedTableConfig()
         .setFormatVersion(ROCKSDB_FORMAT_VERSION)
         .setBlockCache(cache)
@@ -530,6 +535,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
           .map(RocksDbSegmentIdentifier::get)
           .forEach(ColumnFamilyHandle::close);
       getDB().close();
+      columnFamilyOptionsList.forEach(ColumnFamilyOptions::close);
+      blockCaches.forEach(LRUCache::close);
     }
   }
 
