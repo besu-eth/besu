@@ -47,7 +47,7 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
   public static final long ENGINE_API_LOGGING_THRESHOLD = 60000L;
   // Must be <= the engine HTTP timeout so Thread A is released before the HTTP timer writes a
   // response. Uses the same default (30s) as JsonRpcConfiguration.DEFAULT_HTTP_TIMEOUT_SEC.
-  private static final long ENGINE_API_RESPONSE_TIMEOUT_MS = 30_000L;
+  private static final long ENGINE_API_RESPONSE_TIMEOUT_MS = 300_000L;
   private final Vertx syncVertx;
   private static final Logger LOG = LoggerFactory.getLogger(ExecutionEngineJsonRpcMethod.class);
   protected final Optional<MergeContext> mergeContextOptional;
