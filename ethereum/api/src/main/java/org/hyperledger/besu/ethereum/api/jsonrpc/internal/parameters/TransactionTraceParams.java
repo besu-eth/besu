@@ -96,6 +96,13 @@ public interface TransactionTraceParams {
   @JsonInclude(JsonInclude.Include.NON_NULL)
   StateOverrideMap stateOverrides();
 
+  @Value.Check
+  default void validate() {
+    if (limit() != null && limit() < 0) {
+      throw new IllegalArgumentException("limit must be >= 0, got: " + limit());
+    }
+  }
+
   /**
    * Convert JSON-RPC parameters to a {@link TraceOptions} object.
    *
@@ -126,7 +133,6 @@ public interface TransactionTraceParams {
       builder.traceStack(!disableStack());
     }
     if (limit() != null) {
-      if (limit() < 0) throw new IllegalArgumentException("limit must be >= 0, got: " + limit());
       builder.limit(limit());
     }
     var opCodeTracerConfig = builder.traceOpcodes(opcodes()).build();
