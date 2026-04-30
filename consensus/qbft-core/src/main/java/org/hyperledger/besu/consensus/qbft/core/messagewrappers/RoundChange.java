@@ -129,7 +129,7 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
   public static RoundChange decode(final Bytes data, final QbftBlockCodec blockEncoder) {
 
     final RLPInput rlpIn = RLP.input(data);
-    rlpIn.enterList();
+    final int items = rlpIn.enterList();
     final SignedData<RoundChangePayload> payload = readPayload(rlpIn, RoundChangePayload::readFrom);
 
     final Optional<QbftBlock> block;
@@ -140,7 +140,16 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
       block = Optional.of(blockEncoder.readFrom(rlpIn));
     }
 
-    final Optional<BlockAccessList> blockAccessList = readBlockAccessList(rlpIn);
+    // Backward compatibility: pre-26.1.0 messages have 3 items (no blockAccessList field).
+    // New format has 4 items: [SignedPayload, Block, BlockAccessList, Prepares].
+    // Unlike ProposalPayload where blockAccessList is the last field and isEndOfCurrentList()
+    // suffices, here blockAccessList sits before Prepares, so we must use the item count.
+    final Optional<BlockAccessList> blockAccessList;
+    if (items == 3) {
+      blockAccessList = Optional.empty();
+    } else {
+      blockAccessList = readBlockAccessList(rlpIn);
+    }
 
     final List<SignedData<PreparePayload>> prepares =
         rlpIn.readList(r -> readPayload(r, PreparePayload::readFrom));
