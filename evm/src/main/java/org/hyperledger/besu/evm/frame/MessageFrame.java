@@ -870,173 +870,199 @@ public class MessageFrame {
     return txValues.gasRefunds().get();
   }
 
-  /**
-   * Increment the state gas used (EIP-8037). This is undone on revert via UndoScalar.
-   *
-   * @param amount The amount of state gas to add
-   */
+  // ============================================================
+  // EIP-8037 state gas accounting
+  // ============================================================
+  //
+  // The state-gas dimension is shared transaction-wide via TxValues. UndoScalar-backed counters
+  // (stateGasUsed, stateGasReservoir, noGrowthStateGasRefunds) roll back on revert/halt; long[]-
+  // backed counters (stateGasSpillBurned, initialFrameRegularHaltBurn) accumulate permanently for
+  // block accounting and are NOT undone.
+
+  // ---- stateGasUsed ----
+
+  /** Returns the accumulated state gas used. */
+  public long getStateGasUsed() {
+    return txValues.stateGasUsed().get();
+  }
+
+  /** Increments stateGasUsed (UndoScalar — undone on revert). */
   public void incrementStateGasUsed(final long amount) {
     txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
   }
 
   /**
-   * Decrement the state gas used (EIP-8037). Used for refunds (e.g., SSTORE 0→X→0 restoration,
-   * CREATE silent failure, same-tx SELFDESTRUCT). This is undone on revert via UndoScalar,
-   * providing per-frame scoping for refunds that propagate to parents only on full success.
-   *
-   * @param amount The amount of state gas to subtract
+   * Decrements stateGasUsed for in-frame refunds (SSTORE 0→X→0, CREATE silent failure, same-tx
+   * SELFDESTRUCT). UndoScalar-scoped: refunds propagate to parents only on full success.
    */
   public void decrementStateGasUsed(final long amount) {
     txValues.stateGasUsed().set(txValues.stateGasUsed().get() - amount);
   }
 
+  // ---- stateGasReservoir ----
+
+  /** Returns the state gas reservoir. */
+  public long getStateGasReservoir() {
+    return txValues.stateGasReservoir().get();
+  }
+
+  /** Sets the reservoir to {@code amount} (used by the transaction processor to seed it). */
+  public void setStateGasReservoir(final long amount) {
+    txValues.stateGasReservoir().set(amount);
+  }
+
+  /** Credits {@code amount} to the reservoir (used by refunds). */
+  public void incrementStateGasReservoir(final long amount) {
+    final long before = txValues.stateGasReservoir().get();
+    final long after = before + amount;
+    txValues.stateGasReservoir().set(after);
+    if (Eip8037Trace.ENABLED) {
+      Eip8037Trace.creditReservoir(getDepth(), amount, before, after);
+    }
+  }
+
   /**
-   * Records a no-growth state gas refund. Used by refundStorageSetStateGas, refundCreateStateGas,
-   * and refundSameTransactionSelfDestructStateGas so that {@code handleStateGasSpill} can subtract
-   * refunds-in-scope from spill credit on revert/halt — the refund must contribute nothing to a
-   * parent's reservoir when any frame in the chain fails.
+   * Deducts {@code amount} from the reservoir (used to remove a no-growth refund credit during
+   * spill-burn handling on revert/halt).
+   */
+  public void decrementStateGasReservoir(final long amount) {
+    txValues.stateGasReservoir().set(txValues.stateGasReservoir().get() - amount);
+  }
+
+  // ---- consume ----
+
+  /**
+   * Consumes state gas: draws from the reservoir first, then from gasRemaining. Also increments
+   * stateGasUsed. Returns false (without mutating) if insufficient total gas.
+   */
+  public boolean consumeStateGas(final long amount) {
+    return drainStateGas(amount, false);
+  }
+
+  /**
+   * Consumes state gas, draining all available gas even when the full amount cannot be covered.
+   * Always increments stateGasUsed by the full amount. Used when a transaction-level (depth-0)
+   * contract creation fails after state gas has been partially committed: the charge must be
+   * recorded for block accounting even though execution fails.
+   */
+  public boolean consumeStateGasForced(final long amount) {
+    return drainStateGas(amount, true);
+  }
+
+  /**
+   * Drains {@code amount} of state gas from the reservoir first, then from {@code gasRemaining}.
    *
-   * @param amount The refund amount being applied to state_gas_reservoir
+   * <p>When {@code allowPartial} is {@code false} and total available gas is less than {@code
+   * amount}, no mutation occurs and {@code false} is returned. When {@code allowPartial} is {@code
+   * true} the available gas is drained anyway, {@code stateGasUsed} is still incremented by the
+   * full {@code amount}, and {@code false} is returned to signal under-funding.
+   */
+  private boolean drainStateGas(final long amount, final boolean allowPartial) {
+    final long reservoirBefore = txValues.stateGasReservoir().get();
+    final long gasLeftBefore = gasRemaining;
+    final boolean sufficient;
+    if (reservoirBefore >= amount) {
+      txValues.stateGasReservoir().set(reservoirBefore - amount);
+      sufficient = true;
+    } else {
+      final long overflow = amount - reservoirBefore;
+      sufficient = gasRemaining >= overflow;
+      if (!sufficient && !allowPartial) {
+        if (Eip8037Trace.ENABLED) {
+          Eip8037Trace.consumeState(
+              getDepth(),
+              amount,
+              reservoirBefore,
+              gasLeftBefore,
+              false,
+              reservoirBefore,
+              gasLeftBefore,
+              txValues.stateGasUsed().get());
+        }
+        return false;
+      }
+      txValues.stateGasReservoir().set(0L);
+      gasRemaining = sufficient ? gasRemaining - overflow : Math.max(0L, gasRemaining - overflow);
+    }
+    txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
+    if (Eip8037Trace.ENABLED) {
+      Eip8037Trace.consumeState(
+          getDepth(),
+          amount,
+          reservoirBefore,
+          gasLeftBefore,
+          sufficient,
+          txValues.stateGasReservoir().get(),
+          gasRemaining,
+          txValues.stateGasUsed().get());
+    }
+    return sufficient;
+  }
+
+  // ---- no-growth refund counter ----
+
+  /**
+   * Records a no-growth state gas refund (SSTORE 0→X→0, CREATE silent failure, same-tx
+   * SELFDESTRUCT). Read by {@code AbstractMessageProcessor.handleStateGasSpill} to subtract
+   * refunds-in-scope from the spill credit on revert/halt — those refunds must contribute nothing
+   * to a parent's reservoir when any frame in the chain fails.
    */
   public void recordNoGrowthStateGasRefund(final long amount) {
     txValues.noGrowthStateGasRefunds().set(txValues.noGrowthStateGasRefunds().get() + amount);
   }
 
-  /**
-   * Returns the cumulative no-growth state gas refunds applied so far.
-   *
-   * @return the cumulative refunds
-   */
+  /** Returns the cumulative no-growth state gas refunds applied so far. */
   public long getNoGrowthStateGasRefunds() {
     return txValues.noGrowthStateGasRefunds().get();
   }
 
-  /**
-   * Return the accumulated state gas used (EIP-8037).
-   *
-   * @return accumulated state gas used
-   */
-  public long getStateGasUsed() {
-    return txValues.stateGasUsed().get();
-  }
+  // ---- block-accounting counters (NOT undone on revert) ----
 
   /**
-   * Gets the state gas reservoir (EIP-8037).
-   *
-   * @return the state gas reservoir amount
-   */
-  public long getStateGasReservoir() {
-    return txValues.stateGasReservoir().get();
-  }
-
-  /**
-   * Sets the state gas reservoir (EIP-8037).
-   *
-   * @param amount the amount to set the reservoir to
-   */
-  public void setStateGasReservoir(final long amount) {
-    txValues.stateGasReservoir().set(amount);
-  }
-
-  /**
-   * Increments the state gas reservoir (EIP-8037). Used for state gas refunds.
-   *
-   * @param amount the amount to add to the reservoir
-   */
-  public void incrementStateGasReservoir(final long amount) {
-    txValues.stateGasReservoir().set(txValues.stateGasReservoir().get() + amount);
-  }
-
-  /**
-   * Consumes state gas: draws from the reservoir first, then from gasRemaining. Also increments
-   * stateGasUsed. Returns false if insufficient total gas (reservoir + gasRemaining).
-   *
-   * @param amount the amount of state gas to consume
-   * @return true if the gas was successfully consumed, false if insufficient gas
-   */
-  public boolean consumeStateGas(final long amount) {
-    final long reservoir = txValues.stateGasReservoir().get();
-    if (reservoir >= amount) {
-      txValues.stateGasReservoir().set(reservoir - amount);
-    } else {
-      // Overflow goes to gasRemaining
-      final long overflow = amount - reservoir;
-      if (gasRemaining < overflow) {
-        return false;
-      }
-      txValues.stateGasReservoir().set(0L);
-      gasRemaining -= overflow;
-    }
-    txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
-    return true;
-  }
-
-  /**
-   * Consumes state gas, draining all available gas even when the full amount cannot be covered.
-   * Always increments stateGasUsed by the full amount regardless of gas availability. Used when a
-   * transaction-level (depth-0) contract creation fails after state gas has been partially
-   * committed: we must record the charge for block accounting even though execution fails.
-   *
-   * @param amount the amount of state gas to consume
-   * @return true if sufficient gas was available, false if gas was insufficient (but drained
-   *     anyway)
-   */
-  public boolean consumeStateGasForced(final long amount) {
-    final long reservoir = txValues.stateGasReservoir().get();
-    if (reservoir >= amount) {
-      txValues.stateGasReservoir().set(reservoir - amount);
-      txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
-      return true;
-    } else {
-      final long overflow = amount - reservoir;
-      txValues.stateGasReservoir().set(0L);
-      final boolean sufficient = gasRemaining >= overflow;
-      gasRemaining = Math.max(0L, gasRemaining - overflow);
-      txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
-      return sufficient;
-    }
-  }
-
-  /**
-   * Accumulates state gas that spilled into gasRemaining in a reverted child frame (EIP-8037). This
-   * counter is NOT undone on revert — it tracks permanently burned spill gas for block accounting.
-   *
-   * @param amount the spill amount to accumulate
+   * Accumulates state gas that spilled into gasRemaining in a reverted child frame. NOT undone on
+   * revert — tracked permanently for block accounting.
    */
   public void accumulateStateGasSpillBurned(final long amount) {
     txValues.stateGasSpillBurned()[0] += amount;
   }
 
-  /**
-   * Returns the total state gas spill burned by reverted child frames (EIP-8037).
-   *
-   * @return accumulated spill burned
-   */
+  /** Returns the total state gas spill burned by reverted child frames. */
   public long getStateGasSpillBurned() {
     return txValues.stateGasSpillBurned()[0];
   }
 
   /**
+   * Accumulates reservoir gas that was drained for an in-scope charge whose matching no-growth
+   * refund was nullified by a reverted ancestor (EIP-8037). Spec semantics: the refund is
+   * subtracted at {@code incorporate_child_on_error} so the drain "stays paid" even though Besu's
+   * UndoScalar rollback restores the shared reservoir to entry. NOT undone on revert.
+   */
+  public void accumulateStateGasReservoirBurn(final long amount) {
+    txValues.stateGasReservoirBurn()[0] += amount;
+  }
+
+  /** Returns the cumulative reservoir gas effectively burned by reverted no-growth refunds. */
+  public long getStateGasReservoirBurn() {
+    return txValues.stateGasReservoirBurn()[0];
+  }
+
+  /**
    * Accumulates gas that was sitting unused in the initial frame's gasRemaining at the moment of an
-   * exceptional halt (EIP-7778/EIP-8037). The sender still pays for this gas via receipts, but it
-   * did not correspond to any executed regular or state gas, so it must be excluded from the block
-   * regular gas total. Not undone on revert.
-   *
-   * @param amount the gasRemaining snapshot taken immediately before clearGasRemaining on the
-   *     initial frame's exceptional halt
+   * exceptional halt (EIP-7778/EIP-8037). The sender pays via receipts, but since no operation
+   * consumed it, it must be excluded from block regular gas. Not undone on revert.
    */
   public void accumulateInitialFrameRegularHaltBurn(final long amount) {
     txValues.initialFrameRegularHaltBurn()[0] += amount;
   }
 
-  /**
-   * Returns the gas burned on the initial frame's exceptional halt.
-   *
-   * @return accumulated halt-burned gas
-   */
+  /** Returns the gas burned on the initial frame's exceptional halt. */
   public long getInitialFrameRegularHaltBurn() {
     return txValues.initialFrameRegularHaltBurn()[0];
   }
+
+  // ============================================================
+  // End EIP-8037 state gas accounting
+  // ============================================================
 
   /**
    * Marks that opcode execution has started on this frame. Once set, an exceptional halt is

@@ -314,7 +314,7 @@ dependencies {
     )
   devnetTarConfig(
     group: 'ethereum', name: 'execution-spec-tests',
-    version: 'snøbal-devnet-4@v1.0.0', classifier: 'fixtures_snobal-devnet-4', ext: 'tar.gz'
+    version: 'snobal-devnet-6@v1.0.0', classifier: 'fixtures_snobal-devnet-6', ext: 'tar.gz'
     )
   referenceTestImplementation 'com.fasterxml.jackson.core:jackson-databind'
   referenceTestImplementation 'com.google.guava:guava'
