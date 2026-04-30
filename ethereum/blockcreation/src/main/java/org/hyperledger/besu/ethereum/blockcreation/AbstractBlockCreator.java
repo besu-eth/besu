@@ -62,6 +62,7 @@ import org.hyperledger.besu.plugin.services.securitymodule.SecurityModuleExcepti
 import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelector;
 import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
@@ -263,6 +264,9 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
               blockAccessListBuilder);
       transactionResults.logSelectionStats();
       timings.register("txsSelection");
+      timings.registerValue(
+          "txsSelectionHighScore",
+          Duration.ofNanos(transactionResults.getSelectedTxsEvaluationTimeNanos()));
 
       final Optional<AccessLocationTracker> postExecutionAccessLocationTracker =
           blockAccessListBuilder.map(
