@@ -63,7 +63,16 @@ public class ReferenceTestProtocolSchedules {
           "eip158tobyzantiumat5");
 
   public static ReferenceTestProtocolSchedules create() {
-    return create(new StubGenesisConfigOptions(), EvmConfiguration.DEFAULT);
+    final boolean evmV2 = Boolean.getBoolean("test.evm.v2");
+    final EvmConfiguration evmConfiguration =
+        evmV2
+            ? new EvmConfiguration(
+                EvmConfiguration.DEFAULT.jumpDestCacheWeightKB(),
+                EvmConfiguration.DEFAULT.worldUpdaterMode(),
+                EvmConfiguration.DEFAULT.enableOptimizedOpcodes(),
+                true)
+            : EvmConfiguration.DEFAULT;
+    return create(new StubGenesisConfigOptions(), evmConfiguration);
   }
 
   public static ReferenceTestProtocolSchedules create(final EvmConfiguration evmConfiguration) {

@@ -534,6 +534,44 @@ public class MessageFrame {
     return stackTopV2 + n <= stackMaxSizeV2;
   }
 
+  /**
+   * Copies the V2 long[] stack into the V1 OperandStack so V1 callers see the current V2 state.
+   * Precondition: stackDataV2 != null (only call from runToHaltV2).
+   */
+  public void syncStackV2ToV1() {
+    if (!stack.isEmpty()) {
+      stack.bulkPop(stack.size());
+    }
+    for (int i = 0; i < stackTopV2; i++) {
+      final int base = i << 2;
+      final org.hyperledger.besu.evm.UInt256 v =
+          new org.hyperledger.besu.evm.UInt256(
+              stackDataV2[base],
+              stackDataV2[base + 1],
+              stackDataV2[base + 2],
+              stackDataV2[base + 3]);
+      stack.push(Bytes.wrap(v.toBytesBE()));
+    }
+  }
+
+  /**
+   * Copies the V1 OperandStack into the V2 long[] stack and updates stackTopV2. Precondition:
+   * stackDataV2 != null (only call from runToHaltV2).
+   */
+  public void syncStackV1ToV2() {
+    final int size = stack.size();
+    for (int i = 0; i < size; i++) {
+      final Bytes stackItem = stack.get(i);
+      final int base = (size - 1 - i) << 2;
+      final var item = org.hyperledger.besu.evm.UInt256.fromBytesBE(stackItem.toArrayUnsafe());
+      stackDataV2[base] = item.u3();
+      stackDataV2[base + 1] = item.u2();
+      stackDataV2[base + 2] = item.u1();
+      stackDataV2[base + 3] = item.u0();
+    }
+    this.stackTopV2 = size;
+  }
+
   // ---------------------------------------------------------------------------
   // endregion
 
@@ -1893,9 +1931,12 @@ public class MessageFrame {
         parentMessageFrame.warmUpAddress(contract);
       }
 
+      final boolean inheritedEnableEvmV2 =
+          parentMessageFrame != null ? parentMessageFrame.stackDataV2 != null : enableEvmV2;
+
       MessageFrame messageFrame =
           new MessageFrame(
-              enableEvmV2,
+              inheritedEnableEvmV2,
               type,
               updater,
               initialGas,

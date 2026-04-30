@@ -330,6 +330,16 @@ dependencies {
 
 tasks.register('referenceTests', Test) {
   useJUnitPlatform()
+  for (String name : [
+      'test.evm.v2',
+      'test.ethereum.state.eips',
+      'test.ethereum.blockchain.eips',
+      'test.ethereum.include'
+    ]) {
+    if (System.getProperty(name) != null) {
+      systemProperty name, System.getProperty(name)
+    }
+  }
   doFirst {
     if (!file("src/reference-test/external-resources/README.md").exists()) {
       throw new GradleException("ethereum/referencetest/src/reference-test/external-resources/README.md missing: please clone submodules (git submodule update --init --recursive)")
@@ -342,6 +352,16 @@ tasks.register('referenceTests', Test) {
 
 tasks.register('referenceTestsDevnet', Test) {
   useJUnitPlatform()
+  for (String name : [
+      'test.evm.v2',
+      'test.ethereum.state.eips',
+      'test.ethereum.blockchain.eips',
+      'test.ethereum.include'
+    ]) {
+    if (System.getProperty(name) != null) {
+      systemProperty name, System.getProperty(name)
+    }
+  }
   description = 'Runs execution-spec-tests pre-release (devnet) reference tests.'
   testClassesDirs = sourceSets.referenceTestDevnet.output.classesDirs
   classpath = sourceSets.referenceTestDevnet.runtimeClasspath
