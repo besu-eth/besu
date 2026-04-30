@@ -106,6 +106,7 @@ public class SnapDownloaderFactory {
             ethContext,
             snapContext,
             protocolContext,
+            protocolSchedule,
             worldStateStorageCoordinator,
             snapTaskCollection,
             syncConfig.getSnapSyncConfiguration(),
