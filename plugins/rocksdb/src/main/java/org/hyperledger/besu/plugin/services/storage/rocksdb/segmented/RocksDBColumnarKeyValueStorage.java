@@ -79,6 +79,14 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   /** RocksDb blockcache size when using the high spec option */
   protected static final long ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC = 1_073_741_824L;
 
+  /**
+   * For Bonsai trie-hot column families ({@code TRIE_BRANCH_STORAGE}, {@code ACCOUNT_INFO_STATE},
+   * {@code ACCOUNT_STORAGE_STORAGE}), the block cache capacity Besu applies is the normal
+   * high-spec or CLI-configured cache size multiplied by this factor so {@code
+   * cache_index_and_filter_blocks=true} does not crowd out data blocks as aggressively.
+   */
+  private static final long BONSAI_TRIE_HOT_BLOCK_CACHE_SIZE_MULTIPLIER = 3L;
+
   /** Max total size of all WAL file, after which a flush is triggered */
   protected static final long WAL_MAX_TOTAL_SIZE = 1_073_741_824L;
 
@@ -227,22 +235,50 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
    * (partitioned filters need a two-level index when options are applied incrementally in native
    * code). Must run on an empty {@link RocksDbNativeOptionStrings.InsertionOrderedProperties}
    * before user keys are added.
+   *
+   * <p>All column families use {@code cache_index_and_filter_blocks} and {@code
+   * cache_index_and_filter_blocks_with_high_priority}. Bonsai trie-hot segments ({@code
+   * TRIE_BRANCH_STORAGE}, {@code ACCOUNT_INFO_STATE}, {@code ACCOUNT_STORAGE_STORAGE}) additionally
+   * use two-level indexes, partitioned Bloom filters, and multiply the configured block cache size
+   * by {@link #BONSAI_TRIE_HOT_BLOCK_CACHE_SIZE_MULTIPLIER}.
    */
   private static void mergeBesuNativeColumnFamilyOptionsBeforeParse(
       final RocksDbNativeOptionStrings.InsertionOrderedProperties cfProps,
       final SegmentIdentifier segment,
       final RocksDBConfiguration configuration) {
-    final long blockCacheBytes =
+    final long baseBlockCacheBytes =
         configuration.isHighSpec() && segment.isEligibleToHighSpecFlag()
             ? ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC
             : configuration.getCacheCapacity();
+    final long blockCacheBytes =
+        usesBonsaiTrieHotDataBlockCache(segment)
+            ? baseBlockCacheBytes * BONSAI_TRIE_HOT_BLOCK_CACHE_SIZE_MULTIPLIER
+            : baseBlockCacheBytes;
+    final boolean hot = usesBonsaiTrieHotDataBlockCache(segment);
     cfProps.setProperty(
         "block_based_table_factory.format_version", Integer.toString(ROCKSDB_FORMAT_VERSION));
+    if (hot) {
+      // index_type must precede partition_filters for RocksDB native option application order.
+      cfProps.setProperty("block_based_table_factory.index_type", "kTwoLevelIndexSearch");
+    }
     cfProps.setProperty("block_based_table_factory.filter_policy", "bloomfilter:10:false");
-    cfProps.setProperty("block_based_table_factory.partition_filters", "false");
-    cfProps.setProperty("block_based_table_factory.cache_index_and_filter_blocks", "false");
+    cfProps.setProperty("block_based_table_factory.partition_filters", hot ? "true" : "false");
+    cfProps.setProperty("block_based_table_factory.cache_index_and_filter_blocks", "true");
+    cfProps.setProperty(
+        "block_based_table_factory.cache_index_and_filter_blocks_with_high_priority", "true");
     cfProps.setProperty("block_based_table_factory.block_size", Long.toString(ROCKSDB_BLOCK_SIZE));
     cfProps.setProperty("block_based_table_factory.block_cache", Long.toString(blockCacheBytes));
+  }
+
+  /**
+   * Bonsai column families that benefit from caching index/filter blocks in the block cache with a
+   * larger per-CF cache: trie branches, account headers, and storage slots.
+   */
+  private static boolean usesBonsaiTrieHotDataBlockCache(final SegmentIdentifier segment) {
+    return switch (segment.getName()) {
+      case "TRIE_BRANCH_STORAGE", "ACCOUNT_INFO_STATE", "ACCOUNT_STORAGE_STORAGE" -> true;
+      default -> false;
+    };
   }
 
   /**

@@ -117,6 +117,48 @@ public class RocksDbNativeOptionStringsTest {
   }
 
   @Test
+  public void getColumnFamilyOptionsFromPropsAcceptsBonsaiTrieHotBlockTableConfiguration() {
+    RocksDbUtil.loadNativeLibrary();
+    final long cacheBytes = 32L * 1024 * 1024;
+    final RocksDbNativeOptionStrings.InsertionOrderedProperties cfProps =
+        new RocksDbNativeOptionStrings.InsertionOrderedProperties();
+    cfProps.setProperty(
+        "block_based_table_factory.format_version", "5");
+    cfProps.setProperty("block_based_table_factory.index_type", "kTwoLevelIndexSearch");
+    cfProps.setProperty("block_based_table_factory.filter_policy", "bloomfilter:10:false");
+    cfProps.setProperty("block_based_table_factory.partition_filters", "true");
+    cfProps.setProperty("block_based_table_factory.cache_index_and_filter_blocks", "true");
+    cfProps.setProperty(
+        "block_based_table_factory.cache_index_and_filter_blocks_with_high_priority", "true");
+    cfProps.setProperty("block_based_table_factory.block_size", "32768");
+    cfProps.setProperty("block_based_table_factory.block_cache", Long.toString(cacheBytes));
+    try (ColumnFamilyOptions opts =
+        ColumnFamilyOptions.getColumnFamilyOptionsFromProps(new ConfigOptions(), cfProps)) {
+      assertThat(opts).isNotNull();
+    }
+  }
+
+  @Test
+  public void getColumnFamilyOptionsFromPropsAcceptsNonHotCacheIndexInBlockCacheConfiguration() {
+    RocksDbUtil.loadNativeLibrary();
+    final long cacheBytes = 8 * 1024 * 1024;
+    final RocksDbNativeOptionStrings.InsertionOrderedProperties cfProps =
+        new RocksDbNativeOptionStrings.InsertionOrderedProperties();
+    cfProps.setProperty("block_based_table_factory.format_version", "5");
+    cfProps.setProperty("block_based_table_factory.filter_policy", "bloomfilter:10:false");
+    cfProps.setProperty("block_based_table_factory.partition_filters", "false");
+    cfProps.setProperty("block_based_table_factory.cache_index_and_filter_blocks", "true");
+    cfProps.setProperty(
+        "block_based_table_factory.cache_index_and_filter_blocks_with_high_priority", "true");
+    cfProps.setProperty("block_based_table_factory.block_size", "32768");
+    cfProps.setProperty("block_based_table_factory.block_cache", Long.toString(cacheBytes));
+    try (ColumnFamilyOptions opts =
+        ColumnFamilyOptions.getColumnFamilyOptionsFromProps(new ConfigOptions(), cfProps)) {
+      assertThat(opts).isNotNull();
+    }
+  }
+
+  @Test
   public void
       getColumnFamilyOptionsFromPropsAcceptsBesuStyleBlockTableKeysWithBlockCacheCapacity() {
     RocksDbUtil.loadNativeLibrary();
