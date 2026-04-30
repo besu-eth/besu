@@ -58,9 +58,11 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
   @Override
   public void tracePreExecution(final MessageFrame frame) {
     super.tracePreExecution(frame);
+    final Operation currentOperation = frame.getCurrentOperation();
+    final String operationName = currentOperation != null ? currentOperation.getName() : null;
     if (traceOpcode
         && options.traceStorage()
-        && "SLOAD".equals(frame.getCurrentOperation().getName())
+        && "SLOAD".equals(operationName)
         && frame.stackSize() > 0) {
       preExecutionStorageKey = Optional.of(UInt256.fromBytes(frame.getStackItem(0)));
     } else {
