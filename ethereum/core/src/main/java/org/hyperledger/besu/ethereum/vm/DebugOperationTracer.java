@@ -233,7 +233,9 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
       return Optional.empty();
     }
     final Bytes returnData = frame.getReturnData();
-    return (returnData == null || returnData.isEmpty()) ? Optional.empty() : Optional.of(returnData);
+    return (returnData == null || returnData.isEmpty())
+        ? Optional.empty()
+        : Optional.of(returnData);
   }
 
   private Optional<Map<UInt256, UInt256>> captureStorage(final MessageFrame frame) {

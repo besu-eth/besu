@@ -156,8 +156,7 @@ public class TransactionTraceParamsTest {
 
   @Test
   public void missingEnableReturnDataShouldDefaultToFalse() throws Exception {
-    final TransactionTraceParams params =
-        MAPPER.readValue("{}", TransactionTraceParams.class);
+    final TransactionTraceParams params = MAPPER.readValue("{}", TransactionTraceParams.class);
     final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
 
     assertThat(config.traceReturnData())
