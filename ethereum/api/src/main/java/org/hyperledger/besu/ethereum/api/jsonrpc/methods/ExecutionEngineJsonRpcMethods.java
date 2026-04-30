@@ -304,29 +304,12 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
                 engineQosTimer,
                 metricsSystem));
         executionEngineApisSupported.add(
-            new EngineNewPayloadV6(
-                consensusEngineServer,
-                protocolSchedule,
-                protocolContext,
-                mergeCoordinator.get(),
-                ethPeers,
-                engineQosTimer,
-                metricsSystem));
-        executionEngineApisSupported.add(
             new EngineForkchoiceUpdatedV4(
                 consensusEngineServer,
                 protocolSchedule,
                 protocolContext,
                 mergeCoordinator.get(),
                 engineQosTimer));
-        executionEngineApisSupported.add(
-            new EngineGetInclusionListV1(
-                consensusEngineServer,
-                protocolContext,
-                engineQosTimer,
-                transactionPool,
-                metricsSystem,
-                inclusionListSelector));
       }
 
       if (protocolSchedule.milestoneFor(BOGOTA).isPresent()) {
@@ -337,6 +320,23 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
                 protocolContext,
                 mergeCoordinator.get(),
                 engineQosTimer));
+        executionEngineApisSupported.add(
+            new EngineNewPayloadV6(
+                consensusEngineServer,
+                protocolSchedule,
+                protocolContext,
+                mergeCoordinator.get(),
+                ethPeers,
+                engineQosTimer,
+                metricsSystem));
+        executionEngineApisSupported.add(
+            new EngineGetInclusionListV1(
+                consensusEngineServer,
+                protocolContext,
+                engineQosTimer,
+                transactionPool,
+                metricsSystem,
+                inclusionListSelector));
       }
 
       return mapOf(executionEngineApisSupported);
