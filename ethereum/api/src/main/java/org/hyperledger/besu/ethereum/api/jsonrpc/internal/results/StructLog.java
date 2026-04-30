@@ -27,7 +27,18 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
-@JsonPropertyOrder({"pc", "op", "gas", "gasCost", "depth", "refund", "stack", "memory", "returnData", "storage"})
+@JsonPropertyOrder({
+  "pc",
+  "op",
+  "gas",
+  "gasCost",
+  "depth",
+  "refund",
+  "stack",
+  "memory",
+  "returnData",
+  "storage"
+})
 public class StructLog {
 
   private static final char[] hexChars = "0123456789abcdef".toCharArray();
