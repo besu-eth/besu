@@ -63,6 +63,18 @@ public enum KeyValueSegmentIdentifier implements SegmentIdentifier {
       true,
       false,
       true),
+  ARCHIVE_ACCOUNT_INDEX(
+      "ARCHIVE_ACCOUNT_INDEX".getBytes(StandardCharsets.UTF_8),
+      EnumSet.of(X_BONSAI_ARCHIVE),
+      true,
+      false,
+      true),
+  ARCHIVE_STORAGE_INDEX(
+      "ARCHIVE_STORAGE_INDEX".getBytes(StandardCharsets.UTF_8),
+      EnumSet.of(X_BONSAI_ARCHIVE),
+      true,
+      false,
+      true),
   VARIABLES(new byte[] {11}), // formerly GOQUORUM_PRIVATE_WORLD_STATE
 
   // previously supported GoQuorum private states

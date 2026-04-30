@@ -46,7 +46,9 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManage
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
+import org.hyperledger.besu.services.kvstore.SegmentedInMemoryKeyValueStorage;
 
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
@@ -111,6 +113,8 @@ public class BonsaiArchiverTests {
   public void setup() {
     Configurator.setLevel(LogManager.getLogger(BonsaiArchiverTests.class).getName(), Level.TRACE);
     worldStateStorage = Mockito.mock(BonsaiWorldStateKeyValueStorage.class);
+    final SegmentedKeyValueStorage composedStorage = new SegmentedInMemoryKeyValueStorage();
+    when(worldStateStorage.getComposedWorldStateStorage()).thenReturn(composedStorage);
     blockchain = Mockito.mock(Blockchain.class);
     trieLogManager = Mockito.mock(TrieLogManager.class);
     bonsaiWorldState = Mockito.mock(BonsaiWorldState.class);
