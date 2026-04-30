@@ -911,7 +911,10 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
           || worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.PARTIAL)) {
         final BonsaiFlatDbToArchiveMigrator archiveMigrator =
             createArchiveMigrator(worldStateStorageCoordinator, worldStateArchive, blockchain);
-        closeables.add(archiveMigrator);
+        ((BonsaiArchiveWorldStateProvider) worldStateArchive)
+            .setArchiveMigrationProgressSupplier(archiveMigrator::getMigratedBlockNumber);
+        // Close the migrator before storageProvider so callback finishes before RocksDB is closed
+        closeables.addFirst(archiveMigrator);
 
         final AtomicBoolean migrationStarted = new AtomicBoolean(false);
         final AtomicLong syncSubscriptionId = new AtomicLong();
@@ -935,6 +938,14 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
                 },
                 0));
       } else {
+        // Already in ARCHIVE mode (restart after migration): register ongoing migration
+        final BonsaiFlatDbToArchiveMigrator archiveMigrator =
+            createArchiveMigrator(worldStateStorageCoordinator, worldStateArchive, blockchain);
+        ((BonsaiArchiveWorldStateProvider) worldStateArchive)
+            .setArchiveMigrationProgressSupplier(archiveMigrator::getMigratedBlockNumber);
+        archiveMigrator.startOngoingMigration();
+        // Close the migrator before storageProvider so callback finishes before RocksDB is closed
+        closeables.addFirst(archiveMigrator);
         blockchain.observeBlockAdded(archiver);
       }
     }
@@ -1365,12 +1376,13 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         yield new BonsaiArchiveWorldStateProvider(
             worldStateKeyValueStorage,
             blockchain,
-            dataStorageConfiguration.getPathBasedExtraStorageConfiguration(),
+            dataStorageConfiguration,
             bonsaiCachedMerkleTrieLoader,
             besuComponent.map(BesuComponent::getBesuPluginContext).orElse(null),
             evmConfiguration,
             worldStateHealerSupplier,
-            codeCache);
+            codeCache,
+            metricsSystem);
       }
       case FOREST -> {
         final WorldStatePreimageStorage preimageStorage =
