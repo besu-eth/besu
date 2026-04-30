@@ -47,6 +47,8 @@
 - Enforce EIP-7928 Block Access List item budget per transaction in both processing and mining [#10250](https://github.com/besu-eth/besu/pull/10250)
 - Include `slotNumber` in `payloadIdentifier` generation [#10242](https://github.com/besu-eth/besu/pull/10242)
 - Change Block Access List index encoding to `uint32` [#10279](https://github.com/besu-eth/besu/pull/10279)
+- Added `eth_capabilities` JSON-RPC method that returns the node's data-serving capabilities, including chain head and per-resource availability flags [#10322](https://github.com/besu-eth/besu/pull/10322)
+- `eth_capabilities`: `state` and `stateproofs` now report `disabled: true` when genesis world state is unavailable (e.g. SNAP sync nodes) [#10371](https://github.com/besu-eth/besu/issues/10371)
 
 ### Plugin API
 - Publish Guava as an API dependency from `plugin-api` [#10248](https://github.com/besu-eth/besu/pull/10248)
