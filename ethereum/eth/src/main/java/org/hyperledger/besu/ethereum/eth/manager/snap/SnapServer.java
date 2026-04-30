@@ -18,7 +18,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
-import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
 import org.hyperledger.besu.ethereum.eth.messages.snap.AccountRangeMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.BlockAccessListsMessage;
@@ -260,15 +259,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                   stopWatch,
                   maxResponseBytes,
                   maxMillisPerRequest,
-                  maybeBlockAccessList -> {
-                    final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
-                    if (maybeBlockAccessList.isPresent()) {
-                      BlockAccessListEncoder.encode(maybeBlockAccessList.get(), balOutput);
-                    } else {
-                      balOutput.writeBytes(Bytes.EMPTY);
-                    }
-                    return balOutput.encodedSize();
-                  }));
+                  SnapServer::estimateBlockAccessListEncodedSize));
       for (final Hash blockHash : blockHashes) {
         final Optional<BlockAccessList> maybeBlockAccessList =
             blockchain.getBlockAccessList(blockHash);
@@ -805,5 +796,30 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
   private static String asLogHash(final Bytes32 hash) {
     var str = hash.toHexString();
     return str.substring(0, 4) + ".." + str.substring(59, 63);
+  }
+
+  private static int estimateBlockAccessListEncodedSize(
+      final Optional<BlockAccessList> maybeBlockAccessList) {
+    if (maybeBlockAccessList.isEmpty()) {
+      return 1;
+    }
+    final BlockAccessList blockAccessList = maybeBlockAccessList.get();
+    int estimate = RLP.MAX_PREFIX_SIZE;
+    estimate += Math.toIntExact(blockAccessList.eip7928ItemCount()) * (Long.BYTES + Integer.BYTES);
+    for (var accountChange : blockAccessList.accountChanges()) {
+      estimate +=
+          accountChange.address().size()
+              + accountChange.storageReads().size() * 32
+              + accountChange.storageChanges().size() * 32
+              + accountChange.balanceChanges().size() * Long.BYTES
+              + accountChange.nonceChanges().size() * Long.BYTES;
+      for (var codeChange : accountChange.codeChanges()) {
+        estimate += codeChange.newCode().size();
+      }
+      for (var slotChange : accountChange.storageChanges()) {
+        estimate += slotChange.changes().size() * 32;
+      }
+    }
+    return estimate;
   }
 }
