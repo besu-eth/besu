@@ -44,6 +44,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
 
   private Bytes inputData;
   private int stepCount;
+  private boolean limitReached;
 
   /**
    * Creates the operation tracer.
@@ -59,9 +60,10 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
   @Override
   protected void capturePreExecutionState(final MessageFrame frame) {
     if (options.limit() > 0 && stepCount >= options.limit()) {
-      traceOpcode = false;
+      limitReached = true;
       return;
     }
+    limitReached = false;
     stepCount++;
     if (lastFrame != null && frame.getDepth() > lastFrame.getDepth())
       inputData = frame.getInputData().copy();
@@ -92,7 +94,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
           TraceFrame.from(lastTraceFrame).setGasRemainingPostExecution(gasRemaining).build();
       traceFrames.add(updatedLast);
     }
-    if (!traceOpcode) {
+    if (limitReached || !traceOpcode) {
       return;
     }
 
@@ -282,6 +284,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
     traceFrames = new ArrayList<>();
     lastFrame = null;
     stepCount = 0;
+    limitReached = false;
   }
 
   public List<TraceFrame> copyTraceFrames() {
