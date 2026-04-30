@@ -386,7 +386,7 @@ public abstract class PathBasedWorldStateKeyValueStorage
         tx.commit();
         break;
       } catch (StorageException se) {
-        if (!retried && se.getMessage().contains("RocksDBException: Busy")) {
+        if (!retried && RocksDbStorageExceptionHelper.isBusyException(se)) {
           retried = true;
         } else {
           break;

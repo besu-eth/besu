@@ -18,6 +18,7 @@ import org.hyperledger.besu.plugin.services.exception.StorageException;
 
 import java.util.EnumSet;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
 
 import org.rocksdb.RocksDBException;
 import org.rocksdb.Status;
@@ -29,7 +30,7 @@ public final class StorageExceptionManager {
 
   private static final long ERROR_THRESHOLD = 1000;
 
-  private static long retryableErrorCounter;
+  private static final AtomicLong retryableErrorCounter = new AtomicLong();
 
   /**
    * Determines if an operation can be retried based on the error received. This method checks if
@@ -41,25 +42,25 @@ public final class StorageExceptionManager {
    * @return true if the operation can be retried, false otherwise
    */
   public static boolean canRetryOnError(final StorageException e) {
-    return Optional.of(e.getCause())
+    return Optional.ofNullable(e.getCause())
         .filter(z -> z instanceof RocksDBException)
         .map(RocksDBException.class::cast)
         .map(RocksDBException::getStatus)
         .map(Status::getCode)
-        .map(RETRYABLE_STATUS_CODES::contains)
+        .filter(RETRYABLE_STATUS_CODES::contains)
         .map(
-            result -> {
-              retryableErrorCounter++;
-              return result;
+            statusCode -> {
+              retryableErrorCounter.incrementAndGet();
+              return true;
             })
         .orElse(false);
   }
 
   public static long getRetryableErrorCounter() {
-    return retryableErrorCounter;
+    return retryableErrorCounter.get();
   }
 
   public static boolean errorCountAtThreshold() {
-    return retryableErrorCounter % ERROR_THRESHOLD == 1;
+    return retryableErrorCounter.get() % ERROR_THRESHOLD == 1;
   }
 }
