@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 
 import java.util.Optional;
 
@@ -44,6 +45,8 @@ public class EthCapabilitiesTest {
   @Mock private BlockchainQueries blockchainQueries;
   @Mock private Blockchain blockchain;
   @Mock private BlockHeader chainHeadHeader;
+  @Mock private BlockHeader genesisBlockHeader;
+  @Mock private WorldStateArchive worldStateArchive;
 
   private EthCapabilities method;
 
@@ -60,6 +63,11 @@ public class EthCapabilitiesTest {
         .thenReturn(
             Hash.fromHexString(
                 "0x1111111111111111111111111111111111111111111111111111111111111111"));
+    when(blockchainQueries.getWorldStateArchive()).thenReturn(worldStateArchive);
+    when(blockchain.getGenesisBlockHeader()).thenReturn(genesisBlockHeader);
+    when(genesisBlockHeader.getStateRoot()).thenReturn(Hash.ZERO);
+    when(genesisBlockHeader.getHash()).thenReturn(Hash.ZERO);
+    when(worldStateArchive.isWorldStateAvailable(Hash.ZERO, Hash.ZERO)).thenReturn(true);
   }
 
   @Test
@@ -110,6 +118,23 @@ public class EthCapabilitiesTest {
     assertThat(result.get("logs").get("oldestBlock")).isNull();
     assertThat(result.get("receipts").get("oldestBlock")).isNull();
     assertThat(result.get("blocks").get("oldestBlock")).isNull();
+  }
+
+  @Test
+  public void shouldReportStateAndStateproofsDisabledWhenGenesisStateUnavailable() {
+    stubChainHead();
+    when(worldStateArchive.isWorldStateAvailable(Hash.ZERO, Hash.ZERO)).thenReturn(false);
+    when(blockchain.getEarliestBlockNumber()).thenReturn(Optional.of(1000L));
+
+    final JsonRpcSuccessResponse response = successResponse(requestWithParams());
+    final ObjectNode result = (ObjectNode) response.getResult();
+
+    assertThat(result.get("state").get("disabled").asBoolean()).isTrue();
+    assertThat(result.get("stateproofs").get("disabled").asBoolean()).isTrue();
+    assertThat(result.get("tx").get("disabled").asBoolean()).isFalse();
+    assertThat(result.get("logs").get("disabled").asBoolean()).isFalse();
+    assertThat(result.get("receipts").get("disabled").asBoolean()).isFalse();
+    assertThat(result.get("blocks").get("disabled").asBoolean()).isFalse();
   }
 
   private JsonRpcRequestContext requestWithParams(final Object... params) {
