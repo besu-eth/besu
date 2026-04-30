@@ -56,18 +56,6 @@ public abstract class TransactionGasAccounting {
   public abstract long stateGasSpillBurned();
 
   /**
-   * Reservoir gas drained for an in-scope charge whose matching no-growth refund was nullified by a
-   * reverted ancestor (EIP-8037). UndoScalar rollback restored the reservoir to its frame-entry
-   * value, so the loss is tracked here and folded into accounting at tx end: subtracted from the
-   * effective reservoir (raising {@code gasUsedByTransaction}) and credited to {@code
-   * effectiveStateGas} (so block-regular still excludes it).
-   */
-  @Value.Default
-  public long stateGasReservoirBurn() {
-    return 0L;
-  }
-
-  /**
    * Gas that was sitting unused in the initial frame's gasRemaining at the moment of an exceptional
    * halt (EIP-7778/EIP-8037). Paid by the sender (receipts) but must be excluded from block regular
    * gas since no operation consumed it.
@@ -85,18 +73,6 @@ public abstract class TransactionGasAccounting {
 
   /** Whether the regular gas limit was exceeded (EIP-8037). */
   public abstract boolean regularGasLimitExceeded();
-
-  /**
-   * Whether the transaction failed (initial frame revert/halt). When true, the reservoir burn is
-   * applied — the lost drain propagates to the user via a higher {@code gasUsedByTransaction}. When
-   * false (tx succeeded), the drain stays restored in the reservoir for the user, matching spec
-   * semantics where caller's incorporate_child_on_error subtracts the refund only if caller is in
-   * the revert chain.
-   */
-  @Value.Default
-  public boolean txFailed() {
-    return false;
-  }
 
   /** Creates a new builder. */
   public static ImmutableTransactionGasAccounting.Builder builder() {

@@ -52,7 +52,15 @@ public final class Eip8037Trace {
 
   private Eip8037Trace() {}
 
-  /** Emit a {@code FRAME_ENTER} event when a frame begins executing. */
+  /**
+   * Emit a {@code FRAME_ENTER} event when a frame begins executing.
+   *
+   * @param depth the frame depth
+   * @param address the frame's contract address
+   * @param gasLimit the frame's initial gas limit
+   * @param reservoir the state-gas reservoir at frame entry
+   * @param stateGasUsed the cumulative state gas used at frame entry
+   */
   public static void frameEnter(
       final int depth,
       final String address,
@@ -76,7 +84,12 @@ public final class Eip8037Trace {
   /**
    * Emit a {@code FRAME_EXIT} event when the frame completes.
    *
+   * @param depth the frame depth
+   * @param address the frame's contract address
    * @param status one of {@code SUCCESS}, {@code REVERT}, {@code HALT}
+   * @param gasLeft the gas remaining at frame exit
+   * @param reservoir the state-gas reservoir at frame exit
+   * @param stateGasUsed the cumulative state gas used at frame exit
    */
   public static void frameExit(
       final int depth,
@@ -103,6 +116,15 @@ public final class Eip8037Trace {
 
   /**
    * Emit a {@code CONSUME_STATE} event when state-gas is debited from reservoir or gasRemaining.
+   *
+   * @param depth the frame depth
+   * @param requested the requested state-gas amount
+   * @param reservoirBefore reservoir value before the debit
+   * @param gasLeftBefore gasRemaining value before the debit
+   * @param ok whether the debit was fully covered
+   * @param reservoirAfter reservoir value after the debit
+   * @param gasLeftAfter gasRemaining value after the debit
+   * @param stateGasUsedAfter cumulative state gas used after the debit
    */
   public static void consumeState(
       final int depth,
@@ -133,7 +155,14 @@ public final class Eip8037Trace {
         stateGasUsedAfter);
   }
 
-  /** Emit a {@code CREDIT_RESERVOIR} event when the reservoir is credited (refund). */
+  /**
+   * Emit a {@code CREDIT_RESERVOIR} event when the reservoir is credited (refund).
+   *
+   * @param depth the frame depth
+   * @param amount the credit amount
+   * @param reservoirBefore reservoir value before the credit
+   * @param reservoirAfter reservoir value after the credit
+   */
   public static void creditReservoir(
       final int depth, final long amount, final long reservoirBefore, final long reservoirAfter) {
     line(
@@ -148,7 +177,16 @@ public final class Eip8037Trace {
         reservoirAfter);
   }
 
-  /** Emit a {@code REC_STORAGE} event when an SSTORE writes a slot. */
+  /**
+   * Emit a {@code REC_STORAGE} event when an SSTORE writes a slot.
+   *
+   * @param depth the frame depth
+   * @param address the storage owner address
+   * @param key the storage slot key
+   * @param txEntryIsZero whether the original tx-entry value is zero
+   * @param beforeIsZero whether the current value before this SSTORE is zero
+   * @param afterIsZero whether the new value being written is zero
+   */
   public static void recStorage(
       final int depth,
       final String address,
@@ -172,12 +210,23 @@ public final class Eip8037Trace {
         afterIsZero);
   }
 
-  /** Emit a {@code REC_ACCT_CREATED} event when a new account is materialised. */
+  /**
+   * Emit a {@code REC_ACCT_CREATED} event when a new account is materialised.
+   *
+   * @param depth the frame depth
+   * @param address the address of the newly created account
+   */
   public static void recAccountCreated(final int depth, final String address) {
     line("REC_ACCT_CREATED", "depth", depth, "addr", quote(address));
   }
 
-  /** Emit a {@code REC_CODE_DEPOSIT} event when code is deposited at an address. */
+  /**
+   * Emit a {@code REC_CODE_DEPOSIT} event when code is deposited at an address.
+   *
+   * @param depth the frame depth
+   * @param address the address receiving the code
+   * @param codeLength the size of the deposited code in bytes
+   */
   public static void recCodeDeposit(final int depth, final String address, final int codeLength) {
     line("REC_CODE_DEPOSIT", "depth", depth, "addr", quote(address), "len", codeLength);
   }
@@ -185,6 +234,15 @@ public final class Eip8037Trace {
   /**
    * Emit a {@code SPILL_RESTORE} event summarising the spill/burn calculus on revert/halt. Specific
    * to the per-opcode metering model.
+   *
+   * @param depth the frame depth being unwound
+   * @param isInitialFrame whether this is the initial (depth-0) frame
+   * @param stateGasRestored stateGasUsed restored by frame rollback
+   * @param reservoirRestored reservoir restored by frame rollback
+   * @param noGrowthRefundsInScope no-growth refunds applied within this frame's scope
+   * @param grossSpill gross spill amount before applying burn
+   * @param burned amount classified as burned (excluded from parent's reservoir)
+   * @param restored amount credited back to the reservoir
    */
   public static void spillRestore(
       final int depth,
@@ -215,7 +273,13 @@ public final class Eip8037Trace {
         restored);
   }
 
-  /** Emit a {@code TX_END} event summarising the transaction-end totals. */
+  /**
+   * Emit a {@code TX_END} event summarising the transaction-end totals.
+   *
+   * @param gasUsed gas used by the transaction
+   * @param stateGasUsed effective state gas used
+   * @param reservoir state-gas reservoir at tx end
+   */
   public static void txEnd(final long gasUsed, final long stateGasUsed, final long reservoir) {
     line("TX_END", "gasUsed", gasUsed, "stateGasUsed", stateGasUsed, "reservoir", reservoir);
   }
