@@ -50,7 +50,15 @@ public class EngineForkchoiceUpdatedV4Test extends AbstractEngineForkchoiceUpdat
   private static final String MOCK_SLOT = "0x1";
 
   public EngineForkchoiceUpdatedV4Test() {
-    super(EngineForkchoiceUpdatedV4::new);
+    super(
+        (vertx, protocolSchedule1, protocolContext, mergeCoordinator1, engineCallListener) ->
+            new EngineForkchoiceUpdatedV4(
+                vertx,
+                protocolSchedule1,
+                protocolContext,
+                mergeCoordinator1,
+                transactionPool,
+                engineCallListener));
   }
 
   @Override

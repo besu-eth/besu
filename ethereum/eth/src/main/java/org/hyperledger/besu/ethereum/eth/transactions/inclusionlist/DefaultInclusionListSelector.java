@@ -52,14 +52,26 @@ public class DefaultInclusionListSelector implements InclusionListTransactionSel
 
         final int txSize = pendingTransaction.getTransaction().getSizeForBlockInclusion();
 
-        // this can be optimized checking if the remaining space could fit a smaller tx
+        // TODO: this can be optimized checking if the remaining space could fit a smaller tx
         if (totalBytes + txSize > maxBytes) {
+          LOG.info(
+              "Prioritized tx {}, which encoded size is {} bytes does not fit in the inclusion list already containing {} bytes",
+              pendingTransaction.toTraceLog(),
+              txSize,
+              totalBytes);
+
           maxSizeReached = true;
           break;
         }
 
         selected.add(pendingTransaction);
         totalBytes += txSize;
+
+        LOG.info(
+            "Prioritized tx {}, which encoded size is {} bytes added to the inclusion list which new total size is {} bytes",
+            pendingTransaction.toTraceLog(),
+            txSize,
+            totalBytes);
       }
 
       if (maxSizeReached) {
@@ -67,7 +79,7 @@ public class DefaultInclusionListSelector implements InclusionListTransactionSel
       }
     }
 
-    LOG.atDebug()
+    LOG.atInfo()
         .setMessage(
             "IL selector: selected {} transactions ({} bytes) from {} candidates for parent {}")
         .addArgument(selected.size())

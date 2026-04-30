@@ -182,7 +182,12 @@ public class InclusionListWorkflowIntegrationTest {
 
     forkchoiceUpdatedMethod =
         new EngineForkchoiceUpdatedV4(
-            vertx, protocolSchedule, protocolContext, mergeCoordinator, engineCallListener);
+            vertx,
+            protocolSchedule,
+            protocolContext,
+            mergeCoordinator,
+            transactionPool,
+            engineCallListener);
 
     newPayloadStrictMethod =
         new EngineNewPayloadV5(

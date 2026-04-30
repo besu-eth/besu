@@ -26,10 +26,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
-import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListTransactionSelector;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
@@ -37,6 +37,7 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import io.vertx.core.Vertx;
 import org.apache.tuweni.bytes.Bytes;
@@ -48,7 +49,6 @@ public class EngineGetInclusionListV1 extends ExecutionEngineJsonRpcMethod {
   private static final Logger LOG = LoggerFactory.getLogger(EngineGetInclusionListV1.class);
 
   private final TransactionPool transactionPool;
-  private final InclusionListTransactionSelector selector;
   private final Counter transactionsGeneratedCounter;
   private final Counter selectorDurationMsCounter;
 
@@ -57,11 +57,9 @@ public class EngineGetInclusionListV1 extends ExecutionEngineJsonRpcMethod {
       final ProtocolContext protocolContext,
       final EngineCallListener engineCallListener,
       final TransactionPool transactionPool,
-      final MetricsSystem metricsSystem,
-      final InclusionListTransactionSelector selector) {
+      final MetricsSystem metricsSystem) {
     super(vertx, protocolContext, engineCallListener);
     this.transactionPool = transactionPool;
-    this.selector = selector;
     this.transactionsGeneratedCounter =
         metricsSystem.createCounter(
             BesuMetricCategory.RPC,
@@ -103,10 +101,18 @@ public class EngineGetInclusionListV1 extends ExecutionEngineJsonRpcMethod {
         transactionPool.getInclusionListPendingTransactions(parentHeader.get());
     final long durationMs = Duration.ofNanos(System.nanoTime() - startTimeNanos).toMillis();
 
+    final AtomicInteger totalEncodedSize = new AtomicInteger(0);
+
     final List<String> result =
         selectedPendingTransactions.stream()
             .map(PendingTransaction::getTransaction)
-            .map(Transaction::encoded)
+            .map(tx -> TransactionEncoder.encodeOpaqueBytes(tx, EncodingContext.BLOCK_BODY))
+            .peek(
+                bytes ->
+                    LOG.info(
+                        "This tx encoded size {} bytes, total size {}",
+                        bytes.size(),
+                        totalEncodedSize.addAndGet(bytes.size())))
             .map(Bytes::toHexString)
             .toList();
 
@@ -119,11 +125,6 @@ public class EngineGetInclusionListV1 extends ExecutionEngineJsonRpcMethod {
         .addArgument(parentHash)
         .addArgument(result.size())
         .addArgument(durationMs)
-        .log();
-    LOG.atDebug()
-        .setMessage("IL generation details: mempool size={}, strategy={}")
-        .addArgument(selectedPendingTransactions.size())
-        .addArgument(selector.getClass().getSimpleName())
         .log();
 
     return new JsonRpcSuccessResponse(request.getRequest().getId(), result);

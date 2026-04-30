@@ -56,7 +56,6 @@ import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
-import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListValidationResult;
 import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListValidator;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
@@ -77,9 +76,9 @@ import org.hyperledger.besu.plugin.services.exception.StorageException;
 import java.security.InvalidParameterException;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -260,11 +259,10 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     }
 
     final List<Transaction> transactions;
-    final List<Bytes> rawTransactions;
     try {
-      rawTransactions = blockParam.getTransactions().stream().map(Bytes::fromHexString).toList();
       transactions =
-          rawTransactions.stream()
+          blockParam.getTransactions().stream()
+              .map(Bytes::fromHexString)
               .map(in -> TransactionDecoder.decodeOpaqueBytes(in, EncodingContext.BLOCK_BODY))
               .toList();
       precomputeSenders(transactions);
@@ -409,8 +407,7 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
                       .getTransactionValidatorFactory()
                       .get(),
                   protocolContext.getWorldStateArchive(),
-                  blockParam.getTransactions(),
-                  rawTransactions,
+                  Set.copyOf(blockParam.getTransactions()),
                   maybeInclusionListTransactions.get());
           if (!result.isValid()) {
             return respondWithInvalid(
@@ -696,45 +693,36 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
       final BlockProcessingResult executionResult,
       final TransactionValidator transactionValidator,
       final WorldStateArchive worldStateArchive,
-      final List<String> payloadHexTransactions,
-      final List<Bytes> payloadRawTransactions,
+      final Set<String> payloadHexTransactions,
       final List<String> inclusionListHexTransactions) {
-
-    // fast happy path, to avoid decoding inclusion list transactions
-    // check max size and ensure all are included in the payload
-    final int totalHexChars = inclusionListHexTransactions.stream().mapToInt(String::length).sum();
-    if (totalHexChars % 2 != 0) {
-      throw new IllegalArgumentException(
-          "Inclusion list transactions must have even number of hex characters");
-    }
-    final int totalBytes = totalHexChars / 2;
-    if (totalBytes > InclusionListConfiguration.MAX_BYTES_PER_INCLUSION_LIST) {
-      throw new IllegalArgumentException(
-          "Inclusion list exceeds MAX_BYTES_PER_INCLUSION_LIST: "
-              + totalBytes
-              + " > "
-              + InclusionListConfiguration.MAX_BYTES_PER_INCLUSION_LIST);
-    }
 
     // we can now check the inclusion of the all txs without decoding, since we have already
     // decoded the payload txs, so if they match we are sure they are valid too
-    final boolean allPresent =
-        new HashSet<>(payloadHexTransactions).containsAll(inclusionListHexTransactions);
+    final List<Bytes> notConfirmedILTxs =
+        inclusionListHexTransactions.stream()
+            .filter(
+                ilHexTx -> {
+                  if (payloadHexTransactions.contains(ilHexTx)) {
+                    LOG.info("IL tx already confirmed: {}", ilHexTx);
+                    return false;
+                  }
+                  LOG.info("IL tx not confirmed verify if it could be included: {}", ilHexTx);
+                  return true;
+                })
+            .map(Bytes::fromHexString)
+            .toList();
 
-    if (allPresent) {
+    // all IL txs are in the block so just return valid
+    if (notConfirmedILTxs.isEmpty()) {
       return InclusionListValidationResult.valid();
     }
-
-    final List<Bytes> inclusionListRawTransactions =
-        inclusionListHexTransactions.stream().map(Bytes::fromHexString).toList();
 
     return inclusionListValidator.validate(
         newBlockHeader,
         executionResult,
         worldStateArchive,
         transactionValidator,
-        payloadRawTransactions,
-        inclusionListRawTransactions);
+        notConfirmedILTxs);
   }
 
   private Optional<List<VersionedHash>> extractVersionedHashes(

@@ -44,11 +44,11 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
-import org.hyperledger.besu.ethereum.rlp.RLP;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -79,6 +79,8 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
   /** The merge mining coordinator. */
   protected final MergeMiningCoordinator mergeCoordinator;
 
+  protected final TransactionPool transactionPool;
+
   /** Cancun activation timestamp, if scheduled. */
   protected final Optional<Long> cancunMilestone;
 
@@ -94,6 +96,7 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
    * @param protocolSchedule the protocol schedule
    * @param protocolContext the protocol context
    * @param mergeCoordinator the merge coordinator
+   * @param transactionPool the transaction pool
    * @param engineCallListener the engine call listener
    */
   public AbstractEngineForkchoiceUpdatedV4(
@@ -101,10 +104,12 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final MergeMiningCoordinator mergeCoordinator,
+      final TransactionPool transactionPool,
       final EngineCallListener engineCallListener) {
     super(vertx, protocolSchedule, protocolContext, engineCallListener);
 
     this.mergeCoordinator = mergeCoordinator;
+    this.transactionPool = transactionPool;
     cancunMilestone = protocolSchedule.milestoneFor(CANCUN);
     amsterdamMilestone = protocolSchedule.milestoneFor(AMSTERDAM);
     bogotaMilestone = protocolSchedule.milestoneFor(BOGOTA);
@@ -270,6 +275,15 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
       return handleNonValidForkchoiceUpdate(requestId, forkchoiceResult);
     }
 
+    final List<Transaction> inclusionListTransactions =
+        validateAndDecodeInclusionListTransactions(
+            maybePayloadAttributes
+                .map(EnginePayloadAttributesParameter::getInclusionListTransactions)
+                .orElse(List.of()));
+
+    final var ilTxsAddedResult = transactionPool.addRemoteTransactions(inclusionListTransactions);
+    LOG.trace("Inclusion list transactions added to txpool, result {}", ilTxsAddedResult);
+
     // begin preparing a block if we have a non-empty payload attributes param
     final Optional<List<Withdrawal>> finalWithdrawals = withdrawals;
     Optional<PayloadIdentifier> payloadId =
@@ -283,8 +297,7 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
                     finalWithdrawals,
                     Optional.ofNullable(payloadAttributes.getParentBeaconBlockRoot()),
                     Optional.ofNullable(payloadAttributes.getSlotNumber()),
-                    validateAndDecodeInclusionListTransactions(
-                        payloadAttributes.getInclusionListTransactions())));
+                    inclusionListTransactions));
 
     payloadId.ifPresent(
         pid ->
@@ -474,14 +487,15 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
       return List.of();
     }
 
-    final List<Transaction> decoded = new ArrayList<>(rawTransactions.size());
-    for (final Bytes txBytes : rawTransactions) {
-      try {
-        decoded.add(Transaction.readFrom(RLP.input(txBytes), EncodingContext.BLOCK_BODY));
-      } catch (final IllegalArgumentException e) {
-        throw new IllegalArgumentException("Invalid inclusion list transaction format", e);
-      }
-    }
-    return decoded;
+    final List<Transaction> ilTxs =
+        rawTransactions.stream()
+            .map(bytes -> TransactionDecoder.decodeOpaqueBytes(bytes, EncodingContext.BLOCK_BODY))
+            .toList();
+
+    LOG.atInfo()
+        .setMessage("Received {} inclusion list transactions")
+        .addArgument(ilTxs.size())
+        .log();
+    return ilTxs;
   }
 }

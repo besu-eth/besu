@@ -59,7 +59,6 @@ import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListConfiguration;
-import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListTransactionSelector;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
@@ -84,7 +83,6 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
   private final String commit;
   private final TransactionPool transactionPool;
   private final MetricsSystem metricsSystem;
-  private final InclusionListTransactionSelector inclusionListSelector;
 
   ExecutionEngineJsonRpcMethods(
       final MiningCoordinator miningCoordinator,
@@ -132,7 +130,6 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
     this.commit = commit;
     this.transactionPool = transactionPool;
     this.metricsSystem = metricsSystem;
-    this.inclusionListSelector = inclusionListConfiguration.selector();
   }
 
   @Override
@@ -309,6 +306,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
                 protocolSchedule,
                 protocolContext,
                 mergeCoordinator.get(),
+                transactionPool,
                 engineQosTimer));
       }
 
@@ -319,6 +317,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
                 protocolSchedule,
                 protocolContext,
                 mergeCoordinator.get(),
+                transactionPool,
                 engineQosTimer));
         executionEngineApisSupported.add(
             new EngineNewPayloadV6(
@@ -335,8 +334,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
                 protocolContext,
                 engineQosTimer,
                 transactionPool,
-                metricsSystem,
-                inclusionListSelector));
+                metricsSystem));
       }
 
       return mapOf(executionEngineApisSupported);

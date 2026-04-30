@@ -219,26 +219,27 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
    */
   public TransactionSelectionResults buildTransactionListForBlock() {
     blockSelectionContext.transactionPool().selectTransactions(this::timeLimitedSelection);
-    LOG.atTrace()
-        .setMessage("Transaction selection result {}")
-        .addArgument(transactionSelectionResults::toTraceLog)
-        .log();
 
+    LOG.debug(
+        "Inclusion list transactions selection will evaluate {} transactions",
+        inclusionListTransactions.size());
     // for any inclusion list txs not yet selected, evaluate and include it now
     // this is not time-limited, since failing to include any of these txs will result
     // in an invalid block
     for (final Transaction ilTx : sortTransactionList(inclusionListTransactions)) {
       final TransactionSelectionResult ilResult =
           evaluateTransaction(new PendingTransaction.Local.Priority(ilTx));
-      if (!ilResult.selected()) {
-        LOG.atDebug()
-            .setMessage("Inclusion list tx {} not selected, reason: {}")
-            .addArgument(ilTx::toTraceLog)
-            .addArgument(ilResult)
-            .log();
-      }
+      LOG.atDebug()
+          .setMessage("Inclusion list tx {} selection result: {}")
+          .addArgument(ilTx::toTraceLog)
+          .addArgument(ilResult)
+          .log();
     }
 
+    LOG.atTrace()
+        .setMessage("Transaction selection result {}")
+        .addArgument(transactionSelectionResults::toTraceLog)
+        .log();
     return transactionSelectionResults;
   }
 
@@ -565,6 +566,8 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
    */
   public TransactionSelectionResults evaluateTransactions(final List<Transaction> transactions) {
     selectorsStateManager.blockSelectionStarted();
+
+    LOG.debug("Considering only passed {} transactions for block creation", transactions.size());
 
     sortTransactionList(transactions)
         .forEach(

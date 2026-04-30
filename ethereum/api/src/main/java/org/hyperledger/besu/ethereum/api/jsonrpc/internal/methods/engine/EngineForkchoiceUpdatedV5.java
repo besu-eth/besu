@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadAttributesParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 
@@ -44,8 +45,15 @@ public class EngineForkchoiceUpdatedV5 extends AbstractEngineForkchoiceUpdatedV4
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final MergeMiningCoordinator mergeCoordinator,
+      final TransactionPool transactionPool,
       final EngineCallListener engineCallListener) {
-    super(vertx, protocolSchedule, protocolContext, mergeCoordinator, engineCallListener);
+    super(
+        vertx,
+        protocolSchedule,
+        protocolContext,
+        mergeCoordinator,
+        transactionPool,
+        engineCallListener);
   }
 
   @Override

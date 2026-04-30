@@ -30,10 +30,8 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQu
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.worldstate.WorldState;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
@@ -64,7 +62,6 @@ public class InclusionListValidator {
       final BlockProcessingResult blockProcessingResult,
       final WorldStateArchive worldStateArchive,
       final TransactionValidator transactionValidator,
-      final List<Bytes> payloadRawTransactions,
       final List<Bytes> inclusionListTransactions) {
 
     final BlockProcessingOutputs blockProcessingOutputs =
@@ -85,30 +82,20 @@ public class InclusionListValidator {
                         "Unable to load world state for block header "
                             + newBlockHeader.toLogString()))) {
 
-      LOG.atDebug()
+      LOG.atInfo()
           .setMessage("Strict IL validation: {} IL txs, {} payload txs, gasLeft={}")
           .addArgument(inclusionListTransactions.size())
           .addArgument(blockProcessingResult.getReceipts().size())
           .addArgument(blockGasLeft)
           .log();
 
-      // Step 1: Build a set of payload transactions for O(1) presence lookup
-      final Set<Bytes> payloadTxSet = new HashSet<>(payloadRawTransactions);
-
       // Apply the 3-step conditional algorithm for each IL transaction
       for (int i = 0; i < inclusionListTransactions.size(); i++) {
         final Bytes ilTxBytes = inclusionListTransactions.get(i);
-
-        // Step 1: Skip if T is present in the block
-        if (payloadTxSet.contains(ilTxBytes)) {
-          continue;
-        }
-
-        // Transaction is not in the block — attempt to decode it
         final Transaction tx;
         try {
           tx = TransactionDecoder.decodeOpaqueBytes(ilTxBytes, EncodingContext.BLOCK_BODY);
-          LOG.atTrace()
+          LOG.atInfo()
               .setMessage("Checking IL tx not in block {}")
               .addArgument(tx::toTraceLog)
               .log();
@@ -120,7 +107,7 @@ public class InclusionListValidator {
 
           // Step 2: Skip if T.gas > gas_left (block has no room for this transaction)
           if (tx.getGasLimit() > blockGasLeft) {
-            LOG.atDebug()
+            LOG.atInfo()
                 .setMessage("IL step 2: skipping tx at index {} — gasLimit={} > gasLeft={}")
                 .addArgument(i)
                 .addArgument(tx.getGasLimit())
