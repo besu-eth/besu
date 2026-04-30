@@ -68,6 +68,7 @@ public class TraceFrame {
 
   private final Optional<SoftFailureReason> softFailureReason;
   private final OptionalLong gasAvailableForChildCall;
+  private final Optional<Bytes> returnData;
 
   /** Private constructor - only accessible through Builder */
   private TraceFrame(final Builder builder) {
@@ -103,6 +104,7 @@ public class TraceFrame {
     this.precompileOutputData = builder.precompileOutputData;
     this.softFailureReason = builder.softFailureReason;
     this.gasAvailableForChildCall = builder.gasAvailableForChildCall;
+    this.returnData = builder.returnData;
   }
 
   /**
@@ -158,6 +160,7 @@ public class TraceFrame {
     private Optional<Bytes> precompileOutputData = Optional.empty();
     private Optional<SoftFailureReason> softFailureReason = Optional.empty();
     private OptionalLong gasAvailableForChildCall = OptionalLong.empty();
+    private Optional<Bytes> returnData = Optional.empty();
 
     /** Default constructor */
     public Builder() {}
@@ -200,6 +203,7 @@ public class TraceFrame {
       this.precompileOutputData = traceFrame.precompileOutputData;
       this.softFailureReason = traceFrame.softFailureReason;
       this.gasAvailableForChildCall = traceFrame.gasAvailableForChildCall;
+      this.returnData = traceFrame.returnData;
     }
 
     /**
@@ -576,6 +580,17 @@ public class TraceFrame {
     }
 
     /**
+     * Sets the return data buffer captured after the opcode executed.
+     *
+     * @param returnData the return data buffer contents
+     * @return this builder instance for method chaining
+     */
+    public Builder setReturnData(final Optional<Bytes> returnData) {
+      this.returnData = returnData;
+      return this;
+    }
+
+    /**
      * Builds the TraceFrame instance.
      *
      * @return the constructed TraceFrame
@@ -874,6 +889,15 @@ public class TraceFrame {
     return gasAvailableForChildCall;
   }
 
+  /**
+   * Return data buffer at the time this opcode was traced.
+   *
+   * @return the return data buffer, or empty if not captured
+   */
+  public Optional<Bytes> getReturnData() {
+    return returnData;
+  }
+
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
@@ -886,6 +910,7 @@ public class TraceFrame {
         .add("stack", stack)
         .add("memory", memory)
         .add("storage", storage)
+        .add("returnData", returnData)
         .toString();
   }
 }

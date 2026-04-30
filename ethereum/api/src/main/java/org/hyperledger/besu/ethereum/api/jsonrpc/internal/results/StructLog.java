@@ -27,7 +27,18 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
-@JsonPropertyOrder({"pc", "op", "gas", "gasCost", "depth", "refund", "stack", "memory", "storage"})
+@JsonPropertyOrder({
+  "pc",
+  "op",
+  "gas",
+  "gasCost",
+  "depth",
+  "refund",
+  "stack",
+  "memory",
+  "returnData",
+  "storage"
+})
 public class StructLog {
 
   private static final char[] hexChars = "0123456789abcdef".toCharArray();
@@ -41,6 +52,7 @@ public class StructLog {
   private final String[] stack;
   private final Object storage;
   private final String reason;
+  private final String returnData;
 
   public StructLog(final TraceFrame traceFrame) {
     depth = traceFrame.getDepth() + 1;
@@ -64,6 +76,7 @@ public class StructLog {
 
     storage = traceFrame.getStorage().map(StructLog::formatStorage).orElse(null);
     reason = traceFrame.getRevertReason().map(bytes -> toCompactHex(bytes, true)).orElse(null);
+    returnData = traceFrame.getReturnData().map(Bytes::toHexString).orElse(null);
   }
 
   private static Map<String, String> formatStorage(final Map<UInt256, UInt256> storage) {
@@ -143,6 +156,12 @@ public class StructLog {
   @JsonInclude(JsonInclude.Include.NON_NULL)
   public String reason() {
     return reason;
+  }
+
+  @JsonGetter("returnData")
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public String returnData() {
+    return returnData;
   }
 
   @Override
