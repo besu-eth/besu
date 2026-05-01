@@ -152,12 +152,11 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
             blockAccessList,
             new ParallelTransactionPreprocessing(transactionProcessor, executor, balConfiguration));
     if (blockProcessingResult.isFailed()) {
-      // Fallback to non-parallel processing: use INFO only when an unexpected exception caused
-      // the failure; use DEBUG when the block is simply invalid (e.g. state-root mismatch),
-      // since MainnetBlockValidator already emits an INFO "Invalid block" message for that case.
+      // MainnetBlockValidator logs the final outcome at INFO (Invalid block vs Failed to process).
+      // Keep fallback visibility here at DEBUG only to avoid duplicate INFO for the same failure.
       if (blockProcessingResult.causedBy().isPresent()) {
-        LOG.info(
-            "Parallel transaction processing failure. Falling back to non-parallel processing for block #{} ({})",
+        LOG.debug(
+            "Parallel transaction processing failed exceptionally; falling back to non-parallel processing for block #{} ({})",
             block.getHeader().getNumber(),
             block.getHash());
       } else {

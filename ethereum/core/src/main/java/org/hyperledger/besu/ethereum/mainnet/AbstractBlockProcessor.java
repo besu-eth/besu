@@ -39,6 +39,7 @@ import org.hyperledger.besu.ethereum.mainnet.parallelization.PreprocessingContex
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
+import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallNoCodeAtAddressException;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
@@ -444,7 +445,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   postExecutionAccessLocationTracker,
                   blockAccessListBuilder);
         } catch (final Exception e) {
-          LOG.debug("failed processing withdrawals", e);
+          LOG.error("Unexpected failure while processing withdrawals", e);
           if (worldState instanceof BonsaiWorldState) {
             ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
           }
@@ -466,8 +467,14 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                       .get()
                       .process(requestProcessingContext, postExecutionAccessLocationTracker));
         }
-      } catch (final Exception e) {
+      } catch (final SystemCallNoCodeAtAddressException e) {
         LOG.debug("failed processing requests", e);
+        if (worldState instanceof BonsaiWorldState) {
+          ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
+        }
+        return new BlockProcessingResult(Optional.empty(), e.getMessage());
+      } catch (final Exception e) {
+        LOG.error("Unexpected failure while processing requests", e);
         if (worldState instanceof BonsaiWorldState) {
           ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
         }
@@ -534,7 +541,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           maybeBlockAccessList = Optional.empty();
         }
       } catch (Exception e) {
-        LOG.debug("Error validating block access list", e);
+        LOG.error("Unexpected failure while validating block access list", e);
         if (worldState instanceof BonsaiWorldState) {
           ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
         }
@@ -562,7 +569,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             ex.getActualRoot().getBytes().toHexString());
         return new BlockProcessingResult(Optional.empty(), ex.getMessage());
       } catch (Exception e) {
-        LOG.debug("failed persisting block", e);
+        LOG.error("Unexpected failure while persisting block", e);
         return new BlockProcessingResult(Optional.empty(), e);
       }
 
