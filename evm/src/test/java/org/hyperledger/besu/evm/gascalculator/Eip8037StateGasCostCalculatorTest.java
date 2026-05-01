@@ -131,14 +131,63 @@ class Eip8037StateGasCostCalculatorTest {
     frame.addCreate(addr);
     frame.addSelfDestruct(addr);
 
-    calculator.refundSameTransactionSelfDestructStateGas(frame, 0L);
-
     final long expected =
         calculator.createStateGas()
             + calculator.codeDepositStateGas(code.size())
             + 2L * calculator.storageSetStateGas();
+    // Simulate execution-time state gas charges that the refund will return.
+    frame.incrementStateGasUsed(expected);
+
+    calculator.refundSameTransactionSelfDestructStateGas(frame, 0L);
+
     assertThat(frame.getStateGasReservoir()).isEqualTo(expected);
-    assertThat(frame.getStateGasUsed()).isEqualTo(-expected);
+    assertThat(frame.getStateGasUsed()).isZero();
+  }
+
+  @Test
+  void refundSameTxSelfDestructCappedAtExecutionStateGas() {
+    // Top-level CREATE whose own contract self-destructs in initcode: the address sits in both
+    // createSet and selfDestructSet, but the only state gas charged was the intrinsic
+    // createStateGas. Without the cap, the refund would erase intrinsic and zero out stateGasUsed.
+    final Address addr = Address.fromHexString("0x00000000000000000000000000000000000000cc");
+    final ToyWorld world = new ToyWorld();
+    world.createAccount(addr, 1, Wei.ZERO);
+
+    final MessageFrame frame = buildFrame(world);
+    frame.addCreate(addr);
+    frame.addSelfDestruct(addr);
+
+    final long intrinsicStateGas = calculator.createStateGas();
+    frame.incrementStateGasUsed(intrinsicStateGas);
+
+    calculator.refundSameTransactionSelfDestructStateGas(frame, intrinsicStateGas);
+
+    assertThat(frame.getStateGasReservoir()).isZero();
+    assertThat(frame.getStateGasUsed()).isEqualTo(intrinsicStateGas);
+  }
+
+  @Test
+  void refundSameTxSelfDestructPartiallyCappedWhenExecutionGasBelowFullRefund() {
+    // Top-level CREATE that did one SSTORE then SELFDESTRUCTed. Total stateGasUsed =
+    // intrinsic + storageSetStateGas. The full refund (createStateGas + storageSetStateGas)
+    // exceeds execution-time gas (storageSetStateGas), so the cap clamps it.
+    final Address addr = Address.fromHexString("0x00000000000000000000000000000000000000dd");
+    final ToyWorld world = new ToyWorld();
+    final MutableAccount account = world.createAccount(addr, 1, Wei.ZERO);
+    account.setStorageValue(UInt256.ONE, UInt256.valueOf(42L));
+
+    final MessageFrame frame = buildFrame(world);
+    frame.addCreate(addr);
+    frame.addSelfDestruct(addr);
+
+    final long intrinsicStateGas = calculator.createStateGas();
+    final long executionStateGas = calculator.storageSetStateGas();
+    frame.incrementStateGasUsed(intrinsicStateGas + executionStateGas);
+
+    calculator.refundSameTransactionSelfDestructStateGas(frame, intrinsicStateGas);
+
+    assertThat(frame.getStateGasReservoir()).isEqualTo(executionStateGas);
+    assertThat(frame.getStateGasUsed()).isEqualTo(intrinsicStateGas);
   }
 
   @Test

@@ -243,16 +243,14 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
       }
     }
     if (totalRefund > 0L) {
-      // Cap refund at execution-time state gas only — never eat into the intrinsic charge the
-      // user paid upfront. Matches geth/nethermind/erigon/ethrex semantics: the same-tx-
-      // selfdestruct refund returns state gas spent during EVM execution (inner CREATEs, code
-      // deposits, storage growth), not the intrinsic charge for the top-level CREATE itself.
+      // Cap at execution-time state gas; intrinsic was paid up-front and is not refundable.
+      // Matches geth/nethermind/erigon/ethrex.
       final long executionStateGas =
           Math.max(0L, initialFrame.getStateGasUsed() - intrinsicStateGas);
-      final long capped = Math.min(totalRefund, executionStateGas);
-      if (capped > 0L) {
-        initialFrame.incrementStateGasReservoir(capped);
-        initialFrame.decrementStateGasUsed(capped);
+      final long cappedRefund = Math.min(totalRefund, executionStateGas);
+      if (cappedRefund > 0L) {
+        initialFrame.incrementStateGasReservoir(cappedRefund);
+        initialFrame.decrementStateGasUsed(cappedRefund);
       }
     }
   }
