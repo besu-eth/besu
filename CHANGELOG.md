@@ -10,6 +10,7 @@
 - `eth_getFilterLogs`: cache the chain head once when resolving default `latest..latest` bounds, so a block arriving between the two reads no longer expands the queried range into `[N, N+1]` and returns extra logs. [#10368](https://github.com/besu-eth/besu/pull/10368)
 
 ### Additions and Improvements
+- Add EIP-7981 to Amsterdam [#10388](https://github.com/besu-eth/besu/pull/10388)
 
 ## 26.5.0
 
