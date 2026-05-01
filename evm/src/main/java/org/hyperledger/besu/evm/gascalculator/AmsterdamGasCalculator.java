@@ -27,7 +27,6 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import java.util.List;
 import java.util.function.Supplier;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
 /**
@@ -119,14 +118,8 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   }
 
   @Override
-  public long transactionFloorCost(final Bytes transactionPayload, final long payloadZeroBytes) {
-    // EIP-7976: uniform 64 gas per calldata byte, so zero/non-zero split is irrelevant.
-    return clampedAdd(
-        getMinimumTransactionCost(), transactionPayload.size() * TOTAL_COST_FLOOR_PER_BYTE);
-  }
-
-  @Override
   public long transactionFloorCost(final Transaction transaction) {
+    // EIP-7976: uniform 64 gas per calldata byte, so zero/non-zero split is irrelevant.
     // EIP-7981: include access list bytes in the data floor so they can't be used to bypass it.
     final long calldataBytes = transaction.getPayload().size();
     final long accessListBytes =

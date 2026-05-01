@@ -41,18 +41,21 @@ class AmsterdamGasCalculatorTest {
   @Test
   void transactionFloorCostShouldBeAtLeastTransactionBaseCost() {
     // floor cost = 21000 (base cost) + 0
-    assertThat(amsterdamGasCalculator.transactionFloorCost(Bytes.EMPTY, 0)).isEqualTo(21000L);
+    when(transaction.getPayload()).thenReturn(Bytes.EMPTY);
+    when(transaction.getAccessList()).thenReturn(Optional.empty());
+    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(21000L);
+
     // EIP-7976: floor cost = 21000 + 256 * 64 (uniform per-byte floor)
-    assertThat(amsterdamGasCalculator.transactionFloorCost(Bytes.repeat((byte) 0x0, 256), 256))
-        .isEqualTo(37384L);
+    when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x0, 256));
+    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(37384L);
+
     // EIP-7976: non-zero bytes priced identically to zero bytes for the floor
-    assertThat(amsterdamGasCalculator.transactionFloorCost(Bytes.repeat((byte) 0x1, 256), 0))
-        .isEqualTo(37384L);
+    when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x1, 256));
+    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(37384L);
+
     // 11-byte mixed payload: 21000 + 11 * 64 = 21704
-    assertThat(
-            amsterdamGasCalculator.transactionFloorCost(
-                Bytes.fromHexString("0x0001000100010001000101"), 5))
-        .isEqualTo(21704L);
+    when(transaction.getPayload()).thenReturn(Bytes.fromHexString("0x0001000100010001000101"));
+    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(21704L);
   }
 
   @Test
