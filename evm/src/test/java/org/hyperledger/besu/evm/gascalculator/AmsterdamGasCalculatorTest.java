@@ -88,4 +88,29 @@ class AmsterdamGasCalculatorTest {
 
     assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(27016L);
   }
+
+  @Test
+  void transactionFloorCostAggregatesMultipleAccessListEntries() {
+    // 4 calldata bytes
+    // entry A: 20 address bytes + 0 keys                = 20 bytes
+    // entry B: 20 address bytes + 1 key  (1*32 = 32)    = 52 bytes
+    // entry C: 20 address bytes + 3 keys (3*32 = 96)    = 116 bytes
+    // total bytes = 4 + 20 + 52 + 116 = 192
+    // floor = 21000 + 192 * 64 = 21000 + 12288 = 33288
+    final AccessListEntry entryA =
+        new AccessListEntry(
+            Address.fromHexString("0x00000000000000000000000000000000000000aa"), List.of());
+    final AccessListEntry entryB =
+        new AccessListEntry(
+            Address.fromHexString("0x00000000000000000000000000000000000000bb"),
+            List.of(Bytes32.ZERO));
+    final AccessListEntry entryC =
+        new AccessListEntry(
+            Address.fromHexString("0x00000000000000000000000000000000000000cc"),
+            List.of(Bytes32.ZERO, Bytes32.ZERO, Bytes32.ZERO));
+    when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x1, 4));
+    when(transaction.getAccessList()).thenReturn(Optional.of(List.of(entryA, entryB, entryC)));
+
+    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(33288L);
+  }
 }

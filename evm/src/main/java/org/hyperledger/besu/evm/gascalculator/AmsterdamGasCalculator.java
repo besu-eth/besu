@@ -15,6 +15,7 @@
 package org.hyperledger.besu.evm.gascalculator;
 
 import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
+import static org.hyperledger.besu.evm.internal.Words.clampedMultiply;
 
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
@@ -48,10 +49,16 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   // EIP-7976 / EIP-7981: floor cost of 64 gas per data byte (calldata or access list).
   private static final long TOTAL_COST_FLOOR_PER_BYTE = 64L;
 
+  // Byte sizes of the RLP-encoded payload elements counted toward the access list data floor.
+  private static final long ACCESS_LIST_ADDRESS_BYTES = 20L;
+  private static final long ACCESS_LIST_STORAGE_KEY_BYTES = 32L;
+
   // EIP-7981: data floor contribution of an access list entry.
   // 20 address bytes * 64 gas/byte = 1280; each 32-byte storage key * 64 gas/byte = 2048.
-  private static final long ACCESS_LIST_ADDRESS_FLOOR_COST = 20L * TOTAL_COST_FLOOR_PER_BYTE;
-  private static final long ACCESS_LIST_STORAGE_KEY_FLOOR_COST = 32L * TOTAL_COST_FLOOR_PER_BYTE;
+  private static final long ACCESS_LIST_ADDRESS_FLOOR_COST =
+      ACCESS_LIST_ADDRESS_BYTES * TOTAL_COST_FLOOR_PER_BYTE;
+  private static final long ACCESS_LIST_STORAGE_KEY_FLOOR_COST =
+      ACCESS_LIST_STORAGE_KEY_BYTES * TOTAL_COST_FLOOR_PER_BYTE;
 
   // EIP-8037: New regular gas constants for Amsterdam
   private static final long TX_CREATE_COST = 9_000L;
@@ -125,7 +132,8 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
     final long accessListBytes =
         transaction.getAccessList().map(AmsterdamGasCalculator::accessListBytes).orElse(0L);
     return clampedAdd(
-        getMinimumTransactionCost(), (calldataBytes + accessListBytes) * TOTAL_COST_FLOOR_PER_BYTE);
+        getMinimumTransactionCost(),
+        clampedMultiply(clampedAdd(calldataBytes, accessListBytes), TOTAL_COST_FLOOR_PER_BYTE));
   }
 
   @Override
@@ -133,15 +141,18 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
     // EIP-2930 baseline (2400 per address, 1900 per key) plus EIP-7981 data floor
     // (1280 per address, 2048 per storage key), so access list data is always charged
     // at floor rate regardless of which branch of the gasUsed max() wins.
-    return super.accessListGasCost(addresses, storageSlots)
-        + addresses * ACCESS_LIST_ADDRESS_FLOOR_COST
-        + storageSlots * ACCESS_LIST_STORAGE_KEY_FLOOR_COST;
+    return clampedAdd(
+        super.accessListGasCost(addresses, storageSlots),
+        clampedAdd(
+            clampedMultiply(addresses, ACCESS_LIST_ADDRESS_FLOOR_COST),
+            clampedMultiply(storageSlots, ACCESS_LIST_STORAGE_KEY_FLOOR_COST)));
   }
 
   private static long accessListBytes(final List<AccessListEntry> accessList) {
     long bytes = 0L;
     for (final AccessListEntry entry : accessList) {
-      bytes += 20L + 32L * entry.storageKeys().size();
+      bytes +=
+          ACCESS_LIST_ADDRESS_BYTES + ACCESS_LIST_STORAGE_KEY_BYTES * entry.storageKeys().size();
     }
     return bytes;
   }
