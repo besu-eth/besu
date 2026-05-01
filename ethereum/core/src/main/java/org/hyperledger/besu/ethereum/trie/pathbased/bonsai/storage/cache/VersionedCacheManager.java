@@ -24,9 +24,7 @@ import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 
 import java.io.Closeable;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -54,7 +52,8 @@ public class VersionedCacheManager implements CacheManager, Closeable {
   private static final int DEFAULT_DRAIN_THRESHOLD = 1000;
 
   private final AtomicLong globalVersion = new AtomicLong(0);
-  private final Map<SegmentIdentifier, Cache<ByteArrayWrapper, VersionedValue>> caches;
+  private final Cache<ByteArrayWrapper, VersionedValue> accountCache;
+  private final Cache<ByteArrayWrapper, VersionedValue> storageCache;
   private final ThresholdDrainExecutor drainExecutor;
   private final ExecutorService maintenanceWorker;
   private final AtomicBoolean maintenanceScheduled = new AtomicBoolean(false);
@@ -101,9 +100,8 @@ public class VersionedCacheManager implements CacheManager, Closeable {
 
     this.drainExecutor = new ThresholdDrainExecutor(drainThreshold, this::scheduleAsyncMaintenance);
 
-    this.caches = new HashMap<>();
-    caches.put(ACCOUNT_INFO_STATE, createCache(accountCacheSize));
-    caches.put(ACCOUNT_STORAGE_STORAGE, createCache(storageCacheSize));
+    this.accountCache = createCache(accountCacheSize);
+    this.storageCache = createCache(storageCacheSize);
 
     this.cacheRequestCounter =
         metricsSystem.createCounter(
@@ -145,6 +143,16 @@ public class VersionedCacheManager implements CacheManager, Closeable {
         .build();
   }
 
+  private Cache<ByteArrayWrapper, VersionedValue> cacheForSegment(final SegmentIdentifier segment) {
+    if (segment == ACCOUNT_INFO_STATE) {
+      return accountCache;
+    }
+    if (segment == ACCOUNT_STORAGE_STORAGE) {
+      return storageCache;
+    }
+    return null;
+  }
+
   /**
    * Schedules an async maintenance if one is not already scheduled. Uses an AtomicBoolean to
    * prevent flooding the maintenance worker with redundant tasks.
@@ -171,7 +179,8 @@ public class VersionedCacheManager implements CacheManager, Closeable {
   private void doMaintenance() {
     try {
       final int drained = drainExecutor.drain();
-      caches.values().forEach(Cache::cleanUp);
+      accountCache.cleanUp();
+      storageCache.cleanUp();
       if (drained > 0) {
         LOG.trace("Cache maintenance drained {} tasks", drained);
       }
@@ -230,7 +239,7 @@ public class VersionedCacheManager implements CacheManager, Closeable {
 
   @Override
   public void clear(final SegmentIdentifier segment) {
-    final Cache<ByteArrayWrapper, VersionedValue> cache = caches.get(segment);
+    final Cache<ByteArrayWrapper, VersionedValue> cache = cacheForSegment(segment);
     if (cache != null) {
       cache.invalidateAll();
     }
@@ -243,7 +252,7 @@ public class VersionedCacheManager implements CacheManager, Closeable {
       final long version,
       final Supplier<Optional<Bytes>> storageGetter) {
 
-    final Cache<ByteArrayWrapper, VersionedValue> cache = caches.get(segment);
+    final Cache<ByteArrayWrapper, VersionedValue> cache = cacheForSegment(segment);
 
     cacheRequestCounter.inc();
 
@@ -292,7 +301,7 @@ public class VersionedCacheManager implements CacheManager, Closeable {
       final long version,
       final Function<List<byte[]>, List<Optional<byte[]>>> batchFetcher) {
 
-    final Cache<ByteArrayWrapper, VersionedValue> cache = caches.get(segment);
+    final Cache<ByteArrayWrapper, VersionedValue> cache = cacheForSegment(segment);
 
     if (cache == null) {
       keys.forEach(k -> cacheMissCounter.inc());
@@ -359,7 +368,7 @@ public class VersionedCacheManager implements CacheManager, Closeable {
   @Override
   public void putInCache(
       final SegmentIdentifier segment, final byte[] key, final byte[] value, final long version) {
-    final Cache<ByteArrayWrapper, VersionedValue> cache = caches.get(segment);
+    final Cache<ByteArrayWrapper, VersionedValue> cache = cacheForSegment(segment);
     if (cache != null) {
       final ByteArrayWrapper wrapper = new ByteArrayWrapper(key);
       cache
@@ -379,7 +388,7 @@ public class VersionedCacheManager implements CacheManager, Closeable {
   @Override
   public void removeFromCache(
       final SegmentIdentifier segment, final byte[] key, final long version) {
-    final Cache<ByteArrayWrapper, VersionedValue> cache = caches.get(segment);
+    final Cache<ByteArrayWrapper, VersionedValue> cache = cacheForSegment(segment);
     if (cache != null) {
       final ByteArrayWrapper wrapper = new ByteArrayWrapper(key);
       cache
@@ -398,20 +407,20 @@ public class VersionedCacheManager implements CacheManager, Closeable {
 
   @Override
   public long getCacheSize(final SegmentIdentifier segment) {
-    final Cache<ByteArrayWrapper, VersionedValue> cache = caches.get(segment);
+    final Cache<ByteArrayWrapper, VersionedValue> cache = cacheForSegment(segment);
     return cache != null ? cache.estimatedSize() : 0;
   }
 
   @Override
   public boolean isCached(final SegmentIdentifier segment, final byte[] key) {
-    final Cache<ByteArrayWrapper, VersionedValue> cache = caches.get(segment);
+    final Cache<ByteArrayWrapper, VersionedValue> cache = cacheForSegment(segment);
     return cache != null && cache.getIfPresent(new ByteArrayWrapper(key)) != null;
   }
 
   @Override
   public Optional<VersionedValue> getCachedValue(
       final SegmentIdentifier segment, final byte[] key) {
-    final Cache<ByteArrayWrapper, VersionedValue> cache = caches.get(segment);
+    final Cache<ByteArrayWrapper, VersionedValue> cache = cacheForSegment(segment);
     return cache != null
         ? Optional.ofNullable(cache.getIfPresent(new ByteArrayWrapper(key)))
         : Optional.empty();
