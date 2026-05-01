@@ -30,6 +30,7 @@ import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.jspecify.annotations.Nullable;
 
 /** A 160-bits account address. */
 public class Address extends BytesHolder {
@@ -92,7 +93,7 @@ public class Address extends BytesHolder {
   public static final Address P256_VERIFY = Address.precompiled(0x0100);
 
   /** The constant ZERO. */
-  public static final Address ZERO = Address.fromHexString("0x0");
+  public static final Address ZERO = Address.wrap(Bytes.fromHexStringLenient("0x0", SIZE));
 
   static LoadingCache<Address, Hash> hashCache =
       CacheBuilder.newBuilder()
@@ -177,7 +178,7 @@ public class Address extends BytesHolder {
    *     representation of an address.
    */
   @JsonCreator
-  public static Address fromHexString(final String str) {
+  public static @Nullable Address fromHexString(final String str) {
     if (str == null) return null;
     return wrap(Bytes.fromHexStringLenient(str, SIZE));
   }
