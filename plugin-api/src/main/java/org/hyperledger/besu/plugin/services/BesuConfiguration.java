@@ -20,26 +20,9 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageConfiguration;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.nio.file.Path;
-import java.util.Optional;
 
 /** Generally useful configuration provided by Besu. */
 public interface BesuConfiguration extends BesuService {
-
-  /**
-   * Get the configured RPC http host.
-   *
-   * @return the configured RPC http host.
-   */
-  @Deprecated(since = "25.1.0")
-  Optional<String> getRpcHttpHost();
-
-  /**
-   * Get the configured RPC http port.
-   *
-   * @return the configured RPC http port.
-   */
-  @Deprecated(since = "25.1.0")
-  Optional<Integer> getRpcHttpPort();
 
   /**
    * Get the configured RPC http host.

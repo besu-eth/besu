@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.evm.gascalculator;
 
+import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
+
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.datatypes.Wei;
@@ -22,6 +24,7 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 
 import java.util.function.Supplier;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
 /**
@@ -34,9 +37,13 @@ import org.apache.tuweni.units.bigints.UInt256;
  *
  * <UL>
  *   <LI>EIP-7928: gas cost per item for block access list size limit
+ *   <LI>EIP-7976: calldata floor cost raised to 64 gas per byte
  * </UL>
  */
 public class AmsterdamGasCalculator extends OsakaGasCalculator {
+
+  // EIP-7976: floor cost of 64 gas per calldata byte (zero and non-zero alike)
+  private static final long TOTAL_COST_FLOOR_PER_BYTE = 64L;
 
   // EIP-8037: New regular gas constants for Amsterdam
   private static final long TX_CREATE_COST = 9_000L;
@@ -94,6 +101,13 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   @Override
   public long getBlockAccessListItemCost() {
     return BLOCK_ACCESS_LIST_ITEM_COST;
+  }
+
+  @Override
+  public long transactionFloorCost(final Bytes transactionPayload, final long payloadZeroBytes) {
+    // EIP-7976: uniform 64 gas per calldata byte, so zero/non-zero split is irrelevant.
+    return clampedAdd(
+        getMinimumTransactionCost(), transactionPayload.size() * TOTAL_COST_FLOOR_PER_BYTE);
   }
 
   // --- EIP-8037 Gas Cost Overrides ---

@@ -17,8 +17,6 @@ package org.hyperledger.besu.ethereum.trie.forest.worldview;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitter;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
@@ -36,6 +34,8 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.WorldStatePreimageStorage;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
+import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 
 import java.util.ArrayList;
 import java.util.Collection;

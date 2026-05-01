@@ -30,6 +30,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.selectors.AbstractTransactionSelector;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.selectors.BlobPriceTransactionSelector;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.selectors.BlobSizeTransactionSelector;
+import org.hyperledger.besu.ethereum.blockcreation.txselection.selectors.BlockAccessListItemBudgetTransactionSelector;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.selectors.BlockRlpSizeTransactionSelector;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.selectors.BlockSizeTransactionSelector;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.selectors.MinPriorityFeePerGasTransactionSelector;
@@ -38,7 +39,6 @@ import org.hyperledger.besu.ethereum.blockcreation.txselection.selectors.Process
 import org.hyperledger.besu.ethereum.blockcreation.txselection.selectors.SkipSenderTransactionSelector;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
@@ -62,6 +62,7 @@ import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.txselection.BlockTransactionSelectionService;
 import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelector;
 import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -125,6 +126,7 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
   private final long blockTxsSelectionMaxTimeNanos;
   private final long pluginTxsSelectionMaxTimeNanos;
   private final Optional<BlockAccessList.BlockAccessListBuilder> maybeBlockAccessListBuilder;
+
   private WorldUpdater blockWorldStateUpdater;
   private WorldUpdater txWorldStateUpdater;
   private volatile TransactionEvaluationContext currTxEvaluationContext;
@@ -165,7 +167,8 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     this.selectorsStateManager = selectorsStateManager;
     this.transactionSelectionService = miningConfiguration.getTransactionSelectionService();
     this.transactionSelectors =
-        createTransactionSelectors(blockSelectionContext, selectorsStateManager);
+        createTransactionSelectors(
+            blockSelectionContext, selectorsStateManager, maybeBlockAccessListBuilder);
     this.pluginTransactionSelector = pluginTransactionSelector;
     this.operationTracer =
         new InterruptibleOperationTracer(pluginTransactionSelector.getOperationTracer());
@@ -180,7 +183,9 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
   }
 
   private List<AbstractTransactionSelector> createTransactionSelectors(
-      final BlockSelectionContext context, final SelectorsStateManager selectorsStateManager) {
+      final BlockSelectionContext context,
+      final SelectorsStateManager selectorsStateManager,
+      final Optional<BlockAccessList.BlockAccessListBuilder> maybeBlockAccessListBuilder) {
     return List.of(
         new SkipSenderTransactionSelector(context),
         new BlockSizeTransactionSelector(context, selectorsStateManager),
@@ -189,7 +194,8 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
         new BlobPriceTransactionSelector(context),
         new MinPriorityFeePerGasTransactionSelector(context),
         new BlockRlpSizeTransactionSelector(context, selectorsStateManager),
-        new ProcessingResultTransactionSelector(context));
+        new ProcessingResultTransactionSelector(context),
+        new BlockAccessListItemBudgetTransactionSelector(context, maybeBlockAccessListBuilder));
   }
 
   /**

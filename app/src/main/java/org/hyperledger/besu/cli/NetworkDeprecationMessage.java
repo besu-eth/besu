@@ -39,9 +39,6 @@ public class NetworkDeprecationMessage {
         List.of(
             network.normalize()
                 + " is deprecated and will be shutdown "
-                + network.getDeprecationDate().get(),
-            "",
-            "For more details please go to",
-            "https://blog.ethereum.org/2025/09/01/holesky-shutdown-announcement"));
+                + network.getDeprecationDate().get()));
   }
 }

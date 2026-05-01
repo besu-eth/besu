@@ -18,7 +18,6 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
@@ -26,6 +25,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorld
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
 import java.util.Optional;
@@ -45,7 +45,8 @@ public abstract class ParallelBlockTransactionProcessor {
       final BlockHashLookup blockHashLookup,
       final Wei blobGasPrice,
       final Executor executor,
-      final Optional<BlockAccessListBuilder> blockAccessListBuilder) {
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader) {
 
     futures = new CompletableFuture[transactions.size()];
 
@@ -64,25 +65,19 @@ public abstract class ParallelBlockTransactionProcessor {
                       miningBeneficiary,
                       blockHashLookup,
                       blobGasPrice,
-                      blockAccessListBuilder),
+                      blockAccessListBuilder,
+                      maybeParentHeader),
               executor);
     }
   }
 
-  protected BonsaiWorldState getWorldState(
-      final ProtocolContext protocolContext, final BlockHeader blockHeader) {
-
-    final BlockHeader chainHeadHeader = protocolContext.getBlockchain().getChainHeadHeader();
-    if (!chainHeadHeader.getHash().equals(blockHeader.getParentHash())) {
-      return null;
-    }
-
-    return (BonsaiWorldState)
-        protocolContext
-            .getWorldStateArchive()
-            .getWorldState(
-                WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(chainHeadHeader))
-            .orElse(null);
+  /** World state at the parent block. Call only when the parent header is known to be present. */
+  protected Optional<BonsaiWorldState> getWorldState(
+      final ProtocolContext protocolContext, final BlockHeader parentHeader) {
+    return protocolContext
+        .getWorldStateArchive()
+        .getWorldState(WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(parentHeader))
+        .map(BonsaiWorldState.class::cast);
   }
 
   protected abstract ParallelizedTransactionContext runTransaction(
@@ -93,7 +88,8 @@ public abstract class ParallelBlockTransactionProcessor {
       Address miningBeneficiary,
       BlockHashLookup blockHashLookup,
       Wei blobGasPrice,
-      Optional<BlockAccessListBuilder> blockAccessListBuilder);
+      Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      Optional<BlockHeader> maybeParentHeader);
 
   public abstract Optional<TransactionProcessingResult> getProcessingResult(
       MutableWorldState worldState,

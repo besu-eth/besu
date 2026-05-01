@@ -62,7 +62,6 @@ import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration.MutableInitValues;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.difficulty.fixed.FixedDifficultyProtocolSchedule;
@@ -75,6 +74,7 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStoragePrefixedKeyBlockchainStorage;
 import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
@@ -91,6 +91,7 @@ import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelecto
 import org.hyperledger.besu.plugin.services.txselection.PluginTransactionSelectorFactory;
 import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
 import org.hyperledger.besu.plugin.services.txselection.TransactionEvaluationContext;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.services.TransactionSelectionServiceImpl;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 import org.hyperledger.besu.util.number.PositiveNumber;
@@ -1682,7 +1683,27 @@ public abstract class AbstractBlockTransactionSelectorTest {
       final Address miningBeneficiary,
       final Wei blobGasPrice,
       final TransactionSelectionService transactionSelectionService) {
-    ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(blockchain.getChainHeadHeader());
+    return createBlockSelector(
+        miningConfiguration,
+        transactionProcessor,
+        blockHeader,
+        miningBeneficiary,
+        blobGasPrice,
+        transactionSelectionService,
+        protocolSchedule,
+        Optional.empty());
+  }
+
+  protected BlockTransactionSelector createBlockSelector(
+      final MiningConfiguration miningConfiguration,
+      final MainnetTransactionProcessor transactionProcessor,
+      final ProcessableBlockHeader blockHeader,
+      final Address miningBeneficiary,
+      final Wei blobGasPrice,
+      final TransactionSelectionService transactionSelectionService,
+      final ProtocolSchedule schedule,
+      final Optional<BlockAccessList.BlockAccessListBuilder> maybeBalBuilder) {
+    ProtocolSpec protocolSpec = schedule.getByBlockHeader(blockchain.getChainHeadHeader());
     final var selectorsStateManager = new SelectorsStateManager();
     final BlockTransactionSelector selector =
         new BlockTransactionSelector(
@@ -1692,7 +1713,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
             worldState,
             transactionPool,
             blockHeader,
-            protocolSchedule.getByBlockHeader(blockHeader).getTransactionReceiptFactory(),
+            schedule.getByBlockHeader(blockHeader).getTransactionReceiptFactory(),
             miningBeneficiary,
             blobGasPrice,
             protocolSpec,
@@ -1700,7 +1721,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
                 blockHeader, selectorsStateManager),
             ethScheduler,
             selectorsStateManager,
-            Optional.empty());
+            maybeBalBuilder);
 
     return selector;
   }
@@ -1934,7 +1955,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
     }
   }
 
-  protected enum Sender {
+  public enum Sender {
     // it is important to keep the addresses of the senders sorted, to make the tests reproducible,
     // since a different sender address can change the order in which txs are selected,
     // if all the other sorting fields are equal
