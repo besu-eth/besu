@@ -459,8 +459,9 @@ public class MainnetTransactionProcessor {
         worldUpdater.commit();
         // EIP-8037: end-of-tx refund for accounts created and
         // self-destructed within this transaction. Must run before tx_gas_used_before_refund is
-        // computed below so the sender is not charged for state that was destroyed.
-        stateGasCalc.refundSameTransactionSelfDestructStateGas(initialFrame);
+        // computed below so the sender is not charged for state that was destroyed. Pass the
+        // intrinsic state gas so the refund is capped at execution-time state gas only.
+        stateGasCalc.refundSameTransactionSelfDestructStateGas(initialFrame, intrinsicStateGas);
       } else {
         if (initialFrame.getExceptionalHaltReason().isPresent()) {
           validationResult =

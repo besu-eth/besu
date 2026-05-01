@@ -247,14 +247,23 @@ public interface StateGasCostCalculator {
    *   <li>non-zero storage slots: {@code 32 × cost_per_state_byte} per slot
    * </ul>
    *
-   * This must be applied before {@code tx_gas_used_before_refund} is computed so the sender is not
-   * charged for state that was destroyed. Storage slots restored to zero during execution (0→X→0)
-   * are not counted here because they have a final value of zero — the SSTORE restoration refund
-   * already returned their state gas.
+   * <p>The total refund is capped at execution-time state gas ({@code stateGasUsed -
+   * intrinsicStateGas}); the intrinsic charge paid at transaction start is never refunded. This
+   * matters when a top-level CREATE's own contract address is in {@code createSet ∩
+   * selfDestructSet} — without the cap, the refund would erase the intrinsic create-state-gas.
+   * Matches geth/nethermind/erigon/ethrex.
+   *
+   * <p>This must be applied before {@code tx_gas_used_before_refund} is computed so the sender is
+   * not charged for state that was destroyed. Storage slots restored to zero during execution
+   * (0→X→0) are not counted here because they have a final value of zero — the SSTORE restoration
+   * refund already returned their state gas.
    *
    * @param initialFrame the initial (depth-0) frame after transaction execution
+   * @param intrinsicStateGas the intrinsic state gas charged at tx start; refund cannot consume
+   *     this portion of {@code stateGasUsed}
    */
-  default void refundSameTransactionSelfDestructStateGas(final MessageFrame initialFrame) {}
+  default void refundSameTransactionSelfDestructStateGas(
+      final MessageFrame initialFrame, final long intrinsicStateGas) {}
 
   /**
    * Computes the intrinsic state gas for a transaction. This is the worst-case state gas charged

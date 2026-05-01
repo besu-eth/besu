@@ -214,7 +214,8 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
   }
 
   @Override
-  public void refundSameTransactionSelfDestructStateGas(final MessageFrame initialFrame) {
+  public void refundSameTransactionSelfDestructStateGas(
+      final MessageFrame initialFrame, final long intrinsicStateGas) {
     final Set<Address> destroyed = initialFrame.getSelfDestructs();
     if (destroyed.isEmpty()) {
       return;
@@ -242,8 +243,15 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
       }
     }
     if (totalRefund > 0L) {
-      initialFrame.incrementStateGasReservoir(totalRefund);
-      initialFrame.decrementStateGasUsed(totalRefund);
+      // Cap at execution-time state gas; intrinsic was paid up-front and is not refundable.
+      // Matches geth/nethermind/erigon/ethrex.
+      final long executionStateGas =
+          Math.max(0L, initialFrame.getStateGasUsed() - intrinsicStateGas);
+      final long cappedRefund = Math.min(totalRefund, executionStateGas);
+      if (cappedRefund > 0L) {
+        initialFrame.incrementStateGasReservoir(cappedRefund);
+        initialFrame.decrementStateGasUsed(cappedRefund);
+      }
     }
   }
 
