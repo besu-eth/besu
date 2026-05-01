@@ -55,7 +55,12 @@ public class BlockCreationTiming {
   public void registerAll(final BlockCreationTiming subTiming) {
     final var offset = Duration.between(startedAt, subTiming.startedAt);
     for (final var entry : subTiming.timing.entrySet()) {
-      timing.put(entry.getKey(), offset.plus(entry.getValue()));
+      final boolean isStandalone = subTiming.standaloneValueSteps.contains(entry.getKey());
+      timing.put(
+          entry.getKey(), isStandalone ? entry.getValue() : offset.plus(entry.getValue()));
+      if (isStandalone) {
+        standaloneValueSteps.add(entry.getKey());
+      }
     }
   }
 

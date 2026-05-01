@@ -51,4 +51,32 @@ public class BlockCreationTimingTest {
 
     assertThat(timing.toString()).contains("txsSelectionHighScore=0ms");
   }
+
+  @Test
+  public void registerAllPreservesStandaloneValuesIntoOuterTiming() {
+    // Mirrors what BlockMiner.mineBlock() does: an inner timing built by
+    // AbstractBlockCreator.createBlock(...) is merged into an outer timing via registerAll,
+    // and the outer's toString() is what BlockMiner.logProducedBlock prints.
+    // The standalone txsSelectionHighScore value must survive the merge as-is, not be
+    // treated as a stopwatch delta.
+    final BlockCreationTiming inner = new BlockCreationTiming();
+    inner.register("duplicateWorldState");
+    inner.register("preTxsSelection");
+    inner.register("txsSelection");
+    inner.registerValue("txsSelectionHighScore", Duration.ofMillis(42));
+    inner.register("blockAssembled");
+
+    final BlockCreationTiming outer = new BlockCreationTiming();
+    outer.register("protocolWait");
+    outer.registerAll(inner);
+    outer.register("importingBlock");
+
+    final String rendered = outer.toString();
+
+    assertThat(rendered).contains("txsSelectionHighScore=42ms");
+    assertThat(rendered.indexOf("txsSelection="))
+        .isLessThan(rendered.indexOf("txsSelectionHighScore="));
+    assertThat(rendered.indexOf("txsSelectionHighScore="))
+        .isLessThan(rendered.indexOf("blockAssembled="));
+  }
 }
