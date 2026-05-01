@@ -49,6 +49,7 @@
 
 ### Additions and Improvements
 - The option to set a different block period for empty BFT blocks (`emptyblockperiodseconds`) is no longer experimental. The experimental flag `xemptyblockperiodseconds` will be removed in a future release. [#10264](https://github.com/besu-eth/besu/pull/10264)
+- Add `enableReturnData` parameter to `debug_traceTransaction` and `debug_traceBlockByNumber`, and include `returnData` in `StructLog` when captured; the field is omitted when return data is empty or not captured. [#10172](https://github.com/besu-eth/besu/pull/10172)
 - Release worker threads after engine API timeout to avoid blocking subsequent requests [#10311](https://github.com/besu-eth/besu/pull/10311)
 - `evmtool blocktest --verbose` flag, default off, removes noise from output [#10348](https://github.com/besu-eth/besu/pull/10348)
 - Bound precompile result caches to the semantic-prefix slice and apply a 16 MB byte-weight cap per cache, providing a uniform memory ceiling across all 14 precompile caches [#10350](https://github.com/besu-eth/besu/pull/10350)
