@@ -523,7 +523,7 @@ public class EthServerTest {
 
     for (int i = 0; i < count; i++) {
       final Hash h = dataGenerator.hash();
-      final BlockAccessList bal = dataGenerator.blockAccessList();
+      final BlockAccessList bal = dataGenerator.blockAccessListWithoutRawRlp();
       hashes.add(h);
       accessLists.add(bal);
       when(blockchain.getBlockAccessList(h)).thenReturn(Optional.of(bal));
@@ -548,7 +548,7 @@ public class EthServerTest {
 
     for (int i = 0; i < count; i++) {
       final Hash h = dataGenerator.hash();
-      final BlockAccessList bal = dataGenerator.blockAccessList();
+      final BlockAccessList bal = dataGenerator.blockAccessListWithoutRawRlp();
       hashes.add(h);
       accessLists.add(bal);
       when(blockchain.getBlockAccessList(h)).thenReturn(Optional.of(bal));
@@ -558,7 +558,7 @@ public class EthServerTest {
     final List<BlockAccessList> expectedAccessLists = new ArrayList<>();
     for (int i = 0; i < 4; i++) {
       final BlockAccessList bal = accessLists.get(i);
-      expectedAccessLists.add(new BlockAccessList(bal.accountChanges()));
+      expectedAccessLists.add(bal);
       sizeLimit += calculateRlpEncodedSize(bal);
     }
 
