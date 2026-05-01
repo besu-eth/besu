@@ -37,6 +37,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import org.apache.commons.lang3.StringUtils;
@@ -75,11 +76,11 @@ class GetBlockAccessListsFromPeerTaskTest {
     final GetBlockAccessListsFromPeerTask task =
         new GetBlockAccessListsFromPeerTask(List.of(header));
 
-    final List<BlockAccessList> response =
+    final List<Optional<BlockAccessList>> response =
         task.processResponse(
             BlockAccessListsMessage.createFromBlockAccessLists(List.of(blockAccessList)), Set.of());
 
-    assertThat(response).containsExactly(blockAccessList);
+    assertThat(response).containsExactly(Optional.of(blockAccessList));
   }
 
   @Test
@@ -101,7 +102,7 @@ class GetBlockAccessListsFromPeerTaskTest {
     final GetBlockAccessListsFromPeerTask task =
         new GetBlockAccessListsFromPeerTask(List.of(header));
 
-    assertThat(task.validateResult(List.of(mismatchingBal)))
+    assertThat(task.validateResult(List.of(Optional.of(mismatchingBal))))
         .isEqualTo(PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY);
   }
 
@@ -147,11 +148,15 @@ class GetBlockAccessListsFromPeerTaskTest {
 
     assertThat(task.validateResult(List.of()))
         .isEqualTo(PeerTaskValidationResponse.NO_RESULTS_RETURNED);
-    assertThat(task.validateResult(List.of(new BlockAccessList(List.of()))))
+    assertThat(task.validateResult(List.of(Optional.empty())))
+        .isEqualTo(PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD);
+    assertThat(task.validateResult(List.of(Optional.of(new BlockAccessList(List.of())))))
         .isEqualTo(PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD);
     assertThat(
             task.validateResult(
-                List.of(new BlockAccessList(List.of()), new BlockAccessList(List.of()))))
+                List.of(
+                    Optional.of(new BlockAccessList(List.of())),
+                    Optional.of(new BlockAccessList(List.of())))))
         .isEqualTo(PeerTaskValidationResponse.TOO_MANY_RESULTS_RETURNED);
   }
 

@@ -31,16 +31,17 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.SubProtocol;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.function.Predicate;
+import java.util.stream.StreamSupport;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** PeerTask for requesting and validating block access lists against block headers. */
-public class GetBlockAccessListsFromPeerTask implements PeerTask<List<BlockAccessList>> {
+public class GetBlockAccessListsFromPeerTask implements PeerTask<List<Optional<BlockAccessList>>> {
 
   private static final Logger LOG = LoggerFactory.getLogger(GetBlockAccessListsFromPeerTask.class);
 
@@ -73,7 +74,7 @@ public class GetBlockAccessListsFromPeerTask implements PeerTask<List<BlockAcces
   }
 
   @Override
-  public List<BlockAccessList> processResponse(
+  public List<Optional<BlockAccessList>> processResponse(
       final MessageData messageData, final Set<Capability> agreedCapabilities)
       throws InvalidPeerTaskResponseException {
     if (messageData == null) {
@@ -81,16 +82,11 @@ public class GetBlockAccessListsFromPeerTask implements PeerTask<List<BlockAcces
       throw new InvalidPeerTaskResponseException("Null message data");
     }
     final BlockAccessListsMessage balMessage = BlockAccessListsMessage.readFrom(messageData);
-    final List<BlockAccessList> blockAccessLists = new ArrayList<>();
-    // TODO: This is wrong, this function should return List<Optional<BlockAccessList>>
-    balMessage
-        .blockAccessLists()
-        .forEach(maybeBlockAccessList -> maybeBlockAccessList.ifPresent(blockAccessLists::add));
-    return blockAccessLists;
+    return StreamSupport.stream(balMessage.blockAccessLists().spliterator(), false).toList();
   }
 
   @Override
-  public PeerTaskValidationResponse validateResult(final List<BlockAccessList> result) {
+  public PeerTaskValidationResponse validateResult(final List<Optional<BlockAccessList>> result) {
     if (result.isEmpty()) {
       return PeerTaskValidationResponse.NO_RESULTS_RETURNED;
     }
@@ -106,7 +102,14 @@ public class GetBlockAccessListsFromPeerTask implements PeerTask<List<BlockAcces
 
     for (int i = 0; i < result.size(); i++) {
       final Hash expectedBalHash = blockHeaders.get(i).getBalHash().orElse(null);
-      final Hash actualBalHash = BodyValidation.balHash(result.get(i));
+      final Optional<BlockAccessList> maybeBal = result.get(i);
+      if (maybeBal.isEmpty()) {
+        // If the request BAL lies beyond WSP, the peer may not have the BAL available
+        // legitimately. TODO: Verify legitimacy of BAL unavailability.
+        continue;
+      }
+
+      final Hash actualBalHash = BodyValidation.balHash(maybeBal.get());
       if (expectedBalHash == null || !expectedBalHash.equals(actualBalHash)) {
         LOG.atDebug()
             .setMessage(
