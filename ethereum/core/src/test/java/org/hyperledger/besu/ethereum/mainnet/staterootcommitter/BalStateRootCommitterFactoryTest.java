@@ -42,7 +42,6 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 
@@ -53,8 +52,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class BalStateRootCommitterFactoryTest {
-
-  private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(5);
 
   private ExecutionContextTestFixture contextTestFixture;
   private ProtocolContext protocolContext;
@@ -105,10 +102,7 @@ class BalStateRootCommitterFactoryTest {
 
     // Create committer in trusted mode
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().isBalStateRootTrusted(true).build();
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
@@ -158,10 +152,7 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().isBalStateRootTrusted(true).build();
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
@@ -212,7 +203,6 @@ class BalStateRootCommitterFactoryTest {
         ImmutableBalConfiguration.builder()
             .isBalStateRootTrusted(false)
             .isBalLenientOnStateRootMismatch(false)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
             .build();
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
@@ -266,7 +256,6 @@ class BalStateRootCommitterFactoryTest {
         ImmutableBalConfiguration.builder()
             .isBalStateRootTrusted(false)
             .isBalLenientOnStateRootMismatch(false)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
             .build();
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
@@ -316,7 +305,6 @@ class BalStateRootCommitterFactoryTest {
         ImmutableBalConfiguration.builder()
             .isBalStateRootTrusted(false)
             .isBalLenientOnStateRootMismatch(true) // Lenient mode
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
             .build();
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
@@ -362,10 +350,7 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().isBalStateRootTrusted(true).build();
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
@@ -384,10 +369,7 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().isBalStateRootTrusted(true).build();
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
 
@@ -450,10 +432,7 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().isBalStateRootTrusted(true).build();
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
@@ -493,10 +472,7 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().isBalStateRootTrusted(true).build();
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
@@ -539,10 +515,7 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().isBalStateRootTrusted(true).build();
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
@@ -591,10 +564,7 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().isBalStateRootTrusted(true).build();
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
@@ -666,10 +636,7 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().isBalStateRootTrusted(true).build();
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
@@ -733,10 +700,7 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().isBalStateRootTrusted(true).build();
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
@@ -815,10 +779,7 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().isBalStateRootTrusted(true).build();
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
@@ -877,7 +838,6 @@ class BalStateRootCommitterFactoryTest {
         ImmutableBalConfiguration.builder()
             .isBalStateRootTrusted(false) // Verification mode
             .isBalLenientOnStateRootMismatch(true) // Lenient to allow mismatch
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
             .build();
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
