@@ -71,7 +71,7 @@ public final class BlockAccessListsMessage extends AbstractMessageData {
     return EthProtocolMessages.BLOCK_ACCESS_LISTS;
   }
 
-  public Iterable<BlockAccessList> blockAccessLists() {
+  public Iterable<Optional<BlockAccessList>> blockAccessLists() {
     return BlockAccessListsMessageData.decode(data, false);
   }
 

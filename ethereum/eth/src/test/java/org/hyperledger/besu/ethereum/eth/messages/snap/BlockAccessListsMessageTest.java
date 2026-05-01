@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 
 import java.math.BigInteger;
 import java.util.List;
+import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 
@@ -38,7 +39,7 @@ public class BlockAccessListsMessageTest {
 
     final BlockAccessListsMessage message = BlockAccessListsMessage.readFrom(raw);
 
-    assertThat(message.blockAccessLists(true)).containsExactlyElementsOf(expected);
+    assertThat(message.blockAccessLists(true)).containsExactly(Optional.of(expected.getFirst()));
   }
 
   @Test

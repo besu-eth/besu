@@ -137,7 +137,7 @@ class SnapServerBlockAccessListsTest {
             snapServer.constructGetBlockAccessListsResponse(
                 request.wrapMessageData(BigInteger.ONE));
 
-    assertThat(response.blockAccessLists(false)).containsExactly(hugeBlockAccessList);
+    assertThat(response.blockAccessLists(false)).containsExactly(Optional.of(hugeBlockAccessList));
     verify(blockchain, never()).getBlockAccessList(secondHash);
   }
 

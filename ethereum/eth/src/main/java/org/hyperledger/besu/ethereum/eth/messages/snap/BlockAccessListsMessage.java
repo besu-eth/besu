@@ -60,7 +60,7 @@ public final class BlockAccessListsMessage extends AbstractSnapMessageData {
     return SnapV2.BLOCK_ACCESS_LISTS;
   }
 
-  public Iterable<BlockAccessList> blockAccessLists(final boolean withRequestId) {
+  public Iterable<Optional<BlockAccessList>> blockAccessLists(final boolean withRequestId) {
     return BlockAccessListsMessageData.decode(data, withRequestId);
   }
 

@@ -82,7 +82,10 @@ public class GetBlockAccessListsFromPeerTask implements PeerTask<List<BlockAcces
     }
     final BlockAccessListsMessage balMessage = BlockAccessListsMessage.readFrom(messageData);
     final List<BlockAccessList> blockAccessLists = new ArrayList<>();
-    balMessage.blockAccessLists().forEach(blockAccessLists::add);
+    // TODO: This is wrong, this function should return List<Optional<BlockAccessList>>
+    balMessage
+        .blockAccessLists()
+        .forEach(maybeBlockAccessList -> maybeBlockAccessList.ifPresent(blockAccessLists::add));
     return blockAccessLists;
   }
 

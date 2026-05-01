@@ -53,7 +53,8 @@ public final class BlockAccessListsMessageData {
     return output.encoded();
   }
 
-  public static Iterable<BlockAccessList> decode(final Bytes data, final boolean withRequestId) {
+  public static Iterable<Optional<BlockAccessList>> decode(
+      final Bytes data, final boolean withRequestId) {
     return () ->
         new Iterator<>() {
           private final RLPInput input = new BytesValueRLPInput(data, false);
@@ -77,12 +78,16 @@ public final class BlockAccessListsMessageData {
           }
 
           @Override
-          public BlockAccessList next() {
+          public Optional<BlockAccessList> next() {
             ensureInitialized();
             if (!hasNext()) {
               throw new NoSuchElementException();
             }
-            return BlockAccessListDecoder.decode(input.readAsRlp());
+            final RLPInput blockAccessListInput = input.readAsRlp();
+            if (blockAccessListInput.raw().isEmpty()) {
+              return Optional.empty();
+            }
+            return Optional.of(BlockAccessListDecoder.decode(blockAccessListInput));
           }
         };
   }
