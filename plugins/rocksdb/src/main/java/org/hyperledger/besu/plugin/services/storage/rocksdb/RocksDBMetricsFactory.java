@@ -81,14 +81,6 @@ public class RocksDBMetricsFactory {
                 "Latency for read from RocksDB.",
                 "database")
             .labels(rocksDbConfiguration.getLabel());
-    final OperationTimer multiReadLatency =
-        metricsSystem
-            .createLabelledTimer(
-                rocksDbMetricCategory,
-                "multi_read_latency_seconds",
-                "Latency for multi read from RocksDB.",
-                "database")
-            .labels(rocksDbConfiguration.getLabel());
     final OperationTimer removeLatency =
         metricsSystem
             .createLabelledTimer(
@@ -103,6 +95,14 @@ public class RocksDBMetricsFactory {
                 rocksDbMetricCategory,
                 "write_latency_seconds",
                 "Latency for write to RocksDB.",
+                "database")
+            .labels(rocksDbConfiguration.getLabel());
+    final OperationTimer commitLatency =
+        metricsSystem
+            .createLabelledTimer(
+                rocksDbMetricCategory,
+                "commit_latency_seconds",
+                "Latency for commits to RocksDB.",
                 "database")
             .labels(rocksDbConfiguration.getLabel());
 
@@ -144,6 +144,6 @@ public class RocksDBMetricsFactory {
             .labels(rocksDbConfiguration.getLabel());
 
     return new RocksDBMetrics(
-        readLatency, multiReadLatency, removeLatency, writeLatency, rollbackCount);
+        readLatency, removeLatency, writeLatency, commitLatency, rollbackCount);
   }
 }

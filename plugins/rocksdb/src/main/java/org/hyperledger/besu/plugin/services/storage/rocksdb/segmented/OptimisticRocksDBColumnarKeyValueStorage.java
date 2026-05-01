@@ -110,6 +110,7 @@ public class OptimisticRocksDBColumnarKeyValueStorage extends RocksDBColumnarKey
   @Override
   public RocksDBColumnarKeyValueSnapshot takeSnapshot() throws StorageException {
     throwIfClosed();
-    return new RocksDBColumnarKeyValueSnapshot(db, this::safeColumnHandle, metrics);
+    return new RocksDBColumnarKeyValueSnapshot(
+        db, configuration.isReadCacheEnabledForSnapshots(), this::safeColumnHandle, metrics);
   }
 }

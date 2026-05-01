@@ -53,54 +53,6 @@ public class VersionedCacheManager implements CacheManager, Closeable {
   /** Default threshold of pending tasks before triggering automatic maintenance. */
   private static final int DEFAULT_DRAIN_THRESHOLD = 1000;
 
-  /**
-   * An executor that queues maintenance tasks instead of running them immediately. This prevents
-   * Caffeine's scheduleDrainBuffers from impacting read/write performance. When the number of
-   * pending tasks exceeds a configurable threshold, an async maintenance is submitted.
-   */
-  private static class ThresholdDrainExecutor implements java.util.concurrent.Executor {
-    private final Queue<Runnable> tasks = new ConcurrentLinkedQueue<>();
-    private final AtomicInteger pendingCount = new AtomicInteger(0);
-    private final int drainThreshold;
-    private final Runnable onThresholdReached;
-
-    ThresholdDrainExecutor(final int drainThreshold, final Runnable onThresholdReached) {
-      this.drainThreshold = drainThreshold;
-      this.onThresholdReached = onThresholdReached;
-    }
-
-    @Override
-    public void execute(final Runnable command) {
-      tasks.add(command);
-      if (pendingCount.incrementAndGet() >= drainThreshold) {
-        onThresholdReached.run();
-      }
-    }
-
-    /**
-     * Execute all pending maintenance tasks.
-     *
-     * @return the number of tasks that were drained
-     */
-    public int drain() {
-      int drained = 0;
-      Runnable task;
-      while ((task = tasks.poll()) != null) {
-        task.run();
-        drained++;
-      }
-      pendingCount.addAndGet(-drained);
-      return drained;
-    }
-
-    /**
-     * @return the approximate number of pending tasks
-     */
-    public int getPendingCount() {
-      return pendingCount.get();
-    }
-  }
-
   private final AtomicLong globalVersion = new AtomicLong(0);
   private final Map<SegmentIdentifier, Cache<ByteArrayWrapper, VersionedValue>> caches;
   private final ThresholdDrainExecutor drainExecutor;
@@ -463,5 +415,53 @@ public class VersionedCacheManager implements CacheManager, Closeable {
     return cache != null
         ? Optional.ofNullable(cache.getIfPresent(new ByteArrayWrapper(key)))
         : Optional.empty();
+  }
+
+  /**
+   * An executor that queues maintenance tasks instead of running them immediately. This prevents
+   * Caffeine's scheduleDrainBuffers from impacting read/write performance. When the number of
+   * pending tasks exceeds a configurable threshold, an async maintenance is submitted.
+   */
+  private static class ThresholdDrainExecutor implements java.util.concurrent.Executor {
+    private final Queue<Runnable> tasks = new ConcurrentLinkedQueue<>();
+    private final AtomicInteger pendingCount = new AtomicInteger(0);
+    private final int drainThreshold;
+    private final Runnable onThresholdReached;
+
+    ThresholdDrainExecutor(final int drainThreshold, final Runnable onThresholdReached) {
+      this.drainThreshold = drainThreshold;
+      this.onThresholdReached = onThresholdReached;
+    }
+
+    @Override
+    public void execute(final Runnable command) {
+      tasks.add(command);
+      if (pendingCount.incrementAndGet() >= drainThreshold) {
+        onThresholdReached.run();
+      }
+    }
+
+    /**
+     * Execute all pending maintenance tasks.
+     *
+     * @return the number of tasks that were drained
+     */
+    public int drain() {
+      int drained = 0;
+      Runnable task;
+      while ((task = tasks.poll()) != null) {
+        task.run();
+        drained++;
+      }
+      pendingCount.addAndGet(-drained);
+      return drained;
+    }
+
+    /**
+     * @return the approximate number of pending tasks
+     */
+    public int getPendingCount() {
+      return pendingCount.get();
+    }
   }
 }

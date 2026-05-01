@@ -228,7 +228,9 @@ bonsai-trie-logs-pruning-window-size=100_000
 receipt-compaction-enabled=true
 bonsai-parallel-tx-processing-enabled=false
 bonsai-parallel-state-root-computation-enabled=false
-bonsai-cache-enabled=false
+Xbonsai-cross-block-cache-enabled=false
+Xbonsai-cross-block-cache-account-max-size=100
+Xbonsai-cross-block-cache-storage-max-size=100
 
 # feature flags
 Xsecp256k1-native-enabled=false

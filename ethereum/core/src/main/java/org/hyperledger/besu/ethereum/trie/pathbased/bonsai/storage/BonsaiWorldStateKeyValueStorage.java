@@ -107,10 +107,19 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
 
   private static CacheManager createCacheManager(
       final DataStorageConfiguration dataStorageConfiguration, final MetricsSystem metricsSystem) {
-    if (dataStorageConfiguration.getBonsaiCacheEnabled()) {
+    if (dataStorageConfiguration
+        .getPathBasedExtraStorageConfiguration()
+        .getUnstable()
+        .getBonsaiCrossBlockCacheEnabled()) {
       return new VersionedCacheManager(
-          100_000, // accountCacheSize
-          500_000, // storageCacheSize
+          dataStorageConfiguration
+              .getPathBasedExtraStorageConfiguration()
+              .getUnstable()
+              .getBonsaiCrossBlockCacheAccountSize(),
+          dataStorageConfiguration
+              .getPathBasedExtraStorageConfiguration()
+              .getUnstable()
+              .getBonsaiCrossBlockCacheStorageSize(),
           metricsSystem);
     } else {
       return CacheManager.EMPTY_CACHE;

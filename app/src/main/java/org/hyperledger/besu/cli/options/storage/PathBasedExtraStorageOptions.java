@@ -20,6 +20,9 @@ import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConf
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.DEFAULT_PARALLEL_TX_PROCESSING;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.DEFAULT_TRIE_LOG_PRUNING_WINDOW_SIZE;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.MINIMUM_TRIE_LOG_RETENTION_LIMIT;
+import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.PathBasedUnstable.DEFAULT_BONSAI_CROSS_BLOCK_CACHE_ACCOUNT_SIZE;
+import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.PathBasedUnstable.DEFAULT_BONSAI_CROSS_BLOCK_CACHE_ENABLED;
+import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.PathBasedUnstable.DEFAULT_BONSAI_CROSS_BLOCK_CACHE_STORAGE_SIZE;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.PathBasedUnstable.DEFAULT_CODE_USING_CODE_HASH_ENABLED;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.PathBasedUnstable.DEFAULT_FULL_FLAT_DB_ENABLED;
 
@@ -117,6 +120,29 @@ public class PathBasedExtraStorageOptions
             "Enables code storage using code hash instead of by account hash. (default: ${DEFAULT-VALUE})")
     private boolean codeUsingCodeHashEnabled = DEFAULT_CODE_USING_CODE_HASH_ENABLED;
 
+    @Option(
+        hidden = true,
+        names = "--Xbonsai-cross-block-cache-enabled",
+        description = "Enables the Bonsai cross-block cache (default: ${DEFAULT-VALUE}).",
+        fallbackValue = "true")
+    private Boolean bonsaiCrossBlockCacheEnabled = DEFAULT_BONSAI_CROSS_BLOCK_CACHE_ENABLED;
+
+    @Option(
+        hidden = true,
+        names = "--Xbonsai-cross-block-cache-account-max-size",
+        paramLabel = "<LONG>",
+        description =
+            "Maximum account-segment entries when the cross-block cache is enabled (default: ${DEFAULT-VALUE}).")
+    private Long bonsaiCrossBlockCacheAccountSize = DEFAULT_BONSAI_CROSS_BLOCK_CACHE_ACCOUNT_SIZE;
+
+    @Option(
+        hidden = true,
+        names = "--Xbonsai-cross-block-cache-storage-max-size",
+        paramLabel = "<LONG>",
+        description =
+            "Maximum storage-segment entries when the cross-block cache is enabled (default: ${DEFAULT-VALUE}).")
+    private Long bonsaiCrossBlockCacheStorageSize = DEFAULT_BONSAI_CROSS_BLOCK_CACHE_STORAGE_SIZE;
+
     /** Default Constructor. */
     Unstable() {}
   }
@@ -184,6 +210,12 @@ public class PathBasedExtraStorageOptions
         domainObject.getUnstable().getFullFlatDbEnabled();
     dataStorageOptions.unstableOptions.codeUsingCodeHashEnabled =
         domainObject.getUnstable().getCodeStoredByCodeHashEnabled();
+    dataStorageOptions.unstableOptions.bonsaiCrossBlockCacheEnabled =
+        domainObject.getUnstable().getBonsaiCrossBlockCacheEnabled();
+    dataStorageOptions.unstableOptions.bonsaiCrossBlockCacheAccountSize =
+        domainObject.getUnstable().getBonsaiCrossBlockCacheAccountSize();
+    dataStorageOptions.unstableOptions.bonsaiCrossBlockCacheStorageSize =
+        domainObject.getUnstable().getBonsaiCrossBlockCacheStorageSize();
     dataStorageOptions.isParallelTxProcessingEnabled =
         domainObject.getParallelTxProcessingEnabled();
     dataStorageOptions.isParallelStateRootComputationEnabled =
@@ -204,6 +236,9 @@ public class PathBasedExtraStorageOptions
             ImmutablePathBasedExtraStorageConfiguration.PathBasedUnstable.builder()
                 .fullFlatDbEnabled(unstableOptions.fullFlatDbEnabled)
                 .codeStoredByCodeHashEnabled(unstableOptions.codeUsingCodeHashEnabled)
+                .bonsaiCrossBlockCacheEnabled(unstableOptions.bonsaiCrossBlockCacheEnabled)
+                .bonsaiCrossBlockCacheAccountSize(unstableOptions.bonsaiCrossBlockCacheAccountSize)
+                .bonsaiCrossBlockCacheStorageSize(unstableOptions.bonsaiCrossBlockCacheStorageSize)
                 .build())
         .build();
   }

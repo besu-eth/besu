@@ -87,6 +87,9 @@ public interface PathBasedExtraStorageConfiguration {
 
     boolean DEFAULT_FULL_FLAT_DB_ENABLED = true;
     boolean DEFAULT_CODE_USING_CODE_HASH_ENABLED = true;
+    boolean DEFAULT_BONSAI_CROSS_BLOCK_CACHE_ENABLED = false;
+    long DEFAULT_BONSAI_CROSS_BLOCK_CACHE_ACCOUNT_SIZE = 100_000L;
+    long DEFAULT_BONSAI_CROSS_BLOCK_CACHE_STORAGE_SIZE = 500_000L;
 
     @Value.Default
     default boolean getFullFlatDbEnabled() {
@@ -96,6 +99,21 @@ public interface PathBasedExtraStorageConfiguration {
     @Value.Default
     default boolean getCodeStoredByCodeHashEnabled() {
       return DEFAULT_CODE_USING_CODE_HASH_ENABLED;
+    }
+
+    @Value.Default
+    default boolean getBonsaiCrossBlockCacheEnabled() {
+      return DEFAULT_BONSAI_CROSS_BLOCK_CACHE_ENABLED;
+    }
+
+    @Value.Default
+    default long getBonsaiCrossBlockCacheAccountSize() {
+      return DEFAULT_BONSAI_CROSS_BLOCK_CACHE_ACCOUNT_SIZE;
+    }
+
+    @Value.Default
+    default long getBonsaiCrossBlockCacheStorageSize() {
+      return DEFAULT_BONSAI_CROSS_BLOCK_CACHE_STORAGE_SIZE;
     }
   }
 }

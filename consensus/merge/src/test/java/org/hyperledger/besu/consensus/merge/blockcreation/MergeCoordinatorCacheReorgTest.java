@@ -65,6 +65,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ImmutablePathBasedExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
@@ -155,8 +156,13 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
     final DataStorageConfiguration dataStorageConfig =
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(DataStorageFormat.BONSAI)
-            .pathBasedExtraStorageConfiguration(PathBasedExtraStorageConfiguration.DEFAULT)
-            .bonsaiCacheEnabled(true)
+            .pathBasedExtraStorageConfiguration(
+                ImmutablePathBasedExtraStorageConfiguration.builder()
+                    .unstable(
+                        ImmutablePathBasedExtraStorageConfiguration.PathBasedUnstable.builder()
+                            .bonsaiCrossBlockCacheEnabled(true)
+                            .build())
+                    .build())
             .build();
 
     final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage =
