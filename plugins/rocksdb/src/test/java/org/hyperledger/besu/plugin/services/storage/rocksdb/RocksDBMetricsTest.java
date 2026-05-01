@@ -76,7 +76,7 @@ public class RocksDBMetricsTest {
 
     RocksDBMetricsFactory.PUBLIC_ROCKS_DB_METRICS.create(metricsSystemMock, config(), db, stats);
 
-    verify(metricsSystemMock, times(4))
+    verify(metricsSystemMock, times(5))
         .createLabelledTimer(
             eq(BesuMetricCategory.KVSTORE_ROCKSDB),
             labelledTimersMetricsNameArgs.capture(),

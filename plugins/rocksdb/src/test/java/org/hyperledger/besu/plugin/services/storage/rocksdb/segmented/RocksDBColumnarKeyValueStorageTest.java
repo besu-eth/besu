@@ -320,7 +320,7 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
 
       // Assertions
       assertThat(keyValueStorage).isNotNull();
-      verify(metricsSystemMock, times(4))
+      verify(metricsSystemMock, times(5))
           .createLabelledTimer(
               eq(BesuMetricCategory.KVSTORE_ROCKSDB),
               labelledTimersMetricsNameArgs.capture(),

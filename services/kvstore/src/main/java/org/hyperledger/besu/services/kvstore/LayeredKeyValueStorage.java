@@ -83,6 +83,21 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
   @Override
   public Optional<byte[]> get(final SegmentIdentifier segmentId, final byte[] key)
       throws StorageException {
+    return get(segmentId, key, null);
+  }
+
+  /**
+   * Get value with optional cache function.
+   *
+   * @param segmentId the segment identifier
+   * @param key the key
+   * @param cacheGetFunction function that takes persistent storage and returns cached value
+   * @return Optional value
+   */
+  public Optional<byte[]> get(
+      final SegmentIdentifier segmentId,
+      final byte[] key,
+      final Function<SegmentedKeyValueStorage, Optional<byte[]>> cacheGetFunction) {
     throwIfClosed();
 
     final Lock lock = rwLock.readLock();
@@ -91,9 +106,22 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
       Bytes wrapKey = Bytes.wrap(key);
       final Optional<byte[]> foundKey =
           hashValueStore.computeIfAbsent(segmentId, __ -> newSegmentMap()).get(wrapKey);
+
       if (foundKey == null) {
-        return parent.get(segmentId, key);
+        // Not in this layer, delegate to parent
+        if (parent instanceof LayeredKeyValueStorage) {
+          // Parent is also layered, continue traversing with cache function
+          return ((LayeredKeyValueStorage) parent).get(segmentId, key, cacheGetFunction);
+        } else {
+          // Parent is persistent storage - use cache if available
+          if (cacheGetFunction != null) {
+            return cacheGetFunction.apply(parent);
+          } else {
+            return parent.get(segmentId, key);
+          }
+        }
       } else {
+        // Found in this layer
         return foundKey;
       }
     } finally {
