@@ -83,9 +83,10 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
    * For Bonsai trie-hot column families ({@code TRIE_BRANCH_STORAGE}, {@code ACCOUNT_INFO_STATE},
    * {@code ACCOUNT_STORAGE_STORAGE}), the block cache capacity Besu applies is the normal
    * high-spec or CLI-configured cache size multiplied by this factor so {@code
-   * cache_index_and_filter_blocks=true} does not crowd out data blocks as aggressively.
+   * cache_index_and_filter_blocks=true} does not crowd out data blocks as aggressively. With the
+   * default 128 MiB base capacity, hot column families use 1 GiB each ({@code 128 MiB * 8}).
    */
-  private static final long BONSAI_TRIE_HOT_BLOCK_CACHE_SIZE_MULTIPLIER = 3L;
+  private static final long BONSAI_TRIE_HOT_BLOCK_CACHE_SIZE_MULTIPLIER = 8L;
 
   /** Max total size of all WAL file, after which a flush is triggered */
   protected static final long WAL_MAX_TOTAL_SIZE = 1_073_741_824L;
@@ -386,6 +387,10 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   /***
    * Set Global options (DBOptions)
    *
+   * <p>Also sets {@link DBOptions#setMaxBackgroundJobs} from {@link
+   * RocksDBConfiguration#getBackgroundThreadCount()} so RocksDB does not stay at its low internal
+   * default during heavy sync (Env threads alone did not raise this in observed logs).
+   *
    * @param configuration RocksDB configuration
    * @param stats The statistics object
    */
@@ -417,6 +422,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         dbOpts
             .setCreateIfMissing(true)
             .setMaxOpenFiles(configuration.getMaxOpenFiles())
+            .setMaxBackgroundJobs(configuration.getBackgroundThreadCount())
             .setStatistics(stats)
             .setCreateMissingColumnFamilies(true)
             .setLogFileTimeToRoll(TIME_TO_ROLL_LOG_FILE)

@@ -25,11 +25,14 @@ public class RocksDBCLIOptions {
   /** The constant DEFAULT_MAX_OPEN_FILES ({@code -1} = unlimited in RocksDB). */
   public static final int DEFAULT_MAX_OPEN_FILES = -1;
 
-  /** The constant DEFAULT_CACHE_CAPACITY. */
-  public static final long DEFAULT_CACHE_CAPACITY = 134217728;
+  /** The constant DEFAULT_CACHE_CAPACITY (128 MiB per column family block cache). */
+  public static final long DEFAULT_CACHE_CAPACITY = 134217728L;
 
-  /** The constant DEFAULT_BACKGROUND_THREAD_COUNT. */
-  public static final int DEFAULT_BACKGROUND_THREAD_COUNT = 4;
+  /**
+   * Default RocksDB high-priority background thread count (Env). Also drives {@code
+   * DBOptions#setMaxBackgroundJobs} so compaction keeps up during heavy sync.
+   */
+  public static final int DEFAULT_BACKGROUND_THREAD_COUNT = 8;
 
   /** The constant DEFAULT_IS_HIGH_SPEC. */
   public static final boolean DEFAULT_IS_HIGH_SPEC = false;
@@ -97,7 +100,7 @@ public class RocksDBCLIOptions {
   @CommandLine.Option(
       names = {BACKGROUND_THREAD_COUNT_FLAG},
       hidden = true,
-      defaultValue = "4",
+      defaultValue = "8",
       paramLabel = "<INTEGER>",
       description = "Number of RocksDB background threads (default: ${DEFAULT-VALUE})")
   int backgroundThreadCount;
