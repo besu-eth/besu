@@ -35,7 +35,21 @@ public class AccountConsumingMap<T> extends ForwardingMap<Address, T> {
   @Override
   public T put(@NotNull final Address address, @NotNull final T value) {
     consumer.process(address, value);
+    return putWithoutPreload(address, value);
+  }
+
+  /**
+   * Insert without triggering the preload consumer. Use when the account is already known to the
+   * caller (e.g. merging an executed transaction's changes into the block accumulator) so spawning
+   * an async trie-node fetch would only burn cycles.
+   */
+  public T putWithoutPreload(@NotNull final Address address, @NotNull final T value) {
     return accounts.put(address, value);
+  }
+
+  /** Same as {@link #putWithoutPreload} but only inserts when the key is absent. */
+  public T putIfAbsentWithoutPreload(@NotNull final Address address, @NotNull final T value) {
+    return accounts.putIfAbsent(address, value);
   }
 
   public Consumer<T> getConsumer() {
