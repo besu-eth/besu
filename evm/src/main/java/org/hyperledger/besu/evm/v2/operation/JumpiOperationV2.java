@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.evm.v2.operation;
 
-import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -38,8 +37,7 @@ public class JumpiOperationV2 extends AbstractFixedCostOperationV2 {
   }
 
   @Override
-  public Operation.OperationResult executeFixedCostOperation(
-      final MessageFrame frame, final EVM evm) {
+  public Operation.OperationResult executeFixedCostOperation(final MessageFrame frame) {
     return staticOperation(frame, frame.stackDataV2());
   }
 
@@ -51,7 +49,7 @@ public class JumpiOperationV2 extends AbstractFixedCostOperationV2 {
    * @return the operation result
    */
   public static OperationResult staticOperation(final MessageFrame frame, final long[] s) {
-    if (!frame.stackHasItems(2)) return UNDERFLOW_RESPONSE;
+    if (!frame.stackHasItemsV2(2)) return UNDERFLOW_RESPONSE;
     final int top = frame.stackTopV2();
     final int destOff = (top - 1) << 2;
     final int condOff = (top - 2) << 2;

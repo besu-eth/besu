@@ -100,7 +100,7 @@ public class SStoreOperationV2 extends AbstractOperationV2 {
       final long[] s,
       final GasCalculator gasCalculator,
       final long minimumGasRemaining) {
-    if (!frame.stackHasItems(2)) {
+    if (!frame.stackHasItemsV2(2)) {
       return new OperationResult(0, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
     }
 

@@ -22,11 +22,13 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.EVM;
+import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.frame.SoftFailureReason;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.v2.StackArithmetic;
 
 import java.util.Optional;
@@ -68,7 +70,7 @@ public abstract class AbstractCreateOperationV2 extends AbstractOperationV2 {
 
   @Override
   public OperationResult execute(final MessageFrame frame, final EVM evm) {
-    if (!frame.stackHasItems(getStackItemsConsumed())) {
+    if (!frame.stackHasItemsV2(getStackItemsConsumed())) {
       return UNDERFLOW_RESPONSE;
     }
 
@@ -86,6 +88,15 @@ public abstract class AbstractCreateOperationV2 extends AbstractOperationV2 {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
+    // EIP-3860: the initcode-size limit is an early exceptional abort, so it must be
+    // evaluated against the stack-declared size before initcode is resolved from
+    // memory (which would expand memory based on an unvalidated length) and before
+    // state gas is charged below.
+    if (getInputSize(s, top) > evm.getMaxInitcodeSize()) {
+      frame.setTopV2(top - getStackItemsConsumed());
+      return new OperationResult(cost, ExceptionalHaltReason.CODE_TOO_LARGE);
+    }
+
     final Wei value = Wei.wrap(Bytes.wrap(StackArithmetic.getAt(s, top, 0).toBytesBE()));
 
     final Address address = frame.getRecipientAddress();
@@ -93,19 +104,14 @@ public abstract class AbstractCreateOperationV2 extends AbstractOperationV2 {
 
     frame.clearReturnData();
 
-    Code code = codeSupplier.get();
-
-    if (code != null && code.getSize() > evm.getMaxInitcodeSize()) {
-      final int newTop = top - getStackItemsConsumed();
-      frame.setTopV2(newTop);
-      return new OperationResult(cost, ExceptionalHaltReason.CODE_TOO_LARGE);
-    }
+    final Code code = codeSupplier.get();
 
     final boolean insufficientBalance = value.compareTo(account.getBalance()) > 0;
     final boolean maxDepthReached = frame.getDepth() >= 1024;
     final boolean invalidState = account.getNonce() == -1 || code == null;
 
     if (insufficientBalance || maxDepthReached || invalidState) {
+      // EIP-8037: nothing to refund — a silent failure lands before any state gas is charged.
       fail(frame, s, top);
       final SoftFailureReason softFailureReason =
           insufficientBalance
@@ -115,14 +121,27 @@ public abstract class AbstractCreateOperationV2 extends AbstractOperationV2 {
     }
 
     account.incrementNonce();
-    frame.decrementRemainingGas(cost);
 
-    // EIP-8037: Charge state gas for CREATE
-    if (!gasCalculator().stateGasCostCalculator().chargeCreateStateGas(frame)) {
-      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    // EIP-8037: an existent target adds no leaf, so it owes no NEW_ACCOUNT, and complete() needs
+    // the same answer to know whether a failed create has anything to refill. Existent is the
+    // EIP-161 sense — the address already has a state trie leaf, i.e. it is present and non-empty.
+    // EIP-7928: the existence check is also what puts the target in the block access list, so it
+    // stays listed even if the charge below runs out of gas.
+    final Address contractAddress = generateTargetContractAddress(frame, s, top, code);
+    // Pre-Amsterdam forks need neither the existence answer nor the access-list entry.
+    final StateGasCostCalculator stateGasCalc = gasCalculator().stateGasCostCalculator();
+    boolean targetExists = false;
+    if (stateGasCalc.isActive()) {
+      final Account existingTarget = getAccount(contractAddress, frame);
+      targetExists = existingTarget != null && !existingTarget.isEmpty();
     }
 
-    spawnChildMessage(frame, s, top, value, code);
+    // EIP-8037: execution gas is deducted before state gas is charged (ordering requirement).
+    frame.decrementRemainingGas(cost);
+    if (!targetExists && !frame.consumeStateGas(stateGasCalc.newContractStateGas())) {
+      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+    spawnChildMessage(frame, value, code, contractAddress, targetExists);
     frame.incrementRemainingGas(cost);
 
     return new OperationResult(cost, null, getPcIncrement());
@@ -170,6 +189,18 @@ public abstract class AbstractCreateOperationV2 extends AbstractOperationV2 {
   protected abstract Code getInitCode(MessageFrame frame, EVM evm);
 
   /**
+   * Returns the declared initcode size from the stack, clamped to a long. Used for the EIP-3860
+   * size check before initcode is resolved from memory.
+   *
+   * @param s the v2 stack array
+   * @param top the current stack top
+   * @return the requested initcode size
+   */
+  protected long getInputSize(final long[] s, final int top) {
+    return StackArithmetic.clampedToLong(s, top, 2);
+  }
+
+  /**
    * Handles stack when the operation fails (insufficient balance, depth limit, invalid state).
    *
    * @param frame the current execution frame
@@ -186,8 +217,11 @@ public abstract class AbstractCreateOperationV2 extends AbstractOperationV2 {
   }
 
   private void spawnChildMessage(
-      final MessageFrame parent, final long[] s, final int top, final Wei value, final Code code) {
-    final Address contractAddress = generateTargetContractAddress(parent, s, top, code);
+      final MessageFrame parent,
+      final Wei value,
+      final Code code,
+      final Address contractAddress,
+      final boolean targetExists) {
     final Bytes inputData = getInputData(parent);
 
     final long childGasStipend =
@@ -207,7 +241,7 @@ public abstract class AbstractCreateOperationV2 extends AbstractOperationV2 {
             .apparentValue(value)
             .code(code)
             .enableEvmV2(true)
-            .completer(child -> complete(parent, child));
+            .completer(child -> complete(parent, child, targetExists));
 
     if (parent.getEip7928AccessList().isPresent()) {
       builder.eip7928AccessList(parent.getEip7928AccessList().get());
@@ -229,7 +263,8 @@ public abstract class AbstractCreateOperationV2 extends AbstractOperationV2 {
     return Bytes.EMPTY;
   }
 
-  private void complete(final MessageFrame frame, final MessageFrame childFrame) {
+  private void complete(
+      final MessageFrame frame, final MessageFrame childFrame, final boolean targetExists) {
     frame.setState(MessageFrame.State.CODE_EXECUTING);
 
     frame.incrementRemainingGas(childFrame.getRemainingGas());
@@ -243,10 +278,21 @@ public abstract class AbstractCreateOperationV2 extends AbstractOperationV2 {
 
     if (childFrame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
       final Address createdAddress = childFrame.getContractAddress();
+      // The parent takes over the child's spill, so later refunds in this frame unwind the
+      // combined spill rather than only this frame's share.
+      frame.incrementStateGasSpilled(childFrame.getStateGasSpilled());
+      // EIP-8037: a successful create adds the leaf it was charged for, so the charge stands.
+      frame.settleStateGasOnChildSuccess();
       frame.setTopV2(StackArithmetic.pushAddress(s, newTop - 1, createdAddress));
       frame.setReturnData(Bytes.EMPTY);
       onSuccess(frame, createdAddress);
     } else {
+      // EIP-8037: no account was created, so refill whatever was charged for it. The child's own
+      // state gas was already unwound by AbstractMessageProcessor.
+      if (!targetExists) {
+        frame.refillStateGasReservoir(
+            gasCalculator().stateGasCostCalculator().newContractStateGas());
+      }
       frame.setReturnData(childFrame.getOutputData());
       StackArithmetic.putAt(s, newTop, 0, 0L, 0L, 0L, 0L);
       frame.setTopV2(newTop);

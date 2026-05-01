@@ -54,7 +54,7 @@ public class BlockHashOperationV2 extends AbstractOperationV2 {
    */
   public static OperationResult staticOperation(final MessageFrame frame, final long[] s) {
     final long cost = 20L;
-    if (!frame.stackHasItems(1)) {
+    if (!frame.stackHasItemsV2(1)) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
     }
     if (frame.getRemainingGas() < cost) {

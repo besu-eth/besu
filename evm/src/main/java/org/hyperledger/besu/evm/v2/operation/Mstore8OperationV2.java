@@ -48,7 +48,7 @@ public class Mstore8OperationV2 extends AbstractOperationV2 {
    */
   public static Operation.OperationResult staticOperation(
       final MessageFrame frame, final long[] stack, final GasCalculator gasCalculator) {
-    if (!frame.stackHasItems(2)) {
+    if (!frame.stackHasItemsV2(2)) {
       return new OperationResult(0, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
     }
     final int top = frame.stackTopV2();

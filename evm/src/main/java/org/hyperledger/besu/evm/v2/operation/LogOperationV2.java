@@ -64,7 +64,7 @@ public class LogOperationV2 extends AbstractOperationV2 {
       final long[] s,
       final int numTopics,
       final GasCalculator gasCalculator) {
-    if (!frame.stackHasItems(2 + numTopics)) {
+    if (!frame.stackHasItemsV2(2 + numTopics)) {
       return new OperationResult(0, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
     }
     final int top = frame.stackTopV2();

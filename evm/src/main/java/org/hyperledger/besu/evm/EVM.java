@@ -185,6 +185,7 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -258,7 +259,7 @@ public class EVM {
     // ChainIdOperation is only registered for Istanbul+, so the instanceof check is the gate.
     Operation chainIdOp = operations.get(ChainIdOperation.OPCODE);
     if (chainIdOp instanceof ChainIdOperation cid) {
-      chainIdOperationV2 = new ChainIdOperationV2(gasCalculator, cid.getChainId());
+      chainIdOperationV2 = new ChainIdOperationV2(gasCalculator, Bytes32.wrap(cid.getChainId()));
     } else {
       chainIdOperationV2 = null;
     }
@@ -771,8 +772,7 @@ public class EVM {
               // Data copy / hash / account operations
               case 0x20 ->
                   Keccak256OperationV2.staticOperation(frame, frame.stackDataV2(), gasCalculator);
-              case 0x31 ->
-                  BalanceOperationV2.staticOperation(frame, frame.stackDataV2(), gasCalculator);
+              case 0x31 -> BalanceOperationV2.staticOperation(frame, gasCalculator);
               case 0x35 -> CallDataLoadOperationV2.staticOperation(frame, frame.stackDataV2());
               case 0x37 ->
                   CallDataCopyOperationV2.staticOperation(
@@ -796,7 +796,7 @@ public class EVM {
               case 0x40 -> BlockHashOperationV2.staticOperation(frame, frame.stackDataV2());
               case 0x47 ->
                   enableIstanbul
-                      ? SelfBalanceOperationV2.staticOperation(frame, frame.stackDataV2())
+                      ? SelfBalanceOperationV2.staticOperation(frame)
                       : InvalidOperation.invalidOperationResult(opcode);
               case 0x49 ->
                   enableCancun
@@ -806,33 +806,33 @@ public class EVM {
               case 0x30 -> AddressOperationV2.staticOperation(frame, frame.stackDataV2());
               case 0x32 -> OriginOperationV2.staticOperation(frame, frame.stackDataV2());
               case 0x33 -> CallerOperationV2.staticOperation(frame, frame.stackDataV2());
-              case 0x34 -> CallValueOperationV2.staticOperation(frame, frame.stackDataV2());
+              case 0x34 -> CallValueOperationV2.staticOperation(frame);
               case 0x36 -> CallDataSizeOperationV2.staticOperation(frame, frame.stackDataV2());
               case 0x38 -> CodeSizeOperationV2.staticOperation(frame, frame.stackDataV2());
-              case 0x3a -> GasPriceOperationV2.staticOperation(frame, frame.stackDataV2());
+              case 0x3a -> GasPriceOperationV2.staticOperation(frame);
               case 0x3d ->
                   enableByzantium
                       ? ReturnDataSizeOperationV2.staticOperation(frame, frame.stackDataV2())
                       : InvalidOperation.invalidOperationResult(opcode);
-              case 0x41 -> CoinbaseOperationV2.staticOperation(frame, frame.stackDataV2());
+              case 0x41 -> CoinbaseOperationV2.staticOperation(frame);
               case 0x42 -> TimestampOperationV2.staticOperation(frame, frame.stackDataV2());
               case 0x43 -> NumberOperationV2.staticOperation(frame, frame.stackDataV2());
               case 0x44 ->
                   enableParis
-                      ? PrevRandaoOperationV2.staticOperation(frame, frame.stackDataV2())
+                      ? PrevRanDaoOperationV2.staticOperation(frame)
                       : DifficultyOperationV2.staticOperation(frame, frame.stackDataV2());
-              case 0x45 -> GasLimitOperationV2.staticOperation(frame, frame.stackDataV2());
+              case 0x45 -> GasLimitOperationV2.staticOperation(frame);
               case 0x46 -> // CHAINID (Istanbul+)
                   chainIdOperationV2 != null
-                      ? chainIdOperationV2.executeFixedCostOperation(frame, this)
+                      ? chainIdOperationV2.executeFixedCostOperation(frame)
                       : InvalidOperation.invalidOperationResult(opcode);
               case 0x48 -> // BASEFEE (London+)
                   enableLondon
-                      ? BaseFeeOperationV2.staticOperation(frame, frame.stackDataV2())
+                      ? BaseFeeOperationV2.staticOperation(frame)
                       : InvalidOperation.invalidOperationResult(opcode);
               case 0x4a -> // BLOBBASEFEE (Cancun+)
                   enableCancun
-                      ? BlobBaseFeeOperationV2.staticOperation(frame, frame.stackDataV2())
+                      ? BlobBaseFeeOperationV2.staticOperation(frame)
                       : InvalidOperation.invalidOperationResult(opcode);
               case 0x4b -> // SLOTNUM (Amsterdam+)
                   enableAmsterdam
@@ -840,7 +840,7 @@ public class EVM {
                       : InvalidOperation.invalidOperationResult(opcode);
               case 0x58 -> PcOperationV2.staticOperation(frame, frame.stackDataV2());
               case 0x59 -> MSizeOperationV2.staticOperation(frame, frame.stackDataV2());
-              case 0x5a -> gasOperationV2.executeFixedCostOperation(frame, this);
+              case 0x5a -> gasOperationV2.executeFixedCostOperation(frame);
               // Control flow operations
               case 0x00 -> StopOperationV2.staticOperation(frame);
               case 0x56 -> JumpOperationV2.staticOperation(frame, frame.stackDataV2());

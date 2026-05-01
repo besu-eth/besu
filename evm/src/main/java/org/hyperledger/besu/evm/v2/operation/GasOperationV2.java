@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.evm.v2.operation;
 
-import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.Operation;
@@ -36,9 +35,8 @@ public class GasOperationV2 extends AbstractFixedCostOperationV2 {
   }
 
   @Override
-  public Operation.OperationResult executeFixedCostOperation(
-      final MessageFrame frame, final EVM evm) {
-    if (!frame.stackHasSpace(1)) return OVERFLOW_RESPONSE;
+  public Operation.OperationResult executeFixedCostOperation(final MessageFrame frame) {
+    if (!frame.stackHasSpaceV2(1)) return OVERFLOW_RESPONSE;
     // Gas remaining after deducting this instruction's cost
     frame.setTopV2(
         StackArithmetic.pushLong(

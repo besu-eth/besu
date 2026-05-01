@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.evm.v2.operation;
 
-import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.operation.Operation;
@@ -36,8 +35,7 @@ public class AndOperationV2 extends AbstractFixedCostOperationV2 {
   }
 
   @Override
-  public Operation.OperationResult executeFixedCostOperation(
-      final MessageFrame frame, final EVM evm) {
+  public Operation.OperationResult executeFixedCostOperation(final MessageFrame frame) {
     return staticOperation(frame, frame.stackDataV2());
   }
 
@@ -49,7 +47,7 @@ public class AndOperationV2 extends AbstractFixedCostOperationV2 {
    * @return the operation result
    */
   public static OperationResult staticOperation(final MessageFrame frame, final long[] stack) {
-    if (!frame.stackHasItems(2)) return UNDERFLOW_RESPONSE;
+    if (!frame.stackHasItemsV2(2)) return UNDERFLOW_RESPONSE;
     frame.setTopV2(StackArithmetic.and(stack, frame.stackTopV2()));
     return andSuccess;
   }

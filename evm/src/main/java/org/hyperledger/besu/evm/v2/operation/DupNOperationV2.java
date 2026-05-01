@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.evm.v2.operation;
 
-import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -55,8 +54,7 @@ public class DupNOperationV2 extends AbstractFixedCostOperationV2 {
   }
 
   @Override
-  public Operation.OperationResult executeFixedCostOperation(
-      final MessageFrame frame, final EVM evm) {
+  public Operation.OperationResult executeFixedCostOperation(final MessageFrame frame) {
     return staticOperation(
         frame, frame.stackDataV2(), frame.getCode().getBytes().toArrayUnsafe(), frame.getPC());
   }
@@ -80,10 +78,10 @@ public class DupNOperationV2 extends AbstractFixedCostOperationV2 {
 
     final int n = Eip8024Decoder.DECODE_SINGLE[imm];
 
-    if (!frame.stackHasItems(n)) {
+    if (!frame.stackHasItemsV2(n)) {
       return DUPN_UNDERFLOW;
     }
-    if (!frame.stackHasSpace(1)) {
+    if (!frame.stackHasSpaceV2(1)) {
       return DUPN_OVERFLOW;
     }
     frame.setTopV2(StackArithmetic.dup(s, frame.stackTopV2(), n));

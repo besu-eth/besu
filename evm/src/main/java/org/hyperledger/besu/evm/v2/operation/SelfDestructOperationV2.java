@@ -94,7 +94,7 @@ public class SelfDestructOperationV2 extends AbstractOperationV2 {
       return new OperationResult(0, ExceptionalHaltReason.ILLEGAL_STATE_CHANGE);
     }
 
-    if (!frame.stackHasItems(1)) {
+    if (!frame.stackHasItemsV2(1)) {
       return new OperationResult(0, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
     }
 
@@ -126,17 +126,17 @@ public class SelfDestructOperationV2 extends AbstractOperationV2 {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    // EIP-8037: Deduct regular gas before charging state gas (ordering requirement).
+    // EIP-8037: Deduct execution gas before charging state gas (ordering requirement).
     frame.decrementRemainingGas(cost);
 
-    // EIP-8037: Charge state gas for new account creation in SELFDESTRUCT
-    if (!gasCalculator
-        .stateGasCostCalculator()
-        .chargeSelfDestructNewAccountStateGas(frame, beneficiaryNullable, originatorBalance)) {
+    // EIP-8037: Charge state gas when SELFDESTRUCT forces creation of an empty beneficiary.
+    if ((beneficiaryNullable == null || beneficiaryNullable.isEmpty())
+        && !originatorBalance.isZero()
+        && !frame.consumeStateGas(gasCalculator.stateGasCostCalculator().newAccountStateGas())) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
-    // Add regular gas back — the EVM loop will deduct it via the OperationResult.
+    // Add execution gas back — the EVM loop will deduct it via the OperationResult.
     frame.incrementRemainingGas(cost);
 
     final MutableAccount beneficiaryAccount = getOrCreateAccount(beneficiaryAddress, frame);
@@ -148,16 +148,25 @@ public class SelfDestructOperationV2 extends AbstractOperationV2 {
     originatorAccount.decrementBalance(originatorBalance);
     beneficiaryAccount.incrementBalance(originatorBalance);
 
-    // Emit transfer log if applicable.
-    if (!originatorAddress.equals(beneficiaryAddress) || willBeDestroyed) {
+    // EIP-7708: emit a transfer log for the value moved to the beneficiary. Pre-EIP-8246 a
+    // self-referential destruction additionally emitted a burn log (the balance was burned); under
+    // EIP-8246 the balance is preserved, so only a genuine transfer (beneficiary != originator)
+    // logs.
+    final boolean emitBurnLog = willBeDestroyed && !gasCalculator.isSelfDestructBalancePreserved();
+    if (!originatorAddress.equals(beneficiaryAddress) || emitBurnLog) {
       transferLogEmitter.emitSelfDestructLog(
           frame, originatorAddress, beneficiaryAddress, originatorBalance);
     }
 
-    // If actually destroying the originator, zero its balance and tag for cleanup.
+    // If we are actually destroying the originator (pre-Cancun or same-tx-create) we tag it for
+    // later self-destruct cleanup. Pre-EIP-8246 we also explicitly zero the balance here, which
+    // burns ether when the originator is its own beneficiary. EIP-8246 removes that burn: the
+    // balance is preserved and the account is merely cleared at transaction finalization.
     if (willBeDestroyed) {
       frame.addSelfDestruct(originatorAccount.getAddress());
-      originatorAccount.setBalance(Wei.ZERO);
+      if (!gasCalculator.isSelfDestructBalancePreserved()) {
+        originatorAccount.setBalance(Wei.ZERO);
+      }
     }
 
     frame.addRefund(beneficiaryAddress, originatorBalance);

@@ -27,6 +27,8 @@ import java.util.Optional;
 /** The Base fee operation. */
 public class BaseFeeOperationV2 extends AbstractFixedCostOperationV2 {
 
+  private static final OperationResult successResponse = new OperationResult(2, null);
+
   /**
    * Instantiates a new Base fee operation.
    *
@@ -38,9 +40,19 @@ public class BaseFeeOperationV2 extends AbstractFixedCostOperationV2 {
 
   @Override
   public Operation.OperationResult executeFixedCostOperation(final MessageFrame frame) {
+    return staticOperation(frame);
+  }
+
+  /**
+   * Performs BASEFEE operation.
+   *
+   * @param frame the frame
+   * @return the operation result
+   */
+  public static Operation.OperationResult staticOperation(final MessageFrame frame) {
     final Optional<Wei> maybeBaseFee = frame.getBlockValues().getBaseFee();
     if (maybeBaseFee.isEmpty()) {
-      return new Operation.OperationResult(gasCost, ExceptionalHaltReason.INVALID_OPERATION);
+      return new Operation.OperationResult(2, ExceptionalHaltReason.INVALID_OPERATION);
     }
     if (!frame.stackHasSpaceV2(1)) return OVERFLOW_RESPONSE;
     final long[] stack = frame.stackDataV2();

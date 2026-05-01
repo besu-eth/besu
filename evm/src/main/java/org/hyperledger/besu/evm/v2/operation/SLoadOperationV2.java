@@ -89,7 +89,7 @@ public class SLoadOperationV2 extends AbstractOperationV2 {
       final long coldCost,
       final OperationResult warmSuccess,
       final OperationResult coldSuccess) {
-    if (!frame.stackHasItems(1)) {
+    if (!frame.stackHasItemsV2(1)) {
       return new OperationResult(warmCost, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
     }
 

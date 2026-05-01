@@ -79,7 +79,7 @@ public class ExtCodeCopyOperationV2 extends AbstractOperationV2 {
    */
   public static OperationResult staticOperation(
       final MessageFrame frame, final long[] s, final GasCalculator gasCalculator) {
-    if (!frame.stackHasItems(4)) {
+    if (!frame.stackHasItemsV2(4)) {
       return new OperationResult(0, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
     }
     final int top = frame.stackTopV2();

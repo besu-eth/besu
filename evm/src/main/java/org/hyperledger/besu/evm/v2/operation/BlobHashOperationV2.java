@@ -56,7 +56,7 @@ public class BlobHashOperationV2 extends AbstractOperationV2 {
    * @return the operation result
    */
   public static OperationResult staticOperation(final MessageFrame frame, final long[] s) {
-    if (!frame.stackHasItems(1)) {
+    if (!frame.stackHasItemsV2(1)) {
       return new OperationResult(3, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
     }
     final int top = frame.stackTopV2();

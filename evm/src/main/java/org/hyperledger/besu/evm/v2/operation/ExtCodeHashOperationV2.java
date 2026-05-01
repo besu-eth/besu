@@ -71,7 +71,7 @@ public class ExtCodeHashOperationV2 extends AbstractOperationV2 {
         gasCalculator.extCodeHashOperationGasCost() + gasCalculator.getWarmStorageReadCost();
     final long coldCost =
         gasCalculator.extCodeHashOperationGasCost() + gasCalculator.getColdAccountAccessCost();
-    if (!frame.stackHasItems(1)) {
+    if (!frame.stackHasItemsV2(1)) {
       return new OperationResult(warmCost, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
     }
     final int top = frame.stackTopV2();

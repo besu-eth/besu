@@ -48,7 +48,7 @@ public class MCopyOperationV2 extends AbstractOperationV2 {
    */
   public static Operation.OperationResult staticOperation(
       final MessageFrame frame, final long[] stack, final GasCalculator gasCalculator) {
-    if (!frame.stackHasItems(3)) {
+    if (!frame.stackHasItemsV2(3)) {
       return new OperationResult(0, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
     }
     final int top = frame.stackTopV2();
