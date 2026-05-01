@@ -42,6 +42,10 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
     this(accountChanges, Optional.empty());
   }
 
+  public BlockAccessList(final List<AccountChanges> accountChanges, final Bytes rawRlp) {
+    this(accountChanges, Optional.of(rawRlp));
+  }
+
   @Override
   public boolean equals(final Object o) {
     if (this == o) {

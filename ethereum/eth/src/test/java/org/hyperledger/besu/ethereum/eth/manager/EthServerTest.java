@@ -558,7 +558,7 @@ public class EthServerTest {
     final List<BlockAccessList> expectedAccessLists = new ArrayList<>();
     for (int i = 0; i < 4; i++) {
       final BlockAccessList bal = accessLists.get(i);
-      expectedAccessLists.add(bal);
+      expectedAccessLists.add(new BlockAccessList(bal.accountChanges()));
       sizeLimit += calculateRlpEncodedSize(bal);
     }
 

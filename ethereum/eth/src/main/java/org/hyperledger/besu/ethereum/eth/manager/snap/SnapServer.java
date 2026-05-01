@@ -18,7 +18,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
-import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
 import org.hyperledger.besu.ethereum.eth.messages.snap.AccountRangeMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.BlockAccessListsMessage;
@@ -808,10 +807,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
     if (blockAccessList.rawRlp().isPresent()) {
       return blockAccessList.rawRlp().get().size();
     } else {
-      // TODO: Throw error here. Currently handled gracefully for tests
-      final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
-      BlockAccessListEncoder.encode(blockAccessList, balOutput);
-      return balOutput.encodedSize();
+      throw new IllegalStateException("Expected BAL read from storage to contain RLP bytes");
     }
   }
 }
