@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 
@@ -35,7 +34,7 @@ public class BlockAccessListsMessageTest {
         List.of(generator.blockAccessList(), new BlockAccessList(List.of()));
 
     final BlockAccessListsMessage initialMessage =
-        BlockAccessListsMessage.create(expected.stream().map(Optional::of).toList());
+        BlockAccessListsMessage.createFromBlockAccessLists(expected);
     final RawMessage raw =
         new RawMessage(EthProtocolMessages.BLOCK_ACCESS_LISTS, initialMessage.getData());
 

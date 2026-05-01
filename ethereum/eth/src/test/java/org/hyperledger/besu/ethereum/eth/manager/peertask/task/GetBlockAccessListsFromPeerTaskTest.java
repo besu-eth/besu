@@ -37,7 +37,6 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 
 import org.apache.commons.lang3.StringUtils;
@@ -78,7 +77,7 @@ class GetBlockAccessListsFromPeerTaskTest {
 
     final List<BlockAccessList> response =
         task.processResponse(
-            BlockAccessListsMessage.create(List.of(Optional.of(blockAccessList))), Set.of());
+            BlockAccessListsMessage.createFromBlockAccessLists(List.of(blockAccessList)), Set.of());
 
     assertThat(response).containsExactly(blockAccessList);
   }

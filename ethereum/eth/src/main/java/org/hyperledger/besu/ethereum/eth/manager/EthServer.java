@@ -398,7 +398,6 @@ class EthServer {
 
       final Optional<BlockAccessList> maybeBlockAccessList =
           blockchain.getBlockAccessList(blockHash);
-
       final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
       if (maybeBlockAccessList.isPresent()) {
         final BlockAccessList blockAccessList = maybeBlockAccessList.get();
