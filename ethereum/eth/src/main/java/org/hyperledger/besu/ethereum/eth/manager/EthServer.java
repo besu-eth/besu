@@ -404,6 +404,7 @@ class EthServer {
         if (blockAccessList.rawRlp().isPresent()) {
           balOutput.writeBytes(blockAccessList.rawRlp().get());
         } else {
+          // TODO: Throw error here. Currently handled gracefully for tests
           BlockAccessListEncoder.encode(blockAccessList, balOutput);
         }
       } else {
