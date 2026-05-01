@@ -36,7 +36,11 @@ import java.util.stream.Collectors;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
-public record BlockAccessList(List<AccountChanges> accountChanges) {
+public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Bytes> rawRlp) {
+
+  public BlockAccessList(final List<AccountChanges> accountChanges) {
+    this(accountChanges, Optional.empty());
+  }
 
   @Override
   public boolean equals(final Object o) {

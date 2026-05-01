@@ -401,7 +401,12 @@ class EthServer {
 
       final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
       if (maybeBlockAccessList.isPresent()) {
-        BlockAccessListEncoder.encode(maybeBlockAccessList.get(), balOutput);
+        final BlockAccessList blockAccessList = maybeBlockAccessList.get();
+        if (blockAccessList.rawRlp().isPresent()) {
+          balOutput.writeBytes(blockAccessList.rawRlp().get());
+        } else {
+          BlockAccessListEncoder.encode(blockAccessList, balOutput);
+        }
       } else {
         balOutput.writeBytes(Bytes.EMPTY);
       }

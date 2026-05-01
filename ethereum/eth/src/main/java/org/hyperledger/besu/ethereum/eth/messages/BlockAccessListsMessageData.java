@@ -36,9 +36,14 @@ public final class BlockAccessListsMessageData {
     // request-id is prepended before sending the message
     output.startList();
     blockAccessLists.forEach(
-        blockAccessList -> {
-          if (blockAccessList.isPresent()) {
-            BlockAccessListEncoder.encode(blockAccessList.get(), output);
+        maybeBlockAccessList -> {
+          if (maybeBlockAccessList.isPresent()) {
+            final BlockAccessList blockAccessList = maybeBlockAccessList.get();
+            if (blockAccessList.rawRlp().isPresent()) {
+              output.writeBytes(blockAccessList.rawRlp().get());
+            } else {
+              BlockAccessListEncoder.encode(blockAccessList, output);
+            }
           } else {
             output.writeBytes(Bytes.EMPTY);
           }
