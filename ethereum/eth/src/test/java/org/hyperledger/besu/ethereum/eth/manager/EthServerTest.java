@@ -506,8 +506,7 @@ public class EthServerTest {
         GetBlockAccessListsMessage.create(List.of(availableHash, unavailableHash));
 
     final BlockAccessListsMessage expected =
-        BlockAccessListsMessage.createFromBlockAccessLists(
-            List.of(available, new BlockAccessList(List.of())));
+        BlockAccessListsMessage.create(List.of(Optional.of(available), Optional.empty()));
 
     assertThat(ethMessages.dispatch(new EthMessage(ethPeer, request), EthProtocol.LATEST))
         .contains(expected);
@@ -598,8 +597,7 @@ public class EthServerTest {
 
     // With requestLimit=2, the 3rd hash must not be looked up or included.
     final BlockAccessListsMessage expected =
-        BlockAccessListsMessage.createFromBlockAccessLists(
-            List.of(firstAvailable, new BlockAccessList(List.of())));
+        BlockAccessListsMessage.create(List.of(Optional.of(firstAvailable), Optional.empty()));
 
     assertThat(ethMessages.dispatch(new EthMessage(ethPeer, request), EthProtocol.LATEST))
         .contains(expected);
