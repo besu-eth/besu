@@ -33,25 +33,39 @@ import org.apache.tuweni.bytes.Bytes;
 
 public class BonsaiFullFlatDbStrategy extends BonsaiFlatDbStrategy {
 
-  protected final Counter getAccountNotFoundInFlatDatabaseCounter;
+  protected final Counter getAccountNotFoundInFlatDatabasePersistedCounter;
+  protected final Counter getAccountNotFoundInFlatDatabaseLayeredCounter;
 
-  protected final Counter getStorageValueNotFoundInFlatDatabaseCounter;
+  protected final Counter getStorageValueNotFoundInFlatDatabasePersistedCounter;
+  protected final Counter getStorageValueNotFoundInFlatDatabaseLayeredCounter;
 
   public BonsaiFullFlatDbStrategy(
       final MetricsSystem metricsSystem, final CodeStorageStrategy codeStorageStrategy) {
     super(metricsSystem, codeStorageStrategy);
 
-    getAccountNotFoundInFlatDatabaseCounter =
+    getAccountNotFoundInFlatDatabasePersistedCounter =
         metricsSystem.createCounter(
             BesuMetricCategory.BLOCKCHAIN,
-            "get_account_missing_flat_database",
-            "Number of accounts not found in the flat database");
+            "get_account_missing_flat_database_persisted",
+            "Number of accounts not found in flat database from persisted storage (FCU)");
 
-    getStorageValueNotFoundInFlatDatabaseCounter =
+    getAccountNotFoundInFlatDatabaseLayeredCounter =
         metricsSystem.createCounter(
             BesuMetricCategory.BLOCKCHAIN,
-            "get_storagevalue_missing_flat_database",
-            "Number of storage slots not found in the flat database");
+            "get_account_missing_flat_database_layered",
+            "Number of accounts not found in flat database from layered storage (newPayload)");
+
+    getStorageValueNotFoundInFlatDatabasePersistedCounter =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCKCHAIN,
+            "get_storagevalue_missing_flat_database_persisted",
+            "Number of storage slots not found in flat database from persisted storage (FCU)");
+
+    getStorageValueNotFoundInFlatDatabaseLayeredCounter =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCKCHAIN,
+            "get_storagevalue_missing_flat_database_layered",
+            "Number of storage slots not found in flat database from layered storage (newPayload)");
   }
 
   @Override
@@ -59,14 +73,21 @@ public class BonsaiFullFlatDbStrategy extends BonsaiFlatDbStrategy {
       final Supplier<Optional<Bytes>> worldStateRootHashSupplier,
       final NodeLoader nodeLoader,
       final Hash accountHash,
-      final SegmentedKeyValueStorage storage) {
-    getAccountCounter.inc();
+      final SegmentedKeyValueStorage storage,
+      final boolean isLayered) {
+    (isLayered ? getAccountLayeredCounter : getAccountPersistedCounter).inc();
     final Optional<Bytes> accountFound =
         storage.get(ACCOUNT_INFO_STATE, accountHash.getBytes().toArrayUnsafe()).map(Bytes::wrap);
     if (accountFound.isPresent()) {
-      getAccountFoundInFlatDatabaseCounter.inc();
+      (isLayered
+              ? getAccountFoundInFlatDatabaseLayeredCounter
+              : getAccountFoundInFlatDatabasePersistedCounter)
+          .inc();
     } else {
-      getAccountNotFoundInFlatDatabaseCounter.inc();
+      (isLayered
+              ? getAccountNotFoundInFlatDatabaseLayeredCounter
+              : getAccountNotFoundInFlatDatabasePersistedCounter)
+          .inc();
     }
     return accountFound;
   }
@@ -78,8 +99,9 @@ public class BonsaiFullFlatDbStrategy extends BonsaiFlatDbStrategy {
       final NodeLoader nodeLoader,
       final Hash accountHash,
       final StorageSlotKey storageSlotKey,
-      final SegmentedKeyValueStorage storage) {
-    getStorageValueCounter.inc();
+      final SegmentedKeyValueStorage storage,
+      final boolean isLayered) {
+    (isLayered ? getStorageValueLayeredCounter : getStorageValuePersistedCounter).inc();
     final Optional<Bytes> storageFound =
         storage
             .get(
@@ -88,9 +110,15 @@ public class BonsaiFullFlatDbStrategy extends BonsaiFlatDbStrategy {
                     .toArrayUnsafe())
             .map(Bytes::wrap);
     if (storageFound.isPresent()) {
-      getStorageValueFlatDatabaseCounter.inc();
+      (isLayered
+              ? getStorageValueFlatDatabaseLayeredCounter
+              : getStorageValueFlatDatabasePersistedCounter)
+          .inc();
     } else {
-      getStorageValueNotFoundInFlatDatabaseCounter.inc();
+      (isLayered
+              ? getStorageValueNotFoundInFlatDatabaseLayeredCounter
+              : getStorageValueNotFoundInFlatDatabasePersistedCounter)
+          .inc();
     }
 
     return storageFound;

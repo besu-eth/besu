@@ -240,7 +240,6 @@ public class ParallelizedConcurrentTransactionProcessor extends ParallelBlockTra
         }
 
         blockAccumulator.importStateChangesFromSource(transactionAccumulator);
-
         if (confirmedParallelizedTransactionCounter.isPresent()) {
           confirmedParallelizedTransactionCounter.get().inc();
           transactionProcessingResult.setIsProcessedInParallel(Optional.of(Boolean.TRUE));

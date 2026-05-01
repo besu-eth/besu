@@ -42,11 +42,15 @@ import org.apache.tuweni.rlp.RLP;
  */
 public abstract class FlatDbStrategy {
   protected final MetricsSystem metricsSystem;
-  protected final Counter getAccountCounter;
-  protected final Counter getAccountFoundInFlatDatabaseCounter;
+  protected final Counter getAccountPersistedCounter;
+  protected final Counter getAccountLayeredCounter;
+  protected final Counter getAccountFoundInFlatDatabasePersistedCounter;
+  protected final Counter getAccountFoundInFlatDatabaseLayeredCounter;
 
-  protected final Counter getStorageValueCounter;
-  protected final Counter getStorageValueFlatDatabaseCounter;
+  protected final Counter getStorageValuePersistedCounter;
+  protected final Counter getStorageValueLayeredCounter;
+  protected final Counter getStorageValueFlatDatabasePersistedCounter;
+  protected final Counter getStorageValueFlatDatabaseLayeredCounter;
   protected final CodeStorageStrategy codeStorageStrategy;
 
   public FlatDbStrategy(
@@ -54,29 +58,53 @@ public abstract class FlatDbStrategy {
     this.metricsSystem = metricsSystem;
     this.codeStorageStrategy = codeStorageStrategy;
 
-    getAccountCounter =
+    getAccountPersistedCounter =
         metricsSystem.createCounter(
             BesuMetricCategory.BLOCKCHAIN,
-            "get_account_total",
-            "Total number of calls to getAccount");
+            "get_account_persisted_total",
+            "Total number of calls to getAccount from persisted storage (FCU)");
 
-    getAccountFoundInFlatDatabaseCounter =
+    getAccountLayeredCounter =
         metricsSystem.createCounter(
             BesuMetricCategory.BLOCKCHAIN,
-            "get_account_flat_database",
-            "Number of accounts found in the flat database");
+            "get_account_layered_total",
+            "Total number of calls to getAccount from layered storage (newPayload)");
 
-    getStorageValueCounter =
+    getAccountFoundInFlatDatabasePersistedCounter =
         metricsSystem.createCounter(
             BesuMetricCategory.BLOCKCHAIN,
-            "get_storagevalue_total",
-            "Total number of calls to getStorageValueBySlotHash");
+            "get_account_flat_database_persisted",
+            "Number of accounts found in flat database from persisted storage (FCU)");
 
-    getStorageValueFlatDatabaseCounter =
+    getAccountFoundInFlatDatabaseLayeredCounter =
         metricsSystem.createCounter(
             BesuMetricCategory.BLOCKCHAIN,
-            "get_storagevalue_flat_database",
-            "Number of storage slots found in the flat database");
+            "get_account_flat_database_layered",
+            "Number of accounts found in flat database from layered storage (newPayload)");
+
+    getStorageValuePersistedCounter =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCKCHAIN,
+            "get_storagevalue_persisted_total",
+            "Total number of calls to getStorageValueBySlotHash from persisted storage (FCU)");
+
+    getStorageValueLayeredCounter =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCKCHAIN,
+            "get_storagevalue_layered_total",
+            "Total number of calls to getStorageValueBySlotHash from layered storage (newPayload)");
+
+    getStorageValueFlatDatabasePersistedCounter =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCKCHAIN,
+            "get_storagevalue_flat_database_persisted",
+            "Number of storage slots found in flat database from persisted storage (FCU)");
+
+    getStorageValueFlatDatabaseLayeredCounter =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCKCHAIN,
+            "get_storagevalue_flat_database_layered",
+            "Number of storage slots found in flat database from layered storage (newPayload)");
   }
 
   public boolean isCodeByCodeHash() {

@@ -48,24 +48,38 @@ import org.slf4j.LoggerFactory;
 public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
   private static final Logger LOG = LoggerFactory.getLogger(BonsaiArchiveFlatDbStrategy.class);
 
-  protected final Counter getAccountFromArchiveCounter;
-  protected final Counter getStorageFromArchiveCounter;
+  protected final Counter getAccountFromArchivePersistedCounter;
+  protected final Counter getAccountFromArchiveLayeredCounter;
+  protected final Counter getStorageFromArchivePersistedCounter;
+  protected final Counter getStorageFromArchiveLayeredCounter;
 
   public BonsaiArchiveFlatDbStrategy(
       final MetricsSystem metricsSystem, final CodeStorageStrategy codeStorageStrategy) {
     super(metricsSystem, codeStorageStrategy);
 
-    getAccountFromArchiveCounter =
+    getAccountFromArchivePersistedCounter =
         metricsSystem.createCounter(
             BesuMetricCategory.BLOCKCHAIN,
-            "get_account_from_archive_counter",
-            "Total number of calls to get account that were from archived state");
+            "get_account_from_archive_persisted",
+            "Accounts retrieved from archive from persisted storage (FCU)");
 
-    getStorageFromArchiveCounter =
+    getAccountFromArchiveLayeredCounter =
         metricsSystem.createCounter(
             BesuMetricCategory.BLOCKCHAIN,
-            "get_storage_from_archive_counter",
-            "Total number of calls to get storage that were from archived state");
+            "get_account_from_archive_layered",
+            "Accounts retrieved from archive from layered storage (newPayload)");
+
+    getStorageFromArchivePersistedCounter =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCKCHAIN,
+            "get_storage_from_archive_persisted",
+            "Storage retrieved from archive from persisted storage (FCU)");
+
+    getStorageFromArchiveLayeredCounter =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCKCHAIN,
+            "get_storage_from_archive_layered",
+            "Storage retrieved from archive from layered storage (newPayload)");
   }
 
   static final byte[] MAX_BLOCK_SUFFIX = Bytes.ofUnsignedLong(Long.MAX_VALUE).toArrayUnsafe();
@@ -120,17 +134,16 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
       final Supplier<Optional<Bytes>> worldStateRootHashSupplier,
       final NodeLoader nodeLoader,
       final Hash accountHash,
-      final SegmentedKeyValueStorage storage) {
+      final SegmentedKeyValueStorage storage,
+      final boolean isLayered) {
 
-    getAccountCounter.inc();
+    (isLayered ? getAccountLayeredCounter : getAccountPersistedCounter).inc();
     Optional<SegmentedKeyValueStorage.NearestKeyValue> accountFound;
 
-    // keyNearest, use MAX_BLOCK_SUFFIX in the absence of a block context:
     Bytes keyNearest =
         calculateArchiveKeyWithMaxSuffix(
             getStateArchiveContextForRead(storage), accountHash.getBytes().toArrayUnsafe());
 
-    // Find the nearest account state for this address and block context
     Optional<SegmentedKeyValueStorage.NearestKeyValue> nearestAccount =
         storage
             .getNearestBefore(ACCOUNT_INFO_STATE_ARCHIVE, keyNearest)
@@ -139,7 +152,6 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
                     accountHash.getBytes().commonPrefixLength(found.key())
                         >= accountHash.getBytes().size());
 
-    // If there isn't a match look in the archive DB segment
     if (nearestAccount.isEmpty()) {
       accountFound =
           storage
@@ -150,24 +162,28 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
                           >= accountHash.getBytes().size());
 
       if (accountFound.isPresent()) {
-        getAccountFromArchiveCounter.inc();
+        (isLayered ? getAccountFromArchiveLayeredCounter : getAccountFromArchivePersistedCounter)
+            .inc();
       } else {
-        getAccountNotFoundInFlatDatabaseCounter.inc();
+        (isLayered
+                ? getAccountNotFoundInFlatDatabaseLayeredCounter
+                : getAccountNotFoundInFlatDatabasePersistedCounter)
+            .inc();
       }
     } else {
-
       accountFound = nearestAccount;
-      getAccountFoundInFlatDatabaseCounter.inc();
+      (isLayered
+              ? getAccountFoundInFlatDatabaseLayeredCounter
+              : getAccountFoundInFlatDatabasePersistedCounter)
+          .inc();
     }
 
     if (accountFound.isPresent()) {
-      // The entry exists (so metrics are still incremented) but we don't return deleted values
       return accountFound
           .filter(
               found ->
                   !Arrays.areEqual(
                       DELETED_ACCOUNT_VALUE, found.value().orElse(DELETED_ACCOUNT_VALUE)))
-          // return empty when we find a "deleted value key"
           .flatMap(SegmentedKeyValueStorage.NearestKeyValue::wrapBytes);
     }
 
@@ -349,27 +365,23 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
       final NodeLoader nodeLoader,
       final Hash accountHash,
       final StorageSlotKey storageSlotKey,
-      final SegmentedKeyValueStorage storage) {
+      final SegmentedKeyValueStorage storage,
+      final boolean isLayered) {
 
     Optional<SegmentedKeyValueStorage.NearestKeyValue> storageFound;
-    getStorageValueCounter.inc();
+    (isLayered ? getStorageValueLayeredCounter : getStorageValuePersistedCounter).inc();
 
-    // get natural key from account hash and slot key
     byte[] naturalKey = calculateNaturalSlotKey(accountHash, storageSlotKey.getSlotHash());
-    // keyNearest, use MAX_BLOCK_SUFFIX in the absence of a block context:
     Bytes keyNearest =
         calculateArchiveKeyWithMaxSuffix(getStateArchiveContextForRead(storage), naturalKey);
 
-    // Find the nearest storage for this address, slot key hash, and block context
     Optional<SegmentedKeyValueStorage.NearestKeyValue> nearestStorage =
         storage
             .getNearestBefore(ACCOUNT_STORAGE_ARCHIVE, keyNearest)
             .filter(
                 found -> Bytes.of(naturalKey).commonPrefixLength(found.key()) >= naturalKey.length);
 
-    // If there isn't a match look in the archive DB segment
     if (nearestStorage.isEmpty()) {
-      // Check the archived storage as old state is moved out of the primary DB segment
       storageFound =
           storage
               .getNearestBefore(ACCOUNT_STORAGE_FREEZER, keyNearest)
@@ -379,24 +391,28 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
                       Bytes.of(naturalKey).commonPrefixLength(found.key()) >= naturalKey.length);
 
       if (storageFound.isPresent()) {
-        getStorageFromArchiveCounter.inc();
+        (isLayered ? getStorageFromArchiveLayeredCounter : getStorageFromArchivePersistedCounter)
+            .inc();
       } else {
-        getStorageValueNotFoundInFlatDatabaseCounter.inc();
+        (isLayered
+                ? getStorageValueNotFoundInFlatDatabaseLayeredCounter
+                : getStorageValueNotFoundInFlatDatabasePersistedCounter)
+            .inc();
       }
     } else {
       storageFound = nearestStorage;
-      getStorageValueFlatDatabaseCounter.inc();
+      (isLayered
+              ? getStorageValueFlatDatabaseLayeredCounter
+              : getStorageValueFlatDatabasePersistedCounter)
+          .inc();
     }
 
-    // The entry exists (so metrics are still incremented) but we don't return deleted values
     if (storageFound.isPresent()) {
       return storageFound
-          // return empty when we find a "deleted value key"
           .filter(
               found ->
                   !Arrays.areEqual(
                       DELETED_STORAGE_VALUE, found.value().orElse(DELETED_STORAGE_VALUE)))
-          // map NearestKey to Bytes-wrapped value
           .flatMap(SegmentedKeyValueStorage.NearestKeyValue::wrapBytes);
     }
 
