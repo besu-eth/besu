@@ -29,12 +29,35 @@ jar {
   }
 }
 
+compileJava {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
+    option('NullAway:AnnotatedPackages', 'org.hyperledger.besu.ethereum.rlp')
+  }
+}
+
+tasks.named('compileTestJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+  }
+}
+
+tasks.named('compileTestSupportJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+  }
+}
+
 dependencies {
   annotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess'
+
+  errorprone 'com.uber.nullaway:nullaway:0.13.1'
 
   implementation 'io.consensys.tuweni:tuweni-bytes'
   implementation 'io.consensys.tuweni:tuweni-units'
   implementation 'com.google.guava:guava'
+
+  compileOnlyApi 'org.jspecify:jspecify'
 
   jmh project(':util')
 
