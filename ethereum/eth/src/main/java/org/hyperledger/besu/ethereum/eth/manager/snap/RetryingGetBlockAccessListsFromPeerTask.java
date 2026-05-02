@@ -15,20 +15,20 @@
 package org.hyperledger.besu.ethereum.eth.manager.snap;
 
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
 import org.hyperledger.besu.ethereum.eth.SnapProtocol;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
 import org.hyperledger.besu.ethereum.eth.manager.task.AbstractRetryingSwitchingPeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.task.EthTask;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
 public class RetryingGetBlockAccessListsFromPeerTask
-    extends AbstractRetryingSwitchingPeerTask<List<BlockAccessList>> {
+    extends AbstractRetryingSwitchingPeerTask<List<SyncBlockAccessList>> {
 
   public static final int MAX_RETRIES = 4;
 
@@ -46,7 +46,7 @@ public class RetryingGetBlockAccessListsFromPeerTask
     this.metricsSystem = metricsSystem;
   }
 
-  public static EthTask<List<BlockAccessList>> forBlockAccessLists(
+  public static EthTask<List<SyncBlockAccessList>> forBlockAccessLists(
       final EthContext ethContext,
       final List<BlockHeader> blockHeaders,
       final MetricsSystem metricsSystem) {
@@ -54,7 +54,8 @@ public class RetryingGetBlockAccessListsFromPeerTask
   }
 
   @Override
-  protected CompletableFuture<List<BlockAccessList>> executeTaskOnCurrentPeer(final EthPeer peer) {
+  protected CompletableFuture<List<SyncBlockAccessList>> executeTaskOnCurrentPeer(
+      final EthPeer peer) {
     final GetBlockAccessListsFromPeerTask task =
         GetBlockAccessListsFromPeerTask.forBlockAccessLists(
             ethContext, blockHeaders, metricsSystem);

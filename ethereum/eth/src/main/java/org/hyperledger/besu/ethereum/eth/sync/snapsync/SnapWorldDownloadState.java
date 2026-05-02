@@ -25,13 +25,13 @@ import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.common.WorldStateHealFinishedListener;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePersistenceManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.AccountRangeDataRequest;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.BlockAccessListDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.BytecodeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.StorageRangeDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.AccountFlatDatabaseHealingRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.StorageFlatDatabaseHealingRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldDownloadState;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
@@ -51,6 +51,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -74,8 +75,6 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
       new InMemoryTaskQueue<>();
   protected final InMemoryTaskQueue<SnapDataRequest> pendingCodeRequests =
       new InMemoryTaskQueue<>();
-  protected final InMemoryTaskQueue<SnapDataRequest> pendingBlockAccessListRequests =
-      new InMemoryTaskQueue<>();
   protected final InMemoryTasksPriorityQueues<SnapDataRequest> pendingTrieNodeRequests =
       new InMemoryTasksPriorityQueues<>();
 
@@ -90,6 +89,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
 
   private final SnapSyncStatePersistenceManager snapContext;
   private final SnapSyncProcessState snapSyncState;
+  private final ProtocolSchedule protocolSchedule;
 
   // blockchain
   private final Blockchain blockchain;
@@ -101,12 +101,14 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
 
   private final AtomicBoolean trieHealStartedBefore = new AtomicBoolean(false);
   private final AtomicBoolean worldStateHealFinishedNotified = new AtomicBoolean(false);
+  private final AtomicBoolean blockAccessListHealEnqueued = new AtomicBoolean(false);
 
   public SnapWorldDownloadState(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncStatePersistenceManager snapContext,
       final Blockchain blockchain,
       final SnapSyncProcessState snapSyncState,
+      final ProtocolSchedule protocolSchedule,
       final InMemoryTasksPriorityQueues<SnapDataRequest> pendingRequests,
       final int maxRequestsWithoutProgress,
       final long minMillisBeforeStalling,
@@ -124,6 +126,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
     this.snapContext = snapContext;
     this.blockchain = blockchain;
     this.snapSyncState = snapSyncState;
+    this.protocolSchedule = protocolSchedule;
     this.metricsManager = metricsManager;
     this.blockObserverId = blockchain.observeBlockAdded(createBlockchainObserver());
     this.ethContext = ethContext;
@@ -151,11 +154,6 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
         pendingCodeRequests::size);
     metricsSystem.createLongGauge(
         BesuMetricCategory.SYNCHRONIZER,
-        "snap_world_state_pending_block_access_list_requests_current",
-        "Number of block access list pending requests for snap sync world state download",
-        pendingBlockAccessListRequests::size);
-    metricsSystem.createLongGauge(
-        BesuMetricCategory.SYNCHRONIZER,
         "snap_world_state_pending_trie_node_requests_current",
         "Number of trie node pending requests for snap sync world state download",
         pendingTrieNodeRequests::size);
@@ -175,7 +173,6 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
     if (!internalFuture.isDone()
         && pendingAccountRequests.allTasksCompleted()
         && pendingCodeRequests.allTasksCompleted()
-        && pendingBlockAccessListRequests.allTasksCompleted()
         && pendingStorageRequests.allTasksCompleted()
         && pendingLargeStorageRequests.allTasksCompleted()
         && pendingTrieNodeRequests.allTasksCompleted()
@@ -207,6 +204,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
         if (!snapSyncState.isHealFlatDatabaseInProgress()
             && (worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.FULL)
                 || worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.ARCHIVE))) {
+          applyBlockAccessListsForPivotRangeIfRequired();
           startFlatDatabaseHeal(header);
         }
         // If the flat database healing process is in progress or the flat database mode is not FULL
@@ -248,7 +246,6 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
     pendingStorageRequests.clear();
     pendingLargeStorageRequests.clear();
     pendingCodeRequests.clear();
-    pendingBlockAccessListRequests.clear();
     pendingTrieNodeRequests.clear();
   }
 
@@ -305,6 +302,41 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
                 createAccountFlatHealingRangeRequest(header.getStateRoot(), key, value)));
   }
 
+  private void applyBlockAccessListsForPivotRangeIfRequired() {
+    if (!blockAccessListHealEnqueued.compareAndSet(false, true)) {
+      return;
+    }
+
+    if (!worldStateStorageCoordinator.getDataStorageFormat().isBonsaiFormat()) {
+      LOG.warn("Skipping BAL apply because world state updater is not Bonsai-compatible");
+      return;
+    }
+
+    final Optional<BlockHeader> maybeFirstPivotHeader = snapSyncState.getFirstPivotBlockHeader();
+    final Optional<BlockHeader> maybeLastPivotHeader = snapSyncState.getPivotBlockHeader();
+
+    if (maybeFirstPivotHeader.isEmpty() || maybeLastPivotHeader.isEmpty()) {
+      LOG.debug(
+          "Skipping BAL apply - firstPivotHeader={}, lastPivotHeader={}",
+          maybeFirstPivotHeader,
+          maybeLastPivotHeader);
+      return;
+    }
+
+    final BlockHeader firstPivotHeader = maybeFirstPivotHeader.get();
+    if (!protocolSchedule.getByBlockHeader(firstPivotHeader).isBlockAccessListEnabled()) {
+      LOG.debug("Skipping BAL apply - BALs not enabled on first pivot {}", firstPivotHeader);
+      return;
+    }
+
+    final long fromBlock = firstPivotHeader.getNumber();
+    final long toBlock = maybeLastPivotHeader.get().getNumber();
+
+    LOG.info("Applying block access lists from block {} to {}", fromBlock, toBlock);
+    BlockAccessListFlatDatabaseUpdater.applyFromStoredBlockAccessLists(
+        blockchain, worldStateStorageCoordinator, fromBlock, toBlock);
+  }
+
   @Override
   public synchronized void enqueueRequest(final SnapDataRequest request) {
     if (!internalFuture.isDone()) {
@@ -318,8 +350,6 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
         }
       } else if (request instanceof AccountRangeDataRequest) {
         pendingAccountRequests.add(request);
-      } else if (request instanceof BlockAccessListDataRequest) {
-        pendingBlockAccessListRequests.add(request);
       } else if (request instanceof AccountFlatDatabaseHealingRangeRequest) {
         pendingAccountFlatDatabaseHealingRequests.add(request);
       } else if (request instanceof StorageFlatDatabaseHealingRangeRequest) {
@@ -417,19 +447,8 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
 
   public synchronized Task<SnapDataRequest> dequeueTrieNodeRequestBlocking() {
     return dequeueRequestBlocking(
-        List.of(
-            pendingAccountRequests,
-            pendingStorageRequests,
-            pendingLargeStorageRequests,
-            pendingBlockAccessListRequests),
+        List.of(pendingAccountRequests, pendingStorageRequests, pendingLargeStorageRequests),
         pendingTrieNodeRequests,
-        __ -> {});
-  }
-
-  public synchronized Task<SnapDataRequest> dequeueBlockAccessListRequestBlocking() {
-    return dequeueRequestBlocking(
-        List.of(pendingStorageRequests, pendingLargeStorageRequests, pendingCodeRequests),
-        pendingBlockAccessListRequests,
         __ -> {});
   }
 
@@ -439,7 +458,6 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
             pendingAccountRequests,
             pendingStorageRequests,
             pendingLargeStorageRequests,
-            pendingBlockAccessListRequests,
             pendingTrieNodeRequests,
             pendingStorageFlatDatabaseHealingRequests),
         pendingAccountFlatDatabaseHealingRequests,
@@ -452,7 +470,6 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
             pendingAccountRequests,
             pendingStorageRequests,
             pendingLargeStorageRequests,
-            pendingBlockAccessListRequests,
             pendingTrieNodeRequests),
         pendingStorageFlatDatabaseHealingRequests,
         __ -> {});

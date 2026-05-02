@@ -89,6 +89,16 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
 
     frame.clearReturnData();
 
+    // Resolve initcode and validate MAX_INIT_CODE_SIZE BEFORE charging state gas.
+    // A CREATE with oversized initcode must not persist state_gas_used for an account
+    // that was never created.
+    final Code code = codeSupplier.get();
+
+    if (code != null && code.getSize() > evm.getMaxInitcodeSize()) {
+      frame.popStackItems(getStackItemsConsumed());
+      return new OperationResult(cost, ExceptionalHaltReason.CODE_TOO_LARGE);
+    }
+
     // EIP-8037: Deduct regular gas before charging state gas (ordering requirement).
     frame.decrementRemainingGas(cost);
 
@@ -99,15 +109,6 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
 
     // Add regular gas back — the EVM loop will deduct it via the OperationResult.
     frame.incrementRemainingGas(cost);
-
-    // Resolve initcode after state gas charge to avoid unnecessary work (e.g. memory read,
-    // Code object creation) on paths where state gas is insufficient.
-    final Code code = codeSupplier.get();
-
-    if (code != null && code.getSize() > evm.getMaxInitcodeSize()) {
-      frame.popStackItems(getStackItemsConsumed());
-      return new OperationResult(cost, ExceptionalHaltReason.CODE_TOO_LARGE);
-    }
 
     final boolean insufficientBalance = value.compareTo(account.getBalance()) > 0;
     final boolean maxDepthReached = frame.getDepth() >= 1024;

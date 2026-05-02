@@ -33,8 +33,8 @@ dependencies {
   api 'org.apache.commons:commons-lang3'
   api 'io.consensys.tuweni:tuweni-bytes'
   api 'io.consensys.tuweni:tuweni-units'
-  implementation 'com.google.guava:guava'
-  implementation project(':evm')
+  api 'com.google.guava:guava'
+  api project(':evm')
   compileOnly 'io.vertx:vertx-core'
 }
 
@@ -71,7 +71,7 @@ Calculated : ${currentHash}
 tasks.register('checkAPIChanges', FileStateChecker) {
   description = "Checks that the API for the Plugin-API project does not change without deliberate thought"
   files = sourceSets.main.allJava.files
-  knownHash = 'qOofXFl1eeXoKDpR7E/hWY5dO8cAqMykRlS7yv/yXx4='
+  knownHash = 'snAYyiJqmXj9gFF1ViQnS2X7v5W5Z8H2SrPt0fF9XWA='
 }
 check.dependsOn('checkAPIChanges')
 

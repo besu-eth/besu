@@ -31,7 +31,6 @@ public class EthProtocolOptions implements CLIOptions<EthProtocolConfiguration> 
   private static final String MAX_GET_HEADERS_FLAG = "--Xewp-max-get-headers";
   private static final String MAX_GET_BODIES_FLAG = "--Xewp-max-get-bodies";
   private static final String MAX_GET_RECEIPTS_FLAG = "--Xewp-max-get-receipts";
-  private static final String MAX_GET_NODE_DATA_FLAG = "--Xewp-max-get-node-data";
   private static final String MAX_GET_POOLED_TRANSACTIONS = "--Xewp-max-get-pooled-transactions";
   private static final String MAX_CAPABILITY = "--Xeth-capability-max";
   private static final String MIN_CAPABILITY = "--Xeth-capability-min";
@@ -83,15 +82,6 @@ public class EthProtocolOptions implements CLIOptions<EthProtocolConfiguration> 
 
   @CommandLine.Option(
       hidden = true,
-      names = {MAX_GET_NODE_DATA_FLAG},
-      paramLabel = "<INTEGER>",
-      description =
-          "Maximum request limit for Ethereum Wire Protocol GET_NODE_DATA. (default: ${DEFAULT-VALUE})")
-  private PositiveNumber maxGetNodeData =
-      PositiveNumber.fromInt(EthProtocolConfiguration.DEFAULT_MAX_GET_NODE_DATA);
-
-  @CommandLine.Option(
-      hidden = true,
       names = {MAX_GET_POOLED_TRANSACTIONS},
       paramLabel = "<INTEGER>",
       description =
@@ -138,7 +128,6 @@ public class EthProtocolOptions implements CLIOptions<EthProtocolConfiguration> 
     options.maxGetBlockHeaders = PositiveNumber.fromInt(config.getMaxGetBlockHeaders());
     options.maxGetBlockBodies = PositiveNumber.fromInt(config.getMaxGetBlockBodies());
     options.maxGetReceipts = PositiveNumber.fromInt(config.getMaxGetReceipts());
-    options.maxGetNodeData = PositiveNumber.fromInt(config.getMaxGetNodeData());
     options.maxGetPooledTransactions = PositiveNumber.fromInt(config.getMaxGetPooledTransactions());
     options.maxEthCapability = config.getMaxEthCapability();
     options.minEthCapability = config.getMinEthCapability();
@@ -153,7 +142,6 @@ public class EthProtocolOptions implements CLIOptions<EthProtocolConfiguration> 
         .maxGetBlockHeaders(maxGetBlockHeaders.getValue())
         .maxGetBlockBodies(maxGetBlockBodies.getValue())
         .maxGetReceipts(maxGetReceipts.getValue())
-        .maxGetNodeData(maxGetNodeData.getValue())
         .maxGetPooledTransactions(maxGetPooledTransactions.getValue())
         .maxEthCapability(maxEthCapability)
         .minEthCapability(minEthCapability)

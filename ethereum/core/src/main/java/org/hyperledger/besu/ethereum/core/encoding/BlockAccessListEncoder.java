@@ -18,7 +18,6 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
 import org.apache.tuweni.units.bigints.UInt256;
-import org.apache.tuweni.units.bigints.UInt64;
 
 public final class BlockAccessListEncoder {
 
@@ -40,7 +39,7 @@ public final class BlockAccessListEncoder {
                     sc.changes(),
                     (chg, chgOut) -> {
                       chgOut.startList();
-                      chgOut.writeUInt64Scalar(UInt64.valueOf(chg.txIndex()));
+                      chgOut.writeUnsignedInt(chg.txIndex());
                       chgOut.writeUInt256Scalar(chg.newValue());
                       chgOut.endList();
                     });
@@ -55,7 +54,7 @@ public final class BlockAccessListEncoder {
               acct.balanceChanges(),
               (bc, bcOut) -> {
                 bcOut.startList();
-                bcOut.writeUInt64Scalar(UInt64.valueOf(bc.txIndex()));
+                bcOut.writeUnsignedInt(bc.txIndex());
                 bcOut.writeUInt256Scalar(UInt256.fromBytes(bc.postBalance()));
                 bcOut.endList();
               });
@@ -64,7 +63,7 @@ public final class BlockAccessListEncoder {
               acct.nonceChanges(),
               (nc, ncOut) -> {
                 ncOut.startList();
-                ncOut.writeUInt64Scalar(UInt64.valueOf(nc.txIndex()));
+                ncOut.writeUnsignedInt(nc.txIndex());
                 ncOut.writeLongScalar(nc.newNonce());
                 ncOut.endList();
               });
@@ -73,7 +72,7 @@ public final class BlockAccessListEncoder {
               acct.codeChanges(),
               (cc, ccOut) -> {
                 ccOut.startList();
-                ccOut.writeUInt64Scalar(UInt64.valueOf(cc.txIndex()));
+                ccOut.writeUnsignedInt(cc.txIndex());
                 ccOut.writeBytes(cc.newCode());
                 ccOut.endList();
               });

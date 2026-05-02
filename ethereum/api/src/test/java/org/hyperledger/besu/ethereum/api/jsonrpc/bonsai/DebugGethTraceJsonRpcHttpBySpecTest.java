@@ -14,13 +14,9 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.bonsai;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import org.hyperledger.besu.ethereum.api.jsonrpc.AbstractJsonRpcHttpBySpecTest;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
-
-import org.junit.jupiter.api.Test;
 
 public class DebugGethTraceJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
   @Override
@@ -48,12 +44,5 @@ public class DebugGethTraceJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySp
           "debug-geth/specs/call-tracer",
           "debug-geth/specs/4byte-tracer"
         });
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

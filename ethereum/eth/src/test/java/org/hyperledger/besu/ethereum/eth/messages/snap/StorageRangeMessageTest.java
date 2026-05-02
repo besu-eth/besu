@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.messages.snap;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NavigableMap;
@@ -49,6 +50,27 @@ public final class StorageRangeMessageTest {
 
     // check match originals.
     final StorageRangeMessage.SlotRangeData range = message.slotsData(false);
+    Assertions.assertThat(range.slots()).isEqualTo(keys);
+    Assertions.assertThat(range.proofs()).isEqualTo(proofs);
+  }
+
+  @Test
+  public void wrapRoundTripTest() {
+    final ArrayDeque<NavigableMap<Bytes32, Bytes>> keys = new ArrayDeque<>();
+    final TreeMap<Bytes32, Bytes> storage = new TreeMap<>();
+    storage.put(Bytes32.leftPad(Bytes.of(1)), Bytes32.random());
+    keys.add(storage);
+
+    final List<Bytes> proofs = new ArrayList<>();
+    proofs.add(Bytes32.random());
+
+    final StorageRangeMessage initialMessage = StorageRangeMessage.create(keys, proofs);
+    final MessageData wrapped = initialMessage.wrapMessageData(BigInteger.valueOf(42));
+    final MessageData raw = new RawMessage(SnapV1.STORAGE_RANGE, wrapped.getData());
+
+    final StorageRangeMessage message = StorageRangeMessage.readFrom(raw);
+
+    final StorageRangeMessage.SlotRangeData range = message.slotsData(true);
     Assertions.assertThat(range.slots()).isEqualTo(keys);
     Assertions.assertThat(range.proofs()).isEqualTo(proofs);
   }

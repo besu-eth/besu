@@ -14,11 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.timeout;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod.ETH_BLOCK_NUMBER;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod.ETH_GET_LOGS;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -38,11 +40,15 @@ import java.util.concurrent.TimeUnit;
 import com.google.common.collect.ImmutableMap;
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
+import io.vertx.core.http.HttpConnection;
+import io.vertx.core.http.HttpServerRequest;
+import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 
 public class TimeoutHandlerTest {
@@ -89,10 +95,97 @@ public class TimeoutHandlerTest {
     verify(ctx, times(timerMustBeSet ? 1 : 0)).addBodyEndHandler(any());
   }
 
+  // --- Timer callback behavior tests ---
+
+  /**
+   * Creates a RoutingContext with a timer that captures the timer callback, so tests can invoke it
+   * directly.
+   */
+  @SuppressWarnings("unchecked")
+  private static TimerSetup setupTimerCapture() {
+    final RoutingContext ctx = mock(RoutingContext.class);
+    final Vertx vertx = mock(Vertx.class);
+    final HttpServerResponse response = mock(HttpServerResponse.class);
+    final HttpServerRequest request = mock(HttpServerRequest.class);
+    final HttpConnection connection = mock(HttpConnection.class);
+
+    final JsonObject requestBody = mock(JsonObject.class);
+    when(requestBody.getString("method")).thenReturn(ETH_GET_LOGS.getMethodName());
+    when(ctx.data()).thenReturn(Map.of(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name(), requestBody));
+    when(ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name())).thenReturn(requestBody);
+    when(ctx.vertx()).thenReturn(vertx);
+    when(ctx.response()).thenReturn(response);
+    when(ctx.request()).thenReturn(request);
+    when(request.connection()).thenReturn(connection);
+
+    final ArgumentCaptor<Handler<Long>> timerCaptor = ArgumentCaptor.forClass(Handler.class);
+    when(vertx.setTimer(anyLong(), timerCaptor.capture())).thenReturn(1L);
+
+    final Map<String, TimeoutOptions> options =
+        ImmutableMap.of(
+            ETH_GET_LOGS.getMethodName(),
+            new TimeoutOptions(DEFAULT_OPTS.getTimeoutSeconds(), DEFAULT_OPTS.getErrorCode()));
+    TimeoutHandler.handler(Optional.empty(), options).handle(ctx);
+
+    return new TimerSetup(ctx, response, connection, timerCaptor.getValue());
+  }
+
+  private record TimerSetup(
+      RoutingContext ctx,
+      HttpServerResponse response,
+      HttpConnection connection,
+      Handler<Long> timerCallback) {}
+
   @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
+  void timeoutBeforeHeaders_callsCtxFail() {
+    final TimerSetup setup = setupTimerCapture();
+    when(setup.response().ended()).thenReturn(false);
+    when(setup.response().closed()).thenReturn(false);
+    when(setup.response().headWritten()).thenReturn(false);
+
+    setup.timerCallback().handle(1L);
+
+    verify(setup.ctx()).fail(DEFAULT_OPTS.getErrorCode());
+    verify(setup.response(), never()).reset();
+    verify(setup.connection()).close();
+  }
+
+  @Test
+  void timeoutAfterHeaders_resetsInsteadOfFailing() {
+    final TimerSetup setup = setupTimerCapture();
+    when(setup.response().ended()).thenReturn(false);
+    when(setup.response().closed()).thenReturn(false);
+    when(setup.response().headWritten()).thenReturn(true);
+
+    setup.timerCallback().handle(1L);
+
+    verify(setup.response()).reset();
+    verify(setup.ctx(), never()).fail(DEFAULT_OPTS.getErrorCode());
+    verify(setup.connection()).close();
+  }
+
+  @Test
+  void timeoutAfterResponseEnded_doesNothing() {
+    final TimerSetup setup = setupTimerCapture();
+    when(setup.response().ended()).thenReturn(true);
+
+    setup.timerCallback().handle(1L);
+
+    verify(setup.response(), never()).reset();
+    verify(setup.ctx(), never()).fail(DEFAULT_OPTS.getErrorCode());
+    verify(setup.connection(), never()).close();
+  }
+
+  @Test
+  void timeoutAfterResponseClosed_doesNothing() {
+    final TimerSetup setup = setupTimerCapture();
+    when(setup.response().ended()).thenReturn(false);
+    when(setup.response().closed()).thenReturn(true);
+
+    setup.timerCallback().handle(1L);
+
+    verify(setup.response(), never()).reset();
+    verify(setup.ctx(), never()).fail(DEFAULT_OPTS.getErrorCode());
+    verify(setup.connection(), never()).close();
   }
 }
