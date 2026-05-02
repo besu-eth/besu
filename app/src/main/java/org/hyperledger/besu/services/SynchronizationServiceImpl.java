@@ -144,28 +144,37 @@ public class SynchronizationServiceImpl implements SynchronizationService {
 
   @Override
   public void disableWorldStateTrie() {
-    // TODO maybe find a best way in the future to delete and disable trie
     worldStateArchive.ifPresent(
         archive -> {
-          archive.getWorldStateSharedSpec().setTrieDisabled(true);
           final PathBasedWorldStateKeyValueStorage worldStateStorage =
               archive.getWorldStateKeyValueStorage();
           final Optional<Hash> worldStateBlockHash = worldStateStorage.getWorldStateBlockHash();
           final Optional<Bytes> worldStateRootHash = worldStateStorage.getWorldStateRootHash();
-          if (worldStateRootHash.isPresent() && worldStateBlockHash.isPresent()) {
-            worldStateStorage.clearTrie();
-            // keep root and block hash in the trie branch
-            final PathBasedWorldStateKeyValueStorage.Updater updater = worldStateStorage.updater();
-            updater.saveWorldState(
-                worldStateBlockHash.get().getBytes(),
-                Bytes32.wrap(worldStateRootHash.get()),
-                Bytes.EMPTY);
-            updater.commit();
 
-            // currently only bonsai needs an explicit upgrade to full flat db
-            if (worldStateStorage instanceof BonsaiWorldStateKeyValueStorage bonsaiStorage) {
-              bonsaiStorage.upgradeToFullFlatDbMode();
-            }
+          // SAFETY CHECK: If we cannot retrieve the current state identifiers,
+          // we must abort the trie disabling to prevent corrupting the storage state.
+          if (worldStateRootHash.isEmpty() || worldStateBlockHash.isEmpty()) {
+            LOG.atWarn()
+                .setMessage(
+                    "World state trie migration aborted: root or block hash is missing from storage.")
+                .log();
+            return;
+          }
+
+          archive.getWorldStateSharedSpec().setTrieDisabled(true);
+          worldStateStorage.clearTrie();
+
+          // keep root and block hash in the trie branch
+          final PathBasedWorldStateKeyValueStorage.Updater updater = worldStateStorage.updater();
+          updater.saveWorldState(
+              worldStateBlockHash.get().getBytes(),
+              Bytes32.wrap(worldStateRootHash.get()),
+              Bytes.EMPTY);
+          updater.commit();
+
+          // currently only bonsai needs an explicit upgrade to full flat db
+          if (worldStateStorage instanceof BonsaiWorldStateKeyValueStorage bonsaiStorage) {
+            bonsaiStorage.upgradeToFullFlatDbMode();
           }
         });
   }
