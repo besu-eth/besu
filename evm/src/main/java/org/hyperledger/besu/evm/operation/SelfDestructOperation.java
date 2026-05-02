@@ -128,8 +128,8 @@ public class SelfDestructOperation extends AbstractOperation {
     originatorAccount.decrementBalance(originatorBalance);
     beneficiaryAccount.incrementBalance(originatorBalance);
 
-    // EIP-7708: if the contract will actually be destroyed and it is not a self transfer emit
-    // Burn log
+    // EIP-7708: if the contract will actually be destroyed, and it is not a self transfer emit
+    // a burn log or a transfer log depending on if it's a self transfer or not
     if (!originatorAddress.equals(beneficiaryAddress) || willBeDestroyed) {
       transferLogEmitter.emitSelfDestructLog(
           frame, originatorAddress, beneficiaryAddress, originatorBalance);

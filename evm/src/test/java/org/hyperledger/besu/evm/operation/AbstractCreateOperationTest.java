@@ -217,7 +217,7 @@ class AbstractCreateOperationTest {
     final FakeCreateOperation amsterdamOp = new FakeCreateOperation(amsterdamCalc);
 
     // State gas for CREATE at 36M = 112 * 150 = 16,800
-    final long stateGas = new Eip8037StateGasCostCalculator().createStateGas(blockGasLimit);
+    final long stateGas = new Eip8037StateGasCostCalculator().createStateGas();
 
     final UInt256 memoryOffset = UInt256.fromHexString("0xFF");
     final MessageFrame frame =

@@ -953,7 +953,7 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
           receipt,
           blockGasUsed,
           receiptGasUsed,
-          processingResult.getStateGasUsed(),
+          processingResult.getStateGasUsedForBlock(),
           evaluationTimeNanos);
 
       notifySelected(evaluationContext, processingResult);

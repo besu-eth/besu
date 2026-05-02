@@ -20,6 +20,7 @@ import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.BLOCK_
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.SELECTED;
 import static org.hyperledger.besu.plugin.data.TransactionSelectionResult.TX_TOO_LARGE_FOR_REMAINING_GAS;
 import static org.mockito.Answers.RETURNS_DEEP_STUBS;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -77,6 +78,17 @@ class BlockSizeTransactionSelectorTest {
     // tests
     when(blockSelectionContext.protocolSpec().getBlockGasAccountingStrategy())
         .thenReturn(BlockGasAccountingStrategy.FRONTIER);
+    // EIP-8037: ensure the per-dimension check (ethereum/EIPs #11536) sees a meaningful
+    // TX_MAX_GAS_LIMIT so that worstCaseRegular = min(TX_MAX, tx.gas) is not clamped to 0 by
+    // RETURNS_DEEP_STUBS' primitive default. Lenient since tests using FRONTIER strategy never
+    // invoke the per-dimension check.
+    lenient()
+        .when(
+            blockSelectionContext
+                .gasCalculator()
+                .stateGasCostCalculator()
+                .transactionRegularGasLimit())
+        .thenReturn(Long.MAX_VALUE);
 
     selectorsStateManager = new SelectorsStateManager();
     selector = new BlockSizeTransactionSelector(blockSelectionContext, selectorsStateManager);
@@ -242,6 +254,7 @@ class BlockSizeTransactionSelectorTest {
     final var txProcessingResult = mock(TransactionProcessingResult.class);
     when(txProcessingResult.getEstimateGasUsedByTransaction()).thenReturn(preRefundGasUsed);
     when(txProcessingResult.getStateGasUsed()).thenReturn(0L);
+    lenient().when(txProcessingResult.getStateGasUsedForBlock()).thenReturn(0L);
 
     final var txEvaluationContext =
         new TransactionEvaluationContext(
@@ -274,7 +287,8 @@ class BlockSizeTransactionSelectorTest {
 
     final var txProcessingResult = mock(TransactionProcessingResult.class);
     when(txProcessingResult.getGasRemaining()).thenReturn(postRefundGasRemaining);
-    when(txProcessingResult.getStateGasUsed()).thenReturn(0L);
+    lenient().when(txProcessingResult.getStateGasUsed()).thenReturn(0L);
+    lenient().when(txProcessingResult.getStateGasUsedForBlock()).thenReturn(0L);
 
     final var txEvaluationContext =
         new TransactionEvaluationContext(
@@ -307,6 +321,7 @@ class BlockSizeTransactionSelectorTest {
     final var result1 = mock(TransactionProcessingResult.class);
     when(result1.getEstimateGasUsedByTransaction()).thenReturn(30_000_000L);
     when(result1.getStateGasUsed()).thenReturn(5_000_000L);
+    when(result1.getStateGasUsedForBlock()).thenReturn(5_000_000L);
     // calculateTransactionRegularGas returns 30M - 5M = 25M regular
 
     final var ctx1 =
@@ -352,6 +367,7 @@ class BlockSizeTransactionSelectorTest {
     final var result1 = mock(TransactionProcessingResult.class);
     when(result1.getEstimateGasUsedByTransaction()).thenReturn(30_000_000L);
     when(result1.getStateGasUsed()).thenReturn(10_000_000L);
+    when(result1.getStateGasUsedForBlock()).thenReturn(10_000_000L);
 
     final var ctx1 =
         new TransactionEvaluationContext(
@@ -398,6 +414,7 @@ class BlockSizeTransactionSelectorTest {
     final var result1 = mock(TransactionProcessingResult.class);
     when(result1.getEstimateGasUsedByTransaction()).thenReturn(1_000_000L);
     when(result1.getStateGasUsed()).thenReturn(10_000L);
+    when(result1.getStateGasUsedForBlock()).thenReturn(10_000L);
     // regular gas = 1_000_000 - 10_000 = 990_000
 
     final var ctx1 =
@@ -458,7 +475,8 @@ class BlockSizeTransactionSelectorTest {
   private TransactionProcessingResult remainingGas(final long remainingGas) {
     final var txProcessingResult = mock(TransactionProcessingResult.class);
     when(txProcessingResult.getGasRemaining()).thenReturn(remainingGas);
-    when(txProcessingResult.getStateGasUsed()).thenReturn(0L);
+    lenient().when(txProcessingResult.getStateGasUsed()).thenReturn(0L);
+    lenient().when(txProcessingResult.getStateGasUsedForBlock()).thenReturn(0L);
     return txProcessingResult;
   }
 }
