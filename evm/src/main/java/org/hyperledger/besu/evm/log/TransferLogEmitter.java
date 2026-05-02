@@ -65,8 +65,7 @@ public interface TransferLogEmitter {
       final Address originator,
       final Address beneficiary,
       final Wei value) {
-    // Default implementation delegates to emitTransferLog for backward compatibility
-    emitTransferLog(frame, originator, beneficiary, value);
+    // No-op by default (pre-Amsterdam)
   }
 
   /**

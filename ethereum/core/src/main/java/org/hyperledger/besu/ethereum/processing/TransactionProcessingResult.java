@@ -52,6 +52,15 @@ public class TransactionProcessingResult
 
   private final long stateGasUsed;
 
+  /**
+   * EIP-8037: worst-case intrinsic state gas overhead beyond what was actually charged to {@link
+   * #stateGasUsed}. For EIP-7702 transactions whose authorizations target existing accounts, the
+   * intrinsic_state_gas is immutable at the worst-case (112 + 23) × cpsb per auth, so block
+   * accounting must add 112 × cpsb per existing delegator on top of the actually-charged state gas.
+   * Sender accounting still uses the actual (refunded) value via {@link #getStateGasUsed()}.
+   */
+  private final long intrinsicStateGasOverhead;
+
   private final List<Log> logs;
 
   private final Bytes output;
@@ -90,6 +99,33 @@ public class TransactionProcessingResult
       final Optional<Bytes> revertReason,
       final Optional<ExceptionalHaltReason> exceptionalHaltReason,
       final Optional<PartialBlockAccessView> partialBlockAccessView) {
+    return failed(
+        gasUsedByTransaction,
+        gasRemaining,
+        gasSpent,
+        stateGasUsed,
+        0L,
+        validationResult,
+        revertReason,
+        exceptionalHaltReason,
+        partialBlockAccessView);
+  }
+
+  /**
+   * Factory method for failed transactions with EIP-8037 intrinsic state gas overhead. Used when
+   * the actual state gas charged is less than the immutable worst-case intrinsic (e.g. EIP-7702
+   * authorizations targeting existing accounts).
+   */
+  public static TransactionProcessingResult failed(
+      final long gasUsedByTransaction,
+      final long gasRemaining,
+      final long gasSpent,
+      final long stateGasUsed,
+      final long intrinsicStateGasOverhead,
+      final ValidationResult<TransactionInvalidReason> validationResult,
+      final Optional<Bytes> revertReason,
+      final Optional<ExceptionalHaltReason> exceptionalHaltReason,
+      final Optional<PartialBlockAccessView> partialBlockAccessView) {
     return new TransactionProcessingResult(
         Status.FAILED,
         List.of(),
@@ -97,6 +133,7 @@ public class TransactionProcessingResult
         gasRemaining,
         gasSpent,
         stateGasUsed,
+        intrinsicStateGasOverhead,
         Bytes.EMPTY,
         validationResult,
         revertReason,
@@ -135,6 +172,33 @@ public class TransactionProcessingResult
       final Bytes output,
       final Optional<PartialBlockAccessView> partialBlockAccessView,
       final ValidationResult<TransactionInvalidReason> validationResult) {
+    return successful(
+        logs,
+        gasUsedByTransaction,
+        gasRemaining,
+        gasSpent,
+        stateGasUsed,
+        0L,
+        output,
+        partialBlockAccessView,
+        validationResult);
+  }
+
+  /**
+   * Factory method for successful transactions with EIP-8037 intrinsic state gas overhead. Used
+   * when the actual state gas charged is less than the immutable worst-case intrinsic (e.g.
+   * EIP-7702 authorizations targeting existing accounts).
+   */
+  public static TransactionProcessingResult successful(
+      final List<Log> logs,
+      final long gasUsedByTransaction,
+      final long gasRemaining,
+      final long gasSpent,
+      final long stateGasUsed,
+      final long intrinsicStateGasOverhead,
+      final Bytes output,
+      final Optional<PartialBlockAccessView> partialBlockAccessView,
+      final ValidationResult<TransactionInvalidReason> validationResult) {
     return new TransactionProcessingResult(
         Status.SUCCESSFUL,
         logs,
@@ -142,6 +206,7 @@ public class TransactionProcessingResult
         gasRemaining,
         gasSpent,
         stateGasUsed,
+        intrinsicStateGasOverhead,
         output,
         validationResult,
         Optional.empty(),
@@ -208,12 +273,39 @@ public class TransactionProcessingResult
       final ValidationResult<TransactionInvalidReason> validationResult,
       final Optional<Bytes> revertReason,
       final Optional<PartialBlockAccessView> partialBlockAccessView) {
+    this(
+        status,
+        logs,
+        estimateGasUsedByTransaction,
+        gasRemaining,
+        gasSpent,
+        stateGasUsed,
+        0L,
+        output,
+        validationResult,
+        revertReason,
+        partialBlockAccessView);
+  }
+
+  private TransactionProcessingResult(
+      final Status status,
+      final List<Log> logs,
+      final long estimateGasUsedByTransaction,
+      final long gasRemaining,
+      final long gasSpent,
+      final long stateGasUsed,
+      final long intrinsicStateGasOverhead,
+      final Bytes output,
+      final ValidationResult<TransactionInvalidReason> validationResult,
+      final Optional<Bytes> revertReason,
+      final Optional<PartialBlockAccessView> partialBlockAccessView) {
     this.status = status;
     this.logs = logs;
     this.estimateGasUsedByTransaction = estimateGasUsedByTransaction;
     this.gasRemaining = gasRemaining;
     this.gasSpent = gasSpent;
     this.stateGasUsed = stateGasUsed;
+    this.intrinsicStateGasOverhead = intrinsicStateGasOverhead;
     this.output = output;
     this.validationResult = validationResult;
     this.revertReason = revertReason;
@@ -262,12 +354,41 @@ public class TransactionProcessingResult
       final Optional<Bytes> revertReason,
       final Optional<ExceptionalHaltReason> exceptionalHaltReason,
       final Optional<PartialBlockAccessView> partialBlockAccessView) {
+    this(
+        status,
+        logs,
+        estimateGasUsedByTransaction,
+        gasRemaining,
+        gasSpent,
+        stateGasUsed,
+        0L,
+        output,
+        validationResult,
+        revertReason,
+        exceptionalHaltReason,
+        partialBlockAccessView);
+  }
+
+  private TransactionProcessingResult(
+      final Status status,
+      final List<Log> logs,
+      final long estimateGasUsedByTransaction,
+      final long gasRemaining,
+      final long gasSpent,
+      final long stateGasUsed,
+      final long intrinsicStateGasOverhead,
+      final Bytes output,
+      final ValidationResult<TransactionInvalidReason> validationResult,
+      final Optional<Bytes> revertReason,
+      final Optional<ExceptionalHaltReason> exceptionalHaltReason,
+      final Optional<PartialBlockAccessView> partialBlockAccessView) {
     this.status = status;
     this.logs = logs;
     this.estimateGasUsedByTransaction = estimateGasUsedByTransaction;
     this.gasRemaining = gasRemaining;
     this.gasSpent = gasSpent;
     this.stateGasUsed = stateGasUsed;
+    this.intrinsicStateGasOverhead = intrinsicStateGasOverhead;
     this.output = output;
     this.validationResult = validationResult;
     this.revertReason = revertReason;
@@ -351,6 +472,29 @@ public class TransactionProcessingResult
    */
   public long getStateGasUsed() {
     return stateGasUsed;
+  }
+
+  /**
+   * Returns the EIP-8037 intrinsic state gas overhead (ethereum/EIPs #11532 item 6). Block
+   * accounting must add this on top of {@link #getStateGasUsed()} so that the worst-case
+   * intrinsic_state_gas is reflected in {@code block_state_gas_used} (e.g. for EIP-7702 auths
+   * targeting existing accounts where the actual state gas paid is less than the immutable
+   * worst-case intrinsic).
+   *
+   * @return the intrinsic state gas overhead
+   */
+  public long getIntrinsicStateGasOverhead() {
+    return intrinsicStateGasOverhead;
+  }
+
+  /**
+   * Returns the state gas used as seen by block-level accounting (EIP-8037 worst-case intrinsic):
+   * {@link #getStateGasUsed()} plus {@link #getIntrinsicStateGasOverhead()}.
+   *
+   * @return the state gas used for block accounting
+   */
+  public long getStateGasUsedForBlock() {
+    return stateGasUsed + intrinsicStateGasOverhead;
   }
 
   /**
