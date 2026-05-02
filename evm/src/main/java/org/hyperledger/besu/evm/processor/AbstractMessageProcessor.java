@@ -268,10 +268,10 @@ public abstract class AbstractMessageProcessor {
       recordInitialFrameRegularHaltBurn(frame);
     }
 
-    frame.clearGasRemaining();
-    frame.clearOutputData();
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
     traceFrameExit(frame, "HALT");
+    frame.clearGasRemaining();
+    frame.clearOutputData();
   }
 
   /**

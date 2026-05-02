@@ -281,9 +281,10 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
    * on revert/halt — it contributes to the reservoir only when the full frame chain succeeds.
    *
    * <p>The amount is also recorded via {@link MessageFrame#recordNoGrowthStateGasRefund(long)} so
-   * {@code AbstractMessageProcessor.handleStateGasSpill} can subtract refunds-in-scope from the
-   * spill credit on revert/halt — those refunds must contribute nothing to a parent's reservoir
-   * when any frame in the chain fails. Mirrors the {@code state_gas_refund} counter.
+   * {@code AbstractMessageProcessor.handleStateGasRevertSpill} / {@code handleStateGasHalt} can
+   * subtract refunds-in-scope from the spill credit on revert/halt — those refunds must contribute
+   * nothing to a parent's reservoir when any frame in the chain fails. Mirrors the {@code
+   * state_gas_refund} counter.
    */
   private static void applyNoGrowthRefund(final MessageFrame frame, final long amount) {
     frame.incrementStateGasReservoir(amount);

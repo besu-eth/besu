@@ -213,7 +213,7 @@ class SStoreOperationTest {
     assertThat(result1.getHaltReason()).isNull();
 
     final long expectedStateGas = 32L * new Eip8037StateGasCostCalculator().costPerStateByte();
-    assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas); // 4,800 at 36M gas limit
+    assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas);
 
     // Second SSTORE: key=1, value=0 (nonzero -> 0, original=0 triggers state gas refund)
     frame.pushStackItem(UInt256.ZERO);
