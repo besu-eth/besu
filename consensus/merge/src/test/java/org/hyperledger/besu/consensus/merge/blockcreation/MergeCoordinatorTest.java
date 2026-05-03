@@ -1311,7 +1311,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
             block3Header, block1Header.getHash(), block1Header.getHash());
 
     assertThat(result.shouldNotProceedToPayloadBuildProcess()).isTrue();
-    assertThat(result.getStatus()).isEqualTo(ForkchoiceResult.Status.INVALID);
+    assertThat(result.getStatus()).isEqualTo(ForkchoiceResult.Status.INTERNAL_ERROR);
     assertThat(result.getErrorMessage()).isPresent();
 
     assertThat(blockchain.getChainHeadHash()).isEqualTo(block2Header.getHash());
