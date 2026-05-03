@@ -40,7 +40,7 @@ public final class BlockAccessListsMessageData {
           if (maybeBlockAccessList.isPresent()) {
             final BlockAccessList blockAccessList = maybeBlockAccessList.get();
             if (blockAccessList.rawRlp().isPresent()) {
-              output.writeBytes(blockAccessList.rawRlp().get());
+              output.writeRaw(blockAccessList.rawRlp().get());
             } else {
               BlockAccessListEncoder.encode(blockAccessList, output);
             }
@@ -84,10 +84,12 @@ public final class BlockAccessListsMessageData {
               throw new NoSuchElementException();
             }
             final RLPInput blockAccessListInput = input.readAsRlp();
+            final Bytes raw = blockAccessListInput.raw();
             // TODO: Why doesn't Bytes.EMPTY or isEmpty() work here?
-            if (blockAccessListInput.raw().equals(Bytes.of(0x80))) {
+            if (raw.equals(Bytes.of(0x80))) {
               return Optional.empty();
             }
+
             return Optional.of(BlockAccessListDecoder.decode(blockAccessListInput));
           }
         };

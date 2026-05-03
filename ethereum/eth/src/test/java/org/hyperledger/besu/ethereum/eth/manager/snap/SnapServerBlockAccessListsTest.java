@@ -21,7 +21,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -33,8 +32,6 @@ import org.hyperledger.besu.ethereum.eth.messages.snap.BlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetBlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.ImmutableSnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.AccountChanges;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.CodeChange;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
@@ -49,7 +46,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -92,7 +88,7 @@ class SnapServerBlockAccessListsTest {
   void shouldIncludeEmptyEntryForUnavailableBlockAccessList() {
     final Hash availableHash = dataGenerator.hash();
     final Hash unavailableHash = dataGenerator.hash();
-    final BlockAccessList available = dataGenerator.blockAccessList();
+    final BlockAccessList available = dataGenerator.blockAccessListWithCodeSize(32);
 
     when(blockchain.getBlockAccessList(availableHash)).thenReturn(Optional.of(available));
     when(blockchain.getBlockAccessList(unavailableHash)).thenReturn(Optional.empty());
@@ -115,16 +111,8 @@ class SnapServerBlockAccessListsTest {
     final Hash secondHash = dataGenerator.hash();
 
     final BlockAccessList hugeBlockAccessList =
-        new BlockAccessList(
-            List.of(
-                new AccountChanges(
-                    Address.ZERO,
-                    List.of(),
-                    List.of(),
-                    List.of(),
-                    List.of(),
-                    List.of(new CodeChange(0, Bytes.wrap(new byte[SNAP_MAX_RESPONSE_SIZE]))))));
-    final BlockAccessList secondBlockAccessList = dataGenerator.blockAccessList();
+        dataGenerator.blockAccessListWithCodeSize(SNAP_MAX_RESPONSE_SIZE);
+    final BlockAccessList secondBlockAccessList = dataGenerator.blockAccessListWithCodeSize(32);
 
     when(blockchain.getBlockAccessList(firstHash)).thenReturn(Optional.of(hugeBlockAccessList));
     when(blockchain.getBlockAccessList(secondHash)).thenReturn(Optional.of(secondBlockAccessList));
@@ -165,7 +153,8 @@ class SnapServerBlockAccessListsTest {
   @Test
   void shouldIncludeBlockAccessListsUpToMessageSizeLimit() {
     final int codeSize = 450_000;
-    final BlockAccessList largeBlockAccessList = createBlockAccessListWithCodeSize(codeSize);
+    final BlockAccessList largeBlockAccessList =
+        dataGenerator.blockAccessListWithCodeSize(codeSize);
     final int encodedSize = calculateRlpEncodedSize(largeBlockAccessList);
 
     assertThat(SNAP_MAX_RESPONSE_SIZE).isGreaterThanOrEqualTo(4 * encodedSize);
@@ -199,7 +188,7 @@ class SnapServerBlockAccessListsTest {
 
     final Hash firstAvailableHash = dataGenerator.hash();
     final Hash hashPastLimit = dataGenerator.hash();
-    final BlockAccessList firstAvailable = dataGenerator.blockAccessList();
+    final BlockAccessList firstAvailable = dataGenerator.blockAccessListWithCodeSize(32);
 
     when(blockchain.getBlockAccessList(firstAvailableHash)).thenReturn(Optional.of(firstAvailable));
 
@@ -240,18 +229,6 @@ class SnapServerBlockAccessListsTest {
 
     assertThat(response.blockAccessLists(false)).isEmpty();
     verify(blockchain, never()).getBlockAccessList(any());
-  }
-
-  private BlockAccessList createBlockAccessListWithCodeSize(final int codeSize) {
-    return new BlockAccessList(
-        List.of(
-            new AccountChanges(
-                Address.ZERO,
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(new CodeChange(0, Bytes.wrap(new byte[codeSize]))))));
   }
 
   private int calculateRlpEncodedSize(final BlockAccessList blockAccessList) {

@@ -396,7 +396,9 @@ public class BlockDataGenerator {
     // Generate BAL before creating header if enabled
     if (options.shouldGenerateBlockAccessList()) {
       final BlockAccessList bal =
-          options.getBlockAccessList().orElseGet(() -> blockAccessList(1 + random.nextInt(5), true));
+          options
+              .getBlockAccessList()
+              .orElseGet(() -> blockAccessList(1 + random.nextInt(5), true));
       generatedBal = Optional.of(bal);
       // Set the balHash in options so it's included in the header
       options.setBalHash(Hash.wrap(keccak256(RLP.encode(bal::writeTo))));
@@ -806,6 +808,23 @@ public class BlockDataGenerator {
     }
   }
 
+  public BlockAccessList blockAccessListWithCodeSize(final int codeSize) {
+    final BlockAccessList blockAccessList =
+        new BlockAccessList(
+            List.of(
+                new BlockAccessList.AccountChanges(
+                    Address.ZERO,
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(new BlockAccessList.CodeChange(0, Bytes.wrap(new byte[codeSize]))))));
+
+    final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
+    BlockAccessListEncoder.encode(blockAccessList, balOutput);
+    return new BlockAccessList(blockAccessList.accountChanges(), balOutput.encoded());
+  }
+
   /**
    * Generates a random BlockAccessList with 1-5 account changes.
    *
@@ -823,7 +842,6 @@ public class BlockDataGenerator {
   public BlockAccessList blockAccessListWithoutRawRlp() {
     return blockAccessList(1 + random.nextInt(5), false);
   }
-
 
   /**
    * Generates a single AccountChanges with random data.
