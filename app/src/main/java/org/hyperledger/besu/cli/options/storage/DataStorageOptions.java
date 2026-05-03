@@ -15,6 +15,7 @@
 package org.hyperledger.besu.cli.options.storage;
 
 import static org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration.DEFAULT_RECEIPT_COMPACTION_ENABLED;
+import static org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration.DEFAULT_REVERT_REASON_ENABLED;
 
 import org.hyperledger.besu.cli.options.CLIOptions;
 import org.hyperledger.besu.cli.util.CommandLineUtils;
@@ -47,6 +48,12 @@ public class DataStorageOptions implements CLIOptions<DataStorageConfiguration> 
       description = "Enables compact storing of receipts (default: ${DEFAULT-VALUE})",
       fallbackValue = "true")
   private Boolean receiptCompactionEnabled = DEFAULT_RECEIPT_COMPACTION_ENABLED;
+
+  @Option(
+      names = {"--revert-reason-enabled"},
+      description =
+          "Enable passing the revert reason back through TransactionReceipts (default: ${DEFAULT-VALUE})")
+  private Boolean revertReasonEnabled = DEFAULT_REVERT_REASON_ENABLED;
 
   @CommandLine.Option(
       names = {"--history-expiry-prune"},
@@ -93,6 +100,7 @@ public class DataStorageOptions implements CLIOptions<DataStorageConfiguration> 
     final DataStorageOptions dataStorageOptions = DataStorageOptions.create();
     dataStorageOptions.dataStorageFormat = domainObject.getDataStorageFormat();
     dataStorageOptions.receiptCompactionEnabled = domainObject.getReceiptCompactionEnabled();
+    dataStorageOptions.revertReasonEnabled = domainObject.getRevertReasonEnabled();
     dataStorageOptions.pathBasedExtraStorageOptions =
         PathBasedExtraStorageOptions.fromConfig(
             domainObject.getPathBasedExtraStorageConfiguration());
@@ -106,6 +114,7 @@ public class DataStorageOptions implements CLIOptions<DataStorageConfiguration> 
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(dataStorageFormat)
             .receiptCompactionEnabled(receiptCompactionEnabled)
+            .revertReasonEnabled(revertReasonEnabled)
             .historyExpiryPruneEnabled(historyExpiryPrune)
             .pathBasedExtraStorageConfiguration(pathBasedExtraStorageOptions.toDomainObject());
     return builder.build();

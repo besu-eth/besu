@@ -397,14 +397,6 @@ public class ConsensusScheduleBesuControllerBuilder extends BesuControllerBuilde
   }
 
   @Override
-  public BesuControllerBuilder isRevertReasonEnabled(final boolean isRevertReasonEnabled) {
-    besuControllerBuilderSchedule
-        .values()
-        .forEach(b -> b.isRevertReasonEnabled(isRevertReasonEnabled));
-    return super.isRevertReasonEnabled(isRevertReasonEnabled);
-  }
-
-  @Override
   public BesuControllerBuilder isParallelTxProcessingEnabled(
       final boolean isParallelTxProcessingEnabled) {
     besuControllerBuilderSchedule

@@ -1256,6 +1256,20 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
+  public void revertReasonEnabledIsPartOfDataStorageConfiguration() {
+    parseCommand("--revert-reason-enabled=true");
+    verify(mockControllerBuilder)
+        .dataStorageConfiguration(dataStorageConfigurationArgumentCaptor.capture());
+
+    final DataStorageConfiguration dataStorageConfig =
+        dataStorageConfigurationArgumentCaptor.getValue();
+    assertThat(dataStorageConfig.getRevertReasonEnabled()).isTrue();
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
   public void syncMode_snap_by_default() {
     parseCommand();
     verify(mockControllerBuilder).synchronizerConfiguration(syncConfigurationCaptor.capture());
