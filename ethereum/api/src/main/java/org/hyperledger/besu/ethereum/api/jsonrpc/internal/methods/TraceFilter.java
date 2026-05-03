@@ -207,7 +207,10 @@ public class TraceFilter extends TraceBlock {
 
                   try {
                     ethScheduler.startPipeline(traceBlockPipeline).get();
-                  } catch (InterruptedException | ExecutionException e) {
+                  } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(e);
+                  } catch (ExecutionException e) {
                     throw new RuntimeException(e);
                   }
                   return Optional.of(resultArrayNode);
