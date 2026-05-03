@@ -155,8 +155,11 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
     try {
       trimmedSegments = new ArrayList<>(defaultSegments);
-      final List<byte[]> existingColumnFamilies =
-          RocksDB.listColumnFamilies(new Options(), configuration.getDatabaseDir().toString());
+      final List<byte[]> existingColumnFamilies;
+      try (final Options options = new Options()) {
+        existingColumnFamilies =
+            RocksDB.listColumnFamilies(options, configuration.getDatabaseDir().toString());
+      }
       // Only ignore if not existed currently
       ignorableSegments.stream()
           .filter(
