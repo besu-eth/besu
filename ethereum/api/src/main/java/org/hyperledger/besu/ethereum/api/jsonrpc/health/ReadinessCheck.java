@@ -52,6 +52,7 @@ public class ReadinessCheck implements HealthService.HealthCheck {
       final String peersParam = params.getParam("minPeers");
       int requiredPeers = DEFAULT_MINIMUM_PEERS;
       boolean peersOk;
+      String peersError = null;
       if (peersParam != null) {
         try {
           requiredPeers = Integer.parseInt(peersParam);
@@ -59,16 +60,20 @@ public class ReadinessCheck implements HealthService.HealthCheck {
         } catch (final NumberFormatException e) {
           LOG.debug("Invalid minPeers: {}. Reporting as not ready.", peersParam);
           peersOk = false;
+          peersError = "invalid minPeers parameter: " + peersParam;
         }
       } else {
         peersOk = peerCount >= requiredPeers;
       }
-      checks.put(
-          "peers",
+      final JsonObject peersDetail =
           new JsonObject()
               .put("status", peersOk)
               .put("currentPeers", peerCount)
-              .put("requiredPeers", requiredPeers));
+              .put("requiredPeers", requiredPeers);
+      if (peersError != null) {
+        peersDetail.put("error", peersError);
+      }
+      checks.put("peers", peersDetail);
       if (!peersOk) {
         healthy = false;
       }
@@ -81,6 +86,7 @@ public class ReadinessCheck implements HealthService.HealthCheck {
       long maxBlocksBehind = DEFAULT_MAX_BLOCKS_BEHIND;
       final long blocksBehind = syncStatus.getHighestBlock() - syncStatus.getCurrentBlock();
       boolean syncOk;
+      String syncError = null;
       if (maxBlocksBehindParam != null) {
         try {
           maxBlocksBehind = Long.parseLong(maxBlocksBehindParam);
@@ -88,16 +94,20 @@ public class ReadinessCheck implements HealthService.HealthCheck {
         } catch (final NumberFormatException e) {
           LOG.debug("Invalid maxBlocksBehind: {}. Reporting as not ready.", maxBlocksBehindParam);
           syncOk = false;
+          syncError = "invalid maxBlocksBehind parameter: " + maxBlocksBehindParam;
         }
       } else {
         syncOk = blocksBehind <= maxBlocksBehind;
       }
-      checks.put(
-          "sync",
+      final JsonObject syncDetail =
           new JsonObject()
               .put("status", syncOk)
               .put("blocksBehind", blocksBehind)
-              .put("maxBlocksBehind", maxBlocksBehind));
+              .put("maxBlocksBehind", maxBlocksBehind);
+      if (syncError != null) {
+        syncDetail.put("error", syncError);
+      }
+      checks.put("sync", syncDetail);
       if (!syncOk) {
         healthy = false;
       }

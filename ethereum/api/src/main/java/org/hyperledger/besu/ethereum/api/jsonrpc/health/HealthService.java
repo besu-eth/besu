@@ -67,7 +67,7 @@ public final class HealthService {
 
     public HealthCheckResult(final boolean healthy, final JsonObject details) {
       this.healthy = healthy;
-      this.details = details;
+      this.details = details != null ? details.copy() : new JsonObject();
     }
 
     public boolean isHealthy() {
@@ -75,7 +75,7 @@ public final class HealthService {
     }
 
     public JsonObject getDetails() {
-      return details;
+      return details.copy();
     }
   }
 
