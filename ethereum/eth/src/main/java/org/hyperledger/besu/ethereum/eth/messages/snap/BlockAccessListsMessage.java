@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 
 import java.util.Optional;
+import java.util.stream.StreamSupport;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -50,7 +51,7 @@ public final class BlockAccessListsMessage extends AbstractSnapMessageData {
       final Iterable<BlockAccessList> blockAccessLists) {
     return create(
         () ->
-            java.util.stream.StreamSupport.stream(blockAccessLists.spliterator(), false)
+            StreamSupport.stream(blockAccessLists.spliterator(), false)
                 .map(Optional::of)
                 .iterator());
   }

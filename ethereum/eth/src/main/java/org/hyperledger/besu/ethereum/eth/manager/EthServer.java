@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
-import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
@@ -404,8 +403,7 @@ class EthServer {
         if (blockAccessList.rawRlp().isPresent()) {
           balOutput.writeBytes(blockAccessList.rawRlp().get());
         } else {
-          // TODO: Throw error here. Currently handled gracefully for tests
-          BlockAccessListEncoder.encode(blockAccessList, balOutput);
+          throw new IllegalStateException("Expected BAL read from storage to contain RLP bytes");
         }
       } else {
         balOutput.writeBytes(Bytes.EMPTY);

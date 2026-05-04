@@ -523,7 +523,7 @@ public class EthServerTest {
 
     for (int i = 0; i < count; i++) {
       final Hash h = dataGenerator.hash();
-      final BlockAccessList bal = dataGenerator.blockAccessListWithoutRawRlp();
+      final BlockAccessList bal = dataGenerator.blockAccessList();
       hashes.add(h);
       accessLists.add(bal);
       when(blockchain.getBlockAccessList(h)).thenReturn(Optional.of(bal));
@@ -544,23 +544,17 @@ public class EthServerTest {
     setupEthServer();
 
     final List<Hash> hashes = new ArrayList<>(count);
-    final List<BlockAccessList> accessLists = new ArrayList<>(count);
+    final BlockAccessList bal = dataGenerator.blockAccessList();
 
     for (int i = 0; i < count; i++) {
       final Hash h = dataGenerator.hash();
-      final BlockAccessList bal = dataGenerator.blockAccessListWithoutRawRlp();
       hashes.add(h);
-      accessLists.add(bal);
       when(blockchain.getBlockAccessList(h)).thenReturn(Optional.of(bal));
     }
 
-    int sizeLimit = RLP.MAX_PREFIX_SIZE;
-    final List<BlockAccessList> expectedAccessLists = new ArrayList<>();
-    for (int i = 0; i < 4; i++) {
-      final BlockAccessList bal = accessLists.get(i);
-      expectedAccessLists.add(bal);
-      sizeLimit += calculateRlpEncodedSize(bal);
-    }
+    final int balEncodedSize = calculateRlpEncodedSize(bal);
+    final int sizeLimit = RLP.MAX_PREFIX_SIZE + (4 * balEncodedSize);
+    final List<BlockAccessList> expectedAccessLists = List.of(bal, bal, bal, bal);
 
     final int messageSizeLimit = sizeLimit;
     setupEthServer(b -> b.maxMessageSize(messageSizeLimit));
@@ -728,8 +722,19 @@ public class EthServerTest {
   }
 
   private int calculateRlpEncodedSize(final BlockAccessList blockAccessList) {
-    final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
-    BlockAccessListEncoder.encode(blockAccessList, rlp);
-    return rlp.encodedSize();
+    return blockAccessList
+        .rawRlp()
+        .map(
+            rawRlp -> {
+              final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
+              rlp.writeBytes(rawRlp);
+              return rlp.encodedSize();
+            })
+        .orElseGet(
+            () -> {
+              final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
+              BlockAccessListEncoder.encode(blockAccessList, rlp);
+              return rlp.encodedSize();
+            });
   }
 }

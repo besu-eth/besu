@@ -396,9 +396,7 @@ public class BlockDataGenerator {
     // Generate BAL before creating header if enabled
     if (options.shouldGenerateBlockAccessList()) {
       final BlockAccessList bal =
-          options
-              .getBlockAccessList()
-              .orElseGet(() -> blockAccessList(1 + random.nextInt(5), true));
+          options.getBlockAccessList().orElseGet(() -> blockAccessList(1 + random.nextInt(5)));
       generatedBal = Optional.of(bal);
       // Set the balHash in options so it's included in the header
       options.setBalHash(Hash.wrap(keccak256(RLP.encode(bal::writeTo))));
@@ -791,7 +789,7 @@ public class BlockDataGenerator {
    * @param accountCount the number of accounts to include
    * @return a BlockAccessList with random data
    */
-  public BlockAccessList blockAccessList(final int accountCount, final boolean withRawRlp) {
+  public BlockAccessList blockAccessList(final int accountCount) {
     final List<BlockAccessList.AccountChanges> accountChanges = new ArrayList<>(accountCount);
 
     for (int i = 0; i < accountCount; i++) {
@@ -799,13 +797,9 @@ public class BlockDataGenerator {
     }
 
     final BlockAccessList balNoRawRlp = new BlockAccessList(accountChanges);
-    if (withRawRlp) {
-      final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
-      BlockAccessListEncoder.encode(balNoRawRlp, balOutput);
-      return new BlockAccessList(accountChanges, balOutput.encoded());
-    } else {
-      return balNoRawRlp;
-    }
+    final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
+    BlockAccessListEncoder.encode(balNoRawRlp, balOutput);
+    return new BlockAccessList(accountChanges, balOutput.encoded());
   }
 
   public BlockAccessList blockAccessListWithCodeSize(final int codeSize) {
@@ -831,16 +825,7 @@ public class BlockDataGenerator {
    * @return a BlockAccessList with random data
    */
   public BlockAccessList blockAccessList() {
-    return blockAccessList(1 + random.nextInt(5), true);
-  }
-
-  /**
-   * Generates a random BlockAccessList with 1-5 account changes.
-   *
-   * @return a BlockAccessList with random data
-   */
-  public BlockAccessList blockAccessListWithoutRawRlp() {
-    return blockAccessList(1 + random.nextInt(5), false);
+    return blockAccessList(1 + random.nextInt(5));
   }
 
   /**
