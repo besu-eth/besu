@@ -35,17 +35,17 @@ assignees: ''
   - [ ] `git tag 24.4.0`
   - [ ] `git push upstream 24.4.0`
 - [ ] Manually run https://github.com/besu-eth/besu/actions/workflows/draft-release.yml using `main` branch` and the FULL RELEASE tag name, i.e. `24.4.0`. Note, this workflow should always be run from `main` branch (hotfix tags will still be released even if they were created based on another branch)
-    - publishes artefacts and version-specific docker tags but does not fully publish the GitHub release so subscribers are not yet notified
+    - publishes the binary artefacts as a GitHub draft release; docker tags and Maven artifacts are published later by `publish-release.yml`
 - [ ] Check all draft-release workflow jobs went green
 - [ ] Check binary SHAs are correct on the release page
-- [ ] Check artifacts exist in https://hyperledger.jfrog.io/ui/repos/tree/General/besu-maven
-- [ ] Update release notes in the GitHub draft release, save draft and sign-off with team
-- [ ] IMPORTANT: confirm the tag name is the ONLY text in the "Release title", otherwise it will break the Docker Promote workflow https://github.com/besu-eth/besu/actions/workflows/docker-promote.yml
+- [ ] Review release notes in the GitHub draft release (auto-composed from CHANGELOG at the tag); sign-off with team
+- [ ] IMPORTANT: confirm the tag name is the ONLY text in the "Release title", otherwise it will break the Publish Release workflow https://github.com/besu-eth/besu/actions/workflows/publish-release.yml
 - [ ] Publish draft release ensuring it is marked as latest release (if appropriate)
     - this is now public and notifies subscribed users
     - makes the release "latest" in github
-    - publishes the docker `latest` tag variants
-- [ ] Verify https://github.com/besu-eth/besu/actions/workflows/docker-promote.yml went green
+    - triggers `publish-release.yml`: docker version + latest tags, Maven artifacts to artifactory
+- [ ] Verify https://github.com/besu-eth/besu/actions/workflows/publish-release.yml went green
+- [ ] Check artifacts exist in https://hyperledger.jfrog.io/ui/repos/tree/General/besu-maven
 - [ ] Create homebrew release PR using [update-version workflow](https://github.com/hyperledger/homebrew-besu/actions/workflows/update-version.yml)
   - If the PR has not been automatically created, create the PR manually using the created branch `update-<version>`
 - [ ] Verify homebrew release once the PR has merged using `brew tap hyperledger/besu && brew install besu` on MacOSX to verify latest version has been installed

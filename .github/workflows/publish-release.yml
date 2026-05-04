@@ -1,6 +1,6 @@
-name: Docker Promote
+name: Publish Release
 
-run-name: "Docker Promote ${{ github.event.release.name }}"
+run-name: "Publish Release ${{ github.event.release.name }}"
 
 on:
   release:
@@ -151,3 +151,52 @@ jobs:
 
       - name: Stop container
         run: docker stop ${{ env.CONTAINER_NAME }}
+
+  artifactory:
+    runs-on: ubuntu-latest
+    needs: [validate]
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.RELEASE_VERSION }}
+
+      - name: Set up Java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: setup gradle
+        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+        with:
+          cache-disabled: true
+
+      - name: Artifactory Publish
+        env:
+          ARTIFACTORY_USER: ${{ secrets.BESU_ARTIFACTORY_USER }}
+          ARTIFACTORY_KEY: ${{ secrets.BESU_ARTIFACTORY_TOKEN }}
+        run: ./gradlew -Prelease.releaseVersion=${{ env.RELEASE_VERSION }} -Pversion=${{env.RELEASE_VERSION}} artifactoryPublish
+
+  verify_artifactory:
+    runs-on: ubuntu-latest
+    needs: [validate, artifactory]
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.RELEASE_VERSION }}
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: pip install requests argparse
+
+      - name: Run the script
+        run: python3 .github/workflows/verify_artifacts.py --besu_version="${{ needs.validate.outputs.release_version }}"
