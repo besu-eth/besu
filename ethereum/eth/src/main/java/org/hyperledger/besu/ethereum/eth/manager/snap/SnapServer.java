@@ -108,6 +108,23 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final ProtocolContext protocolContext,
       final Synchronizer synchronizer) {
+    this(
+        snapConfig,
+        snapMessages,
+        worldStateStorageCoordinator,
+        protocolContext,
+        synchronizer,
+        ResponseSizePredicate.DEFAULT_MAX_MILLIS_PER_REQUEST);
+  }
+
+  @VisibleForTesting
+  SnapServer(
+      final SnapSyncConfiguration snapConfig,
+      final EthMessages snapMessages,
+      final WorldStateStorageCoordinator worldStateStorageCoordinator,
+      final ProtocolContext protocolContext,
+      final Synchronizer synchronizer,
+      final long maxMillisPerRequest) {
     this.snapServerEnabled =
         Optional.ofNullable(snapConfig)
             .map(SnapSyncConfiguration::isSnapServerEnabled)
@@ -115,7 +132,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
     this.snapMessages = snapMessages;
     this.worldStateStorageCoordinator = worldStateStorageCoordinator;
     this.protocolContext = Optional.of(protocolContext);
-    this.maxMillisPerRequest = ResponseSizePredicate.DEFAULT_MAX_MILLIS_PER_REQUEST;
+    this.maxMillisPerRequest = maxMillisPerRequest;
     registerResponseConstructors();
 
     // subscribe to initial sync completed events to start/stop snap server,

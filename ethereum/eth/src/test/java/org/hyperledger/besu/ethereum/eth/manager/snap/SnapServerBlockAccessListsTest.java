@@ -53,6 +53,7 @@ class SnapServerBlockAccessListsTest {
 
   private static final int SNAP_MAX_RESPONSE_SIZE = 2 * 1024 * 1024;
   private static final int SNAP_MAX_ENTRIES_PER_REQUEST = 100_000;
+  private static final int SNAP_TEST_MAX_MILLIS_PER_REQUEST = 60_000;
 
   private final BlockDataGenerator dataGenerator = new BlockDataGenerator();
 
@@ -80,7 +81,8 @@ class SnapServerBlockAccessListsTest {
                 new EthMessages(),
                 worldStateStorageCoordinator,
                 protocolContext,
-                mock(Synchronizer.class))
+                mock(Synchronizer.class),
+                SNAP_TEST_MAX_MILLIS_PER_REQUEST)
             .start();
   }
 
