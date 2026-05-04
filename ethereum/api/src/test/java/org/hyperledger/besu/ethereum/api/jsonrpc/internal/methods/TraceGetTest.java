@@ -61,7 +61,9 @@ public class TraceGetTest {
 
     assertThatThrownBy(() -> method.response(request))
         .isInstanceOf(InvalidJsonRpcParameters.class)
-        .extracting("rpcErrorType")
+        .asInstanceOf(
+            org.assertj.core.api.InstanceOfAssertFactories.type(InvalidJsonRpcParameters.class))
+        .extracting(InvalidJsonRpcParameters::getRpcErrorType)
         .isEqualTo(RpcErrorType.INVALID_TRACE_NUMBERS_PARAMS);
   }
 
@@ -74,7 +76,9 @@ public class TraceGetTest {
 
     assertThatThrownBy(() -> method.response(request))
         .isInstanceOf(InvalidJsonRpcParameters.class)
-        .extracting("rpcErrorType")
+        .asInstanceOf(
+            org.assertj.core.api.InstanceOfAssertFactories.type(InvalidJsonRpcParameters.class))
+        .extracting(InvalidJsonRpcParameters::getRpcErrorType)
         .isEqualTo(RpcErrorType.INVALID_TRACE_NUMBERS_PARAMS);
   }
 
@@ -87,7 +91,9 @@ public class TraceGetTest {
 
     assertThatThrownBy(() -> method.response(request))
         .isInstanceOf(InvalidJsonRpcParameters.class)
-        .extracting("rpcErrorType")
+        .asInstanceOf(
+            org.assertj.core.api.InstanceOfAssertFactories.type(InvalidJsonRpcParameters.class))
+        .extracting(InvalidJsonRpcParameters::getRpcErrorType)
         .isEqualTo(RpcErrorType.INVALID_TRACE_NUMBERS_PARAMS);
   }
 
@@ -100,7 +106,43 @@ public class TraceGetTest {
 
     assertThatThrownBy(() -> method.response(request))
         .isInstanceOf(InvalidJsonRpcParameters.class)
-        .extracting("rpcErrorType")
+        .asInstanceOf(
+            org.assertj.core.api.InstanceOfAssertFactories.type(InvalidJsonRpcParameters.class))
+        .extracting(InvalidJsonRpcParameters::getRpcErrorType)
+        .isEqualTo(RpcErrorType.INVALID_TRACE_NUMBERS_PARAMS);
+  }
+
+  @Test
+  public void shouldThrowOnTraceIndexMissingHexPrefixLongerThanTwo() {
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest(
+                "2.0",
+                "trace_get",
+                new Object[] {VALID_TX_HASH, Arrays.asList("deadbeef")}));
+
+    assertThatThrownBy(() -> method.response(request))
+        .isInstanceOf(InvalidJsonRpcParameters.class)
+        .asInstanceOf(
+            org.assertj.core.api.InstanceOfAssertFactories.type(InvalidJsonRpcParameters.class))
+        .extracting(InvalidJsonRpcParameters::getRpcErrorType)
+        .isEqualTo(RpcErrorType.INVALID_TRACE_NUMBERS_PARAMS);
+  }
+
+  @Test
+  public void shouldThrowOnNullTraceIndexElement() {
+    final JsonRpcRequestContext request =
+        new JsonRpcRequestContext(
+            new JsonRpcRequest(
+                "2.0",
+                "trace_get",
+                new Object[] {VALID_TX_HASH, Arrays.asList(new Object[] {null})}));
+
+    assertThatThrownBy(() -> method.response(request))
+        .isInstanceOf(InvalidJsonRpcParameters.class)
+        .asInstanceOf(
+            org.assertj.core.api.InstanceOfAssertFactories.type(InvalidJsonRpcParameters.class))
+        .extracting(InvalidJsonRpcParameters::getRpcErrorType)
         .isEqualTo(RpcErrorType.INVALID_TRACE_NUMBERS_PARAMS);
   }
 }
