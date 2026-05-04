@@ -19,9 +19,6 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 
-import java.math.BigInteger;
-import java.util.Optional;
-
 import org.apache.tuweni.bytes.Bytes;
 
 public final class BlockAccessListsMessage extends AbstractSnapMessageData {
@@ -43,13 +40,7 @@ public final class BlockAccessListsMessage extends AbstractSnapMessageData {
   }
 
   public static BlockAccessListsMessage create(final Iterable<BlockAccessList> blockAccessLists) {
-    return create(Optional.empty(), blockAccessLists);
-  }
-
-  public static BlockAccessListsMessage create(
-      final Optional<BigInteger> requestId, final Iterable<BlockAccessList> blockAccessLists) {
-    return new BlockAccessListsMessage(
-        BlockAccessListsMessageData.encode(requestId, blockAccessLists));
+    return new BlockAccessListsMessage(BlockAccessListsMessageData.encode(blockAccessLists));
   }
 
   /**
@@ -64,16 +55,15 @@ public final class BlockAccessListsMessage extends AbstractSnapMessageData {
   }
 
   @Override
-  protected Bytes wrap(final BigInteger requestId) {
-    return create(Optional.of(requestId), blockAccessLists(false)).getData();
-  }
-
-  @Override
   public int getCode() {
     return SnapV2.BLOCK_ACCESS_LISTS;
   }
 
   public Iterable<BlockAccessList> blockAccessLists(final boolean withRequestId) {
     return BlockAccessListsMessageData.decode(data, withRequestId);
+  }
+
+  public Iterable<Bytes> blockAccessListsRaw(final boolean withRequestId) {
+    return BlockAccessListsMessageData.decodeRaw(data, withRequestId);
   }
 }

@@ -37,7 +37,6 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
@@ -50,6 +49,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -59,6 +59,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -712,7 +713,6 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   public ForkchoiceResult updateForkChoice(
       final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash) {
     MutableBlockchain blockchain = protocolContext.getBlockchain();
-    final Optional<BlockHeader> newFinalized = blockchain.getBlockHeader(finalizedBlockHash);
 
     if (newHead.getNumber() < blockchain.getChainHeadBlockNumber()
         && isDescendantOf(newHead, blockchain.getChainHeadHeader())) {
@@ -722,6 +722,20 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
           .log();
       return ForkchoiceResult.withIgnoreUpdateToOldHead(newHead);
     }
+
+    return applyForkChoice(newHead, finalizedBlockHash, safeBlockHash);
+  }
+
+  @Override
+  public ForkchoiceResult updateForkChoiceWithoutLegacySkip(
+      final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash) {
+    return applyForkChoice(newHead, finalizedBlockHash, safeBlockHash);
+  }
+
+  private ForkchoiceResult applyForkChoice(
+      final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash) {
+    final MutableBlockchain blockchain = protocolContext.getBlockchain();
+    final Optional<BlockHeader> newFinalized = blockchain.getBlockHeader(finalizedBlockHash);
 
     final Optional<Hash> latestValid = getLatestValidAncestor(newHead);
 
@@ -733,7 +747,10 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
           INVALID, "new head timestamp not greater than parent", latestValid);
     }
 
-    setNewHead(blockchain, newHead);
+    if (!setNewHead(blockchain, newHead)) {
+      LOG.warn("Failed to move world state to new head {}", newHead.toLogString());
+      return ForkchoiceResult.withFailure(INVALID, "Failed to set new head", latestValid);
+    }
 
     // set and persist the new finalized block if it is present
     newFinalized.ifPresent(
@@ -894,6 +911,73 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
           .log();
       return false;
     }
+  }
+
+  @Override
+  public boolean isAncestorOfFinalized(final Hash candidateHeadHash) {
+    final Blockchain blockchain = protocolContext.getBlockchain();
+    final Optional<Hash> maybeFinalizedHash = blockchain.getFinalized();
+    if (maybeFinalizedHash.isEmpty()) {
+      return false;
+    }
+
+    if (candidateHeadHash.equals(maybeFinalizedHash.get())) {
+      return false;
+    }
+
+    final BlockHeader finalizedHeader =
+        blockchain
+            .getBlockHeader(maybeFinalizedHash.get())
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "Finalized block header missing for hash " + maybeFinalizedHash.get()));
+    final BlockHeader candidateHeader =
+        blockchain
+            .getBlockHeader(candidateHeadHash)
+            .orElseThrow(
+                () ->
+                    new IllegalStateException(
+                        "Candidate head block header missing for hash " + candidateHeadHash));
+    // candidate is a strict ancestor of finalized iff finalized descends from candidate
+    return isDescendantOf(candidateHeader, finalizedHeader);
+  }
+
+  @Override
+  public OptionalLong computeReorgDepth(final BlockHeader newHead) {
+    final Blockchain blockchain = protocolContext.getBlockchain();
+    final BlockHeader chainHead = blockchain.getChainHeadHeader();
+
+    if (newHead.getBlockHash().equals(chainHead.getBlockHash())) {
+      return OptionalLong.of(0L);
+    }
+    // Fast path: newHead extends canonical, or canonical extends newHead - no reorg.
+    // The check looks redundant against the loop below, but is required because the caller
+    // applies the no-reorg ancestor-of-finalized skip (paris.md point 2) AFTER this depth
+    // check; without short-circuiting here, an extension or no-op FCU would still walk back
+    // to find a common ancestor and could trip the MAX_REORG_DEPTH limit.
+    if (isDescendantOf(chainHead, newHead) || isDescendantOf(newHead, chainHead)) {
+      return OptionalLong.of(0L);
+    }
+
+    Optional<BlockHeader> candidateBlockHeader = Optional.of(newHead);
+    while (candidateBlockHeader.isPresent()) {
+      final BlockHeader h = candidateBlockHeader.get();
+      final long candidateDepth = chainHead.getNumber() - h.getNumber();
+
+      // Early-exit beyond the engine-API limit: the exact depth is irrelevant past that point.
+      if (candidateDepth > MAX_REORG_DEPTH) {
+        return OptionalLong.of(candidateDepth);
+      }
+
+      final Optional<Hash> canonicalAtN = blockchain.getBlockHashByNumber(h.getNumber());
+      if (canonicalAtN.isPresent() && canonicalAtN.get().equals(h.getBlockHash())) {
+        return OptionalLong.of(candidateDepth);
+      }
+
+      candidateBlockHeader = blockchain.getBlockHeader(h.getParentHash());
+    }
+    return OptionalLong.empty();
   }
 
   @Override

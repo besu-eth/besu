@@ -12,10 +12,17 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.mainnet.systemcall;
+package org.hyperledger.besu.ethereum.eth.sync.backwardsync;
 
-public class InvalidSystemCallAddressException extends RuntimeException {
-  public InvalidSystemCallAddressException(final String message) {
-    super(message);
+public class BackwardSyncAlgorithmFactory {
+  public BackwardSyncAlgorithm createBackwardSyncAlgorithm(
+      final BackwardSyncContext backwardSyncContext) {
+    return new BackwardSyncAlgorithm(
+        backwardSyncContext,
+        FinalBlockConfirmation.confirmationChain(
+            FinalBlockConfirmation.genesisConfirmation(
+                backwardSyncContext.protocolContext.getBlockchain()),
+            FinalBlockConfirmation.ancestorConfirmation(
+                backwardSyncContext.protocolContext.getBlockchain())));
   }
 }

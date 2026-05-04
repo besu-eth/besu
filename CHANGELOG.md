@@ -5,6 +5,20 @@
 ### Breaking Changes
 
 ### Upcoming Breaking Changes
+
+### Bug fixes
+- `eth_getFilterLogs`: cache the chain head once when resolving default `latest..latest` bounds, so a block arriving between the two reads no longer expands the queried range into `[N, N+1]` and returns extra logs. [#10368](https://github.com/besu-eth/besu/pull/10368)
+
+### Additions and Improvements
+- Add EIP-7981 to Amsterdam [#10388](https://github.com/besu-eth/besu/pull/10388)
+
+## 26.5.0
+
+### Breaking Changes
+- Plugin API
+  - Removed `BesuConfiguration#getRpcHttpHost()` and `BesuConfiguration#getRpcHttpPort()` which have been deprecated since `25.1.0`. Use `getConfiguredRpcHttpHost()` and `getConfiguredRpcHttpPort()` instead. [#10268](https://github.com/besu-eth/besu/pull/10268)
+
+### Upcoming Breaking Changes
 - RPC changes to enhance compatibility with other ELs
   - Block number parameter in RPCs will only support hex values. Support for non-hex (decimal) block number parameters is deprecated.
   - This affects several RPCs, including `admin_logsRemoveCache`, `debug_getRawHeader`, `eth_call`, `eth_simulateV1`, `trace_call` and more.
@@ -18,9 +32,38 @@
 - BFT option `xemptyblockperiodseconds` has been taken out of experimental and been renamed `emptyblockperiodseconds`. The old config option is deprecated and will be removed in a future release.
 
 ### Bug fixes
+- `engine_newPayloadV3`/V4/V5: validate parameters before fork-support check so that missing required fields return `-32602` (`INVALID_PARAMS`) instead of `-38005` (`UNSUPPORTED_FORK`), matching the Engine API spec [#10249](https://github.com/besu-eth/besu/pull/10249)
+- Fix data race in `SyncDurationMetrics` where the backing `HashMap` was mutated from multiple sync threads in parallel, causing missing or zero `sync_duration` samples. [#10277](https://github.com/besu-eth/besu/pull/10277)
+- Fix CVE-2026-34480 and CVE-2026-34478 in log4j [#10332](https://github.com/besu-eth/besu/pull/10332)
+- Reject Status messages whose declared `protocolVersion` field disagrees with the on-wire layout (eth/68 vs eth/69+). The decoder now throws `RLPException` directly so the peer is cleanly disconnected with `SUBPROTOCOL_TRIGGERED_UNPARSABLE_STATUS`. [#10241](https://github.com/besu-eth/besu/pull/10241)
+- Fix `updateForkChoice` ignoring `setNewHead` failure: when world state cannot be rolled to the target block, return `INVALID` to the CL instead of silently returning `VALID` with inconsistent finalized/safe state. [#10224](https://github.com/besu-eth/besu/pull/10224)
+- Fix `DefaultPeerId` comparator [#10321](https://github.com/besu-eth/besu/pull/10321)
+- Apply node-ID–based permission checks to address-less ENRs in discv5: previously, ENRs without UDP/TCP endpoints bypassed denylist enforcement; now denylisted peers are rejected even when no network address is present. [#10308](https://github.com/besu-eth/besu/pull/10308)
+- Cleanly stop backward sync if world state is unavailable [#10021](https://github.com/besu-eth/besu/pull/10021)
+- Enforce that `blob_versioned_hashes` match the supplied blobs [#10278](https://github.com/besu-eth/besu/pull/10278)
+- Restrict no-reorg behavior to the prefix of the known finalized chain (per execution-apis #786) [#10335](https://github.com/besu-eth/besu/pull/10335)
 
 ### Additions and Improvements
-- The option to set a different block period for empty BFT blocks (`emptyblockperiodseconds`) is no longer experimental. The experimental flag `xemptyblockperiodseconds` will be removed in a future release.
+- The option to set a different block period for empty BFT blocks (`emptyblockperiodseconds`) is no longer experimental. The experimental flag `xemptyblockperiodseconds` will be removed in a future release. [#10264](https://github.com/besu-eth/besu/pull/10264)
+- Release worker threads after engine API timeout to avoid blocking subsequent requests [#10311](https://github.com/besu-eth/besu/pull/10311)
+- `evmtool blocktest --verbose` flag, default off, removes noise from output [#10348](https://github.com/besu-eth/besu/pull/10348)
+- Bound precompile result caches to the semantic-prefix slice and apply a 16 MB byte-weight cap per cache, providing a uniform memory ceiling across all 14 precompile caches [#10350](https://github.com/besu-eth/besu/pull/10350)
+- Lazy RLP decoding of `GetBlockBodies` messages reduces memory and CPU spent on dropped requests [#10342](https://github.com/besu-eth/besu/pull/10342)
+- Speed up backward sync phase 1 relinking after a restart by batching restored ancestor header writes into a single chainStorage transaction instead of one per header [#10276](https://github.com/besu-eth/besu/pull/10276)
+- Move Block Access List download from the state pipeline into the chain pipeline [#10245](https://github.com/besu-eth/besu/pull/10245)
+- Reduce memory copying in eth/snap message handling and improve RLP performance [#10130](https://github.com/besu-eth/besu/pull/10130)
+- Save and resume header download progress on pipeline restart, so backward header downloads resume from where they left off rather than from the pivot [#10275](https://github.com/besu-eth/besu/pull/10275)
+- Pin Dockerfile base images by SHA256 digest for reproducible builds and supply chain security [#10309](https://github.com/besu-eth/besu/pull/10309)
+- Remove `GetNodeData` / `NodeData` eth-protocol messages, which are no longer used by snap sync [#10330](https://github.com/besu-eth/besu/pull/10330)
+- Enforce EIP-7928 Block Access List item budget per transaction in both processing and mining [#10250](https://github.com/besu-eth/besu/pull/10250)
+- Include `slotNumber` in `payloadIdentifier` generation [#10242](https://github.com/besu-eth/besu/pull/10242)
+- Change Block Access List index encoding to `uint32` [#10279](https://github.com/besu-eth/besu/pull/10279)
+
+### Plugin API
+- Publish Guava as an API dependency from `plugin-api` [#10248](https://github.com/besu-eth/besu/pull/10248)
+- Publish `besu-evm` as an API dependency from `plugin-api` [#10262](https://github.com/besu-eth/besu/pull/10262)
+- Update Gradle plugin for Besu plugin development to 0.2.0 [#10263](https://github.com/besu-eth/besu/pull/10263)
+- Rename `InvalidSystemCallAddressException` to `SystemCallNoCodeAtAddressException` to better reflect when it is thrown [#10305](https://github.com/besu-eth/besu/pull/10305)
 
 ## 26.4.0
 
