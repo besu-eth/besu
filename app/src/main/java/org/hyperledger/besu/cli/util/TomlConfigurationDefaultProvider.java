@@ -247,7 +247,7 @@ public class TomlConfigurationDefaultProvider implements IDefaultValueProvider {
   /** Load configuration from file. */
   public void loadConfigurationIfNotLoaded() {
     if (result == null) {
-      try {
+      try (configurationInputStream) {
         final TomlParseResult result = Toml.parse(configurationInputStream);
 
         if (result.hasErrors()) {
