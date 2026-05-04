@@ -105,6 +105,7 @@ public class BalConfigurationOptions {
         .isBalLenientOnStateRootMismatch(balLenientOnStateRootMismatch)
         .isBalStateRootTrusted(balTrustStateRoot)
         .isBalStateRootEnabled(balStateRootEnabled)
+        .isBalPreFetchReadingEnabled(balPreFetchReadingEnabled)
         .isBalPreFetchSortingEnabled(balPreFetchSortingEnabled)
         .balPreFetchBatchSize(balPreFetchBatch)
         .balStateRootTimeout(Duration.ofMillis(balStateRootTimeoutMs))
