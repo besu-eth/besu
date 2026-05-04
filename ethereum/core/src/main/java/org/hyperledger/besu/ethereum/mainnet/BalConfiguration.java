@@ -27,7 +27,7 @@ public interface BalConfiguration {
   /** Returns whether the BAL-computed state root should be trusted without verification. */
   @Value.Default
   default boolean isBalStateRootTrusted() {
-    return false;
+    return true;
   }
 
   /** Returns whether BAL perfect parallelization is enabled. */
@@ -48,7 +48,7 @@ public interface BalConfiguration {
   /** Returns whether prefetching of state data based on BAL read operations is enabled. */
   @Value.Default
   default boolean isBalPreFetchReadingEnabled() {
-    return false;
+    return true;
   }
 
   /** Returns whether BAL sorting optimization should be enabled during prefetch. */
@@ -66,13 +66,13 @@ public interface BalConfiguration {
   /** Returns the timeout to use when waiting for the BAL-computed state root. */
   @Value.Default
   default Duration getBalStateRootTimeout() {
-    return Duration.ofSeconds(1);
+    return Duration.ofSeconds(-1);
   }
 
   /** Returns the timeout to use when waiting for BAL transaction processing results. */
   @Value.Default
   default Duration getBalProcessingTimeout() {
-    return Duration.ofSeconds(1);
+    return Duration.ofSeconds(-1);
   }
 
   /**
@@ -83,6 +83,6 @@ public interface BalConfiguration {
    */
   @Value.Default
   default int getBalPreFetchBatchSize() {
-    return 0; // Default: no batching, fetch all at once
+    return 100; // Default: no batching, fetch all at once
   }
 }
