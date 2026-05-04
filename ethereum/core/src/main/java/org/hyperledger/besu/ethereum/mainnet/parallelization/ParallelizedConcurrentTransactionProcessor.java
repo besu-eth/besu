@@ -134,7 +134,7 @@ public class ParallelizedConcurrentTransactionProcessor extends ParallelBlockTra
                   contextBuilder.miningBeneficiaryReward(miningReward);
                 }
               },
-              blockHashLookup,
+              blockHashLookup.forkForParallelWorker(),
               TransactionValidationParams.processingBlock(),
               blobGasPrice,
               transactionLocationTracker);
