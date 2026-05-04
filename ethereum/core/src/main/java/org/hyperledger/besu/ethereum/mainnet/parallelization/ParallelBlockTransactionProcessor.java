@@ -73,11 +73,14 @@ public abstract class ParallelBlockTransactionProcessor {
 
   /** World state at the parent block. Call only when the parent header is known to be present. */
   protected Optional<BonsaiWorldState> getWorldState(
-      final ProtocolContext protocolContext, final BlockHeader parentHeader) {
-    return protocolContext
-        .getWorldStateArchive()
-        .getWorldState(WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(parentHeader))
-        .map(BonsaiWorldState.class::cast);
+      final ProtocolContext protocolContext, final Optional<BlockHeader> maybeParentHeader) {
+    return maybeParentHeader.flatMap(
+        blockHeader ->
+            protocolContext
+                .getWorldStateArchive()
+                .getWorldState(
+                    WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(blockHeader))
+                .map(BonsaiWorldState.class::cast));
   }
 
   protected abstract ParallelizedTransactionContext runTransaction(

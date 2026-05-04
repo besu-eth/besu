@@ -86,11 +86,7 @@ public class ParallelizedConcurrentTransactionProcessor extends ParallelBlockTra
       final Optional<BlockAccessListBuilder> blockAccessListBuilder,
       final Optional<BlockHeader> maybeParentHeader) {
 
-    if (maybeParentHeader.isEmpty()) {
-      return null;
-    }
-    final BonsaiWorldState ws =
-        getWorldState(protocolContext, maybeParentHeader.get()).orElse(null);
+    final BonsaiWorldState ws = getWorldState(protocolContext, maybeParentHeader).orElse(null);
     if (ws == null) {
       return null;
     }
