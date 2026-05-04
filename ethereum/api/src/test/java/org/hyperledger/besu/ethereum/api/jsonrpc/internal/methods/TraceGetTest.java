@@ -51,13 +51,13 @@ public class TraceGetTest {
   }
 
   @Test
-  public void shouldThrowOnNonHexTraceIndex() {
+  public void shouldThrowOnInvalidHexDigitsTraceIndex() {
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(
             new JsonRpcRequest(
                 "2.0",
                 "trace_get",
-                new Object[] {VALID_TX_HASH, Arrays.asList("invalid_index")}));
+                new Object[] {VALID_TX_HASH, Arrays.asList("0xZZ")}));
 
     assertThatThrownBy(() -> method.response(request))
         .isInstanceOf(InvalidJsonRpcParameters.class)
@@ -136,7 +136,7 @@ public class TraceGetTest {
             new JsonRpcRequest(
                 "2.0",
                 "trace_get",
-                new Object[] {VALID_TX_HASH, Arrays.asList(new Object[] {null})}));
+                new Object[] {VALID_TX_HASH, Arrays.asList((Object) null)}));
 
     assertThatThrownBy(() -> method.response(request))
         .isInstanceOf(InvalidJsonRpcParameters.class)

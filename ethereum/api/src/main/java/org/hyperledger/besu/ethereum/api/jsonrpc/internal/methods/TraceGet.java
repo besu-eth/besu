@@ -91,10 +91,7 @@ public class TraceGet extends AbstractTraceByHash implements JsonRpcMethod {
                     return Integer.parseInt(traceNumber.substring(2), 16);
                   })
               .collect(Collectors.toList());
-    } catch (final NumberFormatException
-        | ClassCastException
-        | NullPointerException
-        | StringIndexOutOfBoundsException e) {
+    } catch (final NumberFormatException | ClassCastException e) {
       throw new InvalidJsonRpcParameters(
           "Invalid trace numbers parameters (index 1)",
           RpcErrorType.INVALID_TRACE_NUMBERS_PARAMS,
