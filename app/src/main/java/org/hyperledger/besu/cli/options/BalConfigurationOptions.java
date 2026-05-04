@@ -44,7 +44,7 @@ public class BalConfigurationOptions {
       names = {"--Xbal-trust-state-root"},
       hidden = true,
       description = "Trust the BAL-computed state root without verification.")
-  boolean balTrustStateRoot = false;
+  boolean balTrustStateRoot = true;
 
   @CommandLine.Option(
       names = {"--Xbal-log-bals-on-mismatch"},
@@ -57,20 +57,20 @@ public class BalConfigurationOptions {
       hidden = true,
       paramLabel = "<INTEGER>",
       description = "Timeout in milliseconds when waiting for the BAL-computed state root.")
-  private long balStateRootTimeoutMs = Duration.ofSeconds(1).toMillis();
+  private long balStateRootTimeoutMs = -1;
 
   @CommandLine.Option(
       names = {"--Xbal-processing-timeout"},
       hidden = true,
       paramLabel = "<INTEGER>",
       description = "Timeout in milliseconds when waiting for BAL transaction processing results.")
-  private long balProcessingTimeoutMs = Duration.ofSeconds(1).toMillis();
+  private long balProcessingTimeoutMs = -1;
 
   @CommandLine.Option(
       names = {"--Xbal-prefetch-reading-enabled"},
       hidden = true,
       description = "Enable prefetching of state data based on BAL read operations.")
-  boolean balPreFetchReadingEnabled = false;
+  boolean balPreFetchReadingEnabled = true;
 
   @CommandLine.Option(
       names = {"--Xbal-prefetch-sorting-enabled"},
