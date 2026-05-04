@@ -48,6 +48,11 @@ public class TransactionLogBloomCacher {
 
   private static final Logger LOG = LoggerFactory.getLogger(TransactionLogBloomCacher.class);
   private static final String NO_SPACE_LEFT_ON_DEVICE = "No space left on device";
+  private static final int DISK_FULL_EXIT_CODE = 1;
+
+  static boolean isDiskFull(final IOException e) {
+    return e.getMessage() != null && e.getMessage().contains(NO_SPACE_LEFT_ON_DEVICE);
+  }
 
   public static final int BLOCKS_PER_BLOOM_CACHE = 100_000;
   public static final int BLOOM_BITS_LENGTH = 256;
@@ -140,9 +145,9 @@ public class TransactionLogBloomCacher {
         blockNum++;
       }
     } catch (final IOException e) {
-      if (e.getMessage().contains(NO_SPACE_LEFT_ON_DEVICE)) {
+      if (isDiskFull(e)) {
         LOG.error(e.getMessage());
-        System.exit(0);
+        System.exit(DISK_FULL_EXIT_CODE);
       }
       throw e;
     }
@@ -186,9 +191,9 @@ public class TransactionLogBloomCacher {
         populateLatestSegment(blockNumber);
       }
     } catch (final IOException e) {
-      if (e.getMessage().contains(NO_SPACE_LEFT_ON_DEVICE)) {
+      if (isDiskFull(e)) {
         LOG.error(e.getMessage());
-        System.exit(0);
+        System.exit(DISK_FULL_EXIT_CODE);
       }
       LOG.error("Unhandled caching exception.", e);
     } finally {
@@ -240,7 +245,13 @@ public class TransactionLogBloomCacher {
           StandardCopyOption.REPLACE_EXISTING,
           StandardCopyOption.ATOMIC_MOVE);
       return true;
-    } catch (final IOException | InvalidCacheException e) {
+    } catch (final IOException e) {
+      if (isDiskFull(e)) {
+        LOG.error(e.getMessage());
+        System.exit(DISK_FULL_EXIT_CODE);
+      }
+      LOG.error("Unhandled caching exception.", e);
+    } catch (final InvalidCacheException e) {
       LOG.error("Unhandled caching exception.", e);
     }
 
@@ -271,9 +282,9 @@ public class TransactionLogBloomCacher {
                 cacheFile.getName());
           }
         } catch (final IOException e) {
-          if (e.getMessage().contains(NO_SPACE_LEFT_ON_DEVICE)) {
+          if (isDiskFull(e)) {
             LOG.error(e.getMessage());
-            System.exit(0);
+            System.exit(DISK_FULL_EXIT_CODE);
           }
           LOG.error(
               String.format("Unhandled exception removing cache for block number %d", blockNum), e);

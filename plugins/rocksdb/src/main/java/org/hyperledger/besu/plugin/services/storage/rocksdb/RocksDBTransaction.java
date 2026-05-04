@@ -23,6 +23,7 @@ import java.util.function.Function;
 
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksDBException;
+import org.rocksdb.Status;
 import org.rocksdb.Transaction;
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
@@ -31,6 +32,7 @@ import org.slf4j.LoggerFactory;
 /** The RocksDb transaction. */
 public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
   private static final Logger logger = LoggerFactory.getLogger(RocksDBTransaction.class);
+  private static final int DISK_FULL_EXIT_CODE = 1;
   private static final String NO_SPACE_LEFT_ON_DEVICE = "No space left on device";
 
   private final RocksDBMetrics metrics;
@@ -62,9 +64,9 @@ public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
     try (final OperationTimer.TimingContext ignored = metrics.getWriteLatency().startTimer()) {
       innerTx.put(columnFamilyMapper.apply(segmentId), key, value);
     } catch (final RocksDBException e) {
-      if (e.getMessage().contains(NO_SPACE_LEFT_ON_DEVICE)) {
+      if (isDiskFull(e)) {
         logger.error(e.getMessage());
-        System.exit(0);
+        System.exit(DISK_FULL_EXIT_CODE);
       }
       throw new StorageException(e);
     }
@@ -75,9 +77,9 @@ public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
     try (final OperationTimer.TimingContext ignored = metrics.getRemoveLatency().startTimer()) {
       innerTx.delete(columnFamilyMapper.apply(segmentId), key);
     } catch (final RocksDBException e) {
-      if (e.getMessage().contains(NO_SPACE_LEFT_ON_DEVICE)) {
+      if (isDiskFull(e)) {
         logger.error(e.getMessage());
-        System.exit(0);
+        System.exit(DISK_FULL_EXIT_CODE);
       }
       throw new StorageException(e);
     }
@@ -88,9 +90,9 @@ public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
     try (final OperationTimer.TimingContext ignored = metrics.getCommitLatency().startTimer()) {
       innerTx.commit();
     } catch (final RocksDBException e) {
-      if (e.getMessage().contains(NO_SPACE_LEFT_ON_DEVICE)) {
+      if (isDiskFull(e)) {
         logger.error(e.getMessage());
-        System.exit(0);
+        System.exit(DISK_FULL_EXIT_CODE);
       }
       throw new StorageException(e);
     } finally {
@@ -104,14 +106,23 @@ public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
       innerTx.rollback();
       metrics.getRollbackCount().inc();
     } catch (final RocksDBException e) {
-      if (e.getMessage().contains(NO_SPACE_LEFT_ON_DEVICE)) {
+      if (isDiskFull(e)) {
         logger.error(e.getMessage());
-        System.exit(0);
+        System.exit(DISK_FULL_EXIT_CODE);
       }
       throw new StorageException(e);
     } finally {
       close();
     }
+  }
+
+  static boolean isDiskFull(final RocksDBException e) {
+    final Status status = e.getStatus();
+    if (status != null) {
+      return status.getCode() == Status.Code.IOError
+          && status.getSubCode() == Status.SubCode.NoSpace;
+    }
+    return e.getMessage() != null && e.getMessage().contains(NO_SPACE_LEFT_ON_DEVICE);
   }
 
   @Override
