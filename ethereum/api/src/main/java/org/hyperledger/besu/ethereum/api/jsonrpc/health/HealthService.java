@@ -14,8 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.health;
 
-import static java.util.Collections.singletonMap;
-
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.json.JsonObject;
@@ -40,26 +38,54 @@ public final class HealthService {
   }
 
   public void handleRequest(final RoutingContext routingContext) {
+    final HealthCheckResult result =
+        healthCheck.checkHealth(name -> routingContext.queryParams().get(name));
     final int statusCode;
     final String statusText;
-    if (healthCheck.isHealthy(name -> routingContext.queryParams().get(name))) {
+    if (result.isHealthy()) {
       statusCode = HEALTHY_STATUS_CODE;
       statusText = HEALTHY_STATUS_TEXT;
     } else {
       statusCode = UNHEALTHY_STATUS_CODE;
       statusText = UNHEALTHY_STATUS_TEXT;
     }
+    final JsonObject responseBody = new JsonObject().put("status", statusText);
+    final JsonObject details = result.getDetails();
+    if (details != null && !details.isEmpty()) {
+      responseBody.put("checks", details);
+    }
     final HttpServerResponse response = routingContext.response();
     if (!response.closed()) {
-      response
-          .setStatusCode(statusCode)
-          .end(new JsonObject(singletonMap("status", statusText)).encodePrettily());
+      response.setStatusCode(statusCode).end(responseBody.encodePrettily());
+    }
+  }
+
+  /** Holds the result of a health check including diagnostic details. */
+  public static class HealthCheckResult {
+    private final boolean healthy;
+    private final JsonObject details;
+
+    public HealthCheckResult(final boolean healthy, final JsonObject details) {
+      this.healthy = healthy;
+      this.details = details;
+    }
+
+    public boolean isHealthy() {
+      return healthy;
+    }
+
+    public JsonObject getDetails() {
+      return details;
     }
   }
 
   @FunctionalInterface
   public interface HealthCheck {
     boolean isHealthy(ParamSource paramSource);
+
+    default HealthCheckResult checkHealth(final ParamSource paramSource) {
+      return new HealthCheckResult(isHealthy(paramSource), new JsonObject());
+    }
   }
 
   @FunctionalInterface
