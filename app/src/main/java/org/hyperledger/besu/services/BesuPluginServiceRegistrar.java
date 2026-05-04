@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.plugin.services.BesuEvents;
 import org.hyperledger.besu.plugin.services.BlockSimulationService;
 import org.hyperledger.besu.plugin.services.BlockchainService;
+import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.PermissioningService;
 import org.hyperledger.besu.plugin.services.RpcEndpointService;
@@ -108,6 +109,8 @@ public final class BesuPluginServiceRegistrar {
     pluginContext.addService(TransactionSimulationService.class, transactionSimulationService);
     pluginContext.addService(BlockchainService.class, blockchainService);
     pluginContext.addService(TransactionValidatorService.class, transactionValidatorService);
+
+    pluginContext.addService(HealthCheckService.class, new HealthCheckServiceImpl());
   }
 
   /**
