@@ -848,7 +848,7 @@ public class BlockDataGenerator {
    *
    * @return an AccountChanges with random storage changes, reads, balance, nonce, and code changes
    */
-  public BlockAccessList.AccountChanges accountChanges() {
+  private BlockAccessList.AccountChanges accountChanges() {
     final Address address = address();
     final int storageChangeCount = random.nextInt(4);
     final int storageReadCount = random.nextInt(3);

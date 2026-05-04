@@ -83,14 +83,11 @@ public final class BlockAccessListsMessageData {
             if (!hasNext()) {
               throw new NoSuchElementException();
             }
-            final RLPInput blockAccessListInput = input.readAsRlp();
-            final Bytes raw = blockAccessListInput.raw();
-            // TODO: Why doesn't Bytes.EMPTY or isEmpty() work here?
-            if (raw.equals(Bytes.of(0x80))) {
+            if (input.nextIsNull()) {
+              input.skipNext();
               return Optional.empty();
             }
-
-            return Optional.of(BlockAccessListDecoder.decode(blockAccessListInput));
+            return Optional.of(BlockAccessListDecoder.decode(input.readAsRlp()));
           }
         };
   }
