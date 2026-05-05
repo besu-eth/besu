@@ -11,6 +11,7 @@
 
 ### Additions and Improvements
 - Add EIP-7981 to Amsterdam [#10388](https://github.com/besu-eth/besu/pull/10388)
+- Bonsai Archive storage now uses Bonsai for head and Bonsai for near head improving performance for head queries [#10192](https://github.com/besu-eth/besu/pull/10192) 
 
 ## 26.5.0
 
