@@ -31,8 +31,8 @@ import java.util.concurrent.ConcurrentMap;
  * used by {@link BlockHashOperation} and ensures that the correct block hash is returned even when
  * the block being imported is on a fork.
  *
- * <p>A new BlockHashCache must be created for each block being processed but should be reused for
- * all transactions within that block.
+ * <p>A new {@link BlockchainBasedBlockHashLookup} must be created for each block being processed
+ * but should be reused for all transactions within that block.
  *
  * <p>Parallel worker forks (preload or transaction execution) share the same hash cache via {@link
  * #forkForParallelWorker} so work done by one worker is visible to others; each fork keeps its own

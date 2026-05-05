@@ -167,13 +167,14 @@ class BlockchainBasedBlockHashLookupTest {
   }
 
   @Test
-  void forkForParallelWorker_sharedCacheReducesBlockchainLookups() throws Exception {
+  void forkForParallelWorker_sharedCacheReducesBlockchainLookups() {
     // A lookup performed by one fork populates the shared cache so that a subsequent fork
     // resolving the same block number does not need to query the blockchain again.
     final int deepBlock = CURRENT_BLOCK_NUMBER - 50;
 
     final BlockHashLookup firstFork = lookup.forkForParallelWorker();
-    var unused = firstFork.apply(messageFrameMock, (long) deepBlock);
+    assertThat(firstFork.apply(messageFrameMock, (long) deepBlock))
+        .isEqualTo(headers[deepBlock].getHash());
 
     // Record blockchain interactions up to this point, then clear the counter.
     clearInvocations(blockchain);
