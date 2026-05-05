@@ -20,6 +20,7 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_FREEZER;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ARCHIVE_ACCOUNT_INDEX;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.CODE_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
@@ -27,6 +28,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.ArchiveIndexWriter;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.BonsaiContext;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.StorageSubscriber;
@@ -407,6 +409,22 @@ public abstract class PathBasedWorldStateKeyValueStorage
     tx.put(
         ACCOUNT_INFO_STATE_FREEZER,
         ARCHIVED_BLOCKS,
+        Bytes.ofUnsignedLong(blockNumber).toArrayUnsafe());
+    tx.commit();
+  }
+
+  public Optional<Long> getLastIndexedBlock() {
+    return composedWorldStateStorage
+        .get(ARCHIVE_ACCOUNT_INDEX, ArchiveIndexWriter.LAST_INDEXED_BLOCK_KEY)
+        .map(Bytes::wrap)
+        .map(Bytes::toLong);
+  }
+
+  public void setLastIndexedBlock(final long blockNumber) {
+    SegmentedKeyValueStorageTransaction tx = composedWorldStateStorage.startTransaction();
+    tx.put(
+        ARCHIVE_ACCOUNT_INDEX,
+        ArchiveIndexWriter.LAST_INDEXED_BLOCK_KEY,
         Bytes.ofUnsignedLong(blockNumber).toArrayUnsafe());
     tx.commit();
   }

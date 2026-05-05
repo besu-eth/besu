@@ -18,10 +18,13 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
 import org.hyperledger.besu.ethereum.chain.BlockAddedObserver;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.ArchiveIndexWriter;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManager;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
 
 import java.util.Optional;
@@ -139,7 +142,7 @@ public class BonsaiArchiver implements BlockAddedObserver {
       blocksToArchive
           .entrySet()
           .forEach(
-              (block) -> {
+              block -> {
                 Hash blockHash = block.getValue();
                 LOG.atDebug()
                     .setMessage("Archiving all account state for block {}")
@@ -184,6 +187,39 @@ public class BonsaiArchiver implements BlockAddedObserver {
                                 });
                           });
                 }
+                // Write index entries for all changed accounts/storage in this block
+                if (trieLog.isPresent()) {
+                  final long blockNumber = block.getKey();
+                  final SegmentedKeyValueStorageTransaction indexTx =
+                      rootWorldStateStorage.getComposedWorldStateStorage().startTransaction();
+                  trieLog
+                      .get()
+                      .getAccountChanges()
+                      .forEach(
+                          (address, change) ->
+                              ArchiveIndexWriter.appendAccountToIndex(
+                                  rootWorldStateStorage.getComposedWorldStateStorage(),
+                                  indexTx,
+                                  address.addressHash().getBytes().toArrayUnsafe(),
+                                  blockNumber));
+                  trieLog
+                      .get()
+                      .getStorageChanges()
+                      .forEach(
+                          (address, storageSlotKey) ->
+                              storageSlotKey.forEach(
+                                  (slotKey, slotValue) ->
+                                      ArchiveIndexWriter.appendStorageToIndex(
+                                          rootWorldStateStorage.getComposedWorldStateStorage(),
+                                          indexTx,
+                                          BonsaiArchiveFlatDbStrategy.calculateNaturalSlotKey(
+                                              address.addressHash(), slotKey.getSlotHash()),
+                                          blockNumber)));
+                  indexTx.commit();
+                  // Advance lastIndexedBlock if this block fills the gap contiguously from 0
+                  ArchiveIndexWriter.tryAdvanceLastIndexedBlock(
+                      rootWorldStateStorage.getComposedWorldStateStorage(), blockNumber);
+                }
                 LOG.atDebug()
                     .setMessage("All account state and storage archived for block {}")
                     .addArgument(block.getKey())
@@ -215,7 +251,7 @@ public class BonsaiArchiver implements BlockAddedObserver {
           .log();
     }
 
-    return archivedAccountStateCount.get() + archivedAccountStorageCount.get();
+    return (archivedAccountStateCount.get() + archivedAccountStorageCount.get());
   }
 
   private final Lock archiveMutex = new ReentrantLock(true);
