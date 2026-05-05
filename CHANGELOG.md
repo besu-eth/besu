@@ -11,6 +11,7 @@
 
 ### Additions and Improvements
 - Add EIP-7981 to Amsterdam [#10388](https://github.com/besu-eth/besu/pull/10388)
+- Bonsai Archive storage now uses Bonsai for head and Bonsai for near head improving performance for head queries [#10192](https://github.com/besu-eth/besu/pull/10192) 
 
 ## 26.5.0
 
@@ -58,6 +59,7 @@
 - Enforce EIP-7928 Block Access List item budget per transaction in both processing and mining [#10250](https://github.com/besu-eth/besu/pull/10250)
 - Include `slotNumber` in `payloadIdentifier` generation [#10242](https://github.com/besu-eth/besu/pull/10242)
 - Change Block Access List index encoding to `uint32` [#10279](https://github.com/besu-eth/besu/pull/10279)
+- Add `limit` support to debug opcode tracing to stop capture after N EVM steps (`0` keeps the previous unlimited behavior) and reject negative values at the RPC parameter boundary [#10173](https://github.com/besu-eth/besu/pull/10173)
 
 ### Plugin API
 - Publish Guava as an API dependency from `plugin-api` [#10248](https://github.com/besu-eth/besu/pull/10248)
