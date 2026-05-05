@@ -42,6 +42,7 @@ import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.math.BigInteger;
 import java.security.InvalidAlgorithmParameterException;
@@ -860,7 +861,7 @@ public class BlockDataGenerator {
     final List<BlockAccessList.StorageChange> changes = new ArrayList<>();
 
     for (int i = 0; i < changeCount; i++) {
-      changes.add(new BlockAccessList.StorageChange(txIndex + i, uint256()));
+      changes.add(new BlockAccessList.StorageChange((long) txIndex + i, uint256()));
     }
 
     return new BlockAccessList.SlotChanges(slot, changes);

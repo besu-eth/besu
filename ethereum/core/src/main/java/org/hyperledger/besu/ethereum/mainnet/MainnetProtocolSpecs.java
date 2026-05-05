@@ -62,7 +62,6 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.core.feemarket.CoinbaseFeePriceCalculator;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor.TransactionReceiptFactory;
@@ -71,6 +70,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFa
 import org.hyperledger.besu.ethereum.mainnet.blockhash.CancunPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.PraguePreExecutionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.MainnetParallelBlockProcessor;
@@ -107,6 +107,7 @@ import org.hyperledger.besu.evm.worldstate.CodeDelegationService;
 import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.io.IOException;
 import java.math.BigInteger;
@@ -875,11 +876,26 @@ public abstract class MainnetProtocolSpecs {
                     evm.getMaxInitcodeSize()))
         .precompileContractRegistryBuilder(MainnetPrecompiledContractRegistries::cancun)
         .blockHeaderValidatorBuilder(MainnetBlockHeaderValidator::blobAwareBlockHeaderValidator)
-        .preExecutionProcessor(
-            isPoAConsensus(genesisConfigOptions)
-                ? new FrontierPreExecutionProcessor()
-                : new CancunPreExecutionProcessor())
+        .preExecutionProcessor(getPreExecutionProcessor(genesisConfigOptions))
         .hardforkId(CANCUN);
+  }
+
+  private static PreExecutionProcessor getPreExecutionProcessor(
+      final GenesisConfigOptions genesisConfigOptions) {
+    if (isPoAConsensus(genesisConfigOptions) && !hasSystemContractAddresses(genesisConfigOptions)) {
+      return new FrontierPreExecutionProcessor();
+    }
+
+    return new CancunPreExecutionProcessor();
+  }
+
+  private static PreExecutionProcessor getPraguePreExecutionProcessor(
+      final GenesisConfigOptions genesisConfigOptions) {
+    if (isPoAConsensus(genesisConfigOptions) && !hasSystemContractAddresses(genesisConfigOptions)) {
+      return new FrontierPreExecutionProcessor();
+    }
+
+    return new PraguePreExecutionProcessor();
   }
 
   static ProtocolSpecBuilder pragueDefinition(
@@ -959,14 +975,11 @@ public abstract class MainnetProtocolSpecs {
                                 new CodeDelegationService()))
                         .build())
             // EIP-2935 Blockhash processor
-            .preExecutionProcessor(
-                isPoAConsensus(genesisConfigOptions)
-                    ? new FrontierPreExecutionProcessor()
-                    : new PraguePreExecutionProcessor())
+            .preExecutionProcessor(getPraguePreExecutionProcessor(genesisConfigOptions))
             .hardforkId(PRAGUE);
-    if (isPoAConsensus(genesisConfigOptions)) {
-      LOG.debug(
-          "Skipping system contract request processors for PoA consensus (clique/ibft/qbft).");
+    if (isPoAConsensus(genesisConfigOptions) && !hasSystemContractAddresses(genesisConfigOptions)) {
+      LOG.warn(
+          "Skipping system contract request processors for PoA consensus (clique/ibft/qbft) without system contract addresses.");
       pragueSpecBuilder.requestProcessorCoordinator(RequestProcessorCoordinator.noOp());
     } else {
       try {
@@ -988,6 +1001,13 @@ public abstract class MainnetProtocolSpecs {
     return genesisConfigOptions.isClique()
         || genesisConfigOptions.isIbft2()
         || genesisConfigOptions.isQbft();
+  }
+
+  private static boolean hasSystemContractAddresses(
+      final GenesisConfigOptions genesisConfigOptions) {
+    return genesisConfigOptions.getDepositContractAddress().isPresent()
+        && genesisConfigOptions.getWithdrawalRequestContractAddress().isPresent()
+        && genesisConfigOptions.getConsolidationRequestContractAddress().isPresent();
   }
 
   static ProtocolSpecBuilder osakaDefinition(

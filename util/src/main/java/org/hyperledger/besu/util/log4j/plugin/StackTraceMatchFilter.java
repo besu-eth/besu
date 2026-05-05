@@ -15,6 +15,7 @@
 package org.hyperledger.besu.util.log4j.plugin;
 
 import java.util.Arrays;
+import java.util.Objects;
 
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.Marker;
@@ -25,6 +26,7 @@ import org.apache.logging.log4j.core.config.plugins.PluginBuilderAttribute;
 import org.apache.logging.log4j.core.config.plugins.PluginBuilderFactory;
 import org.apache.logging.log4j.core.filter.AbstractFilter;
 import org.apache.logging.log4j.message.Message;
+import org.jspecify.annotations.Nullable;
 
 /** Matches a text in the stack trace */
 @Plugin(
@@ -34,11 +36,11 @@ import org.apache.logging.log4j.message.Message;
     printObject = true)
 public class StackTraceMatchFilter extends AbstractFilter {
   private final String stackContains;
-  private final String messageEquals;
+  private final @Nullable String messageEquals;
 
   private StackTraceMatchFilter(
       final String stackContains,
-      final String messageEquals,
+      final @Nullable String messageEquals,
       final Result onMatch,
       final Result onMismatch) {
     super(onMatch, onMismatch);
@@ -71,9 +73,9 @@ public class StackTraceMatchFilter extends AbstractFilter {
     return filter(event.getThrown());
   }
 
-  private Result filter(final Throwable t) {
+  private Result filter(final @Nullable Throwable t) {
     if (t != null) {
-      return (messageEquals == null || t.getMessage().equals(messageEquals))
+      return (messageEquals == null || Objects.equals(t.getMessage(), messageEquals))
               && Arrays.stream(t.getStackTrace())
                   .map(StackTraceElement::getClassName)
                   .anyMatch(cn -> cn.contains(stackContains))
@@ -102,8 +104,8 @@ public class StackTraceMatchFilter extends AbstractFilter {
   public static class Builder extends AbstractFilterBuilder<StackTraceMatchFilter.Builder>
       implements org.apache.logging.log4j.core.util.Builder<StackTraceMatchFilter> {
 
-    @PluginBuilderAttribute private String stackContains = null;
-    @PluginBuilderAttribute private String messageEquals = null;
+    @PluginBuilderAttribute private @Nullable String stackContains;
+    @PluginBuilderAttribute private @Nullable String messageEquals;
 
     /** Default constructor */
     public Builder() {
@@ -116,7 +118,7 @@ public class StackTraceMatchFilter extends AbstractFilter {
      * @param text the match string
      * @return this builder
      */
-    public StackTraceMatchFilter.Builder setStackContains(final String text) {
+    public StackTraceMatchFilter.Builder setStackContains(final @Nullable String text) {
       this.stackContains = text;
       return this;
     }
@@ -127,15 +129,18 @@ public class StackTraceMatchFilter extends AbstractFilter {
      * @param text the match string
      * @return this builder
      */
-    public StackTraceMatchFilter.Builder setMessageEquals(final String text) {
+    public StackTraceMatchFilter.Builder setMessageEquals(final @Nullable String text) {
       this.messageEquals = text;
       return this;
     }
 
     @Override
     public StackTraceMatchFilter build() {
+      final String nonNullStackContains =
+          Objects.requireNonNull(stackContains, "stackContains must be provided");
+
       return new StackTraceMatchFilter(
-          this.stackContains, this.messageEquals, this.getOnMatch(), this.getOnMismatch());
+          nonNullStackContains, this.messageEquals, this.getOnMatch(), this.getOnMismatch());
     }
   }
 }

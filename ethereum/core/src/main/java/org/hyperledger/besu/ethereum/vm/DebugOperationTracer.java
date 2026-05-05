@@ -43,6 +43,8 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
   private TraceFrame lastFrame;
 
   private Bytes inputData;
+  private int stepCount;
+  private boolean limitReached;
 
   /**
    * Creates the operation tracer.
@@ -57,6 +59,12 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
 
   @Override
   protected void capturePreExecutionState(final MessageFrame frame) {
+    if (options.limit() > 0 && stepCount >= options.limit()) {
+      limitReached = true;
+      return;
+    }
+    limitReached = false;
+    stepCount++;
     if (lastFrame != null && frame.getDepth() > lastFrame.getDepth())
       inputData = frame.getInputData().copy();
     else inputData = frame.getInputData();
@@ -64,9 +72,6 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
 
   @Override
   public void tracePostExecution(final MessageFrame frame, final OperationResult operationResult) {
-    if (!traceOpcode) {
-      return;
-    }
     final Operation currentOperation = frame.getCurrentOperation();
     final String opcode = currentOperation.getName();
     final int opcodeNumber = (opcode != null) ? currentOperation.getOpcode() : Integer.MAX_VALUE;
@@ -88,6 +93,9 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
       final TraceFrame updatedLast =
           TraceFrame.from(lastTraceFrame).setGasRemainingPostExecution(gasRemaining).build();
       traceFrames.add(updatedLast);
+    }
+    if (limitReached || !traceOpcode) {
+      return;
     }
 
     final Optional<Map<UInt256, UInt256>> storage = captureStorage(frame);
@@ -245,11 +253,13 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
   private Optional<Bytes[]> captureMemory(final MessageFrame frame) {
     if (!options.traceMemory() || frame.memoryWordSize() == 0) {
       return Optional.empty();
-    } else if (frame.getMaybeUpdatedMemory().isEmpty()
-        && lastFrame != null
-        && lastFrame.getDepth() == frame.getDepth()
-        && lastFrame.getMemory().get().length == frame.memoryWordSize()) {
-      return lastFrame.getMemory();
+    } else if (frame.getMaybeUpdatedMemory().isEmpty() && lastFrame != null) {
+      final Optional<Bytes[]> lastMemory = lastFrame.getMemory();
+      if (lastFrame.getDepth() == frame.getDepth()
+          && lastMemory.isPresent()
+          && lastMemory.get().length == frame.memoryWordSize()) {
+        return lastMemory;
+      }
     }
     return forceCaptureMem(frame);
   }
@@ -273,6 +283,8 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
   public void reset() {
     traceFrames = new ArrayList<>();
     lastFrame = null;
+    stepCount = 0;
+    limitReached = false;
   }
 
   public List<TraceFrame> copyTraceFrames() {

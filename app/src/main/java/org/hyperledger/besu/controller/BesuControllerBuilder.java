@@ -59,7 +59,6 @@ import org.hyperledger.besu.ethereum.eth.manager.MonitoredExecutors;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskRequestSender;
 import org.hyperledger.besu.ethereum.eth.manager.snap.SnapProtocolManager;
-import org.hyperledger.besu.ethereum.eth.peervalidation.DaoForkPeerValidator;
 import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.eth.peervalidation.RequiredBlocksPeerValidator;
 import org.hyperledger.besu.ethereum.eth.sync.DefaultSynchronizer;
@@ -124,7 +123,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
@@ -913,7 +911,10 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
           || worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.PARTIAL)) {
         final BonsaiFlatDbToArchiveMigrator archiveMigrator =
             createArchiveMigrator(worldStateStorageCoordinator, worldStateArchive, blockchain);
-        closeables.add(archiveMigrator);
+        ((BonsaiArchiveWorldStateProvider) worldStateArchive)
+            .setArchiveMigrationProgressSupplier(archiveMigrator::getMigratedBlockNumber);
+        // Close the migrator before storageProvider so callback finishes before RocksDB is closed
+        closeables.addFirst(archiveMigrator);
 
         final AtomicBoolean migrationStarted = new AtomicBoolean(false);
         final AtomicLong syncSubscriptionId = new AtomicLong();
@@ -937,6 +938,14 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
                 },
                 0));
       } else {
+        // Already in ARCHIVE mode (restart after migration): register ongoing migration
+        final BonsaiFlatDbToArchiveMigrator archiveMigrator =
+            createArchiveMigrator(worldStateStorageCoordinator, worldStateArchive, blockchain);
+        ((BonsaiArchiveWorldStateProvider) worldStateArchive)
+            .setArchiveMigrationProgressSupplier(archiveMigrator::getMigratedBlockNumber);
+        archiveMigrator.startOngoingMigration();
+        // Close the migrator before storageProvider so callback finishes before RocksDB is closed
+        closeables.addFirst(archiveMigrator);
         blockchain.observeBlockAdded(archiver);
       }
     }
@@ -1367,12 +1376,13 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         yield new BonsaiArchiveWorldStateProvider(
             worldStateKeyValueStorage,
             blockchain,
-            dataStorageConfiguration.getPathBasedExtraStorageConfiguration(),
+            dataStorageConfiguration,
             bonsaiCachedMerkleTrieLoader,
             besuComponent.map(BesuComponent::getBesuPluginContext).orElse(null),
             evmConfiguration,
             worldStateHealerSupplier,
-            codeCache);
+            codeCache,
+            metricsSystem);
       }
       case FOREST -> {
         final WorldStatePreimageStorage preimageStorage =
@@ -1430,13 +1440,6 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   protected List<PeerValidator> createPeerValidators(
       final ProtocolSchedule protocolSchedule, final PeerTaskExecutor peerTaskExecutor) {
     final List<PeerValidator> validators = new ArrayList<>();
-
-    final OptionalLong daoBlock = genesisConfigOptions.getDaoForkBlock();
-    if (daoBlock.isPresent()) {
-      // Setup dao validator
-      validators.add(
-          new DaoForkPeerValidator(protocolSchedule, peerTaskExecutor, daoBlock.getAsLong()));
-    }
 
     for (final Map.Entry<Long, Hash> requiredBlock : requiredBlocks.entrySet()) {
       validators.add(

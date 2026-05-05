@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
@@ -84,5 +85,57 @@ public class TransactionTraceParamsTest {
     assertThat(config.traceMemory())
         .describedAs("explicit disableMemory=true should be respected")
         .isFalse();
+  }
+
+  @Test
+  public void enableMemoryTrueShouldEnableMemory() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue("{\"enableMemory\": true}", TransactionTraceParams.class);
+    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
+
+    assertThat(config.traceMemory())
+        .describedAs("enableMemory=true should enable memory tracing")
+        .isTrue();
+  }
+
+  @Test
+  public void enableMemoryFalseShouldDisableMemory() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue("{\"enableMemory\": false}", TransactionTraceParams.class);
+    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
+
+    assertThat(config.traceMemory())
+        .describedAs("enableMemory=false should disable memory tracing")
+        .isFalse();
+  }
+
+  @Test
+  public void enableMemoryShouldTakePrecedenceOverDisableMemory() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue(
+            "{\"enableMemory\": true, \"disableMemory\": true}", TransactionTraceParams.class);
+    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
+
+    assertThat(config.traceMemory())
+        .describedAs("enableMemory should take precedence over disableMemory")
+        .isTrue();
+  }
+
+  @Test
+  public void nonOpcodeTracerShouldRespectExplicitEnableMemoryFalse() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue(
+            "{\"tracer\": \"callTracer\", \"enableMemory\": false}", TransactionTraceParams.class);
+    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
+
+    assertThat(config.traceMemory())
+        .describedAs("explicit enableMemory=false should be respected for callTracer")
+        .isFalse();
+  }
+
+  @Test
+  public void negativeLimitShouldFailDuringDeserialization() {
+    assertThatThrownBy(() -> MAPPER.readValue("{\"limit\": -1}", TransactionTraceParams.class))
+        .hasMessageContaining("limit must be >= 0, got: -1");
   }
 }

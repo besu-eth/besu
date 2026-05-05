@@ -68,8 +68,6 @@ import java.util.stream.IntStream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.assertj.core.api.Assertions;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -583,8 +581,7 @@ public class SnapServerTest {
     assertThat(trieNodeRequest).isNotNull();
     List<Bytes> trieNodes = trieNodeRequest.nodes(false);
     assertThat(trieNodes).isNotNull();
-    // TODO: adjust this assertion after sorting out the request fudge factor
-    assertThat(trieNodes.size()).isEqualTo(accountNodeLimit * 90 / 100);
+    assertThat(trieNodes.size()).isEqualTo(accountNodeLimit);
   }
 
   @ParameterizedTest
@@ -724,7 +721,7 @@ public class SnapServerTest {
     assertThat(trieNodeRequest).isNotNull();
     List<Bytes> trieNodes = trieNodeRequest.nodes(false);
     assertThat(trieNodes).isNotNull();
-    assertThat(trieNodes.size()).isEqualTo(3);
+    assertThat(trieNodes.size()).isEqualTo(trieNodeLimit + 1);
   }
 
   @ParameterizedTest
@@ -800,8 +797,8 @@ public class SnapServerTest {
     assertThat(codeRequest).isNotNull();
     ByteCodesMessage.ByteCodes codes = codeRequest.bytecodes(false);
     assertThat(codes).isNotNull();
-    // TODO adjust this assertion after sorting out the request fudge factor
-    assertThat(codes.codes().size()).isEqualTo(codeLimit * 90 / 100);
+    assertThat(codes.codes().size()).isEqualTo(codeLimit);
+    assertThat(codeRequest.getSize()).isGreaterThan(codeSize * codeLimit);
   }
 
   @ParameterizedTest
@@ -996,12 +993,5 @@ public class SnapServerTest {
     assertThat(accountData).isNotNull();
     assertThat(accountData.accounts().size()).isEqualTo(expectedSize);
     return accountData;
-  }
-
-  @Test
-  void dryRunDetector() {
-    Assertions.assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

@@ -26,10 +26,13 @@ import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 
 public class BackwardChain {
@@ -122,14 +125,7 @@ public class BackwardChain {
   }
 
   public synchronized void prependAncestorsHeader(final BlockHeader blockHeader) {
-    prependAncestorsHeader(blockHeader, false);
-  }
-
-  public synchronized void prependAncestorsHeader(
-      final BlockHeader blockHeader, final boolean alreadyStored) {
-    if (!alreadyStored) {
-      headers.put(blockHeader.getHash(), blockHeader);
-    }
+    headers.put(blockHeader.getHash(), blockHeader);
 
     if (firstStoredAncestor.isEmpty()) {
       updateLastStoredPivot(Optional.of(blockHeader));
@@ -145,6 +141,47 @@ public class BackwardChain {
     }
 
     updateFirstStoredAncestor(Optional.of(blockHeader));
+  }
+
+  /**
+   * Prepends a batch of headers already present in header storage (e.g. loaded from a previous
+   * session) to the backward chain using a single chainStorage transaction, avoiding one
+   * transaction per header. Headers must be supplied in parent-walk order (child first, then its
+   * parent, and so on).
+   *
+   * @param restoredHeaders headers to link, each the parent of the previous entry (or of the
+   *     current firstStoredAncestor for the first entry).
+   */
+  public synchronized void prependRestoredAncestorsHeaders(
+      final List<BlockHeader> restoredHeaders) {
+    if (restoredHeaders.isEmpty()) {
+      return;
+    }
+
+    int firstIndex = 0;
+    if (firstStoredAncestor.isEmpty()) {
+      updateLastStoredPivot(Optional.of(restoredHeaders.getFirst()));
+      updateFirstStoredAncestor(Optional.of(restoredHeaders.getFirst()));
+      firstIndex = 1;
+    }
+
+    if (firstIndex < restoredHeaders.size()) {
+      final Map<Hash, Hash> chainLinks = new LinkedHashMap<>(restoredHeaders.size() - firstIndex);
+      Hash childHash = firstStoredAncestor.orElseThrow().getHash();
+      for (final BlockHeader header : restoredHeaders.subList(firstIndex, restoredHeaders.size())) {
+        chainLinks.put(header.getHash(), childHash);
+        childHash = header.getHash();
+      }
+      chainStorage.putAll(chainLinks);
+    }
+
+    final BlockHeader lowestRestored = restoredHeaders.getLast();
+    updateFirstStoredAncestor(Optional.of(lowestRestored));
+    LOG.atDebug()
+        .setMessage("Prepended batch of {} restored headers down to {}")
+        .addArgument(restoredHeaders::size)
+        .addArgument(lowestRestored::toLogString)
+        .log();
   }
 
   private void updateFirstStoredAncestor(final Optional<BlockHeader> maybeHeader) {
@@ -252,5 +289,10 @@ public class BackwardChain {
     if (hashesToAppend.contains(hashToRemove)) {
       hashesToAppend.remove(hashToRemove);
     }
+  }
+
+  @VisibleForTesting
+  synchronized List<Hash> getHashesToAppend() {
+    return new ArrayList<>(hashesToAppend);
   }
 }

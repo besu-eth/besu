@@ -21,8 +21,8 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
-import java.util.ArrayList;
-import java.util.Collection;
+import java.util.Iterator;
+import java.util.NoSuchElementException;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -58,13 +58,26 @@ public final class GetBlockBodiesMessage extends AbstractMessageData {
   }
 
   public Iterable<Hash> hashes() {
-    final RLPInput input = new BytesValueRLPInput(data, false);
-    input.enterList();
-    final Collection<Hash> hashes = new ArrayList<>();
-    while (!input.isEndOfCurrentList()) {
-      hashes.add(Hash.wrap(input.readBytes32()));
-    }
-    input.leaveList();
-    return hashes;
+    return () ->
+        new Iterator<>() {
+          private final RLPInput input = new BytesValueRLPInput(data, false);
+
+          {
+            input.enterList();
+          }
+
+          @Override
+          public boolean hasNext() {
+            return !input.isEndOfCurrentList();
+          }
+
+          @Override
+          public Hash next() {
+            if (!hasNext()) {
+              throw new NoSuchElementException();
+            }
+            return Hash.wrap(input.readBytes32());
+          }
+        };
   }
 }

@@ -18,6 +18,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -44,6 +45,25 @@ public final class GetBytecodeMessageTest {
 
     // check match originals.
     final GetByteCodesMessage.CodeHashes codeHashes = message.codeHashes(false);
+    Assertions.assertThat(codeHashes.hashes()).isEqualTo(hashes);
+    Assertions.assertThat(codeHashes.responseBytes())
+        .isEqualTo(AbstractSnapMessageData.SIZE_REQUEST);
+  }
+
+  @Test
+  public void wrapRoundTripTest() {
+    final List<Bytes32> hashes = new ArrayList<>();
+    for (int i = 0; i < 20; ++i) {
+      hashes.add(Bytes32.random());
+    }
+
+    final GetByteCodesMessage initialMessage = GetByteCodesMessage.create(hashes);
+    final MessageData wrapped = initialMessage.wrapMessageData(BigInteger.valueOf(42));
+    final MessageData raw = new RawMessage(SnapV1.GET_BYTECODES, wrapped.getData());
+
+    final GetByteCodesMessage message = GetByteCodesMessage.readFrom(raw);
+
+    final GetByteCodesMessage.CodeHashes codeHashes = message.codeHashes(true);
     Assertions.assertThat(codeHashes.hashes()).isEqualTo(hashes);
     Assertions.assertThat(codeHashes.responseBytes())
         .isEqualTo(AbstractSnapMessageData.SIZE_REQUEST);
