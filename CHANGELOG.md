@@ -8,6 +8,7 @@
 
 ### Bug fixes
 - `eth_getFilterLogs`: cache the chain head once when resolving default `latest..latest` bounds, so a block arriving between the two reads no longer expands the queried range into `[N, N+1]` and returns extra logs. [#10368](https://github.com/besu-eth/besu/pull/10368)
+- Fix CVE-2025-67030, CVE-2026-5588, and CVE-2026-0636.
 
 ### Additions and Improvements
 - Add EIP-7981 to Amsterdam [#10388](https://github.com/besu-eth/besu/pull/10388)
