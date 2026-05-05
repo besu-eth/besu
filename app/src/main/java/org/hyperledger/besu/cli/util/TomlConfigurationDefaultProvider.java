@@ -49,6 +49,7 @@ import picocli.CommandLine.ParameterException;
 public class TomlConfigurationDefaultProvider implements IDefaultValueProvider {
 
   private final CommandLine commandLine;
+  private final File configFile;
   private final InputStream configurationInputStream;
   private TomlParseResult result;
   private boolean isUnknownOptionsChecked;
@@ -57,11 +58,15 @@ public class TomlConfigurationDefaultProvider implements IDefaultValueProvider {
    * Instantiates a new Toml config file default value provider.
    *
    * @param commandLine the command line
+   * @param configFile the configuration file
    * @param configurationInputStream the input stream
    */
   private TomlConfigurationDefaultProvider(
-      final CommandLine commandLine, final InputStream configurationInputStream) {
+      final CommandLine commandLine,
+      final File configFile,
+      final InputStream configurationInputStream) {
     this.commandLine = commandLine;
+    this.configFile = configFile;
     this.configurationInputStream = configurationInputStream;
   }
 
@@ -75,12 +80,11 @@ public class TomlConfigurationDefaultProvider implements IDefaultValueProvider {
    */
   public static TomlConfigurationDefaultProvider fromFile(
       final CommandLine commandLine, final File configFile) {
-    try {
-      return new TomlConfigurationDefaultProvider(commandLine, new FileInputStream(configFile));
-    } catch (final FileNotFoundException e) {
+    if (!configFile.exists()) {
       throw new ParameterException(
           commandLine, "Unable to read TOML configuration, file not found.");
     }
+    return new TomlConfigurationDefaultProvider(commandLine, configFile, null);
   }
 
   /**
@@ -92,7 +96,7 @@ public class TomlConfigurationDefaultProvider implements IDefaultValueProvider {
    */
   public static TomlConfigurationDefaultProvider fromInputStream(
       final CommandLine commandLine, final InputStream inputStream) {
-    return new TomlConfigurationDefaultProvider(commandLine, inputStream);
+    return new TomlConfigurationDefaultProvider(commandLine, null, inputStream);
   }
 
   @Override
@@ -247,27 +251,42 @@ public class TomlConfigurationDefaultProvider implements IDefaultValueProvider {
   /** Load configuration from file. */
   public void loadConfigurationIfNotLoaded() {
     if (result == null) {
-      try (configurationInputStream) {
-        final TomlParseResult result = Toml.parse(configurationInputStream);
-
-        if (result.hasErrors()) {
-          final String errors =
-              result.errors().stream()
-                  .map(TomlParseError::toString)
-                  .collect(Collectors.joining("%n"));
-
+      if (configFile != null) {
+        try (InputStream is = new FileInputStream(configFile)) {
+          loadToml(is);
+        } catch (final FileNotFoundException e) {
           throw new ParameterException(
-              commandLine, String.format("Invalid TOML configuration: %s", errors));
+              commandLine, "Unable to read TOML configuration, file not found.", e);
+        } catch (final IOException e) {
+          throw new ParameterException(
+              commandLine, "Unable to read TOML configuration.", e);
         }
-
-        this.result = result;
-
-      } catch (final IOException e) {
-        throw new ParameterException(
-            commandLine, "Unable to read TOML configuration, file not found.");
+      } else {
+        try {
+          loadToml(configurationInputStream);
+        } catch (final IOException e) {
+          throw new ParameterException(
+              commandLine, "Unable to read TOML configuration.", e);
+        }
       }
     }
     checkConfigurationValidity();
+  }
+
+  private void loadToml(final InputStream is) throws IOException {
+    final TomlParseResult result = Toml.parse(is);
+
+    if (result.hasErrors()) {
+      final String errors =
+          result.errors().stream()
+              .map(TomlParseError::toString)
+              .collect(Collectors.joining("%n"));
+
+      throw new ParameterException(
+          commandLine, String.format("Invalid TOML configuration: %s", errors));
+    }
+
+    this.result = result;
   }
 
   private void checkUnknownOptions(final TomlParseResult result) {
