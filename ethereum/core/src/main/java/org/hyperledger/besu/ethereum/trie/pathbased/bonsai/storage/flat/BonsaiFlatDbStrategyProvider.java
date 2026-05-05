@@ -89,10 +89,8 @@ public class BonsaiFlatDbStrategyProvider extends FlatDbStrategyProvider {
       final FlatDbMode flatDbMode,
       final MetricsSystem metricsSystem,
       final CodeStorageStrategy codeStorageStrategy) {
-    if (flatDbMode == FlatDbMode.FULL) {
+    if (flatDbMode == FlatDbMode.FULL || flatDbMode == FlatDbMode.ARCHIVE) {
       return new BonsaiFullFlatDbStrategy(metricsSystem, codeStorageStrategy);
-    } else if (flatDbMode == FlatDbMode.ARCHIVE) {
-      return new BonsaiArchiveFlatDbStrategy(metricsSystem, codeStorageStrategy);
     } else {
       return new BonsaiPartialFlatDbStrategy(metricsSystem, codeStorageStrategy);
     }
