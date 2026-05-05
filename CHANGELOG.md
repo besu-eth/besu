@@ -19,6 +19,7 @@
 
 ### Bug fixes
 - Fix data race in `SyncDurationMetrics` where the backing `HashMap` was mutated from multiple sync threads in parallel, causing missing or zero `sync_duration` samples. [#10277](https://github.com/besu-eth/besu/pull/10277)
+- Fix chain pruning race that could lose fork block metadata updates when concurrent same-height block events are recorded. [#10331](https://github.com/besu-eth/besu/pull/10331)
 
 ### Additions and Improvements
 - The option to set a different block period for empty BFT blocks (`emptyblockperiodseconds`) is no longer experimental. The experimental flag `xemptyblockperiodseconds` will be removed in a future release.
