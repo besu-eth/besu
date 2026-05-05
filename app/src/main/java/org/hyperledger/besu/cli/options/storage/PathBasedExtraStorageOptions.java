@@ -124,7 +124,7 @@ public class PathBasedExtraStorageOptions
         hidden = true,
         names = "--Xbonsai-cross-block-cache-enabled",
         description = "Enables the Bonsai cross-block cache (default: ${DEFAULT-VALUE}).",
-        fallbackValue = "true")
+        fallbackValue = "false")
     private Boolean bonsaiCrossBlockCacheEnabled = DEFAULT_BONSAI_CROSS_BLOCK_CACHE_ENABLED;
 
     @Option(
