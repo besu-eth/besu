@@ -32,6 +32,7 @@ import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECP256K1;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
 import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
+import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.datatypes.Hash;
@@ -61,6 +62,7 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.bytes.Bytes48;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -158,7 +160,42 @@ public class MainnetTransactionValidatorTest extends TrustedSetupClassLoaderExte
             .chainId(Optional.empty())
             .createTransaction(senderKeys);
     when(gasCalculator.transactionIntrinsicGasCost(any(), anyLong())).thenReturn(5L);
-    when(gasCalculator.transactionFloorCost(any(), anyLong())).thenReturn(51L);
+    when(gasCalculator.transactionFloorCost(any(Transaction.class))).thenReturn(51L);
+
+    assertThat(
+            validator.validate(
+                transaction, Optional.empty(), Optional.empty(), transactionProcessingParams))
+        .isEqualTo(
+            ValidationResult.invalid(TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT));
+  }
+
+  @Test
+  public void shouldRejectAccessListTransactionIfFloorExceedsGasLimit_EIP_7981() {
+    final TransactionValidator validator =
+        createTransactionValidator(
+            gasCalculator,
+            GasLimitCalculator.constant(),
+            FeeMarket.london(0L),
+            false,
+            Optional.of(BigInteger.ONE),
+            Set.of(TransactionType.ACCESS_LIST),
+            Integer.MAX_VALUE);
+    // Under EIP-7981, access list bytes contribute to the transaction floor cost; this test
+    // simulates that contribution pushing the floor above the gas limit.
+    final List<AccessListEntry> accessList =
+        List.of(
+            new AccessListEntry(
+                Address.fromHexString("0x00000000000000000000000000000000000000aa"),
+                List.of(Bytes32.ZERO, Bytes32.ZERO)));
+    final Transaction transaction =
+        new TransactionTestFixture()
+            .type(TransactionType.ACCESS_LIST)
+            .gasLimit(10)
+            .accessList(accessList)
+            .chainId(Optional.of(BigInteger.ONE))
+            .createTransaction(senderKeys);
+    when(gasCalculator.transactionIntrinsicGasCost(any(), anyLong())).thenReturn(5L);
+    when(gasCalculator.transactionFloorCost(any(Transaction.class))).thenReturn(51L);
 
     assertThat(
             validator.validate(

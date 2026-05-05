@@ -38,6 +38,7 @@ import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.eth.peervalidation.RequiredBlocksPeerValidator;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardChain;
+import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncAlgorithmFactory;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
@@ -85,7 +86,8 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
             ethProtocolManager.ethContext(),
             syncState,
             BackwardChain.from(
-                storageProvider, ScheduleBasedBlockHeaderFunctions.create(protocolSchedule))),
+                storageProvider, ScheduleBasedBlockHeaderFunctions.create(protocolSchedule)),
+            new BackwardSyncAlgorithmFactory()),
         ethProtocolManager.ethContext().getScheduler());
   }
 
