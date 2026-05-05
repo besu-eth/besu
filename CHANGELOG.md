@@ -46,6 +46,7 @@
 ### Additions and Improvements
 - The option to set a different block period for empty BFT blocks (`emptyblockperiodseconds`) is no longer experimental. The experimental flag `xemptyblockperiodseconds` will be removed in a future release. [#10264](https://github.com/besu-eth/besu/pull/10264)
 - Release worker threads after engine API timeout to avoid blocking subsequent requests [#10311](https://github.com/besu-eth/besu/pull/10311)
+- `debug_trace*`: add optional `limit` parameter to cap opcode trace capture after N steps (`0` keeps unlimited behavior); negative values are rejected as invalid params (`-32602`). [#10176](https://github.com/besu-eth/besu/pull/10176)
 - `evmtool blocktest --verbose` flag, default off, removes noise from output [#10348](https://github.com/besu-eth/besu/pull/10348)
 - Bound precompile result caches to the semantic-prefix slice and apply a 16 MB byte-weight cap per cache, providing a uniform memory ceiling across all 14 precompile caches [#10350](https://github.com/besu-eth/besu/pull/10350)
 - Lazy RLP decoding of `GetBlockBodies` messages reduces memory and CPU spent on dropped requests [#10342](https://github.com/besu-eth/besu/pull/10342)
