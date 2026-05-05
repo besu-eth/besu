@@ -154,7 +154,7 @@ public final class RunnerTest {
     // set merge flag to false, otherwise this test can fail if a merge test runs first
     MergeConfiguration.setMergeEnabled(false);
 
-    syncFromGenesis(SyncMode.FULL, getFastSyncGenesis(), false);
+    syncFromGenesis(SyncMode.FULL, getFastSyncGenesis());
   }
 
   @Test
@@ -162,11 +162,10 @@ public final class RunnerTest {
     // set merge flag to false, otherwise this test can fail if a merge test runs first
     MergeConfiguration.setMergeEnabled(false);
 
-    syncFromGenesis(SyncMode.FULL, getFastSyncGenesis(), true);
+    syncFromGenesis(SyncMode.FULL, getFastSyncGenesis());
   }
 
-  private void syncFromGenesis(
-      final SyncMode mode, final GenesisConfig genesisConfig, final boolean isPeerTaskSystemEnabled)
+  private void syncFromGenesis(final SyncMode mode, final GenesisConfig genesisConfig)
       throws Exception {
     final Path dataDirAhead = Files.createTempDirectory(temp, "db-ahead");
     final Path dbAhead = dataDirAhead.resolve("database");
@@ -174,10 +173,7 @@ public final class RunnerTest {
     final NodeKey aheadDbNodeKey = NodeKeyUtils.createFrom(KeyPairUtil.loadKeyPair(dataDirAhead));
     final NodeKey behindDbNodeKey = NodeKeyUtils.generate();
     final SynchronizerConfiguration syncConfigAhead =
-        SynchronizerConfiguration.builder()
-            .syncMode(SyncMode.FULL)
-            .isPeerTaskSystemEnabled(isPeerTaskSystemEnabled)
-            .build();
+        SynchronizerConfiguration.builder().syncMode(SyncMode.FULL).build();
     final ObservableMetricsSystem noOpMetricsSystem = new NoOpMetricsSystem();
     final var miningParameters = MiningConfiguration.newDefault();
     final var dataStorageConfiguration = DataStorageConfiguration.DEFAULT_FOREST_CONFIG;
