@@ -184,6 +184,11 @@ jobs:
 
   docker-publish:
     needs: [validate, docker-lint]
+    # Only publish docker images for release candidates. Final version tags
+    # (e.g. 26.4.0) are published by the docker-promote workflow when the
+    # GitHub release comes out of draft, so they aren't publicly available
+    # until after burn-in sign-off.
+    if: contains(needs.validate.outputs.release_version, '-RC')
     env:
       RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}  # Use the output from the pre_process_release job
     strategy:
@@ -245,6 +250,7 @@ jobs:
 
   docker-manifest:
     needs: [validate, docker-publish]
+    if: contains(needs.validate.outputs.release_version, '-RC')
     runs-on: ubuntu-latest
     env:
       RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
@@ -277,6 +283,7 @@ jobs:
 
   docker-verify:
     needs: [validate,docker-manifest]
+    if: contains(needs.validate.outputs.release_version, '-RC')
     env:
       CONTAINER_NAME: besu-check
       RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}

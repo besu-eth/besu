@@ -2074,7 +2074,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .apiConfiguration(apiConfiguration)
             .balConfiguration(balConfiguration)
             .besuComponent(besuComponent);
-    if (DataStorageFormat.BONSAI.equals(getDataStorageConfiguration().getDataStorageFormat())) {
+    if (getDataStorageConfiguration().getDataStorageFormat().isBonsaiFormat()) {
       final PathBasedExtraStorageConfiguration subStorageConfiguration =
           getDataStorageConfiguration().getPathBasedExtraStorageConfiguration();
       besuControllerBuilder.isParallelTxProcessingEnabled(

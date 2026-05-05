@@ -40,6 +40,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQu
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
+import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 
 import java.time.Duration;
 import java.util.List;
@@ -392,6 +393,40 @@ class BalStateRootCommitterFactoryTest {
 
     final StateRootCommitter committer =
         factory.forBlock(protocolContext, blockHeader, Optional.empty());
+
+    assertThat(committer).isSameAs(StateRootCommitter.SYNCHRONOUS);
+  }
+
+  @Test
+  void factoryReturnsSync_whenBalStateRootDisabled() {
+
+    final BlockAccessList bal =
+        new BlockAccessList(
+            List.of(
+                new AccountChanges(
+                    Address.fromHexString("0x00000000000000000000000000000000000000a1"),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of())));
+
+    final BlockHeader blockHeader =
+        new BlockHeaderTestFixture()
+            .parentHash(chainHeadHeader.getHash())
+            .number(chainHeadHeader.getNumber() + 1L)
+            .buildHeader();
+
+    final BalConfiguration balConfig =
+        ImmutableBalConfiguration.builder()
+            .isBalStateRootEnabled(false)
+            .balStateRootTimeout(DEFAULT_TIMEOUT)
+            .build();
+
+    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
+
+    final StateRootCommitter committer =
+        factory.forBlock(protocolContext, blockHeader, Optional.of(bal));
 
     assertThat(committer).isSameAs(StateRootCommitter.SYNCHRONOUS);
   }

@@ -533,14 +533,14 @@ public interface GasCalculator {
   long transactionIntrinsicGasCost(Transaction transaction, long baselineGas);
 
   /**
-   * Returns the floor gas cost of a transaction payload, i.e. the minimum gas cost that a
-   * transaction will be charged based on its calldata. Introduced in EIP-7623 in Prague.
+   * Returns the floor gas cost of a transaction, i.e. the minimum gas cost that a transaction will
+   * be charged based on its calldata (and, from EIP-7981, its access list bytes). Introduced in
+   * EIP-7623 in Prague.
    *
-   * @param transactionPayload The encoded transaction, as bytes
-   * @param payloadZeroBytes The number of zero bytes in the payload
+   * @param transaction The transaction
    * @return the transaction's floor gas cost
    */
-  long transactionFloorCost(final Bytes transactionPayload, final long payloadZeroBytes);
+  long transactionFloorCost(Transaction transaction);
 
   /**
    * Returns the gas cost of the explicitly declared access list.

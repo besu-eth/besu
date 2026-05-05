@@ -8,43 +8,59 @@ on:
 
 env:
   registry: docker.io
-  GRADLE_OPTS: "-Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
 
 jobs:
   validate:
     runs-on: ubuntu-latest
-    env:
-      RELEASE_VERSION: "${{ github.event.release.name }}"
+    outputs:
+      release_version: ${{ steps.validate_release_version.outputs.release_version }}
+      rc_version: ${{ steps.find_rc_tag.outputs.rc_version }}
     steps:
       - name: Pre-process Release Name
-        id: pre_process_release_version
-        run: |       
+        id: validate_release_version
+        env:
+          RELEASE_VERSION: "${{ github.event.release.name }}"
+        run: |
           # strip all whitespace
           RELEASE_VERSION="${RELEASE_VERSION//[[:space:]]/}"
           if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?(-.*)?$ ]]; then
             echo "Release name does not conform to a valid besu release format YY.M.v[-suffix], e.g. 24.8.0-RC1."
             exit 1
           fi
-          echo "release_version=$RELEASE_VERSION" >> $GITHUB_OUTPUT  # Set as output using the new syntax
-    outputs:
-      release_version: ${{ steps.pre_process_release_version.outputs.release_version }}
+          echo "release_version=$RELEASE_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Checkout tags
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Find RC tag matching release sha
+        id: find_rc_tag
+        env:
+          RELEASE_VERSION: ${{ steps.validate_release_version.outputs.release_version }}
+        run: |
+          # Find the latest RC tag (e.g. 26.4.0-RC3) pointing to the same commit
+          # as the release tag. That RC is what burn-in validated — we retag its
+          # docker images rather than rebuilding, so the published binaries are
+          # byte-identical to what was tested.
+          set -euo pipefail
+          SHA=$(git rev-list -n 1 "$RELEASE_VERSION")
+          RC_VERSION=$(git tag --points-at "$SHA" | grep -E "^${RELEASE_VERSION}-RC[0-9]+$" | sort -V | tail -n 1 || true)
+          if [[ -z "$RC_VERSION" ]]; then
+            echo "::error::No RC tag of the form ${RELEASE_VERSION}-RC<n> found at sha $SHA. Docker promote requires an RC tag to retag from."
+            exit 1
+          fi
+          echo "Matched RC tag: $RC_VERSION"
+          echo "rc_version=$RC_VERSION" >> $GITHUB_OUTPUT
 
   docker-promote:
     needs: [validate]
+    runs-on: ubuntu-latest
     env:
       RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
-    runs-on: ubuntu-latest
+      RC_VERSION: ${{ needs.validate.outputs.rc_version }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-
-      - name: Setup Java
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
-        with:
-          distribution: temurin
-          java-version: 21
-          cache: gradle
-
       - name: Login to ${{ env.registry }}
         uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
         with:
@@ -52,19 +68,30 @@ jobs:
           username: ${{ secrets.DOCKER_USER_RW }}
           password: ${{ secrets.DOCKER_PASSWORD_RW }}
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
-        with:
-          cache-disabled: true
-
-      - name: Docker upload
-        run: ./gradlew "-Prelease.releaseVersion=${{ env.RELEASE_VERSION }}" "-PdockerOrgName=${{ env.registry }}/${{ secrets.DOCKER_ORG }}" dockerUploadRelease
-
-      - name: Docker manifest
-        run: ./gradlew "-Prelease.releaseVersion=${{ env.RELEASE_VERSION }}" "-PdockerOrgName=${{ env.registry }}/${{ secrets.DOCKER_ORG }}" manifestDockerRelease
+      - name: Retag RC images as version-specific and latest
+        env:
+          IMAGE: ${{ env.registry }}/${{ secrets.DOCKER_ORG }}/besu
+        run: |
+          set -euo pipefail
+          # Per-arch single-platform tags: RC-<arch>  ->  <VERSION>-<arch>, latest-<arch>
+          for ARCH in amd64 arm64; do
+            docker buildx imagetools create \
+              -t "${IMAGE}:${RELEASE_VERSION}-${ARCH}" \
+              "${IMAGE}:${RC_VERSION}-${ARCH}"
+            docker buildx imagetools create \
+              -t "${IMAGE}:latest-${ARCH}" \
+              "${IMAGE}:${RC_VERSION}-${ARCH}"
+          done
+          # Multi-arch manifest: RC  ->  <VERSION>, latest
+          docker buildx imagetools create \
+            -t "${IMAGE}:${RELEASE_VERSION}" \
+            "${IMAGE}:${RC_VERSION}"
+          docker buildx imagetools create \
+            -t "${IMAGE}:latest" \
+            "${IMAGE}:${RC_VERSION}"
 
   docker-verify:
-    needs: [validate,docker-promote]
+    needs: [validate, docker-promote]
     env:
       CONTAINER_NAME: besu-check
       RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
@@ -73,19 +100,36 @@ jobs:
     strategy:
       matrix:
         combination:
+          # Version-specific tags
+          - tag: ${{ needs.validate.outputs.release_version }}
+            platform: ''
+            runner: ubuntu-latest
+            check_latest: 'false'
+          - tag: ${{ needs.validate.outputs.release_version }}-amd64
+            platform: 'linux/amd64'
+            runner: ubuntu-latest
+            check_latest: 'false'
+          - tag: ${{ needs.validate.outputs.release_version }}-arm64
+            platform: ''
+            runner: besu-arm64
+            check_latest: 'false'
+          # Latest tags
+          - tag: latest
+            platform: ''
+            runner: ubuntu-latest
+            check_latest: 'true'
           - tag: latest-amd64
             platform: 'linux/amd64'
             runner: ubuntu-latest
-          - tag: latest
-            platform: ''
-            runner: ubuntu-latest
+            check_latest: 'true'
           - tag: latest-arm64
             platform: ''
             runner: besu-arm64
+            check_latest: 'true'
           - tag: latest
             platform: ''
             runner: besu-arm64
-
+            check_latest: 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -103,7 +147,7 @@ jobs:
         env:
           TAG: ${{ matrix.combination.tag }}
           VERSION: ${{ env.RELEASE_VERSION }}
-          CHECK_LATEST: true
+          CHECK_LATEST: ${{ matrix.combination.check_latest }}
 
       - name: Stop container
         run: docker stop ${{ env.CONTAINER_NAME }}

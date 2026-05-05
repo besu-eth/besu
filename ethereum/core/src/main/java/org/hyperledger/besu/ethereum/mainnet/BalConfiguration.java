@@ -30,6 +30,15 @@ public interface BalConfiguration {
     return false;
   }
 
+  /**
+   * Returns whether to use the BAL-based state root commit path when a BAL is available. When
+   * false, the synchronous trie path is used instead.
+   */
+  @Value.Default
+  default boolean isBalStateRootEnabled() {
+    return true;
+  }
+
   /** Returns whether BAL perfect parallelization is enabled. */
   @Value.Default
   default boolean isPerfectParallelizationEnabled() {
