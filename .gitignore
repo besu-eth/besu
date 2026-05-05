@@ -36,3 +36,4 @@ jitpack.yml
 /ethereum/eth/src/test/resources/tx.csv.gz
 **/**/.factorypath
 **/**/.jqwik-database
+__pycache__/
