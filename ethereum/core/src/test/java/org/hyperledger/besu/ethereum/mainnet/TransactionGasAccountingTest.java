@@ -111,8 +111,9 @@ public class TransactionGasAccountingTest {
             .calculate();
 
     // EIP-8037: on top-level revert/halt the spill burn
-    // does not add to block_state_gas_used (handleStateGasSpill in AbstractMessageProcessor
-    // restores it to the reservoir for the initial frame). effectiveStateGas == stateGasUsed.
+    // does not add to block_state_gas_used (handleStateGasRevertSpill / handleStateGasHalt in
+    // AbstractMessageProcessor restores it to the reservoir for the initial frame).
+    // effectiveStateGas == stateGasUsed.
     assertThat(result.effectiveStateGas()).isEqualTo(30_000L);
     assertThat(result.gasUsedByTransaction()).isEqualTo(100_000L);
     assertThat(result.usedGas()).isEqualTo(100_000L);

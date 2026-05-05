@@ -250,7 +250,8 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
       // halt, the account-creation state gas (112 × cpsb) charged at this CREATE/CREATE2 opcode
       // is refunded to the reservoir — no account was created so no state gas should be paid.
       // The child's own state gas charges (e.g. inner SSTOREs, code deposits) are already
-      // refunded into the reservoir by handleStateGasSpill in AbstractMessageProcessor.
+      // refunded into the reservoir by handleStateGasRevertSpill / handleStateGasHalt in
+      // AbstractMessageProcessor.
       gasCalculator().stateGasCostCalculator().refundCreateStateGas(frame);
       frame.setReturnData(childFrame.getOutputData());
       frame.pushStackItem(Bytes.EMPTY);

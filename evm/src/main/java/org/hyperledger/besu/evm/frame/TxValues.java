@@ -71,9 +71,10 @@ import org.apache.tuweni.bytes.Bytes32;
  *     excluded from block regular gas. Single-element long[] so it is NOT undone on revert.
  * @param noGrowthStateGasRefunds EIP-8037: cumulative state gas refunds applied because no state
  *     was actually grown (SSTORE 0→X→0, CREATE silent or child failure, same-tx SELFDESTRUCT).
- *     Tracked here so {@code handleStateGasSpill} can subtract refunds-in-scope from the spill
- *     credit on revert/halt — those refunds must contribute nothing to a parent's reservoir when
- *     any frame in the chain fails.
+ *     Tracked here so {@code AbstractMessageProcessor.handleStateGasRevertSpill} / {@code
+ *     handleStateGasHalt} can subtract refunds-in-scope from the spill credit on revert/halt —
+ *     those refunds must contribute nothing to a parent's reservoir when any frame in the chain
+ *     fails.
  */
 public record TxValues(
     BlockHashLookup blockHashLookup,

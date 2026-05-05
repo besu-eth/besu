@@ -1037,9 +1037,9 @@ public class MessageFrame {
 
   /**
    * Records a no-growth state gas refund (SSTORE 0→X→0, CREATE silent failure, same-tx
-   * SELFDESTRUCT). Read by {@code AbstractMessageProcessor.handleStateGasSpill} to subtract
-   * refunds-in-scope from the spill credit on revert/halt — those refunds must contribute nothing
-   * to a parent's reservoir when any frame in the chain fails.
+   * SELFDESTRUCT). Read by {@code AbstractMessageProcessor.handleStateGasRevertSpill} / {@code
+   * handleStateGasHalt} to subtract refunds-in-scope from the spill credit on revert/halt — those
+   * refunds must contribute nothing to a parent's reservoir when any frame in the chain fails.
    *
    * @param amount the refund amount to record
    */
