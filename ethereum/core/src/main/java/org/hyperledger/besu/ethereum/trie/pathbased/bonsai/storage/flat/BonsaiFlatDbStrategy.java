@@ -55,7 +55,8 @@ public abstract class BonsaiFlatDbStrategy extends FlatDbStrategy {
       Supplier<Optional<Bytes>> worldStateRootHashSupplier,
       NodeLoader nodeLoader,
       Hash accountHash,
-      SegmentedKeyValueStorage storage);
+      SegmentedKeyValueStorage storage,
+      boolean isLayered);
 
   /*
    * Retrieves the storage value for the given account hash and storage slot key, using the world state root hash supplier, storage root supplier, and node loader.
@@ -67,7 +68,8 @@ public abstract class BonsaiFlatDbStrategy extends FlatDbStrategy {
       NodeLoader nodeLoader,
       Hash accountHash,
       StorageSlotKey storageSlotKey,
-      SegmentedKeyValueStorage storageStorage);
+      SegmentedKeyValueStorage storageStorage,
+      boolean isLayered);
 
   @Override
   public void putFlatAccount(

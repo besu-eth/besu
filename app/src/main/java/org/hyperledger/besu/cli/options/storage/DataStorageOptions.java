@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.cli.options.storage;
 
+import static org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration.DEFAULT_BONSAI_CACHE_ENABLED;
 import static org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration.DEFAULT_RECEIPT_COMPACTION_ENABLED;
 
 import org.hyperledger.besu.cli.options.CLIOptions;
@@ -53,6 +54,13 @@ public class DataStorageOptions implements CLIOptions<DataStorageConfiguration> 
       description =
           "Convenience option to enable online history pruning and configure BlobDB garbage collection settings (default: ${DEFAULT-VALUE}). \"--history-expiry-prune\" is deprecated and will be removed in a future release.")
   private Boolean historyExpiryPrune = false;
+
+  @Option(
+      names = "--bonsai-cache-enabled",
+      description =
+          "Enables Bonsai trie cache for improved performance (default: ${DEFAULT-VALUE})",
+      fallbackValue = "true")
+  private Boolean bonsaiCacheEnabled = DEFAULT_BONSAI_CACHE_ENABLED;
 
   /**
    * Options specific to path-based storage modes. Holds the necessary parameters to configure
@@ -97,6 +105,7 @@ public class DataStorageOptions implements CLIOptions<DataStorageConfiguration> 
         PathBasedExtraStorageOptions.fromConfig(
             domainObject.getPathBasedExtraStorageConfiguration());
     dataStorageOptions.historyExpiryPrune = domainObject.getHistoryExpiryPruneEnabled();
+    dataStorageOptions.bonsaiCacheEnabled = domainObject.getBonsaiCacheEnabled();
     return dataStorageOptions;
   }
 
@@ -107,6 +116,7 @@ public class DataStorageOptions implements CLIOptions<DataStorageConfiguration> 
             .dataStorageFormat(dataStorageFormat)
             .receiptCompactionEnabled(receiptCompactionEnabled)
             .historyExpiryPruneEnabled(historyExpiryPrune)
+            .bonsaiCacheEnabled(bonsaiCacheEnabled)
             .pathBasedExtraStorageConfiguration(pathBasedExtraStorageOptions.toDomainObject());
     return builder.build();
   }

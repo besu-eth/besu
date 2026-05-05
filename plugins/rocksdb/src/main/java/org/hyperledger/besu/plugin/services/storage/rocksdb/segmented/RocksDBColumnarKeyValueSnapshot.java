@@ -28,14 +28,11 @@ import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbIterator;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.tuweni.bytes.Bytes;
 import org.rocksdb.AbstractRocksIterator;
@@ -54,19 +51,11 @@ public class RocksDBColumnarKeyValueSnapshot
 
   private static final Logger LOG = LoggerFactory.getLogger(RocksDBColumnarKeyValueSnapshot.class);
 
-  // Cache to store read results during snapshot access.
-  // We use Optional<byte[]> as the value type to distinguish between:
-  // - a key that maps to an actual zero value (represented as Optional.empty())
-  // - a key that has not been read yet (not present in the cache)
-  // - a key that has been read and has a non-zero value (Optional.of(bytes))
-  private Optional<Cache<Bytes, Optional<byte[]>>> maybeCache = Optional.empty();
-
   /** The Db. */
   final OptimisticTransactionDB db;
 
   private final RocksDBSnapshot snapshot;
   private final AtomicBoolean closed = new AtomicBoolean(false);
-  private final boolean isReadCacheEnabledForSnapshots;
   private final RocksDBMetrics metrics;
   private final Function<SegmentIdentifier, ColumnFamilyHandle> columnFamilyMapper;
   private final ReadOptions readOptions;
@@ -79,24 +68,14 @@ public class RocksDBColumnarKeyValueSnapshot
    */
   RocksDBColumnarKeyValueSnapshot(
       final OptimisticTransactionDB db,
-      final boolean isReadCacheEnabledForSnapshots,
       final Function<SegmentIdentifier, ColumnFamilyHandle> columnFamilyMapper,
       final RocksDBMetrics metrics) {
     this.db = db;
-    this.isReadCacheEnabledForSnapshots = isReadCacheEnabledForSnapshots;
     this.metrics = metrics;
     this.columnFamilyMapper = columnFamilyMapper;
     this.snapshot = new RocksDBSnapshot(db);
     this.readOptions =
         new ReadOptions().setVerifyChecksums(false).setSnapshot(snapshot.getSnapshot());
-    if (isReadCacheEnabledForSnapshots) {
-      maybeCache =
-          Optional.of(
-              CacheBuilder.newBuilder()
-                  .maximumSize(100_000)
-                  .expireAfterAccess(5, TimeUnit.MINUTES)
-                  .build());
-    }
   }
 
   @Override
@@ -105,37 +84,10 @@ public class RocksDBColumnarKeyValueSnapshot
     throwIfClosed();
     try (final OperationTimer.TimingContext ignored = metrics.getReadLatency().startTimer()) {
       final ColumnFamilyHandle handle = columnFamilyMapper.apply(segment);
-      if (isReadCacheEnabledForSnapshots && segment.isEligibleToHighSpecFlag()) {
-        return getFromCacheOrRead(segment.getId(), key, handle, maybeCache.get());
-      } else {
-        return Optional.ofNullable(snapshot.get(handle, readOptions, key));
-      }
+      return Optional.ofNullable(snapshot.get(handle, readOptions, key));
     } catch (final RocksDBException e) {
       throw new StorageException(e);
     }
-  }
-
-  private Optional<byte[]> getFromCacheOrRead(
-      final byte[] segmentId,
-      final byte[] key,
-      final ColumnFamilyHandle handle,
-      final Cache<Bytes, Optional<byte[]>> cache)
-      throws RocksDBException {
-    final Bytes cacheKey = makeCacheKey(segmentId, key);
-    Optional<byte[]> cached = cache.getIfPresent(cacheKey);
-    if (cached == null) {
-      final byte[] value = snapshot.get(handle, readOptions, key);
-      cached = Optional.ofNullable(value);
-      cache.put(cacheKey, cached);
-    }
-    return cached;
-  }
-
-  private static Bytes makeCacheKey(final byte[] segmentId, final byte[] key) {
-    final byte[] combined = new byte[segmentId.length + key.length];
-    System.arraycopy(segmentId, 0, combined, 0, segmentId.length);
-    System.arraycopy(key, 0, combined, segmentId.length, key.length);
-    return Bytes.wrap(combined);
   }
 
   @Override

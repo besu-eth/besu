@@ -2295,6 +2295,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             DataStorageFormat.BONSAI);
       }
     }
+
     return dataStorageConfiguration;
   }
 

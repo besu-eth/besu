@@ -46,38 +46,66 @@ import org.apache.tuweni.rlp.RLP;
  */
 public class BonsaiPartialFlatDbStrategy extends BonsaiFlatDbStrategy {
 
-  protected final Counter getAccountMerkleTrieCounter;
-  protected final Counter getAccountMissingMerkleTrieCounter;
+  protected final Counter getAccountMerkleTriePersistedCounter;
+  protected final Counter getAccountMerkleTrieLayeredCounter;
+  protected final Counter getAccountMissingMerkleTriePersistedCounter;
+  protected final Counter getAccountMissingMerkleTrieLayeredCounter;
 
-  protected final Counter getStorageValueMerkleTrieCounter;
-  protected final Counter getStorageValueMissingMerkleTrieCounter;
+  protected final Counter getStorageValueMerkleTriePersistedCounter;
+  protected final Counter getStorageValueMerkleTrieLayeredCounter;
+  protected final Counter getStorageValueMissingMerkleTriePersistedCounter;
+  protected final Counter getStorageValueMissingMerkleTrieLayeredCounter;
 
   public BonsaiPartialFlatDbStrategy(
       final MetricsSystem metricsSystem, final CodeStorageStrategy codeStorageStrategy) {
     super(metricsSystem, codeStorageStrategy);
-    getAccountMerkleTrieCounter =
+    getAccountMerkleTriePersistedCounter =
         metricsSystem.createCounter(
             BesuMetricCategory.BLOCKCHAIN,
-            "get_account_merkle_trie",
-            "Number of accounts not found in the flat database, but found in the merkle trie");
+            "get_account_merkle_trie_persisted",
+            "Accounts found in merkle trie from persisted storage (FCU)");
 
-    getAccountMissingMerkleTrieCounter =
+    getAccountMerkleTrieLayeredCounter =
         metricsSystem.createCounter(
             BesuMetricCategory.BLOCKCHAIN,
-            "get_account_missing_merkle_trie",
-            "Number of accounts not found (either in the flat database or the merkle trie)");
+            "get_account_merkle_trie_layered",
+            "Accounts found in merkle trie from layered storage (newPayload)");
 
-    getStorageValueMerkleTrieCounter =
+    getAccountMissingMerkleTriePersistedCounter =
         metricsSystem.createCounter(
             BesuMetricCategory.BLOCKCHAIN,
-            "get_storagevalue_merkle_trie",
-            "Number of storage slots not found in the flat database, but found in the merkle trie");
+            "get_account_missing_merkle_trie_persisted",
+            "Accounts not found anywhere from persisted storage (FCU)");
 
-    getStorageValueMissingMerkleTrieCounter =
+    getAccountMissingMerkleTrieLayeredCounter =
         metricsSystem.createCounter(
             BesuMetricCategory.BLOCKCHAIN,
-            "get_storagevalue_missing_merkle_trie",
-            "Number of storage slots not found (either in the flat database or in the merkle trie)");
+            "get_account_missing_merkle_trie_layered",
+            "Accounts not found anywhere from layered storage (newPayload)");
+
+    getStorageValueMerkleTriePersistedCounter =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCKCHAIN,
+            "get_storagevalue_merkle_trie_persisted",
+            "Storage slots found in merkle trie from persisted storage (FCU)");
+
+    getStorageValueMerkleTrieLayeredCounter =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCKCHAIN,
+            "get_storagevalue_merkle_trie_layered",
+            "Storage slots found in merkle trie from layered storage (newPayload)");
+
+    getStorageValueMissingMerkleTriePersistedCounter =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCKCHAIN,
+            "get_storagevalue_missing_merkle_trie_persisted",
+            "Storage slots not found anywhere from persisted storage (FCU)");
+
+    getStorageValueMissingMerkleTrieLayeredCounter =
+        metricsSystem.createCounter(
+            BesuMetricCategory.BLOCKCHAIN,
+            "get_storagevalue_missing_merkle_trie_layered",
+            "Storage slots not found anywhere from layered storage (newPayload)");
   }
 
   @Override
@@ -85,12 +113,12 @@ public class BonsaiPartialFlatDbStrategy extends BonsaiFlatDbStrategy {
       final Supplier<Optional<Bytes>> worldStateRootHashSupplier,
       final NodeLoader nodeLoader,
       final Hash accountHash,
-      final SegmentedKeyValueStorage storage) {
-    getAccountCounter.inc();
+      final SegmentedKeyValueStorage storage,
+      final boolean isLayered) {
+    (isLayered ? getAccountLayeredCounter : getAccountPersistedCounter).inc();
     Optional<Bytes> response =
         storage.get(ACCOUNT_INFO_STATE, accountHash.getBytes().toArrayUnsafe()).map(Bytes::wrap);
     if (response.isEmpty()) {
-      // after a snapsync/fastsync we only have the trie branches.
       final Optional<Bytes> worldStateRootHash = worldStateRootHashSupplier.get();
       if (worldStateRootHash.isPresent()) {
         response =
@@ -99,13 +127,20 @@ public class BonsaiPartialFlatDbStrategy extends BonsaiFlatDbStrategy {
                     Bytes32.wrap(worldStateRootHash.get()))
                 .get(accountHash.getBytes());
         if (response.isEmpty()) {
-          getAccountMissingMerkleTrieCounter.inc();
+          (isLayered
+                  ? getAccountMissingMerkleTrieLayeredCounter
+                  : getAccountMissingMerkleTriePersistedCounter)
+              .inc();
         } else {
-          getAccountMerkleTrieCounter.inc();
+          (isLayered ? getAccountMerkleTrieLayeredCounter : getAccountMerkleTriePersistedCounter)
+              .inc();
         }
       }
     } else {
-      getAccountFoundInFlatDatabaseCounter.inc();
+      (isLayered
+              ? getAccountFoundInFlatDatabaseLayeredCounter
+              : getAccountFoundInFlatDatabasePersistedCounter)
+          .inc();
     }
 
     return response;
@@ -118,8 +153,9 @@ public class BonsaiPartialFlatDbStrategy extends BonsaiFlatDbStrategy {
       final NodeLoader nodeLoader,
       final Hash accountHash,
       final StorageSlotKey storageSlotKey,
-      final SegmentedKeyValueStorage storage) {
-    getStorageValueCounter.inc();
+      final SegmentedKeyValueStorage storage,
+      final boolean isLayered) {
+    (isLayered ? getStorageValueLayeredCounter : getStorageValuePersistedCounter).inc();
     Optional<Bytes> response =
         storage
             .get(
@@ -137,11 +173,22 @@ public class BonsaiPartialFlatDbStrategy extends BonsaiFlatDbStrategy {
                     Bytes32.wrap(storageRoot.get().getBytes()))
                 .get(storageSlotKey.getSlotHash().getBytes())
                 .map(bytes -> Bytes32.leftPad(RLP.decodeValue(bytes)));
-        if (response.isEmpty()) getStorageValueMissingMerkleTrieCounter.inc();
-        else getStorageValueMerkleTrieCounter.inc();
+        if (response.isEmpty())
+          (isLayered
+                  ? getStorageValueMissingMerkleTrieLayeredCounter
+                  : getStorageValueMissingMerkleTriePersistedCounter)
+              .inc();
+        else
+          (isLayered
+                  ? getStorageValueMerkleTrieLayeredCounter
+                  : getStorageValueMerkleTriePersistedCounter)
+              .inc();
       }
     } else {
-      getStorageValueFlatDatabaseCounter.inc();
+      (isLayered
+              ? getStorageValueFlatDatabaseLayeredCounter
+              : getStorageValueFlatDatabasePersistedCounter)
+          .inc();
     }
     return response;
   }

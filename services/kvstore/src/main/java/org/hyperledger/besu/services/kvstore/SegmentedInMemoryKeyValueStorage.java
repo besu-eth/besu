@@ -70,6 +70,16 @@ public class SegmentedInMemoryKeyValueStorage
   }
 
   /**
+   * Get in memory hash value store
+   *
+   * @return map
+   */
+  public ConcurrentMap<SegmentIdentifier, NavigableMap<Bytes, Optional<byte[]>>>
+      getHashValueStore() {
+    return hashValueStore;
+  }
+
+  /**
    * Create and populate a navigable segment map, with a compatible Bytes comparator.
    *
    * @param sourceMap sourcemap to initialize the segmentmap with.
