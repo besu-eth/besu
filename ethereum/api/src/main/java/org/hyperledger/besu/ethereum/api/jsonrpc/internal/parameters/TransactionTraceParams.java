@@ -69,6 +69,9 @@ public interface TransactionTraceParams {
     return Boolean.TRUE.equals(disableStackNullable());
   }
 
+  @JsonProperty(value = "limit")
+  @Nullable Integer limit();
+
   @JsonProperty("tracer")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   @Nullable String tracer();
@@ -92,6 +95,13 @@ public interface TransactionTraceParams {
   @Nullable
   @JsonInclude(JsonInclude.Include.NON_NULL)
   StateOverrideMap stateOverrides();
+
+  @Value.Check
+  default void validate() {
+    if (limit() != null && limit() < 0) {
+      throw new IllegalArgumentException("limit must be >= 0, got: " + limit());
+    }
+  }
 
   /**
    * Convert JSON-RPC parameters to a {@link TraceOptions} object.
@@ -121,6 +131,9 @@ public interface TransactionTraceParams {
     }
     if (disableStackNullable() != null) {
       builder.traceStack(!disableStack());
+    }
+    if (limit() != null) {
+      builder.limit(limit());
     }
     var opCodeTracerConfig = builder.traceOpcodes(opcodes()).build();
 
