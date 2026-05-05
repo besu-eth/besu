@@ -79,7 +79,7 @@ def eipStateReferenceTests = tasks.register("eipStateReferenceTests")  {
     )
 }
 
-def extractStableFixtures = tasks.register("extractStableFixtures", Copy) {
+def extractStableFixtures = tasks.register("extractStableFixtures", Sync) {
   from {
     tarTree(configurations.tarConfig.files.find { it.name.startsWith('execution-spec-tests') })
   }
@@ -119,7 +119,7 @@ def executionSpecTests = tasks.register("executionSpecTests") {
   }
 }
 
-def extractDevnetFixtures = tasks.register("extractDevnetFixtures", Copy) {
+def extractDevnetFixtures = tasks.register("extractDevnetFixtures", Sync) {
   from {
     tarTree(configurations.devnetTarConfig.files.find { it.name.startsWith('execution-spec-tests') })
   }
