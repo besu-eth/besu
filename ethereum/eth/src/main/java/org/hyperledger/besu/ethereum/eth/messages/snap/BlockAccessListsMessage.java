@@ -62,4 +62,8 @@ public final class BlockAccessListsMessage extends AbstractSnapMessageData {
   public Iterable<BlockAccessList> blockAccessLists(final boolean withRequestId) {
     return BlockAccessListsMessageData.decode(data, withRequestId);
   }
+
+  public Iterable<Bytes> blockAccessListsRaw(final boolean withRequestId) {
+    return BlockAccessListsMessageData.decodeRaw(data, withRequestId);
+  }
 }

@@ -134,11 +134,10 @@ public class SECP256K1 extends AbstractSECP256 {
   public Optional<SECPPublicKey> recoverPublicKeyFromSignature(
       final Bytes32 dataHash, final SECPSignature signature) {
     if (useNative) {
-      Optional<SECPPublicKey> result = recoverFromSignatureNative(dataHash, signature);
-      if (result.isEmpty()) {
-        throw new IllegalArgumentException("Could not recover public key");
-      } else {
-        return result;
+      try {
+        return recoverFromSignatureNative(dataHash, signature);
+      } catch (final IllegalArgumentException e) {
+        return Optional.empty();
       }
     } else {
       return super.recoverPublicKeyFromSignature(dataHash, signature);

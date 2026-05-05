@@ -328,7 +328,7 @@ class PeerDiscoveryAgentV5Test {
 
       Mockito.when(mockSystem.getNodeRecordBuckets()).thenReturn(List.of(List.of(peerNodeRecord)));
       denylist.add(discoveryPeer.getId());
-      Mockito.verify(mockSystem).deleteNodeRecord(discoveryPeer.getId());
+      Mockito.verify(mockSystem, Mockito.timeout(10000)).deleteNodeRecord(discoveryPeer.getId());
     } finally {
       restrictedAgent.stop();
     }
