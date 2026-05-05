@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.vm;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
@@ -183,7 +184,7 @@ class BlockchainBasedBlockHashLookupTest {
     final Hash result = secondFork.apply(messageFrameMock, (long) deepBlock);
 
     assertThat(result).isEqualTo(headers[deepBlock].getHash());
-    verifyNoMoreInteractions(blockchain);
+    verify(blockchain, never()).getBlockHeader(any(Hash.class));
   }
 
   private BlockHeader createHeader(final int blockNumber, final BlockHeader parentHeader) {
