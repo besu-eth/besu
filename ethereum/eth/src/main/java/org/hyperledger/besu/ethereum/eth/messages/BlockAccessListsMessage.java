@@ -61,4 +61,8 @@ public final class BlockAccessListsMessage extends AbstractMessageData {
   public Iterable<BlockAccessList> blockAccessLists() {
     return BlockAccessListsMessageData.decode(data, false);
   }
+
+  public Iterable<Bytes> blockAccessListsRaw() {
+    return BlockAccessListsMessageData.decodeRaw(data, false);
+  }
 }

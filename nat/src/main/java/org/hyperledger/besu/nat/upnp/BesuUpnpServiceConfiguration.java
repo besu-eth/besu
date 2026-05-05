@@ -138,9 +138,9 @@ class BesuUpnpServiceConfiguration implements UpnpServiceConfiguration {
     return new DatagramIOImpl(new DatagramIOConfigurationImpl());
   }
 
-  @SuppressWarnings("rawtypes") // superclass uses raw types
   @Override
-  public StreamServer createStreamServer(final NetworkAddressFactory networkAddressFactory) {
+  @SuppressWarnings("NullAway") // jupnp interface allows null for "no stream server"
+  public StreamServer<?> createStreamServer(final NetworkAddressFactory networkAddressFactory) {
     return null;
   }
 
@@ -190,16 +190,19 @@ class BesuUpnpServiceConfiguration implements UpnpServiceConfiguration {
   }
 
   @Override
+  @SuppressWarnings("NullAway") // jupnp interface allows null for "no limit"
   public Integer getRemoteDeviceMaxAgeSeconds() {
     return null;
   }
 
   @Override
+  @SuppressWarnings("NullAway") // jupnp interface allows null for "no extra headers"
   public UpnpHeaders getDescriptorRetrievalHeaders(final RemoteDeviceIdentity identity) {
     return null;
   }
 
   @Override
+  @SuppressWarnings("NullAway") // jupnp interface allows null for "no extra headers"
   public UpnpHeaders getEventSubscriptionHeaders(final RemoteService service) {
     return null;
   }

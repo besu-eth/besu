@@ -518,9 +518,7 @@ public class MainnetTransactionProcessor {
       // For pre-Prague forks, floor cost is 0, so this returns just execution gas
       // For Prague+ forks with EIP-7778, this ensures block gas accounts for data floor
       // EIP-8037: Gas accounting with multidimensional gas support
-      final long floorCost =
-          gasCalculator.transactionFloorCost(
-              transaction.getPayload(), transaction.getPayloadZeroBytes());
+      final long floorCost = gasCalculator.transactionFloorCost(transaction);
       final TransactionGasAccounting.GasResult gasResult =
           TransactionGasAccounting.builder()
               .txGasLimit(transaction.getGasLimit())
