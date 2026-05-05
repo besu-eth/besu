@@ -19,9 +19,6 @@ import org.hyperledger.besu.evm.UInt256;
 import java.math.BigInteger;
 import java.util.Random;
 
-import org.openjdk.jmh.annotations.Level;
-import org.openjdk.jmh.annotations.Setup;
-
 public abstract class BinaryArithmeticOperationBenchmarkV2 extends BinaryOperationBenchmarkV2 {
   static class Case {
     final int aSizeBytes;
@@ -52,7 +49,6 @@ public abstract class BinaryArithmeticOperationBenchmarkV2 extends BinaryOperati
     }
   }
 
-  @Setup(Level.Iteration)
   @Override
   public void setUp() {
     frame = BenchmarkHelperV2.createMessageCallFrame();
