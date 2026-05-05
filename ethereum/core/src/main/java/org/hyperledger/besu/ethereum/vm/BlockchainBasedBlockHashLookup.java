@@ -23,8 +23,8 @@ import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.BlockHashOperation;
 
-import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * Calculates and caches block hashes by number following the chain for a specific branch. This is
@@ -34,9 +34,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>A new BlockHashCache must be created for each block being processed but should be reused for
  * all transactions within that block.
  *
- * <p>Parallel preload forks share the same hash cache ({@link #forkForParallelWorker}) so work done
- * by one worker is visible to others; each fork keeps its own {@code searchStartHeader} cursor when
- * walking parent headers.
+ * <p>Parallel worker forks (preload or transaction execution) share the same hash cache via {@link
+ * #forkForParallelWorker} so work done by one worker is visible to others; each fork keeps its own
+ * {@code searchStartHeader} cursor when walking parent headers.
  */
 public class BlockchainBasedBlockHashLookup implements BlockHashLookup {
   /** Block header for the block being executed; used to fork fresh lookups for parallel preload. */
@@ -44,7 +44,7 @@ public class BlockchainBasedBlockHashLookup implements BlockHashLookup {
 
   private ProcessableBlockHeader searchStartHeader;
   private final Blockchain blockchain;
-  private final Map<Long, Hash> hashByNumber;
+  private final ConcurrentMap<Long, Hash> hashByNumber;
 
   public BlockchainBasedBlockHashLookup(
       final ProcessableBlockHeader currentBlock, final Blockchain blockchain) {
@@ -54,7 +54,7 @@ public class BlockchainBasedBlockHashLookup implements BlockHashLookup {
   private BlockchainBasedBlockHashLookup(
       final ProcessableBlockHeader currentBlock,
       final Blockchain blockchain,
-      final Map<Long, Hash> hashByNumber) {
+      final ConcurrentMap<Long, Hash> hashByNumber) {
     this.anchorHeader = currentBlock;
     this.searchStartHeader = currentBlock;
     this.blockchain = blockchain;
