@@ -19,6 +19,7 @@
 
 ### Bug fixes
 - Fix `engine_forkchoiceUpdatedV1` now returns `-38003 INVALID_PAYLOAD_ATTRIBUTES` for invalid payload attribute timestamps (zero or not greater than head). [#10353](https://github.com/besu-eth/besu/pull/10353)
+- Fix `debug_trace*` `storage` field to emit only for SLOAD/SSTORE opcodes showing the single slot touched, matching the execution-apis spec and geth behaviour [#10176](https://github.com/besu-eth/besu/pull/10176)
 
 ### Additions and Improvements
 - Add `eth_getStorageValues` JSON-RPC method for batched reads of multiple storage slots across multiple accounts in a single call [#10259](https://github.com/besu-eth/besu/pull/10259)
@@ -59,11 +60,11 @@
 - Enforce that `blob_versioned_hashes` match the supplied blobs [#10278](https://github.com/besu-eth/besu/pull/10278)
 - Restrict no-reorg behavior to the prefix of the known finalized chain (per execution-apis #786) [#10335](https://github.com/besu-eth/besu/pull/10335)
 - `eth_getFilterLogs`: cache the chain head once when resolving default `latest..latest` bounds, so a block arriving between the two reads no longer expands the queried range into `[N, N+1]` and returns extra logs. [#10368](https://github.com/besu-eth/besu/pull/10368)
+- `eth_getFilterLogs`: cache the chain head once when resolving default `latest..latest` bounds, so a block arriving between the two reads no longer expands the queried range into `[N, N+1]` and returns extra logs.
 
 ### Additions and Improvements
 - The option to set a different block period for empty BFT blocks (`emptyblockperiodseconds`) is no longer experimental. The experimental flag `xemptyblockperiodseconds` will be removed in a future release. [#10264](https://github.com/besu-eth/besu/pull/10264)
 - Release worker threads after engine API timeout to avoid blocking subsequent requests [#10311](https://github.com/besu-eth/besu/pull/10311)
-- `debug_trace*`: add optional `limit` parameter to cap opcode trace capture after N steps (`0` keeps unlimited behavior); negative values are rejected as invalid params (`-32602`). [#10176](https://github.com/besu-eth/besu/pull/10176)
 - `evmtool blocktest --verbose` flag, default off, removes noise from output [#10348](https://github.com/besu-eth/besu/pull/10348)
 - Bound precompile result caches to the semantic-prefix slice and apply a 16 MB byte-weight cap per cache, providing a uniform memory ceiling across all 14 precompile caches [#10350](https://github.com/besu-eth/besu/pull/10350)
 - Lazy RLP decoding of `GetBlockBodies` messages reduces memory and CPU spent on dropped requests [#10342](https://github.com/besu-eth/besu/pull/10342)
