@@ -125,7 +125,7 @@ class SStoreOperationTest {
     final OperationResult result = operation.execute(frame, null);
     assertThat(result.getHaltReason()).isNull();
 
-    // State gas: 32 * cpsb(36M) = 32 * 150 = 4_800
+    // State gas: 32 * cpsb
     final long expectedStateGas = 32L * new Eip8037StateGasCostCalculator().costPerStateByte();
     assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas);
   }

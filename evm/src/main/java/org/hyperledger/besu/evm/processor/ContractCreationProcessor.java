@@ -182,7 +182,7 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
             .findFirst();
     if (firstValidationFailure.isPresent()) {
       // EIP-8037: on code deposit validation failure
-      // (e.g. oversized code), trigger an exceptional halt. handleStateGasSpill will refund
+      // (e.g. oversized code), trigger an exceptional halt. handleStateGasHalt will refund
       // execution state gas to the reservoir; intrinsic state gas (preserved past
       // advanceUndoMark) remains.
       frame.setExceptionalHaltReason(firstValidationFailure);
@@ -218,7 +218,7 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
         .stateGasCostCalculator()
         .chargeCodeDepositStateGas(frame, contractCode.size())) {
       LOG.trace("Contract creation error: insufficient state gas for code deposit");
-      // EIP-8037: code deposit OOG is an exceptional halt. handleStateGasSpill refunds the
+      // EIP-8037: code deposit OOG is an exceptional halt. handleStateGasHalt refunds the
       // execution state gas (including any spillover) to the reservoir; intrinsic state gas
       // is preserved by the advanceUndoMark applied to the initial frame.
       frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
