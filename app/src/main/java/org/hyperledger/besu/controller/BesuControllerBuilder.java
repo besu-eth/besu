@@ -894,31 +894,47 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     closeables.add(protocolContext.getWorldStateArchive());
     closeables.add(storageProvider);
 
-    if (DataStorageFormat.X_BONSAI_ARCHIVE.equals(dataStorageConfiguration.getDataStorageFormat())
-        && (worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.FULL)
-            || worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.PARTIAL))) {
-      final BonsaiFlatDbToArchiveMigrator archiveMigrator =
-          createArchiveMigrator(worldStateStorageCoordinator, worldStateArchive, blockchain);
-      closeables.add(archiveMigrator);
+    if (DataStorageFormat.X_BONSAI_ARCHIVE.equals(
+        dataStorageConfiguration.getDataStorageFormat())) {
+      if (worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.FULL)
+          || worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.PARTIAL)) {
+        final BonsaiFlatDbToArchiveMigrator archiveMigrator =
+            createArchiveMigrator(worldStateStorageCoordinator, worldStateArchive, blockchain);
+        ((BonsaiArchiveWorldStateProvider) worldStateArchive)
+            .setArchiveMigrationProgressSupplier(archiveMigrator::getMigratedBlockNumber);
+        // Close the migrator before storageProvider so callback finishes before RocksDB is closed
+        closeables.addFirst(archiveMigrator);
 
-      final AtomicBoolean migrationStarted = new AtomicBoolean(false);
-      final AtomicLong syncSubscriptionId = new AtomicLong();
-      syncSubscriptionId.set(
-          synchronizer.subscribeInSync(
-              (inSync) -> {
-                if (inSync && migrationStarted.compareAndSet(false, true)) {
-                  synchronizer.unsubscribeInSync(syncSubscriptionId.get());
-                  LOG.info("Node is in sync, starting Bonsai archive migration");
-                  archiveMigrator
-                      .migrate()
-                      .exceptionally(
-                          error -> {
-                            LOG.error("Archive migration failed", error);
-                            return null;
-                          });
-                }
-              },
-              0));
+        final AtomicBoolean migrationStarted = new AtomicBoolean(false);
+        final AtomicLong syncSubscriptionId = new AtomicLong();
+        syncSubscriptionId.set(
+            synchronizer.subscribeInSync(
+                (inSync) -> {
+                  if (inSync && migrationStarted.compareAndSet(false, true)) {
+                    synchronizer.unsubscribeInSync(syncSubscriptionId.get());
+                    LOG.info("Node is in sync, starting Bonsai archive migration");
+                    archiveMigrator
+                        .migrate()
+                        .exceptionally(
+                            error -> {
+                              LOG.error(
+                                  "Archive migration failed, archiver will remain disabled until restart",
+                                  error);
+                              return null;
+                            });
+                  }
+                },
+                0));
+      } else {
+        // Already in ARCHIVE mode (restart after migration): register ongoing migration
+        final BonsaiFlatDbToArchiveMigrator archiveMigrator =
+            createArchiveMigrator(worldStateStorageCoordinator, worldStateArchive, blockchain);
+        ((BonsaiArchiveWorldStateProvider) worldStateArchive)
+            .setArchiveMigrationProgressSupplier(archiveMigrator::getMigratedBlockNumber);
+        archiveMigrator.startOngoingMigration();
+        // Close the migrator before storageProvider so callback finishes before RocksDB is closed
+        closeables.addFirst(archiveMigrator);
+      }
     }
 
     return new BesuController(
@@ -1329,12 +1345,13 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         yield new BonsaiArchiveWorldStateProvider(
             worldStateKeyValueStorage,
             blockchain,
-            dataStorageConfiguration.getPathBasedExtraStorageConfiguration(),
+            dataStorageConfiguration,
             bonsaiCachedMerkleTrieLoader,
             besuComponent.map(BesuComponent::getBesuPluginContext).orElse(null),
             evmConfiguration,
             worldStateHealerSupplier,
-            codeCache);
+            codeCache,
+            metricsSystem);
       }
       case FOREST -> {
         final WorldStatePreimageStorage preimageStorage =

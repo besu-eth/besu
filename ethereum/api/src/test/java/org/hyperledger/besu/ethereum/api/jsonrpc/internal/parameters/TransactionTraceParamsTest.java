@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
@@ -130,5 +131,11 @@ public class TransactionTraceParamsTest {
     assertThat(config.traceMemory())
         .describedAs("explicit enableMemory=false should be respected for callTracer")
         .isFalse();
+  }
+
+  @Test
+  public void negativeLimitShouldFailDuringDeserialization() {
+    assertThatThrownBy(() -> MAPPER.readValue("{\"limit\": -1}", TransactionTraceParams.class))
+        .hasMessageContaining("limit must be >= 0, got: -1");
   }
 }
