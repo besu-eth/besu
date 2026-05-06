@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthAccounts;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthBlobBaseFee;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthBlockNumber;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthCall;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthCapabilities;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthChainId;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthConfig;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthCreateAccessList;
@@ -170,6 +171,7 @@ public class EthJsonRpcMethods extends ApiGroupJsonRpcMethods {
             new EthEstimateGas(blockchainQueries, transactionSimulator, apiConfiguration),
             new EthCreateAccessList(blockchainQueries, transactionSimulator),
             new EthMining(miningCoordinator),
+            new EthCapabilities(blockchainQueries),
             new EthConfig(blockchainQueries, protocolSchedule, genesisConfigOptions),
             new EthProtocolVersion(supportedCapabilities),
             new EthGasPrice(blockchainQueries, apiConfiguration),
