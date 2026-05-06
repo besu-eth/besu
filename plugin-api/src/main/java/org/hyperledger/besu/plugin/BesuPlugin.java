@@ -64,7 +64,30 @@ public interface BesuPlugin {
   void start();
 
   /** Hook to execute plugin setup code after external services */
+  @Deprecated(since = "26.5.0", forRemoval = true)
   default void afterExternalServicePostMainLoop() {}
+
+  /**
+   * Called after the Ethereum main sync loop has started.
+   *
+   * <p>At the point this method fires:
+   *
+   * <ul>
+   *   <li>All external services (HTTP JSON-RPC, WebSocket, Prometheus metrics) are running and
+   *       accepting connections.
+   *   <li>The Ethereum peer-to-peer network is active and peers are connected.
+   *   <li>Block and transaction synchronization is in progress.
+   *   <li>All START-phase services are available via {@link ServiceManager#getService(Class)}.
+   * </ul>
+   *
+   * <p>Most plugins do not need to override this method. It is intended for work that specifically
+   * requires the node to be in its full operational state, such as performing an initial chain scan
+   * or notifying an external orchestration system.
+   */
+  default void afterMainLoop() {
+    // Default delegation for backward compatibility
+    afterExternalServicePostMainLoop();
+  }
 
   /**
    * Called when the plugin is being reloaded. This method will be called through a dedicated JSON

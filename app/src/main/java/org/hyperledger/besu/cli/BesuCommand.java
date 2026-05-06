@@ -1016,7 +1016,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
     runner.startEthereumMainLoop();
 
-    besuPluginContext.afterExternalServicesMainLoop();
+    besuPluginContext.afterMainLoop();
   }
 
   private void configurePrecompileCaching() {

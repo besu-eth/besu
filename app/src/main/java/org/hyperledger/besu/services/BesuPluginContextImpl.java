@@ -287,8 +287,8 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
     state = Lifecycle.BEFORE_MAIN_LOOP_FINISHED;
   }
 
-  /** Execute all plugin setup code after external services. */
-  public void afterExternalServicesMainLoop() {
+  /** Execute all plugin setup code after the Ethereum main sync loop has started. */
+  public void afterMainLoop() {
     checkState(
         state == Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
         "BesuContext should be in state %s but it was in %s",
@@ -299,20 +299,18 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
     while (pluginsIterator.hasNext()) {
       final BesuPlugin plugin = pluginsIterator.next();
       try {
-        plugin.afterExternalServicePostMainLoop();
+        plugin.afterMainLoop();
       } catch (final Exception e) {
         if (config.isContinueOnPluginError()) {
           LOG.error(
-              "Error calling `afterExternalServicePostMainLoop` on plugin of type "
+              "Error calling `afterMainLoop` on plugin of type "
                   + plugin.getClass().getName()
                   + ", stop will not be called.",
               e);
           pluginsIterator.remove();
         } else {
           throw new RuntimeException(
-              "Error calling `afterExternalServicePostMainLoop` on plugin of type "
-                  + plugin.getClass().getName(),
-              e);
+              "Error calling `afterMainLoop` on plugin of type " + plugin.getClass().getName(), e);
         }
       }
     }
