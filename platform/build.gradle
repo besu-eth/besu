@@ -138,7 +138,7 @@ dependencies {
     api 'org.apache.commons:commons-lang3:3.20.0'
     api 'org.apache.commons:commons-text:1.15.0'
 
-    api 'org.apache.maven:maven-artifact:3.9.9'
+    api 'org.apache.maven:maven-artifact:3.9.15'
 
     api 'org.awaitility:awaitility:4.3.0'
 
@@ -188,8 +188,6 @@ dependencies {
     api 'io.consensys.protocols:jc-kzg-4844:2.1.6'
 
     api 'io.consensys.protocols:discovery:26.3.0'
-
-    api 'org.codehaus.plexus:plexus-utils:4.0.3'
   }
 }
 
