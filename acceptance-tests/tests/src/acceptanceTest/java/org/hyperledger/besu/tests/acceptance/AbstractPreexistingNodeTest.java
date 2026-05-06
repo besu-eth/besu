@@ -57,7 +57,9 @@ public class AbstractPreexistingNodeTest extends AcceptanceTestBase {
         if (!parent.exists()) {
           parent.mkdirs();
         }
-        IOUtils.copy(fin, new FileOutputStream(curfile));
+        try (FileOutputStream fos = new FileOutputStream(curfile)) {
+          IOUtils.copy(fin, fos);
+        }
       }
     }
   }
