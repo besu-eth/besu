@@ -47,7 +47,7 @@ public class BlockchainBasedBlockHashLookup implements BlockHashLookup {
   }
 
   @Override
-  public Hash apply(final MessageFrame frame, final Long blockNumber) {
+  public synchronized Hash apply(final MessageFrame frame, final Long blockNumber) {
     final Hash cachedHash = hashByNumber.get(blockNumber);
     if (cachedHash != null) {
       return cachedHash;

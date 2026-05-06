@@ -17,8 +17,10 @@ package org.hyperledger.besu.ethereum.vm;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
@@ -34,6 +36,13 @@ import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
 import org.hyperledger.besu.evm.operation.BlockHashOperation;
 
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.assertj.core.api.Assertions;
@@ -156,6 +165,67 @@ class BlockchainBasedBlockHashLookupTest {
     op.execute(messageFrameMock, null);
 
     verify(messageFrameMock).pushStackItem(hash.getBytes());
+  }
+
+  @Test
+  void shouldReturnAncestorHashForParallelLookups() throws Exception {
+    final int lookedUpByWalkingThread = CURRENT_BLOCK_NUMBER - 5;
+    final int lookedUpBySecondThread = CURRENT_BLOCK_NUMBER - 4;
+    final BlockHeader blockingHeader = spy(headers[CURRENT_BLOCK_NUMBER - 3]);
+    final CountDownLatch blockedAfterCursorAdvance = new CountDownLatch(1);
+    final CountDownLatch allowBlockedLookupToContinue = new CountDownLatch(1);
+    final CountDownLatch secondLookupStarted = new CountDownLatch(1);
+    final AtomicReference<Thread> walkingThread = new AtomicReference<>();
+
+    doAnswer(
+            invocation -> {
+              if (Thread.currentThread() == walkingThread.get()
+                  && blockedAfterCursorAdvance.getCount() > 0) {
+                blockedAfterCursorAdvance.countDown();
+                if (!allowBlockedLookupToContinue.await(5, TimeUnit.SECONDS)) {
+                  throw new AssertionError("timed out waiting to resume lookup");
+                }
+              }
+              return invocation.callRealMethod();
+            })
+        .when(blockingHeader)
+        .getNumber();
+    headers[CURRENT_BLOCK_NUMBER - 3] = blockingHeader;
+    when(blockchain.getBlockHeader(blockingHeader.getHash()))
+        .thenReturn(Optional.of(blockingHeader));
+
+    final ExecutorService executor = Executors.newFixedThreadPool(2);
+    try {
+      final Future<Hash> walkingLookup =
+          executor.submit(
+              () -> {
+                walkingThread.set(Thread.currentThread());
+                return lookup.apply(null, (long) lookedUpByWalkingThread);
+              });
+
+      assertThat(blockedAfterCursorAdvance.await(5, TimeUnit.SECONDS)).isTrue();
+
+      final Future<Hash> secondLookup =
+          executor.submit(
+              () -> {
+                secondLookupStarted.countDown();
+                return lookup.apply(null, (long) lookedUpBySecondThread);
+              });
+
+      assertThat(secondLookupStarted.await(5, TimeUnit.SECONDS)).isTrue();
+      Assertions.assertThatThrownBy(() -> secondLookup.get(1, TimeUnit.SECONDS))
+          .isInstanceOf(TimeoutException.class);
+
+      allowBlockedLookupToContinue.countDown();
+
+      assertThat(walkingLookup.get(5, TimeUnit.SECONDS))
+          .isEqualTo(headers[lookedUpByWalkingThread].getHash());
+      assertThat(secondLookup.get(5, TimeUnit.SECONDS))
+          .isEqualTo(headers[lookedUpBySecondThread].getHash());
+    } finally {
+      executor.shutdownNow();
+      assertThat(executor.awaitTermination(5, TimeUnit.SECONDS)).isTrue();
+    }
   }
 
   private BlockHeader createHeader(final int blockNumber, final BlockHeader parentHeader) {
