@@ -17,7 +17,6 @@ package org.hyperledger.besu.cli.util;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.plugin.services.PluginVersionsProvider;
 import org.hyperledger.besu.util.BesuVersionUtils;
 
 import com.google.common.collect.ImmutableMap;

@@ -17,11 +17,11 @@ package org.hyperledger.besu.services;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 
+import org.hyperledger.besu.cli.util.PluginVersionsProvider;
 import org.hyperledger.besu.ethereum.core.plugins.PluginConfiguration;
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.BesuService;
-import org.hyperledger.besu.plugin.services.PluginVersionsProvider;
 
 import java.io.IOException;
 import java.net.MalformedURLException;
