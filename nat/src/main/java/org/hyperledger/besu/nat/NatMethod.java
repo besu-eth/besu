@@ -31,7 +31,7 @@ public enum NatMethod {
    * Map NatMethod from string value.
    *
    * @param str the Nat Method in String format
-   * @return instance of mapped NatMethod
+   * @return instance of mapped NatMethod, or {@link NatMethod#NONE} if no match is found
    */
   public static NatMethod fromString(final String str) {
     for (final NatMethod mode : NatMethod.values()) {
@@ -39,6 +39,6 @@ public enum NatMethod {
         return mode;
       }
     }
-    return null;
+    return NONE;
   }
 }
