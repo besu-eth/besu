@@ -54,6 +54,45 @@ jobs:
           echo "Matched RC tag: $RC_VERSION"
           echo "rc_version=$RC_VERSION" >> $GITHUB_OUTPUT
 
+      - name: Verify binary artifacts on the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.validate_release_version.outputs.release_version }}
+        run: |
+          # Guards against a draft-release.yml run that didn't finish: if any
+          # of the four expected artifacts are missing, or if a binary's
+          # contents don't match its .sha256 sidecar, fail before docker tags
+          # and Maven artifacts get promoted to point at a broken release.
+          set -euo pipefail
+          expected=(
+            "besu-${RELEASE_VERSION}.tar.gz"
+            "besu-${RELEASE_VERSION}.zip"
+            "besu-${RELEASE_VERSION}.tar.gz.sha256"
+            "besu-${RELEASE_VERSION}.zip.sha256"
+          )
+
+          assets=$(gh release view "$RELEASE_VERSION" --json assets --jq '.assets[].name')
+          missing=()
+          for f in "${expected[@]}"; do
+            if ! grep -qx "$f" <<< "$assets"; then
+              missing+=("$f")
+            fi
+          done
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "::error::Release ${RELEASE_VERSION} is missing expected artifacts:"
+            printf '::error::  - %s\n' "${missing[@]}"
+            echo "::error::draft-release.yml likely did not complete successfully. Re-run it before retrying the publish."
+            exit 1
+          fi
+
+          workdir=$(mktemp -d)
+          cd "$workdir"
+          for f in "${expected[@]}"; do
+            gh release download "$RELEASE_VERSION" --pattern "$f"
+          done
+          sha256sum -c "besu-${RELEASE_VERSION}.tar.gz.sha256"
+          sha256sum -c "besu-${RELEASE_VERSION}.zip.sha256"
+
   docker-promote:
     needs: [validate]
     runs-on: ubuntu-latest
