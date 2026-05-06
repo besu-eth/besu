@@ -258,15 +258,13 @@ public class TomlConfigurationDefaultProvider implements IDefaultValueProvider {
           throw new ParameterException(
               commandLine, "Unable to read TOML configuration, file not found.", e);
         } catch (final IOException e) {
-          throw new ParameterException(
-              commandLine, "Unable to read TOML configuration.", e);
+          throw new ParameterException(commandLine, "Unable to read TOML configuration.", e);
         }
       } else {
         try {
           loadToml(configurationInputStream);
         } catch (final IOException e) {
-          throw new ParameterException(
-              commandLine, "Unable to read TOML configuration.", e);
+          throw new ParameterException(commandLine, "Unable to read TOML configuration.", e);
         }
       }
     }
@@ -278,9 +276,7 @@ public class TomlConfigurationDefaultProvider implements IDefaultValueProvider {
 
     if (result.hasErrors()) {
       final String errors =
-          result.errors().stream()
-              .map(TomlParseError::toString)
-              .collect(Collectors.joining("%n"));
+          result.errors().stream().map(TomlParseError::toString).collect(Collectors.joining("%n"));
 
       throw new ParameterException(
           commandLine, String.format("Invalid TOML configuration: %s", errors));
