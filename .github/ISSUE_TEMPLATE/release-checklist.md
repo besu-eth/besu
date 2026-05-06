@@ -37,7 +37,7 @@ assignees: ''
 - [ ] Manually run https://github.com/besu-eth/besu/actions/workflows/draft-release.yml using `main` branch` and the FULL RELEASE tag name, i.e. `24.4.0`. Note, this workflow should always be run from `main` branch (hotfix tags will still be released even if they were created based on another branch)
     - publishes the binary artefacts as a GitHub draft release; docker tags and Maven artifacts are published later by `publish-release.yml`
 - [ ] Check all draft-release workflow jobs went green
-- [ ] Check binary SHAs are correct on the release page
+- [ ] Verify binary artifacts (.tar.gz, .zip, .sha256) are attached to the draft release — if missing, draft-release.yml did not complete successfully; do not publish until they are present
 - [ ] Review release notes in the GitHub draft release (auto-composed from CHANGELOG at the tag); sign-off with team
 - [ ] IMPORTANT: confirm the tag name is the ONLY text in the "Release title", otherwise it will break the Publish Release workflow https://github.com/besu-eth/besu/actions/workflows/publish-release.yml
 - [ ] Publish draft release ensuring it is marked as latest release (if appropriate)

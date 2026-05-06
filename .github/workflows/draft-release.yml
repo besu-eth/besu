@@ -351,6 +351,7 @@ jobs:
 
           extract_section() {
             awk -v heading="## $1" '
+              { sub(/[[:space:]]+$/, "") }
               $0 == heading { found = 1; next }
               found && /^## / { exit }
               found { print }
