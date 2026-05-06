@@ -236,28 +236,14 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   }
 
   @Override
-  public PayloadIdentifier preparePayload(
-      final BlockHeader parentHeader,
-      final Long timestamp,
-      final Bytes32 prevRandao,
-      final Address feeRecipient,
-      final Optional<List<Withdrawal>> withdrawals,
-      final Optional<Bytes32> parentBeaconBlockRoot,
-      final Optional<Long> slotNumber) {
+  public PayloadIdentifier preparePayload(final PreparePayloadArgs preparePayloadArgs) {
 
     // we assume that preparePayload is always called sequentially, since the RPC Engine calls
     // are sequential, if this assumption changes then more synchronization should be added to
     // shared data structures
 
     final PayloadIdentifier payloadIdentifier =
-        PayloadIdentifier.forPayloadParams(
-            parentHeader.getBlockHash(),
-            timestamp,
-            prevRandao,
-            feeRecipient,
-            withdrawals,
-            parentBeaconBlockRoot,
-            slotNumber);
+        PayloadIdentifier.forPayloadParams(preparePayloadArgs);
 
     if (blockCreationTasks.containsKey(payloadIdentifier)) {
       LOG.debug(
@@ -269,18 +255,20 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     cancelAnyExistingBlockCreationTasks(payloadIdentifier);
 
     final MergeBlockCreator mergeBlockCreator =
-        this.mergeBlockCreatorFactory.forParams(parentHeader, Optional.ofNullable(feeRecipient));
+        this.mergeBlockCreatorFactory.forParams(
+            preparePayloadArgs.parentHeader(),
+            Optional.ofNullable(preparePayloadArgs.feeRecipient()));
 
     // put the empty block in first
     final BlockCreationResult emptyBlockResult =
         mergeBlockCreator.createBlock(
             Optional.of(Collections.emptyList()),
-            prevRandao,
-            timestamp,
-            withdrawals,
-            parentBeaconBlockRoot,
-            slotNumber,
-            parentHeader);
+            preparePayloadArgs.prevRandao(),
+            preparePayloadArgs.timestamp(),
+            preparePayloadArgs.withdrawals(),
+            preparePayloadArgs.parentBeaconBlockRoot(),
+            preparePayloadArgs.slotNumber(),
+            preparePayloadArgs.parentHeader());
     final Block emptyBlock = emptyBlockResult.getBlock();
 
     BlockProcessingResult result =
@@ -309,14 +297,14 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
     // Create the async block building task and store it
     tryToBuildBetterBlock(
-        timestamp,
-        prevRandao,
+        preparePayloadArgs.timestamp(),
+        preparePayloadArgs.prevRandao(),
         payloadIdentifier,
         mergeBlockCreator,
-        withdrawals,
-        parentBeaconBlockRoot,
-        slotNumber,
-        parentHeader);
+        preparePayloadArgs.withdrawals(),
+        preparePayloadArgs.parentBeaconBlockRoot(),
+        preparePayloadArgs.slotNumber(),
+        preparePayloadArgs.parentHeader());
 
     return payloadIdentifier;
   }
@@ -739,6 +727,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
     final Optional<Hash> latestValid = getLatestValidAncestor(newHead);
 
+    // TODO this check should be implicit and already done when newPayload was processed
     Optional<BlockHeader> parentOfNewHead = blockchain.getBlockHeader(newHead.getParentHash());
     if (parentOfNewHead.isPresent()
         && Long.compareUnsigned(newHead.getTimestamp(), parentOfNewHead.get().getTimestamp())
@@ -914,14 +903,14 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   }
 
   @Override
-  public boolean isAncestorOfFinalized(final Hash candidateHeadHash) {
+  public boolean isAncestorOfFinalized(final BlockHeader candidateBlockHeader) {
     final Blockchain blockchain = protocolContext.getBlockchain();
     final Optional<Hash> maybeFinalizedHash = blockchain.getFinalized();
     if (maybeFinalizedHash.isEmpty()) {
       return false;
     }
 
-    if (candidateHeadHash.equals(maybeFinalizedHash.get())) {
+    if (candidateBlockHeader.getHash().equals(maybeFinalizedHash.get())) {
       return false;
     }
 
@@ -932,15 +921,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                 () ->
                     new IllegalStateException(
                         "Finalized block header missing for hash " + maybeFinalizedHash.get()));
-    final BlockHeader candidateHeader =
-        blockchain
-            .getBlockHeader(candidateHeadHash)
-            .orElseThrow(
-                () ->
-                    new IllegalStateException(
-                        "Candidate head block header missing for hash " + candidateHeadHash));
     // candidate is a strict ancestor of finalized iff finalized descends from candidate
-    return isDescendantOf(candidateHeader, finalizedHeader);
+    return isDescendantOf(candidateBlockHeader, finalizedHeader);
   }
 
   @Override

@@ -35,7 +35,7 @@ public class WithdrawalsValidatorProvider {
     return getWithdrawalsValidator(protocolSchedule.getByBlockHeader(blockHeader));
   }
 
-  static WithdrawalsValidator getWithdrawalsValidator(
+  public static WithdrawalsValidator getWithdrawalsValidator(
       final ProtocolSchedule protocolSchedule,
       final BlockHeader parentBlockHeader,
       final long timestampForNextBlock) {

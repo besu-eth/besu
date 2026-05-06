@@ -67,6 +67,13 @@ public class EngineGetPayloadV6 extends AbstractEngineGetPayload {
 
   @Override
   protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    return ForkSupportHelper.validateForkSupported(AMSTERDAM, amsterdamMilestone, blockTimestamp);
+    return amsterdamMilestone
+        .map(
+            milestone ->
+                ForkSupportHelper.validateForkSupported(AMSTERDAM, milestone, blockTimestamp))
+        .orElseGet(
+            () ->
+                ValidationResult.invalid(
+                    RpcErrorType.UNSUPPORTED_FORK, AMSTERDAM.name() + " not configured"));
   }
 }

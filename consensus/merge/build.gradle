@@ -44,6 +44,9 @@ dependencies {
   implementation project(':plugin-api')
   implementation project(':util')
 
+  annotationProcessor "org.immutables:value"
+  implementation "org.immutables:value-annotations"
+
   implementation 'com.fasterxml.jackson.core:jackson-databind'
   implementation 'com.google.guava:guava'
   implementation 'io.vertx:vertx-core'
@@ -57,6 +60,8 @@ dependencies {
   testImplementation project(':metrics:core')
   testImplementation project(path: ':metrics:core', configuration: 'testSupportArtifacts')
   testImplementation project(':testutil')
+
+  jmh project(path: ':ethereum:core', configuration: 'testSupportArtifacts')
 
   testImplementation 'org.assertj:assertj-core'
   testImplementation 'org.junit.jupiter:junit-jupiter'

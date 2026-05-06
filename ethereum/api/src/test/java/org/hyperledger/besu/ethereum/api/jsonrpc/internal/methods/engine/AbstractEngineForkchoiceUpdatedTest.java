@@ -32,6 +32,7 @@ import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
+import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.GWei;
 import org.hyperledger.besu.datatypes.Hash;
@@ -248,23 +249,14 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             null);
     var mockPayloadId =
         PayloadIdentifier.forPayloadParams(
-            mockHeader.getHash(),
-            payloadParams.getTimestamp(),
-            payloadParams.getPrevRandao(),
-            payloadParams.getSuggestedFeeRecipient(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(mockHeader)
+                .timestamp(payloadParams.getTimestamp())
+                .prevRandao(payloadParams.getPrevRandao())
+                .feeRecipient(payloadParams.getSuggestedFeeRecipient())
+                .build());
 
-    when(mergeCoordinator.preparePayload(
-            mockHeader,
-            payloadParams.getTimestamp(),
-            payloadParams.getPrevRandao(),
-            Address.ECREC,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty()))
-        .thenReturn(mockPayloadId);
+    when(mergeCoordinator.preparePayload(any())).thenReturn(mockPayloadId);
 
     var res =
         assertSuccessWithPayloadForForkchoiceResult(
@@ -448,8 +440,7 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
 
     var forkchoiceRes = (EngineUpdateForkchoiceResult) resp.getResult();
 
-    verify(mergeCoordinator, never())
-        .preparePayload(any(), any(), any(), any(), any(), any(), any());
+    verify(mergeCoordinator, never()).preparePayload(any());
 
     assertThat(forkchoiceRes.getPayloadStatus().getStatus()).isEqualTo(VALID);
     assertThat(forkchoiceRes.getPayloadStatus().getError()).isNull();
@@ -532,23 +523,14 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
 
     var mockPayloadId =
         PayloadIdentifier.forPayloadParams(
-            mockHeader.getHash(),
-            payloadParams.getTimestamp(),
-            payloadParams.getPrevRandao(),
-            payloadParams.getSuggestedFeeRecipient(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(mockHeader)
+                .timestamp(payloadParams.getTimestamp())
+                .prevRandao(payloadParams.getPrevRandao())
+                .feeRecipient(payloadParams.getSuggestedFeeRecipient())
+                .build());
 
-    when(mergeCoordinator.preparePayload(
-            mockHeader,
-            payloadParams.getTimestamp(),
-            payloadParams.getPrevRandao(),
-            Address.ECREC,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty()))
-        .thenReturn(mockPayloadId);
+    when(mergeCoordinator.preparePayload(any())).thenReturn(mockPayloadId);
 
     assertSuccessWithPayloadForForkchoiceResult(
         new EngineForkchoiceUpdatedParameter(mockHeader.getHash(), Hash.ZERO, mockParent.getHash()),
@@ -622,23 +604,15 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
 
     var mockPayloadId =
         PayloadIdentifier.forPayloadParams(
-            mockHeader.getHash(),
-            payloadParams.getTimestamp(),
-            payloadParams.getPrevRandao(),
-            payloadParams.getSuggestedFeeRecipient(),
-            withdrawals,
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(mockHeader)
+                .timestamp(payloadParams.getTimestamp())
+                .prevRandao(payloadParams.getPrevRandao())
+                .feeRecipient(payloadParams.getSuggestedFeeRecipient())
+                .withdrawals(withdrawals)
+                .build());
 
-    when(mergeCoordinator.preparePayload(
-            mockHeader,
-            payloadParams.getTimestamp(),
-            payloadParams.getPrevRandao(),
-            Address.ECREC,
-            withdrawals,
-            Optional.empty(),
-            Optional.empty()))
-        .thenReturn(mockPayloadId);
+    when(mergeCoordinator.preparePayload(any())).thenReturn(mockPayloadId);
 
     assertSuccessWithPayloadForForkchoiceResult(
         new EngineForkchoiceUpdatedParameter(mockHeader.getHash(), Hash.ZERO, mockParent.getHash()),
@@ -668,23 +642,14 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
 
     var mockPayloadId =
         PayloadIdentifier.forPayloadParams(
-            mockHeader.getHash(),
-            payloadParams.getTimestamp(),
-            payloadParams.getPrevRandao(),
-            payloadParams.getSuggestedFeeRecipient(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(mockHeader)
+                .timestamp(payloadParams.getTimestamp())
+                .prevRandao(payloadParams.getPrevRandao())
+                .feeRecipient(payloadParams.getSuggestedFeeRecipient())
+                .build());
 
-    when(mergeCoordinator.preparePayload(
-            mockHeader,
-            payloadParams.getTimestamp(),
-            payloadParams.getPrevRandao(),
-            Address.ECREC,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty()))
-        .thenReturn(mockPayloadId);
+    when(mergeCoordinator.preparePayload(any())).thenReturn(mockPayloadId);
 
     assertSuccessWithPayloadForForkchoiceResult(
         new EngineForkchoiceUpdatedParameter(mockHeader.getHash(), Hash.ZERO, mockParent.getHash()),

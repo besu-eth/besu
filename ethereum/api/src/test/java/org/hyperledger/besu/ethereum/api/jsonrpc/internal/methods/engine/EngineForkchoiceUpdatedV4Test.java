@@ -111,7 +111,7 @@ public class EngineForkchoiceUpdatedV4Test {
         blockHeaderBuilder.number(50L).timestamp(AMSTERDAM_MILESTONE + 1).buildHeader();
     setupValidForkchoiceState(head, finalized);
     when(mergeCoordinator.computeReorgDepth(head)).thenReturn(OptionalLong.of(0L));
-    when(mergeCoordinator.isAncestorOfFinalized(head.getHash())).thenReturn(true);
+    when(mergeCoordinator.isAncestorOfFinalized(head)).thenReturn(true);
 
     final EngineForkchoiceUpdatedParameter param =
         new EngineForkchoiceUpdatedParameter(
@@ -141,7 +141,7 @@ public class EngineForkchoiceUpdatedV4Test {
 
     setupValidForkchoiceState(head, finalized);
     when(mergeCoordinator.computeReorgDepth(head)).thenReturn(OptionalLong.of(0L));
-    when(mergeCoordinator.isAncestorOfFinalized(head.getHash())).thenReturn(false);
+    when(mergeCoordinator.isAncestorOfFinalized(head)).thenReturn(false);
     when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(
             head, finalized.getHash(), finalized.getHash()))
         .thenReturn(ForkchoiceResult.withResult(Optional.of(finalized), Optional.of(head)));
@@ -166,7 +166,7 @@ public class EngineForkchoiceUpdatedV4Test {
     when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), Hash.ZERO))
         .thenReturn(Optional.of(head));
     when(mergeCoordinator.computeReorgDepth(head)).thenReturn(OptionalLong.of(0L));
-    when(mergeCoordinator.isAncestorOfFinalized(head.getHash())).thenReturn(false);
+    when(mergeCoordinator.isAncestorOfFinalized(head)).thenReturn(false);
     when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(head, Hash.ZERO, Hash.ZERO))
         .thenReturn(ForkchoiceResult.withResult(Optional.empty(), Optional.of(head)));
 
