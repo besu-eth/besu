@@ -142,8 +142,8 @@ dependencies {
 
     api 'org.awaitility:awaitility:4.3.0'
 
-    api 'org.bouncycastle:bcpkix-jdk18on:1.83'
-    api 'org.bouncycastle:bcprov-jdk18on:1.83'
+    api 'org.bouncycastle:bcpkix-jdk18on:1.84'
+    api 'org.bouncycastle:bcprov-jdk18on:1.84'
 
     api 'org.fusesource.jansi:jansi:2.4.2'
 
@@ -189,8 +189,6 @@ dependencies {
 
     api 'io.consensys.protocols:discovery:26.3.0'
 
-    api 'org.bouncycastle:bcpkix-jdk18on:1.84'
-    api 'org.bouncycastle:bcprov-jdk18on:1.84'
     api 'org.codehaus.plexus:plexus-utils:4.0.3'
   }
 }
