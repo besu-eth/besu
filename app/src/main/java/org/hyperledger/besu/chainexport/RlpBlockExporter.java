@@ -67,33 +67,33 @@ public class RlpBlockExporter {
 
     // Append to file if a range is specified
     final boolean append = maybeStartBlock.isPresent();
-    FileOutputStream outputStream = new FileOutputStream(outputFile, append);
-
-    LOG.info(
-        "Exporting blocks [{},{}) to file {} (appending: {})",
-        startBlock,
-        endBlock,
-        outputFile.toString(),
-        Boolean.toString(append));
-
     long blockNumber = 0L;
-    for (long i = startBlock; i < endBlock; i++) {
-      Optional<Block> maybeBlock = blockchain.getBlockByNumber(i);
-      if (maybeBlock.isEmpty()) {
-        LOG.warn("Unable to export blocks [{} - {}).  Blocks not found.", i, endBlock);
-        break;
-      }
 
-      final Block block = maybeBlock.get();
-      blockNumber = block.getHeader().getNumber();
-      if (blockNumber % 100 == 0) {
-        LOG.info("Export at block {}", blockNumber);
-      }
+    try (FileOutputStream outputStream = new FileOutputStream(outputFile, append)) {
+      LOG.info(
+          "Exporting blocks [{},{}) to file {} (appending: {})",
+          startBlock,
+          endBlock,
+          outputFile.toString(),
+          Boolean.toString(append));
 
-      exportBlock(outputStream, block);
+      for (long i = startBlock; i < endBlock; i++) {
+        Optional<Block> maybeBlock = blockchain.getBlockByNumber(i);
+        if (maybeBlock.isEmpty()) {
+          LOG.warn("Unable to export blocks [{} - {}).  Blocks not found.", i, endBlock);
+          break;
+        }
+
+        final Block block = maybeBlock.get();
+        blockNumber = block.getHeader().getNumber();
+        if (blockNumber % 100 == 0) {
+          LOG.info("Export at block {}", blockNumber);
+        }
+
+        exportBlock(outputStream, block);
+      }
     }
 
-    outputStream.close();
     LOG.info("Export complete at block {}", blockNumber);
   }
 

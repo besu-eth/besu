@@ -1148,23 +1148,36 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private static boolean isGroupMember(final String userName, final GroupPrincipal group)
       throws IOException {
     // Get the groups of the user by executing 'id -Gn username'
-    Process process = Runtime.getRuntime().exec(new String[] {"id", "-Gn", userName});
-    BufferedReader reader =
-        new BufferedReader(new InputStreamReader(process.getInputStream(), UTF_8));
-
-    // Read the output of the command
-    String line = reader.readLine();
+    Process process = null;
     boolean isMember = false;
-    if (line != null) {
-      // Split the groups
-      Iterable<String> userGroups = Splitter.on(" ").split(line);
-      // Check if any of the user's groups match the file's group
+    try {
+      process = Runtime.getRuntime().exec(new String[] {"id", "-Gn", userName});
+      try (BufferedReader reader =
+          new BufferedReader(new InputStreamReader(process.getInputStream(), UTF_8))) {
 
-      for (String grp : userGroups) {
-        if (grp.equals(group.getName())) {
-          isMember = true;
-          break;
+        // Read the output of the command
+        String line = reader.readLine();
+        if (line != null) {
+          // Split the groups
+          Iterable<String> userGroups = Splitter.on(" ").split(line);
+          // Check if any of the user's groups match the file's group
+
+          for (String grp : userGroups) {
+            if (grp.equals(group.getName())) {
+              isMember = true;
+              break;
+            }
+          }
         }
+      }
+    } finally {
+      if (process != null) {
+        try {
+          process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+        process.destroy();
       }
     }
     return isMember;
