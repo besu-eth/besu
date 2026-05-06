@@ -108,13 +108,26 @@ public class BftExecutors {
   /**
    * Await stop.
    *
+   * <p>Tolerates the IDLE state, i.e. {@link #start()} was never called. This happens on a chain
+   * that is configured with QBFT/IBFT in the genesis but is post-merge from block 0
+   * (terminalTotalDifficulty=0): the BftMiningCoordinator is wrapped in a TransitionCoordinator
+   * that never delegates to the BFT side, so the executors are never created. Without this guard,
+   * shutting such a node down NPEs on {@code timerExecutor} / {@code bftProcessorExecutor}, which
+   * in turn poisons the BesuPluginContext lifecycle for any subsequent in-JVM restart (acceptance
+   * tests reusing ports/temp dirs).
+   *
    * @throws InterruptedException the interrupted exception
    */
   public void awaitStop() throws InterruptedException {
-    if (!timerExecutor.awaitTermination(shutdownTimeout.toSeconds(), TimeUnit.SECONDS)) {
+    final ScheduledExecutorService localTimerExecutor = timerExecutor;
+    final ExecutorService localBftProcessorExecutor = bftProcessorExecutor;
+    if (localTimerExecutor != null
+        && !localTimerExecutor.awaitTermination(shutdownTimeout.toSeconds(), TimeUnit.SECONDS)) {
       LOG.error("{} timer executor did not shutdown cleanly.", getClass().getSimpleName());
     }
-    if (!bftProcessorExecutor.awaitTermination(shutdownTimeout.toSeconds(), TimeUnit.SECONDS)) {
+    if (localBftProcessorExecutor != null
+        && !localBftProcessorExecutor.awaitTermination(
+            shutdownTimeout.toSeconds(), TimeUnit.SECONDS)) {
       LOG.error("{} bftProcessor executor did not shutdown cleanly.", getClass().getSimpleName());
     }
   }
