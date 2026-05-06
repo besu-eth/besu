@@ -226,12 +226,10 @@ public class NodeRecordManager {
   }
 
   public void updateAdvertisedIpv6Host(final String newHost) {
+    // ipv6Endpoint should already be set
     ipv6Endpoint =
-        Optional.of(
-            ipv6Endpoint
-                .map(ep -> new HostEndpoint(newHost, ep.discoveryPort(), ep.tcpPort()))
-                .orElseGet(() -> new HostEndpoint(newHost, 0, 0)));
-    updateNodeRecord();
+        ipv6Endpoint.map(ep -> new HostEndpoint(newHost, ep.discoveryPort(), ep.tcpPort()));
+    ipv6Endpoint.ifPresent((ignored) -> updateNodeRecord());
   }
 
   /**

@@ -294,7 +294,9 @@ class NodeRecordManagerTest {
 
   @Test
   public void testUpdateAdvertisedIpV6Host() {
-    manager.initializeLocalNode(new HostEndpoint("127.0.0.1", 0, 30303), Optional.empty());
+    manager.initializeLocalNode(
+        new HostEndpoint("127.0.0.1", 12345, 30303),
+        Optional.of(new HostEndpoint("::1", 6789, 30404)));
     manager.updateAdvertisedIpv6Host("::2");
 
     NodeRecord record = getNodeRecord();
@@ -303,8 +305,8 @@ class NodeRecordManagerTest {
     assertThat(ipv6.size()).isEqualTo(16);
     // ::2 is 15 zero bytes followed by 0x10
     assertThat(ipv6.get(15)).isEqualTo((byte) 2);
-    assertThat(record.get(EnrField.UDP_V6)).isEqualTo(0);
-    assertThat(record.get(EnrField.TCP_V6)).isEqualTo(0);
+    assertThat(record.get(EnrField.UDP_V6)).isEqualTo(6789);
+    assertThat(record.get(EnrField.TCP_V6)).isEqualTo(30404);
   }
 
   private NodeRecord getNodeRecord() {
