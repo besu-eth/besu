@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking Changes
+- Experimental Bonsai Archive column families have changed removing freezer column families. If you are using the Bonsai archive you will need to do a full resync [#10339](https://github.com/besu-eth/besu/pull/10339)
 
 ### Upcoming Breaking Changes
 
