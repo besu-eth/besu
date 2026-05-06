@@ -35,4 +35,18 @@ public interface BlockHashLookup extends BiFunction<MessageFrame, Long, Hash> {
   default long getLookback() {
     return 256L;
   }
+
+  /**
+   * Lookup to use for one parallel worker (e.g. parallel transaction execution). Each worker must
+   * hold an instance that does not share mutable traversal state with other workers.
+   *
+   * @return a {@link BlockHashLookup} safe to use from a single parallel worker thread
+   * @throws UnsupportedOperationException if this lookup does not support parallel forking
+   */
+  default BlockHashLookup forkForParallelWorker() {
+    throw new UnsupportedOperationException(
+        "This BlockHashLookup does not support parallel execution; "
+            + "override forkForParallelWorker() with a per-worker instance when used for parallel "
+            + "transaction processing.");
+  }
 }
