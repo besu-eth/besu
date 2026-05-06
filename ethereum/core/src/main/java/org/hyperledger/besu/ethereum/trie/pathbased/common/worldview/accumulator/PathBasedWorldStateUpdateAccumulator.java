@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldView;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.StateMetricsCollector;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.AccountConsumingMap;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.Consumer;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.StorageConsumingMap;
@@ -305,6 +306,12 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
           final PathBasedWorldStateUpdateAccumulator<ACCOUNT> worldStateUpdateAccumulator =
               (PathBasedWorldStateUpdateAccumulator<ACCOUNT>) wrappedWorldView();
           account = worldStateUpdateAccumulator.loadAccount(address, accountFunction);
+        } else if (metricsEnabled()) {
+          getStateMetricsCollector().incrementAccountCacheMisses();
+          final long startNanos = System.nanoTime();
+          account = wrappedWorldView().get(address);
+          getStateMetricsCollector().addStateReadTime(System.nanoTime() - startNanos);
+          getStateMetricsCollector().incrementAccountReads();
         } else {
           account = wrappedWorldView().get(address);
         }
@@ -319,6 +326,9 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
           return null;
         }
       } else {
+        if (metricsEnabled()) {
+          getStateMetricsCollector().incrementAccountCacheHits();
+        }
         return accountFunction.apply(pathBasedValue);
       }
     } catch (MerkleTrieException e) {
@@ -400,13 +410,17 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
                   }
                 });
       }
+      if (metricsEnabled()) {
+        getStateMetricsCollector().incrementAccountDestructs();
+        getStateMetricsCollector().addStorageDeletes(deletedStorageUpdates.size());
+      }
       if (deletedStorageUpdates.isEmpty()) {
         storageToUpdate.remove(deletedAddress);
       }
       accountValue.setUpdated(null);
     }
 
-    getUpdatedAccounts().parallelStream()
+    getUpdatedAccounts().stream()
         .forEach(
             tracked -> {
               final Address updatedAddress = tracked.getAddress();
@@ -463,10 +477,12 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
 
               if (tracked.getStorageWasCleared()) {
                 storageToClear.add(updatedAddress);
+                if (metricsEnabled() && !pendingStorageUpdates.isEmpty()) {
+                  getStateMetricsCollector().addStorageDeletes(pendingStorageUpdates.size());
+                }
                 pendingStorageUpdates.clear();
               }
 
-              // parallel stream here may cause database corruption
               updatedAccount
                   .getUpdatedStorage()
                   .entrySet()
@@ -534,14 +550,29 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     if (localAccountStorage != null) {
       final PathBasedValue<UInt256> value = localAccountStorage.get(storageSlotKey);
       if (value != null) {
+        if (metricsEnabled()) {
+          getStateMetricsCollector().incrementStorageCacheHits();
+        }
         return Optional.ofNullable(value.getUpdated());
       }
     }
     try {
-      final Optional<UInt256> valueUInt =
-          (wrappedWorldView() instanceof PathBasedWorldState worldState)
-              ? worldState.getStorageValueByStorageSlotKey(address, storageSlotKey)
-              : wrappedWorldView().getStorageValueByStorageSlotKey(address, storageSlotKey);
+      final Optional<UInt256> valueUInt;
+      if (metricsEnabled()) {
+        getStateMetricsCollector().incrementStorageCacheMisses();
+        final long startNanos = System.nanoTime();
+        valueUInt =
+            (wrappedWorldView() instanceof PathBasedWorldState worldState)
+                ? worldState.getStorageValueByStorageSlotKey(address, storageSlotKey)
+                : wrappedWorldView().getStorageValueByStorageSlotKey(address, storageSlotKey);
+        getStateMetricsCollector().addStateReadTime(System.nanoTime() - startNanos);
+        getStateMetricsCollector().incrementStorageReads();
+      } else {
+        valueUInt =
+            (wrappedWorldView() instanceof PathBasedWorldState worldState)
+                ? worldState.getStorageValueByStorageSlotKey(address, storageSlotKey)
+                : wrappedWorldView().getStorageValueByStorageSlotKey(address, storageSlotKey);
+      }
       storageToUpdate
           .computeIfAbsent(
               address,
@@ -615,6 +646,35 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     getDeletedAccounts().clear();
   }
 
+  /**
+   * Counts unique accounts and storage slots written during block execution and records them in the
+   * provided metrics collector.
+   *
+   * <p>Called once per block just before {@code worldState.persist()} so that each modified slot
+   * and account is counted exactly once, regardless of how many transactions wrote to it. Counting
+   * here rather than in {@link #commit()} avoids the N-times overcounting that would otherwise
+   * occur when the same slot is updated across multiple transactions.
+   *
+   * @param collector the metrics collector to record into
+   */
+  public void collectFinalWriteMetrics(final StateMetricsCollector collector) {
+    if (collector == StateMetricsCollector.NOOP) {
+      return;
+    }
+    // Count unique accounts that were written (updated value is non-null = not just deleted)
+    final int accountWrites =
+        (int) accountsToUpdate.values().stream().filter(v -> v.getUpdated() != null).count();
+    collector.setAccountWrites(accountWrites);
+
+    // Count unique storage slots that were written across all accounts
+    final int storageWrites =
+        storageToUpdate.values().stream()
+            .mapToInt(
+                slots -> (int) slots.values().stream().filter(v -> v.getUpdated() != null).count())
+            .sum();
+    collector.setStorageWrites(storageWrites);
+  }
+
   @Override
   public boolean isModifyingHeadWorldState() {
     return true;
@@ -623,6 +683,15 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
   @Override
   public PathBasedWorldStateKeyValueStorage getWorldStateStorage() {
     return wrappedWorldView().getWorldStateStorage();
+  }
+
+  @Override
+  public StateMetricsCollector getStateMetricsCollector() {
+    return wrappedWorldView().getStateMetricsCollector();
+  }
+
+  private boolean metricsEnabled() {
+    return getStateMetricsCollector() != StateMetricsCollector.NOOP;
   }
 
   public void rollForward(final TrieLog layer) {

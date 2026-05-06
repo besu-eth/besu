@@ -156,6 +156,22 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
   }
 
   /**
+   * Creates a SlowBlockTracer wrapping the given delegate if slow block logging is enabled.
+   *
+   * @param protocolContext the protocol context
+   * @param delegate the block import tracer to wrap
+   * @return an Optional containing the SlowBlockTracer if enabled, empty otherwise
+   */
+  private Optional<SlowBlockTracer> getSlowBlockTracer(
+      final ProtocolContext protocolContext, final BlockAwareOperationTracer delegate) {
+    final long slowBlockThresholdMs = protocolContext.getSlowBlockThresholdMs();
+    if (slowBlockThresholdMs >= 0) {
+      return Optional.of(new SlowBlockTracer(slowBlockThresholdMs, delegate));
+    }
+    return Optional.empty();
+  }
+
+  /**
    * Processes the block with no privateMetadata and no preprocessor.
    *
    * @param protocolContext the current context of the protocol
@@ -230,13 +246,21 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     final BlockHashLookup blockHashLookup =
         protocolSpec.getPreExecutionProcessor().createBlockHashLookup(blockchain, blockHeader);
 
-    final BlockAwareOperationTracer blockTracer =
+    final BlockAwareOperationTracer blockImportTracer =
         getBlockImportTracer(protocolContext, blockHeader);
+    // SlowBlockTracer wraps blockImportTracer as a decorator when slow block logging is enabled
+    final BlockAwareOperationTracer operationTracer =
+        getSlowBlockTracer(protocolContext, blockImportTracer)
+            .<BlockAwareOperationTracer>map(sbt -> sbt)
+            .orElse(blockImportTracer);
 
     final Address miningBeneficiary = miningBeneficiaryCalculator.calculateBeneficiary(blockHeader);
 
-    LOG.trace("traceStartBlock for {}", blockHeader.getNumber());
-    blockTracer.traceStartBlock(worldState, blockHeader, miningBeneficiary);
+    LOG.trace(
+        "traceStartBlock for {} using tracer {}",
+        blockHeader.getNumber(),
+        operationTracer.getClass().getSimpleName());
+    operationTracer.traceStartBlock(worldState, blockHeader, miningBeneficiary);
 
     final StateRootCommitter stateRootCommitter =
         protocolSpec
@@ -259,7 +283,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
               worldState,
               protocolSpec,
               blockHashLookup,
-              blockTracer,
+              operationTracer,
               blockAccessListBuilder);
       protocolSpec
           .getPreExecutionProcessor()
@@ -288,6 +312,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
               blobGasPrice,
               blockAccessListBuilder,
               blockAccessList,
+              blockProcessingContext,
               maybeParentHeader);
 
       boolean parallelizedTxFound = false;
@@ -402,6 +427,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                 worldState,
                 cumulativeReceiptGasUsed);
         receipts.add(transactionReceipt);
+
         if (!parallelizedTxFound
             && transactionProcessingResult.getIsProcessedInParallel().isPresent()) {
           parallelizedTxFound = true;
@@ -410,6 +436,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           nbParallelTx++;
         }
       }
+
       final var optionalHeaderBlobGasUsed = blockHeader.getBlobGasUsed();
       if (optionalHeaderBlobGasUsed.isPresent()) {
         final long headerBlobGasUsed = optionalHeaderBlobGasUsed.get();
@@ -541,9 +568,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         return new BlockProcessingResult(Optional.empty(), e);
       }
 
-      LOG.trace("traceEndBlock for {}", blockHeader.getNumber());
-      blockTracer.traceEndBlock(blockHeader, blockBody);
-
+      // Persist before traceEndBlock so that state root calculation (trie cache lookups,
+      // state_hash_ms timing) occurs while ExecutionStatsHolder is still set on this thread.
       try {
         worldState.persist(blockHeader, stateRootCommitter);
       } catch (MerkleTrieException e) {
@@ -565,6 +591,9 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         LOG.error("failed persisting block", e);
         return new BlockProcessingResult(Optional.empty(), e);
       }
+
+      LOG.trace("traceEndBlock for {}", blockHeader.getNumber());
+      operationTracer.traceEndBlock(blockHeader, blockBody);
 
       // EIP-8037: gas_metered = max(cumulative_regular, cumulative_state)
       final long gasMetered = Math.max(cumulativeRegularGasUsed, cumulativeStateGasUsed);
@@ -674,6 +703,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         final Wei blobGasPrice,
         final Optional<BlockAccessListBuilder> blockAccessListBuilder,
         final Optional<BlockAccessList> maybeBlockBal,
+        final BlockProcessingContext blockProcessingContext,
         final Optional<BlockHeader> maybeParentHeader);
 
     class NoPreprocessing implements PreprocessingFunction {
@@ -688,6 +718,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           final Wei blobGasPrice,
           final Optional<BlockAccessListBuilder> blockAccessListBuilder,
           final Optional<BlockAccessList> maybeBlockBal,
+          final BlockProcessingContext blockProcessingContext,
           final Optional<BlockHeader> maybeParentHeader) {
         return Optional.empty();
       }

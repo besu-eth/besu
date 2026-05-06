@@ -20,7 +20,9 @@ import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.AbstractBlockProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.CompositeOperationTracer;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.tracing.EVMExecutionMetricsTracer;
 import org.hyperledger.besu.evm.tracing.EthTransferLogOperationTracer;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -40,6 +42,7 @@ public class BlockStateCallSimulationResult {
       new ArrayList<>();
   private long cumulativeGasUsed = 0;
   private Optional<BlockAccessList> blockAccessList = Optional.empty();
+  private Optional<EVMExecutionMetricsTracer> executionMetricsTracer = Optional.empty();
   private final AbstractBlockProcessor.TransactionReceiptFactory transactionReceiptFactory;
   private final long blockGasLimit;
   private long blobCount = 0;
@@ -90,9 +93,9 @@ public class BlockStateCallSimulationResult {
             result.transaction().getType(), result.result(), worldState, cumulativeGasUsed);
 
     List<Log> logs =
-        (operationTracer instanceof EthTransferLogOperationTracer)
-            ? ((EthTransferLogOperationTracer) operationTracer).getLogs()
-            : transactionReceipt.getLogsList();
+        CompositeOperationTracer.findTracer(operationTracer, EthTransferLogOperationTracer.class)
+            .map(EthTransferLogOperationTracer::getLogs)
+            .orElseGet(transactionReceipt::getLogsList);
 
     transactionSimulatorResults.add(
         new TransactionSimulatorResultWithMetadata(
@@ -127,6 +130,14 @@ public class BlockStateCallSimulationResult {
 
   public Optional<BlockAccessList> getBlockAccessList() {
     return blockAccessList;
+  }
+
+  public void setEVMExecutionMetricsTracer(final EVMExecutionMetricsTracer executionMetricsTracer) {
+    this.executionMetricsTracer = Optional.ofNullable(executionMetricsTracer);
+  }
+
+  public Optional<EVMExecutionMetricsTracer> getEVMExecutionMetricsTracer() {
+    return executionMetricsTracer;
   }
 
   /** Represents a single block call simulation result with metadata. */

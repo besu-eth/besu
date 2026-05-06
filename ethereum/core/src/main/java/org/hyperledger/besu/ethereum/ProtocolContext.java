@@ -32,6 +32,7 @@ public class ProtocolContext {
   private final ConsensusContext consensusContext;
   private final BadBlockManager badBlockManager;
   private final ServiceManager serviceManager;
+  private final long slowBlockThresholdMs;
 
   /**
    * Constructs a new ProtocolContext with the given blockchain, world state archive, consensus
@@ -42,18 +43,21 @@ public class ProtocolContext {
    * @param consensusContext the consensus context
    * @param badBlockManager the bad block manager of the protocol context
    * @param serviceManager plugin service manager
+   * @param slowBlockThresholdMs threshold in ms for slow block logging (-1 = disabled)
    */
   protected ProtocolContext(
       final MutableBlockchain blockchain,
       final WorldStateArchive worldStateArchive,
       final ConsensusContext consensusContext,
       final BadBlockManager badBlockManager,
-      final ServiceManager serviceManager) {
+      final ServiceManager serviceManager,
+      final long slowBlockThresholdMs) {
     this.blockchain = blockchain;
     this.worldStateArchive = worldStateArchive;
     this.consensusContext = consensusContext;
     this.badBlockManager = badBlockManager;
     this.serviceManager = serviceManager;
+    this.slowBlockThresholdMs = slowBlockThresholdMs;
   }
 
   /**
@@ -90,6 +94,16 @@ public class ProtocolContext {
    */
   public ServiceManager getPluginServiceManager() {
     return serviceManager;
+  }
+
+  /**
+   * Gets the slow block threshold in milliseconds. Negative means disabled, 0 means log all blocks,
+   * positive means only log blocks exceeding this threshold.
+   *
+   * @return the slow block threshold in milliseconds
+   */
+  public long getSlowBlockThresholdMs() {
+    return slowBlockThresholdMs;
   }
 
   /**
@@ -152,6 +166,7 @@ public class ProtocolContext {
     private ConsensusContext consensusContext;
     private BadBlockManager badBlockManager = new BadBlockManager();
     private ServiceManager serviceManager = new ServiceManager.SimpleServiceManager();
+    private long slowBlockThresholdMs = -1L;
 
     /** Default constructor. linter requires javadoc. */
     public Builder() {}
@@ -212,13 +227,30 @@ public class ProtocolContext {
     }
 
     /**
+     * Sets the slow block threshold in milliseconds for the {@link ProtocolContext}. Negative means
+     * disabled, 0 means log all blocks, positive means only log blocks exceeding this threshold.
+     *
+     * @param slowBlockThresholdMs the threshold in milliseconds.
+     * @return the builder instance for chaining.
+     */
+    public Builder withSlowBlockThreshold(final long slowBlockThresholdMs) {
+      this.slowBlockThresholdMs = slowBlockThresholdMs;
+      return this;
+    }
+
+    /**
      * Constructs a new {@link ProtocolContext} using the currently configured properties.
      *
      * @return a new {@link ProtocolContext} instance with the specified properties.
      */
     public ProtocolContext build() {
       return new ProtocolContext(
-          blockchain, worldStateArchive, consensusContext, badBlockManager, serviceManager);
+          blockchain,
+          worldStateArchive,
+          consensusContext,
+          badBlockManager,
+          serviceManager,
+          slowBlockThresholdMs);
     }
   }
 }

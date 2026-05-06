@@ -35,15 +35,22 @@ public class MigratingProtocolContext extends ProtocolContext {
    * @param migratingConsensusContext the consensus context
    * @param badBlockManager the cache to use to keep invalid blocks
    * @param serviceManager the plugin service manager
+   * @param slowBlockThresholdMs threshold in ms for slow block logging (-1 = disabled)
    */
   public MigratingProtocolContext(
       final MutableBlockchain blockchain,
       final WorldStateArchive worldStateArchive,
       final MigratingConsensusContext migratingConsensusContext,
       final BadBlockManager badBlockManager,
-      final ServiceManager serviceManager) {
+      final ServiceManager serviceManager,
+      final long slowBlockThresholdMs) {
     super(
-        blockchain, worldStateArchive, migratingConsensusContext, badBlockManager, serviceManager);
+        blockchain,
+        worldStateArchive,
+        migratingConsensusContext,
+        badBlockManager,
+        serviceManager,
+        slowBlockThresholdMs);
     this.consensusContextSchedule = migratingConsensusContext.getConsensusContextSchedule();
   }
 

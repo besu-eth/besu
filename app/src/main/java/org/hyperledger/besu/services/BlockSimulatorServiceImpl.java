@@ -46,6 +46,7 @@ public class BlockSimulatorServiceImpl implements BlockSimulationService {
   private final BlockSimulator blockSimulator;
   private final WorldStateArchive worldStateArchive;
   private final Blockchain blockchain;
+  private final boolean collectExecutionMetrics;
 
   // Dummy signature for transactions to not fail being processed.
   private final SECPSignature fakeSignature;
@@ -58,14 +59,18 @@ public class BlockSimulatorServiceImpl implements BlockSimulationService {
    * @param transactionSimulator the transaction simulator
    * @param protocolSchedule the protocol schedule
    * @param blockchain the blockchain
+   * @param slowBlockThresholdMs the slow block threshold in milliseconds; non-negative enables
+   *     execution metrics collection
    */
   public BlockSimulatorServiceImpl(
       final WorldStateArchive worldStateArchive,
       final MiningConfiguration miningConfiguration,
       final TransactionSimulator transactionSimulator,
       final ProtocolSchedule protocolSchedule,
-      final Blockchain blockchain) {
+      final Blockchain blockchain,
+      final long slowBlockThresholdMs) {
     this.blockchain = blockchain;
+    this.collectExecutionMetrics = slowBlockThresholdMs >= 0;
     final SignatureAlgorithm signatureAlgorithm = SignatureAlgorithmFactory.getInstance();
     this.fakeSignature =
         signatureAlgorithm.createSignature(
@@ -173,6 +178,7 @@ public class BlockSimulatorServiceImpl implements BlockSimulationService {
               .blockStateCalls(List.of(blockStateCall))
               .validation(true)
               .fakeSignature(fakeSignature)
+              .collectExecutionMetrics(collectExecutionMetrics)
               .build();
 
       List<BlockSimulationResult> results =

@@ -19,6 +19,8 @@ import static org.hyperledger.besu.metrics.BesuMetricCategory.BLOCKCHAIN;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
+import org.hyperledger.besu.ethereum.mainnet.ExecutionStats;
+import org.hyperledger.besu.ethereum.mainnet.ExecutionStatsHolder;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -140,8 +142,22 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
     if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
     } else {
-      return Optional.ofNullable(accountNodes.getIfPresent(nodeHash))
-          .or(() -> worldStateKeyValueStorage.getAccountStateTrieNode(location, nodeHash));
+      final Bytes cachedNode = accountNodes.getIfPresent(nodeHash);
+      if (cachedNode != null) {
+        // Track account cache hit for cross-client execution metrics
+        final ExecutionStats stats = ExecutionStatsHolder.get();
+        if (stats != null) {
+          stats.incrementAccountCacheHits();
+        }
+        return Optional.of(cachedNode);
+      } else {
+        // Track account cache miss for cross-client execution metrics
+        final ExecutionStats stats = ExecutionStatsHolder.get();
+        if (stats != null) {
+          stats.incrementAccountCacheMisses();
+        }
+        return worldStateKeyValueStorage.getAccountStateTrieNode(location, nodeHash);
+      }
     }
   }
 
@@ -153,11 +169,22 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
     if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
     } else {
-      return Optional.ofNullable(storageNodes.getIfPresent(nodeHash))
-          .or(
-              () ->
-                  worldStateKeyValueStorage.getAccountStorageTrieNode(
-                      accountHash, location, nodeHash));
+      final Bytes cachedNode = storageNodes.getIfPresent(nodeHash);
+      if (cachedNode != null) {
+        // Track storage cache hit for cross-client execution metrics
+        final ExecutionStats stats = ExecutionStatsHolder.get();
+        if (stats != null) {
+          stats.incrementStorageCacheHits();
+        }
+        return Optional.of(cachedNode);
+      } else {
+        // Track storage cache miss for cross-client execution metrics
+        final ExecutionStats stats = ExecutionStatsHolder.get();
+        if (stats != null) {
+          stats.incrementStorageCacheMisses();
+        }
+        return worldStateKeyValueStorage.getAccountStorageTrieNode(accountHash, location, nodeHash);
+      }
     }
   }
 }

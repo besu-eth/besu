@@ -51,6 +51,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.B
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFactory;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.CompositeOperationTracer;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
@@ -61,6 +62,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWo
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.tracing.EVMExecutionMetricsTracer;
 import org.hyperledger.besu.evm.tracing.EthTransferLogOperationTracer;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -204,6 +206,7 @@ public class BlockSimulator {
               simulationParameter.isValidation(),
               simulationParameter.isTraceTransfers(),
               simulationParameter.isReturnTrieLog(),
+              simulationParameter.isCollectExecutionMetrics(),
               simulationParameter::getFakeSignature,
               blockHashCache,
               simulationCumulativeGasUsed,
@@ -233,6 +236,7 @@ public class BlockSimulator {
       final boolean shouldValidate,
       final boolean isTraceTransfers,
       final boolean returnTrieLog,
+      final boolean collectExecutionMetrics,
       final Supplier<SECPSignature> signatureSupplier,
       final Map<Long, Hash> blockHashCache,
       final long simulationCumulativeGasUsed,
@@ -312,6 +316,7 @@ public class BlockSimulator {
             protocolSpec,
             shouldValidate,
             isTraceTransfers,
+            collectExecutionMetrics,
             transactionProcessor,
             blockHashLookup,
             signatureSupplier,
@@ -378,6 +383,7 @@ public class BlockSimulator {
       final ProtocolSpec protocolSpec,
       final boolean shouldValidate,
       final boolean isTraceTransfers,
+      final boolean collectExecutionMetrics,
       final MainnetTransactionProcessor transactionProcessor,
       final BlockHashLookup blockHashLookup,
       final Supplier<SECPSignature> signatureSupplier,
@@ -399,6 +405,9 @@ public class BlockSimulator {
             .<MiningBeneficiaryCalculator>map(feeRecipient -> header -> feeRecipient)
             .orElseGet(protocolSpec::getMiningBeneficiaryCalculator);
 
+    // Collect per-transaction metrics if requested
+    final List<EVMExecutionMetricsTracer> transactionMetricsTracers = new ArrayList<>();
+
     final WorldUpdater blockUpdater = ws.updater();
     for (int transactionLocation = 0;
         transactionLocation < blockStateCall.getCalls().size();
@@ -406,25 +415,35 @@ public class BlockSimulator {
       final WorldUpdater transactionUpdater = blockUpdater.updater();
       final CallParameter callParameter = blockStateCall.getCalls().get(transactionLocation);
 
-      // Custom tracer and EthTraceTransfers are mutually exclusive
-      OperationTracer finalOperationTracer = operationTracer;
-      if (isTraceTransfers) {
-        if (finalOperationTracer == OperationTracer.NO_TRACING) {
-          finalOperationTracer = new EthTransferLogOperationTracer();
-        } else {
-          // this shouldn't happen, and isTraceTransfers will go away with Glamsterdam
-          throw new IllegalArgumentException(
-              "A custom tracer and traceTransfers cannot be used together."
-                  + " Disable traceTransfers or omit the custom tracer.");
-        }
-      }
-
       if (callParameter.getGas().isPresent()
           && callParameter.getGas().getAsLong()
               > blockStateCallSimulationResult.getRemainingGas()) {
         throw new BlockStateCallException(
             BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED.getMessage(),
             BlockStateCallError.BLOCK_GAS_LIMIT_EXCEEDED);
+      }
+
+      // Create separate EVMExecutionMetricsTracer for each transaction (thread-safe)
+      EVMExecutionMetricsTracer transactionMetricsTracer = null;
+      if (collectExecutionMetrics) {
+        transactionMetricsTracer = new EVMExecutionMetricsTracer();
+        transactionMetricsTracers.add(transactionMetricsTracer);
+      }
+
+      // Compose operation tracers
+      final OperationTracer finalOperationTracer;
+      if (isTraceTransfers && transactionMetricsTracer != null) {
+        finalOperationTracer =
+            CompositeOperationTracer.of(
+                operationTracer, new EthTransferLogOperationTracer(), transactionMetricsTracer);
+      } else if (isTraceTransfers) {
+        finalOperationTracer =
+            CompositeOperationTracer.of(operationTracer, new EthTransferLogOperationTracer());
+      } else if (transactionMetricsTracer != null) {
+        finalOperationTracer =
+            CompositeOperationTracer.of(operationTracer, transactionMetricsTracer);
+      } else {
+        finalOperationTracer = operationTracer;
       }
 
       long gasLimit =
@@ -489,6 +508,16 @@ public class BlockSimulator {
     }
 
     blockAccessListBuilder.ifPresent(b -> blockStateCallSimulationResult.set(b.build()));
+
+    // Aggregate per-transaction execution metrics if collected
+    if (!transactionMetricsTracers.isEmpty()) {
+      EVMExecutionMetricsTracer aggregatedTracer = new EVMExecutionMetricsTracer();
+      for (EVMExecutionMetricsTracer transactionTracer : transactionMetricsTracers) {
+        aggregatedTracer.getMetrics().merge(transactionTracer.copyMetrics());
+      }
+      blockStateCallSimulationResult.setEVMExecutionMetricsTracer(aggregatedTracer);
+    }
+
     return blockStateCallSimulationResult;
   }
 
@@ -540,7 +569,7 @@ public class BlockSimulator {
       final Optional<BlockAwareOperationTracer> maybeBlockAwareOperationTracer,
       final boolean returnTrieLog) {
 
-    List<Transaction> transactions = simResult.getTransactions();
+    var transactions = simResult.getTransactions();
     List<TransactionReceipt> receipts = simResult.getReceipts();
 
     boolean isShanghaiPlus = protocolSpec.getWithdrawalsValidator() instanceof AllowedWithdrawals;
@@ -593,7 +622,11 @@ public class BlockSimulator {
       var trieLogFactory = pathBasedArchive.getTrieLogManager().getTrieLogFactory();
       var trieLog = trieLogFactory.create(pathBasedAccumulator, finalBlockHeader);
       return new BlockSimulationResult(
-          block, simResult, trieLog, log -> Bytes.wrap(trieLogFactory.serialize(log)));
+          block,
+          simResult,
+          trieLog,
+          log -> Bytes.wrap(trieLogFactory.serialize(log)),
+          simResult.getEVMExecutionMetricsTracer().orElse(null));
     } else {
       // otherwise return result w/o trielog
       return new BlockSimulationResult(block, simResult);

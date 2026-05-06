@@ -149,13 +149,16 @@ public final class BesuPluginServiceRegistrar {
    * @param runner the fully built runner (provides P2P network and in-process RPC)
    * @param metricsSystem the fully configured metrics system
    * @param miningConfiguration the active mining configuration
+   * @param slowBlockThresholdMs threshold in milliseconds above which a block is considered slow;
+   *     negative values disable slow-block metrics collection
    */
   public static void registerRuntimeServices(
       final BesuPluginContextImpl pluginContext,
       final BesuController besuController,
       final Runner runner,
       final MetricsSystem metricsSystem,
-      final MiningConfiguration miningConfiguration) {
+      final MiningConfiguration miningConfiguration,
+      final long slowBlockThresholdMs) {
 
     pluginContext.addService(
         BesuEvents.class,
@@ -214,7 +217,8 @@ public final class BesuPluginServiceRegistrar {
             miningConfiguration,
             besuController.getTransactionSimulator(),
             besuController.getProtocolSchedule(),
-            besuController.getProtocolContext().getBlockchain()));
+            besuController.getProtocolContext().getBlockchain(),
+            slowBlockThresholdMs));
 
     besuController.getAdditionalPluginServices().appendPluginServices(pluginContext);
   }

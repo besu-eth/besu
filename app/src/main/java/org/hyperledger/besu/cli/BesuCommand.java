@@ -1331,7 +1331,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         besuController,
         runner,
         getMetricsSystem(),
-        miningParametersSupplier.get());
+        miningParametersSupplier.get(),
+        metricsOptions.getSlowBlockThresholdMs());
 
     besuPluginContext.startPlugins();
   }
@@ -2073,6 +2074,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .genesisStateHashCacheEnabled(genesisStateHashCacheEnabled)
             .apiConfiguration(apiConfiguration)
             .balConfiguration(balConfiguration)
+            .slowBlockThresholdMs(metricsOptions.getSlowBlockThresholdMs())
             .besuComponent(besuComponent);
     if (getDataStorageConfiguration().getDataStorageFormat().isBonsaiFormat()) {
       final PathBasedExtraStorageConfiguration subStorageConfiguration =
@@ -2910,7 +2912,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .setEvmV2(unstableEvmOptions.toDomainObject().enableEvmV2())
         .setPluginContext(this.besuPluginContext)
         .setHistoryExpiryPruneEnabled(getDataStorageConfiguration().getHistoryExpiryPruneEnabled())
-        .setBlobDBSettings(rocksDBPlugin.getBlobDBSettings());
+        .setBlobDBSettings(rocksDBPlugin.getBlobDBSettings())
+        .setSlowBlockThresholdMs(metricsOptions.getSlowBlockThresholdMs());
 
     return builder.build();
   }

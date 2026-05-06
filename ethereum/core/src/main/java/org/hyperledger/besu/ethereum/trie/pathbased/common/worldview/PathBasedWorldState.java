@@ -22,6 +22,7 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBa
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
+import org.hyperledger.besu.ethereum.mainnet.ExecutionStatsHolder;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.StorageSubscriber;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.cache.PathBasedCachedWorldStorageManager;
@@ -66,6 +67,8 @@ public abstract class PathBasedWorldState
   // configuration parameters for the world state.
   protected WorldStateConfig worldStateConfig;
 
+  private StateMetricsCollector stateMetricsCollector = StateMetricsCollector.NOOP;
+
   /*
    * Indicates whether the world state is in "frozen" mode.
    *
@@ -103,6 +106,20 @@ public abstract class PathBasedWorldState
    */
   public void setAccumulator(final PathBasedWorldStateUpdateAccumulator<?> accumulator) {
     this.accumulator = accumulator;
+  }
+
+  /**
+   * Sets the metrics collector for state-layer operations.
+   *
+   * @param collector the collector instance
+   */
+  public void setStateMetricsCollector(final StateMetricsCollector collector) {
+    this.stateMetricsCollector = collector != null ? collector : StateMetricsCollector.NOOP;
+  }
+
+  @Override
+  public StateMetricsCollector getStateMetricsCollector() {
+    return stateMetricsCollector;
   }
 
   /**
@@ -183,11 +200,17 @@ public abstract class PathBasedWorldState
         worldStateKeyValueStorage.updater();
     Runnable saveTrieLog = () -> {};
     Runnable cacheWorldState = () -> {};
+    final var executionStats = ExecutionStatsHolder.get();
 
     try {
+      // Track state hash time (Merkle trie rehashing)
+      final long stateHashStartNanos = executionStats != null ? System.nanoTime() : 0;
       final Hash calculatedRootHash =
           committer.computeRoot(
               buildStateRootSupplier(stateUpdater, blockHeader), this, stateUpdater, blockHeader);
+      if (executionStats != null) {
+        executionStats.addStateHashTime(System.nanoTime() - stateHashStartNanos);
+      }
 
       if (blockHeader != null) {
         verifyWorldStateRoot(calculatedRootHash, blockHeader);
@@ -227,6 +250,9 @@ public abstract class PathBasedWorldState
       success = true;
     } finally {
       if (success) {
+        // Track commit time (writing state to DB)
+        final long commitStartNanos = executionStats != null ? System.nanoTime() : 0;
+
         // commit the trielog transaction ahead of the state, in case of an abnormal shutdown:
         saveTrieLog.run();
         // commit only the composed worldstate, as trielog transaction is already complete:
@@ -235,6 +261,12 @@ public abstract class PathBasedWorldState
           // optionally save the committed worldstate state in the cache
           cacheWorldState.run();
         }
+
+        if (executionStats != null) {
+          executionStats.addCommitTime(System.nanoTime() - commitStartNanos);
+        }
+
+        accumulator.collectFinalWriteMetrics(stateMetricsCollector);
         accumulator.reset();
       } else {
         stateUpdater.rollback();

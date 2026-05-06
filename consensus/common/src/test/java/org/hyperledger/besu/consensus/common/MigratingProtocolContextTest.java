@@ -55,7 +55,8 @@ public class MigratingProtocolContextTest {
             worldStateArchive,
             new MigratingConsensusContext(contextSchedule),
             new BadBlockManager(),
-            new ServiceManager.SimpleServiceManager());
+            new ServiceManager.SimpleServiceManager(),
+            -1L);
 
     assertThat(migratingProtocolContext.getConsensusContext(ConsensusContext.class))
         .isSameAs(context1);

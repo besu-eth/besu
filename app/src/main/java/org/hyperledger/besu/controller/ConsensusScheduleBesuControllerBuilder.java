@@ -178,7 +178,8 @@ public class ConsensusScheduleBesuControllerBuilder extends BesuControllerBuilde
         worldStateArchive,
         consensusContext.as(MigratingConsensusContext.class),
         badBlockManager,
-        serviceManager);
+        serviceManager,
+        slowBlockThresholdMs);
   }
 
   @Override
