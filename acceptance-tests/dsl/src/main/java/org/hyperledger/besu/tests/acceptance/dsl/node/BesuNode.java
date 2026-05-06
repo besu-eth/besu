@@ -94,6 +94,9 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
   private static final String LOCALHOST = "127.0.0.1";
   private static final Logger LOG = LoggerFactory.getLogger(BesuNode.class);
   public static final String HTTP = "http://";
+  public static final String HTTPS = "https://";
+  public static final String WS = "ws://";
+  public static final String WSS = "wss://";
   public static final String WS_RPC = "ws-rpc";
   public static final String JSON_RPC = "json-rpc";
 
@@ -392,8 +395,9 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
 
   private Optional<String> wsRpcBaseUrl() {
     if (isWebSocketsRpcEnabled()) {
+      final String scheme = webSocketConfiguration.isSslEnabled() ? WSS : WS;
       return Optional.of(
-          "ws://" + webSocketConfiguration.getHost() + ":" + portsProperties.getProperty(WS_RPC));
+          scheme + webSocketConfiguration.getHost() + ":" + portsProperties.getProperty(WS_RPC));
     } else {
       return Optional.empty();
     }
@@ -401,8 +405,9 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
 
   private Optional<String> wsRpcBaseHttpUrl() {
     if (isWebSocketsRpcEnabled()) {
+      final String scheme = webSocketConfiguration.isSslEnabled() ? HTTPS : HTTP;
       return Optional.of(
-          HTTP + webSocketConfiguration.getHost() + ":" + portsProperties.getProperty(WS_RPC));
+          scheme + webSocketConfiguration.getHost() + ":" + portsProperties.getProperty(WS_RPC));
     } else {
       return Optional.empty();
     }
