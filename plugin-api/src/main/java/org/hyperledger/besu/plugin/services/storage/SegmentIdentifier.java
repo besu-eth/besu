@@ -74,4 +74,14 @@ public interface SegmentIdentifier {
   default boolean isStaticDataGarbageCollectionEnabled() {
     return false;
   }
+
+  /**
+   * Whether index and filter blocks for this segment should be stored in the block cache. When
+   * false (the default), index and filter blocks are held in unbounded native memory per SST file.
+   *
+   * @return true if index and filter blocks should be cached in the block cache
+   */
+  default boolean isCacheIndexAndFilterBlocks() {
+    return false;
+  }
 }
