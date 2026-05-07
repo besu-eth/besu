@@ -81,7 +81,7 @@ public class ChainDataPrunerStorage {
     set(transaction, VARIABLES_PREFIX, BAL_PRUNING_MARK_KEY, UInt256.valueOf(balPruningMark));
   }
 
-  public void setForkBlocks(
+  private void setForkBlocks(
       final KeyValueStorageTransaction transaction,
       final long blockNumber,
       final Collection<Hash> forkBlocks) {
