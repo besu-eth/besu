@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
-import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
@@ -388,8 +387,7 @@ class EthServer {
     final Iterable<Hash> blockHashes = getBlockAccessLists.blockHashes();
 
     int responseSizeEstimate = RLP.MAX_PREFIX_SIZE;
-    final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
-    rlp.startList();
+    final List<Optional<BlockAccessList>> blockAccessLists = new ArrayList<>();
     int count = 0;
     for (final Hash blockHash : blockHashes) {
       if (count >= requestLimit) {
@@ -401,11 +399,14 @@ class EthServer {
           blockchain.getBlockAccessList(blockHash);
       final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
       if (maybeBlockAccessList.isPresent()) {
-        BlockAccessListEncoder.encode(maybeBlockAccessList.get(), balOutput);
+        final BlockAccessList blockAccessList = maybeBlockAccessList.get();
+        if (blockAccessList.rawRlp().isPresent()) {
+          balOutput.writeBytes(blockAccessList.rawRlp().get());
+        } else {
+          throw new IllegalStateException("Expected BAL read from storage to contain RLP bytes");
+        }
       } else {
-        // EIP-8159: Empty lists are returned for blocks where the BAL is unavailable.
-        balOutput.startList();
-        balOutput.endList();
+        balOutput.writeBytes(Bytes.EMPTY);
       }
 
       final int encodedSize = balOutput.encodedSize();
@@ -413,11 +414,10 @@ class EthServer {
         break;
       }
       responseSizeEstimate += encodedSize;
-      rlp.writeRaw(balOutput.encoded());
+      blockAccessLists.add(maybeBlockAccessList);
     }
-    rlp.endList();
 
-    return BlockAccessListsMessage.createUnsafe(rlp.encoded());
+    return BlockAccessListsMessage.create(blockAccessLists);
   }
 
   static MessageData constructGetPooledTransactionsResponse(

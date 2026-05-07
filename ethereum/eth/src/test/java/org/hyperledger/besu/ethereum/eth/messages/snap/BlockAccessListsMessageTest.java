@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 
 import java.math.BigInteger;
 import java.util.List;
+import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 
@@ -31,13 +32,14 @@ public class BlockAccessListsMessageTest {
   public void roundTripWithRequestId() {
     final List<BlockAccessList> expected = List.of(new BlockAccessList(List.of()));
 
-    final BlockAccessListsMessage initialMessage = BlockAccessListsMessage.create(expected);
+    final BlockAccessListsMessage initialMessage =
+        BlockAccessListsMessage.createFromBlockAccessLists(expected);
     final MessageData wrapped = initialMessage.wrapMessageData(BigInteger.valueOf(11));
     final MessageData raw = new RawMessage(SnapV2.BLOCK_ACCESS_LISTS, wrapped.getData());
 
     final BlockAccessListsMessage message = BlockAccessListsMessage.readFrom(raw);
 
-    assertThat(message.blockAccessLists(true)).containsExactlyElementsOf(expected);
+    assertThat(message.blockAccessLists(true)).containsExactly(Optional.of(expected.getFirst()));
   }
 
   @Test

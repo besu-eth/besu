@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -104,6 +105,6 @@ public final class BlockAccessListDecoder {
     }
     in.leaveList();
 
-    return new BlockAccessList(accounts);
+    return new BlockAccessList(accounts, Optional.of(in.raw()));
   }
 }

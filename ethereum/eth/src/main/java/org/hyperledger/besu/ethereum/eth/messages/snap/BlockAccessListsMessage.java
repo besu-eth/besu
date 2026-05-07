@@ -19,6 +19,9 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 
+import java.util.Optional;
+import java.util.stream.StreamSupport;
+
 import org.apache.tuweni.bytes.Bytes;
 
 public final class BlockAccessListsMessage extends AbstractSnapMessageData {
@@ -39,19 +42,18 @@ public final class BlockAccessListsMessage extends AbstractSnapMessageData {
     return new BlockAccessListsMessage(message.getData());
   }
 
-  public static BlockAccessListsMessage create(final Iterable<BlockAccessList> blockAccessLists) {
+  public static BlockAccessListsMessage create(
+      final Iterable<Optional<BlockAccessList>> blockAccessLists) {
     return new BlockAccessListsMessage(BlockAccessListsMessageData.encode(blockAccessLists));
   }
 
-  /**
-   * Create a message with raw, already encoded data. No checks are performed to validate the
-   * rlp-encoded data.
-   *
-   * @param data An rlp-encoded list of block access lists
-   * @return A new BlockAccessListsMessage
-   */
-  public static BlockAccessListsMessage createUnsafe(final Bytes data) {
-    return new BlockAccessListsMessage(data);
+  public static BlockAccessListsMessage createFromBlockAccessLists(
+      final Iterable<BlockAccessList> blockAccessLists) {
+    return create(
+        () ->
+            StreamSupport.stream(blockAccessLists.spliterator(), false)
+                .map(Optional::of)
+                .iterator());
   }
 
   @Override
@@ -59,7 +61,7 @@ public final class BlockAccessListsMessage extends AbstractSnapMessageData {
     return SnapV2.BLOCK_ACCESS_LISTS;
   }
 
-  public Iterable<BlockAccessList> blockAccessLists(final boolean withRequestId) {
+  public Iterable<Optional<BlockAccessList>> blockAccessLists(final boolean withRequestId) {
     return BlockAccessListsMessageData.decode(data, withRequestId);
   }
 
