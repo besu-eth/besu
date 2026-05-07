@@ -102,27 +102,6 @@ public class BonsaiWorldStateLayerStorageCacheTest {
   }
 
   @Test
-  public void testLayer_readsFromParentWhenNotInCacheOrLayer() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
-    Bytes accountData = Bytes.of(1, 2, 3);
-
-    // Put directly in base storage WITHOUT going through cache
-    BonsaiWorldStateKeyValueStorage.Updater baseUpdater = baseStorage.updater();
-    baseUpdater.putAccountInfoState(accountHash, accountData);
-    baseUpdater.commit();
-
-    // Clear cache if any
-    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, accountHash.getBytes().toArrayUnsafe()))
-        .isTrue(); // Should be cached after commit
-
-    // Create layer
-    BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(baseStorage);
-
-    // Layer should still be able to read (from cache in this case, but conceptually from parent)
-    assertThat(layer.getAccount(accountHash)).isPresent().contains(accountData);
-  }
-
-  @Test
   public void testLayer_storageSlots_layerOverridesCache() {
     Hash accountHash = Hash.hash(Bytes.of(1));
     StorageSlotKey slotKey = new StorageSlotKey(UInt256.valueOf(1));

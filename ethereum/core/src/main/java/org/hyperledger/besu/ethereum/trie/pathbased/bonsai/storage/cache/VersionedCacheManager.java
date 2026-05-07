@@ -51,6 +51,9 @@ public class VersionedCacheManager implements CacheManager, Closeable {
   /** Default threshold of pending tasks before triggering automatic maintenance. */
   private static final int DEFAULT_DRAIN_THRESHOLD = 1000;
 
+  /** Upper bound for Caffeine {@code initialCapacity} (must fit in a positive int). */
+  private static final long MAX_INITIAL_CAPACITY = Integer.MAX_VALUE;
+
   private final AtomicLong globalVersion = new AtomicLong(0);
   private final Cache<ByteArrayWrapper, VersionedValue> accountCache;
   private final Cache<ByteArrayWrapper, VersionedValue> storageCache;
@@ -89,6 +92,9 @@ public class VersionedCacheManager implements CacheManager, Closeable {
       final long storageCacheSize,
       final MetricsSystem metricsSystem,
       final int drainThreshold) {
+
+    requirePositiveCacheMaxSize("accountCacheSize", accountCacheSize);
+    requirePositiveCacheMaxSize("storageCacheSize", storageCacheSize);
 
     this.maintenanceWorker =
         Executors.newSingleThreadExecutor(
@@ -137,10 +143,26 @@ public class VersionedCacheManager implements CacheManager, Closeable {
 
   private Cache<ByteArrayWrapper, VersionedValue> createCache(final long maxSize) {
     return Caffeine.newBuilder()
-        .initialCapacity((int) (maxSize * 0.1))
+        .initialCapacity(initialCapacityFor(maxSize))
         .maximumSize(maxSize)
         .executor(drainExecutor)
         .build();
+  }
+
+  /**
+   * Initial capacity ~10% of {@code maxSize}, at least 1, never exceeding {@link
+   * Integer#MAX_VALUE}.
+   */
+  private static int initialCapacityFor(final long maxSize) {
+    final long tenth = maxSize / 10;
+    final long capped = Math.min(MAX_INITIAL_CAPACITY, tenth);
+    return (int) Math.max(1L, capped);
+  }
+
+  private static void requirePositiveCacheMaxSize(final String name, final long maxSize) {
+    if (maxSize <= 0) {
+      throw new IllegalArgumentException(name + " must be positive, got " + maxSize);
+    }
   }
 
   private Cache<ByteArrayWrapper, VersionedValue> cacheForSegment(final SegmentIdentifier segment) {

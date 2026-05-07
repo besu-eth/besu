@@ -62,7 +62,7 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
 
   protected final BonsaiFlatDbStrategyProvider flatDbStrategyProvider;
   protected final CacheManager cacheManager;
-  private long cacheVersion;
+  private volatile long cacheVersion;
 
   public BonsaiWorldStateKeyValueStorage(
       final StorageProvider provider,
@@ -449,8 +449,9 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
   }
 
   /**
-   * Cached updater that stages changes and updates cache on commit. Used only by base storage (not
-   * snapshots or layers).
+   * Cached updater that stages changes and refreshes the cache only after a successful storage
+   * commit ({@code updateCache()} is not run if {@code super.commit()} fails). Used only by base
+   * storage (not snapshots or layers).
    */
   public class CachedUpdater extends Updater {
 
@@ -502,13 +503,21 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
     }
 
     private void stagePut(final SegmentIdentifier segment, final byte[] key, final byte[] value) {
-      pending.computeIfAbsent(segment, k -> new HashMap<>()).put(new ByteArrayWrapper(key), value);
+      final ByteArrayWrapper wrappedKey = new ByteArrayWrapper(key);
+      final Map<ByteArrayWrapper, Boolean> removals = pendingRemovals.get(segment);
+      if (removals != null) {
+        removals.remove(wrappedKey);
+      }
+      pending.computeIfAbsent(segment, k -> new HashMap<>()).put(wrappedKey, value);
     }
 
     private void stageRemoval(final SegmentIdentifier segment, final byte[] key) {
-      pendingRemovals
-          .computeIfAbsent(segment, k -> new HashMap<>())
-          .put(new ByteArrayWrapper(key), true);
+      final ByteArrayWrapper wrappedKey = new ByteArrayWrapper(key);
+      final Map<ByteArrayWrapper, byte[]> updates = pending.get(segment);
+      if (updates != null) {
+        updates.remove(wrappedKey);
+      }
+      pendingRemovals.computeIfAbsent(segment, k -> new HashMap<>()).put(wrappedKey, true);
     }
 
     private void clearStaged() {
@@ -516,8 +525,11 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
       pendingRemovals.clear();
     }
 
-    protected void updateCache() {
+    protected void incrementCacheVersion() {
       cacheVersion = cacheManager.incrementAndGetVersion();
+    }
+
+    protected void updateCache() {
       // Apply all pending updates to cache
       pending.forEach(
           (segment, updates) ->
@@ -540,8 +552,9 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
 
     @Override
     public void commit() {
-      updateCache();
+      incrementCacheVersion();
       super.commit();
+      updateCache();
     }
 
     @Override
@@ -552,8 +565,9 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
 
     @Override
     public void commitComposedOnly() {
-      updateCache();
+      incrementCacheVersion();
       super.commitComposedOnly();
+      updateCache();
     }
 
     @Override
