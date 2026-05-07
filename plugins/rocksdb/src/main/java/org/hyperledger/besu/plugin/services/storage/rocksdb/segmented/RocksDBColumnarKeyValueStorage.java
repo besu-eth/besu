@@ -193,33 +193,35 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       final SegmentIdentifier segment, final RocksDBConfiguration configuration) {
     boolean dynamicLevelBytes = true;
     try {
-      ConfigOptions configOptions = new ConfigOptions();
-      DBOptions dbOptions = new DBOptions();
-      List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
+      final ConfigOptions configOptions = new ConfigOptions();
+      final DBOptions dbOptions = new DBOptions();
+      final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
 
-      String latestOptionsFileName =
-          OptionsUtil.getLatestOptionsFileName(
-              configuration.getDatabaseDir().toString(), Env.getDefault());
-      LOG.trace("Latest OPTIONS file detected: " + latestOptionsFileName);
+      try {
+        String latestOptionsFileName =
+            OptionsUtil.getLatestOptionsFileName(
+                configuration.getDatabaseDir().toString(), Env.getDefault());
+        LOG.trace("Latest OPTIONS file detected: " + latestOptionsFileName);
 
-      String optionsFilePath =
-          configuration.getDatabaseDir().toString() + "/" + latestOptionsFileName;
-      OptionsUtil.loadOptionsFromFile(configOptions, optionsFilePath, dbOptions, cfDescriptors);
+        String optionsFilePath =
+            configuration.getDatabaseDir().toString() + "/" + latestOptionsFileName;
+        OptionsUtil.loadOptionsFromFile(configOptions, optionsFilePath, dbOptions, cfDescriptors);
 
-      LOG.trace("RocksDB options loaded successfully from: " + optionsFilePath);
+        LOG.trace("RocksDB options loaded successfully from: " + optionsFilePath);
 
-      if (!cfDescriptors.isEmpty()) {
-        Optional<ColumnFamilyOptions> matchedCfOptions = Optional.empty();
-        for (ColumnFamilyDescriptor descriptor : cfDescriptors) {
-          if (Arrays.equals(descriptor.getName(), segment.getId())) {
-            matchedCfOptions = Optional.of(descriptor.getOptions());
-            break;
+        if (!cfDescriptors.isEmpty()) {
+          for (ColumnFamilyDescriptor descriptor : cfDescriptors) {
+            if (Arrays.equals(descriptor.getName(), segment.getId())) {
+              dynamicLevelBytes = descriptor.getOptions().levelCompactionDynamicLevelBytes();
+              LOG.trace("dynamicLevelBytes is set to an existing value : " + dynamicLevelBytes);
+              break;
+            }
           }
+          cfDescriptors.forEach(d -> d.getOptions().close());
         }
-        if (matchedCfOptions.isPresent()) {
-          dynamicLevelBytes = matchedCfOptions.get().levelCompactionDynamicLevelBytes();
-          LOG.trace("dynamicLevelBytes is set to an existing value : " + dynamicLevelBytes);
-        }
+      } finally {
+        dbOptions.close();
+        configOptions.close();
       }
     } catch (RocksDBException ex) {
       // Options file is not found in the database
