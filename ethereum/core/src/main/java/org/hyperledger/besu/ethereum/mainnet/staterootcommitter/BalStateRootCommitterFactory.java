@@ -58,6 +58,7 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
       final Optional<BlockAccessList> maybeBal) {
 
     if (maybeBal.isEmpty()
+        || !balConfiguration.isBalStateRootEnabled()
         || protocolContext.getWorldStateArchive() instanceof ForestWorldStateArchive
         || isTrieDisabled(protocolContext)) {
       return StateRootCommitter.SYNCHRONOUS;

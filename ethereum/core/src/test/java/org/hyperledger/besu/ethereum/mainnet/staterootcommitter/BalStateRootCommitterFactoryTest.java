@@ -492,6 +492,37 @@ class BalStateRootCommitterFactoryTest {
   }
 
   @Test
+  void factoryReturnsSync_whenBalStateRootDisabled() {
+
+    final BlockAccessList bal =
+        new BlockAccessList(
+            List.of(
+                new AccountChanges(
+                    Address.fromHexString("0x00000000000000000000000000000000000000a1"),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of())));
+
+    final BlockHeader blockHeader =
+        new BlockHeaderTestFixture()
+            .parentHash(chainHeadHeader.getHash())
+            .number(chainHeadHeader.getNumber() + 1L)
+            .buildHeader();
+
+    final BalConfiguration balConfig =
+        ImmutableBalConfiguration.builder().isBalStateRootEnabled(false).build();
+
+    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
+
+    final StateRootCommitter committer =
+        factory.forBlock(protocolContext, blockHeader, Optional.of(bal));
+
+    assertThat(committer).isSameAs(StateRootCommitter.SYNCHRONOUS);
+  }
+
+  @Test
   void multipleAccountChanges_producesCorrectRoot() throws Exception {
 
     final Address address1 = Address.fromHexString("0x000000000000000000000000000000000000004a");

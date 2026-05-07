@@ -51,6 +51,7 @@ import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -78,6 +79,20 @@ import org.mockito.junit.jupiter.MockitoExtension;
  */
 @ExtendWith(MockitoExtension.class)
 class BalTransactionProcessorUnitTest {
+
+  /** Stateless lookup for tests that exercise parallel processors (requires {@code fork}). */
+  private static final BlockHashLookup EMPTY_BLOCK_HASH_LOOKUP =
+      new BlockHashLookup() {
+        @Override
+        public Hash apply(final MessageFrame frame, final Long blockNumber) {
+          return Hash.EMPTY;
+        }
+
+        @Override
+        public BlockHashLookup forkForParallelWorker() {
+          return this;
+        }
+      };
 
   private static final Address MINING_BENEFICIARY = Address.fromHexString("0x1");
   private static final Wei BLOB_GAS_PRICE = Wei.ZERO;
@@ -170,7 +185,7 @@ class BalTransactionProcessorUnitTest {
           env.blockHeader(),
           Collections.singletonList(transaction),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -207,7 +222,7 @@ class BalTransactionProcessorUnitTest {
           env.blockHeader(),
           List.of(tx1, tx2, tx3),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -233,7 +248,7 @@ class BalTransactionProcessorUnitTest {
           env.blockHeader(),
           Collections.singletonList(transaction),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -273,7 +288,7 @@ class BalTransactionProcessorUnitTest {
           blockHeader,
           Collections.singletonList(transaction),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -309,7 +324,7 @@ class BalTransactionProcessorUnitTest {
           env.blockHeader(),
           Collections.singletonList(transaction),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -346,7 +361,7 @@ class BalTransactionProcessorUnitTest {
           env.blockHeader(),
           Collections.singletonList(transaction),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -492,7 +507,7 @@ class BalTransactionProcessorUnitTest {
           env.blockHeader(),
           List.of(tx0, tx1, tx2),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -542,7 +557,7 @@ class BalTransactionProcessorUnitTest {
           env.blockHeader(),
           Collections.singletonList(transaction),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
