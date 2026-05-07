@@ -60,6 +60,10 @@ public class ReadinessCheck implements HealthService.HealthCheck {
         LOG.debug("Invalid maxBlocksBehind: {}. Reporting as not ready.", maxBlocksBehindParam);
         return false;
       }
+      if (maxBlocksBehind < 0) {
+        LOG.debug("Negative maxBlocksBehind: {}. Reporting as not ready.", maxBlocksBehindParam);
+        return false;
+      }
     }
     return syncStatus.getHighestBlock() - syncStatus.getCurrentBlock() <= maxBlocksBehind;
   }
@@ -74,6 +78,10 @@ public class ReadinessCheck implements HealthService.HealthCheck {
         minimumPeers = Integer.parseInt(peersParam);
       } catch (final NumberFormatException e) {
         LOG.debug("Invalid minPeers: {}. Reporting as not ready.", peersParam);
+        return false;
+      }
+      if (minimumPeers < 0) {
+        LOG.debug("Negative minPeers: {}. Reporting as not ready.", peersParam);
         return false;
       }
     }

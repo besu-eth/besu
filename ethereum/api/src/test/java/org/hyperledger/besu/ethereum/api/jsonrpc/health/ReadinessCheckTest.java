@@ -142,6 +142,28 @@ public class ReadinessCheckTest {
     assertThat(readinessCheck.isHealthy(paramSource)).isFalse();
   }
 
+  @Test
+  public void shouldNotBeReadyWhenMinPeersIsNegative() {
+    when(p2pNetwork.isP2pEnabled()).thenReturn(true);
+    when(p2pNetwork.getPeerCount()).thenReturn(5);
+    when(synchronizer.getSyncStatus()).thenReturn(Optional.empty());
+
+    params.put(MIN_PEERS_PARAM, "-1");
+
+    assertThat(readinessCheck.isHealthy(paramSource)).isFalse();
+  }
+
+  @Test
+  public void shouldNotBeReadyWhenMaxBlocksBehindIsNegative() {
+    when(p2pNetwork.isP2pEnabled()).thenReturn(true);
+    when(p2pNetwork.getPeerCount()).thenReturn(5);
+    when(synchronizer.getSyncStatus()).thenReturn(createSyncStatus(1000, 1000));
+
+    params.put("maxBlocksBehind", "-1");
+
+    assertThat(readinessCheck.isHealthy(paramSource)).isFalse();
+  }
+
   private Optional<SyncStatus> createSyncStatus(final int currentBlock, final int highestBlock) {
     return Optional.of(
         new DefaultSyncStatus(0, currentBlock, highestBlock, Optional.empty(), Optional.empty()));
