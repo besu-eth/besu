@@ -29,16 +29,33 @@ jar {
   }
 }
 
+compileJava {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
+    option('NullAway:AnnotatedPackages', 'org.hyperledger.besu.datatypes')
+  }
+}
+
+tasks.named('compileTestJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+  }
+}
+
 dependencies {
   compileOnly 'com.fasterxml.jackson.core:jackson-databind'
   compileOnly 'io.vertx:vertx-core'
   compileOnly 'org.checkerframework:checker-qual'
+
+  errorprone 'com.uber.nullaway:nullaway:0.13.1'
 
   implementation project(':crypto:algorithms')
   implementation project(':ethereum:rlp')
   implementation 'com.google.guava:guava'
   implementation 'io.consensys.tuweni:tuweni-bytes'
   implementation 'io.consensys.tuweni:tuweni-units'
+
+  compileOnlyApi 'org.jspecify:jspecify'
 
   testImplementation 'org.assertj:assertj-core'
   testImplementation 'org.junit.jupiter:junit-jupiter'
