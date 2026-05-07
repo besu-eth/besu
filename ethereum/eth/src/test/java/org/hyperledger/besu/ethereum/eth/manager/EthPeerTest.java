@@ -413,6 +413,34 @@ public class EthPeerTest {
     assertThat(peer.getP99Latency()).isEqualTo(0L);
   }
 
+  @Test
+  public void recordBytesReceived() {
+    final EthPeer peer = createPeer();
+
+    // no payloads
+    assertThat(peer.getTotalBytesTransferred()).isEqualTo(0L);
+    assertThat(peer.getAverageBytesPerResponse()).isEqualTo(0.0);
+    assertThat(peer.getRollingAverageBytesPerSecond()).isEqualTo(0.0);
+
+    // old payload
+    peer.recordBytesReceived(4500L, System.nanoTime() - 30_100_000_000L);
+    assertThat(peer.getTotalBytesTransferred()).isEqualTo(4500L);
+    assertThat(peer.getAverageBytesPerResponse()).isEqualTo(4500.0);
+    assertThat(peer.getRollingAverageBytesPerSecond()).isEqualTo(0.0);
+
+    // two payloads (one in window)
+    peer.recordBytesReceived(3000L, System.nanoTime());
+    assertThat(peer.getTotalBytesTransferred()).isEqualTo(7500L);
+    assertThat(peer.getAverageBytesPerResponse()).isEqualTo(3750.0);
+    assertThat(peer.getRollingAverageBytesPerSecond()).isEqualTo(100.0);
+
+    // three payloads (two in window)
+    peer.recordBytesReceived(1500L, System.nanoTime());
+    assertThat(peer.getTotalBytesTransferred()).isEqualTo(9000L);
+    assertThat(peer.getAverageBytesPerResponse()).isEqualTo(3000.0);
+    assertThat(peer.getRollingAverageBytesPerSecond()).isEqualTo(150.0);
+  }
+
   private void messageStream(
       final ResponseStreamSupplier getStream,
       final MessageData targetMessage,

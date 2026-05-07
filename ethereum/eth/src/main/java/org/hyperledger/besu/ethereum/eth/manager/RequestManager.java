@@ -76,10 +76,11 @@ public class RequestManager {
           .ifPresentOrElse(
               responseStream -> {
                 responseStream.releaseOutstandingRequest();
-                long latency = System.nanoTime() - responseStream.getSentTimestamp();
+                long responseTimestamp = System.nanoTime();
+                long latency = responseTimestamp - responseStream.getSentTimestamp();
                 long payloadSize = requestIdAndEthMessage.getValue().getSize();
                 peer.recordLatency(latency);
-                peer.recordBytesReceived(payloadSize);
+                peer.recordBytesReceived(payloadSize, responseTimestamp);
                 responseStream.processMessage(requestIdAndEthMessage.getValue());
               },
               // Consider incorrect requestIds to be a useless response; too

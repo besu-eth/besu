@@ -95,7 +95,7 @@ public class EthPeer implements Comparable<EthPeer> {
 
   private volatile long lastRequestTimestamp = 0;
 
-  private final int rollingWindowDurationMS = 30_000;
+  private final long rollingWindowDurationNanos = 30_000_000_000L;
   private final Deque<long[]> rollingWindowSamples = new ArrayDeque<>();
   private volatile long totalBytesTransferred = 0;
   private volatile long totalResponsesReceived = 0;
@@ -709,12 +709,12 @@ public class EthPeer implements Comparable<EthPeer> {
   }
 
   /**
-   * Return the rolling average bytes per second
+   * Return the rolling average bytes per second over the last {@code rollingWindowDurationNanos}
    *
    * @return bytes per second
    */
   public synchronized double getRollingAverageBytesPerSecond() {
-    long nowTimestamp = clock.millis();
+    long nowTimestamp = System.nanoTime();
     removeOldByteSamples(nowTimestamp);
     if (rollingWindowSamples.isEmpty()){
       return 0.0;
@@ -723,33 +723,31 @@ public class EthPeer implements Comparable<EthPeer> {
     for (long[] sample : rollingWindowSamples){
       totalBytes += sample[1];
     }
-    long windowStart = rollingWindowSamples.peekFirst()[0];
-    long windowSizeMS = Math.max(1, nowTimestamp - windowStart); // Avoid division by 0
-    return (totalBytes * 1000.0) / windowSizeMS;
+    return (totalBytes * 1e9) / rollingWindowDurationNanos;
   }
 
   /**
-   * Record the amount of bytes for a new payload
+   * Record the amount of bytes for a new response
    *
-   * @param bytes the amount of bytes in the payload
+   * @param bytes the amount of bytes in the response
+   * @param responseTimestamp the timestamp of the response
    */
-  public synchronized void recordBytesReceived(final long bytes) {
-    long nowTimestamp = clock.millis();
-    long[] sample = {nowTimestamp, bytes};
+  public synchronized void recordBytesReceived(final long bytes, final long responseTimestamp) {
+    long[] sample = {responseTimestamp, bytes};
     totalBytesTransferred += bytes;
     totalResponsesReceived++;
     rollingWindowSamples.addLast(sample);
-    removeOldByteSamples(nowTimestamp);
+    removeOldByteSamples(responseTimestamp);
   }
 
   /**
-   * Remove byte samples older than {@code nowTimestamp} - {@code rollingWindowDurationMS}
+   * Remove byte samples older than {@code nowTimestamp} - {@code rollingWindowDurationNanos}
    *
    * @param nowTimestamp current Timestamp
    */
   private void removeOldByteSamples(final long nowTimestamp){
     while (!rollingWindowSamples.isEmpty()
-            && rollingWindowSamples.peekFirst()[0] < nowTimestamp - rollingWindowDurationMS) {
+            && rollingWindowSamples.peekFirst()[0] < nowTimestamp - rollingWindowDurationNanos) {
       rollingWindowSamples.pollFirst();
     }
   }
