@@ -41,12 +41,9 @@ public class RocksDbHelper {
   static void forEachColumnFamily(
       final String dbPath, final BiConsumer<RocksDB, ColumnFamilyHandle> task) {
     RocksDB.loadLibrary();
-    Options options = new Options();
-    options.setCreateIfMissing(true);
-
     // Open the RocksDB database with multiple column families
     List<byte[]> cfNames;
-    try {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
       cfNames = RocksDB.listColumnFamilies(options, dbPath);
     } catch (RocksDBException e) {
       throw new RuntimeException(e);
@@ -74,12 +71,9 @@ public class RocksDbHelper {
       final BiConsumer<RocksDB, ColumnFamilyHandle> task,
       final List<String> columnFamilyNameFilter) {
     RocksDB.loadLibrary();
-    Options options = new Options();
-    options.setCreateIfMissing(true);
-
     // Open the RocksDB database with multiple column families
     List<byte[]> cfNames;
-    try {
+    try (final Options options = new Options().setCreateIfMissing(true)) {
       cfNames = RocksDB.listColumnFamilies(options, dbPath);
     } catch (RocksDBException e) {
       throw new RuntimeException(e);
