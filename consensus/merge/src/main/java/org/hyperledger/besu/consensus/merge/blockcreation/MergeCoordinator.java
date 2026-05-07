@@ -15,6 +15,7 @@
 package org.hyperledger.besu.consensus.merge.blockcreation;
 
 import static java.util.stream.Collectors.joining;
+import static org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult.Status.INTERNAL_ERROR;
 import static org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult.Status.INVALID;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead;
 
@@ -748,8 +749,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     }
 
     if (!setNewHead(blockchain, newHead)) {
-      LOG.warn("Failed to move world state to new head {}", newHead.toLogString());
-      return ForkchoiceResult.withFailure(INVALID, "Failed to set new head", latestValid);
+      return ForkchoiceResult.withFailure(
+          INTERNAL_ERROR, "could not apply new head " + newHead.toLogString(), latestValid);
     }
 
     // set and persist the new finalized block if it is present

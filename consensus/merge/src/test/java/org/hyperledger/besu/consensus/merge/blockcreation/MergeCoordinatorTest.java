@@ -1262,20 +1262,22 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
             backwardSyncContext);
 
     coordinator.rememberBlock(block3);
-    clearInvocations(blockchain);
+    clearInvocations(blockchain, mergeContext);
 
     ForkchoiceResult result =
         failingCoordinator.updateForkChoice(
             block3Header, block1Header.getHash(), block1Header.getHash());
 
     assertThat(result.shouldNotProceedToPayloadBuildProcess()).isTrue();
-    assertThat(result.getStatus()).isEqualTo(ForkchoiceResult.Status.INVALID);
+    assertThat(result.getStatus()).isEqualTo(ForkchoiceResult.Status.INTERNAL_ERROR);
     assertThat(result.getErrorMessage()).isPresent();
 
     assertThat(blockchain.getChainHeadHash()).isEqualTo(block2Header.getHash());
 
     verify(blockchain, never()).setFinalized(block1Header.getHash());
+    verify(mergeContext, never()).setFinalized(block1Header);
     verify(blockchain, never()).setSafeBlock(block1Header.getHash());
+    verify(mergeContext, never()).setSafeBlock(block1Header);
   }
 
   private static BlockHeader mockBlockHeader() {

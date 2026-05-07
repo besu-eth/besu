@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EngineForkc
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadAttributesParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -279,6 +280,14 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
                 requestId,
                 new EngineUpdateForkchoiceResult(
                     VALID, latestValid.orElse(null), null, result.getErrorMessage()));
+        break;
+      case INTERNAL_ERROR:
+        LOG.info("FCU could not be applied: {}", result.getErrorMessage().orElse("internal error"));
+        response =
+            new JsonRpcErrorResponse(
+                requestId,
+                new JsonRpcError(
+                    RpcErrorType.INTERNAL_ERROR, result.getErrorMessage().orElse(null)));
         break;
       default:
         throw new AssertionError(
