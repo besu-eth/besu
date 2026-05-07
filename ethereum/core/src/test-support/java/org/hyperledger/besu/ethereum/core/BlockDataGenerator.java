@@ -903,7 +903,7 @@ public class BlockDataGenerator {
    * @return an empty BlockAccessList
    */
   public BlockAccessList emptyBlockAccessList() {
-    return new BlockAccessList(Collections.emptyList());
+    return new BlockAccessList(Collections.emptyList(), RLP.EMPTY_LIST);
   }
 
   public static class BlockOptions {

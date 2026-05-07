@@ -132,11 +132,11 @@ class SnapServerBlockAccessListsTest {
   }
 
   @Test
-  void shouldLimitBlockAccessListsByEntryCount() {
+  void shouldSoftLimitBlockAccessListsByEntryCount() {
     when(blockchain.getBlockAccessList(any())).thenReturn(Optional.empty());
 
-    final List<Hash> hashes = new ArrayList<>(SNAP_MAX_ENTRIES_PER_REQUEST + 1);
-    for (int i = 0; i < SNAP_MAX_ENTRIES_PER_REQUEST + 1; i++) {
+    final List<Hash> hashes = new ArrayList<>(SNAP_MAX_ENTRIES_PER_REQUEST + 2);
+    for (int i = 0; i < SNAP_MAX_ENTRIES_PER_REQUEST + 2; i++) {
       hashes.add(dataGenerator.hash());
     }
 

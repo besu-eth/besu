@@ -109,7 +109,17 @@ public class GetBlockAccessListsFromPeerTask implements PeerTask<List<Optional<B
         continue;
       }
 
-      final Hash actualBalHash = BodyValidation.balHash(maybeBal.get());
+      final int responseIndex = i;
+      final Hash actualBalHash =
+          BodyValidation.balHash(
+              maybeBal
+                  .get()
+                  .rawRlp()
+                  .orElseThrow(
+                      () ->
+                          new IllegalStateException(
+                              "Block access list raw RLP is missing at index " + responseIndex)));
+
       if (expectedBalHash == null || !expectedBalHash.equals(actualBalHash)) {
         LOG.atDebug()
             .setMessage(
