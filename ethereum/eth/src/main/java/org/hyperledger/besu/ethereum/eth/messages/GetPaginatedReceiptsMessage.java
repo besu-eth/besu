@@ -20,16 +20,17 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
+import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 import org.apache.tuweni.bytes.Bytes;
 
 public final class GetPaginatedReceiptsMessage extends GetReceiptsMessage {
   private final int firstBlockReceiptIndex;
 
-  private GetPaginatedReceiptsMessage(
-      final Bytes data, final List<Hash> blockHashes, final int firstBlockReceiptIndex) {
-    super(data, blockHashes);
+  private GetPaginatedReceiptsMessage(final Bytes data, final int firstBlockReceiptIndex) {
+    super(data);
     this.firstBlockReceiptIndex = firstBlockReceiptIndex;
   }
 
@@ -44,8 +45,7 @@ public final class GetPaginatedReceiptsMessage extends GetReceiptsMessage {
     }
     final RLPInput input = new BytesValueRLPInput(message.getData(), false);
     final int firstBlockReceiptIndex = input.readIntScalar();
-    final List<Hash> blockHashes = parseBlockHashes(input);
-    return new GetPaginatedReceiptsMessage(message.getData(), blockHashes, firstBlockReceiptIndex);
+    return new GetPaginatedReceiptsMessage(message.getData(), firstBlockReceiptIndex);
   }
 
   public static GetPaginatedReceiptsMessage create(
@@ -55,10 +55,36 @@ public final class GetPaginatedReceiptsMessage extends GetReceiptsMessage {
     tmp.startList();
     blockHashes.forEach(hash -> tmp.writeBytes(hash.getBytes()));
     tmp.endList();
-    return new GetPaginatedReceiptsMessage(tmp.encoded(), blockHashes, firstBlockReceiptIndex);
+    return new GetPaginatedReceiptsMessage(tmp.encoded(), firstBlockReceiptIndex);
   }
 
   public int firstBlockReceiptIndex() {
     return firstBlockReceiptIndex;
+  }
+
+  @Override
+  public Iterable<Hash> blockHashes() {
+    return () ->
+        new Iterator<>() {
+          private final RLPInput input = new BytesValueRLPInput(data, false);
+
+          {
+            input.readIntScalar(); // skip the firstBlockReceiptIndex scalar
+            input.enterList();
+          }
+
+          @Override
+          public boolean hasNext() {
+            return !input.isEndOfCurrentList();
+          }
+
+          @Override
+          public Hash next() {
+            if (!hasNext()) {
+              throw new NoSuchElementException();
+            }
+            return Hash.wrap(input.readBytes32());
+          }
+        };
   }
 }

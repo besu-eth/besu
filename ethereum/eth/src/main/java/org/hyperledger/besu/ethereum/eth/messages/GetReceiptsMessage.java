@@ -21,17 +21,16 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
-import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 
 import org.apache.tuweni.bytes.Bytes;
 
 public class GetReceiptsMessage extends AbstractMessageData {
-  private final List<Hash> blockHashes;
 
-  protected GetReceiptsMessage(final Bytes data, final List<Hash> blockHashes) {
+  protected GetReceiptsMessage(final Bytes data) {
     super(data);
-    this.blockHashes = blockHashes;
   }
 
   public static GetReceiptsMessage readFrom(final MessageData message) {
@@ -43,8 +42,7 @@ public class GetReceiptsMessage extends AbstractMessageData {
       throw new IllegalArgumentException(
           String.format("Message has code %d and thus is not a GetReceipts.", code));
     }
-    final RLPInput input = new BytesValueRLPInput(message.getData(), false);
-    return new GetReceiptsMessage(message.getData(), parseBlockHashes(input));
+    return new GetReceiptsMessage(message.getData());
   }
 
   public static GetReceiptsMessage create(final List<Hash> blockHashes) {
@@ -52,7 +50,7 @@ public class GetReceiptsMessage extends AbstractMessageData {
     tmp.startList();
     blockHashes.forEach(hash -> tmp.writeBytes(hash.getBytes()));
     tmp.endList();
-    return new GetReceiptsMessage(tmp.encoded(), blockHashes);
+    return new GetReceiptsMessage(tmp.encoded());
   }
 
   @Override
@@ -60,16 +58,27 @@ public class GetReceiptsMessage extends AbstractMessageData {
     return EthProtocolMessages.GET_RECEIPTS;
   }
 
-  public List<Hash> blockHashes() {
-    return blockHashes;
-  }
+  public Iterable<Hash> blockHashes() {
+    return () ->
+        new Iterator<>() {
+          private final RLPInput input = new BytesValueRLPInput(data, false);
 
-  protected static List<Hash> parseBlockHashes(final RLPInput input) {
-    final List<Hash> hashes = new ArrayList<>(input.enterList());
-    while (!input.isEndOfCurrentList()) {
-      hashes.add(Hash.wrap(input.readBytes32()));
-    }
-    input.leaveList();
-    return hashes;
+          {
+            input.enterList();
+          }
+
+          @Override
+          public boolean hasNext() {
+            return !input.isEndOfCurrentList();
+          }
+
+          @Override
+          public Hash next() {
+            if (!hasNext()) {
+              throw new NoSuchElementException();
+            }
+            return Hash.wrap(input.readBytes32());
+          }
+        };
   }
 }

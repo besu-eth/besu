@@ -285,32 +285,21 @@ class EthServer {
       final int maxMessageSize) {
     final GetPaginatedReceiptsMessage getPaginatedReceipts =
         GetPaginatedReceiptsMessage.readFrom(message);
-    final List<Hash> requestedBlockHashes = getPaginatedReceipts.blockHashes();
-    final List<Hash> blockHashes;
-    if (requestedBlockHashes.size() > requestLimit) {
-      LOG.atDebug()
-          .setMessage(
-              "Requested receipts for {} blocks, more than allowed max number of {}, ignoring extra blocks")
-          .addArgument(requestedBlockHashes::size)
-          .addArgument(requestLimit)
-          .log();
-      blockHashes = requestedBlockHashes.subList(0, requestLimit);
-    } else {
-      blockHashes = requestedBlockHashes;
-    }
+    final Iterable<Hash> blockHashes = getPaginatedReceipts.blockHashes();
 
-    final var blockReceiptsRLPs = new ArrayList<BytesValueRLPOutput>(blockHashes.size());
+    final var blockReceiptsRLPs = new ArrayList<BytesValueRLPOutput>(requestLimit);
 
     int skipBefore = getPaginatedReceipts.firstBlockReceiptIndex();
-    LOG.trace(
-        "Paginated receipt request for {} blocks with first block receipt index {}",
-        blockHashes.size(),
-        skipBefore);
     // Account for the outer list header and the lastBlockIncomplete scalar (max 2 bytes).
     int responseSizeEstimate = RLP.MAX_PREFIX_SIZE + 2;
     boolean lastBlockIncomplete = false;
 
+    int count = 0;
     for (final Hash blockHash : blockHashes) {
+      if (count >= requestLimit) {
+        break;
+      }
+      count++;
       final Optional<List<TransactionReceipt>> maybeReceipts = blockchain.getTxReceipts(blockHash);
       if (maybeReceipts.isEmpty()) {
         LOG.debug(
@@ -372,7 +361,7 @@ class EthServer {
     final Bytes encodedResponse = rlp.encoded();
     LOG.trace(
         "Returning paginated receipts for {} blocks, with last block incomplete {}, enconded size {}",
-        blockHashes.size(),
+        count,
         lastBlockIncomplete,
         encodedResponse.size());
     return PaginatedReceiptsMessage.createUnsafe(encodedResponse, lastBlockIncomplete);
