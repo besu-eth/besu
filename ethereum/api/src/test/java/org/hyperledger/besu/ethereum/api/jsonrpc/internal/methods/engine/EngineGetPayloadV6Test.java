@@ -25,9 +25,9 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.PayloadWrapper;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
+import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.RequestType;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
@@ -127,13 +127,12 @@ public class EngineGetPayloadV6Test extends AbstractEngineGetPayloadTest {
 
     final PayloadIdentifier payloadIdentifier =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            header.getTimestamp(),
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(new BlockHeaderTestFixture().buildHeader())
+                .timestamp(header.getTimestamp())
+                .prevRandao(Bytes32.random())
+                .feeRecipient(Address.fromHexString("0x42"))
+                .build());
 
     final List<Request> requests =
         List.of(
@@ -173,13 +172,12 @@ public class EngineGetPayloadV6Test extends AbstractEngineGetPayloadTest {
 
     final PayloadIdentifier payloadIdentifier =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            header.getTimestamp(),
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(new BlockHeaderTestFixture().buildHeader())
+                .timestamp(header.getTimestamp())
+                .prevRandao(Bytes32.random())
+                .feeRecipient(Address.fromHexString("0x42"))
+                .build());
 
     final BlockWithReceipts blockWithReceipts =
         new BlockWithReceipts(

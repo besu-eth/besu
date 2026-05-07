@@ -14,21 +14,21 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.methods;
 
+import static com.google.common.base.Preconditions.checkState;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.OSAKA;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcApis;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineExchangeCapabilities;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineExchangeTransitionConfiguration;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV1;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV2;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV3;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetBlobsV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetBlobsV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetBlobsV3;
@@ -57,13 +57,16 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
+import java.lang.reflect.InvocationTargetException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 import io.vertx.core.Vertx;
+import org.apache.commons.lang3.ArrayUtils;
 
 public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
 
@@ -91,7 +94,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       final MetricsSystem metricsSystem) {
     this.mergeCoordinator =
         Optional.ofNullable(miningCoordinator)
-            .filter(mc -> mc.isCompatibleWithEngineApi())
+            .filter(MiningCoordinator::isCompatibleWithEngineApi)
             .map(MergeMiningCoordinator.class::cast);
     this.protocolSchedule = protocolSchedule;
     this.protocolContext = protocolContext;
@@ -113,6 +116,14 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
     final EngineQosTimer engineQosTimer = new EngineQosTimer(consensusEngineServer);
     if (mergeCoordinator.isPresent()) {
       List<JsonRpcMethod> executionEngineApisSupported = new ArrayList<>();
+      executionEngineApisSupported.addAll(
+          createEngineForkchoiceUpdatedMethods(
+              consensusEngineServer,
+              protocolSchedule,
+              protocolContext,
+              mergeCoordinator.get(),
+              engineQosTimer));
+
       executionEngineApisSupported.addAll(
           Arrays.asList(
               new EngineGetPayloadV1(
@@ -152,24 +163,6 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
                   ethPeers,
                   engineQosTimer,
                   metricsSystem),
-              new EngineForkchoiceUpdatedV1(
-                  consensusEngineServer,
-                  protocolSchedule,
-                  protocolContext,
-                  mergeCoordinator.get(),
-                  engineQosTimer),
-              new EngineForkchoiceUpdatedV2(
-                  consensusEngineServer,
-                  protocolSchedule,
-                  protocolContext,
-                  mergeCoordinator.get(),
-                  engineQosTimer),
-              new EngineForkchoiceUpdatedV3(
-                  consensusEngineServer,
-                  protocolSchedule,
-                  protocolContext,
-                  mergeCoordinator.get(),
-                  engineQosTimer),
               new EngineExchangeTransitionConfiguration(
                   consensusEngineServer, protocolContext, engineQosTimer),
               new EngineGetPayloadBodiesByHashV1(
@@ -188,6 +181,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
                   protocolSchedule,
                   engineQosTimer,
                   transactionPool)));
+
       if (protocolSchedule.milestoneFor(CANCUN).isPresent()) {
         executionEngineApisSupported.add(
             new EngineGetPayloadV3(
@@ -271,13 +265,6 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
                 ethPeers,
                 engineQosTimer,
                 metricsSystem));
-        executionEngineApisSupported.add(
-            new EngineForkchoiceUpdatedV4(
-                consensusEngineServer,
-                protocolSchedule,
-                protocolContext,
-                mergeCoordinator.get(),
-                engineQosTimer));
       }
 
       return mapOf(executionEngineApisSupported);
@@ -286,5 +273,96 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
           new EngineExchangeTransitionConfiguration(
               consensusEngineServer, protocolContext, engineQosTimer));
     }
+  }
+
+  private Collection<? extends JsonRpcMethod> createEngineForkchoiceUpdatedMethods(
+      final Vertx consensusEngineServer,
+      final ProtocolSchedule protocolSchedule,
+      final ProtocolContext protocolContext,
+      final MergeMiningCoordinator mergeMiningCoordinator,
+      final EngineQosTimer engineQosTimer) {
+
+    return VersionScheduler.startsWith(
+            org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.forkchoiceupdated
+                .EngineForkchoiceUpdatedV1.class)
+        .thenFrom(
+            SHANGHAI,
+            org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.forkchoiceupdated
+                .EngineForkchoiceUpdatedV2.class)
+        .thenFrom(
+            CANCUN,
+            org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.forkchoiceupdated
+                .EngineForkchoiceUpdatedV3.class)
+        .thenFrom(
+            AMSTERDAM,
+            org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.forkchoiceupdated
+                .EngineForkchoiceUpdatedV4.class)
+        .build(
+            protocolSchedule,
+            consensusEngineServer,
+            protocolSchedule,
+            protocolContext,
+            mergeMiningCoordinator,
+            engineQosTimer);
+  }
+
+  private static class VersionScheduler {
+    final List<MethodVersionBuildData> methods = new ArrayList<>();
+    boolean firstSet = false;
+    Class<? extends ExecutionEngineJsonRpcMethod> pendingMethod;
+    HardforkId from;
+
+    static VersionScheduler startsWith(
+        final Class<? extends ExecutionEngineJsonRpcMethod> firstVersion) {
+      final VersionScheduler vs = new VersionScheduler();
+      checkState(!vs.firstSet, "Initial method has already been set");
+      vs.pendingMethod = firstVersion;
+      vs.from = null;
+      vs.firstSet = true;
+      return vs;
+    }
+
+    VersionScheduler thenFrom(
+        final HardforkId hardforkId,
+        final Class<? extends ExecutionEngineJsonRpcMethod> nextVersion) {
+      checkState(firstSet, "Must set initial method first");
+      final MethodVersionBuildData mvi =
+          new MethodVersionBuildData(pendingMethod, from, hardforkId);
+      methods.add(mvi);
+      pendingMethod = nextVersion;
+      from = hardforkId;
+      return this;
+    }
+
+    List<? extends ExecutionEngineJsonRpcMethod> build(
+        final ProtocolSchedule protocolSchedule, final Object... constructorArgs) {
+      final MethodVersionBuildData mvi = new MethodVersionBuildData(pendingMethod, from, null);
+      methods.add(mvi);
+
+      return methods.stream()
+          .filter(mv -> mv.from == null || protocolSchedule.milestoneFor(mv.from).isPresent())
+          .map(
+              mv -> {
+                try {
+                  @SuppressWarnings("unchecked")
+                  final var constructor =
+                      (java.lang.reflect.Constructor<? extends ExecutionEngineJsonRpcMethod>)
+                          mv.versionClass.getDeclaredConstructors()[0];
+                  constructor.setAccessible(true);
+                  return constructor.newInstance(
+                      ArrayUtils.addAll(constructorArgs, mv.from, mv.to));
+                } catch (InstantiationException
+                    | IllegalAccessException
+                    | InvocationTargetException e) {
+                  throw new RuntimeException(e);
+                }
+              })
+          .toList();
+    }
+
+    record MethodVersionBuildData(
+        Class<? extends ExecutionEngineJsonRpcMethod> versionClass,
+        HardforkId from,
+        HardforkId to) {}
   }
 }

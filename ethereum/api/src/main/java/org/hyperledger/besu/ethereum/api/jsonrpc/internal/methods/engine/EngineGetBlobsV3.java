@@ -195,6 +195,13 @@ public class EngineGetBlobsV3 extends ExecutionEngineJsonRpcMethod {
 
   @Override
   protected ValidationResult<RpcErrorType> validateForkSupported(final long currentTimestamp) {
-    return ForkSupportHelper.validateForkSupported(OSAKA, osakaMilestone, currentTimestamp);
+    return osakaMilestone
+        .map(
+            milestone ->
+                ForkSupportHelper.validateForkSupported(OSAKA, milestone, currentTimestamp))
+        .orElseGet(
+            () ->
+                ValidationResult.invalid(
+                    RpcErrorType.UNSUPPORTED_FORK, OSAKA.name() + " not configured"));
   }
 }

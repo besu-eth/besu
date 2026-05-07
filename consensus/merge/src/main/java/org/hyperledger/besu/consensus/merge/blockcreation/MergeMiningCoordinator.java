@@ -33,6 +33,7 @@ import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 
 import org.apache.tuweni.bytes.Bytes32;
+import org.immutables.value.Value;
 
 /** The interface Merge mining coordinator. */
 public interface MergeMiningCoordinator extends MiningCoordinator {
@@ -40,25 +41,33 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
   long MAX_REORG_DEPTH = 90_000L;
 
   /**
+   * Arguments passed to {@link MergeMiningCoordinator#preparePayload(PreparePayloadArgs)}.
+   *
+   * @param parentHeader the parent block header
+   * @param timestamp the payload timestamp
+   * @param prevRandao the previous RANDAO mix
+   * @param feeRecipient the suggested fee recipient address
+   * @param withdrawals the withdrawals, if present
+   * @param parentBeaconBlockRoot the parent beacon block root, if present
+   * @param slotNumber the consensus-layer slot number, if present
+   */
+  @Value.Builder
+  record PreparePayloadArgs(
+      BlockHeader parentHeader,
+      Long timestamp,
+      Bytes32 prevRandao,
+      Address feeRecipient,
+      Optional<List<Withdrawal>> withdrawals,
+      Optional<Bytes32> parentBeaconBlockRoot,
+      Optional<Long> slotNumber) {}
+
+  /**
    * Prepare payload identifier.
    *
-   * @param parentHeader the parent header
-   * @param timestamp the timestamp
-   * @param prevRandao the prev randao
-   * @param feeRecipient the fee recipient
-   * @param withdrawals the optional list of withdrawals
-   * @param parentBeaconBlockRoot optional root hash of the parent beacon block
-   * @param slotNumber optional slot number (EIP-7843)
+   * @param preparePayloadArgs the payload attributes
    * @return the payload identifier
    */
-  PayloadIdentifier preparePayload(
-      final BlockHeader parentHeader,
-      final Long timestamp,
-      final Bytes32 prevRandao,
-      final Address feeRecipient,
-      final Optional<List<Withdrawal>> withdrawals,
-      final Optional<Bytes32> parentBeaconBlockRoot,
-      final Optional<Long> slotNumber);
+  PayloadIdentifier preparePayload(final PreparePayloadArgs preparePayloadArgs);
 
   @Override
   default boolean isCompatibleWithEngineApi() {
@@ -117,15 +126,15 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
       final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash);
 
   /**
-   * Returns true if the given block hash is a strict ancestor of the currently finalized block
+   * Returns true if the given block header is a strict ancestor of the currently finalized block
    * (i.e. an older block on the same chain, not finalized itself). Returns false when no finalized
    * block is known, when the candidate hash cannot be located, or when the candidate IS the
    * finalized block
    *
-   * @param candidateHeadHash the candidate head hash
+   * @param candidateHeadHash the candidate block header hash
    * @return whether the candidate is a strict ancestor of the latest known finalized block
    */
-  boolean isAncestorOfFinalized(Hash candidateHeadHash);
+  boolean isAncestorOfFinalized(BlockHeader candidateHeadHash);
 
   /**
    * Computes the reorg depth that would result from switching the canonical head to {@code

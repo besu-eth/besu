@@ -17,6 +17,8 @@ package org.hyperledger.besu.consensus.merge.blockcreation;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.GWei;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 
 import java.util.ArrayList;
@@ -46,13 +48,20 @@ import org.openjdk.jmh.annotations.Warmup;
 @BenchmarkMode(Mode.AverageTime)
 public class PayloadIdentifierBenchmark {
 
+  // fields used by the xorBased baseline
   private Hash parentHash;
-  private Long timestamp;
+  private Optional<List<Withdrawal>> withdrawalsOpt;
+  private Optional<Bytes32> parentBeaconBlockRootOpt;
+  private Optional<Long> slotNumberOpt;
+
+  // fields used by currentImplementation
+  private BlockHeader parentHeader;
+  private long timestamp;
   private Bytes32 prevRandao;
   private Address feeRecipient;
-  private Optional<List<Withdrawal>> withdrawals;
-  private Optional<Bytes32> parentBeaconBlockRoot;
-  private Optional<Long> slotNumber;
+  private List<Withdrawal> withdrawalsList;
+  private Bytes32 parentBeaconBlockRoot;
+  private long slotNumber;
 
   @Setup
   public void setUp() {
@@ -72,9 +81,11 @@ public class PayloadIdentifierBenchmark {
 
     final byte[] beaconRootBytes = new byte[32];
     random.nextBytes(beaconRootBytes);
-    parentBeaconBlockRoot = Optional.of(Bytes32.wrap(beaconRootBytes));
+    parentBeaconBlockRoot = Bytes32.wrap(beaconRootBytes);
+    parentBeaconBlockRootOpt = Optional.of(parentBeaconBlockRoot);
 
-    slotNumber = Optional.of(12_345_678L);
+    slotNumber = 12_345_678L;
+    slotNumberOpt = Optional.of(slotNumber);
 
     // 16 is the standard maximum number of withdrawals per block (EIP-4895)
     final List<Withdrawal> withdrawalList = new ArrayList<>(16);
@@ -88,7 +99,10 @@ public class PayloadIdentifierBenchmark {
               Address.wrap(Bytes.wrap(addrBytes)),
               GWei.of(1_000_000_000L + i)));
     }
-    withdrawals = Optional.of(withdrawalList);
+    withdrawalsList = withdrawalList;
+    withdrawalsOpt = Optional.of(withdrawalList);
+
+    parentHeader = new BlockHeaderTestFixture().buildHeader();
   }
 
   /**
@@ -103,7 +117,7 @@ public class PayloadIdentifierBenchmark {
             ^ ((long) prevRandao.toHexString().hashCode()) << 16
             ^ ((long) feeRecipient.toHexString().hashCode()) << 24
             ^ (long)
-                withdrawals
+                withdrawalsOpt
                     .map(
                         ws ->
                             ws.stream()
@@ -111,19 +125,21 @@ public class PayloadIdentifierBenchmark {
                                 .map(Withdrawal::hashCode)
                                 .reduce(1, (a, b) -> a ^ (b * 31)))
                     .orElse(0)
-            ^ ((long) parentBeaconBlockRoot.hashCode()) << 32
-            ^ slotNumber.orElse(0L) << 40);
+            ^ ((long) parentBeaconBlockRootOpt.hashCode()) << 32
+            ^ slotNumberOpt.orElse(0L) << 40);
   }
 
   @Benchmark
   public PayloadIdentifier currentImplementation() {
     return PayloadIdentifier.forPayloadParams(
-        parentHash,
-        timestamp,
-        prevRandao,
-        feeRecipient,
-        withdrawals,
-        parentBeaconBlockRoot,
-        slotNumber);
+        new PreparePayloadArgsBuilder()
+            .parentHeader(parentHeader)
+            .timestamp(timestamp)
+            .prevRandao(prevRandao)
+            .feeRecipient(feeRecipient)
+            .withdrawals(withdrawalsList)
+            .parentBeaconBlockRoot(parentBeaconBlockRoot)
+            .slotNumber(slotNumber)
+            .build());
   }
 }
