@@ -34,7 +34,7 @@ public class GetPooledTransactionsMessageTest {
     List<Hash> hashes = Arrays.asList(Hash.wrap(Bytes32.random()));
     final GetPooledTransactionsMessage msg = GetPooledTransactionsMessage.create(hashes);
     assertThat(msg.getCode()).isEqualTo(EthProtocolMessages.GET_POOLED_TRANSACTIONS);
-    assertThat(msg.pooledTransactions()).isEqualTo(hashes);
+    assertThat(msg.pooledTransactions()).containsExactlyElementsOf(hashes);
   }
 
   @Test
