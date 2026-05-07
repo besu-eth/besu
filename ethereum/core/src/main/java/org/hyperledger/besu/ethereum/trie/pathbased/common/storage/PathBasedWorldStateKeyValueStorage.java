@@ -15,28 +15,19 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.common.storage;
 
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE;
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_FREEZER;
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE;
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_FREEZER;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.CODE_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.BonsaiContext;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.StorageSubscriber;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbStrategy;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
-import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
-import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
@@ -47,7 +38,6 @@ import java.util.List;
 import java.util.NavigableMap;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
@@ -70,9 +60,6 @@ public abstract class PathBasedWorldStateKeyValueStorage
   // 0x776f726c64426c6f636b4e756d626572
   public static final byte[] WORLD_BLOCK_NUMBER_KEY =
       "worldBlockNumber".getBytes(StandardCharsets.UTF_8);
-
-  // 0x6172636869766564426C6F636B73
-  public static final byte[] ARCHIVED_BLOCKS = "archivedBlocks".getBytes(StandardCharsets.UTF_8);
 
   private final AtomicBoolean shouldClose = new AtomicBoolean(false);
 
@@ -215,200 +202,6 @@ public abstract class PathBasedWorldStateKeyValueStorage
       LOG.error("Error pruning trie log for block hash {}", blockHash, e);
       return false;
     }
-  }
-
-  /**
-   * Move old account state from the primary DB archive segment to the archive freezer segment that
-   * will only be used for historic state queries. This prevents performance degradation over time
-   * for writes to the primary archive DB segments.
-   *
-   * @param previousBlockHeader the block header for the previous block, used to get the "nearest
-   *     before" state
-   * @param accountHash the account to archive old state for
-   * @return the number of account states that were moved to the archive
-   */
-  public int archivePreviousAccountState(
-      final Optional<BlockHeader> previousBlockHeader, final Hash accountHash) {
-    AtomicInteger archivedStateCount = new AtomicInteger();
-    if (previousBlockHeader.isPresent()) {
-      try {
-        // Get the key for the previous block
-        final BonsaiContext previousContext =
-            new BonsaiContext(previousBlockHeader.get().getNumber());
-        final Bytes previousKey =
-            Bytes.of(
-                BonsaiArchiveFlatDbStrategy.calculateArchiveKeyWithMinSuffix(
-                    previousContext, accountHash.getBytes().toArrayUnsafe()));
-
-        Optional<SegmentedKeyValueStorage.NearestKeyValue> nextMatch;
-
-        // Move all entries that match this address hash to the archive DB segment
-        while ((nextMatch =
-                composedWorldStateStorage
-                    .getNearestBefore(ACCOUNT_INFO_STATE_ARCHIVE, previousKey)
-                    .filter(
-                        found ->
-                            found.value().isPresent()
-                                && accountHash.getBytes().commonPrefixLength(found.key())
-                                    >= accountHash.getBytes().size()))
-            .isPresent()) {
-          nextMatch.stream()
-              .forEach(
-                  (nearestKey) -> {
-                    moveDBEntry(
-                        ACCOUNT_INFO_STATE_ARCHIVE,
-                        ACCOUNT_INFO_STATE_FREEZER,
-                        nearestKey.key().toArrayUnsafe(),
-                        nearestKey.value().get());
-                    archivedStateCount.getAndIncrement();
-                  });
-        }
-
-        if (archivedStateCount.get() == 0) {
-          // A lot of entries will have no previous history, so use trace to log when no previous
-          // storage was found
-          LOG.atTrace()
-              .setMessage("no previous state found for block {}, address hash {}")
-              .addArgument(previousBlockHeader.get().getNumber())
-              .addArgument(accountHash)
-              .log();
-        } else {
-          LOG.atDebug()
-              .setMessage("{} storage entries archived for block {}, address hash {}")
-              .addArgument(archivedStateCount.get())
-              .addArgument(previousBlockHeader.get().getNumber())
-              .addArgument(accountHash)
-              .log();
-        }
-      } catch (Exception e) {
-        LOG.error("Error moving account state for account {} to archived storage", accountHash, e);
-      }
-    }
-
-    return archivedStateCount.get();
-  }
-
-  /**
-   * Move old storage state from the primary archive DB segment to the archive freezer segment that
-   * will only be used for historic state queries. This prevents performance degradation over time
-   * for writes to the primary DB segments.
-   *
-   * @param previousBlockHeader the block header for the previous block, used to get the "nearest
-   *     before" state
-   * @param storageSlotKey the storage slot to archive old state for
-   * @return the number of storage states that were moved to archive storage
-   */
-  public int archivePreviousStorageState(
-      final Optional<BlockHeader> previousBlockHeader, final Bytes storageSlotKey) {
-    AtomicInteger archivedStorageCount = new AtomicInteger();
-    if (previousBlockHeader.isPresent()) {
-      try {
-        // Get the key for the previous block
-        final BonsaiContext previousContext =
-            new BonsaiContext(previousBlockHeader.get().getNumber());
-        final Bytes previousKey =
-            Bytes.of(
-                BonsaiArchiveFlatDbStrategy.calculateArchiveKeyWithMinSuffix(
-                    previousContext, storageSlotKey.toArrayUnsafe()));
-
-        Optional<SegmentedKeyValueStorage.NearestKeyValue> nextMatch;
-
-        // Move all entries that match the storage hash for this address & slot
-        // to the archive DB segment
-        while ((nextMatch =
-                composedWorldStateStorage
-                    .getNearestBefore(ACCOUNT_STORAGE_ARCHIVE, previousKey)
-                    .filter(
-                        found ->
-                            found.value().isPresent()
-                                && storageSlotKey.commonPrefixLength(found.key())
-                                    >= storageSlotKey.size()))
-            .isPresent()) {
-          nextMatch.stream()
-              .forEach(
-                  (nearestKey) -> {
-                    if (archivedStorageCount.get() > 0 && archivedStorageCount.get() % 100 == 0) {
-                      // Log progress in case catching up causes there to be a large number of keys
-                      // to move
-                      LOG.atDebug()
-                          .setMessage(
-                              "{} storage entries archived for block {}, slot hash {}, latest key {}")
-                          .addArgument(archivedStorageCount.get())
-                          .addArgument(previousBlockHeader.get().getNumber())
-                          .addArgument(storageSlotKey)
-                          .addArgument(nearestKey.key())
-                          .log();
-                    }
-                    moveDBEntry(
-                        ACCOUNT_STORAGE_ARCHIVE,
-                        ACCOUNT_STORAGE_FREEZER,
-                        nearestKey.key().toArrayUnsafe(),
-                        nearestKey.value().get());
-                    archivedStorageCount.getAndIncrement();
-                  });
-        }
-
-        if (archivedStorageCount.get() == 0) {
-          // A lot of entries will have no previous history, so use trace to log when no previous
-          // storage was found
-          LOG.atTrace()
-              .setMessage("no previous storage found for block {}, slot hash {}")
-              .addArgument(previousBlockHeader.get().getNumber())
-              .addArgument(storageSlotKey)
-              .log();
-        } else {
-          LOG.atDebug()
-              .setMessage("{} storage entries archived for block {}, slot hash {}")
-              .addArgument(archivedStorageCount.get())
-              .addArgument(previousBlockHeader.get().getNumber())
-              .addArgument(storageSlotKey)
-              .log();
-        }
-      } catch (Exception e) {
-        LOG.error("Error moving storage state for slot {} to archived storage", storageSlotKey, e);
-      }
-    }
-
-    return archivedStorageCount.get();
-  }
-
-  private void moveDBEntry(
-      final SegmentIdentifier fromSegment,
-      final SegmentIdentifier toSegment,
-      final byte[] key,
-      final byte[] value) {
-    boolean retried = false;
-    while (true) { // Allow for a single DB retry
-      try {
-        SegmentedKeyValueStorageTransaction tx = composedWorldStateStorage.startTransaction();
-        tx.remove(fromSegment, key);
-        tx.put(toSegment, key, value);
-        tx.commit();
-        break;
-      } catch (StorageException se) {
-        if (!retried && se.getMessage().contains("RocksDBException: Busy")) {
-          retried = true;
-        } else {
-          break;
-        }
-      }
-    }
-  }
-
-  public Optional<Long> getLatestArchivedBlock() {
-    return composedWorldStateStorage
-        .get(ACCOUNT_INFO_STATE_FREEZER, ARCHIVED_BLOCKS)
-        .map(Bytes::wrap)
-        .map(Bytes::toLong);
-  }
-
-  public void setLatestArchivedBlock(final Long blockNumber) {
-    SegmentedKeyValueStorageTransaction tx = composedWorldStateStorage.startTransaction();
-    tx.put(
-        ACCOUNT_INFO_STATE_FREEZER,
-        ARCHIVED_BLOCKS,
-        Bytes.ofUnsignedLong(blockNumber).toArrayUnsafe());
-    tx.commit();
   }
 
   @Override

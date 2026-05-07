@@ -2128,9 +2128,9 @@
             <sha256 value="741530c88f6a48c15184d1504316c02c3a76c2322c410a04b643a85185dc62e9" origin="Manual"/>
          </artifact>
       </component>
-      <component group="ethereum" name="execution-spec-tests" version="v5.3.0">
-         <artifact name="execution-spec-tests-v5.3.0-fixtures_develop.tar.gz">
-            <sha256 value="5dd08fee0fb41bc2a59bc4ab1dc75b19723fc71fe6af2f855454d3283fba09b9" origin="Manual"/>
+      <component group="ethereum" name="execution-spec-tests" version="v5.4.0">
+         <artifact name="execution-spec-tests-v5.4.0-fixtures_develop.tar.gz">
+            <sha256 value="3e2b02d49fe903eda4fd8caca5cbf0d139c470e97e1de9a85299b1b034f97099" origin="Manual"/>
          </artifact>
       </component>
       <component group="info.picocli" name="picocli" version="4.7.6">
