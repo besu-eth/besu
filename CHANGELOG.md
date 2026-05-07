@@ -31,6 +31,7 @@
 - BFT option `xemptyblockperiodseconds` has been taken out of experimental and been renamed `emptyblockperiodseconds`. The old config option is deprecated and will be removed in a future release.
 
 ### Bug fixes
+- Fix `eth_getBlockByNumber`/`eth_getBlockByHash` returning EIP-7928 block access list hash under key `balHash` instead of `blockAccessListHash`, breaking tooling that uses go-ethereum's `types.Header` struct [#10359](https://github.com/besu-eth/besu/issues/10359)
 - `engine_newPayloadV3`/V4/V5: validate parameters before fork-support check so that missing required fields return `-32602` (`INVALID_PARAMS`) instead of `-38005` (`UNSUPPORTED_FORK`), matching the Engine API spec [#10249](https://github.com/besu-eth/besu/pull/10249)
 - Fix data race in `SyncDurationMetrics` where the backing `HashMap` was mutated from multiple sync threads in parallel, causing missing or zero `sync_duration` samples. [#10277](https://github.com/besu-eth/besu/pull/10277)
 - Fix CVE-2026-34480 and CVE-2026-34478 in log4j [#10332](https://github.com/besu-eth/besu/pull/10332)
