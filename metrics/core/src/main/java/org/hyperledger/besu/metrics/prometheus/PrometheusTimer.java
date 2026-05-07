@@ -45,7 +45,7 @@ class PrometheusTimer extends AbstractPrometheusSummary implements LabelledMetri
 
   @Override
   public OperationTimer labels(final String... labels) {
-    final DistributionDataPoint metric = ((Summary) collector).labelValues(labels);
+    final DistributionDataPoint metric = ((Summary) collector()).labelValues(labels);
     return () -> metric.startTimer()::observeDuration;
   }
 }

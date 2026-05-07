@@ -22,6 +22,8 @@ import io.vertx.core.spi.metrics.PoolMetrics;
 
 final class PoolMetricsAdapter implements PoolMetrics<Object> {
 
+  private static final Object TASK_SUBMISSION_CONTEXT = new Object();
+
   private final Counter submittedCounter;
   private final Counter completedCounter;
   private final Counter rejectedCounter;
@@ -62,7 +64,7 @@ final class PoolMetricsAdapter implements PoolMetrics<Object> {
   @Override
   public Object submitted() {
     submittedCounter.inc();
-    return null;
+    return TASK_SUBMISSION_CONTEXT;
   }
 
   @Override
