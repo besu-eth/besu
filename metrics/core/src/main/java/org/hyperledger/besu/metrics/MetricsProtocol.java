@@ -35,6 +35,6 @@ public enum MetricsProtocol {
         return mode;
       }
     }
-    return null;
+    throw new IllegalStateException(String.format("Invalid metrics protocol provided: %s", str));
   }
 }
