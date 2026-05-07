@@ -681,11 +681,13 @@ public class EthPeer implements Comparable<EthPeer> {
 
   /**
    * Return the success rate calculated from useful responses divided by total number of responses
+   * Returns 1.0 if no responses have been recorded
    *
    * @return success rate
    */
   public double getSuccessRate() {
-    return (double) usefulResponses / (usefulResponses + uselessResponses);
+    long totalResponses = usefulResponses + uselessResponses;
+    return totalResponses == 0 ? 1.0 : (double) usefulResponses / (usefulResponses + uselessResponses);
   }
 
   /**

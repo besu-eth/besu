@@ -363,11 +363,17 @@ public class EthPeerTest {
   @Test
   public void recordUsefulResponse() {
     final EthPeer peer = createPeer();
+
+    // no recorded responses
+    assertThat(peer.getSuccessRate()).isEqualTo(1.0);
+
     peer.recordUselessResponse("bodies");
     final EthPeer peer2 = createPeer();
     peer2.recordUselessResponse("bodies");
     peer.recordUsefulResponse();
     assertThat(peer.getReputation().compareTo(peer2.getReputation())).isGreaterThan(0);
+    assertThat(peer.getSuccessRate()).isEqualTo(0.5);
+    assertThat(peer2.getSuccessRate()).isEqualTo(0.0);
   }
 
   @Test
