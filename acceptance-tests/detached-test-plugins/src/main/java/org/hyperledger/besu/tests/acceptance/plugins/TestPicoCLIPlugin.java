@@ -104,17 +104,17 @@ public class TestPicoCLIPlugin implements BesuPlugin {
   }
 
   @Override
-  public void afterExternalServicePostMainLoop() {
-    LOG.info("After external services post main loop. Test Option is '{}'", testOption);
-    state = "afterExternalServicePostMainLoop";
+  public void afterMainLoop() {
+    LOG.info("After main loop. Test Option is '{}'", testOption);
+    state = "afterMainLoop";
 
-    if (FAIL_AFTER_EXTERNAL_SERVICE_POST_MAIN_LOOP.equals(testOption)) {
-      state = "failafterExternalServicePostMainLoop";
-      throw new RuntimeException("I was told to fail after external services post main loop");
+    if (FAIL_AFTER_MAIN_LOOP.equals(testOption)) {
+      state = "failafterMainLoop";
+      throw new RuntimeException("I was told to fail after main loop");
     }
 
-    writeSignal("afterExternalServicePostMainLoop");
-    state = "afterExternalServicePostMainLoopFinished";
+    writeSignal("afterMainLoop");
+    state = "afterMainLoopFinished";
   }
 
   @Override
