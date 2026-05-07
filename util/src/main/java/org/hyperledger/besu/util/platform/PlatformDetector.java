@@ -301,11 +301,21 @@ public class PlatformDetector {
     processBuilder.redirectErrorStream(true);
 
     final StringBuilder rawGlibcVersionBuilder;
+    Process process = null;
     try {
-      final Process process = processBuilder.start();
+      process = processBuilder.start();
       rawGlibcVersionBuilder = readGlibcVersionStream(process.getInputStream());
     } catch (IOException e) {
       return;
+    } finally {
+      if (process != null) {
+        try {
+          process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+        process.destroy();
+      }
     }
 
     _glibc = normalizeGLibcVersion(rawGlibcVersionBuilder.toString());
