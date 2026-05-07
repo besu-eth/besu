@@ -17,6 +17,7 @@ package org.hyperledger.besu.evm.operation;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.frame.Eip8037Trace;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -105,6 +106,16 @@ public class SStoreOperation extends AbstractOperation {
     frame.incrementGasRefund(
         gasCalculator()
             .calculateStorageRefundAmount(newValue, currentValueSupplier, originalValueSupplier));
+
+    if (Eip8037Trace.ENABLED) {
+      Eip8037Trace.recStorage(
+          frame.getDepth(),
+          address.toHexString(),
+          "0x" + key.toHexString().substring(2),
+          originalValueSupplier.get().isZero(),
+          currentValueSupplier.get().isZero(),
+          newValue.isZero());
+    }
 
     // EIP-8037: Refund state gas for 0→X→0 (storage set then clear)
     gasCalculator()

@@ -320,7 +320,7 @@ dependencies {
     )
   devnetTarConfig(
     group: 'ethereum', name: 'execution-spec-tests',
-    version: 'bal@v5.6.1', classifier: 'fixtures_bal', ext: 'tar.gz'
+    version: 'snobal-devnet-6@v1.1.0', classifier: 'fixtures_snobal-devnet-6', ext: 'tar.gz'
     )
   referenceTestImplementation 'com.fasterxml.jackson.core:jackson-databind'
   referenceTestImplementation 'com.google.guava:guava'
@@ -351,6 +351,14 @@ tasks.register('referenceTestsDevnet', Test) {
   description = 'Runs execution-spec-tests pre-release (devnet) reference tests.'
   testClassesDirs = sourceSets.referenceTestDevnet.output.classesDirs
   classpath = sourceSets.referenceTestDevnet.runtimeClasspath
+  for (String name : [
+      'eip8037.trace',
+      'eip8037.trace.file'
+    ]) {
+    if (System.getProperty(name) != null) {
+      systemProperty name, System.getProperty(name)
+    }
+  }
 }
 
 tasks.register('validateReferenceTestSubmodule') {

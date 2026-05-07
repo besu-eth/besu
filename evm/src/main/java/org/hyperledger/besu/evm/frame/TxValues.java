@@ -54,11 +54,27 @@ import org.apache.tuweni.bytes.Bytes32;
  * @param stateGasUsed The cumulative state gas used (EIP-8037), undone on revert
  * @param stateGasReservoir The EIP-8037 state gas reservoir (overflow from regular gas budget),
  *     undone on revert
- * @param stateGasSpillBurned EIP-8037 accumulated state gas that spilled from reverted child
- *     frames; NOT undone on revert (permanent burn counter for block accounting)
+ * @param stateGasSpillBurned EIP-8037 accumulated gas-left spill that was cancelled by an in-scope
+ *     no-growth refund inside a reverted frame; the gas was drained from {@code gasRemaining} (not
+ *     the reservoir) so the user pays for it via receipt cumulative, but block-regular accounting
+ *     must exclude it — revert spillover does not increment {@code regular_gas_used}. NOT undone on
+ *     revert.
+ * @param stateGasReservoirBurn EIP-8037 accumulated reservoir gas drained for an in-scope charge
+ *     that was cancelled by an in-scope no-growth refund inside a reverted frame; the parent's
+ *     incorporate-on-error path subtracts the refund, so the matching drain stays paid even though
+ *     Besu's {@code UndoScalar} rollback restores the shared reservoir to the frame's entry value.
+ *     Tracking the loss in a non-UndoScalar counter lets transaction accounting deduct it from the
+ *     effective reservoir (raising {@code gasUsedByTransaction}) and credit it to {@code
+ *     effectiveStateGas} (so block-regular accounting excludes it). NOT undone on revert.
  * @param initialFrameRegularHaltBurn EIP-7778/EIP-8037 gas burned when the initial frame halts
  *     exceptionally (gasRemaining at halt time). Paid by the sender via receipts, but must be
  *     excluded from block regular gas. Single-element long[] so it is NOT undone on revert.
+ * @param noGrowthStateGasRefunds EIP-8037: cumulative state gas refunds applied because no state
+ *     was actually grown (SSTORE 0→X→0, CREATE silent or child failure, same-tx SELFDESTRUCT).
+ *     Tracked here so {@code AbstractMessageProcessor.handleStateGasRevertSpill} / {@code
+ *     handleStateGasHalt} can subtract refunds-in-scope from the spill credit on revert/halt —
+ *     those refunds must contribute nothing to a parent's reservoir when any frame in the chain
+ *     fails.
  */
 public record TxValues(
     BlockHashLookup blockHashLookup,
@@ -78,7 +94,9 @@ public record TxValues(
     UndoScalar<Long> gasRefunds,
     UndoScalar<Long> stateGasUsed,
     UndoScalar<Long> stateGasReservoir,
+    UndoScalar<Long> noGrowthStateGasRefunds,
     long[] stateGasSpillBurned,
+    long[] stateGasReservoirBurn,
     long[] initialFrameRegularHaltBurn) {
 
   /**
@@ -124,6 +142,8 @@ public record TxValues(
         new UndoScalar<>(0L),
         new UndoScalar<>(0L),
         new UndoScalar<>(0L),
+        new UndoScalar<>(0L),
+        new long[] {0L},
         new long[] {0L},
         new long[] {0L});
   }
@@ -142,5 +162,6 @@ public record TxValues(
     gasRefunds.undo(mark);
     stateGasUsed.undo(mark);
     stateGasReservoir.undo(mark);
+    noGrowthStateGasRefunds.undo(mark);
   }
 }

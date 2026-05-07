@@ -937,7 +937,11 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
                   .ifPresent(blockAccessListBuilder::apply));
 
       transactionSelectionResults.updateSelected(
-          transaction, receipt, blockGasUsed, receiptGasUsed, processingResult.getStateGasUsed());
+          transaction,
+          receipt,
+          blockGasUsed,
+          receiptGasUsed,
+          processingResult.getStateGasUsedForBlock());
 
       notifySelected(evaluationContext, processingResult);
       LOG.atTrace()

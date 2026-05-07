@@ -59,6 +59,35 @@ public interface BlockGasAccountingStrategy {
   }
 
   /**
+   * Check whether the block has capacity for a transaction using per-dimension worst-case
+   * consumption, per EIP-8037 (ethereum/EIPs #11536). The worst-case regular consumption is {@code
+   * min(txMaxGasLimit, tx.gas - intrinsic_state_gas)} (regular gas is runtime-capped at {@code
+   * TX_MAX_GAS_LIMIT}); the worst-case state consumption is {@code tx.gas - intrinsic_regular_gas}.
+   * Both must fit in their respective remaining budgets.
+   *
+   * <p>1D implementations fall back to {@link #hasBlockCapacity(long, long, long, long)}.
+   *
+   * @param txGasLimit the gas limit of the candidate transaction
+   * @param intrinsicRegularGas intrinsic regular gas for the transaction
+   * @param intrinsicStateGas intrinsic state gas for the transaction (0 for pre-EIP-8037)
+   * @param txMaxGasLimit runtime cap on regular gas per tx (EIP-7825 TX_MAX_GAS_LIMIT)
+   * @param cumulativeRegularGas cumulative regular gas used in the block so far
+   * @param cumulativeStateGas cumulative state gas used in the block so far
+   * @param blockGasLimit the block gas limit
+   * @return true if the block has capacity for this transaction under per-dimension checks
+   */
+  default boolean hasBlockCapacity(
+      final long txGasLimit,
+      final long intrinsicRegularGas,
+      final long intrinsicStateGas,
+      final long txMaxGasLimit,
+      final long cumulativeRegularGas,
+      final long cumulativeStateGas,
+      final long blockGasLimit) {
+    return hasBlockCapacity(txGasLimit, cumulativeRegularGas, cumulativeStateGas, blockGasLimit);
+  }
+
+  /**
    * Calculate the effective gas used for occupancy and fullness checks. For 1D gas, this is just
    * the regular gas. For 2D gas (EIP-8037), this is max(regular, state).
    *
@@ -107,6 +136,27 @@ public interface BlockGasAccountingStrategy {
           // exceed the state gas budget but the block total is within limits.
           final long remainingRegular = Math.max(0, blockGasLimit - cumulativeRegularGas);
           return txGasLimit <= remainingRegular;
+        }
+
+        @Override
+        public boolean hasBlockCapacity(
+            final long txGasLimit,
+            final long intrinsicRegularGas,
+            final long intrinsicStateGas,
+            final long txMaxGasLimit,
+            final long cumulativeRegularGas,
+            final long cumulativeStateGas,
+            final long blockGasLimit) {
+          // EIP-8037: per-dimension block gas limit enforcement.
+          // Worst-case regular consumption is capped at TX_MAX_GAS_LIMIT and at
+          // tx.gas - intrinsic_state_gas; worst-case state consumption is tx.gas -
+          // intrinsic_regular_gas. Both must fit in their respective remaining budgets.
+          final long regularAvailable = Math.max(0L, blockGasLimit - cumulativeRegularGas);
+          final long stateAvailable = Math.max(0L, blockGasLimit - cumulativeStateGas);
+          final long worstCaseRegular =
+              Math.min(txMaxGasLimit, Math.max(0L, txGasLimit - intrinsicStateGas));
+          final long worstCaseState = Math.max(0L, txGasLimit - intrinsicRegularGas);
+          return worstCaseRegular <= regularAvailable && worstCaseState <= stateAvailable;
         }
 
         @Override

@@ -110,16 +110,21 @@ public class TransactionGasAccountingTest {
             .build()
             .calculate();
 
-    // All gas consumed when regular gas limit exceeded
-    assertThat(result.effectiveStateGas()).isEqualTo(32_000L); // 30k + 2k spill
+    // EIP-8037: on top-level revert/halt the spill burn
+    // does not add to block_state_gas_used (handleStateGasRevertSpill / handleStateGasHalt in
+    // AbstractMessageProcessor restores it to the reservoir for the initial frame).
+    // effectiveStateGas == stateGasUsed.
+    assertThat(result.effectiveStateGas()).isEqualTo(30_000L);
     assertThat(result.gasUsedByTransaction()).isEqualTo(100_000L);
     assertThat(result.usedGas()).isEqualTo(100_000L);
   }
 
   @Test
   public void stateGasSpill_doubleCountingAvoided() {
-    // initialFrameStateGasSpill=3000 is included in both stateGas AND spillBurned.
-    // The calculation must subtract it from spillBurned to avoid double-counting.
+    // EIP-8037: state-gas spillover absorbed by no-growth refunds in
+    // failed sub-frames is "burned" (sender pays, block accounting excludes from both regular
+    // and state). The spillBurned is subtracted from regularGas so it is not counted as regular
+    // gas; stateGas is just stateGasUsed (no initialFrameStateGasSpill addition).
     final var result =
         baseBuilder()
             .txGasLimit(100_000L)
@@ -131,12 +136,11 @@ public class TransactionGasAccountingTest {
             .calculate();
 
     // executionGas = 100k - 10k - 0 = 90k
-    // stateGas = 20k + 3k = 23k
-    // spillBurned correction = 8k - 3k = 5k (avoid double-counting initialFrameStateGasSpill)
-    // regularGas = 90k - 23k - 5k - 0 = 62k
-    // gasUsedByTransaction = max(62k, 0) + 23k = 85k
-    assertThat(result.effectiveStateGas()).isEqualTo(23_000L);
-    assertThat(result.gasUsedByTransaction()).isEqualTo(85_000L);
+    // stateGas = 20k
+    // regularGas = 90k - 20k - 8k - 0 = 62k
+    // gasUsedByTransaction = max(62k, 0) + 20k = 82k
+    assertThat(result.effectiveStateGas()).isEqualTo(20_000L);
+    assertThat(result.gasUsedByTransaction()).isEqualTo(82_000L);
     assertThat(result.usedGas()).isEqualTo(100_000L);
   }
 
