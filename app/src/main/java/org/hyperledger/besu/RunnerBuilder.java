@@ -659,6 +659,26 @@ public class RunnerBuilder {
 
     Preconditions.checkNotNull(besuController);
 
+    // Ensure optional configuration objects are non-null to avoid NPEs when callers
+    // build a Runner without explicitly setting every configuration. Use the
+    // library-provided defaults where available so behaviour remains backwards
+    // compatible (disabled by default).
+    if (jsonRpcConfiguration == null) {
+      jsonRpcConfiguration = org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration.createDefault();
+    }
+    if (webSocketConfiguration == null) {
+      webSocketConfiguration = org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration.createDefault();
+    }
+    if (jsonRpcIpcConfiguration == null) {
+      jsonRpcIpcConfiguration = new org.hyperledger.besu.ethereum.api.jsonrpc.ipc.JsonRpcIpcConfiguration();
+    }
+    if (inProcessRpcConfiguration == null) {
+      inProcessRpcConfiguration = new org.hyperledger.besu.ethereum.api.jsonrpc.InProcessRpcConfiguration() {};
+    }
+    if (besuPluginContext == null) {
+      besuPluginContext = new org.hyperledger.besu.services.BesuPluginContextImpl();
+    }
+
     final DiscoveryConfiguration discoveryConfiguration =
         DiscoveryConfiguration.create()
             .setBindHost(p2pListenInterface)
