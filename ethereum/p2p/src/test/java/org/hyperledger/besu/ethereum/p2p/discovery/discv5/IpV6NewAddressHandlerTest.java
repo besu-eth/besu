@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.p2p.discovery.discv5;
 import org.hyperledger.besu.ethereum.p2p.discovery.NodeRecordManager;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.DiscoveryPeerV4;
 
+import java.net.Inet4Address;
 import java.net.Inet6Address;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
@@ -38,23 +39,23 @@ public class IpV6NewAddressHandlerTest {
   private IpV6NewAddressHandler ipV6NewAddressHandler;
 
   @Test
-  public void testNewAddressWithIpV4Address() {
+  public void testNewAddressWithIpV4Address() throws UnknownHostException {
     ipV6NewAddressHandler = new IpV6NewAddressHandler(nodeRecordManager, false);
 
     Assertions.assertTrue(
         ipV6NewAddressHandler
-            .newAddress(nodeRecord, InetSocketAddress.createUnresolved("10.0.0.2", 123))
+            .newAddress(nodeRecord, new InetSocketAddress(Inet4Address.getByName("10.0.0.2"), 123))
             .isEmpty());
     Mockito.verifyNoInteractions(nodeRecordManager, nodeRecord);
   }
 
   @Test
-  public void testNewAddressWithIpV6AddressButAdvertisedIpv6HostIsSet() {
+  public void testNewAddressWithIpV6AddressButAdvertisedIpv6HostIsSet() throws UnknownHostException {
     ipV6NewAddressHandler = new IpV6NewAddressHandler(nodeRecordManager, true);
 
     Assertions.assertTrue(
         ipV6NewAddressHandler
-            .newAddress(nodeRecord, InetSocketAddress.createUnresolved("::1", 123))
+            .newAddress(nodeRecord, new InetSocketAddress(Inet6Address.getByName("::1"), 123))
             .isEmpty());
     Mockito.verifyNoInteractions(nodeRecordManager, nodeRecord);
   }
