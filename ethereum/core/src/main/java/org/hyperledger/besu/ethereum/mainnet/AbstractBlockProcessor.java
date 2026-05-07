@@ -353,7 +353,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           if (itemSizeCheck.isOverBudget()) {
             final String errorMessage =
                 itemSizeCheck.overBudgetError().orElseThrow().errorMessage();
-            LOG.error(errorMessage);
+            LOG.info(errorMessage);
             if (worldState instanceof BonsaiWorldState) {
               ((BonsaiWorldStateUpdateAccumulator) blockUpdater).reset();
             }
@@ -563,7 +563,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         RuntimeException rethrown = e;
         throw rethrown;
       } catch (StateRootMismatchException ex) {
-        LOG.debug(
+        LOG.info(
             "failed persisting block due to stateroot mismatch; expected {}, actual {}",
             ex.getExpectedRoot().getBytes().toHexString(),
             ex.getActualRoot().getBytes().toHexString());
