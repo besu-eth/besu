@@ -3,23 +3,19 @@
 ## Unreleased
 
 ### Breaking Changes
-- Experimental Bonsai Archive column families have changed removing freezer column families. If you are using the Bonsai archive you will need to do a full resync [#10339](https://github.com/besu-eth/besu/pull/10339)
 
 ### Upcoming Breaking Changes
 
 ### Bug fixes
-- `eth_getFilterLogs`: cache the chain head once when resolving default `latest..latest` bounds, so a block arriving between the two reads no longer expands the queried range into `[N, N+1]` and returns extra logs. [#10368](https://github.com/besu-eth/besu/pull/10368)
 
 ### Additions and Improvements
-- Add EIP-7981 to Amsterdam [#10388](https://github.com/besu-eth/besu/pull/10388)
-- Bonsai Archive storage now uses Bonsai for head and Bonsai for near head improving performance for head queries [#10192](https://github.com/besu-eth/besu/pull/10192)
-- Added `eth_capabilities` JSON-RPC method that returns the node's data-serving capabilities, including chain head and per-resource availability flags [#10322](https://github.com/besu-eth/besu/pull/10322)
 
 ## 26.5.0
 
 ### Breaking Changes
 - Plugin API
   - Removed `BesuConfiguration#getRpcHttpHost()` and `BesuConfiguration#getRpcHttpPort()` which have been deprecated since `25.1.0`. Use `getConfiguredRpcHttpHost()` and `getConfiguredRpcHttpPort()` instead. [#10268](https://github.com/besu-eth/besu/pull/10268)
+- Experimental Bonsai Archive column families have changed removing freezer column families. If you are using the Bonsai archive you will need to do a full resync [#10339](https://github.com/besu-eth/besu/pull/10339)
 
 ### Upcoming Breaking Changes
 - RPC changes to enhance compatibility with other ELs
@@ -45,6 +41,7 @@
 - Cleanly stop backward sync if world state is unavailable [#10021](https://github.com/besu-eth/besu/pull/10021)
 - Enforce that `blob_versioned_hashes` match the supplied blobs [#10278](https://github.com/besu-eth/besu/pull/10278)
 - Restrict no-reorg behavior to the prefix of the known finalized chain (per execution-apis #786) [#10335](https://github.com/besu-eth/besu/pull/10335)
+- `eth_getFilterLogs`: cache the chain head once when resolving default `latest..latest` bounds, so a block arriving between the two reads no longer expands the queried range into `[N, N+1]` and returns extra logs. [#10368](https://github.com/besu-eth/besu/pull/10368)
 
 ### Additions and Improvements
 - The option to set a different block period for empty BFT blocks (`emptyblockperiodseconds`) is no longer experimental. The experimental flag `xemptyblockperiodseconds` will be removed in a future release. [#10264](https://github.com/besu-eth/besu/pull/10264)
@@ -62,6 +59,10 @@
 - Include `slotNumber` in `payloadIdentifier` generation [#10242](https://github.com/besu-eth/besu/pull/10242)
 - Change Block Access List index encoding to `uint32` [#10279](https://github.com/besu-eth/besu/pull/10279)
 - Add `limit` support to debug opcode tracing to stop capture after N EVM steps (`0` keeps the previous unlimited behavior) and reject negative values at the RPC parameter boundary [#10173](https://github.com/besu-eth/besu/pull/10173)
+- Add EIP-7981 to Amsterdam [#10388](https://github.com/besu-eth/besu/pull/10388)
+- Bonsai Archive storage now uses Bonsai for head and Bonsai for near head improving performance for head queries [#10192](https://github.com/besu-eth/besu/pull/10192)
+- Added `eth_capabilities` JSON-RPC method that returns the node's data-serving capabilities, including chain head and per-resource availability flags [#10322](https://github.com/besu-eth/besu/pull/10322)
+- Upgrade execution-spec-tests to v5.4.0 and fix test harness to correctly handle blocks with expected exceptions [#10287](https://github.com/besu-eth/besu/issues/10287)
 
 ### Plugin API
 - Publish Guava as an API dependency from `plugin-api` [#10248](https://github.com/besu-eth/besu/pull/10248)
