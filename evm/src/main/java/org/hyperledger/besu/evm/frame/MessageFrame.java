@@ -433,6 +433,17 @@ public class MessageFrame {
    * @throws UnderflowException if the offset is out of range
    */
   public Bytes getStackItem(final int offset) {
+    if (stackDataV2 != null) {
+      final int idx = (stackTopV2 - 1 - offset) * 4;
+      final byte[] bytes = new byte[32];
+      for (int i = 0; i < 8; i++) {
+        bytes[i] = (byte) (stackDataV2[idx] >>> (56 - i * 8));
+        bytes[i + 8] = (byte) (stackDataV2[idx + 1] >>> (56 - i * 8));
+        bytes[i + 16] = (byte) (stackDataV2[idx + 2] >>> (56 - i * 8));
+        bytes[i + 24] = (byte) (stackDataV2[idx + 3] >>> (56 - i * 8));
+      }
+      return Bytes32.wrap(bytes);
+    }
     return stack.get(offset);
   }
 
@@ -481,6 +492,9 @@ public class MessageFrame {
    * @return The current stack size
    */
   public int stackSize() {
+    if (stackDataV2 != null) {
+      return stackTopV2;
+    }
     return stack.size();
   }
 
