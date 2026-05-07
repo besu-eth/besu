@@ -1,0 +1,241 @@
+name: Publish Release
+
+run-name: "Publish Release ${{ github.event.release.name }}"
+
+on:
+  release:
+    types: [released]
+
+env:
+  registry: docker.io
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      release_version: ${{ steps.validate_release_version.outputs.release_version }}
+      rc_version: ${{ steps.find_rc_tag.outputs.rc_version }}
+    steps:
+      - name: Pre-process Release Name
+        id: validate_release_version
+        env:
+          RELEASE_VERSION: "${{ github.event.release.name }}"
+        run: |
+          # strip all whitespace
+          RELEASE_VERSION="${RELEASE_VERSION//[[:space:]]/}"
+          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?(-.*)?$ ]]; then
+            echo "Release name does not conform to a valid besu release format YY.M.v[-suffix], e.g. 24.8.0-RC1."
+            exit 1
+          fi
+          echo "release_version=$RELEASE_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Checkout tags
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Find RC tag matching release sha
+        id: find_rc_tag
+        env:
+          RELEASE_VERSION: ${{ steps.validate_release_version.outputs.release_version }}
+        run: |
+          # Find the latest RC tag (e.g. 26.4.0-RC3) pointing to the same commit
+          # as the release tag. That RC is what burn-in validated — we retag its
+          # docker images rather than rebuilding, so the published binaries are
+          # byte-identical to what was tested.
+          set -euo pipefail
+          SHA=$(git rev-list -n 1 "$RELEASE_VERSION")
+          RC_VERSION=$(git tag --points-at "$SHA" | grep -E "^${RELEASE_VERSION}-RC[0-9]+$" | sort -V | tail -n 1 || true)
+          if [[ -z "$RC_VERSION" ]]; then
+            echo "::error::No RC tag of the form ${RELEASE_VERSION}-RC<n> found at sha $SHA. Docker promote requires an RC tag to retag from."
+            exit 1
+          fi
+          echo "Matched RC tag: $RC_VERSION"
+          echo "rc_version=$RC_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Verify binary artifacts on the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ steps.validate_release_version.outputs.release_version }}
+        run: |
+          # Guards against a draft-release.yml run that didn't finish: if any
+          # of the four expected artifacts are missing, or if a binary's
+          # contents don't match its .sha256 sidecar, fail before docker tags
+          # and Maven artifacts get promoted to point at a broken release.
+          set -euo pipefail
+          expected=(
+            "besu-${RELEASE_VERSION}.tar.gz"
+            "besu-${RELEASE_VERSION}.zip"
+            "besu-${RELEASE_VERSION}.tar.gz.sha256"
+            "besu-${RELEASE_VERSION}.zip.sha256"
+          )
+
+          assets=$(gh release view "$RELEASE_VERSION" --json assets --jq '.assets[].name')
+          missing=()
+          for f in "${expected[@]}"; do
+            if ! grep -qx "$f" <<< "$assets"; then
+              missing+=("$f")
+            fi
+          done
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "::error::Release ${RELEASE_VERSION} is missing expected artifacts:"
+            printf '::error::  - %s\n' "${missing[@]}"
+            echo "::error::draft-release.yml likely did not complete successfully. Re-run it before retrying the publish."
+            exit 1
+          fi
+
+          workdir=$(mktemp -d)
+          cd "$workdir"
+          for f in "${expected[@]}"; do
+            gh release download "$RELEASE_VERSION" --pattern "$f"
+          done
+          sha256sum -c "besu-${RELEASE_VERSION}.tar.gz.sha256"
+          sha256sum -c "besu-${RELEASE_VERSION}.zip.sha256"
+
+  docker-promote:
+    needs: [validate]
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+      RC_VERSION: ${{ needs.validate.outputs.rc_version }}
+    steps:
+      - name: Login to ${{ env.registry }}
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          registry: ${{ env.registry }}
+          username: ${{ secrets.DOCKER_USER_RW }}
+          password: ${{ secrets.DOCKER_PASSWORD_RW }}
+
+      - name: Retag RC images as version-specific and latest
+        env:
+          IMAGE: ${{ env.registry }}/${{ secrets.DOCKER_ORG }}/besu
+        run: |
+          set -euo pipefail
+          # Per-arch single-platform tags: RC-<arch>  ->  <VERSION>-<arch>, latest-<arch>
+          for ARCH in amd64 arm64; do
+            docker buildx imagetools create \
+              -t "${IMAGE}:${RELEASE_VERSION}-${ARCH}" \
+              "${IMAGE}:${RC_VERSION}-${ARCH}"
+            docker buildx imagetools create \
+              -t "${IMAGE}:latest-${ARCH}" \
+              "${IMAGE}:${RC_VERSION}-${ARCH}"
+          done
+          # Multi-arch manifest: RC  ->  <VERSION>, latest
+          docker buildx imagetools create \
+            -t "${IMAGE}:${RELEASE_VERSION}" \
+            "${IMAGE}:${RC_VERSION}"
+          docker buildx imagetools create \
+            -t "${IMAGE}:latest" \
+            "${IMAGE}:${RC_VERSION}"
+
+  docker-verify:
+    needs: [validate, docker-promote]
+    env:
+      CONTAINER_NAME: besu-check
+      RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+    runs-on: ${{ matrix.combination.runner }}
+    timeout-minutes: 4
+    strategy:
+      matrix:
+        combination:
+          # Version-specific tags
+          - tag: ${{ needs.validate.outputs.release_version }}
+            platform: ''
+            runner: ubuntu-latest
+            check_latest: 'false'
+          - tag: ${{ needs.validate.outputs.release_version }}-amd64
+            platform: 'linux/amd64'
+            runner: ubuntu-latest
+            check_latest: 'false'
+          - tag: ${{ needs.validate.outputs.release_version }}-arm64
+            platform: ''
+            runner: besu-arm64
+            check_latest: 'false'
+          # Latest tags
+          - tag: latest
+            platform: ''
+            runner: ubuntu-latest
+            check_latest: 'true'
+          - tag: latest-amd64
+            platform: 'linux/amd64'
+            runner: ubuntu-latest
+            check_latest: 'true'
+          - tag: latest-arm64
+            platform: ''
+            runner: besu-arm64
+            check_latest: 'true'
+          - tag: latest
+            platform: ''
+            runner: besu-arm64
+            check_latest: 'true'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: '.github/workflows/BesuContainerVerify.sh'
+
+      - name: Start container
+        run: |
+          PLATFORM_OPT=""
+          [[ x${{ matrix.combination.platform }} != 'x' ]] && PLATFORM_OPT="--platform ${{ matrix.combination.platform }}"
+          docker run -d $PLATFORM_OPT --name ${{ env.CONTAINER_NAME }} ${{ secrets.DOCKER_ORG }}/besu:${{ matrix.combination.tag }}
+
+      - name: Verify besu container
+        run: bash .github/workflows/BesuContainerVerify.sh
+        env:
+          TAG: ${{ matrix.combination.tag }}
+          VERSION: ${{ env.RELEASE_VERSION }}
+          CHECK_LATEST: ${{ matrix.combination.check_latest }}
+
+      - name: Stop container
+        run: docker stop ${{ env.CONTAINER_NAME }}
+
+  artifactory:
+    runs-on: ubuntu-latest
+    needs: [validate]
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.RELEASE_VERSION }}
+
+      - name: Set up Java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: setup gradle
+        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+        with:
+          cache-disabled: true
+
+      - name: Artifactory Publish
+        env:
+          ARTIFACTORY_USER: ${{ secrets.BESU_ARTIFACTORY_USER }}
+          ARTIFACTORY_KEY: ${{ secrets.BESU_ARTIFACTORY_TOKEN }}
+        run: ./gradlew -Prelease.releaseVersion=${{ env.RELEASE_VERSION }} -Pversion=${{env.RELEASE_VERSION}} artifactoryPublish
+
+  verify_artifactory:
+    runs-on: ubuntu-latest
+    needs: [validate, artifactory]
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.RELEASE_VERSION }}
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: pip install requests argparse
+
+      - name: Run the script
+        run: python3 .github/workflows/verify_artifacts.py --besu_version="${{ needs.validate.outputs.release_version }}"
