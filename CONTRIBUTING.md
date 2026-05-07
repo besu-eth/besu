@@ -9,7 +9,6 @@ Having the following accounts is necessary for contributing code/issues to Besu.
 * If you want to contribute code, you can make a [github account here](https://github.com).  
 * If you want to raise an issue, do so [in the issues tab](https://github.com/besu-eth/besu/issues).
 * To ask questions or chat with us, join our [Discord](https://discord.com/invite/hyperledger)
-* To edit pages in our wiki, you'll need a [Linux Foundation (LF) account].
 
 ### Useful contributing links
 
@@ -28,12 +27,20 @@ Having the following accounts is necessary for contributing code/issues to Besu.
 
 ### Other important information
 
-* [Roadmap](https://lf-hyperledger.atlassian.net/wiki/spaces/BESU/pages/22154278/Besu+Roadmap+Planning)
 * [Code of Conduct](https://wiki.hyperledger.org/display/BESU/Code+of+Conduct)
 * [Governance](https://wiki.hyperledger.org/display/BESU/Governance)
 
 ### Guidelines for Non-Code and other Trivial Contributions
 Please keep in mind that we do not accept non-code contributions like fixing comments, typos or some other trivial fixes. Although we appreciate the extra help, managing lots of these small contributions is unfeasible, and puts extra pressure in our continuous delivery systems (running all tests, etc). Feel free to open an issue pointing any of those errors, and we will batch them into a single change.
+
+### Guidelines for submitting agentic contributions.
+DCO sing-offs are required for all contributions, and only a human may sign off on a commit. Agents are encouraged to use the Co-Author or Assisted-By keys in DCO statements, and to include their model name, version and context size. example:
+
+```
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+Signed-off-by: jflo <justin+github@florentine.us>
+```
+
 
 [How to Contribute]: https://wiki.hyperledger.org/display/BESU/How+to+Contribute
 [Linux Foundation (LF) account]: https://identity.linuxfoundation.org/
