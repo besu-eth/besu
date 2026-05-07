@@ -70,7 +70,6 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
   private final Clock clock;
   private final Function<ConsensusRoundIdentifier, RoundState> roundStateCreator;
   private final QbftFinalState finalState;
-
   private Optional<PreparedCertificate> latestPreparedCertificate = Optional.empty();
   private Optional<QbftRound> currentRound = Optional.empty();
   private boolean isEarlyRoundChangeEnabled = false;
@@ -118,10 +117,10 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
                 messageValidatorFactory.createMessageValidator(roundIdentifier, parentHeader));
 
     final long nextBlockHeight = parentHeader.getNumber() + 1;
-    final ConsensusRoundIdentifier roundIdentifier =
+    final ConsensusRoundIdentifier nextBlockRoundId =
         new ConsensusRoundIdentifier(nextBlockHeight, 0);
 
-    finalState.getBlockTimer().startTimer(roundIdentifier, parentHeader::getTimestamp);
+    finalState.getBlockTimer().startTimer(nextBlockRoundId, parentHeader::getTimestamp);
   }
 
   /**
@@ -194,7 +193,18 @@ public class QbftBlockHeightManager implements BaseQbftBlockHeightManager {
         finalState.isLocalNodeProposerForRound(qbftRound.getRoundIdentifier());
 
     if (!isProposer) {
-      // nothing to do here...
+      final long currentTimeInMillis = finalState.getClock().millis();
+      if (!finalState
+          .getBlockTimer()
+          .checkEmptyBlockExpired(parentHeader::getTimestamp, currentTimeInMillis)) {
+        // Mirror the proposer: reset timer, kill round timer, go idle
+        finalState
+            .getBlockTimer()
+            .resetTimerForEmptyBlock(
+                roundIdentifier, parentHeader::getTimestamp, currentTimeInMillis);
+        finalState.getRoundTimer().cancelTimer();
+        currentRound = Optional.empty();
+      }
       LOG.trace("This node is not a proposer so it will not send a proposal: " + roundIdentifier);
       return;
     }
