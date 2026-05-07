@@ -18,7 +18,6 @@ import static java.util.Collections.emptyMap;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.plugin.services.PluginVersionsProvider;
 import org.hyperledger.besu.util.BesuVersionUtils;
 
 import java.util.Collections;

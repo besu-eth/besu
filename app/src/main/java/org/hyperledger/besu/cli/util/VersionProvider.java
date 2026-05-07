@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.cli.util;
 
-import org.hyperledger.besu.plugin.services.PluginVersionsProvider;
 import org.hyperledger.besu.util.BesuVersionUtils;
 
 import java.util.stream.Stream;
