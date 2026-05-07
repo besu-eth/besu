@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking Changes
+- Experimental Bonsai Archive column families have changed removing freezer column families. If you are using the Bonsai archive you will need to do a full resync [#10339](https://github.com/besu-eth/besu/pull/10339)
 
 ### Upcoming Breaking Changes
 
@@ -11,7 +12,8 @@
 
 ### Additions and Improvements
 - Add EIP-7981 to Amsterdam [#10388](https://github.com/besu-eth/besu/pull/10388)
-- Bonsai Archive storage now uses Bonsai for head and Bonsai for near head improving performance for head queries [#10192](https://github.com/besu-eth/besu/pull/10192) 
+- Bonsai Archive storage now uses Bonsai for head and Bonsai for near head improving performance for head queries [#10192](https://github.com/besu-eth/besu/pull/10192)
+- Added `eth_capabilities` JSON-RPC method that returns the node's data-serving capabilities, including chain head and per-resource availability flags [#10322](https://github.com/besu-eth/besu/pull/10322)
 
 ## 26.5.0
 
