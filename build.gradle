@@ -793,6 +793,7 @@ subprojects {
     jmh {
       jmhVersion = '1.37'
       fork = 3
+      resultFormat = 'JSON'
       var inc = _strListCmdArg('includes', [''])
       includes = inc.size() > 1 ? [".*(${inc.join('|')}).*"] : inc
       excludes = _strListCmdArg('excludes', [])
