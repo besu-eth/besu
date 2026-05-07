@@ -50,7 +50,8 @@ public class IpV6NewAddressHandlerTest {
   }
 
   @Test
-  public void testNewAddressWithIpV6AddressButAdvertisedIpv6HostIsSet() throws UnknownHostException {
+  public void testNewAddressWithIpV6AddressButAdvertisedIpv6HostIsSet()
+      throws UnknownHostException {
     ipV6NewAddressHandler = new IpV6NewAddressHandler(nodeRecordManager, true);
 
     Assertions.assertTrue(
