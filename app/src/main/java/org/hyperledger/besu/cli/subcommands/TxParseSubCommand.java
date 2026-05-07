@@ -90,15 +90,17 @@ public class TxParseSubCommand implements Runnable {
       txStream = new BufferedReader(new InputStreamReader(System.in, UTF_8)).lines();
     }
 
-    txStream.forEach(
-        line -> {
-          try {
-            Bytes bytes = Bytes.fromHexStringLenient(line);
-            dump(bytes);
-          } catch (Exception ex) {
-            err(ex.getMessage());
-          }
-        });
+    try (txStream) {
+      txStream.forEach(
+          line -> {
+            try {
+              Bytes bytes = Bytes.fromHexStringLenient(line);
+              dump(bytes);
+            } catch (Exception ex) {
+              err(ex.getMessage());
+            }
+          });
+    }
   }
 
   void dump(final Bytes tx) {
