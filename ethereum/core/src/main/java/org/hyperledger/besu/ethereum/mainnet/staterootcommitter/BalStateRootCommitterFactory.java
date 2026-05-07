@@ -31,7 +31,9 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
 import java.util.function.Supplier;
 
@@ -173,6 +175,11 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
   /**
    * Awaits the BAL computation result. In lenient mode, failures are logged and an empty Optional
    * is returned. In strict mode, failures throw.
+   *
+   * <p>Handles {@link ExecutionException} and {@link InterruptedException} from {@link
+   * CompletableFuture#get()}, direct {@link CancellationException} from {@code get()} when the
+   * future was cancelled, and {@link CompletionException} (e.g. from {@link
+   * CompletableFuture#join()} if used later) including when its cause is cancellation.
    */
   private static Optional<BalRootComputation> awaitBal(
       final CompletableFuture<BalRootComputation> future, final boolean lenient) {
@@ -183,6 +190,14 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
       return handleFailure(lenient, "Interrupted while waiting for BAL state root", e);
+    } catch (final CancellationException e) {
+      return handleFailure(lenient, "BAL state root computation was cancelled", e);
+    } catch (final CompletionException e) {
+      final Throwable cause = e.getCause();
+      if (cause instanceof CancellationException ce) {
+        return handleFailure(lenient, "BAL state root computation was cancelled", ce);
+      }
+      return handleFailure(lenient, "Failed to compute BAL state root", cause != null ? cause : e);
     }
   }
 
