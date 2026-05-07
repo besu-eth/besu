@@ -608,8 +608,15 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
               .pluginsDir(pluginsPath)
               .requestedPluginsInfo(requestedPlugins.stream().map(PluginInfo::new).toList())
               .build());
+      // register plugin CLI options before registering plugins
+      besuPluginContext.registerPluginCliOptions();
+      final String[] args = extraCLIOptions.toArray(new String[0]);
+      // parse so plugin CLI options are available during registration
+      commandLine.parseArgs(args);
       besuPluginContext.registerPlugins();
-      commandLine.parseArgs(extraCLIOptions.toArray(new String[0]));
+      // backward compat: re-parse for plugins that still register options in register().
+      // remove this second parseArgs() call once all plugins migrate to registerCliOptions().
+      commandLine.parseArgs(args);
 
       // register built-in plugins
       new RocksDBPlugin().register(besuPluginContext);
