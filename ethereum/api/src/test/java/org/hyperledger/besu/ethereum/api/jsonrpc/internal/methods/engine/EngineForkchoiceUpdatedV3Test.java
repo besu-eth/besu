@@ -49,7 +49,10 @@ public class EngineForkchoiceUpdatedV3Test extends AbstractEngineForkchoiceUpdat
   private static final Bytes32 MOCK_PBSR = Bytes32.fromHexStringLenient("0xBEEF");
 
   public EngineForkchoiceUpdatedV3Test() {
-    super(EngineForkchoiceUpdatedV3::new);
+    super(
+        (vertx, protocolSchedule, protocolContext, mergeCoordinator, transactionPool, listener) ->
+            new EngineForkchoiceUpdatedV3(
+                vertx, protocolSchedule, protocolContext, mergeCoordinator, listener));
   }
 
   @Override
@@ -164,6 +167,15 @@ public class EngineForkchoiceUpdatedV3Test extends AbstractEngineForkchoiceUpdat
             Optional.empty(),
             List.of());
 
+    when(mergeCoordinator.preparePayload(
+            mockHeader,
+            payloadParams.getTimestamp(),
+            payloadParams.getPrevRandao(),
+            Address.ECREC,
+            Optional.of(List.of()),
+            Optional.of(parentBeaconBlockRoot),
+            Optional.empty()))
+        .thenReturn(mockPayloadId);
     when(mergeCoordinator.preparePayload(
             mockHeader,
             payloadParams.getTimestamp(),

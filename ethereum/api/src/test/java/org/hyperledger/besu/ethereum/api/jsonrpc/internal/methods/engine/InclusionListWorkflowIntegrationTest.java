@@ -18,7 +18,6 @@ import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INCLUSION_LIST_UNSATISFIED;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -64,7 +63,6 @@ import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
-import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.DefaultInclusionListSelector;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.CancunTargetingGasLimitCalculator;
 import org.hyperledger.besu.ethereum.mainnet.DefaultProtocolSchedule;
@@ -150,7 +148,6 @@ public class InclusionListWorkflowIntegrationTest {
   private EngineGetInclusionListV1 getInclusionListMethod;
   private EngineForkchoiceUpdatedV4 forkchoiceUpdatedMethod;
   private EngineNewPayloadV5 newPayloadStrictMethod;
-  private EngineNewPayloadV5 newPayloadLenientMethod;
 
   @BeforeEach
   public void setUp() {
@@ -173,12 +170,7 @@ public class InclusionListWorkflowIntegrationTest {
 
     getInclusionListMethod =
         new EngineGetInclusionListV1(
-            vertx,
-            protocolContext,
-            engineCallListener,
-            transactionPool,
-            metricsSystem,
-            new DefaultInclusionListSelector());
+            vertx, protocolContext, engineCallListener, transactionPool, metricsSystem);
 
     forkchoiceUpdatedMethod =
         new EngineForkchoiceUpdatedV4(
@@ -190,16 +182,6 @@ public class InclusionListWorkflowIntegrationTest {
             engineCallListener);
 
     newPayloadStrictMethod =
-        new EngineNewPayloadV5(
-            vertx,
-            protocolSchedule,
-            protocolContext,
-            mergeCoordinator,
-            ethPeers,
-            engineCallListener,
-            metricsSystem);
-
-    newPayloadLenientMethod =
         new EngineNewPayloadV5(
             vertx,
             protocolSchedule,
@@ -220,7 +202,7 @@ public class InclusionListWorkflowIntegrationTest {
     final BlockHeader parentHeader = createParentBlockHeader();
     when(blockchain.getBlockHeader(parentHeader.getHash())).thenReturn(Optional.of(parentHeader));
 
-    when(transactionPool.getPendingTransactions()).thenReturn(List.of(pt));
+    when(transactionPool.getInclusionListPendingTransactions(parentHeader)).thenReturn(List.of(pt));
 
     final JsonRpcResponse getILResponse = callGetInclusionList(parentHeader.getHash());
     assertThat(getILResponse.getType()).isEqualTo(RpcResponseType.SUCCESS);
@@ -288,33 +270,6 @@ public class InclusionListWorkflowIntegrationTest {
   }
 
   @Test
-  public void fullWorkflow_newPayloadRejectsWhenILUnsatisfied_strictMode() {
-    final BlockHeader payloadHeader = setupValidPayloadHeader();
-
-    // Payload is empty but IL requires a transaction - should fail strict validation
-    final JsonRpcResponse resp =
-        callNewPayload(newPayloadStrictMethod, payloadHeader, emptyList(), List.of("0xaabb"));
-
-    final EnginePayloadStatusResult result = fromSuccessResp(resp);
-    assertThat(result.getStatusAsString()).isEqualTo(INCLUSION_LIST_UNSATISFIED.name());
-    assertThat(result.getError()).isNull();
-    assertThat(metricsSystem.getCounterValue("engine_inclusion_list_validation_failures"))
-        .isEqualTo(1);
-  }
-
-  @Test
-  public void fullWorkflow_newPayloadAcceptsWhenILUnsatisfied_lenientMode() {
-    final BlockHeader payloadHeader = setupValidPayloadHeader();
-
-    // Payload is empty but IL requires a transaction - lenient mode should still return VALID
-    final JsonRpcResponse resp =
-        callNewPayload(newPayloadLenientMethod, payloadHeader, emptyList(), List.of("0xaabb"));
-
-    final EnginePayloadStatusResult result = fromSuccessResp(resp);
-    assertThat(result.getStatusAsString()).isEqualTo(VALID.name());
-  }
-
-  @Test
   public void fullWorkflow_newPayloadValidWithEmptyIL_strictMode() {
     final BlockHeader payloadHeader = setupValidPayloadHeader();
 
@@ -353,7 +308,7 @@ public class InclusionListWorkflowIntegrationTest {
     final BlockHeader parentHeader = createParentBlockHeader();
     when(blockchain.getBlockHeader(parentHeader.getHash())).thenReturn(Optional.of(parentHeader));
 
-    when(transactionPool.getPendingTransactions()).thenReturn(List.of());
+    when(transactionPool.getInclusionListPendingTransactions(parentHeader)).thenReturn(List.of());
 
     final JsonRpcResponse response = callGetInclusionList(parentHeader.getHash());
     assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
@@ -365,7 +320,6 @@ public class InclusionListWorkflowIntegrationTest {
 
   @Test
   public void metricsTrackedAcrossWorkflow() {
-    // Setup: getInclusionListV1 metrics
     final Transaction tx = createLegacyTransaction(0, Wei.of(100));
     final PendingTransaction pt =
         PendingTransaction.newPendingTransaction(tx, false, false, (byte) 0);
@@ -373,22 +327,13 @@ public class InclusionListWorkflowIntegrationTest {
     final BlockHeader parentHeader = createParentBlockHeader();
     when(blockchain.getBlockHeader(parentHeader.getHash())).thenReturn(Optional.of(parentHeader));
 
-    when(transactionPool.getPendingTransactions()).thenReturn(List.of(pt));
+    when(transactionPool.getInclusionListPendingTransactions(parentHeader)).thenReturn(List.of(pt));
 
     callGetInclusionList(parentHeader.getHash());
     assertThat(metricsSystem.getCounterValue("engine_inclusion_list_transactions_generated"))
         .isGreaterThan(0);
-    assertThat(metricsSystem.getCounterValue("engine_inclusion_list_bytes_generated"))
-        .isGreaterThan(0);
     assertThat(metricsSystem.getCounterValue("engine_inclusion_list_selector_duration_ms"))
         .isGreaterThanOrEqualTo(0);
-
-    // newPayloadV5 validation failure metrics (strict mode, IL unsatisfied)
-    final BlockHeader payloadHeader = setupValidPayloadHeader();
-    callNewPayload(newPayloadStrictMethod, payloadHeader, emptyList(), List.of("0xaabb"));
-
-    assertThat(metricsSystem.getCounterValue("engine_inclusion_list_validation_failures"))
-        .isEqualTo(1);
   }
 
   // --- Helper methods ---
@@ -446,6 +391,8 @@ public class InclusionListWorkflowIntegrationTest {
   private void setupValidForkchoiceUpdate(final BlockHeader header, final BlockHeader parent) {
     when(mergeCoordinator.getOrSyncHeadByHash(any(), any())).thenReturn(Optional.of(header));
     when(mergeCoordinator.updateForkChoice(any(), any(), any()))
+        .thenReturn(ForkchoiceResult.withResult(Optional.empty(), Optional.of(header)));
+    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(any(), any(), any()))
         .thenReturn(ForkchoiceResult.withResult(Optional.empty(), Optional.of(header)));
     when(mergeCoordinator.isDescendantOf(any(), any())).thenReturn(true);
     when(blockchain.getBlockHeader(header.getHash())).thenReturn(Optional.of(header));

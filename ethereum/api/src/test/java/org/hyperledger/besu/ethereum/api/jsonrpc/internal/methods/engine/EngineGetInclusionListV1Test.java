@@ -41,12 +41,10 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
-import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.DefaultInclusionListSelector;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import java.math.BigInteger;
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -104,12 +102,7 @@ public class EngineGetInclusionListV1Test {
     this.metricsSystem = new StubMetricsSystem();
     this.method =
         new EngineGetInclusionListV1(
-            vertx,
-            protocolContext,
-            engineCallListener,
-            transactionPool,
-            metricsSystem,
-            new DefaultInclusionListSelector());
+            vertx, protocolContext, engineCallListener, transactionPool, metricsSystem);
   }
 
   @Test
@@ -128,7 +121,8 @@ public class EngineGetInclusionListV1Test {
 
   @Test
   public void shouldReturnEmptyListWhenNoTransactionsInPool() {
-    when(transactionPool.getPendingTransactions()).thenReturn(List.of());
+    when(transactionPool.getInclusionListPendingTransactions(parentBlockHeader))
+        .thenReturn(List.of());
 
     final JsonRpcResponse response = resp(KNOWN_PARENT_HASH);
     assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
@@ -146,9 +140,8 @@ public class EngineGetInclusionListV1Test {
     final PendingTransaction pt2 =
         PendingTransaction.newPendingTransaction(tx2, false, false, (byte) 0);
 
-    @SuppressWarnings("unchecked")
-    final Collection<PendingTransaction> pendingTxs = List.of(pt1, pt2);
-    when(transactionPool.getPendingTransactions()).thenReturn(pendingTxs);
+    when(transactionPool.getInclusionListPendingTransactions(parentBlockHeader))
+        .thenReturn(List.of(pt1, pt2));
 
     final JsonRpcResponse response = resp(KNOWN_PARENT_HASH);
     assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
@@ -169,7 +162,8 @@ public class EngineGetInclusionListV1Test {
     final PendingTransaction pt =
         PendingTransaction.newPendingTransaction(legacyTx, false, false, (byte) 0);
 
-    when(transactionPool.getPendingTransactions()).thenReturn(List.of(pt));
+    when(transactionPool.getInclusionListPendingTransactions(parentBlockHeader))
+        .thenReturn(List.of(pt));
 
     final JsonRpcResponse response = resp(KNOWN_PARENT_HASH);
     assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
@@ -184,7 +178,8 @@ public class EngineGetInclusionListV1Test {
     final PendingTransaction pt =
         PendingTransaction.newPendingTransaction(tx, false, false, (byte) 0);
 
-    when(transactionPool.getPendingTransactions()).thenReturn(List.of(pt));
+    when(transactionPool.getInclusionListPendingTransactions(parentBlockHeader))
+        .thenReturn(List.of(pt));
 
     final JsonRpcResponse response = resp(KNOWN_PARENT_HASH);
     assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
@@ -199,7 +194,8 @@ public class EngineGetInclusionListV1Test {
     final PendingTransaction pt1 =
         PendingTransaction.newPendingTransaction(tx1, false, false, (byte) 0);
 
-    when(transactionPool.getPendingTransactions()).thenReturn(List.of(pt1));
+    when(transactionPool.getInclusionListPendingTransactions(parentBlockHeader))
+        .thenReturn(List.of(pt1));
 
     resp(KNOWN_PARENT_HASH);
 
@@ -208,26 +204,13 @@ public class EngineGetInclusionListV1Test {
   }
 
   @Test
-  public void shouldIncrementBytesGeneratedMetric() {
-    final Transaction tx1 = createLegacyTransaction(0, Wei.of(100));
-    final PendingTransaction pt1 =
-        PendingTransaction.newPendingTransaction(tx1, false, false, (byte) 0);
-
-    when(transactionPool.getPendingTransactions()).thenReturn(List.of(pt1));
-
-    resp(KNOWN_PARENT_HASH);
-
-    assertThat(metricsSystem.getCounterValue("engine_inclusion_list_bytes_generated"))
-        .isGreaterThan(0);
-  }
-
-  @Test
   public void shouldIncrementSelectorDurationMetric() {
     final Transaction tx1 = createLegacyTransaction(0, Wei.of(100));
     final PendingTransaction pt1 =
         PendingTransaction.newPendingTransaction(tx1, false, false, (byte) 0);
 
-    when(transactionPool.getPendingTransactions()).thenReturn(List.of(pt1));
+    when(transactionPool.getInclusionListPendingTransactions(parentBlockHeader))
+        .thenReturn(List.of(pt1));
 
     resp(KNOWN_PARENT_HASH);
 

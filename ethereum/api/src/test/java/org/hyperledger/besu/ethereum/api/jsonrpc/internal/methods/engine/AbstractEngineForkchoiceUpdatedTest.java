@@ -40,6 +40,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EngineForkchoiceUpdatedParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadAttributesParameter;
@@ -53,6 +54,7 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.WithdrawalsValidator;
@@ -77,16 +79,17 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
 
   @FunctionalInterface
   interface MethodFactory {
-    AbstractEngineForkchoiceUpdated create(
+    ExecutionEngineJsonRpcMethod create(
         final Vertx vertx,
         final ProtocolSchedule protocolSchedule,
         final ProtocolContext protocolContext,
         final MergeMiningCoordinator mergeCoordinator,
+        final TransactionPool transactionPool,
         final EngineCallListener engineCallListener);
   }
 
   private final MethodFactory methodFactory;
-  protected AbstractEngineForkchoiceUpdated method;
+  protected ExecutionEngineJsonRpcMethod method;
 
   public AbstractEngineForkchoiceUpdatedTest(final MethodFactory methodFactory) {
     this.methodFactory = methodFactory;
@@ -113,6 +116,8 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
 
   @Mock protected MutableBlockchain blockchain;
 
+  @Mock protected TransactionPool transactionPool;
+
   @Mock private EngineCallListener engineCallListener;
 
   @BeforeEach
@@ -126,7 +131,12 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
     when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(AMSTERDAM_MILESTONE));
     this.method =
         methodFactory.create(
-            vertx, protocolSchedule, protocolContext, mergeCoordinator, engineCallListener);
+            vertx,
+            protocolSchedule,
+            protocolContext,
+            mergeCoordinator,
+            transactionPool,
+            engineCallListener);
   }
 
   @Test
@@ -200,12 +210,16 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
     when(mergeContext.isSyncing()).thenReturn(false);
     when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), parent.getHash()))
         .thenReturn(Optional.of(mockHeader));
+    final ForkchoiceResult invalidTimestampResult =
+        ForkchoiceResult.withFailure(
+            ForkchoiceResult.Status.INVALID,
+            "new head timestamp not greater than parent",
+            Optional.of(parent.getHash()));
     when(mergeCoordinator.updateForkChoice(mockHeader, parent.getHash(), parent.getHash()))
-        .thenReturn(
-            ForkchoiceResult.withFailure(
-                ForkchoiceResult.Status.INVALID,
-                "new head timestamp not greater than parent",
-                Optional.of(parent.getHash())));
+        .thenReturn(invalidTimestampResult);
+    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(
+            mockHeader, parent.getHash(), parent.getHash()))
+        .thenReturn(invalidTimestampResult);
 
     EngineForkchoiceUpdatedParameter param =
         new EngineForkchoiceUpdatedParameter(
@@ -254,6 +268,15 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             getSlotNumber(payloadParams),
             List.of());
 
+    when(mergeCoordinator.preparePayload(
+            mockHeader,
+            payloadParams.getTimestamp(),
+            payloadParams.getPrevRandao(),
+            Address.ECREC,
+            Optional.empty(),
+            getParentBeaconBlockRoot(payloadParams),
+            getSlotNumber(payloadParams)))
+        .thenReturn(mockPayloadId);
     when(mergeCoordinator.preparePayload(
             mockHeader,
             payloadParams.getTimestamp(),
@@ -429,6 +452,8 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
 
     var ignoreOldHeadUpdateRes = ForkchoiceResult.withIgnoreUpdateToOldHead(mockHeader);
     when(mergeCoordinator.updateForkChoice(any(), any(), any())).thenReturn(ignoreOldHeadUpdateRes);
+    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(any(), any(), any()))
+        .thenReturn(ignoreOldHeadUpdateRes);
 
     var payloadParams = createPayloadParams(defaultPayloadTimestamp(), null);
 
@@ -534,6 +559,15 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             Address.ECREC,
             Optional.empty(),
             getParentBeaconBlockRoot(payloadParams),
+            getSlotNumber(payloadParams)))
+        .thenReturn(mockPayloadId);
+    when(mergeCoordinator.preparePayload(
+            mockHeader,
+            payloadParams.getTimestamp(),
+            payloadParams.getPrevRandao(),
+            Address.ECREC,
+            Optional.empty(),
+            getParentBeaconBlockRoot(payloadParams),
             getSlotNumber(payloadParams),
             List.of()))
         .thenReturn(mockPayloadId);
@@ -622,6 +656,15 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             Address.ECREC,
             withdrawals,
             getParentBeaconBlockRoot(payloadParams),
+            getSlotNumber(payloadParams)))
+        .thenReturn(mockPayloadId);
+    when(mergeCoordinator.preparePayload(
+            mockHeader,
+            payloadParams.getTimestamp(),
+            payloadParams.getPrevRandao(),
+            Address.ECREC,
+            withdrawals,
+            getParentBeaconBlockRoot(payloadParams),
             getSlotNumber(payloadParams),
             List.of()))
         .thenReturn(mockPayloadId);
@@ -667,6 +710,15 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             Address.ECREC,
             Optional.empty(),
             getParentBeaconBlockRoot(payloadParams),
+            getSlotNumber(payloadParams)))
+        .thenReturn(mockPayloadId);
+    when(mergeCoordinator.preparePayload(
+            mockHeader,
+            payloadParams.getTimestamp(),
+            payloadParams.getPrevRandao(),
+            Address.ECREC,
+            Optional.empty(),
+            getParentBeaconBlockRoot(payloadParams),
             getSlotNumber(payloadParams),
             List.of()))
         .thenReturn(mockPayloadId);
@@ -704,6 +756,9 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
 
     // result from mergeCoordinator has no new finalized, new head:
     when(mergeCoordinator.updateForkChoice(
+            any(BlockHeader.class), any(Hash.class), any(Hash.class)))
+        .thenReturn(forkchoiceResult);
+    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(
             any(BlockHeader.class), any(Hash.class), any(Hash.class)))
         .thenReturn(forkchoiceResult);
     var resp = resp(fcuParam, payloadParam);

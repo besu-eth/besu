@@ -248,7 +248,7 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
           blockParam,
           mergeCoordinator.getLatestValidAncestor(blockParam.getParentHash()).orElse(null),
           INVALID,
-          e.getMessage());
+          "Invalid block access list encoding");
     }
 
     if (mergeContext.get().isSyncing()) {

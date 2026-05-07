@@ -195,7 +195,7 @@ public enum RpcErrorType implements RpcMethodError {
   INVALID_PAYLOAD_ATTRIBUTES(-38003, "Invalid payload attributes"),
   INVALID_RANGE_REQUEST_TOO_LARGE(-38004, "Too large request"),
   UNSUPPORTED_FORK(-38005, "Unsupported fork"),
-  UNKNOWN_PARENT(-38006, "Unknown parent block"),
+  UNKNOWN_PARENT(-38007, "Unknown parent block"),
   TOO_DEEP_REORG(-38006, "Too deep reorg"),
   // Miner failures
   COINBASE_NOT_SET(-32010, "Coinbase not set. Unable to start mining without a coinbase"),

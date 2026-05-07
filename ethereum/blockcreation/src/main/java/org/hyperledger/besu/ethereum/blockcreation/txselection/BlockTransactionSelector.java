@@ -569,9 +569,8 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
 
     LOG.debug("Considering only passed {} transactions for block creation", transactions.size());
 
-    sortTransactionList(transactions)
-        .forEach(
-            transaction -> evaluateTransaction(new PendingTransaction.Local.Priority(transaction)));
+    transactions.forEach(
+        transaction -> evaluateTransaction(new PendingTransaction.Local.Priority(transaction)));
 
     return transactionSelectionResults;
   }

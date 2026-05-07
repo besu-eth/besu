@@ -124,6 +124,7 @@ public class PayloadIdentifierBenchmark {
         feeRecipient,
         withdrawals,
         parentBeaconBlockRoot,
-        slotNumber);
+        slotNumber,
+        List.of());
   }
 }

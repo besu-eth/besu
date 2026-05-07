@@ -133,6 +133,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     final SparseTransactions sparseTransactions =
         new SparseTransactions(
             poolConfig,
+            LayeredPendingTransactionsTest::mockBlockHeader,
             ethScheduler,
             evictCollector,
             txPoolMetrics,
@@ -142,6 +143,7 @@ public class LayeredPendingTransactionsTest extends BaseTransactionPoolTest {
     final ReadyTransactions readyTransactions =
         new ReadyTransactions(
             poolConfig,
+            LayeredPendingTransactionsTest::mockBlockHeader,
             ethScheduler,
             sparseTransactions,
             txPoolMetrics,

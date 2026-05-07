@@ -49,6 +49,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -487,10 +488,17 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
       return List.of();
     }
 
-    final List<Transaction> ilTxs =
-        rawTransactions.stream()
-            .map(bytes -> TransactionDecoder.decodeOpaqueBytes(bytes, EncodingContext.BLOCK_BODY))
-            .toList();
+    final List<Transaction> ilTxs = new ArrayList<>(rawTransactions.size());
+    for (final Bytes rawTransaction : rawTransactions) {
+      try {
+        ilTxs.add(TransactionDecoder.decodeOpaqueBytes(rawTransaction, EncodingContext.BLOCK_BODY));
+      } catch (final Exception e) {
+        LOG.atInfo()
+            .setMessage("Ignoring invalid IL tx bytes {}")
+            .addArgument(rawTransaction::toHexString)
+            .log();
+      }
+    }
 
     LOG.atInfo()
         .setMessage("Received {} inclusion list transactions")

@@ -25,6 +25,7 @@ import org.hyperledger.besu.datatypes.GWei;
 import java.util.Collections;
 import java.util.List;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 
@@ -113,7 +114,8 @@ public class EnginePayloadAttributesParameterTest {
             null,
             null,
             inclusionListTxs);
-    assertThat(parameter.getInclusionListTransactions()).isEqualTo(inclusionListTxs);
+    assertThat(parameter.getInclusionListTransactions())
+        .isEqualTo(inclusionListTxs.stream().map(Bytes::fromHexString).toList());
   }
 
   @Test
@@ -200,42 +202,6 @@ public class EnginePayloadAttributesParameterTest {
     final List<WithdrawalParameter> withdrawals = List.of(WITHDRAWAL_PARAM_1, WITHDRAWAL_PARAM_2);
     return new EnginePayloadAttributesParameter(
         TIMESTAMP, PREV_RANDAO, SUGGESTED_FEE_RECIPIENT_ADDRESS, withdrawals, null, null, null);
-  }
-
-  @Test
-  public void validate_InclusionListExceedsByteLimit_ThrowsException() {
-    // Create a transaction that is large enough to exceed 8192 bytes
-    final StringBuilder largeTx = new StringBuilder("0x");
-    for (int i = 0; i < 8193; i++) {
-      largeTx.append("ab");
-    }
-    final List<String> oversizedList = List.of(largeTx.toString());
-    assertThatThrownBy(
-            () ->
-                new EnginePayloadAttributesParameter(
-                    TIMESTAMP,
-                    PREV_RANDAO,
-                    SUGGESTED_FEE_RECIPIENT_ADDRESS,
-                    null,
-                    null,
-                    null,
-                    oversizedList))
-        .isInstanceOf(IllegalArgumentException.class)
-        .hasMessageContaining("Inclusion list exceeds maximum size");
-  }
-
-  @Test
-  public void validate_InclusionListAtByteLimit_Succeeds() {
-    // Create a transaction that is exactly 8192 bytes
-    final StringBuilder exactTx = new StringBuilder("0x");
-    for (int i = 0; i < 8192; i++) {
-      exactTx.append("ab");
-    }
-    final List<String> exactList = List.of(exactTx.toString());
-    final EnginePayloadAttributesParameter parameter =
-        new EnginePayloadAttributesParameter(
-            TIMESTAMP, PREV_RANDAO, SUGGESTED_FEE_RECIPIENT_ADDRESS, null, null, null, exactList);
-    assertThat(parameter.getInclusionListTransactions()).hasSize(1);
   }
 
   // TODO: add a parent beacon block root test here

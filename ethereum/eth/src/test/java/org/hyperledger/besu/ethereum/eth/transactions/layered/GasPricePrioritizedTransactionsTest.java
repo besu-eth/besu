@@ -48,6 +48,7 @@ public class GasPricePrioritizedTransactionsTest extends AbstractPrioritizedTran
 
     return new GasPricePrioritizedTransactions(
         poolConfig,
+        this::mockBlockHeader,
         ethScheduler,
         nextLayer,
         txPoolMetrics,

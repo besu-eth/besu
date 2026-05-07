@@ -16,6 +16,9 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
@@ -27,7 +30,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EngineForkc
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadAttributesParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineUpdateForkchoiceResult;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.WithdrawalsValidator;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
@@ -51,13 +56,18 @@ public class EngineForkchoiceUpdatedV4Test extends AbstractEngineForkchoiceUpdat
 
   public EngineForkchoiceUpdatedV4Test() {
     super(
-        (vertx, protocolSchedule1, protocolContext, mergeCoordinator1, engineCallListener) ->
+        (vertx,
+            protocolSchedule1,
+            protocolContext,
+            mergeCoordinator1,
+            transactionPool1,
+            engineCallListener) ->
             new EngineForkchoiceUpdatedV4(
                 vertx,
                 protocolSchedule1,
                 protocolContext,
                 mergeCoordinator1,
-                transactionPool,
+                transactionPool1,
                 engineCallListener));
   }
 
@@ -94,6 +104,38 @@ public class EngineForkchoiceUpdatedV4Test extends AbstractEngineForkchoiceUpdat
   @Test
   public void shouldReturnExpectedMethodName() {
     assertThat(method.getName()).isEqualTo("engine_forkchoiceUpdatedV4");
+  }
+
+  @Override
+  @Test
+  public void shouldIgnoreUpdateToOldHeadAndNotPreparePayload() {
+    // V4 (per execution-apis #786) skips the forkchoice update only when the new head is an
+    // ancestor of the latest known finalized block, not the legacy "old head" optimization. Verify
+    // that V4 returns VALID without preparing a payload for that scenario.
+    BlockHeader mockHeader =
+        blockHeaderBuilder.timestamp(defaultPayloadTimestamp() - 1).buildHeader();
+
+    when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))
+        .thenReturn(Optional.of(mockHeader));
+    when(mergeCoordinator.isAncestorOfFinalized(mockHeader.getHash())).thenReturn(true);
+
+    var payloadParams = createPayloadParams(defaultPayloadTimestamp(), null);
+
+    var resp =
+        (JsonRpcSuccessResponse)
+            resp(
+                new EngineForkchoiceUpdatedParameter(
+                    mockHeader.getBlockHash(), Hash.ZERO, Hash.ZERO),
+                Optional.of(payloadParams));
+
+    var forkchoiceRes = (EngineUpdateForkchoiceResult) resp.getResult();
+
+    verify(mergeCoordinator, never())
+        .preparePayload(any(), any(), any(), any(), any(), any(), any(), any());
+
+    assertThat(forkchoiceRes.getPayloadStatus().getStatus()).isEqualTo(VALID);
+    assertThat(forkchoiceRes.getPayloadStatus().getError()).isNull();
+    assertThat(forkchoiceRes.getPayloadId()).isNull();
   }
 
   @Test

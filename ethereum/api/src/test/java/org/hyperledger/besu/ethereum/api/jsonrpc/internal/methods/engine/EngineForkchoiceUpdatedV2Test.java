@@ -49,7 +49,10 @@ import org.mockito.quality.Strictness;
 public class EngineForkchoiceUpdatedV2Test extends AbstractEngineForkchoiceUpdatedTest {
 
   public EngineForkchoiceUpdatedV2Test() {
-    super(EngineForkchoiceUpdatedV2::new);
+    super(
+        (vertx, protocolSchedule, protocolContext, mergeCoordinator, transactionPool, listener) ->
+            new EngineForkchoiceUpdatedV2(
+                vertx, protocolSchedule, protocolContext, mergeCoordinator, listener));
   }
 
   @Override

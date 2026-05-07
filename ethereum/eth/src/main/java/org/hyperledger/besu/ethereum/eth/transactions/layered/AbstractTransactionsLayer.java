@@ -61,6 +61,7 @@ import java.util.TreeMap;
 import java.util.function.BiFunction;
 import java.util.function.BinaryOperator;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -99,6 +100,7 @@ public abstract class AbstractTransactionsLayer implements TransactionsLayer {
 
   protected AbstractTransactionsLayer(
       final TransactionPoolConfiguration poolConfig,
+      final Supplier<BlockHeader> chainHeadHeaderSupplier,
       final EthScheduler ethScheduler,
       final TransactionsLayer nextLayer,
       final BiFunction<PendingTransaction, PendingTransaction, Boolean>
@@ -119,6 +121,7 @@ public abstract class AbstractTransactionsLayer implements TransactionsLayer {
                 metrics.initTransactionCountByType(
                     () -> txCountByType[type.ordinal()], name(), type));
     this.blobCache = blobCache;
+    this.lastBlockHeaderSeen = chainHeadHeaderSupplier.get();
   }
 
   protected abstract boolean gapsAllowed();

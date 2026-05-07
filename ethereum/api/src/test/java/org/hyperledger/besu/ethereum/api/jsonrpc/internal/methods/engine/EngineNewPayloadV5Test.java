@@ -37,6 +37,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePaylo
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePayloadStatusResult;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
@@ -139,10 +140,8 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
 
     final JsonRpcResponse resp = resp(super.mockEnginePayload(header, emptyList(), null, null));
 
-    final EnginePayloadStatusResult result = fromSuccessResp(resp);
-    assertThat(result.getStatusAsString()).isEqualTo(INVALID.name());
-    assertThat(result.getError()).isEqualTo("Missing block access list field");
-    assertThat(result.getLatestValidHash()).isEmpty();
+    final JsonRpcError jsonRpcError = fromErrorResp(resp);
+    assertThat(jsonRpcError.getCode()).isEqualTo(RpcErrorType.INVALID_SLOT_NUMBER_PARAMS.getCode());
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
