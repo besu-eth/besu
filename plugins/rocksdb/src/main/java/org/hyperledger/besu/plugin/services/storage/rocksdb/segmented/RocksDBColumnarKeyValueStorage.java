@@ -131,6 +131,12 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   /** Trimmed segments */
   protected List<SegmentIdentifier> trimmedSegments;
 
+  /** ColumnFamilyOptions created for each segment descriptor, kept for explicit close() */
+  private final List<ColumnFamilyOptions> columnFamilyOptionsList = new ArrayList<>();
+
+  /** Per-segment LRUCache instances kept for explicit close() to avoid native memory leak */
+  private final List<LRUCache> segmentBlockCaches = new ArrayList<>();
+
   /**
    * Instantiates a new Rocks db columnar key value storage.
    *
@@ -190,50 +196,56 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       final SegmentIdentifier segment, final RocksDBConfiguration configuration) {
     boolean dynamicLevelBytes = true;
     try {
-      ConfigOptions configOptions = new ConfigOptions();
-      DBOptions dbOptions = new DBOptions();
-      List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
+      final ConfigOptions configOptions = new ConfigOptions();
+      final DBOptions dbOptions = new DBOptions();
+      final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
 
-      String latestOptionsFileName =
-          OptionsUtil.getLatestOptionsFileName(
-              configuration.getDatabaseDir().toString(), Env.getDefault());
-      LOG.trace("Latest OPTIONS file detected: " + latestOptionsFileName);
+      try {
+        String latestOptionsFileName =
+            OptionsUtil.getLatestOptionsFileName(
+                configuration.getDatabaseDir().toString(), Env.getDefault());
+        LOG.trace("Latest OPTIONS file detected: " + latestOptionsFileName);
 
-      String optionsFilePath =
-          configuration.getDatabaseDir().toString() + "/" + latestOptionsFileName;
-      OptionsUtil.loadOptionsFromFile(configOptions, optionsFilePath, dbOptions, cfDescriptors);
+        String optionsFilePath =
+            configuration.getDatabaseDir().toString() + "/" + latestOptionsFileName;
+        OptionsUtil.loadOptionsFromFile(configOptions, optionsFilePath, dbOptions, cfDescriptors);
 
-      LOG.trace("RocksDB options loaded successfully from: " + optionsFilePath);
+        LOG.trace("RocksDB options loaded successfully from: " + optionsFilePath);
 
-      if (!cfDescriptors.isEmpty()) {
-        Optional<ColumnFamilyOptions> matchedCfOptions = Optional.empty();
-        for (ColumnFamilyDescriptor descriptor : cfDescriptors) {
-          if (Arrays.equals(descriptor.getName(), segment.getId())) {
-            matchedCfOptions = Optional.of(descriptor.getOptions());
-            break;
+        if (!cfDescriptors.isEmpty()) {
+          for (ColumnFamilyDescriptor descriptor : cfDescriptors) {
+            if (Arrays.equals(descriptor.getName(), segment.getId())) {
+              dynamicLevelBytes = descriptor.getOptions().levelCompactionDynamicLevelBytes();
+              LOG.trace("dynamicLevelBytes is set to an existing value : " + dynamicLevelBytes);
+              break;
+            }
           }
+          // Close all ColumnFamilyOptions loaded from the options file to avoid native memory leak
+          cfDescriptors.forEach(d -> d.getOptions().close());
         }
-        if (matchedCfOptions.isPresent()) {
-          dynamicLevelBytes = matchedCfOptions.get().levelCompactionDynamicLevelBytes();
-          LOG.trace("dynamicLevelBytes is set to an existing value : " + dynamicLevelBytes);
-        }
+      } finally {
+        // Always close the temp DBOptions and ConfigOptions used only for reading the options file
+        dbOptions.close();
+        configOptions.close();
       }
     } catch (RocksDBException ex) {
       // Options file is not found in the database
     }
     BlockBasedTableConfig basedTableConfig = createBlockBasedTableConfig(segment, configuration);
 
-    final var options =
+    final var cfOptions =
         new ColumnFamilyOptions()
             .setTtl(0)
             .setCompressionType(CompressionType.LZ4_COMPRESSION)
             .setTableFormatConfig(basedTableConfig)
             .setLevelCompactionDynamicLevelBytes(dynamicLevelBytes);
     if (segment.containsStaticData()) {
-      configureBlobDBForSegment(segment, configuration, options);
+      configureBlobDBForSegment(segment, configuration, cfOptions);
     }
 
-    return new ColumnFamilyDescriptor(segment.getId(), options);
+    // Track so we can close the native handle in close()
+    columnFamilyOptionsList.add(cfOptions);
+    return new ColumnFamilyDescriptor(segment.getId(), cfOptions);
   }
 
   private static void configureBlobDBForSegment(
@@ -287,6 +299,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
             config.isHighSpec() && segment.isEligibleToHighSpecFlag()
                 ? ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC
                 : config.getCacheCapacity());
+    // Track the cache so it can be explicitly closed to reclaim native memory
+    segmentBlockCaches.add(cache);
     return new BlockBasedTableConfig()
         .setFormatVersion(ROCKSDB_FORMAT_VERSION)
         .setBlockCache(cache)
@@ -524,12 +538,20 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   public void close() {
     if (closed.compareAndSet(false, true)) {
       txOptions.close();
-      options.close();
       tryDeleteOptions.close();
       columnHandlesBySegmentIdentifier.values().stream()
           .map(RocksDbSegmentIdentifier::get)
           .forEach(ColumnFamilyHandle::close);
       getDB().close();
+      // Close DBOptions after the DB is closed since the DB references them internally.
+      options.close();
+      // Close the ColumnFamilyOptions that were allocated per segment descriptor.
+      // These hold native RocksDB memory that is not reclaimed by GC.
+      // Must be closed after the DB to avoid use-after-free.
+      columnFamilyOptionsList.forEach(ColumnFamilyOptions::close);
+      // Close the per-segment LRUCache instances to reclaim native block cache memory.
+      // Must be closed after the DB since active reads may still reference them.
+      segmentBlockCaches.forEach(LRUCache::close);
     }
   }
 
