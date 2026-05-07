@@ -8,6 +8,8 @@
 
 ### Bug fixes
 - `eth_getFilterLogs`: cache the chain head once when resolving default `latest..latest` bounds, so a block arriving between the two reads no longer expands the queried range into `[N, N+1]` and returns extra logs. [#10368](https://github.com/besu-eth/besu/pull/10368)
+- Fix `engine_forkchoiceUpdated` returning `INVALID` instead of `INTERNAL_ERROR` when the EL
+  cannot locally apply the new head (e.g. transient worldstate miss), preventing incorrect CL reorgs [#10271](https://github.com/besu-eth/besu/pull/10271)
 
 ### Additions and Improvements
 - Add EIP-7981 to Amsterdam [#10388](https://github.com/besu-eth/besu/pull/10388)

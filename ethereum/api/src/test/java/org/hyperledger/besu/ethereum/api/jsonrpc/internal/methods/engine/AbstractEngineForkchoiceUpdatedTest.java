@@ -244,6 +244,8 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
     var errorResponse = (JsonRpcErrorResponse) response;
     assertThat(errorResponse.getErrorType()).isEqualTo(RpcErrorType.INTERNAL_ERROR);
     assertThat(errorResponse.getError().getCode()).isEqualTo(RpcErrorType.INTERNAL_ERROR.getCode());
+    assertThat(errorResponse.getError().getData())
+        .isEqualTo("could not apply new head " + mockHeader.toLogString());
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
