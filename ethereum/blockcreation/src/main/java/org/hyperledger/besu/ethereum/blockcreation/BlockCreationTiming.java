@@ -16,13 +16,18 @@ package org.hyperledger.besu.ethereum.blockcreation;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 
 import com.google.common.base.Stopwatch;
 
 public class BlockCreationTiming {
   private final Map<String, Duration> timing = new LinkedHashMap<>();
+  // Steps whose value is a standalone duration (not a cumulative stopwatch reading),
+  // and so should be printed as-is without computing a delta from the previous entry.
+  private final Set<String> standaloneValueSteps = new HashSet<>();
   private final Stopwatch stopwatch;
   private final Instant startedAt = Instant.now();
   public static final BlockCreationTiming EMPTY = createEmpty();
@@ -42,10 +47,20 @@ public class BlockCreationTiming {
     timing.put(step, stopwatch.elapsed());
   }
 
+  public void registerValue(final String step, final Duration value) {
+    timing.put(step, value);
+    standaloneValueSteps.add(step);
+  }
+
   public void registerAll(final BlockCreationTiming subTiming) {
     final var offset = Duration.between(startedAt, subTiming.startedAt);
     for (final var entry : subTiming.timing.entrySet()) {
-      timing.put(entry.getKey(), offset.plus(entry.getValue()));
+      final boolean isStandalone = subTiming.standaloneValueSteps.contains(entry.getKey());
+      timing.put(
+          entry.getKey(), isStandalone ? entry.getValue() : offset.plus(entry.getValue()));
+      if (isStandalone) {
+        standaloneValueSteps.add(entry.getKey());
+      }
     }
   }
 
@@ -68,11 +83,13 @@ public class BlockCreationTiming {
 
     var prevDuration = Duration.ZERO;
     for (final var entry : timing.entrySet()) {
-      sb.append(entry.getKey())
-          .append("=")
-          .append(entry.getValue().minus(prevDuration).toMillis())
-          .append("ms, ");
-      prevDuration = entry.getValue();
+      final boolean isStandalone = standaloneValueSteps.contains(entry.getKey());
+      final Duration displayed =
+          isStandalone ? entry.getValue() : entry.getValue().minus(prevDuration);
+      sb.append(entry.getKey()).append("=").append(displayed.toMillis()).append("ms, ");
+      if (!isStandalone) {
+        prevDuration = entry.getValue();
+      }
     }
     sb.delete(sb.length() - 2, sb.length());
 

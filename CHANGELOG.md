@@ -123,6 +123,7 @@ are provided with different values, using input as per the execution-apis spec i
 - Limit pooled tx requests by size and remove pre-eth/68 transaction announcement support [#9990](https://github.com/besu-eth/besu/pull/9990)
 - Reduce tx p2p broadcast bandwidth and memory used [#9937](https://github.com/besu-eth/besu/pull/9937) 
 - Improve syncing time of the experimental Bonsai Archive storage by migrating after a Bonsai full sync [#9979](https://github.com/besu-eth/besu/pull/9997)
+- Add `txsSelectionHighScore` metric to block creation timing log [#9179](https://github.com/besu-eth/besu/issues/9179)
 - Layered txpool: enable balance check by default [#10175](https://github.com/besu-eth/besu/pull/10175)
 
 ### Plugin API
