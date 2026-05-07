@@ -246,4 +246,50 @@ public class StructLogTest {
     String result = StructLog.toCompactHex(bytes, true);
     assertEquals("0x102030405060708090a", result, "Expected correct hex output for large data");
   }
+
+  // --- returnData tests ---
+
+  @Test
+  public void returnDataShouldBePresentWhenCaptured() {
+    setupMinimalTraceFrameForReturnDataTests();
+    when(traceFrame.getReturnData()).thenReturn(Optional.of(Bytes.fromHexString("0xdeadbeef")));
+
+    final StructLog log = new StructLog(traceFrame);
+
+    assertThat(log.returnData()).isEqualTo("0xdeadbeef");
+  }
+
+  @Test
+  public void returnDataShouldBeNullWhenNotCaptured() {
+    setupMinimalTraceFrameForReturnDataTests();
+    when(traceFrame.getReturnData()).thenReturn(Optional.empty());
+
+    final StructLog log = new StructLog(traceFrame);
+
+    assertThat(log.returnData()).isNull();
+  }
+
+  @Test
+  public void returnDataShouldBeAbsentFromJsonWhenNotCaptured() throws Exception {
+    setupMinimalTraceFrameForReturnDataTests();
+    when(traceFrame.getReturnData()).thenReturn(Optional.empty());
+
+    final StructLog log = new StructLog(traceFrame);
+    final String json = objectMapper.writeValueAsString(log);
+
+    assertThat(json).doesNotContain("returnData");
+  }
+
+  private void setupMinimalTraceFrameForReturnDataTests() {
+    when(traceFrame.getDepth()).thenReturn(0);
+    when(traceFrame.getGasRemaining()).thenReturn(0L);
+    when(traceFrame.getGasCost()).thenReturn(OptionalLong.empty());
+    when(traceFrame.getGasRefund()).thenReturn(0L);
+    when(traceFrame.getMemory()).thenReturn(Optional.empty());
+    when(traceFrame.getOpcode()).thenReturn("PUSH1");
+    when(traceFrame.getPc()).thenReturn(0);
+    when(traceFrame.getStack()).thenReturn(Optional.empty());
+    when(traceFrame.getStorage()).thenReturn(Optional.empty());
+    when(traceFrame.getRevertReason()).thenReturn(Optional.empty());
+  }
 }

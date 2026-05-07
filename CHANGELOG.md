@@ -15,6 +15,7 @@
 - Bonsai Archive storage now uses Bonsai for head and Bonsai for near head improving performance for head queries [#10192](https://github.com/besu-eth/besu/pull/10192)
 - Added `eth_capabilities` JSON-RPC method that returns the node's data-serving capabilities, including chain head and per-resource availability flags [#10322](https://github.com/besu-eth/besu/pull/10322)
 - Upgrade execution-spec-tests to v5.4.0 and fix test harness to correctly handle blocks with expected exceptions [#10287](https://github.com/besu-eth/besu/issues/10287)
+- Add `enableReturnData` parameter to `debug_traceTransaction` and `debug_traceBlockByNumber`, and include `returnData` in `StructLog` when captured; the field is omitted when return data is empty or not captured. [#10172](https://github.com/besu-eth/besu/pull/10172)
 
 ## 26.5.0
 

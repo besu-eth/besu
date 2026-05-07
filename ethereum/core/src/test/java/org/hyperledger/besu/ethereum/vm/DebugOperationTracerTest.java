@@ -223,6 +223,52 @@ class DebugOperationTracerTest {
   }
 
   @Test
+  void shouldRecordReturnDataWhenEnabled() {
+    final MessageFrame frame = validMessageFrame();
+    setupStorageForCapture(frame);
+    frame.setReturnData(Bytes.fromHexString("0xdeadbeef"));
+    final TraceFrame traceFrame =
+        traceFrame(
+            frame,
+            OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+                .traceReturnData(true)
+                .build(),
+            false);
+    assertThat(traceFrame.getReturnData()).isPresent();
+    assertThat(traceFrame.getReturnData().get()).isEqualTo(Bytes.fromHexString("0xdeadbeef"));
+  }
+
+  @Test
+  void shouldRecordEmptyReturnDataWhenEnabled() {
+    final MessageFrame frame = validMessageFrame();
+    setupStorageForCapture(frame);
+    frame.setReturnData(Bytes.EMPTY);
+    final TraceFrame traceFrame =
+        traceFrame(
+            frame,
+            OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+                .traceReturnData(true)
+                .build(),
+            false);
+    assertThat(traceFrame.getReturnData()).isEmpty();
+  }
+
+  @Test
+  void shouldNotRecordReturnDataWhenDisabled() {
+    final MessageFrame frame = validMessageFrame();
+    setupStorageForCapture(frame);
+    frame.setReturnData(Bytes.fromHexString("0xdeadbeef"));
+    final TraceFrame traceFrame =
+        traceFrame(
+            frame,
+            OpCodeTracerConfigBuilder.createFrom(OpCodeTracerConfig.DEFAULT)
+                .traceReturnData(false)
+                .build(),
+            false);
+    assertThat(traceFrame.getReturnData()).isEmpty();
+  }
+
+  @Test
   void shouldNotAddGasWhenDisabled() {
     final TraceFrame traceFrame =
         traceFrame(
