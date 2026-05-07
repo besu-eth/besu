@@ -35,8 +35,12 @@ public class LoginRequestFactory {
   private final OkHttpClient client;
 
   public LoginRequestFactory(final String contextRootUrl) {
+    this(contextRootUrl, new OkHttpClient());
+  }
+
+  public LoginRequestFactory(final String contextRootUrl, final OkHttpClient client) {
     this.contextRootUrl = contextRootUrl;
-    this.client = new OkHttpClient();
+    this.client = client;
   }
 
   JsonObject successful(final String username, final String password) throws IOException {
