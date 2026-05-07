@@ -370,6 +370,43 @@ public class EthPeerTest {
     assertThat(peer.getReputation().compareTo(peer2.getReputation())).isGreaterThan(0);
   }
 
+  @Test
+  public void recordLatency_correctPercentileComputation() {
+    final EthPeer peer = createPeer();
+    for (long latency = 10L; latency <= 1_000L; latency += 10L) {
+      peer.recordLatency(latency);
+    }
+    assertThat(peer.getP95Latency()).isGreaterThan(peer.getP50Latency());
+    assertThat(peer.getP99Latency()).isGreaterThan(peer.getP95Latency());
+    assertThat(peer.getP50Latency()).isEqualTo(500L);
+    assertThat(peer.getP95Latency()).isEqualTo(950L);
+    assertThat(peer.getP99Latency()).isEqualTo(990L);
+  }
+
+  @Test
+  public void recordLatency_tooManySamples() {
+    final EthPeer peer = createPeer();
+    for (int i = 0; i < 499; i++) {
+      peer.recordLatency(100L);
+    }
+    peer.recordLatency(200L);
+    peer.recordLatency(300L);
+    for (int i = 0; i < 499; i++) {
+      peer.recordLatency(400L);
+    }
+    assertThat(peer.getP50Latency()).isEqualTo(200L);
+    peer.recordLatency(400L); // Drop first sample
+    assertThat(peer.getP50Latency()).isEqualTo(300L);
+  }
+
+  @Test
+  public void recordLatency_noSamples() {
+    final EthPeer peer = createPeer();
+    assertThat(peer.getP50Latency()).isEqualTo(0L);
+    assertThat(peer.getP95Latency()).isEqualTo(0L);
+    assertThat(peer.getP99Latency()).isEqualTo(0L);
+  }
+
   private void messageStream(
       final ResponseStreamSupplier getStream,
       final MessageData targetMessage,
