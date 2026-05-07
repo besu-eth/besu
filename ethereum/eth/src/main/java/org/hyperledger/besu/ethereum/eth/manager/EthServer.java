@@ -428,11 +428,13 @@ class EthServer {
       final int maxMessageSize) {
     final GetPooledTransactionsMessage getPooledTransactions =
         GetPooledTransactionsMessage.readFrom(message);
-    final List<Hash> hashes = getPooledTransactions.pooledTransactions();
+    final Iterable<Hash> hashes = getPooledTransactions.pooledTransactions();
 
-    LOG.trace("Requested pooled transactions: peer={}, requested hashes={}", peer, hashes);
-
-    final List<Hash> returnedHashes = new ArrayList<>(hashes.size());
+    LOG.atTrace()
+        .setMessage("Requested pooled transactions: peer={}, requested hashes={}")
+        .addArgument(peer)
+        .addArgument(hashes)
+        .log();
 
     int responseSizeEstimate = RLP.MAX_PREFIX_SIZE;
     final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
@@ -457,16 +459,20 @@ class EthServer {
 
       responseSizeEstimate += encodedSize;
       rlp.writeRaw(txRlp.encoded());
-      returnedHashes.add(hash);
     }
     rlp.endList();
 
-    LOG.atTrace()
-        .setMessage("Sending pooled transactions: peer={}, returned hashes={}, notFoundCount={}")
-        .addArgument(peer)
-        .addArgument(returnedHashes)
-        .addArgument(() -> hashes.size() - returnedHashes.size())
-        .log();
+    if (LOG.isTraceEnabled()) {
+      List<Hash> returnedHashes = new ArrayList<>();
+      hashes.forEach(returnedHashes::add);
+      final int finalCount = count;
+      LOG.atTrace()
+          .setMessage("Sending pooled transactions: peer={}, returned hashes={}, notFoundCount={}")
+          .addArgument(peer)
+          .addArgument(returnedHashes)
+          .addArgument(() -> finalCount - returnedHashes.size())
+          .log();
+    }
 
     return PooledTransactionsMessage.createUnsafe(rlp.encoded());
   }
