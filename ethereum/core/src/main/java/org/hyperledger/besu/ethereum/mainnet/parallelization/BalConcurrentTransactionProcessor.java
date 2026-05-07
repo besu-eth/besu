@@ -19,7 +19,6 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
@@ -36,12 +35,9 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
-import java.time.Duration;
 import java.util.Collection;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
@@ -55,15 +51,12 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
   private final MainnetTransactionProcessor transactionProcessor;
   private final BlockAccessList blockAccessList;
-  private final Duration balProcessingTimeout;
 
   public BalConcurrentTransactionProcessor(
       final MainnetTransactionProcessor transactionProcessor,
-      final BlockAccessList blockAccessList,
-      final BalConfiguration balConfiguration) {
+      final BlockAccessList blockAccessList) {
     this.transactionProcessor = transactionProcessor;
     this.blockAccessList = blockAccessList;
-    this.balProcessingTimeout = balConfiguration.getBalProcessingTimeout();
   }
 
   @Override
@@ -143,10 +136,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
     final CompletableFuture<ParallelizedTransactionContext> future = futures[txIndex];
     if (future != null) {
       try {
-        final ParallelizedTransactionContext ctx =
-            balProcessingTimeout.isNegative()
-                ? future.join()
-                : future.get(balProcessingTimeout.toNanos(), TimeUnit.NANOSECONDS);
+        final ParallelizedTransactionContext ctx = future.get();
 
         if (ctx == null) {
           LOG.trace("Transaction context for transaction {} is empty.", txIndex);
@@ -167,12 +157,6 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
         result.accumulator = txAccumulator;
 
         return Optional.of(result);
-      } catch (final TimeoutException e) {
-        LOG.error(
-            "Timed out waiting {}ms for transaction {} processing result.",
-            balProcessingTimeout.toMillis(),
-            txIndex);
-        return Optional.empty();
       } catch (final Exception e) {
         LOG.error(
             "Error integrating transaction processing result for transaction {}.", txIndex, e);
