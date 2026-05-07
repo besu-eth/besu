@@ -218,7 +218,7 @@ public class RequestManager {
       return peer;
     }
 
-    void setSentTimestamp(long timestamp) {
+    void setSentTimestamp(final long timestamp) {
       this.sentTimestamp = timestamp;
     }
 

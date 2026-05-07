@@ -630,7 +630,7 @@ public class EthPeer implements Comparable<EthPeer> {
    *
    * @param latencyNanos the latency of the newest response
    */
-  public synchronized void recordLatency(long latencyNanos) {
+  public synchronized void recordLatency(final long latencyNanos) {
     if (latencySamples.size() >= maxLatencySamples){
       latencySamples.pollFirst(); // drop oldest
     }
@@ -643,7 +643,7 @@ public class EthPeer implements Comparable<EthPeer> {
    * @param percentile the percentile for the computation
    * @return latency of the given percentile
    */
-  private long computePercentile(double percentile) {
+  private long computePercentile(final double percentile) {
     if (latencySamples.isEmpty()) {
       return 0;
     }
@@ -731,7 +731,7 @@ public class EthPeer implements Comparable<EthPeer> {
    *
    * @param bytes the amount of bytes in the payload
    */
-  public synchronized void recordBytesReceived(long bytes) {
+  public synchronized void recordBytesReceived(final long bytes) {
     long nowTimestamp = clock.millis();
     long[] sample = {nowTimestamp, bytes};
     totalBytesTransferred += bytes;
@@ -745,7 +745,7 @@ public class EthPeer implements Comparable<EthPeer> {
    *
    * @param nowTimestamp current Timestamp
    */
-  private void removeOldByteSamples(long nowTimestamp){
+  private void removeOldByteSamples(final long nowTimestamp){
     while (!rollingWindowSamples.isEmpty()
             && rollingWindowSamples.peekFirst()[0] < nowTimestamp - rollingWindowDurationMS) {
       rollingWindowSamples.pollFirst();
