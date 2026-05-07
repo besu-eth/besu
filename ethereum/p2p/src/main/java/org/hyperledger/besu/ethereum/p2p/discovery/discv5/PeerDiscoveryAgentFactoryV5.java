@@ -151,10 +151,10 @@ public final class PeerDiscoveryAgentFactoryV5 implements PeerDiscoveryAgentFact
               .signer(new NodeKeySigner(nodeKey))
               .localNodeRecord(localNodeRecord)
               .localNodeRecordListener(nodeRecordListener)
-              // Ignore peer-reported external addresses for now (always returns Optional.empty()).
-              // For IPv4 this is covered by NatService; future IPv6 auto-discovery may relax
-              // this: https://github.com/hyperledger/besu/issues/9874
-              .newAddressHandler((nodeRecord, newAddress) -> Optional.empty())
+              .newAddressHandler(
+                  new IpV6NewAddressHandler(
+                      nodeRecordManager,
+                      config.discoveryConfiguration().getAdvertisedHostIpv6().isPresent()))
               .addressAccessPolicy(createAddressAccessPolicy())
               .bootnodes(
                   discoveryConfig.getEnrBootnodes().stream()

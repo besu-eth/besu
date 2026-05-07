@@ -225,6 +225,13 @@ public class NodeRecordManager {
     return primaryResolved && ipv6Resolved;
   }
 
+  public void updateAdvertisedIpv6Host(final String newHost) {
+    // ipv6Endpoint should already be set
+    ipv6Endpoint =
+        ipv6Endpoint.map(ep -> new HostEndpoint(newHost, ep.discoveryPort(), ep.tcpPort()));
+    ipv6Endpoint.ifPresent((ignored) -> updateNodeRecord());
+  }
+
   /**
    * Ensures the local {@link NodeRecord} is up to date.
    *
