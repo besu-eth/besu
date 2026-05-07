@@ -79,7 +79,7 @@ def eipStateReferenceTests = tasks.register("eipStateReferenceTests")  {
     )
 }
 
-def extractStableFixtures = tasks.register("extractStableFixtures", Copy) {
+def extractStableFixtures = tasks.register("extractStableFixtures", Sync) {
   from {
     tarTree(configurations.tarConfig.files.find { it.name.startsWith('execution-spec-tests') })
   }
@@ -94,6 +94,9 @@ def executionSpecTests = tasks.register("executionSpecTests") {
   inputs.dir referenceTestsDir
   inputs.files fileTree("src/reference-test/templates")
   outputs.dir generatedTestsDir
+  doFirst {
+    delete generatedTestsDir
+  }
   doLast {
     // generate blockchain_tests grouped by hardfork/EIP:
     generateTestFilesGroupedByDirectory(
@@ -119,7 +122,7 @@ def executionSpecTests = tasks.register("executionSpecTests") {
   }
 }
 
-def extractDevnetFixtures = tasks.register("extractDevnetFixtures", Copy) {
+def extractDevnetFixtures = tasks.register("extractDevnetFixtures", Sync) {
   from {
     tarTree(configurations.devnetTarConfig.files.find { it.name.startsWith('execution-spec-tests') })
   }
@@ -134,6 +137,9 @@ def executionSpecDevnetTests = tasks.register("executionSpecDevnetTests") {
   inputs.dir referenceTestsDir
   inputs.files fileTree("src/reference-test/templates")
   outputs.dir generatedTestsDir
+  doFirst {
+    delete generatedTestsDir
+  }
   doLast {
     generateTestFilesGroupedByDirectory(
       fileTree(referenceTestsDir.get().dir("fixtures/blockchain_tests")),
@@ -310,7 +316,7 @@ dependencies {
   // the following will be resolved via custom ivy repository declared in root build.gradle
   referenceTestImplementation(
     group: 'ethereum', name: 'execution-spec-tests',
-    version: 'v5.3.0', classifier: 'fixtures_develop', ext: 'tar.gz'
+    version: 'v5.4.0', classifier: 'fixtures_develop', ext: 'tar.gz'
     )
   devnetTarConfig(
     group: 'ethereum', name: 'execution-spec-tests',
