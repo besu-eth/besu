@@ -152,9 +152,10 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
             blockAccessList,
             new ParallelTransactionPreprocessing(transactionProcessor, executor, balConfiguration));
     if (blockProcessingResult.isFailed()) {
-      // Fallback to non-parallel processing if there is a block processing exception .
-      LOG.info(
-          "Parallel transaction processing failure. Falling back to non-parallel processing for block #{} ({})",
+      // MainnetBlockValidator owns the canonical INFO-level outcome ("Invalid block" or
+      // "Failed to process block"). Log here at DEBUG only to avoid duplicate INFO noise.
+      LOG.debug(
+          "Parallel processing failed for block #{} ({}); falling back to sequential processing",
           block.getHeader().getNumber(),
           block.getHash());
       if (worldState instanceof BonsaiWorldState) {
