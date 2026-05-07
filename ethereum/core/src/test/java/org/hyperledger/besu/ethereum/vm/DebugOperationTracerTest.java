@@ -239,7 +239,7 @@ class DebugOperationTracerTest {
   }
 
   @Test
-  void shouldNotRecordEmptyReturnDataWhenEnabled() {
+  void shouldRecordEmptyReturnDataWhenEnabled() {
     final MessageFrame frame = validMessageFrame();
     setupStorageForCapture(frame);
     frame.setReturnData(Bytes.EMPTY);
