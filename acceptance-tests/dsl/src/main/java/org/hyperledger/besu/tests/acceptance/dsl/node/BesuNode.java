@@ -470,6 +470,9 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
           headers.put("Authorization", "Bearer " + token);
         }
         final WebSocketClient wsClient = new WebSocketClient(URI.create(url), headers);
+        if (webSocketConfiguration.isSslEnabled()) {
+          wsClient.setSocketFactory(InsecureTlsClientFactory.insecureSocketFactory());
+        }
 
         web3jService = new WebSocketService(wsClient, false);
         try {
@@ -526,7 +529,12 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
         baseUrl = jsonRpcBaseUrl();
         port = "8545";
       }
-      loginRequestFactory = new LoginRequestFactory(baseUrl.orElse(HTTP + LOCALHOST + ":" + port));
+      final String resolvedUrl = baseUrl.orElse(HTTP + LOCALHOST + ":" + port);
+      loginRequestFactory =
+          useWsForJsonRpc && webSocketConfiguration.isSslEnabled()
+              ? new LoginRequestFactory(
+                  resolvedUrl, InsecureTlsClientFactory.insecureOkHttpClient())
+              : new LoginRequestFactory(resolvedUrl);
     }
     return loginRequestFactory;
   }
@@ -568,6 +576,9 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
 
   private void checkIfWebSocketEndpointIsAvailable(final String url) {
     final WebSocketClient webSocketClient = new WebSocketClient(URI.create(url));
+    if (webSocketConfiguration.isSslEnabled()) {
+      webSocketClient.setSocketFactory(InsecureTlsClientFactory.insecureSocketFactory());
+    }
     // Web3j implementation always invoke the listener (even when one hasn't been set). We are using
     // this stub implementation to avoid a NullPointerException.
     webSocketClient.setListener(
