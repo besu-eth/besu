@@ -80,10 +80,6 @@ public class EthPeers implements PeerSelector {
       Comparator.comparing((final EthPeerImmutableAttributes p) -> p.reputationScore())
           .thenComparing(CHAIN_HEIGHT);
 
-  public static final Comparator<EthPeerImmutableAttributes> FASTEST_PEER =
-      Comparator.comparingLong(EthPeerImmutableAttributes::p95Latency)
-          .thenComparingDouble(EthPeerImmutableAttributes::successRate).reversed();
-
   public static final Comparator<EthPeerImmutableAttributes> TOTAL_DIFFICULTY_THEN_HEIGHT =
       TOTAL_DIFFICULTY.thenComparing(CHAIN_HEIGHT);
 
