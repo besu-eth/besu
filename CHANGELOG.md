@@ -7,6 +7,7 @@
 ### Upcoming Breaking Changes
 
 ### Bug fixes
+- Fix `engine_forkchoiceUpdatedV1` now returns `-38003 INVALID_PAYLOAD_ATTRIBUTES` for invalid payload attribute timestamps (zero or not greater than head). [#10353](https://github.com/besu-eth/besu/pull/10353)
 
 ### Additions and Improvements
 
