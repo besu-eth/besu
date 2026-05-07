@@ -74,10 +74,29 @@ public class TraceGet extends AbstractTraceByHash implements JsonRpcMethod {
           RpcErrorType.INVALID_TRACE_NUMBERS_PARAMS,
           e);
     }
-    final List<Integer> traceAddress =
-        traceNumbersAsStrings.stream()
-            .map(t -> Integer.parseInt(((String) t).substring(2), 16))
-            .collect(Collectors.toList());
+    final List<Integer> traceAddress;
+    try {
+      traceAddress =
+          traceNumbersAsStrings.stream()
+              .map(
+                  t -> {
+                    if (t == null) {
+                      throw new NumberFormatException("Trace number cannot be null");
+                    }
+                    final String traceNumber = (String) t;
+                    if (!traceNumber.startsWith("0x") && !traceNumber.startsWith("0X")) {
+                      throw new NumberFormatException(
+                          "Trace number missing 0x prefix: " + traceNumber);
+                    }
+                    return Integer.parseInt(traceNumber.substring(2), 16);
+                  })
+              .collect(Collectors.toList());
+    } catch (final NumberFormatException | ClassCastException e) {
+      throw new InvalidJsonRpcParameters(
+          "Invalid trace numbers parameters (index 1)",
+          RpcErrorType.INVALID_TRACE_NUMBERS_PARAMS,
+          e);
+    }
 
     LOG.trace(
         "Received RPC rpcName={} txHash={} traceAddress={}",
