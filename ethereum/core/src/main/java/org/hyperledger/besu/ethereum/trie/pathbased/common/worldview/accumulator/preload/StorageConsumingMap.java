@@ -39,7 +39,21 @@ public class StorageConsumingMap<K, T> extends ForwardingMap<K, T> {
   @Override
   public T put(@NotNull final K slotKey, @NotNull final T value) {
     consumer.process(address, slotKey);
+    return putWithoutPreload(slotKey, value);
+  }
+
+  /**
+   * Insert without triggering the preload consumer. Use when the slot is already known to the
+   * caller (e.g. merging an executed transaction's changes into the block accumulator) so spawning
+   * an async trie-node fetch would only burn cycles.
+   */
+  public T putWithoutPreload(@NotNull final K slotKey, @NotNull final T value) {
     return storages.put(slotKey, value);
+  }
+
+  /** Same as {@link #putWithoutPreload} but only inserts when the key is absent. */
+  public T putIfAbsentWithoutPreload(@NotNull final K slotKey, @NotNull final T value) {
+    return storages.putIfAbsent(slotKey, value);
   }
 
   public Consumer<K> getConsumer() {

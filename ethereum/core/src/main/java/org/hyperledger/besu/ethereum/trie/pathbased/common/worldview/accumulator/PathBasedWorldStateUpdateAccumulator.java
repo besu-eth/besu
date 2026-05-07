@@ -159,10 +159,12 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
                   priorOnly
                       ? new PathBasedValue<>(copyPrior, copyUpdated)
                       : new PathBasedValue<>(copyPrior, copyUpdated, srcValue.isLastStepCleared());
+              // Bypass the account preloader: importing already-executed state, so spawning a
+              // virtual thread to async-prefetch the trie node would only contend with the merge.
               if (priorOnly) {
-                accountsToUpdate.putIfAbsent(address, newValue);
+                accountsToUpdate.putIfAbsentWithoutPreload(address, newValue);
               } else {
-                accountsToUpdate.put(address, newValue);
+                accountsToUpdate.putWithoutPreload(address, newValue);
               }
             });
 
@@ -202,10 +204,11 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
                             ? new PathBasedValue<>(slotPrior, slotUpdated)
                             : new PathBasedValue<>(
                                 slotPrior, slotUpdated, srcSlot.isLastStepCleared());
+                    // Bypass the storage preloader: same reasoning as accountsToUpdate above.
                     if (priorOnly) {
-                      targetSlots.putIfAbsent(slotKey, newSlotValue);
+                      targetSlots.putIfAbsentWithoutPreload(slotKey, newSlotValue);
                     } else {
-                      targetSlots.put(slotKey, newSlotValue);
+                      targetSlots.putWithoutPreload(slotKey, newSlotValue);
                     }
                   });
             });
