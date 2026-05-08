@@ -177,7 +177,7 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
   protected ProtocolSchedule createProtocolSchedule() {
     return MergeProtocolSchedule.create(
         genesisConfigOptions,
-        isRevertReasonEnabled,
+        dataStorageConfiguration.getRevertReasonEnabled(),
         miningConfiguration,
         badBlockManager,
         isParallelTxProcessingEnabled,
