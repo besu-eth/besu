@@ -14,14 +14,18 @@
  */
 package org.hyperledger.besu.tests.acceptance.dsl.node;
 
+import java.net.URI;
 import java.security.GeneralSecurityException;
 import java.security.cert.X509Certificate;
+import java.util.Map;
 import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
 import okhttp3.OkHttpClient;
+import org.web3j.protocol.websocket.WebSocketClient;
 
 /**
  * Trust-all TLS plumbing used by the acceptance-test DSL when talking to a Besu node configured
@@ -41,6 +45,19 @@ final class InsecureTlsClientFactory {
       throw new IllegalStateException(
           "Unable to build insecure SSL context for acceptance tests", e);
     }
+  }
+
+  static WebSocketClient insecureWebSocketClient(final URI uri) {
+    final WebSocketClient client = new InsecureWebSocketClient(uri);
+    client.setSocketFactory(insecureSocketFactory());
+    return client;
+  }
+
+  static WebSocketClient insecureWebSocketClient(
+      final URI uri, final Map<String, String> headers) {
+    final WebSocketClient client = new InsecureWebSocketClient(uri, headers);
+    client.setSocketFactory(insecureSocketFactory());
+    return client;
   }
 
   static OkHttpClient insecureOkHttpClient() {
@@ -71,5 +88,21 @@ final class InsecureTlsClientFactory {
         return new X509Certificate[0];
       }
     };
+  }
+
+  private static final class InsecureWebSocketClient extends WebSocketClient {
+
+    private InsecureWebSocketClient(final URI uri) {
+      super(uri);
+    }
+
+    private InsecureWebSocketClient(final URI uri, final Map<String, String> headers) {
+      super(uri, headers);
+    }
+
+    @Override
+    protected void onSetSSLParameters(final SSLParameters sslParameters) {
+      sslParameters.setEndpointIdentificationAlgorithm(null);
+    }
   }
 }

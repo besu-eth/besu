@@ -469,10 +469,10 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
         if (token != null) {
           headers.put("Authorization", "Bearer " + token);
         }
-        final WebSocketClient wsClient = new WebSocketClient(URI.create(url), headers);
-        if (webSocketConfiguration.isSslEnabled()) {
-          wsClient.setSocketFactory(InsecureTlsClientFactory.insecureSocketFactory());
-        }
+        final WebSocketClient wsClient =
+            webSocketConfiguration.isSslEnabled()
+                ? InsecureTlsClientFactory.insecureWebSocketClient(URI.create(url), headers)
+                : new WebSocketClient(URI.create(url), headers);
 
         web3jService = new WebSocketService(wsClient, false);
         try {
@@ -575,10 +575,10 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
   }
 
   private void checkIfWebSocketEndpointIsAvailable(final String url) {
-    final WebSocketClient webSocketClient = new WebSocketClient(URI.create(url));
-    if (webSocketConfiguration.isSslEnabled()) {
-      webSocketClient.setSocketFactory(InsecureTlsClientFactory.insecureSocketFactory());
-    }
+    final WebSocketClient webSocketClient =
+        webSocketConfiguration.isSslEnabled()
+            ? InsecureTlsClientFactory.insecureWebSocketClient(URI.create(url))
+            : new WebSocketClient(URI.create(url));
     // Web3j implementation always invoke the listener (even when one hasn't been set). We are using
     // this stub implementation to avoid a NullPointerException.
     webSocketClient.setListener(
