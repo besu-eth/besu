@@ -21,6 +21,7 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.NavigableMap;
 import java.util.Optional;
@@ -236,7 +237,9 @@ public abstract class FlatDbStrategy {
                 Pair::getFirst,
                 Pair::getSecond,
                 (v1, v2) -> v1,
-                () -> new TreeMap<>(Comparator.comparing(Bytes::toHexString))));
+                () ->
+                    new TreeMap<>(
+                        Comparator.comparing(Bytes::toArrayUnsafe, Arrays::compareUnsigned))));
     pairStream.close();
     return collected;
   }
