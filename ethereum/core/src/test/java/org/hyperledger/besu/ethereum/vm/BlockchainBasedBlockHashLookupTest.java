@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.vm;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
@@ -156,6 +157,35 @@ class BlockchainBasedBlockHashLookupTest {
     op.execute(messageFrameMock, null);
 
     verify(messageFrameMock).pushStackItem(hash.getBytes());
+  }
+
+  @Test
+  void forkForParallelWorker_returnsDistinctInstance() {
+    // forkForParallelWorker must return a new object so each worker has its own
+    // searchStartHeader cursor. Returning `this` would share the mutable cursor across workers.
+    assertThat(lookup.forkForParallelWorker()).isNotSameAs(lookup);
+  }
+
+  @Test
+  void forkForParallelWorker_sharedCacheReducesBlockchainLookups() {
+    // A lookup performed by one fork populates the shared cache so that a subsequent fork
+    // resolving the same block number does not need to query the blockchain again.
+    final int deepBlock = CURRENT_BLOCK_NUMBER - 50;
+
+    final BlockHashLookup firstFork = lookup.forkForParallelWorker();
+    assertThat(firstFork.apply(messageFrameMock, (long) deepBlock))
+        .isEqualTo(headers[deepBlock].getHash());
+
+    // Record blockchain interactions up to this point, then clear the counter.
+    clearInvocations(blockchain);
+
+    // A second fork sharing the same cache should serve the already-resolved hash without
+    // making any additional blockchain.getBlockHeader(Hash) calls.
+    final BlockHashLookup secondFork = lookup.forkForParallelWorker();
+    final Hash result = secondFork.apply(messageFrameMock, (long) deepBlock);
+
+    assertThat(result).isEqualTo(headers[deepBlock].getHash());
+    verify(blockchain, never()).getBlockHeader(any(Hash.class));
   }
 
   private BlockHeader createHeader(final int blockNumber, final BlockHeader parentHeader) {
