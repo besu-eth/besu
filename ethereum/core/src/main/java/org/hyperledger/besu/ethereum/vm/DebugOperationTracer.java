@@ -86,6 +86,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
                             && currentOperation instanceof AbstractCreateOperation
                         ? forceCaptureMem(frame)
                         : Optional.empty());
+    final Optional<Bytes> returnData = captureReturnData(frame);
     final Optional<Bytes[]> stackPostExecution = captureStack(frame);
 
     if (!traceFrames.isEmpty()) {
@@ -122,6 +123,7 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
             .setValue(frame.getApparentValue())
             .setInputData(inputData)
             .setOutputData(outputData)
+            .setReturnData(returnData)
             .setStack(preExecutionStack)
             .setMemory(memory)
             .setStorage(storage)
@@ -232,6 +234,16 @@ public class DebugOperationTracer extends AbstractDebugOperationTracer {
             .setVirtualOperation(true)
             .build();
     traceFrames.add(traceFrame);
+  }
+
+  private Optional<Bytes> captureReturnData(final MessageFrame frame) {
+    if (!options.traceReturnData()) {
+      return Optional.empty();
+    }
+    final Bytes returnData = frame.getReturnData();
+    return (returnData == null || returnData.isEmpty())
+        ? Optional.empty()
+        : Optional.of(returnData);
   }
 
   private Optional<Map<UInt256, UInt256>> captureStorage(final MessageFrame frame) {

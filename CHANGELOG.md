@@ -7,10 +7,10 @@
 ### Upcoming Breaking Changes
 
 ### Bug fixes
-- `eth_getFilterLogs`: cache the chain head once when resolving default `latest..latest` bounds, so a block arriving between the two reads no longer expands the queried range into `[N, N+1]` and returns extra logs. [#10368](https://github.com/besu-eth/besu/pull/10368)
-- Fix CVE-2025-67030, CVE-2026-5588, and CVE-2026-0636.
+- Fix `engine_forkchoiceUpdatedV1` now returns `-38003 INVALID_PAYLOAD_ATTRIBUTES` for invalid payload attribute timestamps (zero or not greater than head). [#10353](https://github.com/besu-eth/besu/pull/10353)
 
 ### Additions and Improvements
+- Add `enableReturnData` parameter to `debug_traceTransaction` and `debug_traceBlockByNumber`, and include `returnData` in `StructLog` when captured; the field is omitted when return data is empty or not captured. [#10172](https://github.com/besu-eth/besu/pull/10172)
 
 ## 26.5.0
 
@@ -65,6 +65,7 @@
 - Bonsai Archive storage now uses Bonsai for head and Bonsai for near head improving performance for head queries [#10192](https://github.com/besu-eth/besu/pull/10192)
 - Added `eth_capabilities` JSON-RPC method that returns the node's data-serving capabilities, including chain head and per-resource availability flags [#10322](https://github.com/besu-eth/besu/pull/10322)
 - Upgrade execution-spec-tests to v5.4.0 and fix test harness to correctly handle blocks with expected exceptions [#10287](https://github.com/besu-eth/besu/issues/10287)
+- Updated `Bouncycastle` to 1.84 and `maven-artifact` to 3.9.15 to resolve CVEs reported in those libraries. Besu's usage patterns are not affected by these vulnerabilities. [#10420](https://github.com/besu-eth/besu/pull/10420)
 
 ### Plugin API
 - Publish Guava as an API dependency from `plugin-api` [#10248](https://github.com/besu-eth/besu/pull/10248)
