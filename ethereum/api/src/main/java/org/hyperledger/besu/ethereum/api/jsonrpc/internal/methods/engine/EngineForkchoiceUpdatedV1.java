@@ -59,7 +59,7 @@ public class EngineForkchoiceUpdatedV1 extends AbstractEngineForkchoiceUpdated {
   }
 
   @Override
-  protected RpcErrorType getInvalidPayloadAttributesError() {
+  protected RpcErrorType getInvalidWithdrawalsError() {
     return RpcErrorType.INVALID_WITHDRAWALS_PARAMS;
   }
 }
