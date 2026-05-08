@@ -217,9 +217,9 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
               break;
             }
           }
-          cfDescriptors.forEach(d -> d.getOptions().close());
         }
       } finally {
+        cfDescriptors.forEach(d -> d.getOptions().close());
         dbOptions.close();
         configOptions.close();
       }
