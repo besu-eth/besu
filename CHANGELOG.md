@@ -7,6 +7,8 @@
 ### Upcoming Breaking Changes
 
 ### Bug fixes
+- Fix native memory leaks in RocksDB storage: `LRUCache`, `ColumnFamilyOptions`, and temporary options-file loading objects are now explicitly closed.
+  [#10456](https://github.com/besu-eth/besu/pull/10456)
 
 ### Additions and Improvements
 
