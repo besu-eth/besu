@@ -531,12 +531,12 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   public void close() {
     if (closed.compareAndSet(false, true)) {
       txOptions.close();
-      options.close();
       tryDeleteOptions.close();
       columnHandlesBySegmentIdentifier.values().stream()
           .map(RocksDbSegmentIdentifier::get)
           .forEach(ColumnFamilyHandle::close);
       getDB().close();
+      options.close();
       columnFamilyOptionsList.forEach(ColumnFamilyOptions::close);
       blockCaches.forEach(LRUCache::close);
     }
