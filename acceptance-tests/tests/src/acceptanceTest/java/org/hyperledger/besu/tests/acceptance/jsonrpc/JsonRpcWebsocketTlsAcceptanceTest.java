@@ -106,8 +106,7 @@ public class JsonRpcWebsocketTlsAcceptanceTest extends AcceptanceTestBase {
     config.setTrustStorePasswordFile(writePasswordFile("trusted-client-password.txt").toString());
     config.setTrustStoreType("JKS");
 
-    assertClientAuthNetVersion(
-        "ws-tls-client-auth-jks-password-file", config, clientCertificate);
+    assertClientAuthNetVersion("ws-tls-client-auth-jks-password-file", config, clientCertificate);
   }
 
   @Test
@@ -215,10 +214,7 @@ public class JsonRpcWebsocketTlsAcceptanceTest extends AcceptanceTestBase {
     final KeyStore keyStore = KeyStore.getInstance("JKS");
     keyStore.load(null, null);
     keyStore.setKeyEntry(
-        "key",
-        certificate.key(),
-        PASSWORD.toCharArray(),
-        new Certificate[] {certificate.cert()});
+        "key", certificate.key(), PASSWORD.toCharArray(), new Certificate[] {certificate.cert()});
 
     return writeKeyStoreFile(fileName, keyStore);
   }
