@@ -21,9 +21,12 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.CommittedTransactionChanges;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.CommittedTransactionListener;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.StorageConsumingMap;
 
+import java.util.HashSet;
 import java.util.Optional;
 import java.util.Set;
 
@@ -31,7 +34,7 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 
-public class FrontierRootHashTracker {
+public class FrontierRootHashTracker implements CommittedTransactionListener {
 
   /** Creates a Merkle trie for the frontier account state from a given root hash. */
   @FunctionalInterface
@@ -51,6 +54,7 @@ public class FrontierRootHashTracker {
   private final AccountTrieFactory accountTrieFactory;
   private final StorageRootUpdater storageRootUpdater;
 
+  private final Set<Address> dirtyAddresses = new HashSet<>();
   private MerkleTrie<Bytes, Bytes> frontierTrie;
   private Hash frontierRootHashCache;
 
@@ -64,6 +68,21 @@ public class FrontierRootHashTracker {
   }
 
   /**
+   * Records the addresses changed by a committed transaction so they will be applied on the next
+   * {@link #frontierRootHash(Hash)} call.
+   */
+  @Override
+  public void onTransactionCommitted(final CommittedTransactionChanges changes) {
+    dirtyAddresses.addAll(changes.changedAddresses());
+  }
+
+  /** Discards cached trie state when the accumulator is wiped (e.g. block-processing abort). */
+  @Override
+  public void onReset() {
+    reset();
+  }
+
+  /**
    * Computes the intermediate state root reflecting all transactions committed so far in the
    * current block. Called once per transaction on pre-Byzantium blocks to populate the receipt's
    * state root field.
@@ -72,17 +91,15 @@ public class FrontierRootHashTracker {
    * same block. Only accounts dirtied since the last call are applied, keeping per-call cost
    * proportional to the transaction's footprint rather than the entire block's accumulated state.
    *
-   * <p>Must be called <em>after</em> {@code commit()} and {@code markTransactionBoundary()} so that
-   * dirty addresses have been captured. Must be followed by {@link #reset()} (via {@code
-   * persist()}) at the block boundary to discard the cached trie before the next block.
+   * <p>Must be called <em>after</em> the accumulator has emitted its committed-transaction
+   * snapshot. Must be followed by {@link #reset()} (via {@code persist()}) at the block boundary to
+   * discard the cached trie before the next block.
    *
    * @param baseRootHash the persisted state root from the end of the previous block
    * @return the state root hash incorporating all committed transactions
    */
   public Hash frontierRootHash(final Hash baseRootHash) {
-    final Set<Address> dirty = accumulator.getFrontierDirtyAddresses();
-
-    if (dirty.isEmpty()) {
+    if (dirtyAddresses.isEmpty()) {
       if (frontierRootHashCache == null) {
         frontierRootHashCache = baseRootHash;
       }
@@ -93,8 +110,9 @@ public class FrontierRootHashTracker {
       frontierTrie = accountTrieFactory.create(Bytes32.wrap(baseRootHash.getBytes()));
     }
 
+    final Set<Address> processing = new HashSet<>(dirtyAddresses);
     try {
-      for (final Address address : dirty) {
+      for (final Address address : processing) {
         final StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> storageUpdates =
             accumulator.getStorageToUpdate().get(address);
         if (storageUpdates != null) {
@@ -107,9 +125,9 @@ public class FrontierRootHashTracker {
           }
         }
 
-        // Every dirty address was added during commit(), which runs super.commit() first.
-        // super.commit() always populates accountsToUpdate before we capture the address,
-        // so a missing entry here means a bug in the dirty-tracking logic.
+        // Every dirty address came from a committed-transaction snapshot, which is emitted after
+        // super.commit() populates accountsToUpdate. A missing entry here means a bug in either
+        // the emission point or the listener wiring.
         final PathBasedValue<BonsaiAccount> accountValue =
             accumulator.getAccountsToUpdate().get(address);
         if (accountValue == null) {
@@ -125,12 +143,13 @@ public class FrontierRootHashTracker {
       }
 
       frontierRootHashCache = Hash.wrap(frontierTrie.getRootHash());
-      accumulator.clearFrontierDirtyAddresses(dirty);
+      dirtyAddresses.removeAll(processing);
       return frontierRootHashCache;
     } catch (final MerkleTrieException e) {
       // Discard the potentially-corrupted cached trie so the next call rebuilds from scratch.
       // Dirty addresses are intentionally NOT cleared — they will be reprocessed on retry.
-      reset();
+      frontierTrie = null;
+      frontierRootHashCache = null;
       throw e;
     }
   }
@@ -138,6 +157,7 @@ public class FrontierRootHashTracker {
   public void reset() {
     frontierTrie = null;
     frontierRootHashCache = null;
+    dirtyAddresses.clear();
   }
 
   private static void removeAccountFromTrie(

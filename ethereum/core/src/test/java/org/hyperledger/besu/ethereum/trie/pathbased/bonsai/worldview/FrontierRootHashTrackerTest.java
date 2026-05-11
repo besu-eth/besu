@@ -139,13 +139,6 @@ class FrontierRootHashTrackerTest {
     final BonsaiWorldStateUpdateAccumulator acc =
         (BonsaiWorldStateUpdateAccumulator) worldState.getAccumulator();
 
-    final WorldUpdater updater = worldState.updater();
-    updater.getAccount(ACCOUNT_A).setBalance(Wei.of(100));
-    updater.commit();
-    updater.markTransactionBoundary();
-
-    final Hash expectedRoot = fullRecalculatedRoot(worldState);
-
     final MerkleTrie<Bytes, Bytes> brokenTrie = mock(MerkleTrie.class);
     doThrow(new MerkleTrieException("simulated node missing"))
         .when(brokenTrie)
@@ -166,6 +159,14 @@ class FrontierRootHashTrackerTest {
 
     final FrontierRootHashTracker tracker =
         new FrontierRootHashTracker(acc, factory, (address, storageUpdates) -> {});
+    acc.setCommittedTransactionListener(tracker);
+
+    final WorldUpdater updater = worldState.updater();
+    updater.getAccount(ACCOUNT_A).setBalance(Wei.of(100));
+    updater.commit();
+    updater.markTransactionBoundary();
+
+    final Hash expectedRoot = fullRecalculatedRoot(worldState);
 
     assertThatThrownBy(() -> tracker.frontierRootHash(worldState.rootHash()))
         .isInstanceOf(MerkleTrieException.class);

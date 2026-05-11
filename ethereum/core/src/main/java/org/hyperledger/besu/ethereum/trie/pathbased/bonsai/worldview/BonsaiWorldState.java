@@ -27,6 +27,8 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldS
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateLayerStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.CommittedTransactionChanges;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.CommittedTransactionListener;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.NoOpBonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
@@ -130,6 +132,20 @@ public class BonsaiWorldState extends PathBasedWorldState {
                     rootHash,
                     BonsaiTrieFactory.TrieMode.ALWAYS_SEQUENTIAL),
             this::updateFrontierStorageState);
+    // Keep frontier-derived caches aligned with accumulator resets.
+    acc.setCommittedTransactionListener(
+        new CommittedTransactionListener() {
+          @Override
+          public void onTransactionCommitted(final CommittedTransactionChanges changes) {
+            frontierRootHashTracker.onTransactionCommitted(changes);
+          }
+
+          @Override
+          public void onReset() {
+            frontierRootHashTracker.onReset();
+            frontierStorageRootTracker.reset();
+          }
+        });
     this.codeCache = codeCache;
   }
 

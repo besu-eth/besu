@@ -237,7 +237,7 @@ class BonsaiFrontierRootHashTest {
   }
 
   @Test
-  void revertKeepsFrontierDirtyAddressesForAlreadyCommittedChanges() {
+  void revertKeepsCommittedFrontierChangesVisible() {
     final BonsaiWorldState worldState = createWorldStateWithContractStorage();
     final Hash baselineRoot = worldState.frontierRootHash();
 
@@ -259,20 +259,56 @@ class BonsaiFrontierRootHashTest {
   }
 
   @Test
-  void resetClearsFrontierDirtyAddresses() {
+  void accumulatorResetClearsFrontierTrackerState() {
+    // Simulate abort after committed transaction; reset must drop pending frontier deltas before
+    // the next transaction.
     final BonsaiWorldState worldState = createWorldStateWithContractStorage();
-
-    final WorldUpdater updater = worldState.updater();
-    updater.getAccount(CONTRACT).setBalance(Wei.of(42));
-    updater.commit();
-    updater.markTransactionBoundary();
-
     final BonsaiWorldStateUpdateAccumulator accumulator =
         (BonsaiWorldStateUpdateAccumulator) worldState.getAccumulator();
-    assertThat(accumulator.getFrontierDirtyAddresses()).contains(CONTRACT);
+
+    final WorldUpdater abortedTx = worldState.updater();
+    abortedTx.getAccount(CONTRACT).setBalance(Wei.of(42));
+    abortedTx.commit();
+    abortedTx.markTransactionBoundary();
 
     accumulator.reset();
-    assertThat(accumulator.getFrontierDirtyAddresses()).isEmpty();
+
+    final WorldUpdater nextTx = worldState.updater();
+    nextTx.createAccount(ACCOUNT_B).setBalance(Wei.of(99));
+    nextTx.commit();
+    nextTx.markTransactionBoundary();
+
+    final Hash result = worldState.frontierRootHash();
+    assertThat(result).isEqualTo(fullRecalculatedRoot(worldState));
+  }
+
+  @Test
+  void accumulatorResetClearsFrontierStorageCache() {
+    // Hits the storage-cache reuse path: the aborted tx writes slot 1, frontierRootHash() warms
+    // the storage trie cache for CONTRACT, then reset() simulates an abort. The retry writes a
+    // *different* slot on the same account. Without propagating the reset to the storage cache,
+    // the cached trie would still hold the aborted slot 1 write and the final root would be
+    // wrong.
+    final BonsaiWorldState worldState = createWorldStateWithContractStorage();
+    final BonsaiWorldStateUpdateAccumulator accumulator =
+        (BonsaiWorldStateUpdateAccumulator) worldState.getAccumulator();
+
+    final WorldUpdater abortedTx = worldState.updater();
+    abortedTx.getAccount(CONTRACT).setStorageValue(UInt256.ONE, UInt256.valueOf(99));
+    abortedTx.commit();
+    abortedTx.markTransactionBoundary();
+    // Warm the storage cache by computing the root before the abort.
+    worldState.frontierRootHash();
+
+    accumulator.reset();
+
+    final WorldUpdater retryTx = worldState.updater();
+    retryTx.getAccount(CONTRACT).setStorageValue(UInt256.valueOf(2), UInt256.valueOf(2));
+    retryTx.commit();
+    retryTx.markTransactionBoundary();
+
+    final Hash result = worldState.frontierRootHash();
+    assertThat(result).isEqualTo(fullRecalculatedRoot(worldState));
   }
 
   private static BonsaiWorldState createWorldStateWithContractStorage() {
