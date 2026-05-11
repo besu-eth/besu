@@ -90,9 +90,9 @@ public class BlockchainReferenceTestCaseSpec {
             (BonsaiWorldStateKeyValueStorage)
                 inMemoryKeyValueStorageProvider.createWorldStateStorage(storageConfiguration),
             blockchain,
-            ImmutablePathBasedExtraStorageConfiguration.builder()
-                .maxLayersToLoad(cacheSize)
-                .build(),
+            ImmutablePathBasedExtraStorageConfiguration.copyOf(
+                    storageConfiguration.getPathBasedExtraStorageConfiguration())
+                .withMaxLayersToLoad(cacheSize),
             new NoopBonsaiCachedMerkleTrieLoader(),
             new ServiceManager() {
               @Override
