@@ -430,21 +430,32 @@ class EthServer {
         GetPooledTransactionsMessage.readFrom(message);
     final Iterable<Hash> hashes = getPooledTransactions.pooledTransactions();
 
-    LOG.atTrace()
-        .setMessage("Requested pooled transactions: peer={}, requested hashes={}")
-        .addArgument(peer)
-        .addArgument(hashes)
-        .log();
+    final boolean traceEnabled = LOG.isTraceEnabled();
+    final Iterable<Hash> hashesToProcess;
+    if (traceEnabled) {
+      final List<Hash> requested = new ArrayList<>();
+      hashes.forEach(requested::add);
+      LOG.atTrace()
+          .setMessage("Requested pooled transactions: peer={}, requested hashes={}")
+          .addArgument(peer)
+          .addArgument(requested)
+          .log();
+      hashesToProcess = requested;
+    } else {
+      hashesToProcess = hashes;
+    }
 
     int responseSizeEstimate = RLP.MAX_PREFIX_SIZE;
     final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
     rlp.startList();
-    int count = 0;
-    for (final Hash hash : hashes) {
-      if (count >= requestLimit) {
+    final List<Hash> returnedHashes = traceEnabled ? new ArrayList<>() : null;
+    int requestedCount = 0;
+    int returnedCount = 0;
+    for (final Hash hash : hashesToProcess) {
+      if (requestedCount >= requestLimit) {
         break;
       }
-      count++;
+      requestedCount++;
       final Optional<Transaction> maybeTx = transactionPool.getTransactionByHash(hash);
       if (maybeTx.isEmpty()) {
         continue;
@@ -459,18 +470,19 @@ class EthServer {
 
       responseSizeEstimate += encodedSize;
       rlp.writeRaw(txRlp.encoded());
+      returnedCount++;
+      if (returnedHashes != null) {
+        returnedHashes.add(hash);
+      }
     }
     rlp.endList();
 
-    if (LOG.isTraceEnabled()) {
-      List<Hash> returnedHashes = new ArrayList<>();
-      hashes.forEach(returnedHashes::add);
-      final int finalCount = count;
+    if (traceEnabled) {
       LOG.atTrace()
           .setMessage("Sending pooled transactions: peer={}, returned hashes={}, notFoundCount={}")
           .addArgument(peer)
           .addArgument(returnedHashes)
-          .addArgument(() -> finalCount - returnedHashes.size())
+          .addArgument(requestedCount - returnedCount)
           .log();
     }
 
