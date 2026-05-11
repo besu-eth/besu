@@ -154,7 +154,6 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         .ifPresent(networkConfigBuilder::setGenesisConfig);
     final EthNetworkConfig ethNetworkConfig = networkConfigBuilder.build();
     final BesuControllerBuilder builder = component.besuControllerBuilder();
-    builder.isRevertReasonEnabled(node.isRevertReasonEnabled());
     builder.networkConfiguration(node.getNetworkingConfiguration());
 
     builder.dataDirectory(dataDir);

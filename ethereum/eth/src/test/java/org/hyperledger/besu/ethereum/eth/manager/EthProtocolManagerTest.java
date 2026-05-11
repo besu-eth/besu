@@ -472,7 +472,7 @@ public final class EthProtocolManagerTest {
   }
 
   @Test
-  public void disconnectOnMalformedGetReceiptsMessage() {
+  public void disconnectOnMalformedGetPooledTransactionsMessage() {
     try (final EthProtocolManager ethManager =
         EthProtocolManagerTestBuilder.builder()
             .setProtocolSchedule(protocolSchedule)
@@ -482,9 +482,9 @@ public final class EthProtocolManagerTest {
             .setTransactionPool(transactionPool)
             .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.DEFAULT)
             .build()) {
-      // 0xc1ff is a valid RLP list containing one invalid-length element (not a 32-byte hash)
       final MessageData malformedMessageData =
-          new RawMessage(EthProtocolMessages.GET_RECEIPTS, Bytes.fromHexString("0xc1ff"));
+          new RawMessage(
+              EthProtocolMessages.GET_POOLED_TRANSACTIONS, Bytes.fromHexString("0xc1ff"));
       final MockPeerConnection peer = setupPeer(ethManager, (cap, msg, conn) -> {});
 
       ethManager.processMessage(EthProtocol.LATEST, new DefaultMessage(peer, malformedMessageData));
@@ -492,6 +492,30 @@ public final class EthProtocolManagerTest {
       assertThat(peer.isDisconnected()).isTrue();
       assertThat(peer.getDisconnectReason())
           .contains(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+    }
+  }
+
+  @Test
+  public void disconnectOnMalformedGetReceiptsMessage() {
+    try (final EthProtocolManager ethManager =
+                 EthProtocolManagerTestBuilder.builder()
+                         .setProtocolSchedule(protocolSchedule)
+                         .setBlockchain(blockchain)
+                         .setEthScheduler(new DeterministicEthScheduler(() -> false))
+                         .setWorldStateArchive(protocolContext.getWorldStateArchive())
+                         .setTransactionPool(transactionPool)
+                         .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.DEFAULT)
+                         .build()) {
+      // 0xc1ff is a valid RLP list containing one invalid-length element (not a 32-byte hash)
+      final MessageData malformedMessageData =
+              new RawMessage(EthProtocolMessages.GET_RECEIPTS, Bytes.fromHexString("0xc1ff"));
+      final MockPeerConnection peer = setupPeer(ethManager, (cap, msg, conn) -> {});
+
+      ethManager.processMessage(EthProtocol.LATEST, new DefaultMessage(peer, malformedMessageData));
+
+      assertThat(peer.isDisconnected()).isTrue();
+      assertThat(peer.getDisconnectReason())
+              .contains(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
     }
   }
 
