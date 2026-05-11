@@ -136,10 +136,6 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
     return flatDbStrategyProvider.getFlatDbMode();
   }
 
-  public long getCurrentVersion() {
-    return cacheVersion;
-  }
-
   public Optional<Bytes> getAccount(final Hash accountHash) {
     final byte[] key = accountHash.getBytes().toArrayUnsafe();
     return cacheManager.getFromCacheOrStorage(
@@ -304,7 +300,7 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
     return cacheManager;
   }
 
-  public long getCacheVersion() {
+  public long getCurrentVersion() {
     return cacheVersion;
   }
 

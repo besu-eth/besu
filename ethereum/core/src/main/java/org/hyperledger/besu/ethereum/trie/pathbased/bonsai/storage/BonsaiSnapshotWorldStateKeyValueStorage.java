@@ -48,7 +48,7 @@ public class BonsaiSnapshotWorldStateKeyValueStorage extends BonsaiWorldStateKey
         segmentedWorldStateStorage,
         trieLogStorage,
         parentWorldStateStorage.getCacheManager(),
-        parentWorldStateStorage.getCacheVersion());
+        parentWorldStateStorage.getCurrentVersion());
 
     this.parentWorldStateStorage = parentWorldStateStorage;
     this.subscribeParentId = parentWorldStateStorage.subscribe(this);
