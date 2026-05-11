@@ -376,12 +376,6 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
   }
 
   @Override
-  public BesuControllerBuilder isRevertReasonEnabled(final boolean isRevertReasonEnabled) {
-    super.isRevertReasonEnabled(isRevertReasonEnabled);
-    return propagateConfig(z -> z.isRevertReasonEnabled(isRevertReasonEnabled));
-  }
-
-  @Override
   public BesuControllerBuilder isParallelTxProcessingEnabled(
       final boolean isParallelTxProcessingEnabled) {
     super.isParallelTxProcessingEnabled(isParallelTxProcessingEnabled);

@@ -14,13 +14,15 @@
  */
 package org.hyperledger.besu.nat.core.domain;
 
+import org.jspecify.annotations.Nullable;
+
 /** This class describes a NAT configuration. */
 public class NatPortMapping {
 
   private final NatServiceType natServiceType;
   private final NetworkProtocol protocol;
   private final String internalHost;
-  private final String remoteHost;
+  private final @Nullable String remoteHost;
   private final int externalPort;
   private final int internalPort;
 
@@ -38,7 +40,7 @@ public class NatPortMapping {
       final NatServiceType natServiceType,
       final NetworkProtocol protocol,
       final String internalHost,
-      final String remoteHost,
+      final @Nullable String remoteHost,
       final int externalPort,
       final int internalPort) {
     this.natServiceType = natServiceType;
@@ -81,7 +83,7 @@ public class NatPortMapping {
    *
    * @return the remote host
    */
-  public String getRemoteHost() {
+  public @Nullable String getRemoteHost() {
     return remoteHost;
   }
 

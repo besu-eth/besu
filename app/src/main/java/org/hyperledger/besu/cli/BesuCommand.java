@@ -566,12 +566,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   PermissionsOptions permissionsOptions = new PermissionsOptions();
 
   @Option(
-      names = {"--revert-reason-enabled"},
-      description =
-          "Enable passing the revert reason back through TransactionReceipts (default: ${DEFAULT-VALUE})")
-  private final Boolean isRevertReasonEnabled = false;
-
-  @Option(
       names = {"--required-blocks", "--required-block"},
       paramLabel = "BLOCK=HASH",
       description = "Block number and hash peers are required to have.",
@@ -2057,7 +2051,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .metricsSystem((ObservableMetricsSystem) besuComponent.getMetricsSystem())
             .messagePermissioningProviders(permissioningService.getMessagePermissioningProviders())
             .clock(Clock.systemUTC())
-            .isRevertReasonEnabled(isRevertReasonEnabled)
             .storageProvider(storageProvider)
             .isEarlyRoundChangeEnabled(unstableQbftOptions.isEarlyRoundChangeEnabled())
             .requiredBlocks(requiredBlocks)
@@ -2074,7 +2067,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .apiConfiguration(apiConfiguration)
             .balConfiguration(balConfiguration)
             .besuComponent(besuComponent);
-    if (DataStorageFormat.BONSAI.equals(getDataStorageConfiguration().getDataStorageFormat())) {
+    if (getDataStorageConfiguration().getDataStorageFormat().isBonsaiFormat()) {
       final PathBasedExtraStorageConfiguration subStorageConfiguration =
           getDataStorageConfiguration().getPathBasedExtraStorageConfiguration();
       besuControllerBuilder.isParallelTxProcessingEnabled(

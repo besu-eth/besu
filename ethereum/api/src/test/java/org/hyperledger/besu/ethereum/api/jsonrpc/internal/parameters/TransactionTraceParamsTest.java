@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
@@ -129,6 +130,44 @@ public class TransactionTraceParamsTest {
 
     assertThat(config.traceMemory())
         .describedAs("explicit enableMemory=false should be respected for callTracer")
+        .isFalse();
+  }
+
+  @Test
+  public void negativeLimitShouldFailDuringDeserialization() {
+    assertThatThrownBy(() -> MAPPER.readValue("{\"limit\": -1}", TransactionTraceParams.class))
+        .hasMessageContaining("limit must be >= 0, got: -1");
+  }
+
+  @Test
+  public void enableReturnDataTrueShouldSetTraceReturnData() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue("{\"enableReturnData\": true}", TransactionTraceParams.class);
+    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
+
+    assertThat(config.traceReturnData())
+        .describedAs("enableReturnData: true should set traceReturnData to true")
+        .isTrue();
+  }
+
+  @Test
+  public void enableReturnDataFalseShouldSetTraceReturnDataFalse() throws Exception {
+    final TransactionTraceParams params =
+        MAPPER.readValue("{\"enableReturnData\": false}", TransactionTraceParams.class);
+    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
+
+    assertThat(config.traceReturnData())
+        .describedAs("enableReturnData: false should set traceReturnData to false")
+        .isFalse();
+  }
+
+  @Test
+  public void missingEnableReturnDataShouldDefaultToFalse() throws Exception {
+    final TransactionTraceParams params = MAPPER.readValue("{}", TransactionTraceParams.class);
+    final OpCodeTracerConfig config = params.traceOptions().opCodeTracerConfig();
+
+    assertThat(config.traceReturnData())
+        .describedAs("traceReturnData should default to false when enableReturnData is absent")
         .isFalse();
   }
 }

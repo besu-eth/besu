@@ -21,6 +21,7 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.FRONTI
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.GRAY_GLACIER;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.HOMESTEAD;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.LONDON;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
@@ -35,6 +36,7 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.math.BigInteger;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 
@@ -258,5 +260,35 @@ public class DefaultProtocolScheduleTest {
 
   private BlockHeader header(final long number, final long timestamp) {
     return new BlockHeaderTestFixture().number(number).timestamp(timestamp).buildHeader();
+  }
+
+  @Test
+  public void copyConstructor_propagatesMilestonesMap() {
+    final ProtocolSpec frontierSpec = mock(ProtocolSpec.class);
+    when(frontierSpec.getHardforkId()).thenReturn(FRONTIER);
+
+    final DefaultProtocolSchedule source = new DefaultProtocolSchedule(CHAIN_ID);
+    source.putBlockNumberMilestone(0, frontierSpec);
+    source.setMilestones(Map.of(SHANGHAI, 100L, CANCUN, 200L, PRAGUE, 300L));
+
+    final DefaultProtocolSchedule copy = new TestProtocolScheduleCopy(source);
+
+    assertThat(copy.milestoneFor(SHANGHAI)).contains(100L);
+    assertThat(copy.milestoneFor(CANCUN)).contains(200L);
+    assertThat(copy.milestoneFor(PRAGUE)).contains(300L);
+    assertThat(copy.getChainId()).isEqualTo(CHAIN_ID);
+    assertThat(copy.getByBlockHeader(header(0L, 0L))).isSameAs(frontierSpec);
+
+    source.setMilestones(Map.of());
+
+    assertThat(copy.milestoneFor(SHANGHAI)).contains(100L);
+    assertThat(copy.milestoneFor(CANCUN)).contains(200L);
+    assertThat(copy.milestoneFor(PRAGUE)).contains(300L);
+  }
+
+  private static final class TestProtocolScheduleCopy extends DefaultProtocolSchedule {
+    TestProtocolScheduleCopy(final DefaultProtocolSchedule source) {
+      super(source);
+    }
   }
 }

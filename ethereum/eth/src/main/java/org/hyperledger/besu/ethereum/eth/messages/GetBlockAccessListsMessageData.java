@@ -19,8 +19,10 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
+import java.math.BigInteger;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -28,14 +30,44 @@ public final class GetBlockAccessListsMessageData {
   private GetBlockAccessListsMessageData() {}
 
   public static Bytes encode(final Iterable<Hash> blockHashes) {
+    return encode(blockHashes, Optional.empty());
+  }
+
+  public static Bytes encode(
+      final Iterable<Hash> blockHashes, final Optional<BigInteger> responseBytes) {
     final BytesValueRLPOutput output = new BytesValueRLPOutput();
     output.startList();
+    // request-id is prepended before sending the message
+    output.startList();
     blockHashes.forEach(hash -> output.writeBytes(hash.getBytes()));
+    output.endList();
+    responseBytes.ifPresent(output::writeBigIntegerScalar);
     output.endList();
     return output.encoded();
   }
 
   public static Iterable<Hash> decode(final Bytes data, final boolean withRequestId) {
+    return decode(data, withRequestId, false);
+  }
+
+  public static BigInteger decodeResponseBytes(final Bytes data, final boolean withRequestId) {
+    final RLPInput input = new BytesValueRLPInput(data, false);
+    input.enterList();
+    if (withRequestId) {
+      input.skipNext();
+    }
+    input.enterList();
+    while (!input.isEndOfCurrentList()) {
+      input.skipNext();
+    }
+    input.leaveListLenient();
+    final BigInteger responseBytes = input.readBigIntegerScalar();
+    input.leaveListLenient();
+    return responseBytes;
+  }
+
+  public static Iterable<Hash> decode(
+      final Bytes data, final boolean withRequestId, final boolean withResponseBytes) {
     return () ->
         new Iterator<>() {
           private final RLPInput input = new BytesValueRLPInput(data, false);
@@ -47,6 +79,7 @@ public final class GetBlockAccessListsMessageData {
               if (withRequestId) {
                 input.skipNext();
               }
+              input.enterList();
               initialized = true;
             }
           }
@@ -54,7 +87,15 @@ public final class GetBlockAccessListsMessageData {
           @Override
           public boolean hasNext() {
             ensureInitialized();
-            return !input.isEndOfCurrentList();
+            if (!input.isEndOfCurrentList()) {
+              return true;
+            }
+            input.leaveListLenient();
+            if (withResponseBytes && !input.isEndOfCurrentList()) {
+              input.skipNext();
+            }
+            input.leaveListLenient();
+            return false;
           }
 
           @Override
