@@ -80,7 +80,7 @@ public class EthGetStorageValues extends AbstractBlockParameterOrBlockHashMethod
       if (keys == null) {
         return new JsonRpcErrorResponse(
             request.getRequest().getId(),
-            new JsonRpcError(RpcErrorType.INVALID_PARAMS.getCode(), "null slot list", null));
+            new JsonRpcError(RpcErrorType.INVALID_PARAMS, "null slot list"));
       }
       totalSlots += keys.size();
       if (totalSlots > MAX_STORAGE_SLOTS) {

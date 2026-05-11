@@ -31,7 +31,7 @@ import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.ChainHead;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.evm.account.Account;
 
 import java.util.Arrays;
@@ -194,7 +194,7 @@ public class EthGetStorageValuesTest {
     final JsonRpcErrorResponse response = (JsonRpcErrorResponse) method.response(request);
 
     assertThat(response.getError().getCode()).isEqualTo(-32602);
-    assertThat(response.getError().getMessage()).isEqualTo("null slot list");
+    assertThat(response.getError().getData()).isEqualTo("null slot list");
   }
 
   @Test
