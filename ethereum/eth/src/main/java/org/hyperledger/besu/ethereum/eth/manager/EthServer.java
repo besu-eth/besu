@@ -428,21 +428,34 @@ class EthServer {
       final int maxMessageSize) {
     final GetPooledTransactionsMessage getPooledTransactions =
         GetPooledTransactionsMessage.readFrom(message);
-    final List<Hash> hashes = getPooledTransactions.pooledTransactions();
+    final Iterable<Hash> hashes = getPooledTransactions.pooledTransactions();
 
-    LOG.trace("Requested pooled transactions: peer={}, requested hashes={}", peer, hashes);
-
-    final List<Hash> returnedHashes = new ArrayList<>(hashes.size());
+    final boolean traceEnabled = LOG.isTraceEnabled();
+    final Iterable<Hash> hashesToProcess;
+    if (traceEnabled) {
+      final List<Hash> requested = new ArrayList<>();
+      hashes.forEach(requested::add);
+      LOG.atTrace()
+          .setMessage("Requested pooled transactions: peer={}, requested hashes={}")
+          .addArgument(peer)
+          .addArgument(requested)
+          .log();
+      hashesToProcess = requested;
+    } else {
+      hashesToProcess = hashes;
+    }
 
     int responseSizeEstimate = RLP.MAX_PREFIX_SIZE;
     final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
     rlp.startList();
-    int count = 0;
-    for (final Hash hash : hashes) {
-      if (count >= requestLimit) {
+    final List<Hash> returnedHashes = traceEnabled ? new ArrayList<>() : null;
+    int requestedCount = 0;
+    int returnedCount = 0;
+    for (final Hash hash : hashesToProcess) {
+      if (requestedCount >= requestLimit) {
         break;
       }
-      count++;
+      requestedCount++;
       final Optional<Transaction> maybeTx = transactionPool.getTransactionByHash(hash);
       if (maybeTx.isEmpty()) {
         continue;
@@ -457,16 +470,21 @@ class EthServer {
 
       responseSizeEstimate += encodedSize;
       rlp.writeRaw(txRlp.encoded());
-      returnedHashes.add(hash);
+      returnedCount++;
+      if (returnedHashes != null) {
+        returnedHashes.add(hash);
+      }
     }
     rlp.endList();
 
-    LOG.atTrace()
-        .setMessage("Sending pooled transactions: peer={}, returned hashes={}, notFoundCount={}")
-        .addArgument(peer)
-        .addArgument(returnedHashes)
-        .addArgument(() -> hashes.size() - returnedHashes.size())
-        .log();
+    if (traceEnabled) {
+      LOG.atTrace()
+          .setMessage("Sending pooled transactions: peer={}, returned hashes={}, notFoundCount={}")
+          .addArgument(peer)
+          .addArgument(returnedHashes)
+          .addArgument(requestedCount - returnedCount)
+          .log();
+    }
 
     return PooledTransactionsMessage.createUnsafe(rlp.encoded());
   }
