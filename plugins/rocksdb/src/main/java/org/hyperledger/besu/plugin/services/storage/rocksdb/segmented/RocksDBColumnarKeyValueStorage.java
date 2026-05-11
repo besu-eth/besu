@@ -113,6 +113,9 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   /** RocksDb transactionDB options */
   protected TransactionDBOptions txOptions;
 
+  private final List<LRUCache> blockCaches = new ArrayList<>();
+  private final List<ColumnFamilyOptions> columnFamilyOptionsList = new ArrayList<>();
+
   /** RocksDb statistics */
   protected final Statistics stats = new Statistics();
 
@@ -190,50 +193,53 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       final SegmentIdentifier segment, final RocksDBConfiguration configuration) {
     boolean dynamicLevelBytes = true;
     try {
-      ConfigOptions configOptions = new ConfigOptions();
-      DBOptions dbOptions = new DBOptions();
-      List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
+      final ConfigOptions configOptions = new ConfigOptions();
+      final DBOptions dbOptions = new DBOptions();
+      final List<ColumnFamilyDescriptor> cfDescriptors = new ArrayList<>();
 
-      String latestOptionsFileName =
-          OptionsUtil.getLatestOptionsFileName(
-              configuration.getDatabaseDir().toString(), Env.getDefault());
-      LOG.trace("Latest OPTIONS file detected: " + latestOptionsFileName);
+      try {
+        String latestOptionsFileName =
+            OptionsUtil.getLatestOptionsFileName(
+                configuration.getDatabaseDir().toString(), Env.getDefault());
+        LOG.trace("Latest OPTIONS file detected: " + latestOptionsFileName);
 
-      String optionsFilePath =
-          configuration.getDatabaseDir().toString() + "/" + latestOptionsFileName;
-      OptionsUtil.loadOptionsFromFile(configOptions, optionsFilePath, dbOptions, cfDescriptors);
+        String optionsFilePath =
+            configuration.getDatabaseDir().toString() + "/" + latestOptionsFileName;
+        OptionsUtil.loadOptionsFromFile(configOptions, optionsFilePath, dbOptions, cfDescriptors);
 
-      LOG.trace("RocksDB options loaded successfully from: " + optionsFilePath);
+        LOG.trace("RocksDB options loaded successfully from: " + optionsFilePath);
 
-      if (!cfDescriptors.isEmpty()) {
-        Optional<ColumnFamilyOptions> matchedCfOptions = Optional.empty();
-        for (ColumnFamilyDescriptor descriptor : cfDescriptors) {
-          if (Arrays.equals(descriptor.getName(), segment.getId())) {
-            matchedCfOptions = Optional.of(descriptor.getOptions());
-            break;
+        if (!cfDescriptors.isEmpty()) {
+          for (ColumnFamilyDescriptor descriptor : cfDescriptors) {
+            if (Arrays.equals(descriptor.getName(), segment.getId())) {
+              dynamicLevelBytes = descriptor.getOptions().levelCompactionDynamicLevelBytes();
+              LOG.trace("dynamicLevelBytes is set to an existing value : " + dynamicLevelBytes);
+              break;
+            }
           }
         }
-        if (matchedCfOptions.isPresent()) {
-          dynamicLevelBytes = matchedCfOptions.get().levelCompactionDynamicLevelBytes();
-          LOG.trace("dynamicLevelBytes is set to an existing value : " + dynamicLevelBytes);
-        }
+      } finally {
+        cfDescriptors.forEach(d -> d.getOptions().close());
+        dbOptions.close();
+        configOptions.close();
       }
     } catch (RocksDBException ex) {
       // Options file is not found in the database
     }
     BlockBasedTableConfig basedTableConfig = createBlockBasedTableConfig(segment, configuration);
 
-    final var options =
+    final var cfOptions =
         new ColumnFamilyOptions()
             .setTtl(0)
             .setCompressionType(CompressionType.LZ4_COMPRESSION)
             .setTableFormatConfig(basedTableConfig)
             .setLevelCompactionDynamicLevelBytes(dynamicLevelBytes);
+    columnFamilyOptionsList.add(cfOptions);
     if (segment.containsStaticData()) {
-      configureBlobDBForSegment(segment, configuration, options);
+      configureBlobDBForSegment(segment, configuration, cfOptions);
     }
 
-    return new ColumnFamilyDescriptor(segment.getId(), options);
+    return new ColumnFamilyDescriptor(segment.getId(), cfOptions);
   }
 
   private static void configureBlobDBForSegment(
@@ -287,6 +293,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
             config.isHighSpec() && segment.isEligibleToHighSpecFlag()
                 ? ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC
                 : config.getCacheCapacity());
+    blockCaches.add(cache);
     return new BlockBasedTableConfig()
         .setFormatVersion(ROCKSDB_FORMAT_VERSION)
         .setBlockCache(cache)
@@ -524,12 +531,14 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   public void close() {
     if (closed.compareAndSet(false, true)) {
       txOptions.close();
-      options.close();
       tryDeleteOptions.close();
       columnHandlesBySegmentIdentifier.values().stream()
           .map(RocksDbSegmentIdentifier::get)
           .forEach(ColumnFamilyHandle::close);
       getDB().close();
+      options.close();
+      columnFamilyOptionsList.forEach(ColumnFamilyOptions::close);
+      blockCaches.forEach(LRUCache::close);
     }
   }
 
