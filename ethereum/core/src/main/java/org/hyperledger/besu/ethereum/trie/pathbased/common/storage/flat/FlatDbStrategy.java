@@ -21,7 +21,6 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.NavigableMap;
 import java.util.Optional;
@@ -42,6 +41,25 @@ import org.apache.tuweni.rlp.RLP;
  * data, and storage data from the corresponding KeyValueStorage.
  */
 public abstract class FlatDbStrategy {
+  /**
+   * Byte-wise unsigned comparator for the flat-DB stream's {@code TreeMap}. Compares via {@link
+   * Bytes#get(int)} per position rather than {@link Bytes#toArrayUnsafe()} + {@link
+   * java.util.Arrays#compareUnsigned(byte[], byte[])} because the storage-stream keys are {@code
+   * DelegatingBytes32} instances backed by an offset-32 slice — their {@code toArrayUnsafe}
+   * allocates a fresh 32-byte copy per compare, which dominates the savings from the {@code
+   * compareUnsigned} HotSpot intrinsic at this array size.
+   */
+  private static final Comparator<Bytes32> BYTES32_UNSIGNED_COMPARATOR =
+      (a, b) -> {
+        for (int i = 0; i < Bytes32.SIZE; i++) {
+          final int diff = Byte.toUnsignedInt(a.get(i)) - Byte.toUnsignedInt(b.get(i));
+          if (diff != 0) {
+            return diff;
+          }
+        }
+        return 0;
+      };
+
   protected final MetricsSystem metricsSystem;
   protected final Counter getAccountCounter;
   protected final Counter getAccountFoundInFlatDatabaseCounter;
@@ -237,9 +255,7 @@ public abstract class FlatDbStrategy {
                 Pair::getFirst,
                 Pair::getSecond,
                 (v1, v2) -> v1,
-                () ->
-                    new TreeMap<>(
-                        Comparator.comparing(Bytes::toArrayUnsafe, Arrays::compareUnsigned))));
+                () -> new TreeMap<>(BYTES32_UNSIGNED_COMPARATOR)));
     pairStream.close();
     return collected;
   }
