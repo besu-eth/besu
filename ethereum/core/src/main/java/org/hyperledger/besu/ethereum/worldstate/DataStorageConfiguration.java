@@ -25,6 +25,7 @@ public interface DataStorageConfiguration {
 
   boolean DEFAULT_RECEIPT_COMPACTION_ENABLED = true;
   boolean DEFAULT_HISTORY_EXPIRY_PRUNE_ENABLED = false;
+  boolean DEFAULT_REVERT_REASON_ENABLED = false;
 
   DataStorageConfiguration DEFAULT_CONFIG =
       ImmutableDataStorageConfiguration.builder()
@@ -69,5 +70,10 @@ public interface DataStorageConfiguration {
   @Value.Default
   default boolean getHistoryExpiryPruneEnabled() {
     return DEFAULT_HISTORY_EXPIRY_PRUNE_ENABLED;
+  }
+
+  @Value.Default
+  default boolean getRevertReasonEnabled() {
+    return DEFAULT_REVERT_REASON_ENABLED;
   }
 }
