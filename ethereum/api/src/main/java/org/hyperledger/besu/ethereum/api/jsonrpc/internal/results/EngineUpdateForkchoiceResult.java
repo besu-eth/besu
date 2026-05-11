@@ -35,6 +35,15 @@ public class EngineUpdateForkchoiceResult {
   static final EnumSet<EngineStatus> FORK_CHOICE_ENGINE_STATUS =
       EnumSet.of(VALID, INVALID, SYNCING);
 
+  public EngineUpdateForkchoiceResult(final EngineStatus status, final Hash latestValidHash) {
+    this(status, latestValidHash, null);
+  }
+
+  public EngineUpdateForkchoiceResult(
+      final EngineStatus status, final Hash latestValidHash, final PayloadIdentifier payloadId) {
+    this(status, latestValidHash, payloadId, Optional.empty());
+  }
+
   public EngineUpdateForkchoiceResult(
       final EngineStatus status,
       final Hash latestValidHash,

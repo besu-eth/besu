@@ -250,13 +250,12 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
             null);
     var mockPayloadId =
         PayloadIdentifier.forPayloadParams(
-            mockHeader.getHash(),
-            payloadParams.getTimestamp(),
-            payloadParams.getPrevRandao(),
-            payloadParams.getSuggestedFeeRecipient(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(mockHeader)
+                .timestamp(payloadParams.getTimestamp())
+                .prevRandao(payloadParams.getPrevRandao())
+                .feeRecipient(payloadParams.getSuggestedFeeRecipient())
+                .build());
 
     when(mergeCoordinator.preparePayload(
             new PreparePayloadArgsBuilder()
@@ -532,13 +531,12 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
 
     var mockPayloadId =
         PayloadIdentifier.forPayloadParams(
-            mockHeader.getHash(),
-            payloadParams.getTimestamp(),
-            payloadParams.getPrevRandao(),
-            payloadParams.getSuggestedFeeRecipient(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(mockHeader)
+                .timestamp(payloadParams.getTimestamp())
+                .prevRandao(payloadParams.getPrevRandao())
+                .feeRecipient(payloadParams.getSuggestedFeeRecipient())
+                .build());
 
     when(mergeCoordinator.preparePayload(any(PreparePayloadArgs.class))).thenReturn(mockPayloadId);
 
@@ -614,13 +612,13 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
 
     var mockPayloadId =
         PayloadIdentifier.forPayloadParams(
-            mockHeader.getHash(),
-            payloadParams.getTimestamp(),
-            payloadParams.getPrevRandao(),
-            payloadParams.getSuggestedFeeRecipient(),
-            withdrawals,
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(mockHeader)
+                .timestamp(payloadParams.getTimestamp())
+                .prevRandao(payloadParams.getPrevRandao())
+                .feeRecipient(payloadParams.getSuggestedFeeRecipient())
+                .withdrawals(withdrawals)
+                .build());
 
     when(mergeCoordinator.preparePayload(any(PreparePayloadArgs.class))).thenReturn(mockPayloadId);
 
@@ -652,13 +650,12 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
 
     var mockPayloadId =
         PayloadIdentifier.forPayloadParams(
-            mockHeader.getHash(),
-            payloadParams.getTimestamp(),
-            payloadParams.getPrevRandao(),
-            payloadParams.getSuggestedFeeRecipient(),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(mockHeader)
+                .timestamp(payloadParams.getTimestamp())
+                .prevRandao(payloadParams.getPrevRandao())
+                .feeRecipient(payloadParams.getSuggestedFeeRecipient())
+                .build());
 
     when(mergeCoordinator.preparePayload(any(PreparePayloadArgs.class))).thenReturn(mockPayloadId);
 

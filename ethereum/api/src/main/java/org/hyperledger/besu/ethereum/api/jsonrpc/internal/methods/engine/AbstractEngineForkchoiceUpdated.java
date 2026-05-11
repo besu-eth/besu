@@ -214,18 +214,20 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
     final Optional<List<Withdrawal>> finalWithdrawals = withdrawals;
     Optional<PayloadIdentifier> payloadId =
         maybePayloadAttributes.map(
-            payloadAttributes ->
-                mergeCoordinator.preparePayload(
-                    new PreparePayloadArgsBuilder()
-                        .parentHeader(newHead)
-                        .timestamp(payloadAttributes.getTimestamp())
-                        .prevRandao(payloadAttributes.getPrevRandao())
-                        .feeRecipient(payloadAttributes.getSuggestedFeeRecipient())
-                        .withdrawals(finalWithdrawals)
-                        .parentBeaconBlockRoot(
-                            Optional.ofNullable(payloadAttributes.getParentBeaconBlockRoot()))
-                        .slotNumber(Optional.ofNullable(payloadAttributes.getSlotNumber()))
-                        .build()));
+            payloadAttributes -> {
+              final PreparePayloadArgsBuilder ppaBuilder =
+                  new PreparePayloadArgsBuilder()
+                      .parentHeader(newHead)
+                      .timestamp(payloadAttributes.getTimestamp())
+                      .prevRandao(payloadAttributes.getPrevRandao())
+                      .feeRecipient(payloadAttributes.getSuggestedFeeRecipient());
+              if (finalWithdrawals != null) ppaBuilder.withdrawals(finalWithdrawals);
+              if (payloadAttributes.getParentBeaconBlockRoot() != null)
+                ppaBuilder.parentBeaconBlockRoot(payloadAttributes.getParentBeaconBlockRoot());
+              if (payloadAttributes.getSlotNumber() != null)
+                ppaBuilder.slotNumber(payloadAttributes.getSlotNumber());
+              return mergeCoordinator.preparePayload(ppaBuilder.build());
+            });
 
     payloadId.ifPresent(
         pid ->
