@@ -80,25 +80,29 @@ public class TxParseSubCommand implements Runnable {
     }
   }
 
+  @SuppressWarnings("StreamResourceLeak")
+  private Stream<String> getTxStream() {
+    if (corpusFile != null) {
+      return fileStreamReader(corpusFile);
+    } else {
+      return new BufferedReader(new InputStreamReader(System.in, UTF_8)).lines();
+    }
+  }
+
   @Override
   public void run() {
 
-    Stream<String> txStream;
-    if (corpusFile != null) {
-      txStream = fileStreamReader(corpusFile);
-    } else {
-      txStream = new BufferedReader(new InputStreamReader(System.in, UTF_8)).lines();
+    try (Stream<String> txStream = getTxStream()) {
+      txStream.forEach(
+          line -> {
+            try {
+              Bytes bytes = Bytes.fromHexStringLenient(line);
+              dump(bytes);
+            } catch (Exception ex) {
+              err(ex.getMessage());
+            }
+          });
     }
-
-    txStream.forEach(
-        line -> {
-          try {
-            Bytes bytes = Bytes.fromHexStringLenient(line);
-            dump(bytes);
-          } catch (Exception ex) {
-            err(ex.getMessage());
-          }
-        });
   }
 
   void dump(final Bytes tx) {
