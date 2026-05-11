@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -139,13 +140,6 @@ class FrontierRootHashTrackerTest {
     final BonsaiWorldStateUpdateAccumulator acc =
         (BonsaiWorldStateUpdateAccumulator) worldState.getAccumulator();
 
-    final WorldUpdater updater = worldState.updater();
-    updater.getAccount(ACCOUNT_A).setBalance(Wei.of(100));
-    updater.commit();
-    updater.markTransactionBoundary();
-
-    final Hash expectedRoot = fullRecalculatedRoot(worldState);
-
     final MerkleTrie<Bytes, Bytes> brokenTrie = mock(MerkleTrie.class);
     doThrow(new MerkleTrieException("simulated node missing"))
         .when(brokenTrie)
@@ -165,13 +159,53 @@ class FrontierRootHashTrackerTest {
                     Function.identity()));
 
     final FrontierRootHashTracker tracker =
-        new FrontierRootHashTracker(acc, factory, (address, storageUpdates) -> {});
+        new FrontierRootHashTracker(acc, factory, FrontierStorageRootTracker.NO_OP);
+    acc.setCommittedTransactionListener(tracker);
+
+    final WorldUpdater updater = worldState.updater();
+    updater.getAccount(ACCOUNT_A).setBalance(Wei.of(100));
+    updater.commit();
+    updater.markTransactionBoundary();
+
+    final Hash expectedRoot = fullRecalculatedRoot(worldState);
 
     assertThatThrownBy(() -> tracker.frontierRootHash(worldState.rootHash()))
         .isInstanceOf(MerkleTrieException.class);
 
     final Hash result = tracker.frontierRootHash(worldState.rootHash());
     assertThat(result).isEqualTo(expectedRoot);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void merkleTrieExceptionResetsStorageRootTrackerCache() {
+    final BonsaiWorldState worldState = createWorldStateWithAccounts();
+    final BonsaiWorldStateUpdateAccumulator acc =
+        (BonsaiWorldStateUpdateAccumulator) worldState.getAccumulator();
+
+    final MerkleTrie<Bytes, Bytes> brokenTrie = mock(MerkleTrie.class);
+    doThrow(new MerkleTrieException("simulated node missing"))
+        .when(brokenTrie)
+        .put(any(Bytes.class), any(Bytes.class));
+
+    final FrontierRootHashTracker.AccountTrieFactory factory =
+        mock(FrontierRootHashTracker.AccountTrieFactory.class);
+    when(factory.create(any())).thenReturn(brokenTrie);
+
+    final FrontierStorageRootTracker storageRootTracker = mock(FrontierStorageRootTracker.class);
+    final FrontierRootHashTracker tracker =
+        new FrontierRootHashTracker(acc, factory, storageRootTracker);
+    acc.setCommittedTransactionListener(tracker);
+
+    final WorldUpdater updater = worldState.updater();
+    updater.getAccount(ACCOUNT_A).setBalance(Wei.of(100));
+    updater.commit();
+    updater.markTransactionBoundary();
+
+    assertThatThrownBy(() -> tracker.frontierRootHash(worldState.rootHash()))
+        .isInstanceOf(MerkleTrieException.class);
+
+    verify(storageRootTracker).reset();
   }
 
   private static Hash fullRecalculatedRoot(final BonsaiWorldState worldState) {

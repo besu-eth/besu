@@ -68,7 +68,6 @@ public class BonsaiWorldState extends PathBasedWorldState {
   private final EvmConfiguration evmConfiguration;
   private final BonsaiTrieFactory trieFactory;
   private final FrontierRootHashTracker frontierRootHashTracker;
-  private final FrontierStorageRootTracker frontierStorageRootTracker;
 
   public BonsaiWorldState(
       final BonsaiWorldStateProvider archive,
@@ -111,7 +110,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
             codeCache);
     this.setAccumulator(acc);
     this.trieFactory = new BonsaiTrieFactory(worldStateConfig);
-    this.frontierStorageRootTracker =
+    final FrontierStorageRootTracker frontierStorageRootTracker =
         worldStateConfig.isTrieDisabled()
             ? FrontierStorageRootTracker.NO_OP
             : new CachingFrontierStorageRootTracker(
@@ -133,7 +132,9 @@ public class BonsaiWorldState extends PathBasedWorldState {
                             getWorldStateStorage(), location, hash),
                     rootHash,
                     BonsaiTrieFactory.TrieMode.ALWAYS_SEQUENTIAL),
-            this::updateFrontierStorageState);
+            frontierStorageRootTracker);
+    // Keep frontier-derived caches aligned with accumulator resets.
+    acc.setCommittedTransactionListener(frontierRootHashTracker);
     this.codeCache = codeCache;
   }
 
@@ -449,7 +450,6 @@ public class BonsaiWorldState extends PathBasedWorldState {
   @Override
   public void persist(final BlockHeader blockHeader, final StateRootCommitter committer) {
     frontierRootHashTracker.reset();
-    frontierStorageRootTracker.reset();
     super.persist(blockHeader, committer);
   }
 
@@ -473,12 +473,6 @@ public class BonsaiWorldState extends PathBasedWorldState {
   protected Optional<Bytes> getStorageTrieNode(
       final Hash accountHash, final Bytes location, final Bytes32 nodeHash) {
     return getWorldStateStorage().getAccountStorageTrieNode(accountHash, location, nodeHash);
-  }
-
-  private void updateFrontierStorageState(
-      final Address address,
-      final StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> storageUpdates) {
-    frontierStorageRootTracker.update(address, storageUpdates);
   }
 
   private void writeStorageTrieNode(
