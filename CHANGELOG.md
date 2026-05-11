@@ -7,9 +7,11 @@
 ### Upcoming Breaking Changes
 
 ### Bug fixes
+- Fix `engine_forkchoiceUpdatedV1` now returns `-38003 INVALID_PAYLOAD_ATTRIBUTES` for invalid payload attribute timestamps (zero or not greater than head). [#10353](https://github.com/besu-eth/besu/pull/10353)
 
 ### Additions and Improvements
-
+- Add `enableReturnData` parameter to `debug_traceTransaction` and `debug_traceBlockByNumber`, and include `returnData` in `StructLog` when captured; the field is omitted when return data is empty or not captured. [#10172](https://github.com/besu-eth/besu/pull/10172)
+- Updated `Bouncycastle` to 1.84 and `maven-artifact` to 3.9.15 to resolve CVEs reported in those libraries. Besu's usage patterns are not affected by these vulnerabilities. [#10420](https://github.com/besu-eth/besu/pull/10420)
 ## 26.5.0
 
 ### Breaking Changes
@@ -33,6 +35,7 @@
 ### Bug fixes
 - `engine_newPayloadV3`/V4/V5: validate parameters before fork-support check so that missing required fields return `-32602` (`INVALID_PARAMS`) instead of `-38005` (`UNSUPPORTED_FORK`), matching the Engine API spec [#10249](https://github.com/besu-eth/besu/pull/10249)
 - Fix data race in `SyncDurationMetrics` where the backing `HashMap` was mutated from multiple sync threads in parallel, causing missing or zero `sync_duration` samples. [#10277](https://github.com/besu-eth/besu/pull/10277)
+- Fix chain pruning race that could lose fork block metadata updates when concurrent same-height block events are recorded. [#10331](https://github.com/besu-eth/besu/pull/10331)
 - Fix CVE-2026-34480 and CVE-2026-34478 in log4j [#10332](https://github.com/besu-eth/besu/pull/10332)
 - Reject Status messages whose declared `protocolVersion` field disagrees with the on-wire layout (eth/68 vs eth/69+). The decoder now throws `RLPException` directly so the peer is cleanly disconnected with `SUBPROTOCOL_TRIGGERED_UNPARSABLE_STATUS`. [#10241](https://github.com/besu-eth/besu/pull/10241)
 - Fix `updateForkChoice` ignoring `setNewHead` failure: when world state cannot be rolled to the target block, return `INVALID` to the CL instead of silently returning `VALID` with inconsistent finalized/safe state. [#10224](https://github.com/besu-eth/besu/pull/10224)
