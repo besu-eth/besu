@@ -34,7 +34,6 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
@@ -179,8 +178,7 @@ class BalTransactionProcessorUnitTest {
       stubSuccessfulTransaction();
 
       final BalConcurrentTransactionProcessor processor =
-          new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -217,8 +215,7 @@ class BalTransactionProcessorUnitTest {
       stubSuccessfulTransaction();
 
       final BalConcurrentTransactionProcessor processor =
-          new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -244,8 +241,7 @@ class BalTransactionProcessorUnitTest {
       stubSuccessfulTransaction();
 
       final BalConcurrentTransactionProcessor processor =
-          new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -285,8 +281,7 @@ class BalTransactionProcessorUnitTest {
       final Transaction transaction = mock(Transaction.class);
       final BonsaiWorldState worldStateForResult = createEmptyWorldState();
       final BalConcurrentTransactionProcessor processor =
-          new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
 
       processor.runAsyncBlock(
           protocolContext,
@@ -322,8 +317,7 @@ class BalTransactionProcessorUnitTest {
       final BlockAccessList blockAccessList = mock(BlockAccessList.class);
       final Transaction transaction = mock(Transaction.class);
       final BalConcurrentTransactionProcessor processor =
-          new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -360,8 +354,7 @@ class BalTransactionProcessorUnitTest {
       final Transaction transaction = mockTransaction();
       final BlockHeader parent = env.maybeParentHeader().orElseThrow();
       final BalConcurrentTransactionProcessor processor =
-          new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
 
       processor.runAsyncBlock(
           env.protocolContext(),
@@ -503,8 +496,7 @@ class BalTransactionProcessorUnitTest {
               });
 
       final BalConcurrentTransactionProcessor processor =
-          new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
 
       final Transaction tx0 = mockTransaction();
       final Transaction tx1 = mockTransaction();
@@ -558,8 +550,7 @@ class BalTransactionProcessorUnitTest {
           .thenThrow(new RuntimeException("Simulated failure"));
 
       final BalConcurrentTransactionProcessor processor =
-          new BalConcurrentTransactionProcessor(
-              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
 
       processor.runAsyncBlock(
           env.protocolContext(),

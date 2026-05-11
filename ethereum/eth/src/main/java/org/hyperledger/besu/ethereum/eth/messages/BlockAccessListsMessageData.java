@@ -23,22 +23,38 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 
 public final class BlockAccessListsMessageData {
   private BlockAccessListsMessageData() {}
 
-  public static Bytes encode(final Iterable<BlockAccessList> blockAccessLists) {
+  public static Bytes encode(final Iterable<Optional<BlockAccessList>> blockAccessLists) {
     final BytesValueRLPOutput output = new BytesValueRLPOutput();
     output.startList();
+    // request-id is prepended before sending the message
+    output.startList();
     blockAccessLists.forEach(
-        blockAccessList -> BlockAccessListEncoder.encode(blockAccessList, output));
+        maybeBlockAccessList -> {
+          if (maybeBlockAccessList.isPresent()) {
+            final BlockAccessList blockAccessList = maybeBlockAccessList.get();
+            if (blockAccessList.rawRlp().isPresent()) {
+              output.writeRaw(blockAccessList.rawRlp().get());
+            } else {
+              BlockAccessListEncoder.encode(blockAccessList, output);
+            }
+          } else {
+            output.writeBytes(Bytes.EMPTY);
+          }
+        });
+    output.endList();
     output.endList();
     return output.encoded();
   }
 
-  public static Iterable<BlockAccessList> decode(final Bytes data, final boolean withRequestId) {
+  public static Iterable<Optional<BlockAccessList>> decode(
+      final Bytes data, final boolean withRequestId) {
     return () ->
         new Iterator<>() {
           private final RLPInput input = new BytesValueRLPInput(data, false);
@@ -50,6 +66,7 @@ public final class BlockAccessListsMessageData {
               if (withRequestId) {
                 input.skipNext();
               }
+              input.enterList();
               initialized = true;
             }
           }
@@ -61,12 +78,16 @@ public final class BlockAccessListsMessageData {
           }
 
           @Override
-          public BlockAccessList next() {
+          public Optional<BlockAccessList> next() {
             ensureInitialized();
             if (!hasNext()) {
               throw new NoSuchElementException();
             }
-            return BlockAccessListDecoder.decode(input.readAsRlp());
+            if (input.nextIsNull()) {
+              input.skipNext();
+              return Optional.empty();
+            }
+            return Optional.of(BlockAccessListDecoder.decode(input.readAsRlp()));
           }
         };
   }
@@ -83,6 +104,7 @@ public final class BlockAccessListsMessageData {
               if (withRequestId) {
                 input.skipNext();
               }
+              input.enterList();
               initialized = true;
             }
           }
