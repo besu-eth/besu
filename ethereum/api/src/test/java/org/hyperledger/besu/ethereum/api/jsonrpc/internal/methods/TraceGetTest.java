@@ -55,9 +55,7 @@ public class TraceGetTest {
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(
             new JsonRpcRequest(
-                "2.0",
-                "trace_get",
-                new Object[] {VALID_TX_HASH, Arrays.asList("0xZZ")}));
+                "2.0", "trace_get", new Object[] {VALID_TX_HASH, Arrays.asList("0xZZ")}));
 
     assertThatThrownBy(() -> method.response(request))
         .isInstanceOf(InvalidJsonRpcParameters.class)
@@ -117,9 +115,7 @@ public class TraceGetTest {
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(
             new JsonRpcRequest(
-                "2.0",
-                "trace_get",
-                new Object[] {VALID_TX_HASH, Arrays.asList("deadbeef")}));
+                "2.0", "trace_get", new Object[] {VALID_TX_HASH, Arrays.asList("deadbeef")}));
 
     assertThatThrownBy(() -> method.response(request))
         .isInstanceOf(InvalidJsonRpcParameters.class)
@@ -134,9 +130,7 @@ public class TraceGetTest {
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(
             new JsonRpcRequest(
-                "2.0",
-                "trace_get",
-                new Object[] {VALID_TX_HASH, Arrays.asList((Object) null)}));
+                "2.0", "trace_get", new Object[] {VALID_TX_HASH, Arrays.asList((Object) null)}));
 
     assertThatThrownBy(() -> method.response(request))
         .isInstanceOf(InvalidJsonRpcParameters.class)
