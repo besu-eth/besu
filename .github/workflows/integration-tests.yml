@@ -36,8 +36,6 @@ jobs:
           java-version: 21
       - name: setup gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
-        with:
-          cache-disabled: true
       - name: run integration tests
         run: ./gradlew integrationTest compileJmh
 
