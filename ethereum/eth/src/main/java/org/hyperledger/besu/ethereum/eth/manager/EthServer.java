@@ -361,7 +361,7 @@ class EthServer {
     final Bytes encodedResponse = rlp.encoded();
     LOG.trace(
         "Returning paginated receipts for {} blocks, with last block incomplete {}, enconded size {}",
-        count,
+        blockReceiptsRLPs.size(),
         lastBlockIncomplete,
         encodedResponse.size());
     return PaginatedReceiptsMessage.createUnsafe(encodedResponse, lastBlockIncomplete);

@@ -67,6 +67,7 @@ public final class GetPaginatedReceiptsMessage extends GetReceiptsMessage {
     return () ->
         new Iterator<>() {
           private final RLPInput input = new BytesValueRLPInput(data, false);
+          private boolean leftList = false;
 
           {
             input.readIntScalar(); // skip the firstBlockReceiptIndex scalar
@@ -75,7 +76,14 @@ public final class GetPaginatedReceiptsMessage extends GetReceiptsMessage {
 
           @Override
           public boolean hasNext() {
-            return !input.isEndOfCurrentList();
+            if (input.isEndOfCurrentList()) {
+              if (!leftList) {
+                input.leaveList();
+                leftList = true;
+              }
+              return false;
+            }
+            return true;
           }
 
           @Override
