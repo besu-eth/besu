@@ -118,6 +118,25 @@ public class EthGetStorageValuesTest {
   }
 
   @Test
+  public void shouldReturnMultipleStorageValuesForSingleAddress() {
+    when(worldState.get(ADDRESS_ONE)).thenReturn(accountOne);
+    when(accountOne.getStorageValue(UInt256.fromHexString(SLOT_ZERO)))
+        .thenReturn(UInt256.valueOf(42));
+    when(accountOne.getStorageValue(UInt256.fromHexString(SLOT_HIGH))).thenReturn(UInt256.ZERO);
+
+    final JsonRpcRequestContext request =
+        requestWithParams(
+            Map.of(ADDRESS_ONE.toHexString(), List.of(SLOT_ZERO, SLOT_HIGH)), "latest");
+
+    final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
+
+    @SuppressWarnings("unchecked")
+    final Map<String, List<String>> result = (Map<String, List<String>>) response.getResult();
+    assertThat(result)
+        .containsEntry(ADDRESS_ONE.toHexString(), List.of(VALUE_FORTY_TWO, VALUE_ZERO));
+  }
+
+  @Test
   public void shouldReturnStorageValuesForMultipleAddresses() {
     when(worldState.get(ADDRESS_ONE)).thenReturn(accountOne);
     when(worldState.get(ADDRESS_TWO)).thenReturn(accountTwo);
