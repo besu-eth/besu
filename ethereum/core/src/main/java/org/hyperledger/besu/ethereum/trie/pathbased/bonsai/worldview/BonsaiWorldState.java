@@ -129,6 +129,20 @@ public class BonsaiWorldState extends PathBasedWorldState {
                     rootHash,
                     BonsaiTrieFactory.TrieMode.ALWAYS_SEQUENTIAL),
             this::updateFrontierStorageState);
+    // Keep frontier-derived caches aligned with accumulator resets.
+    acc.setCommittedTransactionListener(
+        new CommittedTransactionListener() {
+          @Override
+          public void onTransactionCommitted(final CommittedTransactionChanges changes) {
+            frontierRootHashTracker.onTransactionCommitted(changes);
+          }
+
+          @Override
+          public void onReset() {
+            frontierRootHashTracker.onReset();
+            frontierStorageRootTracker.reset();
+          }
+        });
     this.codeCache = codeCache;
   }
 
