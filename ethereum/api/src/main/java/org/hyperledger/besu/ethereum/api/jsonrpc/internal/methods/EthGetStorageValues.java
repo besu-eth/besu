@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.parameters.UInt256Parameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
@@ -71,12 +72,10 @@ public class EthGetStorageValues extends AbstractBlockParameterOrBlockHashMethod
           "Invalid storage slots request parameter (index 0)", RpcErrorType.INVALID_PARAMS, e);
     }
 
-    // Validate and pre-parse all hex keys before opening the world state. Keeping validation
-    // outside the getAndMapWorldState lambda avoids its catch-all swallowing input errors.
     final Map<Address, List<UInt256>> parsed = new HashMap<>(storageSlotsRequest.size());
     int totalSlots = 0;
-    for (final Map.Entry<Address, List<String>> entry : storageSlotsRequest.entrySet()) {
-      final List<String> keys = entry.getValue();
+    for (final Map.Entry<Address, List<UInt256Parameter>> entry : storageSlotsRequest.entrySet()) {
+      final List<UInt256Parameter> keys = entry.getValue();
       if (keys == null) {
         return new JsonRpcErrorResponse(
             request.getRequest().getId(),
@@ -92,17 +91,12 @@ public class EthGetStorageValues extends AbstractBlockParameterOrBlockHashMethod
                 null));
       }
       final List<UInt256> parsedKeys = new ArrayList<>(keys.size());
-      for (final String keyHex : keys) {
-        if (keyHex == null) {
+      for (final UInt256Parameter key : keys) {
+        if (key == null) {
           throw new InvalidJsonRpcParameters(
               "Invalid storage key parameter", RpcErrorType.INVALID_PARAMS);
         }
-        try {
-          parsedKeys.add(UInt256.fromHexString(keyHex));
-        } catch (IllegalArgumentException e) {
-          throw new InvalidJsonRpcParameters(
-              "Invalid storage key parameter", RpcErrorType.INVALID_PARAMS, e);
-        }
+        parsedKeys.add(key.getValue());
       }
       parsed.put(entry.getKey(), parsedKeys);
     }

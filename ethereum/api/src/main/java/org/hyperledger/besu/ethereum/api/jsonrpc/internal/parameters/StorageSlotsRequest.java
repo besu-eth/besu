@@ -15,12 +15,13 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.parameters.UInt256Parameter;
 
 import java.util.HashMap;
 import java.util.List;
 
 /** Map of storage slot requests, indexed by address. */
-public class StorageSlotsRequest extends HashMap<Address, List<String>> {
+public class StorageSlotsRequest extends HashMap<Address, List<UInt256Parameter>> {
 
   /** Default constructor. */
   public StorageSlotsRequest() {}

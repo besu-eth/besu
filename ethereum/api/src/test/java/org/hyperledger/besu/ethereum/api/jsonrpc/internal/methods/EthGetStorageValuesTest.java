@@ -31,8 +31,8 @@ import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.ChainHead;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -182,7 +182,7 @@ public class EthGetStorageValuesTest {
 
     assertThatThrownBy(() -> method.response(request))
         .isInstanceOf(InvalidJsonRpcParameters.class)
-        .hasMessageContaining("Invalid storage key parameter");
+        .hasMessageContaining("Invalid storage slots request parameter (index 0)");
   }
 
   @Test
