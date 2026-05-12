@@ -525,7 +525,7 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
                     }
                   }));
       clearStaged();
-      cacheManager.performMaintenance();
+      cacheManager.scheduleAsyncMaintenance();
     }
 
     @Override

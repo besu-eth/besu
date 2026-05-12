@@ -179,7 +179,8 @@ public class VersionedCacheManager implements CacheManager, Closeable {
    * Schedules an async maintenance if one is not already scheduled. Uses an AtomicBoolean to
    * prevent flooding the maintenance worker with redundant tasks.
    */
-  private void scheduleAsyncMaintenance() {
+  @Override
+  public void scheduleAsyncMaintenance() {
     if (maintenanceScheduled.compareAndSet(false, true)) {
       try {
         maintenanceWorker.execute(
@@ -209,25 +210,6 @@ public class VersionedCacheManager implements CacheManager, Closeable {
     } catch (final Exception e) {
       LOG.warn("Error during cache maintenance", e);
     }
-  }
-
-  /**
-   * Trigger cache maintenance asynchronously. Can be called explicitly, for example after a block
-   * import, for cleanup without blocking the caller. Also triggered automatically when the number
-   * of pending tasks exceeds the configured threshold.
-   */
-  @Override
-  public void performMaintenance() {
-    scheduleAsyncMaintenance();
-  }
-
-  /**
-   * Returns the approximate number of pending maintenance tasks.
-   *
-   * @return pending task count
-   */
-  public int getPendingMaintenanceCount() {
-    return drainExecutor.getPendingCount();
   }
 
   /**

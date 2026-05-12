@@ -44,7 +44,7 @@ public interface CacheManager {
     // No-op
   }
 
-  default void performMaintenance() {
+  default void scheduleAsyncMaintenance() {
     // No-op
   }
 
