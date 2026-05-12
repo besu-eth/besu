@@ -14,8 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
-import java.time.Duration;
-
 import org.immutables.value.Value;
 
 /** Configuration options for Block Access List (BAL) processing. */
@@ -28,6 +26,15 @@ public interface BalConfiguration {
   @Value.Default
   default boolean isBalStateRootTrusted() {
     return false;
+  }
+
+  /**
+   * Returns whether to use the BAL-based state root commit path when a BAL is available. When
+   * false, the synchronous trie path is used instead.
+   */
+  @Value.Default
+  default boolean isBalStateRootEnabled() {
+    return true;
   }
 
   /** Returns whether BAL perfect parallelization is enabled. */
@@ -49,17 +56,5 @@ public interface BalConfiguration {
   @Value.Default
   default boolean shouldLogBalsOnMismatch() {
     return false;
-  }
-
-  /** Returns the timeout to use when waiting for the BAL-computed state root. */
-  @Value.Default
-  default Duration getBalStateRootTimeout() {
-    return Duration.ofSeconds(1);
-  }
-
-  /** Returns the timeout to use when waiting for BAL transaction processing results. */
-  @Value.Default
-  default Duration getBalProcessingTimeout() {
-    return Duration.ofSeconds(1);
   }
 }

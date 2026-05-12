@@ -39,7 +39,7 @@ spotless {
     target 'src/**/*.java'
     targetExclude '**/src/reference-test/**', '**/src/main/generated/**', '**/src/test/generated/**', '**/src/jmh/generated/**'
     removeUnusedImports()
-    googleJavaFormat('1.25.2')
+    googleJavaFormat('1.35.0')
     importOrder 'org.hyperledger', 'java', ''
     trimTrailingWhitespace()
     endWithNewline()
