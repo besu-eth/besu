@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.forkch
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.SYNCING;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.Configuration.FAIL_ON_UNKNOWN_BUT_NULL;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult;
@@ -126,12 +127,12 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
 
     final Optional<PA> maybePayloadAttributes;
     try {
-      maybePayloadAttributes = requestContext.getOptionalParameter(1, getPayloadAttributesClass());
+      maybePayloadAttributes =
+          requestContext.getOptionalParameter(
+              1, getPayloadAttributesClass(), FAIL_ON_UNKNOWN_BUT_NULL);
     } catch (JsonRpcParameter.JsonRpcParameterException e) {
-      throw new InvalidJsonRpcParameters(
-          "Invalid payload attributes parameter (index 1)",
-          RpcErrorType.INVALID_ENGINE_FORKCHOICE_UPDATED_PAYLOAD_ATTRIBUTES,
-          e);
+      LOG.debug("Invalid payload attributes parameter", e);
+      return new JsonRpcErrorResponse(requestId, getInvalidPayloadAttributesError());
     }
 
     EngineForkchoiceUpdatedV1.LOG.debug("Payload attributes {}", maybePayloadAttributes);

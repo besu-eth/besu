@@ -17,11 +17,9 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.engine;
 import org.hyperledger.besu.datatypes.Address;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.apache.tuweni.bytes.Bytes32;
 
-@JsonIgnoreProperties(ignoreUnknown = true)
 public sealed class PayloadAttributesV1 permits PayloadAttributesV2 {
 
   private final long timestamp;
