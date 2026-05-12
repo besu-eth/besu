@@ -18,6 +18,7 @@
 - BFT option `xemptyblockperiodseconds` has been taken out of experimental and been renamed `emptyblockperiodseconds`. The old config option is deprecated and will be removed in a future release.
 
 ### Bug fixes
+- `debug_accountAt`: fix off-by-one in transaction index validation that caused an `IndexOutOfBoundsException` when `txIndex` equalled the transaction list size; the boundary is now correctly rejected with `INVALID_TRANSACTION_PARAMS` [#10464](https://github.com/besu-eth/besu/pull/10464)
 - Fix `engine_forkchoiceUpdatedV1` now returns `-38003 INVALID_PAYLOAD_ATTRIBUTES` for invalid payload attribute timestamps (zero or not greater than head). [#10353](https://github.com/besu-eth/besu/pull/10353)
 - Fix `debug_trace*` `storage` field to emit only for SLOAD/SSTORE opcodes showing the single slot touched, matching the execution-apis spec and geth behaviour [#10176](https://github.com/besu-eth/besu/pull/10176)
 
