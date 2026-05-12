@@ -22,16 +22,15 @@ import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeMap;
-import java.util.TreeSet;
-import java.util.stream.Collectors;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -165,6 +164,10 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
     }
   }
 
+  private record SortableSlotChanges(byte[] sortKey, SlotChanges value) {}
+
+  private record SortableSlotRead(byte[] sortKey, StorageSlotKey value) {}
+
   public static class BlockAccessListBuilder {
     final Map<Address, AccountBuilder> accountChangesBuilders = new HashMap<>();
 
@@ -259,12 +262,16 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
     }
 
     public BlockAccessList build() {
-
-      return new BlockAccessList(
-          accountChangesBuilders.values().stream()
-              .map(AccountBuilder::build)
-              .sorted(Comparator.comparing(ac -> ac.address().getBytes().toUnprefixedHexString()))
-              .toList());
+      final List<AccountChanges> accountChanges = new ArrayList<>(accountChangesBuilders.size());
+      for (AccountBuilder accountBuilder : accountChangesBuilders.values()) {
+        accountChanges.add(accountBuilder.build());
+      }
+      accountChanges.sort(
+          (left, right) ->
+              Arrays.compareUnsigned(
+                  left.address().getBytes().toArrayUnsafe(),
+                  right.address().getBytes().toArrayUnsafe()));
+      return new BlockAccessList(accountChanges);
     }
 
     public long eip7928ItemCount() {
@@ -277,8 +284,8 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
 
     public static class AccountBuilder {
       final Address address;
-      final Map<StorageSlotKey, List<StorageChange>> slotWrites = new TreeMap<>();
-      final Set<StorageSlotKey> slotReads = new TreeSet<>();
+      final Map<StorageSlotKey, List<StorageChange>> slotWrites = new HashMap<>();
+      final Set<StorageSlotKey> slotReads = new HashSet<>();
       final List<BalanceChange> balances = new ArrayList<>();
       final List<NonceChange> nonces = new ArrayList<>();
       final List<CodeChange> codes = new ArrayList<>();
@@ -359,31 +366,63 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
       }
 
       AccountChanges build() {
-        final List<SlotChanges> slotChanges =
-            slotWrites.entrySet().stream()
-                .sorted(Comparator.comparing(e -> e.getKey().getSlotKey().orElseThrow().toBytes()))
-                .map(
-                    e ->
-                        new SlotChanges(
-                            e.getKey(),
-                            e.getValue().stream()
-                                .sorted(Comparator.comparingLong(StorageChange::txIndex))
-                                .collect(Collectors.toList())))
-                .collect(Collectors.toList());
+        final List<BalanceChange> sortedBalances = new ArrayList<>(balances);
+        sortedBalances.sort(Comparator.comparingLong(BalanceChange::txIndex));
 
-        final List<SlotRead> reads =
-            slotReads.stream()
-                .sorted(Comparator.comparing(e -> e.getSlotKey().orElseThrow().toBytes()))
-                .map(SlotRead::new)
-                .collect(Collectors.toList());
+        final List<NonceChange> sortedNonces = new ArrayList<>(nonces);
+        sortedNonces.sort(Comparator.comparingLong(NonceChange::txIndex));
+
+        final List<CodeChange> sortedCodes = new ArrayList<>(codes);
+        sortedCodes.sort(Comparator.comparingLong(CodeChange::txIndex));
 
         return new AccountChanges(
             address,
-            slotChanges,
-            reads,
-            balances.stream().sorted(Comparator.comparingLong(BalanceChange::txIndex)).toList(),
-            nonces.stream().sorted(Comparator.comparingLong(NonceChange::txIndex)).toList(),
-            codes.stream().sorted(Comparator.comparingLong(CodeChange::txIndex)).toList());
+            sortedSlotChanges(),
+            sortedSlotReads(),
+            sortedBalances,
+            sortedNonces,
+            sortedCodes);
+      }
+
+      private List<SlotChanges> sortedSlotChanges() {
+        final int n = slotWrites.size();
+        if (n == 0) {
+          return List.of();
+        }
+        final SortableSlotChanges[] entries = new SortableSlotChanges[n];
+        int i = 0;
+        for (Map.Entry<StorageSlotKey, List<StorageChange>> e : slotWrites.entrySet()) {
+          final List<StorageChange> changes = new ArrayList<>(e.getValue());
+          changes.sort(Comparator.comparingLong(StorageChange::txIndex));
+          entries[i++] =
+              new SortableSlotChanges(
+                  e.getKey().getSlotKey().orElseThrow().toArray(),
+                  new SlotChanges(e.getKey(), changes));
+        }
+        Arrays.sort(entries, (a, b) -> Arrays.compareUnsigned(a.sortKey(), b.sortKey()));
+        final List<SlotChanges> result = new ArrayList<>(n);
+        for (SortableSlotChanges e : entries) {
+          result.add(e.value());
+        }
+        return result;
+      }
+
+      private List<SlotRead> sortedSlotReads() {
+        final int n = slotReads.size();
+        if (n == 0) {
+          return List.of();
+        }
+        final SortableSlotRead[] entries = new SortableSlotRead[n];
+        int i = 0;
+        for (StorageSlotKey k : slotReads) {
+          entries[i++] = new SortableSlotRead(k.getSlotKey().orElseThrow().toArray(), k);
+        }
+        Arrays.sort(entries, (a, b) -> Arrays.compareUnsigned(a.sortKey(), b.sortKey()));
+        final List<SlotRead> result = new ArrayList<>(n);
+        for (SortableSlotRead e : entries) {
+          result.add(new SlotRead(e.value()));
+        }
+        return result;
       }
     }
   }
