@@ -308,6 +308,10 @@ public class BlockchainReferenceTestCaseSpec {
         blockValid = false;
       }
 
+      if (expectException != null || expectExceptionALL != null) {
+        blockValid = false;
+      }
+
       this.valid = blockValid;
       this.transactionSequence = transactionSequence;
       this.blockAccessList = blockAccessList;
