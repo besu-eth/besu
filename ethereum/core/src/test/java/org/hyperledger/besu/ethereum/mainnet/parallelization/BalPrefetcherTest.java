@@ -30,7 +30,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoopBonsaiCache
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiSnapshotWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateLayerStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedCacheManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.CrossBlockCacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.NoOpTrieLogManager;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -56,7 +56,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 public class BalPrefetcherTest {
 
   private BonsaiWorldStateKeyValueStorage baseStorage;
-  private VersionedCacheManager cacheManager;
+  private CrossBlockCacheManager cacheManager;
 
   private static final Executor SYNC_EXECUTOR = Runnable::run;
 
@@ -69,9 +69,10 @@ public class BalPrefetcherTest {
   @BeforeEach
   public void setup() {
     cacheManager =
-        new VersionedCacheManager(
+        new CrossBlockCacheManager(
             1000, // accountCacheSize
             5000, // storageCacheSize
+            10000, // trieBranchCacheSize
             new NoOpMetricsSystem());
 
     baseStorage =
