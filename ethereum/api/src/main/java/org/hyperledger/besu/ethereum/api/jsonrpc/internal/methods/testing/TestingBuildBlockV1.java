@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadAttributesParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -34,6 +35,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPaylo
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.api.util.DomainObjectDecodeUtils;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
+import org.hyperledger.besu.ethereum.blockcreation.txselection.TransactionSelectionResults;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -49,6 +51,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import org.hyperledger.besu.util.HexUtils;
 
 import java.util.ArrayList;
@@ -229,6 +232,19 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
               Optional.ofNullable(parentBeaconBlockRoot),
               Optional.ofNullable(slotNumber),
               parentHeader);
+
+      // When transactions are explicitly provided, return an error if any were not applied
+      if (transactionsProvided) {
+        final TransactionSelectionResults selectionResults =
+            result.getTransactionSelectionResults();
+        if (!selectionResults.getNotSelectedTransactions().isEmpty()) {
+          final TransactionSelectionResult firstNotSelected =
+              selectionResults.getNotSelectedTransactions().values().iterator().next();
+          final String reason =
+              firstNotSelected.maybeInvalidReason().orElse("transaction not applicable");
+          return new JsonRpcErrorResponse(requestId, new JsonRpcError(-32000, reason, null));
+        }
+      }
 
       final Block block = result.getBlock();
 
