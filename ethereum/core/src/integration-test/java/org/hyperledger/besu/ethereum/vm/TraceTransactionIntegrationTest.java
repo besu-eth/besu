@@ -158,21 +158,21 @@ public class TraceTransactionIntegrationTest {
 
     assertThat(result.isSuccessful()).isTrue();
 
-    // No storage changes before the SSTORE call.
+    // Non-storage opcodes produce no storage entry (per execution-apis spec).
     TraceFrame frame = tracer.getTraceFrames().get(170);
     assertThat(frame.getOpcode()).isEqualTo("DUP6");
+    assertThat(frame.getStorage()).isEmpty();
 
-    // Storage changes show up in the SSTORE frame.
+    // Storage is emitted only for the SSTORE frame, showing the single slot touched.
     frame = tracer.getTraceFrames().get(171);
     assertThat(frame.getOpcode()).isEqualTo("SSTORE");
     assertStorageContainsExactly(
         frame, entry("0x01", "0x6261720000000000000000000000000000000000000000000000000000000006"));
 
-    // And storage changes are still present in future frames.
+    // After SSTORE, non-storage opcodes produce no storage entry (per execution-apis spec).
     frame = tracer.getTraceFrames().get(172);
     assertThat(frame.getOpcode()).isEqualTo("PUSH2");
-    assertStorageContainsExactly(
-        frame, entry("0x01", "0x6261720000000000000000000000000000000000000000000000000000000006"));
+    assertThat(frame.getStorage()).isEmpty();
   }
 
   @Test
