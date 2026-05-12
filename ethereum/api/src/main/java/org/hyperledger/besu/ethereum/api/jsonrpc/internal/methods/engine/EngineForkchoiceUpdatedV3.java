@@ -12,15 +12,14 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.forkchoiceupdated;
+package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.engine.PayloadAttributesV4;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -29,27 +28,17 @@ import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import io.vertx.core.Vertx;
 
 /**
- * {@code engine_forkchoiceUpdatedV4} — Amsterdam (EIP-7843 Slot Number).
+ * {@code engine_forkchoiceUpdatedV3} — Cancun (Beacon Block Root).
  *
- * <p>Extends V3 with {@link PayloadAttributesV4}, adding the mandatory {@code slotNumber} field.
+ * <p>Extends V2 with {@link PayloadAttributesV3}, adding the mandatory {@code
+ * parentBeaconBlockRoot} field.
  *
- * <p>Parameterized so that a future V5 can extend this class without modifying it (beyond updating
- * the upper-bound fork in the public constructor below).
- *
- * <h3>Adding V5</h3>
- *
- * <ol>
- *   <li>Create {@code PayloadAttributesV5 extends PayloadAttributesV4} with the new field.
- *   <li>Create {@code EngineForkchoiceUpdatedV5 extends
- *       EngineForkchoiceUpdatedV4<PayloadAttributesV5>}.
- *   <li>Update the public constructor below: change {@code Optional.empty()} to {@code
- *       Optional.of(V5_FORK)}.
- * </ol>
+ * <p>Parameterized so that V4 can extend this class while narrowing the payload type.
  */
-public final class EngineForkchoiceUpdatedV4<PA extends PayloadAttributesV4>
-    extends EngineForkchoiceUpdatedV3<PA> {
+public sealed class EngineForkchoiceUpdatedV3<PA extends PayloadAttributesV3>
+    extends EngineForkchoiceUpdatedV2<PA> permits EngineForkchoiceUpdatedV4 {
 
-  public EngineForkchoiceUpdatedV4(
+  public EngineForkchoiceUpdatedV3(
       final Vertx vertx,
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
@@ -69,33 +58,33 @@ public final class EngineForkchoiceUpdatedV4<PA extends PayloadAttributesV4>
 
   @Override
   public String getName() {
-    return RpcMethod.ENGINE_FORKCHOICE_UPDATED_V4.getMethodName();
+    return RpcMethod.ENGINE_FORKCHOICE_UPDATED_V3.getMethodName();
   }
 
   @Override
   @SuppressWarnings("unchecked")
   protected Class<PA> getPayloadAttributesClass() {
-    return (Class<PA>) PayloadAttributesV4.class;
+    return (Class<PA>) PayloadAttributesV3.class;
   }
 
   /**
-   * V4 requires {@code slotNumber} in addition to everything V3 requires. Delegates to V3 first
-   * (which checks {@code parentBeaconBlockRoot} and timestamp), then adds its own check.
+   * V3 requires {@code parentBeaconBlockRoot} to be present. Delegates to V2 for any prior-version
+   * checks, then adds its own.
    *
-   * <p>{@code PA} is bounded to {@link PayloadAttributesV4}, so {@code getSlotNumber()} is
-   * available without a cast.
+   * <p>{@code PA} is bounded to {@link PayloadAttributesV3}, so {@code getParentBeaconBlockRoot()}
+   * is available without a cast.
    */
   @Override
   protected ValidationResult<RpcErrorType> validatePayloadAttributes(
       final BlockHeader newHead, final PA attrs) {
     final ValidationResult<RpcErrorType> r = super.validatePayloadAttributes(newHead, attrs);
-    return r.isValid() ? validatePayloadAttributesV4(attrs) : r;
+    return r.isValid() ? validatePayloadAttributesV3(attrs) : r;
   }
 
-  private ValidationResult<RpcErrorType> validatePayloadAttributesV4(final PA attrs) {
-    if (attrs.getSlotNumber() == null || attrs.getSlotNumber() < 0) {
+  private ValidationResult<RpcErrorType> validatePayloadAttributesV3(final PA attrs) {
+    if (attrs.getParentBeaconBlockRoot() == null || attrs.getParentBeaconBlockRoot().isEmpty()) {
       return ValidationResult.invalid(
-          RpcErrorType.INVALID_SLOT_NUMBER_PARAMS, "Invalid slotNumber");
+          getInvalidPayloadAttributesError(), "Missing parentBeaconBlockRoot");
     }
     return ValidationResult.valid();
   }
@@ -104,6 +93,6 @@ public final class EngineForkchoiceUpdatedV4<PA extends PayloadAttributesV4>
   protected void setPreparePayloadArgs(
       final PreparePayloadArgsBuilder preparePayloadArgsBuilder, final PA attrs) {
     super.setPreparePayloadArgs(preparePayloadArgsBuilder, attrs);
-    preparePayloadArgsBuilder.slotNumber(attrs.getSlotNumber());
+    preparePayloadArgsBuilder.parentBeaconBlockRoot(attrs.getParentBeaconBlockRoot());
   }
 }

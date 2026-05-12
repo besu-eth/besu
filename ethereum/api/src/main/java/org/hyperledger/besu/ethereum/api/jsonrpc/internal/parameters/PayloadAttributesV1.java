@@ -12,30 +12,39 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.engine;
+package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
-import org.hyperledger.besu.ethereum.core.Withdrawal;
-
-import java.util.List;
+import org.hyperledger.besu.datatypes.Address;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.apache.tuweni.bytes.Bytes32;
 
-public sealed class PayloadAttributesV2 extends PayloadAttributesV1 permits PayloadAttributesV3 {
+public sealed class PayloadAttributesV1 permits PayloadAttributesV2 {
 
-  private final List<Withdrawal> withdrawals;
+  private final long timestamp;
+  private final Bytes32 prevRandao;
+  private final Address suggestedFeeRecipient;
 
   @JsonCreator
-  public PayloadAttributesV2(
+  public PayloadAttributesV1(
       @JsonProperty("timestamp") final String timestamp,
       @JsonProperty("prevRandao") final String prevRandao,
-      @JsonProperty("suggestedFeeRecipient") final String suggestedFeeRecipient,
-      @JsonProperty("withdrawals") final List<Withdrawal> withdrawals) {
-    super(timestamp, prevRandao, suggestedFeeRecipient);
-    this.withdrawals = withdrawals;
+      @JsonProperty("suggestedFeeRecipient") final String suggestedFeeRecipient) {
+    this.timestamp = Long.decode(timestamp);
+    this.prevRandao = Bytes32.fromHexString(prevRandao);
+    this.suggestedFeeRecipient = Address.fromHexString(suggestedFeeRecipient);
   }
 
-  public List<Withdrawal> getWithdrawals() {
-    return withdrawals;
+  public long getTimestamp() {
+    return timestamp;
+  }
+
+  public Bytes32 getPrevRandao() {
+    return prevRandao;
+  }
+
+  public Address getSuggestedFeeRecipient() {
+    return suggestedFeeRecipient;
   }
 }

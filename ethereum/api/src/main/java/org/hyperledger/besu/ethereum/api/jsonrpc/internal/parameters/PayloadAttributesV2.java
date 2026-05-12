@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.engine;
+package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 
@@ -21,23 +21,21 @@ import java.util.List;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-public final class PayloadAttributesV4 extends PayloadAttributesV3 {
+public sealed class PayloadAttributesV2 extends PayloadAttributesV1 permits PayloadAttributesV3 {
 
-  private final Long slotNumber;
+  private final List<Withdrawal> withdrawals;
 
   @JsonCreator
-  public PayloadAttributesV4(
+  public PayloadAttributesV2(
       @JsonProperty("timestamp") final String timestamp,
       @JsonProperty("prevRandao") final String prevRandao,
       @JsonProperty("suggestedFeeRecipient") final String suggestedFeeRecipient,
-      @JsonProperty("withdrawals") final List<Withdrawal> withdrawals,
-      @JsonProperty("parentBeaconBlockRoot") final String parentBeaconBlockRoot,
-      @JsonProperty("slotNumber") final String slotNumber) {
-    super(timestamp, prevRandao, suggestedFeeRecipient, withdrawals, parentBeaconBlockRoot);
-    this.slotNumber = slotNumber != null ? Long.decode(slotNumber) : null;
+      @JsonProperty("withdrawals") final List<Withdrawal> withdrawals) {
+    super(timestamp, prevRandao, suggestedFeeRecipient);
+    this.withdrawals = withdrawals;
   }
 
-  public Long getSlotNumber() {
-    return slotNumber;
+  public List<Withdrawal> getWithdrawals() {
+    return withdrawals;
   }
 }

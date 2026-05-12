@@ -29,6 +29,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngin
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineExchangeCapabilities;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineExchangeTransitionConfiguration;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV2;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV3;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineForkchoiceUpdatedV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetBlobsV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetBlobsV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineGetBlobsV3;
@@ -50,7 +54,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineN
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineNewPayloadV5;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EnginePreparePayloadDebug;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineQosTimer;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.forkchoiceupdated.EngineForkchoiceUpdatedV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
@@ -251,21 +254,10 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
     // special case at the first hardfork (Shanghai), before it was possible to call either V1 or V2
     // so both versions are scheduled at the beginning, and only V1 must be stopped at Shanghai
     // timestamp
-    return VersionScheduler.startsWith(
-            org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.forkchoiceupdated
-                .EngineForkchoiceUpdatedV1.class,
-            SHANGHAI)
-        .thenAlsoFromBeginning(
-            org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.forkchoiceupdated
-                .EngineForkchoiceUpdatedV2.class)
-        .thenFrom(
-            CANCUN,
-            org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.forkchoiceupdated
-                .EngineForkchoiceUpdatedV3.class)
-        .thenFrom(
-            AMSTERDAM,
-            org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.forkchoiceupdated
-                .EngineForkchoiceUpdatedV4.class)
+    return VersionScheduler.startsWith(EngineForkchoiceUpdatedV1.class, SHANGHAI)
+        .thenAlsoFromBeginning(EngineForkchoiceUpdatedV2.class)
+        .thenFrom(CANCUN, EngineForkchoiceUpdatedV3.class)
+        .thenFrom(AMSTERDAM, EngineForkchoiceUpdatedV4.class)
         .build(
             protocolSchedule,
             consensusEngineServer,
