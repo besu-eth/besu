@@ -146,8 +146,8 @@ public abstract class BenchmarkExecutor {
               "", "Actual cost", "Derived Cost", "Iteration time", "Throughput");
         };
     this.config = benchmarkConfig;
-    assert warmIterations <= 0;
-    assert execIterations <= 0;
+    assert warmIterations >= 0;
+    assert execIterations >= 0;
   }
 
   /**

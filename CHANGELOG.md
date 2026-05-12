@@ -5,6 +5,17 @@
 ### Breaking Changes
 
 ### Upcoming Breaking Changes
+- RPC changes to enhance compatibility with other ELs
+  - Block number parameter in RPCs will only support hex values. Support for non-hex (decimal) block number parameters is deprecated.
+  - This affects several RPCs, including `admin_logsRemoveCache`, `debug_getRawHeader`, `eth_call`, `eth_simulateV1`, `trace_call` and more.
+- Sunsetting features - for more context on the reasoning behind the deprecation of these features, including alternative options, read [this blog post](https://www.lfdecentralizedtrust.org/blog/sunsetting-tessera-and-simplifying-hyperledger-besu)
+  - Proof of Work consensus (PoW)
+- `--min-block-occupancy-ratio` is deprecated and will be removed in a future release
+- Plugin API
+  - `PluginTransactionSelectorFactory.create(final SelectorsStateManager selectorsStateManager)` is deprecated for removal
+- `--Xmax-tracked-seen-txs-per-peer` renamed to `--Xmax-tracked-seen-txs` (old name kept as deprecated alias will be removed in a future release)
+- Besu will require Java JDK 25 to build and run in a future release.
+- BFT option `xemptyblockperiodseconds` has been taken out of experimental and been renamed `emptyblockperiodseconds`. The old config option is deprecated and will be removed in a future release.
 
 ### Bug fixes
 - Fix `engine_forkchoiceUpdatedV1` now returns `-38003 INVALID_PAYLOAD_ATTRIBUTES` for invalid payload attribute timestamps (zero or not greater than head). [#10353](https://github.com/besu-eth/besu/pull/10353)
@@ -12,6 +23,8 @@
 ### Additions and Improvements
 - Add `enableReturnData` parameter to `debug_traceTransaction` and `debug_traceBlockByNumber`, and include `returnData` in `StructLog` when captured; the field is omitted when return data is empty or not captured. [#10172](https://github.com/besu-eth/besu/pull/10172)
 - Updated `Bouncycastle` to 1.84 and `maven-artifact` to 3.9.15 to resolve CVEs reported in those libraries. Besu's usage patterns are not affected by these vulnerabilities. [#10420](https://github.com/besu-eth/besu/pull/10420)
+- Improve native memory handling in RocksDB storage: `LRUCache`, `ColumnFamilyOptions`, and temporary options-file loading objects are now explicitly closed [#10456](https://github.com/besu-eth/besu/pull/10456)
+
 ## 26.5.0
 
 ### Breaking Changes
