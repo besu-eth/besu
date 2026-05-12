@@ -100,7 +100,6 @@ public class AccessLocationTracker implements Eip7928AccessList {
     final PartialBlockAccessViewBuilder builder = new PartialBlockAccessViewBuilder();
     builder.withTxIndex(this.blockAccessIndex);
 
-
     final Collection<Address> deletedAddressesCol = stackedUpdater.getDeletedAccountAddresses();
     final Set<Address> deletedAddresses =
         deletedAddressesCol.isEmpty()
