@@ -16,29 +16,54 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.CacheManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedCacheManager;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutablePathBasedExtraStorageConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
+import java.io.Closeable;
+
 import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
-/** Tests for layer reading from cache in BonsaiWorldStateLayerStorage. */
+/**
+ * {@link BonsaiWorldStateLayerStorage} shares the head's {@link VersionedCacheManager} but pins the
+ * parent's {@link BonsaiWorldStateKeyValueStorage#getCurrentVersion()} at layer construction. Reads
+ * use {@code getFromCacheOrStorage} with that pin so cache hits apply only when the cached writer
+ * version is not ahead of the layer's epoch; local layer writes override via {@link
+ * org.hyperledger.besu.services.kvstore.LayeredKeyValueStorage}.
+ */
 public class BonsaiWorldStateLayerStorageCacheTest {
 
-  private BonsaiWorldStateKeyValueStorage baseStorage;
+  private BonsaiWorldStateKeyValueStorage head;
 
-  @BeforeEach
-  public void setup() {
-    baseStorage =
+  @AfterEach
+  void tearDown() throws Exception {
+    disposeHead();
+  }
+
+  private void disposeHead() throws Exception {
+    if (head != null) {
+      if (head.getCacheManager() instanceof final Closeable closeable) {
+        closeable.close();
+      }
+      head.close();
+      head = null;
+    }
+  }
+
+  private void newHeadWithCrossBlockCache() throws Exception {
+    disposeHead();
+    head =
         new BonsaiWorldStateKeyValueStorage(
             new InMemoryKeyValueStorageProvider(),
             new NoOpMetricsSystem(),
@@ -55,367 +80,251 @@ public class BonsaiWorldStateLayerStorageCacheTest {
   }
 
   @Test
-  public void testLayer_readsFromLayerFirst() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
-    Bytes baseData = Bytes.of(1, 2, 3);
-    Bytes layerData = Bytes.of(4, 5, 6);
+  void layerPinsParentCacheEpoch_headCommitsAdvanceIndependently() throws Exception {
+    newHeadWithCrossBlockCache();
+    final Hash acc1 = Hash.hash(Bytes.of(1));
+    commitOnHead(acc1, Bytes.of(1));
+    assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, acc1.getBytes()))
+        .hasValueSatisfying(
+            cv -> {
+              assertThat(cv.getVersion()).isEqualTo(1);
+              assertThat(cv.getValue()).isEqualTo(Bytes.of(1));
+            });
 
-    // Put in base
-    BonsaiWorldStateKeyValueStorage.CachedUpdater baseUpdater =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    baseUpdater.putAccountInfoState(accountHash, baseData);
-    baseUpdater.commit();
+    try (BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(head)) {
+      final long pinned = layer.getCurrentVersion();
+      assertThat(pinned).isEqualTo(head.getCurrentVersion());
 
-    // Create layer and update
-    BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(baseStorage);
-    BonsaiWorldStateKeyValueStorage.Updater layerUpdater = layer.updater();
-    layerUpdater.putAccountInfoState(accountHash, layerData);
-    layerUpdater.commit();
+      final Hash acc2 = Hash.hash(Bytes.of(2));
+      commitOnHead(acc2, Bytes.of(2));
 
-    // Layer should read from its own data, not cache
-    assertThat(layer.getAccount(accountHash)).isPresent().contains(layerData);
-
-    // Base should still have old data in cache
-    assertThat(baseStorage.getAccount(accountHash)).isPresent().contains(baseData);
+      assertThat(head.getCurrentVersion()).isGreaterThan(pinned);
+      assertThat(layer.getCurrentVersion()).isEqualTo(pinned);
+      assertThat(head.getCacheSize(ACCOUNT_INFO_STATE)).isEqualTo(2);
+      assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, acc1.getBytes()))
+          .hasValueSatisfying(cv -> assertThat(cv.getVersion()).isEqualTo(1));
+      assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, acc2.getBytes()))
+          .hasValueSatisfying(
+              cv -> {
+                assertThat(cv.getVersion()).isEqualTo(head.getCurrentVersion());
+                assertThat(cv.getValue()).isEqualTo(Bytes.of(2));
+              });
+    }
   }
 
   @Test
-  public void testLayer_readsFromCacheWhenNotInLayer() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
-    Bytes accountData = Bytes.of(1, 2, 3);
+  void layerReadsWarmCrossBlockCacheEntryWhenReaderEpochMatchesWriter() throws Exception {
+    newHeadWithCrossBlockCache();
+    final Hash account = Hash.hash(Bytes.of(1));
+    final Bytes value = Bytes.of(1, 2, 3);
+    commitOnHead(account, value);
 
-    // Put in base (populates cache)
-    BonsaiWorldStateKeyValueStorage.CachedUpdater baseUpdater =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    baseUpdater.putAccountInfoState(accountHash, accountData);
-    baseUpdater.commit();
+    assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isTrue();
+    assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+        .hasValueSatisfying(
+            cv -> {
+              assertThat(cv.getVersion()).isEqualTo(head.getCurrentVersion());
+              assertThat(cv.getValue()).isEqualTo(value);
+            });
 
-    // Verify in cache
-    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, accountHash.getBytes())).isTrue();
-
-    // Create layer (doesn't modify account)
-    BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(baseStorage);
-
-    // Layer should read from cache
-    assertThat(layer.getAccount(accountHash)).isPresent().contains(accountData);
+    try (BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(head)) {
+      assertThat(layer.getCurrentVersion()).isEqualTo(head.getCurrentVersion());
+      assertThat(layer.getAccount(account)).contains(value);
+      assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+          .hasValueSatisfying(cv -> assertThat(cv.getValue()).isEqualTo(value));
+    }
   }
 
   @Test
-  public void testLayer_storageSlots_layerOverridesCache() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
-    StorageSlotKey slotKey = new StorageSlotKey(UInt256.valueOf(1));
-    Bytes baseValue = Bytes.of(10);
-    Bytes layerValue = Bytes.of(20);
+  void layerLocalPutShadowsParentForLayerReadsHeadUnchanged() throws Exception {
+    newHeadWithCrossBlockCache();
+    final Hash account = Hash.hash(Bytes.of(1));
+    final Bytes onHead = Bytes.of(1, 1, 1);
+    commitOnHead(account, onHead);
 
-    // Put in base
-    BonsaiWorldStateKeyValueStorage.CachedUpdater baseUpdater =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    baseUpdater.putStorageValueBySlotHash(accountHash, slotKey.getSlotHash(), baseValue);
-    baseUpdater.commit();
+    try (BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(head)) {
+      final Bytes onLayer = Bytes.of(2, 2, 2);
+      final var layerUpdater = layer.updater();
+      layerUpdater.putAccountInfoState(account, onLayer);
+      layerUpdater.commit();
 
-    // Create layer and update
-    BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(baseStorage);
-    BonsaiWorldStateKeyValueStorage.Updater layerUpdater = layer.updater();
-    layerUpdater.putStorageValueBySlotHash(accountHash, slotKey.getSlotHash(), layerValue);
-    layerUpdater.commit();
-
-    // Layer should read its own value
-    assertThat(layer.getStorageValueByStorageSlotKey(accountHash, slotKey))
-        .isPresent()
-        .contains(layerValue);
-
-    // Base should have old value
-    assertThat(baseStorage.getStorageValueByStorageSlotKey(accountHash, slotKey))
-        .isPresent()
-        .contains(baseValue);
+      assertThat(layer.getAccount(account)).contains(onLayer);
+      assertThat(head.getAccount(account)).contains(onHead);
+      assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+          .hasValueSatisfying(
+              cv -> {
+                assertThat(cv.getValue()).isEqualTo(onHead);
+                assertThat(cv.getVersion()).isEqualTo(1);
+              });
+    }
   }
 
   @Test
-  public void testLayer_code_layerOverridesCache() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
-    Hash codeHash1 = Hash.hash(Bytes.of(10, 20, 30));
-    Bytes codeData1 = Bytes.of(10, 20, 30);
-    Hash codeHash2 = Hash.hash(Bytes.of(40, 50, 60));
-    Bytes codeData2 = Bytes.of(40, 50, 60);
+  void layerRemoveShadowsCachedParentAccountUntilHeadReads() throws Exception {
+    newHeadWithCrossBlockCache();
+    final Hash account = Hash.hash(Bytes.of(1));
+    commitOnHead(account, Bytes.of(9, 9, 9));
 
-    // Put in base
-    BonsaiWorldStateKeyValueStorage.CachedUpdater baseUpdater =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    baseUpdater.putCode(accountHash, codeHash1, codeData1);
-    baseUpdater.commit();
+    try (BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(head)) {
+      final var u = layer.updater();
+      u.removeAccountInfoState(account);
+      u.commit();
 
-    // Create layer and update
-    BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(baseStorage);
-    BonsaiWorldStateKeyValueStorage.Updater layerUpdater = layer.updater();
-    layerUpdater.putCode(accountHash, codeHash2, codeData2);
-    layerUpdater.commit();
-
-    // Layer should read its own code
-    assertThat(layer.getCode(codeHash2, accountHash)).isPresent().contains(codeData2);
-
-    // Base should have old code
-    assertThat(baseStorage.getCode(codeHash1, accountHash)).isPresent().contains(codeData1);
+      assertThat(layer.getAccount(account)).isEmpty();
+      assertThat(head.getAccount(account)).contains(Bytes.of(9, 9, 9));
+      assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+          .hasValueSatisfying(
+              cv -> {
+                assertThat(cv.isRemoval()).isFalse();
+                assertThat(cv.getValue()).isEqualTo(Bytes.of(9, 9, 9));
+              });
+    }
   }
 
   @Test
-  public void testLayer_trieNodes_layerOverridesCache() {
-    Bytes location = Bytes.of(1, 2);
-    Bytes nodeData1 = Bytes.of(10, 20, 30);
-    Bytes32 nodeHash1 = Bytes32.wrap(Hash.hash(nodeData1).getBytes());
-    Bytes nodeData2 = Bytes.of(40, 50, 60);
-    Bytes32 nodeHash2 = Bytes32.wrap(Hash.hash(nodeData2).getBytes());
+  void stackedLayersEachSeeOwnOverlayWhileSharingPinnedEpochRules() throws Exception {
+    newHeadWithCrossBlockCache();
+    final Hash account = Hash.hash(Bytes.of(1));
+    commitOnHead(account, Bytes.of(1));
 
-    // Put in base
-    BonsaiWorldStateKeyValueStorage.CachedUpdater baseUpdater =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    baseUpdater.putAccountStateTrieNode(location, nodeHash1, nodeData1);
-    baseUpdater.commit();
+    try (BonsaiWorldStateLayerStorage layer1 = new BonsaiWorldStateLayerStorage(head)) {
+      var u = layer1.updater();
+      u.putAccountInfoState(account, Bytes.of(2));
+      u.commit();
 
-    // Create layer and update
-    BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(baseStorage);
-    BonsaiWorldStateKeyValueStorage.Updater layerUpdater = layer.updater();
-    layerUpdater.putAccountStateTrieNode(location, nodeHash2, nodeData2);
-    layerUpdater.commit();
+      try (BonsaiWorldStateLayerStorage layer2 = new BonsaiWorldStateLayerStorage(layer1)) {
+        u = layer2.updater();
+        u.putAccountInfoState(account, Bytes.of(3));
+        u.commit();
 
-    // Layer should read its own node
-    assertThat(layer.getAccountStateTrieNode(location, nodeHash2)).isPresent().contains(nodeData2);
-
-    // Base should have old node
-    assertThat(baseStorage.getAccountStateTrieNode(location, nodeHash1))
-        .isPresent()
-        .contains(nodeData1);
+        assertThat(head.getAccount(account)).contains(Bytes.of(1));
+        assertThat(layer1.getAccount(account)).contains(Bytes.of(2));
+        assertThat(layer2.getAccount(account)).contains(Bytes.of(3));
+        assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+            .hasValueSatisfying(
+                cv -> {
+                  assertThat(cv.getValue()).isEqualTo(Bytes.of(1));
+                  assertThat(cv.getVersion()).isEqualTo(1);
+                });
+      }
+    }
   }
 
   @Test
-  public void testLayer_removal_inLayerOverridesCache() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
-    Bytes accountData = Bytes.of(1, 2, 3);
+  void storageSlot_layerOverlayVsParentAndCrossBlockCache() throws Exception {
+    newHeadWithCrossBlockCache();
+    final Hash account = Hash.hash(Bytes.of(1));
+    final StorageSlotKey slot = new StorageSlotKey(UInt256.ONE);
+    commitOnHead(account, Bytes.of(1, 2, 3));
 
-    // Put in base
-    BonsaiWorldStateKeyValueStorage.CachedUpdater baseUpdater =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    baseUpdater.putAccountInfoState(accountHash, accountData);
-    baseUpdater.commit();
+    final Bytes slotCacheKey = Bytes.concatenate(account.getBytes(), slot.getSlotHash().getBytes());
 
-    // Create layer and remove
-    BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(baseStorage);
-    BonsaiWorldStateKeyValueStorage.Updater layerUpdater = layer.updater();
-    layerUpdater.removeAccountInfoState(accountHash);
-    layerUpdater.commit();
+    final var u0 = (BonsaiWorldStateKeyValueStorage.CachedUpdater) head.updater();
+    u0.putStorageValueBySlotHash(account, slot.getSlotHash(), Bytes.of(10));
+    u0.commit();
 
-    // Layer should see removal
-    assertThat(layer.getAccount(accountHash)).isEmpty();
+    assertThat(head.getCachedValue(ACCOUNT_STORAGE_STORAGE, slotCacheKey))
+        .hasValueSatisfying(
+            cv -> {
+              assertThat(cv.getValue()).isEqualTo(Bytes.of(10));
+              assertThat(cv.getVersion()).isEqualTo(head.getCurrentVersion());
+            });
+    assertThat(head.getCacheSize(ACCOUNT_STORAGE_STORAGE)).isEqualTo(1);
 
-    // Base should still have the account
-    assertThat(baseStorage.getAccount(accountHash)).isPresent().contains(accountData);
+    try (BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(head)) {
+      final var lu = layer.updater();
+      lu.putStorageValueBySlotHash(account, slot.getSlotHash(), Bytes.of(20));
+      lu.commit();
+
+      assertThat(layer.getStorageValueByStorageSlotKey(account, slot)).contains(Bytes.of(20));
+      assertThat(head.getStorageValueByStorageSlotKey(account, slot)).contains(Bytes.of(10));
+      assertThat(head.getCachedValue(ACCOUNT_STORAGE_STORAGE, slotCacheKey))
+          .hasValueSatisfying(
+              cv -> {
+                assertThat(cv.getValue()).isEqualTo(Bytes.of(10));
+                assertThat(cv.isRemoval()).isFalse();
+              });
+    }
   }
 
   @Test
-  public void testLayer_multipleLayersStacked() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
-    Bytes data1 = Bytes.of(1);
-    Bytes data2 = Bytes.of(2);
-    Bytes data3 = Bytes.of(3);
+  void emptyLayerDelegatesReadsThroughVersionedCachePath() throws Exception {
+    newHeadWithCrossBlockCache();
+    final Hash account = Hash.hash(Bytes.of(1));
+    commitOnHead(account, Bytes.of(5, 6, 7));
 
-    // Base
-    BonsaiWorldStateKeyValueStorage.CachedUpdater baseUpdater =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    baseUpdater.putAccountInfoState(accountHash, data1);
-    baseUpdater.commit();
+    assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+        .hasValueSatisfying(cv -> assertThat(cv.getValue()).isEqualTo(Bytes.of(5, 6, 7)));
 
-    // Layer 1
-    BonsaiWorldStateLayerStorage layer1 = new BonsaiWorldStateLayerStorage(baseStorage);
-    BonsaiWorldStateKeyValueStorage.Updater layer1Updater = layer1.updater();
-    layer1Updater.putAccountInfoState(accountHash, data2);
-    layer1Updater.commit();
-
-    // Layer 2 on top of layer 1
-    BonsaiWorldStateLayerStorage layer2 = new BonsaiWorldStateLayerStorage(layer1);
-    BonsaiWorldStateKeyValueStorage.Updater layer2Updater = layer2.updater();
-    layer2Updater.putAccountInfoState(accountHash, data3);
-    layer2Updater.commit();
-
-    // Each layer sees its own data
-    assertThat(baseStorage.getAccount(accountHash)).isPresent().contains(data1);
-    assertThat(layer1.getAccount(accountHash)).isPresent().contains(data2);
-    assertThat(layer2.getAccount(accountHash)).isPresent().contains(data3);
+    try (BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(head)) {
+      assertThat(layer.getAccount(account)).contains(Bytes.of(5, 6, 7));
+      assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+          .hasValueSatisfying(cv -> assertThat(cv.getValue()).isEqualTo(Bytes.of(5, 6, 7)));
+    }
   }
 
+  /**
+   * After {@link CacheManager#clear}, a read miss on {@link BonsaiWorldStateLayerStorage} may
+   * repopulate the shared versioned cache only when the layer's pinned reader version still equals
+   * {@link VersionedCacheManager#getCurrentVersion()} (global epoch). If the head advanced, the
+   * layer pin is behind global and read-path inserts are skipped (see {@code
+   * VersionedCacheManager#getFromCacheOrStorage}).
+   */
   @Test
-  public void testLayer_readsMixedFromAllLevels() {
-    Hash acc1 = Hash.hash(Bytes.of(1)); // In layer
-    Hash acc2 = Hash.hash(Bytes.of(2)); // In cache only
-    Hash acc3 = Hash.hash(Bytes.of(3)); // In parent only
+  void layerReadAfterCacheClearRepopulatesOnlyWhenPinMatchesGlobalVersion() throws Exception {
+    newHeadWithCrossBlockCache();
+    final Hash account = Hash.hash(Bytes.of(1));
+    final Bytes atV1 = Bytes.of(1);
+    final Bytes atV2 = Bytes.of(2);
 
-    Bytes data1 = Bytes.of(1);
-    Bytes data2 = Bytes.of(2);
-    Bytes data3 = Bytes.of(3);
+    commitOnHead(account, atV1);
+    final long epochV1 = head.getCurrentVersion();
+    assertThat(head.getCacheManager().getCurrentVersion()).isEqualTo(epochV1);
 
-    // Put acc2 and acc3 in base
-    BonsaiWorldStateKeyValueStorage.CachedUpdater baseUpdater =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    baseUpdater.putAccountInfoState(acc2, data2);
-    baseUpdater.putAccountInfoState(acc3, data3);
-    baseUpdater.commit();
+    try (BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(head)) {
+      assertThat(layer.getCurrentVersion()).isEqualTo(epochV1);
 
-    // Create layer and put acc1
-    BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(baseStorage);
-    BonsaiWorldStateKeyValueStorage.Updater layerUpdater = layer.updater();
-    layerUpdater.putAccountInfoState(acc1, data1);
-    layerUpdater.commit();
+      head.getCacheManager().clear(ACCOUNT_INFO_STATE);
+      assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isFalse();
 
-    // Layer should be able to read all three
-    assertThat(layer.getAccount(acc1)).isPresent().contains(data1); // From layer
-    assertThat(layer.getAccount(acc2)).isPresent().contains(data2); // From cache
-    assertThat(layer.getAccount(acc3))
-        .isPresent()
-        .contains(data3); // From cache (was committed to base)
+      assertThat(layer.getAccount(account)).contains(atV1);
+      assertThat(head.getCacheManager().getCurrentVersion()).isEqualTo(epochV1);
+      assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isTrue();
+      assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+          .hasValueSatisfying(
+              cv -> {
+                assertThat(cv.getVersion()).isEqualTo(epochV1);
+                assertThat(cv.getValue()).isEqualTo(atV1);
+              });
+
+      commitOnHead(account, atV2);
+      final long epochV2 = head.getCurrentVersion();
+      assertThat(epochV2).isGreaterThan(epochV1);
+      assertThat(layer.getCurrentVersion()).isEqualTo(epochV1);
+      assertThat(head.getCacheManager().getCurrentVersion()).isEqualTo(epochV2);
+
+      head.getCacheManager().clear(ACCOUNT_INFO_STATE);
+      assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isFalse();
+
+      assertThat(layer.getAccount(account)).contains(atV2);
+      assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes()))
+          .as("read miss with layer pin < globalVersion must not warm the shared cache")
+          .isFalse();
+
+      assertThat(head.getAccount(account)).contains(atV2);
+      assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isTrue();
+      assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+          .hasValueSatisfying(
+              cv -> {
+                assertThat(cv.getVersion()).isEqualTo(epochV2);
+                assertThat(cv.getValue()).isEqualTo(atV2);
+              });
+    }
   }
 
-  @Test
-  public void testLayer_multipleReadsConsistent() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
-    Bytes layerData = Bytes.of(10, 20, 30);
-
-    // Put in base with different data
-    BonsaiWorldStateKeyValueStorage.CachedUpdater baseUpdater =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    baseUpdater.putAccountInfoState(accountHash, Bytes.of(1, 2, 3));
-    baseUpdater.commit();
-
-    // Create layer and update
-    BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(baseStorage);
-    BonsaiWorldStateKeyValueStorage.Updater layerUpdater = layer.updater();
-    layerUpdater.putAccountInfoState(accountHash, layerData);
-    layerUpdater.commit();
-
-    // Multiple reads from layer should return consistent results
-    assertThat(layer.getAccount(accountHash)).isPresent().contains(layerData);
-    assertThat(layer.getAccount(accountHash)).isPresent().contains(layerData);
-    assertThat(layer.getAccount(accountHash)).isPresent().contains(layerData);
-  }
-
-  @Test
-  public void testLayer_storageRemoval() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
-    StorageSlotKey slotKey = new StorageSlotKey(UInt256.valueOf(1));
-    Bytes storageValue = Bytes.of(10);
-
-    // Put in base
-    BonsaiWorldStateKeyValueStorage.CachedUpdater baseUpdater =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    baseUpdater.putStorageValueBySlotHash(accountHash, slotKey.getSlotHash(), storageValue);
-    baseUpdater.commit();
-
-    // Create layer and remove
-    BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(baseStorage);
-    BonsaiWorldStateKeyValueStorage.Updater layerUpdater = layer.updater();
-    layerUpdater.removeStorageValueBySlotHash(accountHash, slotKey.getSlotHash());
-    layerUpdater.commit();
-
-    // Layer should see removal
-    assertThat(layer.getStorageValueByStorageSlotKey(accountHash, slotKey)).isEmpty();
-
-    // Base should still have value
-    assertThat(baseStorage.getStorageValueByStorageSlotKey(accountHash, slotKey))
-        .isPresent()
-        .contains(storageValue);
-  }
-
-  @Test
-  public void testLayer_batchReadsFromMixedSources() {
-    // Create multiple accounts in different layers
-    Hash acc1 = Hash.hash(Bytes.of(1)); // Will be in layer
-    Hash acc2 = Hash.hash(Bytes.of(2)); // Will be in cache
-    Hash acc3 = Hash.hash(Bytes.of(3)); // Will be in base only
-    Hash acc4 = Hash.hash(Bytes.of(4)); // Won't exist anywhere
-
-    // Put acc2 and acc3 in base
-    BonsaiWorldStateKeyValueStorage.CachedUpdater baseUpdater =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    baseUpdater.putAccountInfoState(acc2, Bytes.of(2));
-    baseUpdater.putAccountInfoState(acc3, Bytes.of(3));
-    baseUpdater.commit();
-
-    // Create layer and add acc1
-    BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(baseStorage);
-    BonsaiWorldStateKeyValueStorage.Updater layerUpdater = layer.updater();
-    layerUpdater.putAccountInfoState(acc1, Bytes.of(1));
-    layerUpdater.commit();
-
-    // Read all accounts
-    assertThat(layer.getAccount(acc1)).isPresent().contains(Bytes.of(1));
-    assertThat(layer.getAccount(acc2)).isPresent().contains(Bytes.of(2));
-    assertThat(layer.getAccount(acc3)).isPresent().contains(Bytes.of(3));
-    assertThat(layer.getAccount(acc4)).isEmpty();
-  }
-
-  @Test
-  public void testLayer_emptyLayer_readsFromCacheAndParent() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
-    Bytes accountData = Bytes.of(1, 2, 3);
-
-    // Put in base
-    BonsaiWorldStateKeyValueStorage.CachedUpdater baseUpdater =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    baseUpdater.putAccountInfoState(accountHash, accountData);
-    baseUpdater.commit();
-
-    // Create empty layer (no modifications)
-    BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(baseStorage);
-
-    // Should still be able to read from cache/parent
-    assertThat(layer.getAccount(accountHash)).isPresent().contains(accountData);
-  }
-
-  @Test
-  public void testLayer_clone_preservesData() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
-    Bytes layerData = Bytes.of(10, 20, 30);
-
-    // Create layer with data
-    BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(baseStorage);
-    BonsaiWorldStateKeyValueStorage.Updater layerUpdater = layer.updater();
-    layerUpdater.putAccountInfoState(accountHash, layerData);
-    layerUpdater.commit();
-
-    // Clone layer
-    BonsaiWorldStateLayerStorage clonedLayer = layer.clone();
-
-    // Both should see the same data
-    assertThat(layer.getAccount(accountHash)).isPresent().contains(layerData);
-    assertThat(clonedLayer.getAccount(accountHash)).isPresent().contains(layerData);
-  }
-
-  @Test
-  public void testLayer_storageTrieNodes() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
-    Bytes location = Bytes.of(2, 3);
-    Bytes nodeData1 = Bytes.of(30, 40, 50);
-    Bytes32 nodeHash1 = Bytes32.wrap(Hash.hash(nodeData1).getBytes());
-    Bytes nodeData2 = Bytes.of(60, 70, 80);
-    Bytes32 nodeHash2 = Bytes32.wrap(Hash.hash(nodeData2).getBytes());
-
-    // Put in base
-    BonsaiWorldStateKeyValueStorage.CachedUpdater baseUpdater =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    baseUpdater.putAccountStorageTrieNode(accountHash, location, nodeHash1, nodeData1);
-    baseUpdater.commit();
-
-    // Create layer and update
-    BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(baseStorage);
-    BonsaiWorldStateKeyValueStorage.Updater layerUpdater = layer.updater();
-    layerUpdater.putAccountStorageTrieNode(accountHash, location, nodeHash2, nodeData2);
-    layerUpdater.commit();
-
-    // Layer should read its own node
-    assertThat(layer.getAccountStorageTrieNode(accountHash, location, nodeHash2))
-        .isPresent()
-        .contains(nodeData2);
-
-    // base can still read base node from cache
-    assertThat(baseStorage.getAccountStorageTrieNode(accountHash, location, nodeHash1))
-        .isPresent()
-        .contains(nodeData1);
+  private void commitOnHead(final Hash account, final Bytes accountRlp) {
+    final var u = (BonsaiWorldStateKeyValueStorage.CachedUpdater) head.updater();
+    u.putAccountInfoState(account, accountRlp);
+    u.commit();
   }
 }

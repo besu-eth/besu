@@ -21,306 +21,363 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.CacheManager.VersionedValue;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.CacheManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedCacheManager;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutablePathBasedExtraStorageConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
-import java.util.Optional;
+import java.io.Closeable;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
-/** Tests for cache behavior in BonsaiWorldStateKeyValueStorage. */
+/**
+ * Cross-block (versioned) cache behaviour on {@link BonsaiWorldStateKeyValueStorage}: monotonic
+ * versions, commit/rollback interaction with {@link VersionedCacheManager}, and snapshot views
+ * pinned to a cache epoch so they do not observe newer cache-only state after the head moves.
+ */
 public class BonsaiWorldStateKeyValueStorageCacheTest {
 
-  private BonsaiWorldStateKeyValueStorage baseStorage;
+  private BonsaiWorldStateKeyValueStorage head;
 
-  @BeforeEach
-  public void setup() {
-    baseStorage =
-        new BonsaiWorldStateKeyValueStorage(
-            new InMemoryKeyValueStorageProvider(),
-            new NoOpMetricsSystem(),
-            ImmutableDataStorageConfiguration.builder()
-                .dataStorageFormat(DataStorageFormat.BONSAI)
-                .pathBasedExtraStorageConfiguration(
-                    ImmutablePathBasedExtraStorageConfiguration.builder()
-                        .unstable(
-                            ImmutablePathBasedExtraStorageConfiguration.PathBasedUnstable.builder()
-                                .bonsaiCrossBlockCacheEnabled(true)
-                                .build())
+  @AfterEach
+  void tearDownCacheExecutor() throws Exception {
+    disposeHead();
+  }
+
+  private void disposeHead() throws Exception {
+    if (head != null) {
+      if (head.getCacheManager() instanceof final Closeable closeable) {
+        closeable.close();
+      }
+      head.close();
+      head = null;
+    }
+  }
+
+  private static ImmutableDataStorageConfiguration.Builder dataConfigBuilder(
+      final boolean crossBlockEnabled) {
+    return ImmutableDataStorageConfiguration.builder()
+        .dataStorageFormat(DataStorageFormat.BONSAI)
+        .pathBasedExtraStorageConfiguration(
+            ImmutablePathBasedExtraStorageConfiguration.builder()
+                .unstable(
+                    ImmutablePathBasedExtraStorageConfiguration.PathBasedUnstable.builder()
+                        .bonsaiCrossBlockCacheEnabled(crossBlockEnabled)
                         .build())
                 .build());
   }
 
-  @Test
-  public void testCache_basicWriteAndRead() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
-    Bytes accountData = Bytes.of(1, 2, 3);
-
-    // Write to storage and cache
-    BonsaiWorldStateKeyValueStorage.CachedUpdater updater =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    updater.putAccountInfoState(accountHash, accountData);
-    updater.commit();
-
-    // Verify in cache
-    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, accountHash.getBytes())).isTrue();
-
-    Optional<VersionedValue> cachedValue =
-        baseStorage.getCachedValue(ACCOUNT_INFO_STATE, accountHash.getBytes());
-    assertThat(cachedValue).isPresent();
-    assertThat(cachedValue.get().getValue()).isEqualTo(accountData);
-    assertThat(cachedValue.get().isRemoval()).isFalse();
+  private void newHead(final boolean crossBlockEnabled) throws Exception {
+    disposeHead();
+    head =
+        new BonsaiWorldStateKeyValueStorage(
+            new InMemoryKeyValueStorageProvider(),
+            new NoOpMetricsSystem(),
+            dataConfigBuilder(crossBlockEnabled).build());
   }
 
   @Test
-  public void testCache_versionProgression() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
+  void crossBlockDisabled_usesEmptyCacheManager() throws Exception {
+    newHead(false);
+    assertThat(head.getCacheManager()).isSameAs(CacheManager.EMPTY_CACHE);
 
-    long v0 = baseStorage.getCurrentVersion();
-    assertThat(v0).isEqualTo(0);
+    final Hash account = Hash.hash(Bytes.of(1));
+    commitAccount(account, Bytes.of(1, 2, 3));
 
-    // First commit
-    BonsaiWorldStateKeyValueStorage.CachedUpdater updater1 =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    updater1.putAccountInfoState(accountHash, Bytes.of(1));
-    updater1.commit();
-
-    long v1 = baseStorage.getCurrentVersion();
-    assertThat(v1).isEqualTo(1);
-
-    // Second commit
-    BonsaiWorldStateKeyValueStorage.CachedUpdater updater2 =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    updater2.putAccountInfoState(accountHash, Bytes.of(2));
-    updater2.commit();
-
-    long v2 = baseStorage.getCurrentVersion();
-    assertThat(v2).isEqualTo(2);
-
-    // Cache should have latest version
-    Optional<VersionedValue> cachedValue =
-        baseStorage.getCachedValue(ACCOUNT_INFO_STATE, accountHash.getBytes());
-    assertThat(cachedValue).isPresent();
-    assertThat(cachedValue.get().getVersion()).isEqualTo(v2);
+    assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isFalse();
+    assertThat(head.getCacheSize(ACCOUNT_INFO_STATE)).isZero();
   }
 
   @Test
-  public void testCache_removal() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
-    Bytes accountData = Bytes.of(1, 2, 3);
-
-    // Add account
-    BonsaiWorldStateKeyValueStorage.CachedUpdater updater1 =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    updater1.putAccountInfoState(accountHash, accountData);
-    updater1.commit();
-
-    long v1 = baseStorage.getCurrentVersion();
-
-    // Remove account
-    BonsaiWorldStateKeyValueStorage.CachedUpdater updater2 =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    updater2.removeAccountInfoState(accountHash);
-    updater2.commit();
-
-    long v2 = baseStorage.getCurrentVersion();
-    assertThat(v2).isGreaterThan(v1);
-
-    // Cache should show removal
-    Optional<VersionedValue> cachedValue =
-        baseStorage.getCachedValue(ACCOUNT_INFO_STATE, accountHash.getBytes());
-    assertThat(cachedValue).isPresent();
-    assertThat(cachedValue.get().isRemoval()).isTrue();
-    assertThat(cachedValue.get().getVersion()).isEqualTo(v2);
+  void crossBlockEnabled_usesVersionedCacheManager() throws Exception {
+    newHead(true);
+    assertThat(head.getCacheManager()).isInstanceOf(VersionedCacheManager.class);
+    assertThat(head.getCacheSize(ACCOUNT_INFO_STATE)).isZero();
+    assertThat(head.getCacheSize(ACCOUNT_STORAGE_STORAGE)).isZero();
   }
 
   @Test
-  public void testCache_multipleAccountsTracking() {
-    Hash acc1 = Hash.hash(Bytes.of(1));
-    Hash acc2 = Hash.hash(Bytes.of(2));
-    Hash acc3 = Hash.hash(Bytes.of(3));
+  void eachSuccessfulCommitAdvancesHeadAndGlobalVersion() throws Exception {
+    newHead(true);
+    assertThat(head.getCurrentVersion()).isZero();
+    assertThat(head.getCacheManager().getCurrentVersion()).isZero();
+    assertThat(head.getCacheSize(ACCOUNT_INFO_STATE)).isZero();
 
-    assertThat(baseStorage.getCacheSize(ACCOUNT_INFO_STATE)).isEqualTo(0);
+    final Hash acc1 = Hash.hash(Bytes.of(1));
+    commitAccount(acc1, Bytes.of(1));
+    assertThat(head.getCurrentVersion()).isEqualTo(1);
+    assertThat(head.getCacheManager().getCurrentVersion()).isEqualTo(1);
+    assertThat(head.getCacheSize(ACCOUNT_INFO_STATE)).isEqualTo(1);
+    assertThat(head.isCached(ACCOUNT_INFO_STATE, acc1.getBytes())).isTrue();
+    assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, acc1.getBytes()))
+        .hasValueSatisfying(
+            cv -> {
+              assertThat(cv.getVersion()).isEqualTo(1);
+              assertThat(cv.getValue()).isEqualTo(Bytes.of(1));
+              assertThat(cv.isRemoval()).isFalse();
+            });
 
-    // Add first two accounts
-    BonsaiWorldStateKeyValueStorage.CachedUpdater updater1 =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    updater1.putAccountInfoState(acc1, Bytes.of(1));
-    updater1.putAccountInfoState(acc2, Bytes.of(2));
-    updater1.commit();
-
-    assertThat(baseStorage.getCacheSize(ACCOUNT_INFO_STATE)).isEqualTo(2);
-    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, acc1.getBytes())).isTrue();
-    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, acc2.getBytes())).isTrue();
-
-    // Add third account
-    BonsaiWorldStateKeyValueStorage.CachedUpdater updater2 =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    updater2.putAccountInfoState(acc3, Bytes.of(3));
-    updater2.commit();
-
-    assertThat(baseStorage.getCacheSize(ACCOUNT_INFO_STATE)).isEqualTo(3);
-    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, acc3.getBytes())).isTrue();
+    final Hash acc2 = Hash.hash(Bytes.of(2));
+    commitAccount(acc2, Bytes.of(2));
+    assertThat(head.getCurrentVersion()).isEqualTo(2);
+    assertThat(head.getCacheManager().getCurrentVersion()).isEqualTo(2);
+    assertThat(head.getCacheSize(ACCOUNT_INFO_STATE)).isEqualTo(2);
+    assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, acc1.getBytes()))
+        .hasValueSatisfying(cv -> assertThat(cv.getVersion()).isEqualTo(1));
+    assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, acc2.getBytes()))
+        .hasValueSatisfying(
+            cv -> {
+              assertThat(cv.getVersion()).isEqualTo(2);
+              assertThat(cv.getValue()).isEqualTo(Bytes.of(2));
+            });
   }
 
   @Test
-  public void testCache_storageSlots() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
-    StorageSlotKey slot1 = new StorageSlotKey(UInt256.valueOf(1));
-    StorageSlotKey slot2 = new StorageSlotKey(UInt256.valueOf(2));
-    Bytes value1 = Bytes.of(10);
-    Bytes value2 = Bytes.of(20);
+  void rollbackDoesNotAdvanceVersionOrPopulateCache() throws Exception {
+    newHead(true);
+    final Hash account = Hash.hash(Bytes.of(1));
+    final long v0 = head.getCurrentVersion();
 
-    // Add storage slots
-    BonsaiWorldStateKeyValueStorage.CachedUpdater updater =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    updater.putStorageValueBySlotHash(accountHash, slot1.getSlotHash(), value1);
-    updater.putStorageValueBySlotHash(accountHash, slot2.getSlotHash(), value2);
-    updater.commit();
-
-    // Verify both slots are cached
-    Bytes key1 = Bytes.concatenate(accountHash.getBytes(), slot1.getSlotHash().getBytes());
-    Bytes key2 = Bytes.concatenate(accountHash.getBytes(), slot2.getSlotHash().getBytes());
-
-    assertThat(baseStorage.isCached(ACCOUNT_STORAGE_STORAGE, key1)).isTrue();
-    assertThat(baseStorage.isCached(ACCOUNT_STORAGE_STORAGE, key2)).isTrue();
-
-    Optional<VersionedValue> cached1 = baseStorage.getCachedValue(ACCOUNT_STORAGE_STORAGE, key1);
-    assertThat(cached1).isPresent();
-    assertThat(cached1.get().getValue()).isEqualTo(value1);
-
-    Optional<VersionedValue> cached2 = baseStorage.getCachedValue(ACCOUNT_STORAGE_STORAGE, key2);
-    assertThat(cached2).isPresent();
-    assertThat(cached2.get().getValue()).isEqualTo(value2);
-  }
-
-  @Test
-  public void testCache_rollbackDoesNotUpdateCache() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
-    Bytes accountData = Bytes.of(1, 2, 3);
-
-    long v1 = baseStorage.getCurrentVersion();
-
-    // Stage changes but rollback
-    BonsaiWorldStateKeyValueStorage.CachedUpdater updater =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    updater.putAccountInfoState(accountHash, accountData);
+    final var updater = (BonsaiWorldStateKeyValueStorage.CachedUpdater) head.updater();
+    updater.putAccountInfoState(account, Bytes.of(9, 9, 9));
     updater.rollback();
 
-    // Version should not change
-    long v2 = baseStorage.getCurrentVersion();
-    assertThat(v2).isEqualTo(v1);
-
-    // Cache should not contain the rolled-back data
-    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, accountHash.getBytes())).isFalse();
+    assertThat(head.getCurrentVersion()).isEqualTo(v0);
+    assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isFalse();
+    assertThat(head.getCacheSize(ACCOUNT_INFO_STATE)).isZero();
   }
 
   @Test
-  public void testCache_emptyValuesNotStored() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
+  void commitWritesVersionedAccountAndStorageSlotEntries() throws Exception {
+    newHead(true);
+    final Hash account = Hash.hash(Bytes.of(1));
+    final StorageSlotKey slot = new StorageSlotKey(UInt256.valueOf(1));
+    final Bytes slotKey = Bytes.concatenate(account.getBytes(), slot.getSlotHash().getBytes());
+    final Bytes accBytes = Bytes.of(1, 2, 3);
+    final Bytes slotBytes = Bytes.of(7);
 
-    // Try to put empty value
-    BonsaiWorldStateKeyValueStorage.CachedUpdater updater =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    updater.putAccountInfoState(accountHash, Bytes.EMPTY);
-    updater.commit();
+    final var u = (BonsaiWorldStateKeyValueStorage.CachedUpdater) head.updater();
+    u.putAccountInfoState(account, accBytes);
+    u.putStorageValueBySlotHash(account, slot.getSlotHash(), slotBytes);
+    u.commit();
 
-    // Empty values should not be cached
-    assertThat(baseStorage.getCacheSize(ACCOUNT_INFO_STATE)).isEqualTo(0);
+    final long v = head.getCurrentVersion();
+    assertThat(head.getCacheSize(ACCOUNT_INFO_STATE)).isEqualTo(1);
+    assertThat(head.getCacheSize(ACCOUNT_STORAGE_STORAGE)).isEqualTo(1);
+    assertThat(head.isCached(ACCOUNT_INFO_STATE, account.getBytes())).isTrue();
+    assertThat(head.isCached(ACCOUNT_STORAGE_STORAGE, slotKey)).isTrue();
+    assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+        .hasValueSatisfying(
+            cv -> {
+              assertThat(cv.getVersion()).isEqualTo(v);
+              assertThat(cv.getValue()).isEqualTo(accBytes);
+            });
+    assertThat(head.getCachedValue(ACCOUNT_STORAGE_STORAGE, slotKey))
+        .hasValueSatisfying(
+            cv -> {
+              assertThat(cv.getVersion()).isEqualTo(v);
+              assertThat(cv.getValue()).isEqualTo(slotBytes);
+            });
   }
 
   @Test
-  public void testCache_updateOverwritesPreviousVersion() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
-    Bytes data1 = Bytes.of(1);
-    Bytes data2 = Bytes.of(2);
-    Bytes data3 = Bytes.of(3);
+  void removalCommitsTombstoneInCacheAtNewVersion() throws Exception {
+    newHead(true);
+    final Hash account = Hash.hash(Bytes.of(1));
+    commitAccount(account, Bytes.of(1, 2, 3));
 
-    // Version 1
-    BonsaiWorldStateKeyValueStorage.CachedUpdater updater1 =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    updater1.putAccountInfoState(accountHash, data1);
-    updater1.commit();
+    assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+        .hasValueSatisfying(
+            cv -> {
+              assertThat(cv.isRemoval()).isFalse();
+              assertThat(cv.getValue()).isEqualTo(Bytes.of(1, 2, 3));
+              assertThat(cv.getVersion()).isEqualTo(1);
+            });
 
-    // Version 2
-    BonsaiWorldStateKeyValueStorage.CachedUpdater updater2 =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    updater2.putAccountInfoState(accountHash, data2);
-    updater2.commit();
-    // Version 3
-    BonsaiWorldStateKeyValueStorage.CachedUpdater updater3 =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    updater3.putAccountInfoState(accountHash, data3);
-    updater3.commit();
+    final var u = (BonsaiWorldStateKeyValueStorage.CachedUpdater) head.updater();
+    u.removeAccountInfoState(account);
+    u.commit();
 
-    long v3 = baseStorage.getCurrentVersion();
-
-    // Cache should only have latest version
-    assertThat(baseStorage.getCacheSize(ACCOUNT_INFO_STATE)).isEqualTo(1);
-
-    Optional<VersionedValue> cachedValue =
-        baseStorage.getCachedValue(ACCOUNT_INFO_STATE, accountHash.getBytes());
-    assertThat(cachedValue).isPresent();
-    assertThat(cachedValue.get().getValue()).isEqualTo(data3);
-    assertThat(cachedValue.get().getVersion()).isEqualTo(v3);
+    assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+        .hasValueSatisfying(
+            cv -> {
+              assertThat(cv.isRemoval()).isTrue();
+              assertThat(cv.getVersion()).isEqualTo(head.getCurrentVersion());
+            });
   }
 
   @Test
-  public void testCache_storageRemoval() {
-    Hash accountHash = Hash.hash(Bytes.of(1));
-    StorageSlotKey slotKey = new StorageSlotKey(UInt256.valueOf(1));
-    Bytes storageValue = Bytes.of(10);
-    Bytes concatenatedKey =
-        Bytes.concatenate(accountHash.getBytes(), slotKey.getSlotHash().getBytes());
+  void snapshotPinsCacheEpochWhileHeadKeepsAdvancing() throws Exception {
+    newHead(true);
+    final Hash account = Hash.hash(Bytes.of(1));
+    commitAccount(account, Bytes.of(1));
 
-    // Add storage
-    BonsaiWorldStateKeyValueStorage.CachedUpdater updater1 =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    updater1.putStorageValueBySlotHash(accountHash, slotKey.getSlotHash(), storageValue);
-    updater1.commit();
+    assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+        .hasValueSatisfying(
+            cv -> {
+              assertThat(cv.getVersion()).isEqualTo(1);
+              assertThat(cv.getValue()).isEqualTo(Bytes.of(1));
+            });
 
-    // Remove storage
-    BonsaiWorldStateKeyValueStorage.CachedUpdater updater2 =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-    updater2.removeStorageValueBySlotHash(accountHash, slotKey.getSlotHash());
-    updater2.commit();
+    final long epochAtSnapshot;
+    try (BonsaiSnapshotWorldStateKeyValueStorage snapshot =
+        new BonsaiSnapshotWorldStateKeyValueStorage(head)) {
+      epochAtSnapshot = snapshot.getCurrentVersion();
+      assertThat(epochAtSnapshot).isEqualTo(head.getCurrentVersion());
 
-    // Cache should show removal
-    Optional<VersionedValue> cachedValue =
-        baseStorage.getCachedValue(ACCOUNT_STORAGE_STORAGE, concatenatedKey);
-    assertThat(cachedValue).isPresent();
-    assertThat(cachedValue.get().isRemoval()).isTrue();
-  }
+      commitAccount(account, Bytes.of(2));
 
-  @Test
-  public void testCache_multipleBatchUpdates() {
-    // Create multiple accounts in one batch
-    BonsaiWorldStateKeyValueStorage.CachedUpdater updater =
-        (BonsaiWorldStateKeyValueStorage.CachedUpdater) baseStorage.updater();
-
-    for (int i = 0; i < 10; i++) {
-      Hash accountHash = Hash.hash(Bytes.of(i));
-      updater.putAccountInfoState(accountHash, Bytes.of(i));
+      assertThat(head.getCurrentVersion()).isGreaterThan(epochAtSnapshot);
+      assertThat(snapshot.getCurrentVersion()).isEqualTo(epochAtSnapshot);
+      assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+          .hasValueSatisfying(
+              cv -> {
+                assertThat(cv.getVersion()).isEqualTo(head.getCurrentVersion());
+                assertThat(cv.getValue()).isEqualTo(Bytes.of(2));
+              });
     }
+  }
 
-    updater.commit();
+  @Test
+  void snapshotReadsPersistedAccountNotNewerHeadCacheEntry() throws Exception {
+    newHead(true);
+    final Hash account = Hash.hash(Bytes.of(1));
+    final Bytes onSnapshot = Bytes.of(10, 11, 12);
+    final Bytes onHeadAfter = Bytes.of(20, 21, 22);
 
-    // All should be in cache with same version
-    long version = baseStorage.getCurrentVersion();
-    assertThat(baseStorage.getCacheSize(ACCOUNT_INFO_STATE)).isEqualTo(10);
+    commitAccount(account, onSnapshot);
 
-    for (int i = 0; i < 10; i++) {
-      Hash accountHash = Hash.hash(Bytes.of(i));
-      Optional<VersionedValue> cached =
-          baseStorage.getCachedValue(ACCOUNT_INFO_STATE, accountHash.getBytes());
-      assertThat(cached).isPresent();
-      assertThat(cached.get().getVersion()).isEqualTo(version);
+    assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+        .hasValueSatisfying(
+            cv -> {
+              assertThat(cv.getVersion()).isEqualTo(1);
+              assertThat(cv.getValue()).isEqualTo(onSnapshot);
+            });
+
+    try (BonsaiSnapshotWorldStateKeyValueStorage snapshot =
+        new BonsaiSnapshotWorldStateKeyValueStorage(head)) {
+      commitAccount(account, onHeadAfter);
+
+      assertThat(head.getAccount(account)).contains(onHeadAfter);
+      assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+          .hasValueSatisfying(
+              cv -> {
+                assertThat(cv.getVersion()).isEqualTo(head.getCurrentVersion());
+                assertThat(cv.getValue()).isEqualTo(onHeadAfter);
+                assertThat(cv.isRemoval()).isFalse();
+              });
+
+      assertThat(snapshot.getAccount(account)).contains(onSnapshot);
     }
+  }
+
+  @Test
+  void snapshotReadsPersistedStorageSlotNotNewerHeadCacheEntry() throws Exception {
+    newHead(true);
+    final Hash account = Hash.hash(Bytes.of(1));
+    final StorageSlotKey slot = new StorageSlotKey(UInt256.valueOf(3));
+    final Bytes slotKey = Bytes.concatenate(account.getBytes(), slot.getSlotHash().getBytes());
+    final Bytes vSnapshot = Bytes.of(1);
+    final Bytes vHead = Bytes.of(2);
+
+    final var u0 = (BonsaiWorldStateKeyValueStorage.CachedUpdater) head.updater();
+    u0.putAccountInfoState(account, Bytes.of(1, 2, 3));
+    u0.putStorageValueBySlotHash(account, slot.getSlotHash(), vSnapshot);
+    u0.commit();
+
+    assertThat(head.getCachedValue(ACCOUNT_STORAGE_STORAGE, slotKey))
+        .hasValueSatisfying(
+            cv -> {
+              assertThat(cv.getVersion()).isEqualTo(1);
+              assertThat(cv.getValue()).isEqualTo(vSnapshot);
+              assertThat(cv.isRemoval()).isFalse();
+            });
+
+    try (BonsaiSnapshotWorldStateKeyValueStorage snapshot =
+        new BonsaiSnapshotWorldStateKeyValueStorage(head)) {
+      final var u1 = (BonsaiWorldStateKeyValueStorage.CachedUpdater) head.updater();
+      u1.putStorageValueBySlotHash(account, slot.getSlotHash(), vHead);
+      u1.commit();
+
+      assertThat(head.getStorageValueByStorageSlotKey(account, slot)).contains(vHead);
+      assertThat(head.getCachedValue(ACCOUNT_STORAGE_STORAGE, slotKey))
+          .hasValueSatisfying(
+              cv -> {
+                assertThat(cv.getVersion()).isEqualTo(head.getCurrentVersion());
+                assertThat(cv.getValue()).isEqualTo(vHead);
+              });
+      assertThat(snapshot.getStorageValueByStorageSlotKey(account, slot)).contains(vSnapshot);
+    }
+  }
+
+  @Test
+  void snapshotStillSeesAccountAfterHeadRemovesIt() throws Exception {
+    newHead(true);
+    final Hash account = Hash.hash(Bytes.of(1));
+    commitAccount(account, Bytes.of(1, 2, 3));
+
+    assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+        .hasValueSatisfying(
+            cv -> {
+              assertThat(cv.isRemoval()).isFalse();
+              assertThat(cv.getValue()).isEqualTo(Bytes.of(1, 2, 3));
+              assertThat(cv.getVersion()).isEqualTo(1);
+            });
+
+    try (BonsaiSnapshotWorldStateKeyValueStorage snapshot =
+        new BonsaiSnapshotWorldStateKeyValueStorage(head)) {
+      final var u = (BonsaiWorldStateKeyValueStorage.CachedUpdater) head.updater();
+      u.removeAccountInfoState(account);
+      u.commit();
+
+      assertThat(head.getAccount(account)).isEmpty();
+      assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+          .hasValueSatisfying(
+              cv -> {
+                assertThat(cv.isRemoval()).isTrue();
+                assertThat(cv.getVersion()).isEqualTo(head.getCurrentVersion());
+              });
+      assertThat(snapshot.getAccount(account)).isPresent();
+    }
+  }
+
+  @Test
+  void sequentialCommitsAlongOneBranchKeepSingleLatestCachedValuePerKey() throws Exception {
+    newHead(true);
+    final Hash account = Hash.hash(Bytes.of(1));
+    commitAccount(account, Bytes.of(1));
+    assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+        .hasValueSatisfying(cv -> assertThat(cv.getVersion()).isEqualTo(1));
+
+    commitAccount(account, Bytes.of(2));
+    assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+        .hasValueSatisfying(
+            cv -> {
+              assertThat(cv.getVersion()).isEqualTo(2);
+              assertThat(cv.getValue()).isEqualTo(Bytes.of(2));
+            });
+
+    commitAccount(account, Bytes.of(3));
+
+    assertThat(head.getCacheSize(ACCOUNT_INFO_STATE)).isEqualTo(1);
+    assertThat(head.getAccount(account)).contains(Bytes.of(3));
+    assertThat(head.getCachedValue(ACCOUNT_INFO_STATE, account.getBytes()))
+        .hasValueSatisfying(
+            cv -> {
+              assertThat(cv.getVersion()).isEqualTo(3);
+              assertThat(cv.getValue()).isEqualTo(Bytes.of(3));
+              assertThat(cv.isRemoval()).isFalse();
+            });
+  }
+
+  private void commitAccount(final Hash accountHash, final Bytes value) {
+    final var u = (BonsaiWorldStateKeyValueStorage.CachedUpdater) head.updater();
+    u.putAccountInfoState(accountHash, value);
+    u.commit();
   }
 }
