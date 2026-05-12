@@ -170,21 +170,13 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
   public void shouldReturnInvalidParamsIfRequestsContainUnknownRequestType() {
     // 0xff is not a known request type — should return -32602, not INVALID status
     final List<String> unknownTypeRequests = List.of("0xff01");
-    Object[] params =
-        maybeParentBeaconBlockRoot
-            .map(
-                bytes32 ->
-                    new Object[] {
-                      mockEnginePayload(createValidBlockHeader(Optional.empty()), emptyList()),
-                      emptyList(),
-                      bytes32.toHexString(),
-                      unknownTypeRequests
-                    })
-            .orElseGet(
-                () ->
-                    new Object[] {
-                      mockEnginePayload(createValidBlockHeader(Optional.empty()), emptyList())
-                    });
+    final Object[] params =
+        new Object[] {
+          mockEnginePayload(createValidBlockHeader(Optional.empty()), emptyList()),
+          emptyList(),
+          Bytes32.ZERO.toHexString(),
+          unknownTypeRequests
+        };
     var resp =
         method.response(
             new JsonRpcRequestContext(new JsonRpcRequest("2.0", method.getName(), params)));
@@ -204,21 +196,13 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
                 .toHexString(),
             Bytes.concatenate(Bytes.of(RequestType.DEPOSIT.getSerializedType()), Bytes.of(1))
                 .toHexString());
-    Object[] params =
-        maybeParentBeaconBlockRoot
-            .map(
-                bytes32 ->
-                    new Object[] {
-                      mockEnginePayload(createValidBlockHeader(Optional.empty()), emptyList()),
-                      emptyList(),
-                      bytes32.toHexString(),
-                      outOfOrderRequests
-                    })
-            .orElseGet(
-                () ->
-                    new Object[] {
-                      mockEnginePayload(createValidBlockHeader(Optional.empty()), emptyList())
-                    });
+    final Object[] params =
+        new Object[] {
+          mockEnginePayload(createValidBlockHeader(Optional.empty()), emptyList()),
+          emptyList(),
+          Bytes32.ZERO.toHexString(),
+          outOfOrderRequests
+        };
     var resp =
         method.response(
             new JsonRpcRequestContext(new JsonRpcRequest("2.0", method.getName(), params)));
