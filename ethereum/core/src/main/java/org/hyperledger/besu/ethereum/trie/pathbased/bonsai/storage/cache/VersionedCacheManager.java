@@ -55,8 +55,8 @@ public class VersionedCacheManager implements CacheManager, Closeable {
   private static final long MAX_INITIAL_CAPACITY = Integer.MAX_VALUE;
 
   private final AtomicLong globalVersion = new AtomicLong(0);
-  private final Cache<ByteArrayWrapper, VersionedValue> accountCache;
-  private final Cache<ByteArrayWrapper, VersionedValue> storageCache;
+  private final Cache<CacheKey, VersionedValue> accountCache;
+  private final Cache<CacheKey, VersionedValue> storageCache;
   private final ThresholdDrainExecutor drainExecutor;
   private final ExecutorService maintenanceWorker;
   private final AtomicBoolean maintenanceScheduled = new AtomicBoolean(false);
@@ -141,7 +141,7 @@ public class VersionedCacheManager implements CacheManager, Closeable {
         "Cache maintenance will trigger asynchronously after {} pending tasks", drainThreshold);
   }
 
-  private Cache<ByteArrayWrapper, VersionedValue> createCache(final long maxSize) {
+  private Cache<CacheKey, VersionedValue> createCache(final long maxSize) {
     return Caffeine.newBuilder()
         .initialCapacity(initialCapacityFor(maxSize))
         .maximumSize(maxSize)
@@ -165,7 +165,7 @@ public class VersionedCacheManager implements CacheManager, Closeable {
     }
   }
 
-  private Cache<ByteArrayWrapper, VersionedValue> cacheForSegment(final SegmentIdentifier segment) {
+  private Cache<CacheKey, VersionedValue> cacheForSegment(final SegmentIdentifier segment) {
     if (segment == ACCOUNT_INFO_STATE) {
       return accountCache;
     }
@@ -261,7 +261,7 @@ public class VersionedCacheManager implements CacheManager, Closeable {
 
   @Override
   public void clear(final SegmentIdentifier segment) {
-    final Cache<ByteArrayWrapper, VersionedValue> cache = cacheForSegment(segment);
+    final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
     if (cache != null) {
       cache.invalidateAll();
     }
@@ -270,11 +270,11 @@ public class VersionedCacheManager implements CacheManager, Closeable {
   @Override
   public Optional<Bytes> getFromCacheOrStorage(
       final SegmentIdentifier segment,
-      final byte[] key,
+      final Bytes key,
       final long version,
       final Supplier<Optional<Bytes>> storageGetter) {
 
-    final Cache<ByteArrayWrapper, VersionedValue> cache = cacheForSegment(segment);
+    final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
 
     cacheRequestCounter.inc();
 
@@ -283,14 +283,12 @@ public class VersionedCacheManager implements CacheManager, Closeable {
       return storageGetter.get();
     }
 
-    final ByteArrayWrapper wrapper = new ByteArrayWrapper(key);
-    final VersionedValue versionedValue = cache.getIfPresent(wrapper);
+    final CacheKey cacheKey = CacheKey.of(key);
+    final VersionedValue versionedValue = cache.getIfPresent(cacheKey);
 
     if (versionedValue != null && versionedValue.version <= version) {
       cacheHitCounter.inc();
-      return versionedValue.isRemoval
-          ? Optional.empty()
-          : Optional.of(Bytes.wrap(versionedValue.value));
+      return versionedValue.isRemoval ? Optional.empty() : Optional.of(versionedValue.getValue());
     }
 
     cacheMissCounter.inc();
@@ -298,13 +296,13 @@ public class VersionedCacheManager implements CacheManager, Closeable {
 
     if (version == globalVersion.get()) {
       cacheInsertCounter.inc();
-      final byte[] valueToCache = result.map(Bytes::toArrayUnsafe).orElse(null);
+      final Bytes valueToCache = result.orElse(null);
       final boolean isRemoval = result.isEmpty();
 
       cache
           .asMap()
           .compute(
-              wrapper,
+              cacheKey,
               (k, existingValue) -> {
                 if (existingValue == null || existingValue.version < version) {
                   return new VersionedValue(valueToCache, version, isRemoval);
@@ -317,34 +315,34 @@ public class VersionedCacheManager implements CacheManager, Closeable {
   }
 
   @Override
-  public List<Optional<byte[]>> getMultipleFromCacheOrStorage(
+  public List<Optional<Bytes>> getMultipleFromCacheOrStorage(
       final SegmentIdentifier segment,
-      final List<byte[]> keys,
+      final List<Bytes> keys,
       final long version,
-      final Function<List<byte[]>, List<Optional<byte[]>>> batchFetcher) {
+      final Function<List<Bytes>, List<Optional<Bytes>>> batchFetcher) {
 
-    final Cache<ByteArrayWrapper, VersionedValue> cache = cacheForSegment(segment);
+    final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
 
     if (cache == null) {
       keys.forEach(k -> cacheMissCounter.inc());
       return batchFetcher.apply(keys);
     }
 
-    final List<Optional<byte[]>> results = new ArrayList<>(keys.size());
-    final List<byte[]> keysToFetch = new ArrayList<>();
+    final List<Optional<Bytes>> results = new ArrayList<>(keys.size());
+    final List<Bytes> keysToFetch = new ArrayList<>();
     final List<Integer> indicesToFetch = new ArrayList<>();
 
     for (int i = 0; i < keys.size(); i++) {
-      final byte[] key = keys.get(i);
+      final Bytes key = keys.get(i);
       cacheRequestCounter.inc();
 
-      final ByteArrayWrapper wrapper = new ByteArrayWrapper(key);
-      final VersionedValue versionedValue = cache.getIfPresent(wrapper);
+      final CacheKey cacheKey = CacheKey.of(key);
+      final VersionedValue versionedValue = cache.getIfPresent(cacheKey);
 
       if (versionedValue != null && versionedValue.version <= version) {
         cacheHitCounter.inc();
         results.add(
-            versionedValue.isRemoval ? Optional.empty() : Optional.of(versionedValue.value));
+            versionedValue.isRemoval ? Optional.empty() : Optional.of(versionedValue.getValue()));
       } else {
         cacheMissCounter.inc();
         results.add(null);
@@ -354,26 +352,26 @@ public class VersionedCacheManager implements CacheManager, Closeable {
     }
 
     if (!keysToFetch.isEmpty()) {
-      final List<Optional<byte[]>> fetchedValues = batchFetcher.apply(keysToFetch);
+      final List<Optional<Bytes>> fetchedValues = batchFetcher.apply(keysToFetch);
       final boolean shouldUpdateCache = version == globalVersion.get();
 
       for (int i = 0; i < fetchedValues.size(); i++) {
-        final Optional<byte[]> fetchedValue = fetchedValues.get(i);
+        final Optional<Bytes> fetchedValue = fetchedValues.get(i);
         final int resultIndex = indicesToFetch.get(i);
-        final byte[] key = keysToFetch.get(i);
+        final Bytes key = keysToFetch.get(i);
 
         results.set(resultIndex, fetchedValue);
 
         if (shouldUpdateCache) {
           cacheInsertCounter.inc();
-          final ByteArrayWrapper wrapper = new ByteArrayWrapper(key);
-          final byte[] valueToCache = fetchedValue.orElse(null);
+          final CacheKey cacheKey = CacheKey.of(key);
+          final Bytes valueToCache = fetchedValue.orElse(null);
           final boolean isRemoval = fetchedValue.isEmpty();
 
           cache
               .asMap()
               .compute(
-                  wrapper,
+                  cacheKey,
                   (k, existingValue) -> {
                     if (existingValue == null || existingValue.version < version) {
                       return new VersionedValue(valueToCache, version, isRemoval);
@@ -389,14 +387,14 @@ public class VersionedCacheManager implements CacheManager, Closeable {
 
   @Override
   public void putInCache(
-      final SegmentIdentifier segment, final byte[] key, final byte[] value, final long version) {
-    final Cache<ByteArrayWrapper, VersionedValue> cache = cacheForSegment(segment);
+      final SegmentIdentifier segment, final Bytes key, final Bytes value, final long version) {
+    final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
     if (cache != null) {
-      final ByteArrayWrapper wrapper = new ByteArrayWrapper(key);
+      final CacheKey cacheKey = CacheKey.of(key);
       cache
           .asMap()
           .compute(
-              wrapper,
+              cacheKey,
               (k, existingValue) -> {
                 if (existingValue == null || existingValue.version < version) {
                   cacheInsertCounter.inc();
@@ -409,14 +407,14 @@ public class VersionedCacheManager implements CacheManager, Closeable {
 
   @Override
   public void removeFromCache(
-      final SegmentIdentifier segment, final byte[] key, final long version) {
-    final Cache<ByteArrayWrapper, VersionedValue> cache = cacheForSegment(segment);
+      final SegmentIdentifier segment, final Bytes key, final long version) {
+    final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
     if (cache != null) {
-      final ByteArrayWrapper wrapper = new ByteArrayWrapper(key);
+      final CacheKey cacheKey = CacheKey.of(key);
       cache
           .asMap()
           .compute(
-              wrapper,
+              cacheKey,
               (k, existingValue) -> {
                 if (existingValue == null || existingValue.version < version) {
                   cacheRemovalCounter.inc();
@@ -429,22 +427,21 @@ public class VersionedCacheManager implements CacheManager, Closeable {
 
   @Override
   public long getCacheSize(final SegmentIdentifier segment) {
-    final Cache<ByteArrayWrapper, VersionedValue> cache = cacheForSegment(segment);
+    final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
     return cache != null ? cache.estimatedSize() : 0;
   }
 
   @Override
-  public boolean isCached(final SegmentIdentifier segment, final byte[] key) {
-    final Cache<ByteArrayWrapper, VersionedValue> cache = cacheForSegment(segment);
-    return cache != null && cache.getIfPresent(new ByteArrayWrapper(key)) != null;
+  public boolean isCached(final SegmentIdentifier segment, final Bytes key) {
+    final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
+    return cache != null && cache.getIfPresent(CacheKey.of(key)) != null;
   }
 
   @Override
-  public Optional<VersionedValue> getCachedValue(
-      final SegmentIdentifier segment, final byte[] key) {
-    final Cache<ByteArrayWrapper, VersionedValue> cache = cacheForSegment(segment);
+  public Optional<VersionedValue> getCachedValue(final SegmentIdentifier segment, final Bytes key) {
+    final Cache<CacheKey, VersionedValue> cache = cacheForSegment(segment);
     return cache != null
-        ? Optional.ofNullable(cache.getIfPresent(new ByteArrayWrapper(key)))
+        ? Optional.ofNullable(cache.getIfPresent(CacheKey.of(key)))
         : Optional.empty();
   }
 

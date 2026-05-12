@@ -26,7 +26,6 @@ import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.CacheManager;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.CacheManager.ByteArrayWrapper;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedCacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
@@ -137,10 +136,9 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
   }
 
   public Optional<Bytes> getAccount(final Hash accountHash) {
-    final byte[] key = accountHash.getBytes().toArrayUnsafe();
     return cacheManager.getFromCacheOrStorage(
         ACCOUNT_INFO_STATE,
-        key,
+        accountHash.getBytes(),
         getCurrentVersion(),
         () ->
             getFlatDbStrategy()
@@ -169,9 +167,8 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
       final Supplier<Optional<Hash>> storageRootSupplier,
       final Hash accountHash,
       final StorageSlotKey storageSlotKey) {
-    final byte[] key =
-        Bytes.concatenate(accountHash.getBytes(), storageSlotKey.getSlotHash().getBytes())
-            .toArrayUnsafe();
+    final Bytes key =
+        Bytes.concatenate(accountHash.getBytes(), storageSlotKey.getSlotHash().getBytes());
     return cacheManager.getFromCacheOrStorage(
         ACCOUNT_STORAGE_STORAGE,
         key,
@@ -287,12 +284,12 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
     return cacheManager.getCacheSize(segment);
   }
 
-  public boolean isCached(final SegmentIdentifier segment, final byte[] key) {
+  public boolean isCached(final SegmentIdentifier segment, final Bytes key) {
     return cacheManager.isCached(segment, key);
   }
 
   public Optional<CacheManager.VersionedValue> getCachedValue(
-      final SegmentIdentifier segment, final byte[] key) {
+      final SegmentIdentifier segment, final Bytes key) {
     return cacheManager.getCachedValue(segment, key);
   }
 
@@ -451,9 +448,10 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
    */
   public class CachedUpdater extends Updater {
 
-    private final Map<SegmentIdentifier, Map<ByteArrayWrapper, byte[]>> pending = new HashMap<>();
-    private final Map<SegmentIdentifier, Map<ByteArrayWrapper, Boolean>> pendingRemovals =
-        new HashMap<>();
+    private static final int INITIAL_CACHE_MAP_CAPACITY = 1024;
+
+    /** Single map per segment. Value {@code null} encodes a staged removal (last-write-wins). */
+    private final Map<SegmentIdentifier, Map<Bytes, Bytes>> pending = new HashMap<>();
 
     public CachedUpdater(
         final SegmentedKeyValueStorageTransaction composedWorldStateTransaction,
@@ -466,59 +464,49 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
     @Override
     public Updater putAccountInfoState(final Hash accountHash, final Bytes accountValue) {
       if (!accountValue.isEmpty()) {
-        stagePut(
-            ACCOUNT_INFO_STATE,
-            accountHash.getBytes().toArrayUnsafe(),
-            accountValue.toArrayUnsafe());
+        stagePut(ACCOUNT_INFO_STATE, accountHash.getBytes(), accountValue);
       }
       return super.putAccountInfoState(accountHash, accountValue);
     }
 
     @Override
     public Updater removeAccountInfoState(final Hash accountHash) {
-      stageRemoval(ACCOUNT_INFO_STATE, accountHash.getBytes().toArrayUnsafe());
+      stageRemoval(ACCOUNT_INFO_STATE, accountHash.getBytes());
       return super.removeAccountInfoState(accountHash);
     }
 
     @Override
     public synchronized Updater putStorageValueBySlotHash(
         final Hash accountHash, final Hash slotHash, final Bytes storageValue) {
-      final byte[] key =
-          Bytes.concatenate(accountHash.getBytes(), slotHash.getBytes()).toArrayUnsafe();
-      stagePut(ACCOUNT_STORAGE_STORAGE, key, storageValue.toArrayUnsafe());
+      stagePut(
+          ACCOUNT_STORAGE_STORAGE,
+          Bytes.concatenate(accountHash.getBytes(), slotHash.getBytes()),
+          storageValue);
       return super.putStorageValueBySlotHash(accountHash, slotHash, storageValue);
     }
 
     @Override
     public synchronized void removeStorageValueBySlotHash(
         final Hash accountHash, final Hash slotHash) {
-      final byte[] key =
-          Bytes.concatenate(accountHash.getBytes(), slotHash.getBytes()).toArrayUnsafe();
-      stageRemoval(ACCOUNT_STORAGE_STORAGE, key);
+      stageRemoval(
+          ACCOUNT_STORAGE_STORAGE, Bytes.concatenate(accountHash.getBytes(), slotHash.getBytes()));
       super.removeStorageValueBySlotHash(accountHash, slotHash);
     }
 
-    private void stagePut(final SegmentIdentifier segment, final byte[] key, final byte[] value) {
-      final ByteArrayWrapper wrappedKey = new ByteArrayWrapper(key);
-      final Map<ByteArrayWrapper, Boolean> removals = pendingRemovals.get(segment);
-      if (removals != null) {
-        removals.remove(wrappedKey);
-      }
-      pending.computeIfAbsent(segment, k -> new HashMap<>()).put(wrappedKey, value);
+    private void stagePut(final SegmentIdentifier segment, final Bytes key, final Bytes value) {
+      pending
+          .computeIfAbsent(segment, s -> new HashMap<>(INITIAL_CACHE_MAP_CAPACITY))
+          .put(key, value);
     }
 
-    private void stageRemoval(final SegmentIdentifier segment, final byte[] key) {
-      final ByteArrayWrapper wrappedKey = new ByteArrayWrapper(key);
-      final Map<ByteArrayWrapper, byte[]> updates = pending.get(segment);
-      if (updates != null) {
-        updates.remove(wrappedKey);
-      }
-      pendingRemovals.computeIfAbsent(segment, k -> new HashMap<>()).put(wrappedKey, true);
+    private void stageRemoval(final SegmentIdentifier segment, final Bytes key) {
+      pending
+          .computeIfAbsent(segment, s -> new HashMap<>(INITIAL_CACHE_MAP_CAPACITY))
+          .put(key, null);
     }
 
     private void clearStaged() {
       pending.clear();
-      pendingRemovals.clear();
     }
 
     protected void incrementCacheVersion() {
@@ -526,22 +514,16 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
     }
 
     protected void updateCache() {
-      // Apply all pending updates to cache
       pending.forEach(
           (segment, updates) ->
               updates.forEach(
-                  (wrapper, value) ->
-                      cacheManager.putInCache(segment, wrapper.getData(), value, cacheVersion)));
-
-      // Apply all pending removals to cache
-      pendingRemovals.forEach(
-          (segment, removals) ->
-              removals
-                  .keySet()
-                  .forEach(
-                      wrapper ->
-                          cacheManager.removeFromCache(segment, wrapper.getData(), cacheVersion)));
-
+                  (key, value) -> {
+                    if (value == null) {
+                      cacheManager.removeFromCache(segment, key, cacheVersion);
+                    } else {
+                      cacheManager.putInCache(segment, key, value, cacheVersion);
+                    }
+                  }));
       clearStaged();
       cacheManager.performMaintenance();
     }

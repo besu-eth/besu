@@ -69,13 +69,12 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
     updater.commit();
 
     // Verify in cache
-    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, accountHash.getBytes().toArrayUnsafe()))
-        .isTrue();
+    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, accountHash.getBytes())).isTrue();
 
     Optional<VersionedValue> cachedValue =
-        baseStorage.getCachedValue(ACCOUNT_INFO_STATE, accountHash.getBytes().toArrayUnsafe());
+        baseStorage.getCachedValue(ACCOUNT_INFO_STATE, accountHash.getBytes());
     assertThat(cachedValue).isPresent();
-    assertThat(Bytes.wrap(cachedValue.get().getValue())).isEqualTo(accountData);
+    assertThat(cachedValue.get().getValue()).isEqualTo(accountData);
     assertThat(cachedValue.get().isRemoval()).isFalse();
   }
 
@@ -106,7 +105,7 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
 
     // Cache should have latest version
     Optional<VersionedValue> cachedValue =
-        baseStorage.getCachedValue(ACCOUNT_INFO_STATE, accountHash.getBytes().toArrayUnsafe());
+        baseStorage.getCachedValue(ACCOUNT_INFO_STATE, accountHash.getBytes());
     assertThat(cachedValue).isPresent();
     assertThat(cachedValue.get().getVersion()).isEqualTo(v2);
   }
@@ -135,7 +134,7 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
 
     // Cache should show removal
     Optional<VersionedValue> cachedValue =
-        baseStorage.getCachedValue(ACCOUNT_INFO_STATE, accountHash.getBytes().toArrayUnsafe());
+        baseStorage.getCachedValue(ACCOUNT_INFO_STATE, accountHash.getBytes());
     assertThat(cachedValue).isPresent();
     assertThat(cachedValue.get().isRemoval()).isTrue();
     assertThat(cachedValue.get().getVersion()).isEqualTo(v2);
@@ -157,8 +156,8 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
     updater1.commit();
 
     assertThat(baseStorage.getCacheSize(ACCOUNT_INFO_STATE)).isEqualTo(2);
-    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, acc1.getBytes().toArrayUnsafe())).isTrue();
-    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, acc2.getBytes().toArrayUnsafe())).isTrue();
+    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, acc1.getBytes())).isTrue();
+    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, acc2.getBytes())).isTrue();
 
     // Add third account
     BonsaiWorldStateKeyValueStorage.CachedUpdater updater2 =
@@ -167,7 +166,7 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
     updater2.commit();
 
     assertThat(baseStorage.getCacheSize(ACCOUNT_INFO_STATE)).isEqualTo(3);
-    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, acc3.getBytes().toArrayUnsafe())).isTrue();
+    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, acc3.getBytes())).isTrue();
   }
 
   @Test
@@ -189,18 +188,16 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
     Bytes key1 = Bytes.concatenate(accountHash.getBytes(), slot1.getSlotHash().getBytes());
     Bytes key2 = Bytes.concatenate(accountHash.getBytes(), slot2.getSlotHash().getBytes());
 
-    assertThat(baseStorage.isCached(ACCOUNT_STORAGE_STORAGE, key1.toArrayUnsafe())).isTrue();
-    assertThat(baseStorage.isCached(ACCOUNT_STORAGE_STORAGE, key2.toArrayUnsafe())).isTrue();
+    assertThat(baseStorage.isCached(ACCOUNT_STORAGE_STORAGE, key1)).isTrue();
+    assertThat(baseStorage.isCached(ACCOUNT_STORAGE_STORAGE, key2)).isTrue();
 
-    Optional<VersionedValue> cached1 =
-        baseStorage.getCachedValue(ACCOUNT_STORAGE_STORAGE, key1.toArrayUnsafe());
+    Optional<VersionedValue> cached1 = baseStorage.getCachedValue(ACCOUNT_STORAGE_STORAGE, key1);
     assertThat(cached1).isPresent();
-    assertThat(Bytes.wrap(cached1.get().getValue())).isEqualTo(value1);
+    assertThat(cached1.get().getValue()).isEqualTo(value1);
 
-    Optional<VersionedValue> cached2 =
-        baseStorage.getCachedValue(ACCOUNT_STORAGE_STORAGE, key2.toArrayUnsafe());
+    Optional<VersionedValue> cached2 = baseStorage.getCachedValue(ACCOUNT_STORAGE_STORAGE, key2);
     assertThat(cached2).isPresent();
-    assertThat(Bytes.wrap(cached2.get().getValue())).isEqualTo(value2);
+    assertThat(cached2.get().getValue()).isEqualTo(value2);
   }
 
   @Test
@@ -221,8 +218,7 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
     assertThat(v2).isEqualTo(v1);
 
     // Cache should not contain the rolled-back data
-    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, accountHash.getBytes().toArrayUnsafe()))
-        .isFalse();
+    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, accountHash.getBytes())).isFalse();
   }
 
   @Test
@@ -269,9 +265,9 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
     assertThat(baseStorage.getCacheSize(ACCOUNT_INFO_STATE)).isEqualTo(1);
 
     Optional<VersionedValue> cachedValue =
-        baseStorage.getCachedValue(ACCOUNT_INFO_STATE, accountHash.getBytes().toArrayUnsafe());
+        baseStorage.getCachedValue(ACCOUNT_INFO_STATE, accountHash.getBytes());
     assertThat(cachedValue).isPresent();
-    assertThat(Bytes.wrap(cachedValue.get().getValue())).isEqualTo(data3);
+    assertThat(cachedValue.get().getValue()).isEqualTo(data3);
     assertThat(cachedValue.get().getVersion()).isEqualTo(v3);
   }
 
@@ -297,7 +293,7 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
 
     // Cache should show removal
     Optional<VersionedValue> cachedValue =
-        baseStorage.getCachedValue(ACCOUNT_STORAGE_STORAGE, concatenatedKey.toArrayUnsafe());
+        baseStorage.getCachedValue(ACCOUNT_STORAGE_STORAGE, concatenatedKey);
     assertThat(cachedValue).isPresent();
     assertThat(cachedValue.get().isRemoval()).isTrue();
   }
@@ -322,7 +318,7 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
     for (int i = 0; i < 10; i++) {
       Hash accountHash = Hash.hash(Bytes.of(i));
       Optional<VersionedValue> cached =
-          baseStorage.getCachedValue(ACCOUNT_INFO_STATE, accountHash.getBytes().toArrayUnsafe());
+          baseStorage.getCachedValue(ACCOUNT_INFO_STATE, accountHash.getBytes());
       assertThat(cached).isPresent();
       assertThat(cached.get().getVersion()).isEqualTo(version);
     }

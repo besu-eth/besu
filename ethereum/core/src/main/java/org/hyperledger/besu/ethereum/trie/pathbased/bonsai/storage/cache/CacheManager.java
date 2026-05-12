@@ -50,29 +50,29 @@ public interface CacheManager {
 
   default Optional<Bytes> getFromCacheOrStorage(
       final SegmentIdentifier segment,
-      final byte[] key,
+      final Bytes key,
       final long version,
       final Supplier<Optional<Bytes>> storageGetter) {
     // Always bypass cache and go directly to storage
     return storageGetter.get();
   }
 
-  default List<Optional<byte[]>> getMultipleFromCacheOrStorage(
+  default List<Optional<Bytes>> getMultipleFromCacheOrStorage(
       final SegmentIdentifier segment,
-      final List<byte[]> keys,
+      final List<Bytes> keys,
       final long version,
-      final Function<List<byte[]>, List<Optional<byte[]>>> batchFetcher) {
+      final Function<List<Bytes>, List<Optional<Bytes>>> batchFetcher) {
     // Always bypass cache and go directly to storage
     return batchFetcher.apply(keys);
   }
 
   default void putInCache(
-      final SegmentIdentifier segment, final byte[] key, final byte[] value, final long version) {
+      final SegmentIdentifier segment, final Bytes key, final Bytes value, final long version) {
     // No-op
   }
 
   default void removeFromCache(
-      final SegmentIdentifier segment, final byte[] key, final long version) {
+      final SegmentIdentifier segment, final Bytes key, final long version) {
     // No-op
   }
 
@@ -80,55 +80,28 @@ public interface CacheManager {
     return 0;
   }
 
-  default boolean isCached(final SegmentIdentifier segment, final byte[] key) {
+  default boolean isCached(final SegmentIdentifier segment, final Bytes key) {
     return false;
   }
 
   default Optional<VersionedValue> getCachedValue(
-      final SegmentIdentifier segment, final byte[] key) {
+      final SegmentIdentifier segment, final Bytes key) {
     return Optional.empty();
   }
 
-  /** Wrapper for byte[] to use as cache key with proper equals/hashCode. */
-  class ByteArrayWrapper {
-    private final byte[] data;
-    private final int hashCode;
-
-    public ByteArrayWrapper(final byte[] data) {
-      this.data = data;
-      this.hashCode = Arrays.hashCode(data);
-    }
-
-    public byte[] getData() {
-      return data;
-    }
-
-    @Override
-    public boolean equals(final Object o) {
-      if (this == o) return true;
-      if (!(o instanceof ByteArrayWrapper)) return false;
-      return Arrays.equals(data, ((ByteArrayWrapper) o).data);
-    }
-
-    @Override
-    public int hashCode() {
-      return hashCode;
-    }
-  }
-
   /** Value wrapper with version and removal flag. */
-  class VersionedValue {
-    final byte[] value;
+  final class VersionedValue {
+    final Bytes value;
     final long version;
     final boolean isRemoval;
 
-    VersionedValue(final byte[] value, final long version, final boolean isRemoval) {
+    VersionedValue(final Bytes value, final long version, final boolean isRemoval) {
       this.value = value;
       this.version = version;
       this.isRemoval = isRemoval;
     }
 
-    public byte[] getValue() {
+    public Bytes getValue() {
       return value;
     }
 
@@ -139,5 +112,35 @@ public interface CacheManager {
     public boolean isRemoval() {
       return isRemoval;
     }
+  }
+}
+
+/**
+ * Holds bytes by reference and a precomputed hash; callers must not mutate the source array after
+ * handing it off.
+ */
+final class CacheKey {
+  private final byte[] data;
+  private final int hashCode;
+
+  static CacheKey of(final Bytes bytes) {
+    return new CacheKey(bytes.toArrayUnsafe());
+  }
+
+  private CacheKey(final byte[] data) {
+    this.data = data;
+    this.hashCode = Arrays.hashCode(data);
+  }
+
+  @Override
+  public boolean equals(final Object o) {
+    if (this == o) return true;
+    if (!(o instanceof CacheKey)) return false;
+    return Arrays.equals(data, ((CacheKey) o).data);
+  }
+
+  @Override
+  public int hashCode() {
+    return hashCode;
   }
 }

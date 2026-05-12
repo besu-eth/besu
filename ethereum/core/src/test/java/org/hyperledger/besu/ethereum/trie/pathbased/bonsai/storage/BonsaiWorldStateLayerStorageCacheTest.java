@@ -91,8 +91,7 @@ public class BonsaiWorldStateLayerStorageCacheTest {
     baseUpdater.commit();
 
     // Verify in cache
-    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, accountHash.getBytes().toArrayUnsafe()))
-        .isTrue();
+    assertThat(baseStorage.isCached(ACCOUNT_INFO_STATE, accountHash.getBytes())).isTrue();
 
     // Create layer (doesn't modify account)
     BonsaiWorldStateLayerStorage layer = new BonsaiWorldStateLayerStorage(baseStorage);

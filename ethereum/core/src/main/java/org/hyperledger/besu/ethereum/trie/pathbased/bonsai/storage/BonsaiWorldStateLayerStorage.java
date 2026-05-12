@@ -63,10 +63,9 @@ public class BonsaiWorldStateLayerStorage extends BonsaiSnapshotWorldStateKeyVal
    */
   private Optional<Bytes> getWithCache(
       final SegmentIdentifier segment,
-      final byte[] key,
-      final Function<SegmentedKeyValueStorage, Optional<byte[]>> cacheFunction) {
-
-    return getComposedWorldStateStorage().get(segment, key, cacheFunction).map(Bytes::wrap);
+      final Bytes key,
+      final Function<SegmentedKeyValueStorage, Optional<Bytes>> cacheFunction) {
+    return getComposedWorldStateStorage().get(segment, key, cacheFunction);
   }
 
   @Override
@@ -75,26 +74,21 @@ public class BonsaiWorldStateLayerStorage extends BonsaiSnapshotWorldStateKeyVal
       return Optional.empty();
     }
 
-    final byte[] key = accountHash.getBytes().toArrayUnsafe();
-
     return getWithCache(
         ACCOUNT_INFO_STATE,
-        key,
-        persistentStorage -> {
-          Optional<Bytes> result =
-              cacheManager.getFromCacheOrStorage(
-                  ACCOUNT_INFO_STATE,
-                  key,
-                  getCurrentVersion(),
-                  () ->
-                      getFlatDbStrategy()
-                          .getFlatAccount(
-                              this::getWorldStateRootHash,
-                              this::getAccountStateTrieNode,
-                              accountHash,
-                              persistentStorage));
-          return result.map(Bytes::toArrayUnsafe);
-        });
+        accountHash.getBytes(),
+        persistentStorage ->
+            cacheManager.getFromCacheOrStorage(
+                ACCOUNT_INFO_STATE,
+                accountHash.getBytes(),
+                getCurrentVersion(),
+                () ->
+                    getFlatDbStrategy()
+                        .getFlatAccount(
+                            this::getWorldStateRootHash,
+                            this::getAccountStateTrieNode,
+                            accountHash,
+                            persistentStorage)));
   }
 
   @Override
@@ -107,31 +101,27 @@ public class BonsaiWorldStateLayerStorage extends BonsaiSnapshotWorldStateKeyVal
       return Optional.empty();
     }
 
-    final byte[] key =
-        Bytes.concatenate(accountHash.getBytes(), storageSlotKey.getSlotHash().getBytes())
-            .toArrayUnsafe();
+    final Bytes key =
+        Bytes.concatenate(accountHash.getBytes(), storageSlotKey.getSlotHash().getBytes());
 
     return getWithCache(
         ACCOUNT_STORAGE_STORAGE,
         key,
-        persistentStorage -> {
-          Optional<Bytes> result =
-              cacheManager.getFromCacheOrStorage(
-                  ACCOUNT_STORAGE_STORAGE,
-                  key,
-                  getCurrentVersion(),
-                  () ->
-                      getFlatDbStrategy()
-                          .getFlatStorageValueByStorageSlotKey(
-                              this::getWorldStateRootHash,
-                              storageRootSupplier,
-                              (location, hash) ->
-                                  getAccountStorageTrieNode(accountHash, location, hash),
-                              accountHash,
-                              storageSlotKey,
-                              persistentStorage));
-          return result.map(Bytes::toArrayUnsafe);
-        });
+        persistentStorage ->
+            cacheManager.getFromCacheOrStorage(
+                ACCOUNT_STORAGE_STORAGE,
+                key,
+                getCurrentVersion(),
+                () ->
+                    getFlatDbStrategy()
+                        .getFlatStorageValueByStorageSlotKey(
+                            this::getWorldStateRootHash,
+                            storageRootSupplier,
+                            (location, hash) ->
+                                getAccountStorageTrieNode(accountHash, location, hash),
+                            accountHash,
+                            storageSlotKey,
+                            persistentStorage)));
   }
 
   @Override
