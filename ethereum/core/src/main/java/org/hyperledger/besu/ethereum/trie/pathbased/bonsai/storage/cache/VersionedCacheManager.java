@@ -466,12 +466,5 @@ public class VersionedCacheManager implements CacheManager, Closeable {
       pendingCount.addAndGet(-drained);
       return drained;
     }
-
-    /**
-     * @return the approximate number of pending tasks
-     */
-    public int getPendingCount() {
-      return pendingCount.get();
-    }
   }
 }
