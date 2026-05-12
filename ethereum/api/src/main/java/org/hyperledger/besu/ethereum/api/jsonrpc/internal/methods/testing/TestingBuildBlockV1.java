@@ -35,7 +35,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPaylo
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.api.util.DomainObjectDecodeUtils;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
-import org.hyperledger.besu.ethereum.blockcreation.txselection.TransactionSelectionResults;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -57,6 +56,7 @@ import org.hyperledger.besu.util.HexUtils;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -233,16 +233,18 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
               Optional.ofNullable(slotNumber),
               parentHeader);
 
-      // When transactions are explicitly provided, return an error if any were not applied
+      // When transactions are explicitly provided, return an error if any were not applied.
+      // Iterate in original transaction order for deterministic error reporting.
       if (transactionsProvided) {
-        final TransactionSelectionResults selectionResults =
-            result.getTransactionSelectionResults();
-        if (!selectionResults.getNotSelectedTransactions().isEmpty()) {
-          final TransactionSelectionResult firstNotSelected =
-              selectionResults.getNotSelectedTransactions().values().iterator().next();
-          final String reason =
-              firstNotSelected.maybeInvalidReason().orElse("transaction not applicable");
-          return new JsonRpcErrorResponse(requestId, new JsonRpcError(-32000, reason, null));
+        final Map<Transaction, TransactionSelectionResult> notSelected =
+            result.getTransactionSelectionResults().getNotSelectedTransactions();
+        for (final Transaction tx : transactions) {
+          final TransactionSelectionResult selectionResult = notSelected.get(tx);
+          if (selectionResult != null) {
+            final String reason =
+                selectionResult.maybeInvalidReason().orElse("transaction not applicable");
+            return new JsonRpcErrorResponse(requestId, new JsonRpcError(-32000, reason, null));
+          }
         }
       }
 
