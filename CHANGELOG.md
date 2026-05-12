@@ -21,6 +21,7 @@
 - Fix `engine_forkchoiceUpdatedV1` now returns `-38003 INVALID_PAYLOAD_ATTRIBUTES` for invalid payload attribute timestamps (zero or not greater than head). [#10353](https://github.com/besu-eth/besu/pull/10353)
 
 ### Additions and Improvements
+- Add `eth_getStorageValues` JSON-RPC method for batched reads of multiple storage slots across multiple accounts in a single call [#10259](https://github.com/besu-eth/besu/pull/10259)
 - Add `enableReturnData` parameter to `debug_traceTransaction` and `debug_traceBlockByNumber`, and include `returnData` in `StructLog` when captured; the field is omitted when return data is empty or not captured. [#10172](https://github.com/besu-eth/besu/pull/10172)
 - Updated `Bouncycastle` to 1.84 and `maven-artifact` to 3.9.15 to resolve CVEs reported in those libraries. Besu's usage patterns are not affected by these vulnerabilities. [#10420](https://github.com/besu-eth/besu/pull/10420)
 - Improve native memory handling in RocksDB storage: `LRUCache`, `ColumnFamilyOptions`, and temporary options-file loading objects are now explicitly closed [#10456](https://github.com/besu-eth/besu/pull/10456)
