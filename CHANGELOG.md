@@ -25,7 +25,7 @@
 - Add `enableReturnData` parameter to `debug_traceTransaction` and `debug_traceBlockByNumber`, and include `returnData` in `StructLog` when captured; the field is omitted when return data is empty or not captured. [#10172](https://github.com/besu-eth/besu/pull/10172)
 - Updated `Bouncycastle` to 1.84 and `maven-artifact` to 3.9.15 to resolve CVEs reported in those libraries. Besu's usage patterns are not affected by these vulnerabilities. [#10420](https://github.com/besu-eth/besu/pull/10420)
 - Improve native memory handling in RocksDB storage: `LRUCache`, `ColumnFamilyOptions`, and temporary options-file loading objects are now explicitly closed [#10456](https://github.com/besu-eth/besu/pull/10456)
-
+- Restore `eth_coinbase` JSON-RPC method: returns the configured fee recipient address per the [execution-apis spec](https://github.com/ethereum/execution-apis/blob/main/src/eth/mining.yaml). Returns `null` if no fee recipient is configured. [#10478](https://github.com/hyperledger/besu/pull/10478)
 ## 26.5.0
 
 ### Breaking Changes
