@@ -237,12 +237,7 @@ public class CrossBlockCacheManager implements CacheManager, Closeable {
         "Cache maintenance will trigger asynchronously after {} pending tasks", drainThreshold);
   }
 
-  /**
-   * Whether a read may use {@code versionedValue} from the cache for this segment policy. For
-   * {@link SegmentCacheVersioningPolicy#UNVERSIONED} segments, entries are always stored with
-   * {@link #SEGMENT_CACHE_UNVERSIONED}; a non-null slot is enough to consider a hit (subject to
-   * {@link VersionedValue#isRemoval()} in the caller path).
-   */
+  /** Whether a read may use {@code versionedValue} from the cache for this segment policy. */
   private static boolean cacheHitAcceptable(
       final boolean unversioned, final VersionedValue versionedValue, final long readVersion) {
     if (versionedValue == null) {
