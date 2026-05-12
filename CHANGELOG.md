@@ -18,6 +18,7 @@
 - BFT option `xemptyblockperiodseconds` has been taken out of experimental and been renamed `emptyblockperiodseconds`. The old config option is deprecated and will be removed in a future release.
 
 ### Bug fixes
+- Fix `testing_buildBlockV1` to return error `-32000` when an explicitly provided transaction is not applicable (e.g. wrong nonce), instead of silently dropping it and returning a success response. [#10486](https://github.com/besu-eth/besu/pull/10486)
 - Fix `engine_forkchoiceUpdatedV1` now returns `-38003 INVALID_PAYLOAD_ATTRIBUTES` for invalid payload attribute timestamps (zero or not greater than head). [#10353](https://github.com/besu-eth/besu/pull/10353)
 
 ### Additions and Improvements
