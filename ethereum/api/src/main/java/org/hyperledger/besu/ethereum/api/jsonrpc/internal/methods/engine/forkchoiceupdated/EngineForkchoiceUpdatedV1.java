@@ -134,12 +134,12 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
           e);
     }
 
-    EngineForkchoiceUpdatedV1.LOG.debug("Payload attributers {}", maybePayloadAttributes);
+    EngineForkchoiceUpdatedV1.LOG.debug("Payload attributes {}", maybePayloadAttributes);
 
     // Structural parameter check (-32602) — must happen before any FCU processing.
     final ValidationResult<RpcErrorType> structResult = validateForkchoiceStateParams(forkChoice);
     if (!structResult.isValid()) {
-      return new JsonRpcSuccessResponse(requestId, structResult);
+      return new JsonRpcErrorResponse(requestId, structResult);
     }
 
     if (mergeCoordinator.isBadBlock(forkChoice.getHeadBlockHash())) {
@@ -248,11 +248,7 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
       // Version-specific payload field checks.
       final ValidationResult<RpcErrorType> attrResult = validatePayloadAttributes(newHead, attrs);
       if (!attrResult.isValid()) {
-        EngineForkchoiceUpdatedV1.LOG
-            .atWarn()
-            .setMessage("Invalid payload attributes: {}")
-            .addArgument(attrResult::getErrorMessage)
-            .log();
+        LOG.warn("Invalid payload attributes: {}", attrResult.getErrorMessage());
         return new JsonRpcErrorResponse(requestId, attrResult);
       }
 
@@ -268,8 +264,7 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
       setPreparePayloadArgs(preparePayloadArgsBuilder, attrs);
       payloadId = mergeCoordinator.preparePayload(preparePayloadArgsBuilder.build());
 
-      EngineForkchoiceUpdatedV1.LOG
-          .atDebug()
+      LOG.atDebug()
           .setMessage("Payload identifier {} for timestamp {}")
           .addArgument(payloadId::toHexString)
           .addArgument(() -> Long.toHexString(attrs.getTimestamp()))

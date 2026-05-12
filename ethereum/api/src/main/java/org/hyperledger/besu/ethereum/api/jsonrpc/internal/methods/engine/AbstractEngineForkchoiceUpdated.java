@@ -221,7 +221,7 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
                       .timestamp(payloadAttributes.getTimestamp())
                       .prevRandao(payloadAttributes.getPrevRandao())
                       .feeRecipient(payloadAttributes.getSuggestedFeeRecipient());
-              if (finalWithdrawals != null) ppaBuilder.withdrawals(finalWithdrawals);
+              finalWithdrawals.ifPresent(ppaBuilder::withdrawals);
               if (payloadAttributes.getParentBeaconBlockRoot() != null)
                 ppaBuilder.parentBeaconBlockRoot(payloadAttributes.getParentBeaconBlockRoot());
               if (payloadAttributes.getSlotNumber() != null)

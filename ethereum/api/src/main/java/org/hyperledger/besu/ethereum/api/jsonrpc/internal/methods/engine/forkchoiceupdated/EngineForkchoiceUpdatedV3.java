@@ -32,8 +32,7 @@ import io.vertx.core.Vertx;
  * {@code engine_forkchoiceUpdatedV3} — Cancun (Beacon Block Root).
  *
  * <p>Extends V2 with {@link PayloadAttributesV3}, adding the mandatory {@code
- * parentBeaconBlockRoot} field. Also introduces strict null-checking on all three forkchoice state
- * hashes ({@code -32602}).
+ * parentBeaconBlockRoot} field.
  *
  * <p>Parameterized so that V4 can extend this class while narrowing the payload type.
  */
@@ -87,9 +86,6 @@ public sealed class EngineForkchoiceUpdatedV3<PA extends PayloadAttributesV3>
     if (attrs.getParentBeaconBlockRoot() == null || attrs.getParentBeaconBlockRoot().isEmpty()) {
       return ValidationResult.invalid(
           getInvalidPayloadAttributesError(), "Missing parentBeaconBlockRoot");
-    }
-    if (attrs.getTimestamp() == 0) {
-      return ValidationResult.invalid(getInvalidPayloadAttributesError(), "Zero timestamp");
     }
     return ValidationResult.valid();
   }
