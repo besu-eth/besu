@@ -22,19 +22,4 @@ public enum MetricsProtocol {
   OPENTELEMETRY,
   /** None metrics protocol. */
   NONE;
-
-  /**
-   * Create Metrics Protocol from String representation.
-   *
-   * @param str the string representation of message protocol
-   * @return the metrics protocol
-   */
-  public static MetricsProtocol fromString(final String str) {
-    for (final MetricsProtocol mode : MetricsProtocol.values()) {
-      if (mode.name().equalsIgnoreCase(str)) {
-        return mode;
-      }
-    }
-    throw new IllegalStateException(String.format("Invalid metrics protocol provided: %s", str));
-  }
 }

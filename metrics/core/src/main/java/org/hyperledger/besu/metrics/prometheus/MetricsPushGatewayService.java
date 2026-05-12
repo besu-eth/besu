@@ -91,9 +91,10 @@ public class MetricsPushGatewayService implements MetricsService {
     metricsSystem.shutdown();
     final CompletableFuture<?> resultFuture = new CompletableFuture<>();
     try {
+      final var executor = requireNonNull(scheduledExecutorService);
       // Calling shutdown now cancels the pending push, which is desirable.
-      requireNonNull(scheduledExecutorService).shutdownNow();
-      requireNonNull(scheduledExecutorService).awaitTermination(30, TimeUnit.SECONDS);
+      executor.shutdownNow();
+      executor.awaitTermination(30, TimeUnit.SECONDS);
       try {
         requireNonNull(pushGateway).delete();
       } catch (final Exception e) {

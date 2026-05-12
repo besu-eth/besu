@@ -51,7 +51,7 @@ dependencies {
   implementation project(':plugin-api')
   api 'org.slf4j:slf4j-api'
 
-  errorprone 'com.uber.nullaway:nullaway:0.13.1'
+  errorprone 'com.uber.nullaway:nullaway'
 
   implementation 'com.google.guava:guava'
   implementation 'com.google.dagger:dagger'
