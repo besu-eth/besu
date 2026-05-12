@@ -21,7 +21,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
@@ -33,9 +32,9 @@ import org.hyperledger.besu.ethereum.eth.messages.snap.BlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetBlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.ImmutableSnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.AccountChanges;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.CodeChange;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -47,7 +46,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -55,6 +53,7 @@ class SnapServerBlockAccessListsTest {
 
   private static final int SNAP_MAX_RESPONSE_SIZE = 2 * 1024 * 1024;
   private static final int SNAP_MAX_ENTRIES_PER_REQUEST = 100_000;
+  private static final int SNAP_TEST_MAX_MILLIS_PER_REQUEST = 60_000;
 
   private final BlockDataGenerator dataGenerator = new BlockDataGenerator();
 
@@ -82,7 +81,8 @@ class SnapServerBlockAccessListsTest {
                 new EthMessages(),
                 worldStateStorageCoordinator,
                 protocolContext,
-                mock(Synchronizer.class))
+                mock(Synchronizer.class),
+                SNAP_TEST_MAX_MILLIS_PER_REQUEST)
             .start();
   }
 
@@ -90,7 +90,7 @@ class SnapServerBlockAccessListsTest {
   void shouldIncludeEmptyEntryForUnavailableBlockAccessList() {
     final Hash availableHash = dataGenerator.hash();
     final Hash unavailableHash = dataGenerator.hash();
-    final BlockAccessList available = dataGenerator.blockAccessList();
+    final BlockAccessList available = dataGenerator.blockAccessListWithCodeSize(32);
 
     when(blockchain.getBlockAccessList(availableHash)).thenReturn(Optional.of(available));
     when(blockchain.getBlockAccessList(unavailableHash)).thenReturn(Optional.empty());
@@ -104,25 +104,17 @@ class SnapServerBlockAccessListsTest {
                 request.wrapMessageData(BigInteger.ONE));
 
     assertThat(response.blockAccessLists(false))
-        .containsExactly(available, new BlockAccessList(List.of()));
+        .containsExactly(Optional.of(available), Optional.empty());
   }
 
   @Test
-  void shouldLimitBlockAccessListsByMessageSize() {
+  void shouldSoftLimitBlockAccessListsByMessageSize() {
     final Hash firstHash = dataGenerator.hash();
     final Hash secondHash = dataGenerator.hash();
 
     final BlockAccessList hugeBlockAccessList =
-        new BlockAccessList(
-            List.of(
-                new AccountChanges(
-                    Address.ZERO,
-                    List.of(),
-                    List.of(),
-                    List.of(),
-                    List.of(),
-                    List.of(new CodeChange(0, Bytes.wrap(new byte[SNAP_MAX_RESPONSE_SIZE]))))));
-    final BlockAccessList secondBlockAccessList = dataGenerator.blockAccessList();
+        dataGenerator.blockAccessListWithCodeSize(SNAP_MAX_RESPONSE_SIZE);
+    final BlockAccessList secondBlockAccessList = dataGenerator.blockAccessListWithCodeSize(32);
 
     when(blockchain.getBlockAccessList(firstHash)).thenReturn(Optional.of(hugeBlockAccessList));
     when(blockchain.getBlockAccessList(secondHash)).thenReturn(Optional.of(secondBlockAccessList));
@@ -135,16 +127,16 @@ class SnapServerBlockAccessListsTest {
             snapServer.constructGetBlockAccessListsResponse(
                 request.wrapMessageData(BigInteger.ONE));
 
-    assertThat(response.blockAccessLists(false)).isEmpty();
+    assertThat(response.blockAccessLists(false)).containsExactly(Optional.of(hugeBlockAccessList));
     verify(blockchain, never()).getBlockAccessList(secondHash);
   }
 
   @Test
-  void shouldLimitBlockAccessListsByEntryCount() {
+  void shouldSoftLimitBlockAccessListsByEntryCount() {
     when(blockchain.getBlockAccessList(any())).thenReturn(Optional.empty());
 
-    final List<Hash> hashes = new ArrayList<>(SNAP_MAX_ENTRIES_PER_REQUEST + 1);
-    for (int i = 0; i < SNAP_MAX_ENTRIES_PER_REQUEST + 1; i++) {
+    final List<Hash> hashes = new ArrayList<>(SNAP_MAX_ENTRIES_PER_REQUEST + 2);
+    for (int i = 0; i < SNAP_MAX_ENTRIES_PER_REQUEST + 2; i++) {
       hashes.add(dataGenerator.hash());
     }
 
@@ -156,14 +148,15 @@ class SnapServerBlockAccessListsTest {
             snapServer.constructGetBlockAccessListsResponse(
                 request.wrapMessageData(BigInteger.ONE));
 
-    assertThat(response.blockAccessLists(false)).hasSize(SNAP_MAX_ENTRIES_PER_REQUEST);
-    verify(blockchain, never()).getBlockAccessList(hashPastLimit);
+    assertThat(response.blockAccessLists(false)).hasSize(SNAP_MAX_ENTRIES_PER_REQUEST + 1);
+    verify(blockchain).getBlockAccessList(hashPastLimit);
   }
 
   @Test
   void shouldIncludeBlockAccessListsUpToMessageSizeLimit() {
     final int codeSize = 450_000;
-    final BlockAccessList largeBlockAccessList = createBlockAccessListWithCodeSize(codeSize);
+    final BlockAccessList largeBlockAccessList =
+        dataGenerator.blockAccessListWithCodeSize(codeSize);
     final int encodedSize = calculateRlpEncodedSize(largeBlockAccessList);
 
     assertThat(SNAP_MAX_RESPONSE_SIZE).isGreaterThanOrEqualTo(4 * encodedSize);
@@ -183,9 +176,12 @@ class SnapServerBlockAccessListsTest {
             snapServer.constructGetBlockAccessListsResponse(
                 request.wrapMessageData(BigInteger.ONE));
 
-    assertThat(response.blockAccessLists(false))
-        .containsExactly(
-            largeBlockAccessList, largeBlockAccessList, largeBlockAccessList, largeBlockAccessList);
+    final int maxResponseBytes =
+        Math.min(AbstractSnapMessageData.SIZE_REQUEST.intValue(), SNAP_MAX_RESPONSE_SIZE);
+    final int expectedEntries =
+        Math.max(1, ((maxResponseBytes - RLP.MAX_PREFIX_SIZE) / encodedSize) + 1);
+
+    assertThat(response.blockAccessLists(false)).hasSize(expectedEntries);
   }
 
   @Test
@@ -194,14 +190,14 @@ class SnapServerBlockAccessListsTest {
 
     final Hash firstAvailableHash = dataGenerator.hash();
     final Hash hashPastLimit = dataGenerator.hash();
-    final BlockAccessList firstAvailable = dataGenerator.blockAccessList();
+    final BlockAccessList firstAvailable = dataGenerator.blockAccessListWithCodeSize(32);
 
     when(blockchain.getBlockAccessList(firstAvailableHash)).thenReturn(Optional.of(firstAvailable));
 
     final List<Hash> hashes = new ArrayList<>(SNAP_MAX_ENTRIES_PER_REQUEST + 1);
     hashes.add(firstAvailableHash);
 
-    for (int i = 1; i < SNAP_MAX_ENTRIES_PER_REQUEST; i++) {
+    for (int i = 1; i < SNAP_MAX_ENTRIES_PER_REQUEST + 1; i++) {
       hashes.add(dataGenerator.hash());
     }
 
@@ -214,10 +210,10 @@ class SnapServerBlockAccessListsTest {
             snapServer.constructGetBlockAccessListsResponse(
                 request.wrapMessageData(BigInteger.ONE));
 
-    final List<BlockAccessList> responseBlockAccessLists = new ArrayList<>();
+    final List<Optional<BlockAccessList>> responseBlockAccessLists = new ArrayList<>();
     response.blockAccessLists(false).forEach(responseBlockAccessLists::add);
-    assertThat(responseBlockAccessLists).hasSize(SNAP_MAX_ENTRIES_PER_REQUEST);
-    assertThat(responseBlockAccessLists.getFirst()).isEqualTo(firstAvailable);
+    assertThat(responseBlockAccessLists).hasSize(SNAP_MAX_ENTRIES_PER_REQUEST + 1);
+    assertThat(responseBlockAccessLists.getFirst()).isEqualTo(Optional.of(firstAvailable));
     verify(blockchain, never()).getBlockAccessList(hashPastLimit);
   }
 
@@ -235,18 +231,6 @@ class SnapServerBlockAccessListsTest {
 
     assertThat(response.blockAccessLists(false)).isEmpty();
     verify(blockchain, never()).getBlockAccessList(any());
-  }
-
-  private BlockAccessList createBlockAccessListWithCodeSize(final int codeSize) {
-    return new BlockAccessList(
-        List.of(
-            new AccountChanges(
-                Address.ZERO,
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(),
-                List.of(new CodeChange(0, Bytes.wrap(new byte[codeSize]))))));
   }
 
   private int calculateRlpEncodedSize(final BlockAccessList blockAccessList) {

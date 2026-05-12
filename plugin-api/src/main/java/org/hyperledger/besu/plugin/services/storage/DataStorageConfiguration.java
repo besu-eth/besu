@@ -48,4 +48,14 @@ public interface DataStorageConfiguration {
   default boolean isHistoryExpiryPruneEnabled() {
     return false;
   }
+
+  /**
+   * Whether revert reasons are persisted in transaction receipts.
+   *
+   * @return Whether revert reason persistence is enabled
+   */
+  @Unstable
+  default boolean getRevertReasonEnabled() {
+    return false;
+  }
 }
