@@ -1116,7 +1116,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
           unverifiedForkchoiceSupplier,
           unsubscribeForkchoiceListener,
           headerDownloader,
-          Clock.systemUTC());
+          clock);
     } else {
       LOG.info("TTD difficulty is not present, creating initial sync phase for PoW");
       return new PivotSelectorFromPeers(ethContext, syncConfig, syncState);
