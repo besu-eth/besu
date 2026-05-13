@@ -27,6 +27,10 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.metrics.BesuMetricCategory;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -45,6 +49,18 @@ import org.mockito.junit.jupiter.MockitoExtension;
 public class BackwardHeaderDriverTest {
 
   private static final int BATCH_SIZE = 4;
+  private static final LabelledMetric<Counter> NO_OP_RECOVERY_COUNTER =
+      new NoOpMetricsSystem()
+          .createLabelledCounter(
+              BesuMetricCategory.SYNCHRONIZER,
+              "test_recovery_counter",
+              "test recovery counter",
+              "result",
+              "previous_pivot_trust");
+
+  private static void noOpDepthSetter(final long ignored) {
+    // No-op depth setter for tests that do not exercise the metrics gauge update path.
+  }
 
   @Mock private MutableBlockchain blockchain;
   @Captor private ArgumentCaptor<List<BlockHeader>> headersCaptor;
@@ -76,7 +92,9 @@ public class BackwardHeaderDriverTest {
         pivotHeader,
         blockchain,
         false,
-        BackwardHeaderDriverTest::finalizationStatusForTests);
+        BackwardHeaderDriverTest::finalizationStatusForTests,
+        NO_OP_RECOVERY_COUNTER,
+        BackwardHeaderDriverTest::noOpDepthSetter);
 
     verify(blockchain).storeBlockHeaders(headersCaptor.capture());
     final List<BlockHeader> storedHeaders = headersCaptor.getValue();
@@ -93,7 +111,9 @@ public class BackwardHeaderDriverTest {
             pivotHeader,
             blockchain,
             false,
-            BackwardHeaderDriverTest::finalizationStatusForTests);
+            BackwardHeaderDriverTest::finalizationStatusForTests,
+            NO_OP_RECOVERY_COUNTER,
+            BackwardHeaderDriverTest::noOpDepthSetter);
 
     // Import in batches going backward, verifying state updates between batches
     final List<BlockHeader> batch1 = getHeaders(99, 98, 97, 96);
@@ -121,7 +141,9 @@ public class BackwardHeaderDriverTest {
             pivotHeader,
             blockchain,
             false,
-            BackwardHeaderDriverTest::finalizationStatusForTests);
+            BackwardHeaderDriverTest::finalizationStatusForTests,
+            NO_OP_RECOVERY_COUNTER,
+            BackwardHeaderDriverTest::noOpDepthSetter);
 
     // Initially the lowest imported header is the pivot
     assertThat(driver.getLowestImportedHeader()).isEqualTo(pivotHeader);
@@ -144,7 +166,9 @@ public class BackwardHeaderDriverTest {
             pivotHeader,
             blockchain,
             false,
-            BackwardHeaderDriverTest::finalizationStatusForTests);
+            BackwardHeaderDriverTest::finalizationStatusForTests,
+            NO_OP_RECOVERY_COUNTER,
+            BackwardHeaderDriverTest::noOpDepthSetter);
 
     // Import all headers down to block 1 (lowestHeaderToImport)
     driver.accept(getHeadersRange(99, 1));
@@ -162,7 +186,9 @@ public class BackwardHeaderDriverTest {
             pivotHeader,
             blockchain,
             false,
-            BackwardHeaderDriverTest::finalizationStatusForTests);
+            BackwardHeaderDriverTest::finalizationStatusForTests,
+            NO_OP_RECOVERY_COUNTER,
+            BackwardHeaderDriverTest::noOpDepthSetter);
 
     // Create headers that don't link properly to pivot (skipping blocks)
     final List<BlockHeader> invalidHeaders = getHeaders(50, 51, 52);
@@ -195,7 +221,9 @@ public class BackwardHeaderDriverTest {
             pivotHeader,
             blockchain,
             false,
-            BackwardHeaderDriverTest::finalizationStatusForTests);
+            BackwardHeaderDriverTest::finalizationStatusForTests,
+            NO_OP_RECOVERY_COUNTER,
+            BackwardHeaderDriverTest::noOpDepthSetter);
 
     // Walk all the way down from 99 to 1; block 1's parent is the canonical block 0.
     driver.accept(getHeadersRange(99, 1));
@@ -224,7 +252,9 @@ public class BackwardHeaderDriverTest {
             pivotHeader,
             blockchain,
             false,
-            BackwardHeaderDriverTest::finalizationStatusForTests);
+            BackwardHeaderDriverTest::finalizationStatusForTests,
+            NO_OP_RECOVERY_COUNTER,
+            BackwardHeaderDriverTest::noOpDepthSetter);
 
     // Feed a single batch that reaches block 1 — the original anchor boundary.
     driver.accept(getHeadersRange(99, 1));
@@ -233,6 +263,54 @@ public class BackwardHeaderDriverTest {
     assertThat(driver.getMatchedAncestor()).isEmpty();
     // The iterator should once again have something to emit (stopBlock was lowered by batchSize).
     assertThat(driver.hasNext()).isTrue();
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  public void shouldIncrementRecoveryCountersAndUpdateDepthGaugeOnRecoverySuccess() {
+    // Scenario forces an extension on the first boundary then a match on the second batch:
+    //  - Reorged anchor lives at height 50 with a hash different from blocks.get(50).
+    //  - First batch (99..51) reaches the original boundary; parent (block 50) is NOT stored
+    //    AND not equal to the reorged anchor's hash, so recovery extends stopBlock and fires
+    //    the "started" counter.
+    //  - Second batch (50..47) is in recovery mode; block 47's parent is block 46, which IS
+    //    stored, so the recovery match fires the "succeeded" counter and records depth = 1.
+    final BlockDataGenerator otherGenerator = new BlockDataGenerator(99);
+    final BlockHeader reorgedAnchor = otherGenerator.blockSequence(51).get(50).getHeader();
+    assertThat(reorgedAnchor.getHash()).isNotEqualTo(blocks.get(50).getHeader().getHash());
+
+    lenient().when(blockchain.getBlockHeader(any(Hash.class))).thenReturn(Optional.empty());
+    lenient()
+        .when(blockchain.getBlockHeader(blocks.get(46).getHeader().getHash()))
+        .thenReturn(Optional.of(blocks.get(46).getHeader()));
+
+    final Counter startedCounter = org.mockito.Mockito.mock(Counter.class);
+    final Counter succeededCounter = org.mockito.Mockito.mock(Counter.class);
+    final LabelledMetric<Counter> recoveryCounter = org.mockito.Mockito.mock(LabelledMetric.class);
+    lenient().when(recoveryCounter.labels("started", "head_fallback")).thenReturn(startedCounter);
+    lenient()
+        .when(recoveryCounter.labels("succeeded", "head_fallback"))
+        .thenReturn(succeededCounter);
+    final java.util.concurrent.atomic.AtomicLong observedDepth =
+        new java.util.concurrent.atomic.AtomicLong(-1L);
+
+    final BackwardHeaderDriver driver =
+        new BackwardHeaderDriver(
+            BATCH_SIZE,
+            reorgedAnchor,
+            pivotHeader,
+            blockchain,
+            false,
+            BackwardHeaderDriverTest::finalizationStatusForTests,
+            recoveryCounter,
+            observedDepth::set);
+
+    driver.accept(getHeadersRange(99, 51));
+    driver.accept(getHeadersRange(50, 47));
+
+    verify(startedCounter).inc();
+    verify(succeededCounter).inc();
+    assertThat(observedDepth.get()).isEqualTo(1L);
   }
 
   @Test
@@ -246,7 +324,9 @@ public class BackwardHeaderDriverTest {
             pivotHeader,
             blockchain,
             false,
-            BackwardHeaderDriverTest::finalizationStatusForTests);
+            BackwardHeaderDriverTest::finalizationStatusForTests,
+            NO_OP_RECOVERY_COUNTER,
+            BackwardHeaderDriverTest::noOpDepthSetter);
 
     // Build the expected sequence: starting at 99, decrement by 4, while >= 1.
     final List<Long> expected = new ArrayList<>();
@@ -274,7 +354,9 @@ public class BackwardHeaderDriverTest {
             pivotHeader,
             blockchain,
             false,
-            BackwardHeaderDriverTest::finalizationStatusForTests);
+            BackwardHeaderDriverTest::finalizationStatusForTests,
+            NO_OP_RECOVERY_COUNTER,
+            BackwardHeaderDriverTest::noOpDepthSetter);
 
     // Drive the iterator through its natural emissions (99, 95, ..., 3) by calling next() the
     // expected number of times. After this, the next next() call falls below stopBlock and
@@ -296,7 +378,9 @@ public class BackwardHeaderDriverTest {
             pivotHeader,
             blockchain,
             true,
-            BackwardHeaderDriverTest::finalizationStatusForTests);
+            BackwardHeaderDriverTest::finalizationStatusForTests,
+            NO_OP_RECOVERY_COUNTER,
+            BackwardHeaderDriverTest::noOpDepthSetter);
 
     // Feed the whole range as one logical sequence from 99 down to 1.
     driver.accept(getHeadersRange(99, 1));
@@ -316,7 +400,9 @@ public class BackwardHeaderDriverTest {
             pivotHeader,
             blockchain,
             false,
-            BackwardHeaderDriverTest::finalizationStatusForTests);
+            BackwardHeaderDriverTest::finalizationStatusForTests,
+            NO_OP_RECOVERY_COUNTER,
+            BackwardHeaderDriverTest::noOpDepthSetter);
 
     assertThat(driver.getMatchedAncestor()).isEqualTo(Optional.empty());
   }
@@ -330,7 +416,9 @@ public class BackwardHeaderDriverTest {
             pivotHeader,
             blockchain,
             true,
-            BackwardHeaderDriverTest::finalizationStatusForTests);
+            BackwardHeaderDriverTest::finalizationStatusForTests,
+            NO_OP_RECOVERY_COUNTER,
+            BackwardHeaderDriverTest::noOpDepthSetter);
     assertThat(safeDriver.previousPivotWasSafe()).isTrue();
 
     final BackwardHeaderDriver unsafeDriver =
@@ -340,7 +428,9 @@ public class BackwardHeaderDriverTest {
             pivotHeader,
             blockchain,
             false,
-            BackwardHeaderDriverTest::finalizationStatusForTests);
+            BackwardHeaderDriverTest::finalizationStatusForTests,
+            NO_OP_RECOVERY_COUNTER,
+            BackwardHeaderDriverTest::noOpDepthSetter);
     assertThat(unsafeDriver.previousPivotWasSafe()).isFalse();
   }
 

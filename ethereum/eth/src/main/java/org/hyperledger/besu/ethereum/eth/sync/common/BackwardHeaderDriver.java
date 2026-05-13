@@ -18,6 +18,8 @@ package org.hyperledger.besu.ethereum.eth.sync.common;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.util.log.LogUtil;
 
 import java.util.Iterator;
@@ -29,6 +31,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
+import java.util.function.LongConsumer;
 import java.util.function.Supplier;
 
 import org.slf4j.Logger;
@@ -62,6 +65,8 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   private final AtomicBoolean isTimeToLog = new AtomicBoolean(true);
   private final boolean previousPivotWasSafe;
   private final Supplier<String> finalizationStatusSupplier;
+  private final LabelledMetric<Counter> recoveryEventCounter;
+  private final LongConsumer recoveryDepthSetter;
   private volatile BlockHeader currentChildHeader;
   private volatile BlockHeader lowestImportedHeader;
 
@@ -90,6 +95,11 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
    *     surfaced via {@link #previousPivotWasSafe()} for downstream recovery logic (Task C1)
    * @param finalizationStatusSupplier supplies the "CL finalization status" log triage tag emitted
    *     alongside the recovery-start, milestone, and recovery-success log lines (Task D1)
+   * @param recoveryEventCounter labelled counter for anchor-mismatch recovery events (labels:
+   *     {@code result} ∈ {started, succeeded}, {@code previous_pivot_trust} ∈ {safe,
+   *     head_fallback}) (Task D2)
+   * @param recoveryDepthSetter setter for the "last recovery depth" gauge value; receives the
+   *     number of extra batches walked below the original anchor when recovery succeeds (Task D2)
    */
   public BackwardHeaderDriver(
       final int batchSize,
@@ -97,11 +107,15 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
       final BlockHeader pivotHeader,
       final MutableBlockchain blockchain,
       final boolean previousPivotWasSafe,
-      final Supplier<String> finalizationStatusSupplier) {
+      final Supplier<String> finalizationStatusSupplier,
+      final LabelledMetric<Counter> recoveryEventCounter,
+      final LongConsumer recoveryDepthSetter) {
     this.batchSize = batchSize;
     this.blockchainStorage = blockchain;
     this.previousPivotWasSafe = previousPivotWasSafe;
     this.finalizationStatusSupplier = finalizationStatusSupplier;
+    this.recoveryEventCounter = recoveryEventCounter;
+    this.recoveryDepthSetter = recoveryDepthSetter;
 
     final long anchorNumber = anchorHeader.getNumber();
     final long pivotNumber = pivotHeader.getNumber();
@@ -295,6 +309,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
     } else {
       LOG.warn(msg);
     }
+    recoveryEventCounter.labels("started", trustLabel()).inc();
   }
 
   /** Emits the periodic recovery-progress WARN every {@link #RECOVERY_WARN_EVERY_N_BATCHES}. */
@@ -335,6 +350,18 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
     } else {
       LOG.info(successMsg);
     }
+    recoveryEventCounter.labels("succeeded", trustLabel()).inc();
+    recoveryDepthSetter.accept(extraBatchesRequested);
+  }
+
+  /**
+   * Returns the metric label for the previous pivot's trust level.
+   *
+   * @return {@code "safe"} if the previous pivot was selected from a safe/finalized source,
+   *     otherwise {@code "head_fallback"}
+   */
+  private String trustLabel() {
+    return previousPivotWasSafe ? "safe" : "head_fallback";
   }
 
   /**
