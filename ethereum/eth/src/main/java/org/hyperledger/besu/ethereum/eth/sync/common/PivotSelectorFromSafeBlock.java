@@ -206,10 +206,15 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
   }
 
   /**
-   * Returns a human-readable description of how recently the CL has signalled a finalized block.
-   * Used as a triage tag on fallback / CL-stuck log lines.
+   * Builds the "CL finalization status" log triage tag used by both this class's own fallback /
+   * stuck log lines and by downstream code (e.g. {@code BackwardHeaderDriver} recovery logs) via a
+   * {@code Supplier<String>}.
+   *
+   * @param now the current time in millis (typically {@code clock.millis()})
+   * @return one of "no finalized block seen yet", "finalized {N} min ago at {hash}", or "no
+   *     finalization in {N} min, last finalized at {hash}"
    */
-  private String finalizationStatus(final long now) {
+  String finalizationStatus(final long now) {
     if (lastFinalizedBlockHash.equals(Hash.ZERO)) {
       return "no finalized block seen yet";
     }

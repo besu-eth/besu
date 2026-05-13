@@ -70,7 +70,13 @@ public class BackwardHeaderDriverTest {
 
   @Test
   public void shouldStorePivotHeaderDuringConstruction() {
-    new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain, false);
+    new BackwardHeaderDriver(
+        BATCH_SIZE,
+        anchorHeader,
+        pivotHeader,
+        blockchain,
+        false,
+        BackwardHeaderDriverTest::finalizationStatusForTests);
 
     verify(blockchain).storeBlockHeaders(headersCaptor.capture());
     final List<BlockHeader> storedHeaders = headersCaptor.getValue();
@@ -81,7 +87,13 @@ public class BackwardHeaderDriverTest {
   @Test
   public void shouldImportMultipleBatches() {
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain, false);
+        new BackwardHeaderDriver(
+            BATCH_SIZE,
+            anchorHeader,
+            pivotHeader,
+            blockchain,
+            false,
+            BackwardHeaderDriverTest::finalizationStatusForTests);
 
     // Import in batches going backward, verifying state updates between batches
     final List<BlockHeader> batch1 = getHeaders(99, 98, 97, 96);
@@ -103,7 +115,13 @@ public class BackwardHeaderDriverTest {
   @Test
   public void shouldTrackLowestImportedHeader() {
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain, false);
+        new BackwardHeaderDriver(
+            BATCH_SIZE,
+            anchorHeader,
+            pivotHeader,
+            blockchain,
+            false,
+            BackwardHeaderDriverTest::finalizationStatusForTests);
 
     // Initially the lowest imported header is the pivot
     assertThat(driver.getLowestImportedHeader()).isEqualTo(pivotHeader);
@@ -120,7 +138,13 @@ public class BackwardHeaderDriverTest {
   @Test
   public void shouldCompleteSuccessfullyWhenImportingToLowestHeader() {
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain, false);
+        new BackwardHeaderDriver(
+            BATCH_SIZE,
+            anchorHeader,
+            pivotHeader,
+            blockchain,
+            false,
+            BackwardHeaderDriverTest::finalizationStatusForTests);
 
     // Import all headers down to block 1 (lowestHeaderToImport)
     driver.accept(getHeadersRange(99, 1));
@@ -132,7 +156,13 @@ public class BackwardHeaderDriverTest {
   @Test
   public void shouldThrowWhenHeaderDoesNotMatchExpectedParentHash() {
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain, false);
+        new BackwardHeaderDriver(
+            BATCH_SIZE,
+            anchorHeader,
+            pivotHeader,
+            blockchain,
+            false,
+            BackwardHeaderDriverTest::finalizationStatusForTests);
 
     // Create headers that don't link properly to pivot (skipping blocks)
     final List<BlockHeader> invalidHeaders = getHeaders(50, 51, 52);
@@ -159,7 +189,13 @@ public class BackwardHeaderDriverTest {
     assertThat(reorgedAnchor.getHash()).isNotEqualTo(canonicalBlock0.getHash());
 
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, reorgedAnchor, pivotHeader, blockchain, false);
+        new BackwardHeaderDriver(
+            BATCH_SIZE,
+            reorgedAnchor,
+            pivotHeader,
+            blockchain,
+            false,
+            BackwardHeaderDriverTest::finalizationStatusForTests);
 
     // Walk all the way down from 99 to 1; block 1's parent is the canonical block 0.
     driver.accept(getHeadersRange(99, 1));
@@ -182,7 +218,13 @@ public class BackwardHeaderDriverTest {
     assertThat(reorgedAnchor.getHash()).isNotEqualTo(anchorHeader.getHash());
 
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, reorgedAnchor, pivotHeader, blockchain, false);
+        new BackwardHeaderDriver(
+            BATCH_SIZE,
+            reorgedAnchor,
+            pivotHeader,
+            blockchain,
+            false,
+            BackwardHeaderDriverTest::finalizationStatusForTests);
 
     // Feed a single batch that reaches block 1 — the original anchor boundary.
     driver.accept(getHeadersRange(99, 1));
@@ -198,7 +240,13 @@ public class BackwardHeaderDriverTest {
     // Pivot at block 100, anchor at block 0, batch size 4.
     // Iterator should emit pivot-1 = 99, then 99 - 4 = 95, 91, ..., down to >= 1 (anchor+1).
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain, false);
+        new BackwardHeaderDriver(
+            BATCH_SIZE,
+            anchorHeader,
+            pivotHeader,
+            blockchain,
+            false,
+            BackwardHeaderDriverTest::finalizationStatusForTests);
 
     // Build the expected sequence: starting at 99, decrement by 4, while >= 1.
     final List<Long> expected = new ArrayList<>();
@@ -220,7 +268,13 @@ public class BackwardHeaderDriverTest {
   @Test
   public void nextThrowsNoSuchElementWhenExhausted() {
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain, false);
+        new BackwardHeaderDriver(
+            BATCH_SIZE,
+            anchorHeader,
+            pivotHeader,
+            blockchain,
+            false,
+            BackwardHeaderDriverTest::finalizationStatusForTests);
 
     // Drive the iterator through its natural emissions (99, 95, ..., 3) by calling next() the
     // expected number of times. After this, the next next() call falls below stopBlock and
@@ -236,7 +290,13 @@ public class BackwardHeaderDriverTest {
     // Pivot at 100, anchor at 0 — chain links cleanly. The happy-path boundary match must NOT
     // populate matchedAncestor; presence of a value is reserved for recovery-driven matches.
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain, true);
+        new BackwardHeaderDriver(
+            BATCH_SIZE,
+            anchorHeader,
+            pivotHeader,
+            blockchain,
+            true,
+            BackwardHeaderDriverTest::finalizationStatusForTests);
 
     // Feed the whole range as one logical sequence from 99 down to 1.
     driver.accept(getHeadersRange(99, 1));
@@ -250,7 +310,13 @@ public class BackwardHeaderDriverTest {
   @Test
   public void getMatchedAncestorReturnsEmptyBeforeBoundaryIsReached() {
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain, false);
+        new BackwardHeaderDriver(
+            BATCH_SIZE,
+            anchorHeader,
+            pivotHeader,
+            blockchain,
+            false,
+            BackwardHeaderDriverTest::finalizationStatusForTests);
 
     assertThat(driver.getMatchedAncestor()).isEqualTo(Optional.empty());
   }
@@ -258,11 +324,23 @@ public class BackwardHeaderDriverTest {
   @Test
   public void previousPivotWasSafeAccessorReturnsConstructorValue() {
     final BackwardHeaderDriver safeDriver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain, true);
+        new BackwardHeaderDriver(
+            BATCH_SIZE,
+            anchorHeader,
+            pivotHeader,
+            blockchain,
+            true,
+            BackwardHeaderDriverTest::finalizationStatusForTests);
     assertThat(safeDriver.previousPivotWasSafe()).isTrue();
 
     final BackwardHeaderDriver unsafeDriver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain, false);
+        new BackwardHeaderDriver(
+            BATCH_SIZE,
+            anchorHeader,
+            pivotHeader,
+            blockchain,
+            false,
+            BackwardHeaderDriverTest::finalizationStatusForTests);
     assertThat(unsafeDriver.previousPivotWasSafe()).isFalse();
   }
 
@@ -293,5 +371,9 @@ public class BackwardHeaderDriverTest {
       headers.add(blocks.get(i).getHeader());
     }
     return headers;
+  }
+
+  private static String finalizationStatusForTests() {
+    return "test-finalization-status";
   }
 }

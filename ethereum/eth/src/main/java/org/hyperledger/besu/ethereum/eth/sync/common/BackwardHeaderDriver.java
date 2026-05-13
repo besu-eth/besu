@@ -29,6 +29,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,6 +47,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
 
   private static final Logger LOG = LoggerFactory.getLogger(BackwardHeaderDriver.class);
   private static final int LOG_DELAY_SECONDS = 30;
+  private static final int RECOVERY_WARN_EVERY_N_BATCHES = 3;
 
   // Source-side state
   private final AtomicLong currentBlock;
@@ -59,6 +61,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   private final long totalHeaders;
   private final AtomicBoolean isTimeToLog = new AtomicBoolean(true);
   private final boolean previousPivotWasSafe;
+  private final Supplier<String> finalizationStatusSupplier;
   private volatile BlockHeader currentChildHeader;
   private volatile BlockHeader lowestImportedHeader;
 
@@ -67,8 +70,9 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   private final Condition decided = lock.newCondition();
   // Guarded by lock for writes; read on the source thread via the volatile qualifier.
   private volatile boolean done = false;
-  // Guarded by lock.
-  private int extraBatchesRequested = 0;
+  // Written under lock; volatile so the recovery / milestone / success log lines can read it
+  // without acquiring the lock.
+  private volatile int extraBatchesRequested = 0;
   // Written under lock, read without lock by getMatchedAncestor().
   private volatile BlockHeader matchedAncestor;
   private volatile boolean recoveryMode = false;
@@ -84,16 +88,20 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
    * @param blockchain the blockchain to which headers will be stored
    * @param previousPivotWasSafe whether the previous pivot selection used a safe/finalized source;
    *     surfaced via {@link #previousPivotWasSafe()} for downstream recovery logic (Task C1)
+   * @param finalizationStatusSupplier supplies the "CL finalization status" log triage tag emitted
+   *     alongside the recovery-start, milestone, and recovery-success log lines (Task D1)
    */
   public BackwardHeaderDriver(
       final int batchSize,
       final BlockHeader anchorHeader,
       final BlockHeader pivotHeader,
       final MutableBlockchain blockchain,
-      final boolean previousPivotWasSafe) {
+      final boolean previousPivotWasSafe,
+      final Supplier<String> finalizationStatusSupplier) {
     this.batchSize = batchSize;
     this.blockchainStorage = blockchain;
     this.previousPivotWasSafe = previousPivotWasSafe;
+    this.finalizationStatusSupplier = finalizationStatusSupplier;
 
     final long anchorNumber = anchorHeader.getNumber();
     final long pivotNumber = pivotHeader.getNumber();
@@ -195,21 +203,36 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         // matchedAncestor so downstream code can rewrite the Stage 2 anchor.
         blockchainStorage.storeBlockHeaders(blockHeaders);
         lowestImportedHeader = blockHeaders.getLast();
+        final BlockHeader ancestor;
         lock.lock();
         try {
           matchedAncestor = blockchainStorage.getBlockHeader(parentHash).orElseThrow();
+          ancestor = matchedAncestor;
           done = true;
           decided.signalAll();
         } finally {
           lock.unlock();
         }
+        emitRecoverySuccessLog(ancestor);
         return;
       }
 
       // No match: store the canonical batch and extend the walk by one batch.
       blockchainStorage.storeBlockHeaders(blockHeaders);
       lowestImportedHeader = blockHeaders.getLast();
+      // First-time entry into recovery: emit the recovery-start log at appropriate severity.
+      // This MUST fire before extendWalkByOneBatch() sets recoveryMode to true so the log
+      // fires exactly once on first entry.
+      if (!recoveryMode) {
+        emitRecoveryStartLog();
+      }
       extendWalkByOneBatch();
+      // Milestone log: every N-th extra batch, emit a WARN. extraBatchesRequested is volatile
+      // and was just bumped inside extendWalkByOneBatch().
+      final int extras = extraBatchesRequested;
+      if (extras > 0 && extras % RECOVERY_WARN_EVERY_N_BATCHES == 0) {
+        emitRecoveryMilestoneLog(extras);
+      }
       return;
     }
 
@@ -249,6 +272,67 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
           stopBlock);
     } finally {
       lock.unlock();
+    }
+  }
+
+  /**
+   * Emits the one-time recovery-start log. Severity is ERROR if the previous pivot was safe (the
+   * rare CL-level event we want to surface) and WARN otherwise (head-fallback recovery is more
+   * routine).
+   */
+  private void emitRecoveryStartLog() {
+    final String msg =
+        String.format(
+            "Anchor mismatch at #%d: previous pivot was %s. Entering recovery. previousAnchor=%s, "
+                + "rejectedParentFromBatch=%s. CL finalization status: %s",
+            currentChildHeader.getNumber(),
+            previousPivotWasSafe ? "safe block" : "head-fallback",
+            anchorHash,
+            currentChildHeader.getParentHash(),
+            finalizationStatusSupplier.get());
+    if (previousPivotWasSafe) {
+      LOG.error(msg);
+    } else {
+      LOG.warn(msg);
+    }
+  }
+
+  /** Emits the periodic recovery-progress WARN every {@link #RECOVERY_WARN_EVERY_N_BATCHES}. */
+  private void emitRecoveryMilestoneLog(final int extras) {
+    final int extraHeaders = extras * batchSize;
+    LOG.warn(
+        "Anchor recovery still walking after {} extra batches (~{} headers below previous anchor). "
+            + "currentLowestHeader=#{} ({}). CL finalization status: {}",
+        extras,
+        extraHeaders,
+        currentChildHeader.getNumber(),
+        currentChildHeader.getHash(),
+        finalizationStatusSupplier.get());
+  }
+
+  /**
+   * Emits the recovery-success log. Severity is ERROR if the previous pivot was safe (rare CL-level
+   * event) and INFO otherwise. Only called on the recovery-match path; the happy-path match (parent
+   * == anchorHash) does not emit a recovery log.
+   */
+  private void emitRecoverySuccessLog(final BlockHeader ancestor) {
+    final long delta = (lowestHeaderToImport - 1) - ancestor.getNumber();
+    final String successMsg =
+        String.format(
+            "Anchor recovery succeeded after %d extra batch(es). previousAnchor=%s (was-safe=%s), "
+                + "matchedAncestor=%s (#%d), depthBelowPreviousAnchor=%d. "
+                + "CL finalization status: %s",
+            extraBatchesRequested,
+            anchorHash,
+            previousPivotWasSafe,
+            ancestor.getHash(),
+            ancestor.getNumber(),
+            delta,
+            finalizationStatusSupplier.get());
+    if (previousPivotWasSafe) {
+      LOG.error(successMsg);
+    } else {
+      LOG.info(successMsg);
     }
   }
 

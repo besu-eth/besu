@@ -49,6 +49,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -78,6 +79,7 @@ public class SnapSyncChainDownloader
   private final ChainSyncStateStorage chainSyncStateStorage;
   private final BlockHeader initialPivotHeader;
   private final SingleBlockHeaderDownloader headerDownloader;
+  private final Supplier<String> finalizationStatusSupplier;
 
   private final AtomicBoolean cancelled = new AtomicBoolean(false);
   private final AtomicReference<ChainSyncState> chainSyncState = new AtomicReference<>(null);
@@ -118,6 +120,8 @@ public class SnapSyncChainDownloader
    * @param initialPivotHeader the initial pivot block header
    * @param chainStateStorage the storage for chain sync state
    * @param headerDownloader the downloader for fetching checkpoint headers
+   * @param finalizationStatusSupplier supplies the "CL finalization status" log triage tag used by
+   *     the backward-header driver's recovery log lines
    */
   public SnapSyncChainDownloader(
       final SnapSyncChainDownloadPipelineFactory pipelineFactory,
@@ -128,7 +132,8 @@ public class SnapSyncChainDownloader
       final SyncDurationMetrics syncDurationMetrics,
       final BlockHeader initialPivotHeader,
       final ChainSyncStateStorage chainStateStorage,
-      final SingleBlockHeaderDownloader headerDownloader) {
+      final SingleBlockHeaderDownloader headerDownloader,
+      final Supplier<String> finalizationStatusSupplier) {
     this.pipelineFactory = pipelineFactory;
     this.protocolSchedule = protocolSchedule;
     this.protocolContext = protocolContext;
@@ -138,6 +143,7 @@ public class SnapSyncChainDownloader
     this.initialPivotHeader = initialPivotHeader;
     this.chainSyncStateStorage = chainStateStorage;
     this.headerDownloader = headerDownloader;
+    this.finalizationStatusSupplier = finalizationStatusSupplier;
   }
 
   public static ChainDownloader create(
@@ -150,7 +156,8 @@ public class SnapSyncChainDownloader
       final MetricsSystem metricsSystem,
       final PivotSyncState fastSyncState,
       final SyncDurationMetrics syncDurationMetrics,
-      final Path fastSyncDataDirectory) {
+      final Path fastSyncDataDirectory,
+      final Supplier<String> finalizationStatusSupplier) {
 
     final SnapSyncChainDownloadPipelineFactory pipelineFactory =
         new SnapSyncChainDownloadPipelineFactory(
@@ -181,7 +188,8 @@ public class SnapSyncChainDownloader
         syncDurationMetrics,
         pivotBlockHeader,
         chainSyncStateStorage,
-        headerDownloader);
+        headerDownloader,
+        finalizationStatusSupplier);
   }
 
   @Override
@@ -380,7 +388,8 @@ public class SnapSyncChainDownloader
 
     // TODO(anchor-recovery): plumb the previous pivot's trust value through ChainSyncState
     final SnapSyncChainDownloadPipelineFactory.BackwardHeaderPipelineResult pipelineResult =
-        pipelineFactory.createBackwardHeaderDownloadPipeline(state, lastPivotWasSafe);
+        pipelineFactory.createBackwardHeaderDownloadPipeline(
+            state, lastPivotWasSafe, finalizationStatusSupplier);
     currentPipeline = pipelineResult.pipeline();
     currentDriver = pipelineResult.driver();
 

@@ -39,6 +39,7 @@ import org.hyperledger.besu.services.pipeline.PipelineBuilder;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,10 +81,14 @@ public class SnapSyncChainDownloadPipelineFactory {
    * @param chainState chain sync state containing pivot and progress
    * @param previousPivotWasSafe whether the previous pivot selection used a safe/finalized source;
    *     surfaced to the driver for downstream recovery logic
+   * @param finalizationStatusSupplier supplies the "CL finalization status" log triage tag used by
+   *     the driver's recovery log lines
    * @return the backward header download pipeline
    */
   BackwardHeaderPipelineResult createBackwardHeaderDownloadPipeline(
-      final ChainSyncState chainState, final boolean previousPivotWasSafe) {
+      final ChainSyncState chainState,
+      final boolean previousPivotWasSafe,
+      final Supplier<String> finalizationStatusSupplier) {
     final int downloaderParallelism = syncConfig.getDownloaderParallelism();
     final int headerDownloadParallelismFactor = syncConfig.getHeaderDownloadParallelismFactor();
     final int headerRequestSize = syncConfig.getDownloaderHeaderRequestSize();
@@ -114,7 +119,8 @@ public class SnapSyncChainDownloadPipelineFactory {
             lowerAnchor,
             upperBound,
             protocolContext.getBlockchain(),
-            previousPivotWasSafe);
+            previousPivotWasSafe,
+            finalizationStatusSupplier);
 
     final DownloadBackwardHeadersStep downloadStep =
         new DownloadBackwardHeadersStep(

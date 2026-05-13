@@ -103,7 +103,8 @@ public class SnapSyncChainDownloaderTest {
                     syncDurationMetrics,
                     pivotBlockHeader,
                     chainSyncStateStorage,
-                    headerDownloader))
+                    headerDownloader,
+                    SnapSyncChainDownloaderTest::finalizationStatusForTests))
         .doesNotThrowAnyException();
   }
 
@@ -119,7 +120,8 @@ public class SnapSyncChainDownloaderTest {
             syncDurationMetrics,
             pivotBlockHeader,
             chainSyncStateStorage,
-            headerDownloader);
+            headerDownloader,
+            SnapSyncChainDownloaderTest::finalizationStatusForTests);
 
     // Verify cancel completes successfully even when no pipeline is running
     assertThatCode(downloader::cancel).doesNotThrowAnyException();
@@ -137,7 +139,8 @@ public class SnapSyncChainDownloaderTest {
             syncDurationMetrics,
             pivotBlockHeader,
             chainSyncStateStorage,
-            headerDownloader);
+            headerDownloader,
+            SnapSyncChainDownloaderTest::finalizationStatusForTests);
 
     BlockHeader newPivot = new BlockHeaderTestFixture().number(2000).buildHeader();
 
@@ -157,7 +160,8 @@ public class SnapSyncChainDownloaderTest {
             syncDurationMetrics,
             pivotBlockHeader,
             chainSyncStateStorage,
-            headerDownloader);
+            headerDownloader,
+            SnapSyncChainDownloaderTest::finalizationStatusForTests);
 
     // Verify world state heal signal is accepted without error
     assertThatCode(downloader::onWorldStateHealFinished).doesNotThrowAnyException();
@@ -179,12 +183,14 @@ public class SnapSyncChainDownloaderTest {
             syncDurationMetrics,
             pivotBlockHeader,
             chainSyncStateStorage,
-            headerDownloader);
+            headerDownloader,
+            SnapSyncChainDownloaderTest::finalizationStatusForTests);
 
     downloader.start();
 
     // No pipeline should be created when there are no peers
-    verify(pipelineFactory, never()).createBackwardHeaderDownloadPipeline(any(), anyBoolean());
+    verify(pipelineFactory, never())
+        .createBackwardHeaderDownloadPipeline(any(), anyBoolean(), any());
 
     // A retry should be scheduled with the no-peer delay, not the fast retry delay
     verify(scheduler)
@@ -214,7 +220,8 @@ public class SnapSyncChainDownloaderTest {
             syncDurationMetrics,
             pivotBlockHeader,
             chainSyncStateStorage,
-            headerDownloader);
+            headerDownloader,
+            SnapSyncChainDownloaderTest::finalizationStatusForTests);
 
     assertThat(downloader).isNotNull();
 
@@ -224,5 +231,9 @@ public class SnapSyncChainDownloaderTest {
             rlpInput -> BlockHeader.readFrom(rlpInput, new MainnetBlockHeaderFunctions()));
     assertThat(loadedState).isNotNull();
     assertThat(loadedState.headersDownloadComplete()).isFalse();
+  }
+
+  private static String finalizationStatusForTests() {
+    return "test-finalization-status";
   }
 }

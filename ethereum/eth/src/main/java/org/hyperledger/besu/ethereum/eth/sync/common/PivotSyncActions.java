@@ -37,6 +37,7 @@ import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -168,6 +169,17 @@ public class PivotSyncActions {
 
   public ChainDownloader createChainDownloader(
       final PivotSyncState currentState, final SyncDurationMetrics syncDurationMetrics) {
+    // Build the "CL finalization status" supplier for downstream recovery log lines. When the
+    // active selector is the safe-block selector we can ask it directly; otherwise fall back to
+    // an "n/a" tag. Done here because this is the only site with a typed reference to the
+    // selector.
+    final Supplier<String> finalizationStatusSupplier;
+    if (pivotBlockSelector instanceof PivotSelectorFromSafeBlock safeSelector) {
+      final Clock clock = Clock.systemUTC();
+      finalizationStatusSupplier = () -> safeSelector.finalizationStatus(clock.millis());
+    } else {
+      finalizationStatusSupplier = () -> "n/a";
+    }
     return SnapSyncChainDownloader.create(
         syncConfig,
         worldStateStorageCoordinator,
@@ -178,7 +190,8 @@ public class PivotSyncActions {
         metricsSystem,
         currentState,
         syncDurationMetrics,
-        fastSyncDataDirectory);
+        fastSyncDataDirectory,
+        finalizationStatusSupplier);
   }
 
   private CompletableFuture<PivotSyncState> downloadPivotBlockHeader(
