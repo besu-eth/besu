@@ -546,17 +546,16 @@ public class SnapSyncChainDownloader
    * @return CompletableFuture that completes when the cycle is done
    */
   private CompletableFuture<Void> performSingleDownloadCycle() {
-    // Snapshot state once - both stages use the same snapshot
-    final ChainSyncState currentState = chainSyncState.get();
-
-    return runStage1Download(currentState)
+    // Stage 1 reads its own snapshot; Stage 2 must re-read because Stage 1's recovery handoff
+    // (BackwardHeaderDriver.getMatchedAncestor) may have rewritten blockDownloadAnchor via
+    // ChainSyncState.withRecoveryMatch before Stage 2 starts.
+    return runStage1Download(chainSyncState.get())
         .thenCompose(
             ignore -> {
               if (cancelled.get()) {
                 return CompletableFuture.failedFuture(new CancellationException());
               }
-              // Use the same state snapshot for stage 2
-              return runStage2ForwardBodiesAndReceipts(currentState);
+              return runStage2ForwardBodiesAndReceipts(chainSyncState.get());
             });
   }
 

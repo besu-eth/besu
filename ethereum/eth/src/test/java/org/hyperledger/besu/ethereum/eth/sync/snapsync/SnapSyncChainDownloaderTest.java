@@ -339,6 +339,12 @@ public class SnapSyncChainDownloaderTest {
     final ChainSyncState afterComplete = states.get(2);
     assertThat(afterComplete.blockDownloadAnchor().getNumber()).isEqualTo(400L);
     assertThat(afterComplete.headersDownloadComplete()).isTrue();
+
+    // Stage 2 must use the post-recovery anchor (400), not the original snapshot (500). This is
+    // the regression guard for the bug surfaced while writing this test: previously
+    // performSingleDownloadCycle captured the pre-Stage-1 snapshot and re-used it for Stage 2,
+    // so Stage 2 would have skipped the freshly-rewritten canonical range [matched+1, original].
+    verify(pipelineFactory).createForwardBodiesAndReceiptsDownloadPipeline(eq(400L), any(), any());
   }
 
   @Test
