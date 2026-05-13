@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -44,6 +45,7 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
   private final Supplier<Optional<ForkchoiceEvent>> forkchoiceStateSupplier;
   private final Runnable cleanupAction;
   private final SingleBlockHeaderDownloader headerDownloader;
+  private final Clock clock;
 
   private volatile long lastNoFcuReceivedInfoLog = System.currentTimeMillis();
   private volatile long lastPivotBlockChange = System.currentTimeMillis();
@@ -60,19 +62,21 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
       final GenesisConfigOptions genesisConfig,
       final Supplier<Optional<ForkchoiceEvent>> forkchoiceStateSupplier,
       final Runnable cleanupAction,
-      final SingleBlockHeaderDownloader headerDownloader) {
+      final SingleBlockHeaderDownloader headerDownloader,
+      final Clock clock) {
     this.protocolContext = protocolContext;
     this.ethContext = ethContext;
     this.genesisConfig = genesisConfig;
     this.forkchoiceStateSupplier = forkchoiceStateSupplier;
     this.cleanupAction = cleanupAction;
     this.headerDownloader = headerDownloader;
+    this.clock = clock;
   }
 
   @Override
   public CompletableFuture<PivotSyncState> selectNewPivotBlock() {
     final Optional<ForkchoiceEvent> maybeForkchoice = forkchoiceStateSupplier.get();
-    final var now = System.currentTimeMillis();
+    final var now = clock.millis();
 
     if (maybeForkchoice.isPresent() && maybeForkchoice.get().hasValidSafeBlockHash()) {
       final var safeBlockHash = maybeForkchoice.get().getSafeBlockHash();
