@@ -19,9 +19,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -32,23 +36,30 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.ethereum.eth.sync.common.BackwardHeaderDriver;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncStateStorage;
 import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
+import org.hyperledger.besu.services.pipeline.Pipeline;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -231,6 +242,177 @@ public class SnapSyncChainDownloaderTest {
             rlpInput -> BlockHeader.readFrom(rlpInput, new MainnetBlockHeaderFunctions()));
     assertThat(loadedState).isNotNull();
     assertThat(loadedState.headersDownloadComplete()).isFalse();
+  }
+
+  @Test
+  public void shouldApplyRecoveryMatchAndPersistUpdatedAnchorsAfterStage1() throws Exception {
+    // Verifies the recovery-handoff seam (Tasks C1, C2, D2):
+    //   1. Driver.getMatchedAncestor() returns a non-empty value (mocked here).
+    //   2. Stage 1's thenApply reads it and calls
+    //      chainSyncState.updateAndGet(s -> s.withRecoveryMatch(matched.get())).
+    //   3. The persisted ChainSyncState (captured before the success-path cleanup) has both
+    //      blockDownloadAnchor() and headerDownloadAnchor() equal to the matched ancestor, and
+    //      headersDownloadComplete() == true.
+    //
+    // Stage 2 is stubbed with a no-op pipeline so the overall download cycle completes
+    // successfully (and the error-recovery path that overwrites the anchor via state.fromHead
+    // does not run). The world-state-heal-finished signal is fired before start() so the
+    // pivot-update loop exits and start() returns synchronously once both stages finish.
+    //
+    // Because start() deletes the persisted state on success, we spy on the storage and capture
+    // every storeState() call. The Stage 1 recovery write is the last one before the success
+    // cleanup, so it is recoverable from the captured arguments.
+    final BlockHeader genesisHeader = new BlockHeaderTestFixture().number(0).buildHeader();
+    final BlockHeader originalAnchor = new BlockHeaderTestFixture().number(500).buildHeader();
+    final BlockHeader matchedAncestor = new BlockHeaderTestFixture().number(400).buildHeader();
+
+    final ChainSyncStateStorage spiedStorage = spy(chainSyncStateStorage);
+
+    final ChainSyncState initialState =
+        ChainSyncState.initialSync(pivotBlockHeader, originalAnchor, genesisHeader);
+    spiedStorage.storeState(initialState);
+
+    @SuppressWarnings("unchecked")
+    final Pipeline<Long> backwardPipeline = mock(Pipeline.class);
+    final BackwardHeaderDriver driver = mock(BackwardHeaderDriver.class);
+    when(driver.getMatchedAncestor()).thenReturn(Optional.of(matchedAncestor));
+    when(pipelineFactory.createBackwardHeaderDownloadPipeline(any(), anyBoolean(), any()))
+        .thenReturn(
+            new SnapSyncChainDownloadPipelineFactory.BackwardHeaderPipelineResult(
+                backwardPipeline, driver));
+
+    @SuppressWarnings("unchecked")
+    final Pipeline<List<BlockHeader>> forwardPipeline = mock(Pipeline.class);
+    when(pipelineFactory.createForwardBodiesAndReceiptsDownloadPipeline(anyLong(), any(), any()))
+        .thenReturn(forwardPipeline);
+
+    when(scheduler.startPipeline(any())).thenReturn(CompletableFuture.completedFuture(null));
+    when(ethPeers.peerCount()).thenReturn(1);
+    // initializeChainSyncState() loads stored headers using ScheduleBasedBlockHeaderFunctions; we
+    // route that through MainnetBlockHeaderFunctions via a stubbed ProtocolSpec.
+    final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
+    when(protocolSpec.getBlockHeaderFunctions()).thenReturn(new MainnetBlockHeaderFunctions());
+    when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            pivotBlockHeader,
+            spiedStorage,
+            headerDownloader,
+            SnapSyncChainDownloaderTest::finalizationStatusForTests);
+
+    downloader.onWorldStateHealFinished();
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    // Capture every storeState() call. After the initial seed (1x), Stage 1 should have written:
+    //   - the recovery-match update (blockDownloadAnchor + headerDownloadAnchor == 400)
+    //   - the headers-download-complete update (headersDownloadComplete == true)
+    final ArgumentCaptor<ChainSyncState> stateCaptor =
+        ArgumentCaptor.forClass(ChainSyncState.class);
+    verify(spiedStorage, atLeastOnce()).storeState(stateCaptor.capture());
+
+    final List<ChainSyncState> states = new ArrayList<>(stateCaptor.getAllValues());
+
+    // First captured store is the seed initial state.
+    assertThat(states).hasSizeGreaterThanOrEqualTo(3);
+    assertThat(states.get(0).blockDownloadAnchor().getNumber()).isEqualTo(500L);
+    assertThat(states.get(0).headersDownloadComplete()).isFalse();
+
+    // After Stage 1 recovery: anchors collapsed to the matched ancestor at #400. This is the
+    // state immediately after the withRecoveryMatch updateAndGet/storeState pair, before
+    // withHeadersDownloadComplete runs.
+    final ChainSyncState afterRecovery = states.get(1);
+    assertThat(afterRecovery.blockDownloadAnchor().getNumber()).isEqualTo(400L);
+    assertThat(afterRecovery.headerDownloadAnchor()).isNotNull();
+    assertThat(afterRecovery.headerDownloadAnchor().getNumber()).isEqualTo(400L);
+    assertThat(afterRecovery.headersDownloadComplete()).isFalse();
+
+    // After withHeadersDownloadComplete: still anchored at #400 (blockDownloadAnchor preserved),
+    // but now marked complete. Note: withHeadersDownloadComplete nulls headerDownloadAnchor
+    // because, once headers are fully downloaded, the lower bound has been reached.
+    final ChainSyncState afterComplete = states.get(2);
+    assertThat(afterComplete.blockDownloadAnchor().getNumber()).isEqualTo(400L);
+    assertThat(afterComplete.headersDownloadComplete()).isTrue();
+  }
+
+  @Test
+  public void shouldNotMutateAnchorWhenDriverReportsNoMatch() throws Exception {
+    // Companion to shouldApplyRecoveryMatchAndPersistUpdatedAnchorsAfterStage1: when the driver
+    // reports no matched ancestor (Optional.empty()), Stage 1's thenApply must NOT call
+    // withRecoveryMatch. The blockDownloadAnchor stays at the original 500. The only Stage 1
+    // mutation is withHeadersDownloadComplete.
+    final BlockHeader genesisHeader = new BlockHeaderTestFixture().number(0).buildHeader();
+    final BlockHeader originalAnchor = new BlockHeaderTestFixture().number(500).buildHeader();
+
+    final ChainSyncStateStorage spiedStorage = spy(chainSyncStateStorage);
+
+    final ChainSyncState initialState =
+        ChainSyncState.initialSync(pivotBlockHeader, originalAnchor, genesisHeader);
+    spiedStorage.storeState(initialState);
+
+    @SuppressWarnings("unchecked")
+    final Pipeline<Long> backwardPipeline = mock(Pipeline.class);
+    final BackwardHeaderDriver driver = mock(BackwardHeaderDriver.class);
+    when(driver.getMatchedAncestor()).thenReturn(Optional.empty());
+    when(pipelineFactory.createBackwardHeaderDownloadPipeline(any(), anyBoolean(), any()))
+        .thenReturn(
+            new SnapSyncChainDownloadPipelineFactory.BackwardHeaderPipelineResult(
+                backwardPipeline, driver));
+
+    @SuppressWarnings("unchecked")
+    final Pipeline<List<BlockHeader>> forwardPipeline = mock(Pipeline.class);
+    when(pipelineFactory.createForwardBodiesAndReceiptsDownloadPipeline(anyLong(), any(), any()))
+        .thenReturn(forwardPipeline);
+
+    when(scheduler.startPipeline(any())).thenReturn(CompletableFuture.completedFuture(null));
+    when(ethPeers.peerCount()).thenReturn(1);
+    // initializeChainSyncState() loads stored headers using ScheduleBasedBlockHeaderFunctions; we
+    // route that through MainnetBlockHeaderFunctions via a stubbed ProtocolSpec.
+    final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
+    when(protocolSpec.getBlockHeaderFunctions()).thenReturn(new MainnetBlockHeaderFunctions());
+    when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            pivotBlockHeader,
+            spiedStorage,
+            headerDownloader,
+            SnapSyncChainDownloaderTest::finalizationStatusForTests);
+
+    downloader.onWorldStateHealFinished();
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    final ArgumentCaptor<ChainSyncState> stateCaptor =
+        ArgumentCaptor.forClass(ChainSyncState.class);
+    verify(spiedStorage, atLeastOnce()).storeState(stateCaptor.capture());
+    final List<ChainSyncState> states = stateCaptor.getAllValues();
+
+    // First store is the seed (1x). Stage 1 should produce exactly one further store:
+    // withHeadersDownloadComplete. There is no withRecoveryMatch store since the driver
+    // reported no match.
+    assertThat(states).hasSizeGreaterThanOrEqualTo(2);
+    assertThat(states.get(0).blockDownloadAnchor().getNumber()).isEqualTo(500L);
+    assertThat(states.get(0).headersDownloadComplete()).isFalse();
+
+    final ChainSyncState afterStage1 = states.get(1);
+    assertThat(afterStage1.blockDownloadAnchor().getNumber()).isEqualTo(500L);
+    assertThat(afterStage1.headersDownloadComplete()).isTrue();
+
+    // Stage 2 was invoked with the pre-Stage-1 snapshot anchor (500), confirming Stage 2 reads
+    // from ChainSyncState.blockDownloadAnchor() as designed in C2.
+    verify(pipelineFactory).createForwardBodiesAndReceiptsDownloadPipeline(eq(500L), any(), any());
   }
 
   private static String finalizationStatusForTests() {
