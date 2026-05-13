@@ -44,7 +44,8 @@ public final class BlockAccessListsMessage extends AbstractSnapMessageData {
 
   public static BlockAccessListsMessage create(
       final Iterable<Optional<BlockAccessList>> blockAccessLists) {
-    return new BlockAccessListsMessage(BlockAccessListsMessageData.encode(blockAccessLists));
+    return new BlockAccessListsMessage(
+        BlockAccessListsMessageData.encodeSnapResponse(blockAccessLists));
   }
 
   public static BlockAccessListsMessage createFromBlockAccessLists(
@@ -62,10 +63,10 @@ public final class BlockAccessListsMessage extends AbstractSnapMessageData {
   }
 
   public Iterable<Optional<BlockAccessList>> blockAccessLists(final boolean withRequestId) {
-    return BlockAccessListsMessageData.decode(data, withRequestId);
+    return BlockAccessListsMessageData.decodeSnapResponse(data, withRequestId);
   }
 
   public Iterable<Bytes> blockAccessListsRaw(final boolean withRequestId) {
-    return BlockAccessListsMessageData.decodeRaw(data, withRequestId);
+    return BlockAccessListsMessageData.decodeSnapResponseRaw(data, withRequestId);
   }
 }
