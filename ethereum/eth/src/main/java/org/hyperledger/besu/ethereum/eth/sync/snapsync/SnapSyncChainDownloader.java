@@ -189,6 +189,9 @@ public class SnapSyncChainDownloader
       pendingPivotUpdate.getAndSet(newPivotBlockHeader);
       pivotUpdateFuture.complete(null);
     }
+    if (worldDownloadState != null) {
+      worldDownloadState.notePivotSwitch();
+    }
     LOG.info("Received pivot update to block no {}", newPivotBlockHeader.getNumber());
   }
 

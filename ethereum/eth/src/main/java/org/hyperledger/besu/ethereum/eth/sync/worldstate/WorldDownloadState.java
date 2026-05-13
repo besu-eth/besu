@@ -186,6 +186,15 @@ public abstract class WorldDownloadState<REQUEST extends TasksPriorityProvider> 
     this.rootNodeData = rootNodeData;
   }
 
+  /**
+   * Resets the stall counter and the last-progress timestamp. Call this after a pivot switch so
+   * failures of in-flight requests against the old pivot do not falsely trip stall detection.
+   */
+  public synchronized void notePivotSwitch() {
+    requestsSinceLastProgress = 0;
+    timestampOfLastProgress = clock.millis();
+  }
+
   public synchronized void requestComplete(
       final boolean madeProgress, final long minMillisBeforeStalling) {
     if (madeProgress) {
