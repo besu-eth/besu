@@ -353,6 +353,16 @@ tasks.register('referenceTestsDevnet', Test) {
   classpath = sourceSets.referenceTestDevnet.runtimeClasspath
 }
 
+tasks.register('referenceTestsCustom', Test) {
+  useJUnitPlatform()
+  filter {
+    includeTestsMatching 'org.hyperledger.besu.ethereum.vm.custom.*'
+  }
+  description = 'Runs custom blockchain reference tests.'
+  testClassesDirs = sourceSets.referenceTest.output.classesDirs
+  classpath = sourceSets.referenceTest.runtimeClasspath
+}
+
 tasks.register('validateReferenceTestSubmodule') {
   description = "Checks that the reference tests submodule is not accidentally changed"
   doLast {

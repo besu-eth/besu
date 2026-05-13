@@ -1,10 +1,16 @@
 name: Publish Release
 
-run-name: "Publish Release ${{ github.event.release.name }}"
+run-name: "Publish Release ${{ github.event.release.name || inputs.tag }}"
 
 on:
   release:
     types: [released]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to publish (e.g. 26.5.0). Use to re-fire publish jobs without toggling release draft state.'
+        required: true
+        type: string
 
 env:
   registry: docker.io
@@ -19,7 +25,7 @@ jobs:
       - name: Pre-process Release Name
         id: validate_release_version
         env:
-          RELEASE_VERSION: "${{ github.event.release.name }}"
+          RELEASE_VERSION: "${{ github.event.release.name || inputs.tag }}"
         run: |
           # strip all whitespace
           RELEASE_VERSION="${RELEASE_VERSION//[[:space:]]/}"
@@ -85,8 +91,8 @@ jobs:
             exit 1
           fi
 
-          workdir=$(mktemp -d)
-          cd "$workdir"
+          # Download into the workspace; gh release lookup requires a git
+          # remote, and a fresh mktemp dir has none.
           for f in "${expected[@]}"; do
             gh release download "$RELEASE_VERSION" --pattern "$f"
           done
@@ -96,6 +102,12 @@ jobs:
   docker-promote:
     needs: [validate]
     runs-on: ubuntu-latest
+    # workflow_dispatch path is gated by the `production` environment in
+    # repo settings (branch policy: main, release-*). The release-event
+    # path is implicitly gated by who can publish a release, so it does
+    # not reference the environment (its github.ref is a tag, which
+    # would not match the branch policy).
+    environment: ${{ github.event_name == 'workflow_dispatch' && 'production' || '' }}
     env:
       RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
       RC_VERSION: ${{ needs.validate.outputs.rc_version }}
@@ -194,6 +206,8 @@ jobs:
   artifactory:
     runs-on: ubuntu-latest
     needs: [validate]
+    # See docker-promote for why environment is conditional on event.
+    environment: ${{ github.event_name == 'workflow_dispatch' && 'production' || '' }}
     env:
       RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
     steps:
