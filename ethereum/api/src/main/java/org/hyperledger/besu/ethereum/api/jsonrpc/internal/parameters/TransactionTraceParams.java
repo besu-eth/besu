@@ -72,6 +72,13 @@ public interface TransactionTraceParams {
   @JsonProperty(value = "limit")
   @Nullable Integer limit();
 
+  @JsonProperty(value = "enableReturnData")
+  @Nullable Boolean enableReturnDataNullable();
+
+  default boolean enableReturnData() {
+    return Boolean.TRUE.equals(enableReturnDataNullable());
+  }
+
   @JsonProperty("tracer")
   @JsonInclude(JsonInclude.Include.NON_NULL)
   @Nullable String tracer();
@@ -134,6 +141,9 @@ public interface TransactionTraceParams {
     }
     if (limit() != null) {
       builder.limit(limit());
+    }
+    if (enableReturnDataNullable() != null) {
+      builder.traceReturnData(enableReturnData());
     }
     var opCodeTracerConfig = builder.traceOpcodes(opcodes()).build();
 

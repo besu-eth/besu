@@ -170,9 +170,6 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   /** The Node key. */
   protected NodeKey nodeKey;
 
-  /** The Is revert reason enabled. */
-  protected boolean isRevertReasonEnabled;
-
   /** The Storage provider. */
   protected StorageProvider storageProvider;
 
@@ -403,17 +400,6 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   public BesuControllerBuilder transactionPoolConfiguration(
       final TransactionPoolConfiguration transactionPoolConfiguration) {
     this.transactionPoolConfiguration = transactionPoolConfiguration;
-    return this;
-  }
-
-  /**
-   * Is revert reason enabled besu controller builder.
-   *
-   * @param isRevertReasonEnabled the is revert reason enabled
-   * @return the besu controller builder
-   */
-  public BesuControllerBuilder isRevertReasonEnabled(final boolean isRevertReasonEnabled) {
-    this.isRevertReasonEnabled = isRevertReasonEnabled;
     return this;
   }
 
