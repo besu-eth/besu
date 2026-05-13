@@ -375,4 +375,23 @@ public class ChainSyncStateTest {
     assertThat(state.pivotBlockHeader().getNumber()).isEqualTo(Long.MAX_VALUE - 100);
     assertThat(state.blockDownloadAnchor().getNumber()).isEqualTo(Long.MAX_VALUE - 500);
   }
+
+  @Test
+  public void withRecoveryMatchReplacesBothAnchorsWithMatchedAncestor() {
+    final BlockHeader newPivot = new BlockHeaderTestFixture().number(2000).buildHeader();
+    final BlockHeader originalAnchor = new BlockHeaderTestFixture().number(1500).buildHeader();
+    final BlockHeader matchedAncestor = new BlockHeaderTestFixture().number(1400).buildHeader();
+
+    final ChainSyncState before =
+        new ChainSyncState(pivotBlockHeader, newPivot, originalAnchor, null, false, null);
+
+    final ChainSyncState after = before.withRecoveryMatch(matchedAncestor);
+
+    assertThat(after.firstPivotBlockHeader()).isEqualTo(pivotBlockHeader);
+    assertThat(after.pivotBlockHeader()).isEqualTo(newPivot);
+    assertThat(after.blockDownloadAnchor()).isEqualTo(matchedAncestor);
+    assertThat(after.headerDownloadAnchor()).isEqualTo(matchedAncestor);
+    assertThat(after.headersDownloadComplete()).isFalse();
+    assertThat(after.headerDownloadProgress()).isNull();
+  }
 }

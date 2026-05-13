@@ -69,6 +69,24 @@ public record ChainSyncState(
   }
 
   /**
+   * Creates a new state for the case where Stage 1 anchor recovery walked below the original anchor
+   * and matched a canonical stored ancestor. Both anchors are replaced with the matched ancestor so
+   * Stage 2 (bodies and receipts) starts from there, not from the now-side-chain chain head.
+   *
+   * @param matchedAncestor the canonical stored header that recovery matched
+   * @return new ChainSyncState with both anchors replaced
+   */
+  public ChainSyncState withRecoveryMatch(final BlockHeader matchedAncestor) {
+    return new ChainSyncState(
+        firstPivotBlockHeader,
+        pivotBlockHeader,
+        matchedAncestor,
+        matchedAncestor,
+        headersDownloadComplete,
+        headerDownloadProgress);
+  }
+
+  /**
    * Creates a new state with headers download marked as complete.
    *
    * @return new ChainSyncState instance
