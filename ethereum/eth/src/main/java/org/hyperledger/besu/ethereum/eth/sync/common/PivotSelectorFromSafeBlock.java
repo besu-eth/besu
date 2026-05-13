@@ -36,7 +36,7 @@ import org.slf4j.LoggerFactory;
 public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
 
   private static final Logger LOG = LoggerFactory.getLogger(PivotSelectorFromSafeBlock.class);
-  private static final long NO_FCU_RECEIVED_LOGGING_THRESHOLD = Duration.ofMinutes(1).toMillis();
+  private static final long DIAGNOSTIC_LOG_RATE_LIMIT = Duration.ofMinutes(1).toMillis();
 
   /**
    * How long the safe block may go unchanged before we consider falling back to the head. 15 min =
@@ -74,7 +74,8 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
   private final SingleBlockHeaderDownloader headerDownloader;
   private final Clock clock;
 
-  private volatile long lastNoFcuReceivedInfoLog = System.currentTimeMillis();
+  private volatile long lastNoFcuInfoLog = System.currentTimeMillis();
+  private volatile long lastClStuckWarnLog = System.currentTimeMillis();
   private volatile Optional<BlockHeader> maybeCachedHeadBlockHeader = Optional.empty();
 
   private volatile Hash lastSafeBlockHash = Hash.ZERO;
@@ -83,7 +84,7 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
   private volatile long lastHeadBlockChange = System.currentTimeMillis();
   private volatile Hash lastFinalizedBlockHash = Hash.ZERO;
   private volatile long lastFinalizedBlockChange = System.currentTimeMillis();
-  private volatile Hash lastReturnedFallbackHash = Hash.ZERO;
+  private volatile Hash lastFallbackPivotHash = Hash.ZERO;
   private volatile long lastFallbackPivotChange = 0L;
 
   public PivotSelectorFromSafeBlock(
@@ -137,7 +138,7 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
       if (!safeHash.equals(lastSafeBlockHash)) {
         lastSafeBlockHash = safeHash;
         lastSafeBlockChange = now;
-        lastReturnedFallbackHash = Hash.ZERO;
+        lastFallbackPivotHash = Hash.ZERO;
         lastFallbackPivotChange = 0L;
       }
       if (now - lastSafeBlockChange < SAFE_BLOCK_STALENESS_THRESHOLD) {
@@ -162,10 +163,10 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
 
   private CompletableFuture<PivotSyncState> selectHeadAsFallbackPivot(
       final Hash headHash, final long now) {
-    if (lastReturnedFallbackHash.equals(Hash.ZERO)
-        || !headHash.equals(lastReturnedFallbackHash)
+    if (lastFallbackPivotHash.equals(Hash.ZERO)
+        || !headHash.equals(lastFallbackPivotHash)
         || now - lastFallbackPivotChange >= FALLBACK_PIVOT_REFRESH_INTERVAL) {
-      lastReturnedFallbackHash = headHash;
+      lastFallbackPivotHash = headHash;
       lastFallbackPivotChange = now;
       LOG.warn(
           "Safe block has not changed in over {} min but head is still advancing — falling back to head {} as untrusted pivot. CL finalization status: {}",
@@ -173,16 +174,16 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
           headHash,
           finalizationStatus(now));
     } else {
-      LOG.debug("Returning previous fallback head {} as pivot", lastReturnedFallbackHash);
+      LOG.debug("Returning previous fallback head {} as pivot", lastFallbackPivotHash);
     }
     return headerDownloader
-        .downloadBlockHeader(lastReturnedFallbackHash)
+        .downloadBlockHeader(lastFallbackPivotHash)
         .thenApply(blockHeader -> new PivotSyncState(blockHeader, false));
   }
 
   private CompletableFuture<PivotSyncState> logAndFailNoFcu(final long now) {
-    if (lastNoFcuReceivedInfoLog + NO_FCU_RECEIVED_LOGGING_THRESHOLD < now) {
-      lastNoFcuReceivedInfoLog = now;
+    if (lastNoFcuInfoLog + DIAGNOSTIC_LOG_RATE_LIMIT < now) {
+      lastNoFcuInfoLog = now;
       LOG.info(
           "Waiting for consensus client, this may be because your consensus client is still syncing");
     }
@@ -192,8 +193,8 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
   }
 
   private CompletableFuture<PivotSyncState> logAndFailClStuck(final long now) {
-    if (lastNoFcuReceivedInfoLog + NO_FCU_RECEIVED_LOGGING_THRESHOLD < now) {
-      lastNoFcuReceivedInfoLog = now;
+    if (lastClStuckWarnLog + DIAGNOSTIC_LOG_RATE_LIMIT < now) {
+      lastClStuckWarnLog = now;
       LOG.warn(
           "Consensus client appears stuck — head block has not advanced in over {} min and safe block has not advanced in over {} min. Sync will retry. CL finalization status: {}",
           HEAD_BLOCK_STALENESS_THRESHOLD / 60_000,
