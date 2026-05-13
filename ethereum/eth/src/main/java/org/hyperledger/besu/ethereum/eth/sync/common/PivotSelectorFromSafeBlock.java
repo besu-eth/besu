@@ -37,8 +37,35 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
 
   private static final Logger LOG = LoggerFactory.getLogger(PivotSelectorFromSafeBlock.class);
   private static final long NO_FCU_RECEIVED_LOGGING_THRESHOLD = Duration.ofMinutes(1).toMillis();
-  private static final long UNCHANGED_PIVOT_BLOCK_FALLBACK_INTERVAL =
-      Duration.ofMinutes(7).toMillis();
+
+  /**
+   * How long the safe block may go unchanged before we consider falling back to the head. 15 min =
+   * 2+ missed epochs (epoch ≈ 6.4 min on mainnet). A single missed epoch is normal-ish and does not
+   * warrant pivot churn; two missed epochs means the chain is not justifying and we need a
+   * different pivot strategy.
+   */
+  private static final long SAFE_BLOCK_STALENESS_THRESHOLD = Duration.ofMinutes(15).toMillis();
+
+  /**
+   * How long the head block may go unchanged before we treat the CL as stuck. 3 min ≈ 15
+   * consecutive missed slots — well outside healthy range (legitimate proposer gaps are usually one
+   * or two slots) and indicates a CL-side problem.
+   */
+  private static final long HEAD_BLOCK_STALENESS_THRESHOLD = Duration.ofMinutes(3).toMillis();
+
+  /**
+   * How long to hold the same fallback-head pivot before allowing it to rotate. Not a freshness
+   * threshold — this just bounds pivot churn while in head-fallback mode.
+   */
+  private static final long FALLBACK_PIVOT_REFRESH_INTERVAL = Duration.ofMinutes(7).toMillis();
+
+  /**
+   * Boundary between "chain has finalized recently" and "chain has not finalized in a while" for
+   * the finalization-status log tag. Aligned with SAFE_BLOCK_STALENESS_THRESHOLD so the log triage
+   * signal matches the pivot-fallback decision.
+   */
+  private static final long FINALIZATION_FRESH_THRESHOLD = Duration.ofMinutes(15).toMillis();
+
   private final ProtocolContext protocolContext;
   private final EthContext ethContext;
   private final GenesisConfigOptions genesisConfig;
@@ -48,12 +75,16 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
   private final Clock clock;
 
   private volatile long lastNoFcuReceivedInfoLog = System.currentTimeMillis();
-  private volatile long lastPivotBlockChange = System.currentTimeMillis();
-  private volatile Hash lastSafeBlockHash = Hash.ZERO;
-  private volatile Hash fallbackBlockHash;
-  private volatile Hash lastFallbackBlockHash;
-  private volatile boolean inFallbackMode = false;
   private volatile Optional<BlockHeader> maybeCachedHeadBlockHeader = Optional.empty();
+
+  private volatile Hash lastSafeBlockHash = Hash.ZERO;
+  private volatile long lastSafeBlockChange = System.currentTimeMillis();
+  private volatile Hash lastHeadBlockHash = Hash.ZERO;
+  private volatile long lastHeadBlockChange = System.currentTimeMillis();
+  private volatile Hash lastFinalizedBlockHash = Hash.ZERO;
+  private volatile long lastFinalizedBlockChange = System.currentTimeMillis();
+  private volatile Hash lastReturnedFallbackHash = Hash.ZERO;
+  private volatile long lastFallbackPivotChange = 0L;
 
   public PivotSelectorFromSafeBlock(
       final ProtocolContext protocolContext,
@@ -76,65 +107,124 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
   @Override
   public CompletableFuture<PivotSyncState> selectNewPivotBlock() {
     final Optional<ForkchoiceEvent> maybeForkchoice = forkchoiceStateSupplier.get();
-    final var now = clock.millis();
+    final long now = clock.millis();
 
-    if (maybeForkchoice.isPresent() && maybeForkchoice.get().hasValidSafeBlockHash()) {
-      final var safeBlockHash = maybeForkchoice.get().getSafeBlockHash();
-
-      // if the safe has changed just return it and reset the timer and save the current head as
-      // fallback
-      if (!safeBlockHash.equals(lastSafeBlockHash)) {
-        lastSafeBlockHash = safeBlockHash;
-        lastPivotBlockChange = now;
-        inFallbackMode = false;
-        fallbackBlockHash = maybeForkchoice.get().getHeadBlockHash();
-        return selectLastSafeBlockAsPivot(safeBlockHash);
-      }
-
-      // otherwise verify if we need to fallback to a previous head block
-      if (lastPivotBlockChange + UNCHANGED_PIVOT_BLOCK_FALLBACK_INTERVAL < now) {
-        lastPivotBlockChange = now;
-        inFallbackMode = true;
-        lastFallbackBlockHash = fallbackBlockHash;
-        return selectFallbackBlockAsPivot(fallbackBlockHash);
-      }
-
-      // if not enough time has passed the return again the previous value
-      return selectLastSafeBlockAsPivot(inFallbackMode ? lastFallbackBlockHash : lastSafeBlockHash);
+    if (maybeForkchoice.isEmpty()) {
+      return logAndFailNoFcu(now);
     }
 
-    if (lastNoFcuReceivedInfoLog + NO_FCU_RECEIVED_LOGGING_THRESHOLD < now) {
-      lastNoFcuReceivedInfoLog = now;
-      LOG.info(
-          "Waiting for consensus client, this may be because your consensus client is still syncing");
+    final ForkchoiceEvent fcu = maybeForkchoice.get();
+
+    // Track head freshness regardless of whether we use it.
+    final Hash headHash = fcu.getHeadBlockHash();
+    if (!headHash.equals(lastHeadBlockHash)) {
+      lastHeadBlockHash = headHash;
+      lastHeadBlockChange = now;
     }
-    LOG.debug("No finalized block hash announced yet");
-    return CompletableFuture.failedFuture(
-        new RuntimeException("No finalized block hash announced yet"));
+
+    // Track finalization freshness for the log triage tag.
+    if (fcu.hasValidFinalizedBlockHash()) {
+      final Hash finalizedHash = fcu.getFinalizedBlockHash();
+      if (!finalizedHash.equals(lastFinalizedBlockHash)) {
+        lastFinalizedBlockHash = finalizedHash;
+        lastFinalizedBlockChange = now;
+      }
+    }
+
+    // Track and prefer the safe block.
+    if (fcu.hasValidSafeBlockHash()) {
+      final Hash safeHash = fcu.getSafeBlockHash();
+      if (!safeHash.equals(lastSafeBlockHash)) {
+        lastSafeBlockHash = safeHash;
+        lastSafeBlockChange = now;
+        lastReturnedFallbackHash = Hash.ZERO;
+        lastFallbackPivotChange = 0L;
+      }
+      if (now - lastSafeBlockChange < SAFE_BLOCK_STALENESS_THRESHOLD) {
+        return selectSafeBlockAsPivot(safeHash);
+      }
+    }
+
+    // Safe is stale (or absent). Decide between non-finality and CL stuck.
+    if (now - lastHeadBlockChange < HEAD_BLOCK_STALENESS_THRESHOLD) {
+      return selectHeadAsFallbackPivot(headHash, now);
+    }
+
+    return logAndFailClStuck(now);
   }
 
-  @Override
-  public CompletableFuture<Void> prepareRetry() {
-    // nothing to do
-    return CompletableFuture.completedFuture(null);
-  }
-
-  private CompletableFuture<PivotSyncState> selectLastSafeBlockAsPivot(final Hash safeHash) {
+  private CompletableFuture<PivotSyncState> selectSafeBlockAsPivot(final Hash safeHash) {
     LOG.debug("Returning safe block hash {} as pivot", safeHash);
     return headerDownloader
         .downloadBlockHeader(safeHash)
         .thenApply(blockHeader -> new PivotSyncState(blockHeader, true));
   }
 
-  private CompletableFuture<PivotSyncState> selectFallbackBlockAsPivot(
-      final Hash fallbackBlockHash) {
-    LOG.debug(
-        "Safe block not changed in the last {} min, using a previous head block {} as fallback",
-        UNCHANGED_PIVOT_BLOCK_FALLBACK_INTERVAL / 60,
-        fallbackBlockHash);
+  private CompletableFuture<PivotSyncState> selectHeadAsFallbackPivot(
+      final Hash headHash, final long now) {
+    if (lastReturnedFallbackHash.equals(Hash.ZERO)
+        || !headHash.equals(lastReturnedFallbackHash)
+        || now - lastFallbackPivotChange >= FALLBACK_PIVOT_REFRESH_INTERVAL) {
+      lastReturnedFallbackHash = headHash;
+      lastFallbackPivotChange = now;
+      LOG.warn(
+          "Safe block has not changed in over {} min but head is still advancing — falling back to head {} as untrusted pivot. CL finalization status: {}",
+          SAFE_BLOCK_STALENESS_THRESHOLD / 60_000,
+          headHash,
+          finalizationStatus(now));
+    } else {
+      LOG.debug("Returning previous fallback head {} as pivot", lastReturnedFallbackHash);
+    }
     return headerDownloader
-        .downloadBlockHeader(fallbackBlockHash)
-        .thenApply(blockHeader -> new PivotSyncState(blockHeader, true));
+        .downloadBlockHeader(lastReturnedFallbackHash)
+        .thenApply(blockHeader -> new PivotSyncState(blockHeader, false));
+  }
+
+  private CompletableFuture<PivotSyncState> logAndFailNoFcu(final long now) {
+    if (lastNoFcuReceivedInfoLog + NO_FCU_RECEIVED_LOGGING_THRESHOLD < now) {
+      lastNoFcuReceivedInfoLog = now;
+      LOG.info(
+          "Waiting for consensus client, this may be because your consensus client is still syncing");
+    }
+    LOG.debug("No forkchoice update received yet");
+    return CompletableFuture.failedFuture(
+        new RuntimeException("No forkchoice update received yet"));
+  }
+
+  private CompletableFuture<PivotSyncState> logAndFailClStuck(final long now) {
+    if (lastNoFcuReceivedInfoLog + NO_FCU_RECEIVED_LOGGING_THRESHOLD < now) {
+      lastNoFcuReceivedInfoLog = now;
+      LOG.warn(
+          "Consensus client appears stuck — head block has not advanced in over {} min and safe block has not advanced in over {} min. Sync will retry. CL finalization status: {}",
+          HEAD_BLOCK_STALENESS_THRESHOLD / 60_000,
+          SAFE_BLOCK_STALENESS_THRESHOLD / 60_000,
+          finalizationStatus(now));
+    }
+    return CompletableFuture.failedFuture(
+        new RuntimeException("Consensus client appears stuck (no head/safe progress)"));
+  }
+
+  /**
+   * Returns a human-readable description of how recently the CL has signalled a finalized block.
+   * Used as a triage tag on fallback / CL-stuck log lines.
+   */
+  private String finalizationStatus(final long now) {
+    if (lastFinalizedBlockHash.equals(Hash.ZERO)) {
+      return "no finalized block seen yet";
+    }
+    final long minSinceFinalized = (now - lastFinalizedBlockChange) / 60_000;
+    if (now - lastFinalizedBlockChange < FINALIZATION_FRESH_THRESHOLD) {
+      return String.format("finalized %d min ago at %s", minSinceFinalized, lastFinalizedBlockHash);
+    }
+    return String.format(
+        "no finalization in %d min, last finalized at %s",
+        minSinceFinalized, lastFinalizedBlockHash);
+  }
+
+  @Override
+  public CompletableFuture<Void> prepareRetry() {
+    // nothing to do
+    return CompletableFuture.completedFuture(null);
   }
 
   @Override

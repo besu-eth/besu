@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.testutil.TestClock;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -39,7 +40,9 @@ import org.junit.jupiter.api.Test;
 class PivotSelectorFromSafeBlockTest {
 
   private static final Hash SAFE_HASH_1 = Hash.fromHexStringLenient("0x1111");
+  private static final Hash SAFE_HASH_2 = Hash.fromHexStringLenient("0x2222");
   private static final Hash HEAD_HASH_1 = Hash.fromHexStringLenient("0xaaaa");
+  private static final Hash HEAD_HASH_2 = Hash.fromHexStringLenient("0xbbbb");
 
   private final ProtocolContext protocolContext = mock(ProtocolContext.class);
   private final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
@@ -80,6 +83,96 @@ class PivotSelectorFromSafeBlockTest {
     final PivotSyncState state = selector.selectNewPivotBlock().get();
 
     assertThat(state.getPivotBlockHash()).contains(SAFE_HASH_1);
+    assertThat(state.isSourceTrusted()).isTrue();
+  }
+
+  @Test
+  void returnsHeadBlockAsUntrustedPivotWhenSafeIsStaleButHeadIsFresh() throws Exception {
+    // Prime with a fresh forkchoice (safe S1, head H1)
+    final BlockHeader safeHeader = headerWithHash(SAFE_HASH_1, 100L);
+    final BlockHeader head2Header = headerWithHash(HEAD_HASH_2, 150L);
+    when(headerDownloader.downloadBlockHeader(eq(SAFE_HASH_1)))
+        .thenReturn(CompletableFuture.completedFuture(safeHeader));
+    when(headerDownloader.downloadBlockHeader(eq(HEAD_HASH_2)))
+        .thenReturn(CompletableFuture.completedFuture(head2Header));
+
+    currentForkchoice = Optional.of(new ForkchoiceEvent(HEAD_HASH_1, SAFE_HASH_1, Hash.ZERO));
+    selector.selectNewPivotBlock().get(); // initial call selects safe
+
+    // 16 minutes pass with no new safe block, but head advances to H2
+    clock.stepMillis(Duration.ofMinutes(16).toMillis());
+    currentForkchoice = Optional.of(new ForkchoiceEvent(HEAD_HASH_2, SAFE_HASH_1, Hash.ZERO));
+
+    final PivotSyncState state = selector.selectNewPivotBlock().get();
+
+    assertThat(state.getPivotBlockHash()).contains(HEAD_HASH_2);
+    assertThat(state.isSourceTrusted()).isFalse();
+  }
+
+  @Test
+  void failsWhenBothSafeAndHeadAreStale() throws Exception {
+    final BlockHeader safeHeader = headerWithHash(SAFE_HASH_1, 100L);
+    when(headerDownloader.downloadBlockHeader(eq(SAFE_HASH_1)))
+        .thenReturn(CompletableFuture.completedFuture(safeHeader));
+    currentForkchoice = Optional.of(new ForkchoiceEvent(HEAD_HASH_1, SAFE_HASH_1, Hash.ZERO));
+    selector.selectNewPivotBlock().get(); // priming
+
+    // 16 minutes pass with no FCU change at all
+    clock.stepMillis(Duration.ofMinutes(16).toMillis());
+
+    final CompletableFuture<PivotSyncState> result = selector.selectNewPivotBlock();
+    assertThat(result).isCompletedExceptionally();
+  }
+
+  @Test
+  void returnsCachedHeadInFallbackUntilHeadAdvances() throws Exception {
+    final BlockHeader safeHeader = headerWithHash(SAFE_HASH_1, 100L);
+    final BlockHeader head2Header = headerWithHash(HEAD_HASH_2, 150L);
+    when(headerDownloader.downloadBlockHeader(eq(SAFE_HASH_1)))
+        .thenReturn(CompletableFuture.completedFuture(safeHeader));
+    when(headerDownloader.downloadBlockHeader(eq(HEAD_HASH_2)))
+        .thenReturn(CompletableFuture.completedFuture(head2Header));
+
+    // priming
+    currentForkchoice = Optional.of(new ForkchoiceEvent(HEAD_HASH_1, SAFE_HASH_1, Hash.ZERO));
+    selector.selectNewPivotBlock().get();
+
+    // safe stale, head advances → fallback fires, returns H2
+    clock.stepMillis(Duration.ofMinutes(16).toMillis());
+    currentForkchoice = Optional.of(new ForkchoiceEvent(HEAD_HASH_2, SAFE_HASH_1, Hash.ZERO));
+    PivotSyncState first = selector.selectNewPivotBlock().get();
+    assertThat(first.getPivotBlockHash()).contains(HEAD_HASH_2);
+
+    // 30s later head still H2, safe still S1 → fallback returns same H2
+    clock.stepMillis(Duration.ofSeconds(30).toMillis());
+    PivotSyncState second = selector.selectNewPivotBlock().get();
+    assertThat(second.getPivotBlockHash()).contains(HEAD_HASH_2);
+    assertThat(second.isSourceTrusted()).isFalse();
+  }
+
+  @Test
+  void returnsToSafeWhenSafeBlockResumes() throws Exception {
+    final BlockHeader safe1Header = headerWithHash(SAFE_HASH_1, 100L);
+    final BlockHeader safe2Header = headerWithHash(SAFE_HASH_2, 200L);
+    final BlockHeader head2Header = headerWithHash(HEAD_HASH_2, 150L);
+    when(headerDownloader.downloadBlockHeader(eq(SAFE_HASH_1)))
+        .thenReturn(CompletableFuture.completedFuture(safe1Header));
+    when(headerDownloader.downloadBlockHeader(eq(SAFE_HASH_2)))
+        .thenReturn(CompletableFuture.completedFuture(safe2Header));
+    when(headerDownloader.downloadBlockHeader(eq(HEAD_HASH_2)))
+        .thenReturn(CompletableFuture.completedFuture(head2Header));
+
+    currentForkchoice = Optional.of(new ForkchoiceEvent(HEAD_HASH_1, SAFE_HASH_1, Hash.ZERO));
+    selector.selectNewPivotBlock().get();
+    clock.stepMillis(Duration.ofMinutes(16).toMillis());
+    currentForkchoice = Optional.of(new ForkchoiceEvent(HEAD_HASH_2, SAFE_HASH_1, Hash.ZERO));
+    selector.selectNewPivotBlock().get(); // enters fallback
+
+    // A new safe block S2 arrives
+    currentForkchoice = Optional.of(new ForkchoiceEvent(HEAD_HASH_2, SAFE_HASH_2, Hash.ZERO));
+    PivotSyncState state = selector.selectNewPivotBlock().get();
+
+    assertThat(state.getPivotBlockHash()).contains(SAFE_HASH_2);
     assertThat(state.isSourceTrusted()).isTrue();
   }
 
