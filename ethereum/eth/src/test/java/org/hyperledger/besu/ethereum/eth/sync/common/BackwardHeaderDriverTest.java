@@ -232,6 +232,22 @@ public class BackwardHeaderDriverTest {
   }
 
   @Test
+  public void getMatchedAncestorIsEmptyOnHappyPathAnchorMatch() {
+    // Pivot at 100, anchor at 0 — chain links cleanly. The happy-path boundary match must NOT
+    // populate matchedAncestor; presence of a value is reserved for recovery-driven matches.
+    final BackwardHeaderDriver driver =
+        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain, true);
+
+    // Feed the whole range as one logical sequence from 99 down to 1.
+    driver.accept(getHeadersRange(99, 1));
+
+    // hasNext() should report done.
+    assertThat(driver.hasNext()).isFalse();
+    // No recovery fired, so matchedAncestor is empty.
+    assertThat(driver.getMatchedAncestor()).isEmpty();
+  }
+
+  @Test
   public void getMatchedAncestorReturnsEmptyBeforeBoundaryIsReached() {
     final BackwardHeaderDriver driver =
         new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain, false);

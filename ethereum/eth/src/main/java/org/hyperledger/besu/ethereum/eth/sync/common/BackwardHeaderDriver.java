@@ -176,13 +176,28 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
 
     if (atBoundary) {
       final Hash parentHash = currentChildHeader.getParentHash();
-      if (matchesStoredCanonicalAncestor(parentHash)) {
-        // Match: store this batch and signal done.
+      if (parentHash.equals(anchorHash)) {
+        // Happy-path match: parent links to the original anchor. No recovery occurred. Do not
+        // populate matchedAncestor — the existing blockDownloadAnchor is already correct.
         blockchainStorage.storeBlockHeaders(blockHeaders);
         lowestImportedHeader = blockHeaders.getLast();
         lock.lock();
         try {
-          matchedAncestor = blockchainStorage.getBlockHeader(parentHash).orElse(null);
+          done = true;
+          decided.signalAll();
+        } finally {
+          lock.unlock();
+        }
+        return;
+      }
+      if (blockchainStorage.getBlockHeader(parentHash).isPresent()) {
+        // Recovery match: parent is a header stored canonically from a prior cycle. Populate
+        // matchedAncestor so downstream code can rewrite the Stage 2 anchor.
+        blockchainStorage.storeBlockHeaders(blockHeaders);
+        lowestImportedHeader = blockHeaders.getLast();
+        lock.lock();
+        try {
+          matchedAncestor = blockchainStorage.getBlockHeader(parentHash).orElseThrow();
           done = true;
           decided.signalAll();
         } finally {
@@ -238,26 +253,6 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   }
 
   /**
-   * Returns whether the supplied parent hash links to an ancestor that the driver should treat as
-   * the matched canonical ancestor and stop the backward walk.
-   *
-   * <p>A match occurs when either:
-   *
-   * <ul>
-   *   <li>the parent hash equals the original anchor hash supplied at construction (the
-   *       pre-recovery happy path), or
-   *   <li>a header with that hash is already present in {@link #blockchainStorage} (a header from a
-   *       previous sync cycle that survived the reorg).
-   * </ul>
-   */
-  private boolean matchesStoredCanonicalAncestor(final Hash parentHash) {
-    if (parentHash.equals(anchorHash)) {
-      return true;
-    }
-    return blockchainStorage.getBlockHeader(parentHash).isPresent();
-  }
-
-  /**
    * Returns the lowest header that has been imported so far (i.e. the header with the smallest
    * block number that has been stored).
    *
@@ -268,12 +263,12 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   }
 
   /**
-   * Returns the matched ancestor discovered during anchor-reorg recovery, if any.
+   * Returns the canonical ancestor found by recovery, if recovery fired. Empty on the happy path
+   * (parent links to the original anchor as expected) — in that case the existing {@code
+   * ChainSyncState.blockDownloadAnchor} is already correct and no recovery-driven update is needed.
+   * Presence of a value is therefore equivalent to "recovery fired and succeeded."
    *
-   * <p>Populated when the backward walk reaches a header whose parent is either the original anchor
-   * (the happy path) or an already-stored canonical ancestor discovered during recovery.
-   *
-   * @return the matched ancestor header, or empty if the walk has not yet identified one
+   * @return the matched ancestor header, or empty if recovery did not fire
    */
   public Optional<BlockHeader> getMatchedAncestor() {
     return Optional.ofNullable(matchedAncestor);
