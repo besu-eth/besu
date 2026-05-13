@@ -18,6 +18,7 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -183,7 +184,7 @@ public class SnapSyncChainDownloaderTest {
     downloader.start();
 
     // No pipeline should be created when there are no peers
-    verify(pipelineFactory, never()).createBackwardHeaderDownloadPipeline(any());
+    verify(pipelineFactory, never()).createBackwardHeaderDownloadPipeline(any(), anyBoolean());
 
     // A retry should be scheduled with the no-peer delay, not the fast retry delay
     verify(scheduler)

@@ -23,9 +23,9 @@ import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.common.BackwardHeaderDriver;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncStateStorage;
-import org.hyperledger.besu.ethereum.eth.sync.common.ImportHeadersStep;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotUpdateListener;
 import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader;
@@ -90,7 +90,8 @@ public class SnapSyncChainDownloader
   private final AtomicBoolean initialized = new AtomicBoolean(false);
 
   private volatile Pipeline<?> currentPipeline;
-  private volatile ImportHeadersStep currentImportHeadersStep;
+  private volatile BackwardHeaderDriver currentDriver;
+  private volatile boolean lastPivotWasSafe = true; // genesis/checkpoint is effectively safe
   private Instant overallStartTime;
 
   /**
@@ -377,10 +378,11 @@ public class SnapSyncChainDownloader
 
     final Instant stage1StartTime = Instant.now();
 
+    // TODO(anchor-recovery): plumb the previous pivot's trust value through ChainSyncState
     final SnapSyncChainDownloadPipelineFactory.BackwardHeaderPipelineResult pipelineResult =
-        pipelineFactory.createBackwardHeaderDownloadPipeline(state);
+        pipelineFactory.createBackwardHeaderDownloadPipeline(state, lastPivotWasSafe);
     currentPipeline = pipelineResult.pipeline();
-    currentImportHeadersStep = pipelineResult.importHeadersStep();
+    currentDriver = pipelineResult.driver();
 
     return ethContext
         .getScheduler()
@@ -395,7 +397,7 @@ public class SnapSyncChainDownloader
               // Mark headers download as complete and persist
               chainSyncState.updateAndGet(ChainSyncState::withHeadersDownloadComplete);
               chainSyncStateStorage.storeState(chainSyncState.get());
-              currentImportHeadersStep = null;
+              currentDriver = null;
               LOG.debug("Persisted backward header download completion state");
 
               return null;
@@ -543,13 +545,13 @@ public class SnapSyncChainDownloader
   }
 
   /**
-   * Saves header download progress from the current ImportHeadersStep into ChainSyncState. On
+   * Saves header download progress from the current BackwardHeaderDriver into ChainSyncState. On
    * pipeline restart, the backward header download will resume from this point instead of starting
    * over.
    */
   private void saveHeaderProgress() {
-    final ImportHeadersStep importStep = currentImportHeadersStep;
-    if (importStep == null) {
+    final BackwardHeaderDriver driver = currentDriver;
+    if (driver == null) {
       return;
     }
 
@@ -558,7 +560,7 @@ public class SnapSyncChainDownloader
       return;
     }
 
-    final BlockHeader lowestImported = importStep.getLowestImportedHeader();
+    final BlockHeader lowestImported = driver.getLowestImportedHeader();
     final long pivotNumber = chainSyncState.get().pivotBlockHeader().getNumber();
 
     // Only save if progress was actually made (lowest imported is below pivot)

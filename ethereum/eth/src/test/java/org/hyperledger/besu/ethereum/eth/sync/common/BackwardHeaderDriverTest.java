@@ -143,8 +143,10 @@ public class BackwardHeaderDriverTest {
   @Test
   public void shouldThrowAtAnchorBoundaryWhenParentDoesNotMatchAnchorHash() {
     // Use a different chain's block-0 as the anchor so that the chain we use to descend
-    // to block 1 will not have a parent hash matching the anchor's hash.
-    final BlockDataGenerator generator = new BlockDataGenerator();
+    // to block 1 will not have a parent hash matching the anchor's hash. Use an explicit
+    // non-default seed so that the resulting block-0 hash differs from the default-seeded
+    // chain generated in setUp().
+    final BlockDataGenerator generator = new BlockDataGenerator(2);
     final List<Block> otherChain = generator.blockSequence(1);
     final BlockHeader unrelatedAnchor = otherChain.getFirst().getHeader();
 
