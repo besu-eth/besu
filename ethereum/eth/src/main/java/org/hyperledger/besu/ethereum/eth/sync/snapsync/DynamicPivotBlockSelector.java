@@ -55,6 +55,7 @@ public class DynamicPivotBlockSelector {
   private final int pivotBlockDistanceBeforeCaching;
 
   private Optional<BlockHeader> lastPivotBlockFound;
+  private boolean lastPivotBlockFoundSafe = true;
 
   public DynamicPivotBlockSelector(
       final EthContext ethContext,
@@ -160,6 +161,7 @@ public class DynamicPivotBlockSelector {
         .thenAccept(
             fssWithHeader -> {
               lastPivotBlockFound = fssWithHeader.getPivotBlockHeader();
+              lastPivotBlockFoundSafe = fssWithHeader.isSourceSafe();
               LOG.atDebug()
                   .setMessage("Found new pivot block {}")
                   .addArgument(this::logLastPivotBlockFound)
@@ -202,7 +204,7 @@ public class DynamicPivotBlockSelector {
 
             // Notify chain downloader of pivot update
             if (pivotUpdateListener != null) {
-              pivotUpdateListener.onPivotUpdated(blockHeader);
+              pivotUpdateListener.onPivotUpdated(blockHeader, lastPivotBlockFoundSafe);
               LOG.trace("Notified chain downloader of pivot update: {}", blockHeader.getNumber());
             }
 

@@ -113,6 +113,7 @@ public class SnapSyncChainDownloaderTest {
                     syncState,
                     syncDurationMetrics,
                     pivotBlockHeader,
+                    true,
                     chainSyncStateStorage,
                     headerDownloader,
                     SnapSyncChainDownloaderTest::finalizationStatusForTests))
@@ -130,6 +131,7 @@ public class SnapSyncChainDownloaderTest {
             syncState,
             syncDurationMetrics,
             pivotBlockHeader,
+            true,
             chainSyncStateStorage,
             headerDownloader,
             SnapSyncChainDownloaderTest::finalizationStatusForTests);
@@ -149,6 +151,7 @@ public class SnapSyncChainDownloaderTest {
             syncState,
             syncDurationMetrics,
             pivotBlockHeader,
+            true,
             chainSyncStateStorage,
             headerDownloader,
             SnapSyncChainDownloaderTest::finalizationStatusForTests);
@@ -156,7 +159,7 @@ public class SnapSyncChainDownloaderTest {
     BlockHeader newPivot = new BlockHeaderTestFixture().number(2000).buildHeader();
 
     // Verify pivot update completes successfully
-    assertThatCode(() -> downloader.onPivotUpdated(newPivot)).doesNotThrowAnyException();
+    assertThatCode(() -> downloader.onPivotUpdated(newPivot, true)).doesNotThrowAnyException();
   }
 
   @Test
@@ -170,6 +173,7 @@ public class SnapSyncChainDownloaderTest {
             syncState,
             syncDurationMetrics,
             pivotBlockHeader,
+            true,
             chainSyncStateStorage,
             headerDownloader,
             SnapSyncChainDownloaderTest::finalizationStatusForTests);
@@ -193,6 +197,7 @@ public class SnapSyncChainDownloaderTest {
             syncState,
             syncDurationMetrics,
             pivotBlockHeader,
+            true,
             chainSyncStateStorage,
             headerDownloader,
             SnapSyncChainDownloaderTest::finalizationStatusForTests);
@@ -230,6 +235,7 @@ public class SnapSyncChainDownloaderTest {
             syncState,
             syncDurationMetrics,
             pivotBlockHeader,
+            true,
             chainSyncStateStorage,
             headerDownloader,
             SnapSyncChainDownloaderTest::finalizationStatusForTests);
@@ -303,6 +309,7 @@ public class SnapSyncChainDownloaderTest {
             syncState,
             syncDurationMetrics,
             pivotBlockHeader,
+            true,
             spiedStorage,
             headerDownloader,
             SnapSyncChainDownloaderTest::finalizationStatusForTests);
@@ -393,6 +400,7 @@ public class SnapSyncChainDownloaderTest {
             syncState,
             syncDurationMetrics,
             pivotBlockHeader,
+            true,
             spiedStorage,
             headerDownloader,
             SnapSyncChainDownloaderTest::finalizationStatusForTests);
