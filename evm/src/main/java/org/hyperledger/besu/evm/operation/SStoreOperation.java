@@ -17,7 +17,6 @@ package org.hyperledger.besu.evm.operation;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.account.MutableAccount;
-import org.hyperledger.besu.evm.frame.Eip8037Trace;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -26,9 +25,13 @@ import java.util.function.Supplier;
 
 import com.google.common.base.Suppliers;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** The SStore operation. */
 public class SStoreOperation extends AbstractOperation {
+
+  private static final Logger LOG = LoggerFactory.getLogger(SStoreOperation.class);
 
   /** The constant FRONTIER_MINIMUM. */
   public static final long FRONTIER_MINIMUM = 0L;
@@ -107,15 +110,14 @@ public class SStoreOperation extends AbstractOperation {
         gasCalculator()
             .calculateStorageRefundAmount(newValue, currentValueSupplier, originalValueSupplier));
 
-    if (Eip8037Trace.ENABLED) {
-      Eip8037Trace.recStorage(
-          frame.getDepth(),
-          address.toHexString(),
-          "0x" + key.toHexString().substring(2),
-          originalValueSupplier.get().isZero(),
-          currentValueSupplier.get().isZero(),
-          newValue.isZero());
-    }
+    LOG.trace(
+        "EIP-8037 REC_STORAGE depth={} addr={} key={} txEntryIsZero={} beforeIsZero={} afterIsZero={}",
+        frame.getDepth(),
+        address.toHexString(),
+        "0x" + key.toHexString().substring(2),
+        originalValueSupplier.get().isZero(),
+        currentValueSupplier.get().isZero(),
+        newValue.isZero());
 
     // EIP-8037: Refund state gas for 0→X→0 (storage set then clear)
     gasCalculator()

@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.processing;
 
+import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
+
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
@@ -494,7 +496,7 @@ public class TransactionProcessingResult
    * @return the state gas used for block accounting
    */
   public long getStateGasUsedForBlock() {
-    return stateGasUsed + intrinsicStateGasOverhead;
+    return clampedAdd(stateGasUsed, intrinsicStateGasOverhead);
   }
 
   /**

@@ -36,7 +36,6 @@ import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
-import org.hyperledger.besu.evm.frame.Eip8037Trace;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
@@ -524,10 +523,11 @@ public class MainnetTransactionProcessor {
       final long effectiveStateGas = gasResult.effectiveStateGas();
       final long gasUsedByTransaction = gasResult.gasUsedByTransaction();
       final long usedGas = gasResult.usedGas();
-      if (Eip8037Trace.ENABLED) {
-        Eip8037Trace.txEnd(
-            gasUsedByTransaction, effectiveStateGas, initialFrame.getStateGasReservoir());
-      }
+      LOG.trace(
+          "EIP-8037 TX_END gasUsed={} stateGasUsed={} reservoir={}",
+          gasUsedByTransaction,
+          effectiveStateGas,
+          initialFrame.getStateGasReservoir());
       final CoinbaseFeePriceCalculator coinbaseCalculator;
       if (blockHeader.getBaseFee().isPresent()) {
         final Wei baseFee = blockHeader.getBaseFee().get();

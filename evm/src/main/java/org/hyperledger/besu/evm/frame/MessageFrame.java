@@ -48,6 +48,8 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.bytes.MutableBytes;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A container object for all the states associated with a message.
@@ -72,6 +74,8 @@ import org.apache.tuweni.units.bigints.UInt256;
  * code and a value are supplied to initialize the contract account code and balance, respectively.
  */
 public class MessageFrame {
+
+  private static final Logger LOG = LoggerFactory.getLogger(MessageFrame.class);
 
   /**
    * Message Frame State.
@@ -938,9 +942,12 @@ public class MessageFrame {
     final long before = txValues.stateGasReservoir().get();
     final long after = before + amount;
     txValues.stateGasReservoir().set(after);
-    if (Eip8037Trace.ENABLED) {
-      Eip8037Trace.creditReservoir(getDepth(), amount, before, after);
-    }
+    LOG.trace(
+        "EIP-8037 CREDIT_RESERVOIR depth={} amount={} reservoirBefore={} reservoirAfter={}",
+        getDepth(),
+        amount,
+        before,
+        after);
   }
 
   /**
@@ -1002,34 +1009,31 @@ public class MessageFrame {
       final long overflow = amount - reservoirBefore;
       sufficient = gasRemaining >= overflow;
       if (!sufficient && !allowPartial) {
-        if (Eip8037Trace.ENABLED) {
-          Eip8037Trace.consumeState(
-              getDepth(),
-              amount,
-              reservoirBefore,
-              gasLeftBefore,
-              false,
-              reservoirBefore,
-              gasLeftBefore,
-              txValues.stateGasUsed().get());
-        }
+        LOG.trace(
+            "EIP-8037 CONSUME_STATE depth={} requested={} reservoirBefore={} gasLeftBefore={} ok=false reservoirAfter={} gasLeftAfter={} stateGasUsedAfter={}",
+            getDepth(),
+            amount,
+            reservoirBefore,
+            gasLeftBefore,
+            reservoirBefore,
+            gasLeftBefore,
+            txValues.stateGasUsed().get());
         return false;
       }
       txValues.stateGasReservoir().set(0L);
       gasRemaining = sufficient ? gasRemaining - overflow : Math.max(0L, gasRemaining - overflow);
     }
     txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
-    if (Eip8037Trace.ENABLED) {
-      Eip8037Trace.consumeState(
-          getDepth(),
-          amount,
-          reservoirBefore,
-          gasLeftBefore,
-          sufficient,
-          txValues.stateGasReservoir().get(),
-          gasRemaining,
-          txValues.stateGasUsed().get());
-    }
+    LOG.trace(
+        "EIP-8037 CONSUME_STATE depth={} requested={} reservoirBefore={} gasLeftBefore={} ok={} reservoirAfter={} gasLeftAfter={} stateGasUsedAfter={}",
+        getDepth(),
+        amount,
+        reservoirBefore,
+        gasLeftBefore,
+        sufficient,
+        txValues.stateGasReservoir().get(),
+        gasRemaining,
+        txValues.stateGasUsed().get());
     return sufficient;
   }
 

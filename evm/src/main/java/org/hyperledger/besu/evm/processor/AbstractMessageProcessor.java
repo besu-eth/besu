@@ -20,7 +20,6 @@ import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.ModificationNotAllowedException;
 import org.hyperledger.besu.evm.account.Account;
-import org.hyperledger.besu.evm.frame.Eip8037Trace;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 
@@ -28,6 +27,8 @@ import java.util.ArrayList;
 import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A skeletal class for instantiating message processors.
@@ -65,6 +66,8 @@ import org.apache.tuweni.bytes.Bytes;
  * </table>
  */
 public abstract class AbstractMessageProcessor {
+
+  private static final Logger LOG = LoggerFactory.getLogger(AbstractMessageProcessor.class);
 
   // List of addresses to force delete when they are touched but empty
   // when the state changes in the message are were not meant to be committed.
@@ -203,17 +206,16 @@ public abstract class AbstractMessageProcessor {
     if (reservoirBurn > 0) {
       frame.accumulateStateGasReservoirBurn(reservoirBurn);
     }
-    if (Eip8037Trace.ENABLED) {
-      Eip8037Trace.spillRestore(
-          frame.getDepth(),
-          isInitialFrame,
-          stateGasRestored,
-          reservoirRestored,
-          noGrowthRefundsInScope,
-          grossSpill,
-          gasLeftBurn,
-          restored);
-    }
+    LOG.trace(
+        "EIP-8037 SPILL_RESTORE depth={} isInitial={} stateGasRestored={} reservoirRestored={} noGrowthRefundsInScope={} grossSpill={} burned={} restored={}",
+        frame.getDepth(),
+        isInitialFrame,
+        stateGasRestored,
+        reservoirRestored,
+        noGrowthRefundsInScope,
+        grossSpill,
+        gasLeftBurn,
+        restored);
   }
 
   /**
@@ -299,13 +301,11 @@ public abstract class AbstractMessageProcessor {
   }
 
   private static void traceFrameExit(final MessageFrame frame, final String status) {
-    if (!Eip8037Trace.ENABLED) {
-      return;
-    }
-    final var addr = frame.getContractAddress();
-    Eip8037Trace.frameExit(
+    final var contractAddress = frame.getContractAddress();
+    LOG.trace(
+        "EIP-8037 FRAME_EXIT depth={} contractAddress={} status={} gasLeft={} reservoir={} stateGasUsed={}",
         frame.getDepth(),
-        addr == null ? "" : addr.toHexString(),
+        contractAddress == null ? "" : contractAddress.toHexString(),
         status,
         frame.getRemainingGas(),
         frame.getStateGasReservoir(),
@@ -344,11 +344,12 @@ public abstract class AbstractMessageProcessor {
    * @param operationTracer the operation tracer
    */
   public void process(final MessageFrame frame, final OperationTracer operationTracer) {
-    if (Eip8037Trace.ENABLED && frame.getState() == MessageFrame.State.NOT_STARTED) {
-      final var addr = frame.getContractAddress();
-      Eip8037Trace.frameEnter(
+    if (frame.getState() == MessageFrame.State.NOT_STARTED) {
+      final var contractAddress = frame.getContractAddress();
+      LOG.trace(
+          "EIP-8037 FRAME_ENTER depth={} contractAddress={} gasLimit={} reservoir={} stateGasUsed={}",
           frame.getDepth(),
-          addr == null ? "" : addr.toHexString(),
+          contractAddress == null ? "" : contractAddress.toHexString(),
           frame.getRemainingGas(),
           frame.getStateGasReservoir(),
           frame.getStateGasUsed());
