@@ -265,7 +265,7 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
       transactionResults.logSelectionStats();
       timings.register("txsSelection");
       timings.registerValue(
-          "txsSelectionHighScore",
+          "selectedTxsEvaluation",
           Duration.ofNanos(transactionResults.getSelectedTxsEvaluationTimeNanos()));
 
       final Optional<AccessLocationTracker> postExecutionAccessLocationTracker =

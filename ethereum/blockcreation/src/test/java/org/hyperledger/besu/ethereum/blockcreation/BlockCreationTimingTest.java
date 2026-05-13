@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -28,18 +28,18 @@ public class BlockCreationTimingTest {
 
     timing.register("preTxsSelection");
     timing.register("txsSelection");
-    timing.registerValue("txsSelectionHighScore", Duration.ofMillis(42));
+    timing.registerValue("selectedTxsEvaluation", Duration.ofMillis(42));
     timing.register("postTxsSelection");
 
     final String rendered = timing.toString();
 
-    assertThat(rendered).contains("txsSelectionHighScore=42ms");
+    assertThat(rendered).contains("selectedTxsEvaluation=42ms");
     assertThat(rendered).contains("preTxsSelection=");
     assertThat(rendered).contains("txsSelection=");
     assertThat(rendered).contains("postTxsSelection=");
     assertThat(rendered.indexOf("txsSelection="))
-        .isLessThan(rendered.indexOf("txsSelectionHighScore="));
-    assertThat(rendered.indexOf("txsSelectionHighScore="))
+        .isLessThan(rendered.indexOf("selectedTxsEvaluation="));
+    assertThat(rendered.indexOf("selectedTxsEvaluation="))
         .isLessThan(rendered.indexOf("postTxsSelection="));
   }
 
@@ -47,9 +47,9 @@ public class BlockCreationTimingTest {
   public void registerValueOfZeroIsStillPrinted() {
     final BlockCreationTiming timing = new BlockCreationTiming();
     timing.register("start");
-    timing.registerValue("txsSelectionHighScore", Duration.ZERO);
+    timing.registerValue("selectedTxsEvaluation", Duration.ZERO);
 
-    assertThat(timing.toString()).contains("txsSelectionHighScore=0ms");
+    assertThat(timing.toString()).contains("selectedTxsEvaluation=0ms");
   }
 
   @Test
@@ -57,13 +57,13 @@ public class BlockCreationTimingTest {
     // Mirrors what BlockMiner.mineBlock() does: an inner timing built by
     // AbstractBlockCreator.createBlock(...) is merged into an outer timing via registerAll,
     // and the outer's toString() is what BlockMiner.logProducedBlock prints.
-    // The standalone txsSelectionHighScore value must survive the merge as-is, not be
+    // The standalone selectedTxsEvaluation value must survive the merge as-is, not be
     // treated as a stopwatch delta.
     final BlockCreationTiming inner = new BlockCreationTiming();
     inner.register("duplicateWorldState");
     inner.register("preTxsSelection");
     inner.register("txsSelection");
-    inner.registerValue("txsSelectionHighScore", Duration.ofMillis(42));
+    inner.registerValue("selectedTxsEvaluation", Duration.ofMillis(42));
     inner.register("blockAssembled");
 
     final BlockCreationTiming outer = new BlockCreationTiming();
@@ -73,10 +73,10 @@ public class BlockCreationTimingTest {
 
     final String rendered = outer.toString();
 
-    assertThat(rendered).contains("txsSelectionHighScore=42ms");
+    assertThat(rendered).contains("selectedTxsEvaluation=42ms");
     assertThat(rendered.indexOf("txsSelection="))
-        .isLessThan(rendered.indexOf("txsSelectionHighScore="));
-    assertThat(rendered.indexOf("txsSelectionHighScore="))
+        .isLessThan(rendered.indexOf("selectedTxsEvaluation="));
+    assertThat(rendered.indexOf("selectedTxsEvaluation="))
         .isLessThan(rendered.indexOf("blockAssembled="));
   }
 }

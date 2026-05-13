@@ -16,10 +16,10 @@ package org.hyperledger.besu.ethereum.blockcreation;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
-import java.util.Set;
+import java.util.SequencedSet;
 
 import com.google.common.base.Stopwatch;
 
@@ -27,7 +27,7 @@ public class BlockCreationTiming {
   private final Map<String, Duration> timing = new LinkedHashMap<>();
   // Steps whose value is a standalone duration (not a cumulative stopwatch reading),
   // and so should be printed as-is without computing a delta from the previous entry.
-  private final Set<String> standaloneValueSteps = new HashSet<>();
+  private final SequencedSet<String> standaloneValueSteps = new LinkedHashSet<>();
   private final Stopwatch stopwatch;
   private final Instant startedAt = Instant.now();
   public static final BlockCreationTiming EMPTY = createEmpty();
@@ -56,8 +56,7 @@ public class BlockCreationTiming {
     final var offset = Duration.between(startedAt, subTiming.startedAt);
     for (final var entry : subTiming.timing.entrySet()) {
       final boolean isStandalone = subTiming.standaloneValueSteps.contains(entry.getKey());
-      timing.put(
-          entry.getKey(), isStandalone ? entry.getValue() : offset.plus(entry.getValue()));
+      timing.put(entry.getKey(), isStandalone ? entry.getValue() : offset.plus(entry.getValue()));
       if (isStandalone) {
         standaloneValueSteps.add(entry.getKey());
       }
