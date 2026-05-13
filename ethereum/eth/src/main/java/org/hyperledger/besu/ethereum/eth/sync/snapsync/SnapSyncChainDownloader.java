@@ -394,6 +394,21 @@ public class SnapSyncChainDownloader
                   "Stage 1 complete: Backward header download finished in {} seconds",
                   stage1Duration.toSeconds());
 
+              // If Stage 1 recovery walked below the original anchor and matched a stored canonical
+              // ancestor, replace blockDownloadAnchor + headerDownloadAnchor with the matched
+              // ancestor so Stage 2 starts there instead of from the (side-chain) chain head.
+              final Optional<BlockHeader> matched = pipelineResult.driver().getMatchedAncestor();
+              if (matched.isPresent()) {
+                final ChainSyncState before = chainSyncState.get();
+                LOG.info(
+                    "Stage 1 recovery extended anchor: previous anchor at #{}, matched ancestor at #{} ({})",
+                    before.blockDownloadAnchor().getNumber(),
+                    matched.get().getNumber(),
+                    matched.get().getHash());
+                chainSyncState.updateAndGet(s -> s.withRecoveryMatch(matched.get()));
+                chainSyncStateStorage.storeState(chainSyncState.get());
+              }
+
               // Mark headers download as complete and persist
               chainSyncState.updateAndGet(ChainSyncState::withHeadersDownloadComplete);
               chainSyncStateStorage.storeState(chainSyncState.get());
@@ -405,39 +420,31 @@ public class SnapSyncChainDownloader
   }
 
   private CompletableFuture<Void> runStage2ForwardBodiesAndReceipts(final ChainSyncState state) {
-    // Always start from current blockchain head (handles fresh start and restart cases)
-    final long blockchainHead = protocolContext.getBlockchain().getChainHeadBlockNumber();
+    // Start from the block-download anchor in ChainSyncState. After Stage 1 recovery, this may be
+    // the matched ancestor (which is below the original anchor / blockchain head).
+    final long stage2StartBlock = state.blockDownloadAnchor().getNumber();
     final BlockHeader pivotBlockHeader = state.pivotBlockHeader();
     final long pivotBlockNumber = pivotBlockHeader.getNumber();
 
-    // Validate blockchain head is in expected range
-    final long expectedMinStart = state.blockDownloadAnchor().getNumber();
-    if (blockchainHead < expectedMinStart) {
-      throw new IllegalStateException(
-          String.format(
-              "Blockchain head (%d) is before expected start (%d).",
-              blockchainHead, expectedMinStart));
-    }
-
     // Check if already at or past pivot
-    if (blockchainHead >= pivotBlockNumber) {
+    if (stage2StartBlock >= pivotBlockNumber) {
       LOG.debug(
-          "Stage 2: Blockchain head ({}) already at or past pivot ({}). Skipping bodies/receipts download.",
-          blockchainHead,
+          "Stage 2: Block download anchor ({}) already at or past pivot ({}). Skipping bodies/receipts download.",
+          stage2StartBlock,
           pivotBlockNumber);
       return CompletableFuture.completedFuture(null);
     }
 
     LOG.debug(
         "Stage 2: Starting forward bodies and receipts download from {} to pivot {}",
-        blockchainHead,
+        stage2StartBlock,
         pivotBlockNumber);
 
     final Instant stage2StartTime = Instant.now();
 
     final Pipeline<List<BlockHeader>> bodiesAndReceiptsPipeline =
         pipelineFactory.createForwardBodiesAndReceiptsDownloadPipeline(
-            blockchainHead, pivotBlockHeader, syncState);
+            stage2StartBlock, pivotBlockHeader, syncState);
     currentPipeline = bodiesAndReceiptsPipeline;
 
     return ethContext
