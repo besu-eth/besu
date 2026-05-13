@@ -84,11 +84,12 @@ public class PivotSyncState {
   }
 
   /**
-   * Returns true if the source of the pivot block is fully trusted. In practice this means that it
-   * comes from the Consensus client through the engine API and the {@link
-   * PivotSelectorFromSafeBlock} is used for the pivot.
+   * Returns true if the pivot came from a Consensus Layer safe block, false if it came from a
+   * head-fallback path (used when the chain is not finalizing). The flag is used as a log/metric
+   * tag — for example, a safe-anchor reorg during recovery logs at ERROR severity while a
+   * head-fallback reorg logs at WARN.
    *
-   * @return true if the source is fully trusted, false otherwise
+   * @return true if the pivot's source was a safe block, false if it was a head fallback
    */
   public boolean isSourceSafe() {
     return sourceIsSafe;
