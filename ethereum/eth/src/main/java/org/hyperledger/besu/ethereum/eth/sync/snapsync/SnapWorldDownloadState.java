@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.StorageRangeDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.AccountFlatDatabaseHealingRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.StorageFlatDatabaseHealingRangeRequest;
+import org.hyperledger.besu.ethereum.eth.sync.worldstate.StalledDownloadException;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldDownloadState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
@@ -163,7 +164,13 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
 
   @Override
   protected synchronized void markAsStalled(final int maxNodeRequestRetries) {
-    // TODO retry when mark as stalled
+    final String message =
+        "Snap sync world state download stalled — peers stopped serving data after "
+            + maxNodeRequestRetries
+            + " requests without progress. The pivot is likely older than peers' snap-serving"
+            + " window. Re-pivoting.";
+    LOG.warn(message);
+    internalFuture.completeExceptionally(new StalledDownloadException(message));
   }
 
   @Override
