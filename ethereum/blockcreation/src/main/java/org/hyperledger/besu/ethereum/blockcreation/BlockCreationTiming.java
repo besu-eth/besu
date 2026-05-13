@@ -17,17 +17,16 @@ package org.hyperledger.besu.ethereum.blockcreation;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.Map;
-import java.util.SequencedSet;
 
 import com.google.common.base.Stopwatch;
 
 public class BlockCreationTiming {
-  private final Map<String, Duration> timing = new LinkedHashMap<>();
-  // Steps whose value is a standalone duration (not a cumulative stopwatch reading),
-  // and so should be printed as-is without computing a delta from the previous entry.
-  private final SequencedSet<String> standaloneValueSteps = new LinkedHashSet<>();
+  // A standalone entry holds a duration that should be printed as-is, instead of as a delta
+  // from the previous step in the timing chain.
+  private record TimingEntry(Duration duration, boolean standalone) {}
+
+  private final Map<String, TimingEntry> timing = new LinkedHashMap<>();
   private final Stopwatch stopwatch;
   private final Instant startedAt = Instant.now();
   public static final BlockCreationTiming EMPTY = createEmpty();
@@ -38,28 +37,25 @@ public class BlockCreationTiming {
 
   private static BlockCreationTiming createEmpty() {
     BlockCreationTiming empty = new BlockCreationTiming();
-    empty.timing.put("empty-block-created", Duration.ZERO);
+    empty.timing.put("empty-block-created", new TimingEntry(Duration.ZERO, false));
     empty.stopwatch.stop();
     return empty;
   }
 
   public void register(final String step) {
-    timing.put(step, stopwatch.elapsed());
+    timing.put(step, new TimingEntry(stopwatch.elapsed(), false));
   }
 
   public void registerValue(final String step, final Duration value) {
-    timing.put(step, value);
-    standaloneValueSteps.add(step);
+    timing.put(step, new TimingEntry(value, true));
   }
 
   public void registerAll(final BlockCreationTiming subTiming) {
     final var offset = Duration.between(startedAt, subTiming.startedAt);
     for (final var entry : subTiming.timing.entrySet()) {
-      final boolean isStandalone = subTiming.standaloneValueSteps.contains(entry.getKey());
-      timing.put(entry.getKey(), isStandalone ? entry.getValue() : offset.plus(entry.getValue()));
-      if (isStandalone) {
-        standaloneValueSteps.add(entry.getKey());
-      }
+      final TimingEntry te = entry.getValue();
+      final Duration adjusted = te.standalone() ? te.duration() : offset.plus(te.duration());
+      timing.put(entry.getKey(), new TimingEntry(adjusted, te.standalone()));
     }
   }
 
@@ -68,7 +64,7 @@ public class BlockCreationTiming {
       stopwatch.stop();
     }
     final var elapsed = stopwatch.elapsed();
-    timing.put(step, elapsed);
+    timing.put(step, new TimingEntry(elapsed, false));
     return elapsed;
   }
 
@@ -82,12 +78,12 @@ public class BlockCreationTiming {
 
     var prevDuration = Duration.ZERO;
     for (final var entry : timing.entrySet()) {
-      final boolean isStandalone = standaloneValueSteps.contains(entry.getKey());
+      final TimingEntry te = entry.getValue();
       final Duration displayed =
-          isStandalone ? entry.getValue() : entry.getValue().minus(prevDuration);
+          te.standalone() ? te.duration() : te.duration().minus(prevDuration);
       sb.append(entry.getKey()).append("=").append(displayed.toMillis()).append("ms, ");
-      if (!isStandalone) {
-        prevDuration = entry.getValue();
+      if (!te.standalone()) {
+        prevDuration = te.duration();
       }
     }
     sb.delete(sb.length() - 2, sb.length());
