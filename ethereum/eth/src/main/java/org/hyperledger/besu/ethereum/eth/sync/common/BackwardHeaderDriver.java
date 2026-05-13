@@ -26,6 +26,8 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 
 import org.slf4j.Logger;
@@ -59,6 +61,17 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   private final boolean previousPivotWasSafe;
   private volatile BlockHeader currentChildHeader;
   private volatile BlockHeader lowestImportedHeader;
+
+  // Anchor-reorg recovery coordination (Task C1)
+  private final ReentrantLock lock = new ReentrantLock();
+  private final Condition decided = lock.newCondition();
+  // Guarded by lock for writes; read on the source thread via the volatile qualifier.
+  private volatile boolean done = false;
+  // Guarded by lock.
+  private int extraBatchesRequested = 0;
+  // Written under lock, read without lock by getMatchedAncestor().
+  private volatile BlockHeader matchedAncestor;
+  private volatile boolean recoveryMode = false;
 
   /**
    * Creates a new BackwardHeaderDriver. Stores the pivot header synchronously as the first imported
@@ -109,7 +122,24 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
 
   @Override
   public boolean hasNext() {
-    return currentBlock.get() >= stopBlock;
+    // Fast path: there is more above the boundary, no need to coordinate.
+    // `done` is checked first so a completed driver short-circuits even if the source thread has
+    // not yet decremented currentBlock past stopBlock.
+    if (!done && currentBlock.get() >= stopBlock) {
+      return true;
+    }
+    lock.lock();
+    try {
+      while (!done && currentBlock.get() < stopBlock) {
+        decided.await();
+      }
+      return !done;
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return false;
+    } finally {
+      lock.unlock();
+    }
   }
 
   @Override
@@ -141,14 +171,34 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
 
     currentChildHeader = blockHeaders.getLast();
 
-    if (currentChildHeader.getNumber() == lowestHeaderToImport) {
-      if (!currentChildHeader.getParentHash().equals(anchorHash)) {
-        // B1 preserves the existing throw; Task C1 will replace this with recovery logic.
-        throw new IllegalStateException(
-            "The lower header parent hash does not match the checkpoint hash");
+    final boolean atBoundary =
+        currentChildHeader.getNumber() == lowestHeaderToImport || recoveryMode;
+
+    if (atBoundary) {
+      final Hash parentHash = currentChildHeader.getParentHash();
+      if (matchesStoredCanonicalAncestor(parentHash)) {
+        // Match: store this batch and signal done.
+        blockchainStorage.storeBlockHeaders(blockHeaders);
+        lowestImportedHeader = blockHeaders.getLast();
+        lock.lock();
+        try {
+          matchedAncestor = blockchainStorage.getBlockHeader(parentHash).orElse(null);
+          done = true;
+          decided.signalAll();
+        } finally {
+          lock.unlock();
+        }
+        return;
       }
+
+      // No match: store the canonical batch and extend the walk by one batch.
+      blockchainStorage.storeBlockHeaders(blockHeaders);
+      lowestImportedHeader = blockHeaders.getLast();
+      extendWalkByOneBatch();
+      return;
     }
 
+    // Not at the boundary: normal mid-walk store.
     blockchainStorage.storeBlockHeaders(blockHeaders);
     lowestImportedHeader = blockHeaders.getLast();
 
@@ -165,6 +215,49 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   }
 
   /**
+   * Lowers {@link #stopBlock} by one batch, enters recovery mode, and signals waiters. The
+   * read-modify-write of the volatile {@code stopBlock} is performed while holding {@link #lock};
+   * the volatile qualifier only guarantees that the unsynchronized read of {@code stopBlock} on the
+   * source thread (in {@link #hasNext()}) observes the latest value.
+   */
+  @SuppressWarnings("NonAtomicVolatileUpdate")
+  private void extendWalkByOneBatch() {
+    lock.lock();
+    try {
+      recoveryMode = true;
+      extraBatchesRequested++;
+      stopBlock -= batchSize;
+      decided.signalAll();
+      LOG.debug(
+          "BackwardHeaderDriver: extending walk by one batch (extraBatches={}, stopBlock={})",
+          extraBatchesRequested,
+          stopBlock);
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  /**
+   * Returns whether the supplied parent hash links to an ancestor that the driver should treat as
+   * the matched canonical ancestor and stop the backward walk.
+   *
+   * <p>A match occurs when either:
+   *
+   * <ul>
+   *   <li>the parent hash equals the original anchor hash supplied at construction (the
+   *       pre-recovery happy path), or
+   *   <li>a header with that hash is already present in {@link #blockchainStorage} (a header from a
+   *       previous sync cycle that survived the reorg).
+   * </ul>
+   */
+  private boolean matchesStoredCanonicalAncestor(final Hash parentHash) {
+    if (parentHash.equals(anchorHash)) {
+      return true;
+    }
+    return blockchainStorage.getBlockHeader(parentHash).isPresent();
+  }
+
+  /**
    * Returns the lowest header that has been imported so far (i.e. the header with the smallest
    * block number that has been stored).
    *
@@ -177,13 +270,13 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   /**
    * Returns the matched ancestor discovered during anchor-reorg recovery, if any.
    *
-   * <p>Always {@link Optional#empty()} in Task B1; populated by recovery logic introduced in Task
-   * C1.
+   * <p>Populated when the backward walk reaches a header whose parent is either the original anchor
+   * (the happy path) or an already-stored canonical ancestor discovered during recovery.
    *
-   * @return the matched ancestor header, or empty if recovery has not produced one
+   * @return the matched ancestor header, or empty if the walk has not yet identified one
    */
   public Optional<BlockHeader> getMatchedAncestor() {
-    return Optional.empty();
+    return Optional.ofNullable(matchedAncestor);
   }
 
   /**

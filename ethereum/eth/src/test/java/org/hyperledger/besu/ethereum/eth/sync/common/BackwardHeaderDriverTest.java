@@ -18,9 +18,11 @@ package org.hyperledger.besu.ethereum.eth.sync.common;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
@@ -141,28 +143,54 @@ public class BackwardHeaderDriverTest {
   }
 
   @Test
-  public void shouldThrowAtAnchorBoundaryWhenParentDoesNotMatchAnchorHash() {
-    // Use a different chain's block-0 as the anchor so that the chain we use to descend
-    // to block 1 will not have a parent hash matching the anchor's hash. Use an explicit
-    // non-default seed so that the resulting block-0 hash differs from the default-seeded
-    // chain generated in setUp().
-    final BlockDataGenerator generator = new BlockDataGenerator(2);
-    final List<Block> otherChain = generator.blockSequence(1);
-    final BlockHeader unrelatedAnchor = otherChain.getFirst().getHeader();
+  public void shouldMatchStoredAncestorOnFirstBoundaryWhenParentAlreadyStored() {
+    // Scenario: the previously-stored anchor (passed to the constructor) has been reorged off the
+    // canonical chain. The canonical block at the anchor's height (block 0 in our test chain) is
+    // already present in storage from a prior sync cycle. When the backward walk reaches the
+    // boundary, it should consult the blockchain and stop at the stored canonical ancestor.
+    final BlockHeader canonicalBlock0 = anchorHeader; // canonical chain's block 0
+    lenient()
+        .when(blockchain.getBlockHeader(canonicalBlock0.getHash()))
+        .thenReturn(Optional.of(canonicalBlock0));
 
-    // Sanity check: the chains should have different block-0 hashes.
-    assertThat(unrelatedAnchor.getHash()).isNotEqualTo(anchorHeader.getHash());
+    // Use an unrelated block 0 as the "previously-stored anchor" — same height, different hash.
+    final BlockDataGenerator otherGenerator = new BlockDataGenerator(99);
+    final BlockHeader reorgedAnchor = otherGenerator.blockSequence(1).getFirst().getHeader();
+    assertThat(reorgedAnchor.getHash()).isNotEqualTo(canonicalBlock0.getHash());
 
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, unrelatedAnchor, pivotHeader, blockchain, false);
+        new BackwardHeaderDriver(BATCH_SIZE, reorgedAnchor, pivotHeader, blockchain, false);
 
-    // Walk all the way down from 99 to 1; block 1's parent hash is the real chain's anchor,
-    // which differs from the unrelated anchor we used in the constructor.
-    final List<BlockHeader> headersToAnchor = getHeadersRange(99, 1);
+    // Walk all the way down from 99 to 1; block 1's parent is the canonical block 0.
+    driver.accept(getHeadersRange(99, 1));
 
-    assertThatThrownBy(() -> driver.accept(headersToAnchor))
-        .isInstanceOf(IllegalStateException.class)
-        .hasMessageContaining("lower header parent hash does not match");
+    assertThat(driver.getMatchedAncestor()).contains(canonicalBlock0);
+    // hasNext() should return false because done has been signaled.
+    assertThat(driver.hasNext()).isFalse();
+  }
+
+  @Test
+  public void shouldExtendWalkWhenAnchorBoundaryHasNoStoredCanonicalAncestor() {
+    // Scenario: the previously-stored anchor has been reorged off the canonical chain and there is
+    // NO stored canonical ancestor available. The driver should enter recovery mode, store the
+    // batch, lower stopBlock, and allow the iterator to continue descending below the original
+    // anchor's height.
+    lenient().when(blockchain.getBlockHeader(any(Hash.class))).thenReturn(Optional.empty());
+
+    final BlockDataGenerator otherGenerator = new BlockDataGenerator(99);
+    final BlockHeader reorgedAnchor = otherGenerator.blockSequence(1).getFirst().getHeader();
+    assertThat(reorgedAnchor.getHash()).isNotEqualTo(anchorHeader.getHash());
+
+    final BackwardHeaderDriver driver =
+        new BackwardHeaderDriver(BATCH_SIZE, reorgedAnchor, pivotHeader, blockchain, false);
+
+    // Feed a single batch that reaches block 1 — the original anchor boundary.
+    driver.accept(getHeadersRange(99, 1));
+
+    // No match: the driver should be in recovery mode and no matched ancestor populated.
+    assertThat(driver.getMatchedAncestor()).isEmpty();
+    // The iterator should once again have something to emit (stopBlock was lowered by batchSize).
+    assertThat(driver.hasNext()).isTrue();
   }
 
   @Test
@@ -172,15 +200,18 @@ public class BackwardHeaderDriverTest {
     final BackwardHeaderDriver driver =
         new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain, false);
 
-    final List<Long> emitted = new ArrayList<>();
-    while (driver.hasNext()) {
-      emitted.add(driver.next());
-    }
-
     // Build the expected sequence: starting at 99, decrement by 4, while >= 1.
     final List<Long> expected = new ArrayList<>();
     for (long v = 99L; v >= 1L; v -= BATCH_SIZE) {
       expected.add(v);
+    }
+
+    // Call next() the expected number of times. hasNext() now blocks at the boundary until the
+    // import side signals done or extends the walk, so we drive the iterator directly here.
+    final List<Long> emitted = new ArrayList<>();
+    for (int i = 0; i < expected.size(); i++) {
+      assertThat(driver.hasNext()).isTrue();
+      emitted.add(driver.next());
     }
 
     assertThat(emitted).containsExactlyElementsOf(expected);
@@ -191,17 +222,17 @@ public class BackwardHeaderDriverTest {
     final BackwardHeaderDriver driver =
         new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain, false);
 
-    // Drain the iterator.
-    while (driver.hasNext()) {
+    // Drive the iterator through its natural emissions (99, 95, ..., 3) by calling next() the
+    // expected number of times. After this, the next next() call falls below stopBlock and
+    // throws NoSuchElementException.
+    for (long v = 99L; v >= 1L; v -= BATCH_SIZE) {
       driver.next();
     }
-
-    assertThat(driver.hasNext()).isFalse();
     assertThatThrownBy(driver::next).isInstanceOf(NoSuchElementException.class);
   }
 
   @Test
-  public void getMatchedAncestorReturnsEmptyInB1() {
+  public void getMatchedAncestorReturnsEmptyBeforeBoundaryIsReached() {
     final BackwardHeaderDriver driver =
         new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain, false);
 
