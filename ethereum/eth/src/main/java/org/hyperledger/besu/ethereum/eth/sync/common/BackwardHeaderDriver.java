@@ -278,7 +278,12 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
     try {
       recoveryMode = true;
       extraBatchesRequested++;
-      stopBlock -= batchSize;
+      // Clamp at the genesis floor: blocks below 0 do not exist. In the (pathological) case where
+      // recovery walks all the way down without matching a stored ancestor, hasNext() will return
+      // false once the iterator descends past 0 — the pipeline drains and the caller can decide
+      // to re-pivot. Snap-sync stall detection is the primary bound; genesis floor is the
+      // backstop.
+      stopBlock = Math.max(0L, stopBlock - batchSize);
       decided.signalAll();
       LOG.debug(
           "BackwardHeaderDriver: extending walk by one batch (extraBatches={}, stopBlock={})",
