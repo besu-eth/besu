@@ -300,13 +300,14 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   /** Emits the periodic recovery-progress WARN every {@link #RECOVERY_WARN_EVERY_N_BATCHES}. */
   private void emitRecoveryMilestoneLog(final int extras) {
     final int extraHeaders = extras * batchSize;
+    final long hoursOfHistory = extraHeaders / 300; // mainnet: ~300 blocks/hour at 12 s slot
     LOG.warn(
-        "Anchor recovery still walking after {} extra batches (~{} headers below previous anchor). "
+        "Anchor recovery still walking after {} extra batches (~{} hr of mainnet history below previous anchor). "
             + "currentLowestHeader=#{} ({}). CL finalization status: {}",
         extras,
-        extraHeaders,
-        currentChildHeader.getNumber(),
-        currentChildHeader.getHash(),
+        hoursOfHistory,
+        lowestImportedHeader.getNumber(),
+        lowestImportedHeader.getHash(),
         finalizationStatusSupplier.get());
   }
 

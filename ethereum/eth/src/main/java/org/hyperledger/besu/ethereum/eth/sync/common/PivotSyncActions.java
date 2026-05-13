@@ -37,7 +37,6 @@ import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 
 import java.nio.file.Path;
-import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -175,8 +174,7 @@ public class PivotSyncActions {
     // selector.
     final Supplier<String> finalizationStatusSupplier;
     if (pivotBlockSelector instanceof PivotSelectorFromSafeBlock safeSelector) {
-      final Clock clock = Clock.systemUTC();
-      finalizationStatusSupplier = () -> safeSelector.finalizationStatus(clock.millis());
+      finalizationStatusSupplier = safeSelector::finalizationStatus;
     } else {
       finalizationStatusSupplier = () -> "n/a";
     }

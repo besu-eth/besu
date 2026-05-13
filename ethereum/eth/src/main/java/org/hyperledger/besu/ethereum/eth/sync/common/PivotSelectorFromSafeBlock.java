@@ -227,6 +227,17 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
         minSinceFinalized, lastFinalizedBlockHash);
   }
 
+  /**
+   * Convenience overload using the selector's own injected clock. Prefer this in production wiring
+   * (e.g. {@code BackwardHeaderDriver}'s finalization-status supplier) so the timestamp source
+   * matches the selector's other log outputs for the same conceptual "now".
+   *
+   * @return current finalization status string
+   */
+  String finalizationStatus() {
+    return finalizationStatus(clock.millis());
+  }
+
   @Override
   public CompletableFuture<Void> prepareRetry() {
     // nothing to do
