@@ -28,7 +28,7 @@ public class PivotSyncState {
   private OptionalLong pivotBlockNumber;
   private Optional<Hash> pivotBlockHash;
   private Optional<BlockHeader> pivotBlockHeader;
-  private boolean sourceIsTrusted = false;
+  private boolean sourceIsSafe = false;
 
   public PivotSyncState() {
     pivotBlockNumber = OptionalLong.empty();
@@ -36,31 +36,31 @@ public class PivotSyncState {
     pivotBlockHeader = Optional.empty();
   }
 
-  public PivotSyncState(final long pivotBlockNumber, final boolean sourceIsTrusted) {
-    this(OptionalLong.of(pivotBlockNumber), Optional.empty(), Optional.empty(), sourceIsTrusted);
+  public PivotSyncState(final long pivotBlockNumber, final boolean sourceIsSafe) {
+    this(OptionalLong.of(pivotBlockNumber), Optional.empty(), Optional.empty(), sourceIsSafe);
   }
 
-  public PivotSyncState(final Hash pivotBlockHash, final boolean sourceIsTrusted) {
-    this(OptionalLong.empty(), Optional.of(pivotBlockHash), Optional.empty(), sourceIsTrusted);
+  public PivotSyncState(final Hash pivotBlockHash, final boolean sourceIsSafe) {
+    this(OptionalLong.empty(), Optional.of(pivotBlockHash), Optional.empty(), sourceIsSafe);
   }
 
-  public PivotSyncState(final BlockHeader pivotBlockHeader, final boolean sourceIsTrusted) {
+  public PivotSyncState(final BlockHeader pivotBlockHeader, final boolean sourceIsSafe) {
     this(
         OptionalLong.of(pivotBlockHeader.getNumber()),
         Optional.of(pivotBlockHeader.getHash()),
         Optional.of(pivotBlockHeader),
-        sourceIsTrusted);
+        sourceIsSafe);
   }
 
   protected PivotSyncState(
       final OptionalLong pivotBlockNumber,
       final Optional<Hash> pivotBlockHash,
       final Optional<BlockHeader> pivotBlockHeader,
-      final boolean sourceIsTrusted) {
+      final boolean sourceIsSafe) {
     this.pivotBlockNumber = pivotBlockNumber;
     this.pivotBlockHash = pivotBlockHash;
     this.pivotBlockHeader = pivotBlockHeader;
-    this.sourceIsTrusted = sourceIsTrusted;
+    this.sourceIsSafe = sourceIsSafe;
   }
 
   public OptionalLong getPivotBlockNumber() {
@@ -90,8 +90,8 @@ public class PivotSyncState {
    *
    * @return true if the source is fully trusted, false otherwise
    */
-  public boolean isSourceTrusted() {
-    return sourceIsTrusted;
+  public boolean isSourceSafe() {
+    return sourceIsSafe;
   }
 
   public void setCurrentHeader(final BlockHeader header) {
@@ -105,7 +105,7 @@ public class PivotSyncState {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
     PivotSyncState that = (PivotSyncState) o;
-    return sourceIsTrusted == that.sourceIsTrusted
+    return sourceIsSafe == that.sourceIsSafe
         && Objects.equals(pivotBlockNumber, that.pivotBlockNumber)
         && Objects.equals(pivotBlockHash, that.pivotBlockHash)
         && Objects.equals(pivotBlockHeader, that.pivotBlockHeader);
@@ -113,7 +113,7 @@ public class PivotSyncState {
 
   @Override
   public int hashCode() {
-    return Objects.hash(pivotBlockNumber, pivotBlockHash, pivotBlockHeader, sourceIsTrusted);
+    return Objects.hash(pivotBlockNumber, pivotBlockHash, pivotBlockHeader, sourceIsSafe);
   }
 
   @Override
@@ -125,8 +125,8 @@ public class PivotSyncState {
         + pivotBlockHash
         + ", pivotBlockHeader="
         + pivotBlockHeader
-        + ", sourceIsTrusted="
-        + sourceIsTrusted
+        + ", sourceIsSafe="
+        + sourceIsSafe
         + '}';
   }
 }

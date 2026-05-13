@@ -83,7 +83,7 @@ class PivotSelectorFromSafeBlockTest {
     final PivotSyncState state = selector.selectNewPivotBlock().get();
 
     assertThat(state.getPivotBlockHash()).contains(SAFE_HASH_1);
-    assertThat(state.isSourceTrusted()).isTrue();
+    assertThat(state.isSourceSafe()).isTrue();
   }
 
   @Test
@@ -106,7 +106,7 @@ class PivotSelectorFromSafeBlockTest {
     final PivotSyncState state = selector.selectNewPivotBlock().get();
 
     assertThat(state.getPivotBlockHash()).contains(HEAD_HASH_2);
-    assertThat(state.isSourceTrusted()).isFalse();
+    assertThat(state.isSourceSafe()).isFalse();
   }
 
   @Test
@@ -147,7 +147,7 @@ class PivotSelectorFromSafeBlockTest {
     clock.stepMillis(Duration.ofSeconds(30).toMillis());
     PivotSyncState second = selector.selectNewPivotBlock().get();
     assertThat(second.getPivotBlockHash()).contains(HEAD_HASH_2);
-    assertThat(second.isSourceTrusted()).isFalse();
+    assertThat(second.isSourceSafe()).isFalse();
   }
 
   @Test
@@ -173,7 +173,7 @@ class PivotSelectorFromSafeBlockTest {
     PivotSyncState state = selector.selectNewPivotBlock().get();
 
     assertThat(state.getPivotBlockHash()).contains(SAFE_HASH_2);
-    assertThat(state.isSourceTrusted()).isTrue();
+    assertThat(state.isSourceSafe()).isTrue();
   }
 
   private static BlockHeader headerWithHash(final Hash hash, final long number) {

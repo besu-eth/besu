@@ -146,7 +146,7 @@ public class PivotSyncActions {
             unused ->
                 currentState
                     .getPivotBlockHash()
-                    .map(hash -> downloadPivotBlockHeader(hash, currentState.isSourceTrusted()))
+                    .map(hash -> downloadPivotBlockHeader(hash, currentState.isSourceSafe()))
                     .orElseGet(
                         () ->
                             new PivotBlockRetriever(
@@ -182,7 +182,7 @@ public class PivotSyncActions {
   }
 
   private CompletableFuture<PivotSyncState> downloadPivotBlockHeader(
-      final Hash hash, final boolean sourceIsTrusted) {
+      final Hash hash, final boolean sourceIsSafe) {
     LOG.debug("Downloading pivot block header by hash {}", hash);
     return ethContext
         .getScheduler()
@@ -229,7 +229,7 @@ public class PivotSyncActions {
                     .log();
               }
             })
-        .thenApply(blockHeader -> new PivotSyncState(blockHeader, sourceIsTrusted));
+        .thenApply(blockHeader -> new PivotSyncState(blockHeader, sourceIsSafe));
   }
 
   public boolean isBlockchainBehind(final long blockNumber) {

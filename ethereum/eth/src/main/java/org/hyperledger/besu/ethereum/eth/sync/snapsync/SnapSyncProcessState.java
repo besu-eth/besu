@@ -42,7 +42,7 @@ public class SnapSyncProcessState extends PivotSyncState {
         fastSyncState.getPivotBlockNumber(),
         fastSyncState.getPivotBlockHash(),
         fastSyncState.getPivotBlockHeader(),
-        fastSyncState.isSourceTrusted());
+        fastSyncState.isSourceSafe());
     this.firstPivotBlockHeader = firstPivotBlockHeader;
   }
 

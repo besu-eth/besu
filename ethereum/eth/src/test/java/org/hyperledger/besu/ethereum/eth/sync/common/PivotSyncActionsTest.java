@@ -70,7 +70,7 @@ import org.junit.jupiter.params.provider.ArgumentsSource;
 /**
  * Tests for {@link PivotSyncActions}.
  *
- * <p>This class also pins the {@code sourceIsTrusted} propagation contract that {@link
+ * <p>This class also pins the {@code sourceIsSafe} propagation contract that {@link
  * PivotSelectorFromSafeBlock} (and any other selector that hands back a pivot identified by hash)
  * relies on: when {@link PivotSyncActions#downloadPivotBlockHeader} is called with a {@link
  * PivotSyncState} carrying only a hash plus a trust flag, the resolved {@link PivotSyncState} (with
@@ -103,7 +103,7 @@ public class PivotSyncActionsTest {
   }
 
   /**
-   * Cartesian product of {@link DataStorageFormat} and {@code sourceIsTrusted}. Used by the
+   * Cartesian product of {@link DataStorageFormat} and {@code sourceIsSafe}. Used by the
    * propagation-contract tests below to assert that the trust flag survives a round-trip through
    * {@link PivotSyncActions#downloadPivotBlockHeader} for both values.
    */
@@ -483,7 +483,7 @@ public class PivotSyncActionsTest {
   }
 
   /**
-   * Regression test for the {@code sourceIsTrusted} propagation contract documented in this class's
+   * Regression test for the {@code sourceIsSafe} propagation contract documented in this class's
    * javadoc.
    *
    * <p>Constructs a hash-only {@link PivotSyncState} with an explicit trust flag, runs it through
@@ -491,13 +491,13 @@ public class PivotSyncActionsTest {
    * to forward the flag into the private hash-based download and {@code PivotSyncActions.java:232}
    * to weave it back into the resulting state), and asserts that the trust flag on the resolved
    * state is identical to the input. Without this guarantee, the head-fallback path of {@link
-   * PivotSelectorFromSafeBlock} (which intentionally emits {@code sourceIsTrusted=false}) would
+   * PivotSelectorFromSafeBlock} (which intentionally emits {@code sourceIsSafe=false}) would
    * silently be promoted to {@code true} once the header was fetched.
    */
-  @ParameterizedTest(name = "storageFormat={0}, sourceIsTrusted={1}")
+  @ParameterizedTest(name = "storageFormat={0}, sourceIsSafe={1}")
   @ArgumentsSource(PivotSyncActionsSourceTrustArguments.class)
-  public void downloadPivotBlockHeaderShouldPreserveSourceIsTrustedFlag(
-      final DataStorageFormat storageFormat, final boolean sourceIsTrusted) {
+  public void downloadPivotBlockHeaderShouldPreserveSourceIsSafeFlag(
+      final DataStorageFormat storageFormat, final boolean sourceIsSafe) {
     setUp(storageFormat, Optional.of(1));
     pivotSyncActions =
         createPivotSyncActions(
@@ -516,10 +516,10 @@ public class PivotSyncActionsTest {
 
     final CompletableFuture<PivotSyncState> result =
         pivotSyncActions.downloadPivotBlockHeader(
-            new PivotSyncState(expectedHeader.getHash(), sourceIsTrusted));
+            new PivotSyncState(expectedHeader.getHash(), sourceIsSafe));
 
-    assertThat(result).isCompletedWithValue(new PivotSyncState(expectedHeader, sourceIsTrusted));
-    assertThat(result.join().isSourceTrusted()).isEqualTo(sourceIsTrusted);
+    assertThat(result).isCompletedWithValue(new PivotSyncState(expectedHeader, sourceIsSafe));
+    assertThat(result.join().isSourceSafe()).isEqualTo(sourceIsSafe);
   }
 
   private PivotSyncActions createPivotSyncActions(
