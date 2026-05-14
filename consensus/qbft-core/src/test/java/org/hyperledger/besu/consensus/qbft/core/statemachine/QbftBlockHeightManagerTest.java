@@ -632,12 +632,13 @@ public class QbftBlockHeightManagerTest {
     when(blockEncoder.readFrom(any()))
         .thenAnswer(
             inv -> {
-              ((RLPInput) inv.getArgument(0)).readBytes();
+              inv.getArgument(0, RLPInput.class).readBytes();
               return createdBlock;
             });
     doAnswer(
             inv -> {
-              ((RLPOutput) inv.getArgument(1)).writeBytes(org.apache.tuweni.bytes.Bytes.of(0xAB));
+              inv.getArgument(1, RLPOutput.class)
+                  .writeBytes(org.apache.tuweni.bytes.Bytes.of(0xAB));
               return null;
             })
         .when(blockEncoder)

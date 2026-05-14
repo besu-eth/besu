@@ -62,12 +62,12 @@ public class RoundChangeTest {
     when(blockEncoder.readFrom(any()))
         .thenAnswer(
             inv -> {
-              ((RLPInput) inv.getArgument(0)).readBytes();
+              inv.getArgument(0, RLPInput.class).readBytes();
               return BLOCK;
             });
     doAnswer(
             inv -> {
-              ((RLPOutput) inv.getArgument(1)).writeBytes(blockPlaceholder);
+              inv.getArgument(1, RLPOutput.class).writeBytes(blockPlaceholder);
               return null;
             })
         .when(blockEncoder)
