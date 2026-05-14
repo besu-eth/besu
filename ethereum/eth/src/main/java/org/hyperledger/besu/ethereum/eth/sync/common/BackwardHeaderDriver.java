@@ -48,12 +48,6 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   private static final int LOG_DELAY_SECONDS = 30;
   private static final int RECOVERY_WARN_EVERY_N_BATCHES = 3;
 
-  /** Decision the import side hands to the source side at the anchor boundary. */
-  private enum Decision {
-    EXTEND,
-    STOP
-  }
-
   // Source-side state
   private final AtomicLong currentBlock;
   private final int batchSize;
@@ -71,13 +65,14 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   private volatile BlockHeader currentChildHeader;
   private volatile BlockHeader lowestImportedHeader;
 
-  // Anchor-reorg recovery coordination. The import side puts one Decision onto the queue per
-  // boundary batch (EXTEND = walk one more batch; STOP = finished). The source side blocks on
-  // {@code decisions.take()} in hasNext() once it reaches the original anchor and caches the
-  // result in {@code held} until next() emits the corresponding batch.
-  private final BlockingQueue<Decision> decisions = new LinkedBlockingQueue<>();
+  // Anchor-reorg recovery coordination. The import side puts one decision onto the queue per
+  // boundary batch: {@code true} = walk one more batch (EXTEND); {@code false} = finished
+  // (STOP). The source side blocks on {@code decisions.take()} in hasNext() once it reaches
+  // the original anchor and caches the result in {@code held} until next() emits the
+  // corresponding batch.
+  private final BlockingQueue<Boolean> decisions = new LinkedBlockingQueue<>();
   // Cached decision; accessed only on the source thread (set in hasNext, cleared in next).
-  private Decision held;
+  private Boolean held;
   // Number of extra batches stored below the original anchor; written by accept(), read by
   // emit*Log helpers on the same thread.
   private int extraBatchesRequested = 0;
@@ -168,7 +163,8 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         return false;
       }
     }
-    return held == Decision.EXTEND;
+    // held is non-null here (the if-block above guarantees this); auto-unbox to boolean.
+    return held;
   }
 
   @Override
@@ -178,9 +174,9 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
       // Phase 1 emit, still above the original boundary.
       return block;
     }
-    // Phase 2 emit — must have a live EXTEND permission cached by hasNext(). Consume it so the
+    // Phase 2 emit — must have a live extend permission cached by hasNext(). Consume it so the
     // next hasNext() blocks again waiting for the next batch's decision.
-    if (held == Decision.EXTEND) {
+    if (held != null && held) {
       held = null;
       return block;
     }
@@ -217,7 +213,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         blockchainStorage.storeBlockHeaders(blockHeaders);
         lowestImportedHeader = blockHeaders.getLast();
         stopped = true;
-        decisions.add(Decision.STOP);
+        decisions.add(false);
         return;
       }
       final Optional<BlockHeader> storedAncestor = blockchainStorage.getBlockHeader(parentHash);
@@ -230,7 +226,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         lowestImportedHeader = blockHeaders.getLast();
         matchedAncestor = storedAncestor.get();
         stopped = true;
-        decisions.add(Decision.STOP);
+        decisions.add(false);
         emitRecoverySuccessLog(matchedAncestor);
         return;
       }
@@ -245,7 +241,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         recoveryMode = true;
       }
       extraBatchesRequested++;
-      decisions.add(Decision.EXTEND);
+      decisions.add(true);
       LOG.debug(
           "BackwardHeaderDriver: extending walk by one batch (extraBatches={})",
           extraBatchesRequested);
