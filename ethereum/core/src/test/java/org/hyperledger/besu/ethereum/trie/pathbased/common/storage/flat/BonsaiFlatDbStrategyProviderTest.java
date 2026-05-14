@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFullFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiPartialFlatDbStrategy;
@@ -304,6 +305,41 @@ class FlatDbStrategyProviderTest {
     assertThat(flatDbStrategyProvider.flatDbStrategy).isNotNull();
     assertThat(flatDbStrategyProvider.getFlatDbStrategy(composedWorldStateStorage))
         .isInstanceOf(BonsaiPartialFlatDbStrategy.class);
+  }
+
+  @Test
+  void proofsEnabled_archiveFormat_createsArchiveFlatDbStrategyForTrieWrites() {
+    // Toggle "fresh DB + proofs flag on": BonsaiFlatDbStrategyProvider should create
+    // BonsaiArchiveFlatDbStrategy (trie checkpointing enabled) instead of BonsaiFullFlatDbStrategy.
+    final DataStorageConfiguration proofsConfig =
+        ImmutableDataStorageConfiguration.builder()
+            .dataStorageFormat(DataStorageFormat.X_BONSAI_ARCHIVE)
+            .pathBasedExtraStorageConfiguration(
+                ImmutablePathBasedExtraStorageConfiguration.builder()
+                    .unstable(
+                        ImmutablePathBasedExtraStorageConfiguration.PathBasedUnstable.builder()
+                            .stateProofsEnabled(true)
+                            .archiveTrieNodeCheckpointInterval(100L)
+                            .build())
+                    .build())
+            .build();
+    final BonsaiFlatDbStrategyProvider proofsProvider =
+        new BonsaiFlatDbStrategyProvider(new NoOpMetricsSystem(), proofsConfig);
+
+    proofsProvider.loadFlatDbStrategy(composedWorldStateStorage);
+
+    assertThat(proofsProvider.getFlatDbStrategy(composedWorldStateStorage))
+        .isInstanceOf(BonsaiArchiveFlatDbStrategy.class);
+  }
+
+  @Test
+  void proofsDisabled_archiveFormat_createsFullFlatDbStrategyForTrieWrites() {
+    // Toggle "fresh DB + proofs flag off": default archive config uses BonsaiFullFlatDbStrategy
+    // (no trie checkpointing); behaves like besu-eth/main today.
+    archiveFlatDbStrategyProvider.loadFlatDbStrategy(composedWorldStateStorage);
+
+    assertThat(archiveFlatDbStrategyProvider.getFlatDbStrategy(composedWorldStateStorage))
+        .isExactlyInstanceOf(BonsaiFullFlatDbStrategy.class);
   }
 
   @Test
