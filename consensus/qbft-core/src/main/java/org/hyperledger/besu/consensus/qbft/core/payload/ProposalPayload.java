@@ -93,7 +93,11 @@ public class ProposalPayload extends QbftPayload {
     rlpOutput.startList();
     writeConsensusRound(rlpOutput);
     blockEncoder.writeTo(proposedBlock, rlpOutput);
-    blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOutput), rlpOutput::writeNull);
+    // When blockAccessList is absent we omit the field entirely, emitting the legacy 2-field
+    // payload format. Pre-26.1.0 peers (whose `leaveList()` is strict) can then decode Proposal
+    // messages from this node, unblocking rolling upgrades. The 3-field format is only emitted
+    // when a BlockAccessList is actually present.
+    blockAccessList.ifPresent(bal -> bal.writeTo(rlpOutput));
     rlpOutput.endList();
   }
 

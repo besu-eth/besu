@@ -16,6 +16,7 @@ package org.hyperledger.besu.consensus.qbft.core.messagewrappers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.common.bft.ConsensusRoundIdentifier;
@@ -32,6 +33,8 @@ import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.core.Util;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLPInput;
+import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
 import java.util.Collections;
 import java.util.List;
@@ -52,7 +55,23 @@ public class RoundChangeTest {
 
   @Test
   public void canRoundTripARoundChangeMessage() {
-    when(blockEncoder.readFrom(any())).thenReturn(BLOCK);
+    // Stub the mock codec to round-trip a single byte for the block. Without writing real bytes
+    // for the block the encoded RLP would have only 2 top-level items (mock writeTo is a no-op),
+    // which decode interprets as a malformed message.
+    final Bytes blockPlaceholder = Bytes.of(0xAB);
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              ((RLPInput) inv.getArgument(0)).readBytes();
+              return BLOCK;
+            });
+    doAnswer(
+            inv -> {
+              ((RLPOutput) inv.getArgument(1)).writeBytes(blockPlaceholder);
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
 
     final NodeKey nodeKey = NodeKeyUtils.generate();
     final Address addr = Util.publicKeyToAddress(nodeKey.getPublicKey());

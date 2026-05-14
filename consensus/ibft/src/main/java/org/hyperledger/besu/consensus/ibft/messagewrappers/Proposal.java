@@ -108,7 +108,8 @@ public class Proposal extends BftMessage<ProposalPayload> {
     } else {
       rlpOut.writeNull();
     }
-    blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOut), rlpOut::writeNull);
+    // Omit blockAccessList when absent so pre-26.1.0 peers can decode this message.
+    blockAccessList.ifPresent(bal -> bal.writeTo(rlpOut));
     rlpOut.endList();
     return rlpOut.encoded();
   }

@@ -113,7 +113,11 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
     rlpOut.startList();
     getSignedPayload().writeTo(rlpOut);
     proposedBlock.ifPresentOrElse(pb -> blockEncoder.writeTo(pb, rlpOut), rlpOut::writeEmptyList);
-    blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOut), rlpOut::writeNull);
+    // When blockAccessList is absent we omit the field entirely, emitting the legacy 3-item
+    // wire format. Pre-26.1.0 peers (which don't know about blockAccessList) can then decode
+    // RoundChange messages from this node, unblocking rolling upgrades. The 4-item format is
+    // only emitted when a BlockAccessList is actually present.
+    blockAccessList.ifPresent(bal -> bal.writeTo(rlpOut));
     rlpOut.writeList(prepares, SignedData::writeTo);
     rlpOut.endList();
     return rlpOut.encoded();
@@ -143,7 +147,7 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
     // Backward compatibility: pre-26.1.0 RoundChange has 3 items, [SignedPayload, Block, Prepares].
     // Current format has 4 items: [SignedPayload, Block, BAL-or-null, Prepares]. Because BAL sits
     // BEFORE Prepares, isEndOfCurrentList() inside readBlockAccessList alone cannot detect the
-    // legacy shape — Prepares is still pending. Use the item count from enterList() to
+    // legacy shape (Prepares is still pending). Use the item count from enterList() to
     // disambiguate.
     // We additionally guard on !nextIsNull(): in production a legacy 3-item RoundChange has the
     // Prepares list (never RLP null) at this position, while a current 4-item message has either
