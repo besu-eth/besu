@@ -223,7 +223,6 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         dbOptions.close();
         configOptions.close();
       }
-      }
     } catch (RocksDBException ex) {
       // Options file is not found in the database
     }
