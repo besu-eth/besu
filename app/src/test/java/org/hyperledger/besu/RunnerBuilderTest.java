@@ -496,6 +496,39 @@ public final class RunnerBuilderTest {
   }
 
   @Test
+  public void buildWithNullGraphQLConfiguration() {
+    setupBlockchainAndBlock();
+
+    // Build a Runner with null graphQLConfiguration - should not throw NPE
+    final Runner runner =
+        new RunnerBuilder()
+            .p2pListenInterface("0.0.0.0")
+            .p2pListenPort(30303)
+            .p2pAdvertisedHost("127.0.0.1")
+            .p2pEnabled(false)
+            .discoveryEnabled(false)
+            .besuController(besuController)
+            .ethNetworkConfig(mock(EthNetworkConfig.class))
+            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .permissioningService(mock(PermissioningServiceImpl.class))
+            .jsonRpcConfiguration(mock(JsonRpcConfiguration.class))
+            // graphQLConfiguration is deliberately null
+            .webSocketConfiguration(mock(WebSocketConfiguration.class))
+            .jsonRpcIpcConfiguration(mock(JsonRpcIpcConfiguration.class))
+            .inProcessRpcConfiguration(mock(InProcessRpcConfiguration.class))
+            .metricsConfiguration(mock(MetricsConfiguration.class))
+            .vertx(vertx)
+            .dataDir(dataDir)
+            .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
+            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .apiConfiguration(ImmutableApiConfiguration.builder().build())
+            .transactionValidatorService(mock(TransactionValidatorServiceImpl.class))
+            .build();
+
+    assertThat(runner).isNotNull();
+  }
+
+  @Test
   public void buildWithNullJsonRpcIpcConfiguration() {
     setupBlockchainAndBlock();
 

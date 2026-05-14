@@ -664,16 +664,24 @@ public class RunnerBuilder {
     // library-provided defaults where available so behaviour remains backwards
     // compatible (disabled by default).
     if (jsonRpcConfiguration == null) {
-      jsonRpcConfiguration = org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration.createDefault();
+      jsonRpcConfiguration =
+          org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration.createDefault();
     }
     if (webSocketConfiguration == null) {
-      webSocketConfiguration = org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration.createDefault();
+      webSocketConfiguration =
+          org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration
+              .createDefault();
+    }
+    if (graphQLConfiguration == null) {
+      graphQLConfiguration = GraphQLConfiguration.createDefault();
     }
     if (jsonRpcIpcConfiguration == null) {
-      jsonRpcIpcConfiguration = new org.hyperledger.besu.ethereum.api.jsonrpc.ipc.JsonRpcIpcConfiguration();
+      jsonRpcIpcConfiguration =
+          new org.hyperledger.besu.ethereum.api.jsonrpc.ipc.JsonRpcIpcConfiguration();
     }
     if (inProcessRpcConfiguration == null) {
-      inProcessRpcConfiguration = new org.hyperledger.besu.ethereum.api.jsonrpc.InProcessRpcConfiguration() {};
+      inProcessRpcConfiguration =
+          new org.hyperledger.besu.ethereum.api.jsonrpc.InProcessRpcConfiguration() {};
     }
     if (besuPluginContext == null) {
       besuPluginContext = new org.hyperledger.besu.services.BesuPluginContextImpl();
