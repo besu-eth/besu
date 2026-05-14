@@ -25,6 +25,7 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
+import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -267,13 +268,16 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
         maybePayloadAttributes.map(
             payloadAttributes ->
                 mergeCoordinator.preparePayload(
-                    newHead,
-                    payloadAttributes.getTimestamp(),
-                    payloadAttributes.getPrevRandao(),
-                    payloadAttributes.getSuggestedFeeRecipient(),
-                    finalWithdrawals,
-                    Optional.ofNullable(payloadAttributes.getParentBeaconBlockRoot()),
-                    Optional.ofNullable(payloadAttributes.getSlotNumber())));
+                    new PreparePayloadArgsBuilder()
+                        .parentHeader(newHead)
+                        .timestamp(payloadAttributes.getTimestamp())
+                        .prevRandao(payloadAttributes.getPrevRandao())
+                        .feeRecipient(payloadAttributes.getSuggestedFeeRecipient())
+                        .withdrawals(finalWithdrawals)
+                        .parentBeaconBlockRoot(
+                            Optional.ofNullable(payloadAttributes.getParentBeaconBlockRoot()))
+                        .slotNumber(Optional.ofNullable(payloadAttributes.getSlotNumber()))
+                        .build()));
 
     payloadId.ifPresent(
         pid ->
