@@ -61,8 +61,11 @@ public class ProposalPayload extends QbftPayload {
    * @param proposedBlock the proposed block
    * @param blockEncoder the qbft block encoder
    * @param blockAccessList the block access list
-   * @param useLegacyEncoding when true, omit the blockAccessList field entirely if absent, emitting
-   *     the pre-26.1.0 2-field wire format that Besu 25.x peers can decode
+   * @param useLegacyEncoding when true and blockAccessList is absent, omit the blockAccessList slot
+   *     entirely, emitting the pre-26.1.0 2-field wire format that Besu 25.x peers can decode. When
+   *     blockAccessList is present the current 3-field format is emitted regardless and 25.x peers
+   *     cannot decode it; the flag therefore only enables 25.x interop on chains where BAL is not
+   *     active.
    */
   public ProposalPayload(
       final ConsensusRoundIdentifier roundIdentifier,
@@ -115,9 +118,12 @@ public class ProposalPayload extends QbftPayload {
     writeConsensusRound(rlpOutput);
     blockEncoder.writeTo(proposedBlock, rlpOutput);
     if (useLegacyEncoding) {
-      // Pre-26.1.0 wire format: omit the blockAccessList field entirely when absent so that
-      // Besu 25.x peers (whose leaveList() is strict) can decode this payload. The 3-field
-      // format is still emitted when a BlockAccessList is actually present.
+      // Pre-26.1.0 wire format: omit the blockAccessList slot entirely when absent so that
+      // Besu 25.x peers (whose leaveList() is strict) can decode this payload. When a
+      // BlockAccessList is actually present we still emit the 3-field format - dropping BAL
+      // data on the wire would risk consensus divergence on chains where BAL is active. The
+      // flag therefore only enables 25.x interop on chains where BAL is not active (which is
+      // the typical enterprise QBFT scenario).
       blockAccessList.ifPresent(bal -> bal.writeTo(rlpOutput));
     } else {
       // Current 26.1.0+ wire format: always emit the BAL slot using the null marker when absent.

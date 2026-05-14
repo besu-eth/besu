@@ -227,9 +227,11 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   protected boolean isEarlyRoundChangeEnabled = false;
 
   /**
-   * When enabled, QBFT encodes RoundChange and Proposal messages in the pre-26.1.0 wire format
-   * (omits the blockAccessList field when absent). Only required for rolling upgrades from Besu
-   * 25.x peers; breaks interop with Besu 26.1.0 - 26.5.0 peers.
+   * When enabled, QBFT encodes RoundChange and Proposal messages in the pre-26.1.0 wire format when
+   * blockAccessList is absent (omits the BAL slot entirely). Only required for rolling upgrades
+   * from Besu 25.x peers; breaks interop with Besu 26.1.0 - 26.5.0 peers. When blockAccessList is
+   * present the current format is still emitted, so 25.x interop only holds on chains where BAL is
+   * not active.
    */
   protected boolean isLegacyRoundChangeEncodingEnabled = false;
 

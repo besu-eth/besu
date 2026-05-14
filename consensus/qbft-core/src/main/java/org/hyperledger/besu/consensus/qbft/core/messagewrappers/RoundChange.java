@@ -73,8 +73,11 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
    * @param blockAccessList the block access list
    * @param blockEncoder the qbft block encoder
    * @param prepares the prepares
-   * @param useLegacyEncoding when true, omit the blockAccessList field entirely if absent, emitting
-   *     the pre-26.1.0 3-item wire format that Besu 25.x peers can decode
+   * @param useLegacyEncoding when true and blockAccessList is absent, omit the blockAccessList slot
+   *     entirely, emitting the pre-26.1.0 3-item wire format that Besu 25.x peers can decode. When
+   *     blockAccessList is present the current 4-item format is emitted regardless and 25.x peers
+   *     cannot decode it; the flag therefore only enables 25.x interop on chains where BAL is not
+   *     active.
    */
   public RoundChange(
       final SignedData<RoundChangePayload> payload,
@@ -143,9 +146,12 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
     getSignedPayload().writeTo(rlpOut);
     proposedBlock.ifPresentOrElse(pb -> blockEncoder.writeTo(pb, rlpOut), rlpOut::writeEmptyList);
     if (useLegacyEncoding) {
-      // Pre-26.1.0 wire format: omit the blockAccessList field entirely when absent so that
+      // Pre-26.1.0 wire format: omit the blockAccessList slot entirely when absent so that
       // Besu 25.x peers (which do not know about blockAccessList) can decode this message.
-      // When a BlockAccessList is actually present, we still emit the 4-item format.
+      // When a BlockAccessList is actually present we still emit the 4-item format - dropping
+      // BAL data on the wire would risk consensus divergence on chains where BAL is active.
+      // The flag therefore only enables 25.x interop on chains where BAL is not active (which
+      // is the typical enterprise QBFT scenario).
       blockAccessList.ifPresent(bal -> bal.writeTo(rlpOut));
     } else {
       // Current 26.1.0+ wire format: always emit a slot for blockAccessList, using the null

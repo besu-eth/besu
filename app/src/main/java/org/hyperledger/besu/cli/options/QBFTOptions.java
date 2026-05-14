@@ -41,11 +41,15 @@ public class QBFTOptions {
   @CommandLine.Option(
       names = {"--Xqbft-legacy-roundchange-encoding"},
       description =
-          "Emit the pre-26.1.0 QBFT RoundChange and Proposal wire format (omits the "
-              + "blockAccessList field when absent). Set to true only when rolling-upgrading "
-              + "from Besu 25.x peers; this format cannot be decoded by Besu 26.1.0-26.5.0 "
-              + "peers. The flag is experimental and will be removed once Besu 25.x is no "
-              + "longer supported. (default: ${DEFAULT-VALUE})",
+          "Emit the pre-26.1.0 QBFT RoundChange and Proposal wire format when blockAccessList "
+              + "is absent (omits the field entirely instead of writing a null marker). Set to "
+              + "true only when rolling-upgrading from Besu 25.x peers. Note: when "
+              + "blockAccessList is present, the current 4-item / 3-field format is still "
+              + "emitted (the flag does not unconditionally drop BAL on the wire); 25.x "
+              + "compatibility therefore only holds on chains where BAL is not active. The "
+              + "current format cannot be decoded by Besu 26.1.0-26.5.0 peers either way. "
+              + "The flag is experimental and will be removed once Besu 25.x is no longer "
+              + "supported. (default: ${DEFAULT-VALUE})",
       arity = "1",
       hidden = true)
   private boolean legacyRoundChangeEncoding = false;

@@ -57,10 +57,12 @@ public class MessageFactory {
    *
    * @param nodeKey the node key
    * @param blockEncoder the block encoder
-   * @param useLegacyEncoding when true, emit the pre-26.1.0 wire format for RoundChange and
-   *     ProposalPayload (omits the blockAccessList field when absent). Required for interop with
-   *     Besu 25.x peers during a rolling upgrade. When false, emits the current 26.1.0+ format
-   *     which 26.1.0-26.5.0 peers expect.
+   * @param useLegacyEncoding when true, emit the pre-26.1.0 RoundChange / ProposalPayload wire
+   *     format when blockAccessList is absent (omits the BAL slot entirely). Required for interop
+   *     with Besu 25.x peers during a rolling upgrade. When blockAccessList is present, the current
+   *     26.1.0+ format is emitted regardless of this flag; 25.x interop therefore only holds on
+   *     chains where BAL is not active. When false, emits the current 26.1.0+ format
+   *     unconditionally - which is what Besu 26.1.0-26.5.0 peers expect.
    */
   public MessageFactory(
       final NodeKey nodeKey, final QbftBlockCodec blockEncoder, final boolean useLegacyEncoding) {
