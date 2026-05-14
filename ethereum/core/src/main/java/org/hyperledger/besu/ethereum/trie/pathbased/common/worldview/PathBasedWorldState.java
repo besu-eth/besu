@@ -171,6 +171,11 @@ public abstract class PathBasedWorldState
   }
 
   @Override
+  public boolean isTrieDisabled() {
+    return this.worldStateConfig.isTrieDisabled();
+  }
+
+  @Override
   public void persist(final BlockHeader blockHeader, final StateRootCommitter committer) {
     LOG.atDebug()
         .setMessage("Persist world state for block {}")

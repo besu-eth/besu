@@ -71,4 +71,14 @@ public interface MutableWorldState extends WorldState, MutableWorldView {
     // no op
     throw new UnsupportedOperationException("cannot disable trie");
   }
+
+  /**
+   * Indicates whether the trie structure has been disabled for this world state. When the trie is
+   * disabled, proof generation that relies on the trie is not supported.
+   *
+   * @return {@code true} if the trie is disabled, {@code false} otherwise.
+   */
+  default boolean isTrieDisabled() {
+    return false;
+  }
 }
