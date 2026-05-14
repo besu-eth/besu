@@ -108,26 +108,34 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
   public Optional<Bytes> getAccountStateTrieNode(final Bytes location, final Bytes32 nodeHash) {
     if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
-    } else {
-      return composedWorldStateStorage
-          .get(TRIE_BRANCH_STORAGE, location.toArrayUnsafe())
-          .map(Bytes::wrap)
-          .filter(b -> Hash.hash(b).getBytes().equals(nodeHash));
     }
+    return getFlatDbStrategy()
+        .getFlatAccountTrieNode(location, nodeHash, composedWorldStateStorage)
+        .filter(b -> Hash.hash(b).getBytes().equals(nodeHash))
+        .or(
+            () ->
+                composedWorldStateStorage
+                    .get(TRIE_BRANCH_STORAGE, location.toArrayUnsafe())
+                    .map(Bytes::wrap)
+                    .filter(b -> Hash.hash(b).getBytes().equals(nodeHash)));
   }
 
   public Optional<Bytes> getAccountStorageTrieNode(
       final Hash accountHash, final Bytes location, final Bytes32 nodeHash) {
     if (nodeHash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
       return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
-    } else {
-      return composedWorldStateStorage
-          .get(
-              TRIE_BRANCH_STORAGE,
-              Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe())
-          .map(Bytes::wrap)
-          .filter(b -> Hash.hash(b).getBytes().equals(nodeHash));
     }
+    return getFlatDbStrategy()
+        .getFlatStorageTrieNode(accountHash, location, nodeHash, composedWorldStateStorage)
+        .filter(b -> Hash.hash(b).getBytes().equals(nodeHash))
+        .or(
+            () ->
+                composedWorldStateStorage
+                    .get(
+                        TRIE_BRANCH_STORAGE,
+                        Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe())
+                    .map(Bytes::wrap)
+                    .filter(b -> Hash.hash(b).getBytes().equals(nodeHash)));
   }
 
   public Optional<Bytes> getTrieNodeUnsafe(final Bytes key) {
