@@ -47,7 +47,7 @@ dependencies {
   compileOnly 'io.vertx:vertx-core'
   compileOnly 'org.checkerframework:checker-qual'
 
-  errorprone 'com.uber.nullaway:nullaway:0.13.1'
+  errorprone 'com.uber.nullaway:nullaway'
 
   implementation project(':crypto:algorithms')
   implementation project(':ethereum:rlp')
