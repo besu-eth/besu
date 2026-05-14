@@ -24,7 +24,8 @@ public class NetworkingTestHelper {
   public static NetworkingConfiguration configWithRandomPorts() {
     return ImmutableNetworkingConfiguration.builder()
         .rlpxConfiguration(RlpxConfiguration.create().setBindPort(0))
-        .discoveryConfiguration(DiscoveryConfiguration.create().setBindPort(0))
+        .discoveryConfiguration(
+            DiscoveryConfiguration.create().setBindPort(0).setDiscoveryV5Enabled(true))
         .build();
   }
 }

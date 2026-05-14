@@ -220,7 +220,7 @@ public class SnapSyncMetricsManager {
     final Duration duration = Duration.ofMillis(System.currentTimeMillis() - startSyncTime);
     LOG.info(
         "Finished worldstate snapsync with nodes {} (healed={}) duration {}{}:{},{}.",
-        nbTrieNodesGenerated.addAndGet(nbTrieNodesHealed.get()),
+        nbTrieNodesGenerated.get() + nbTrieNodesHealed.get(),
         nbTrieNodesHealed,
         duration.toHoursPart() > 0 ? (duration.toHoursPart() + ":") : "",
         duration.toMinutesPart(),

@@ -177,8 +177,21 @@ public class TransactionPool implements BlockAddedObserver {
     final List<Transaction> addedTransactions = new ArrayList<>(initialCount);
     LOG.trace("Adding {} remote transactions", initialCount);
 
+    // recover and cache tx sender:
+    var txStream =
+        transactions.stream()
+            .filter(
+                tx -> {
+                  try {
+                    tx.getSender();
+                    return true;
+                  } catch (IllegalArgumentException | IllegalStateException ex) {
+                    return false;
+                  }
+                });
+
     final var validationResults =
-        sortedBySenderAndNonce(transactions)
+        sortedBySenderAndNonce(txStream)
             .collect(
                 Collectors.toMap(
                     Transaction::getHash,
@@ -289,11 +302,10 @@ public class TransactionPool implements BlockAddedObserver {
         .orElse(true);
   }
 
-  private Stream<Transaction> sortedBySenderAndNonce(final Collection<Transaction> transactions) {
-    return transactions.stream()
-        .sorted(
-            Comparator.comparing((Transaction tx) -> tx.getSender().getBytes())
-                .thenComparing(Transaction::getNonce));
+  private Stream<Transaction> sortedBySenderAndNonce(final Stream<Transaction> transactions) {
+    return transactions.sorted(
+        Comparator.comparing((Transaction tx) -> tx.getSender().getBytes())
+            .thenComparing(Transaction::getNonce));
   }
 
   private boolean isPriorityTransaction(final Transaction transaction, final boolean isLocal) {
@@ -359,7 +371,7 @@ public class TransactionPool implements BlockAddedObserver {
       var reAddRemoteTxs = txsByOrigin.get(false);
       if (!reAddLocalTxs.isEmpty()) {
         logReAddedTransactions(reAddLocalTxs, "local");
-        sortedBySenderAndNonce(reAddLocalTxs).forEach(this::addTransactionViaApi);
+        sortedBySenderAndNonce(reAddLocalTxs.stream()).forEach(this::addTransactionViaApi);
       }
       if (!reAddRemoteTxs.isEmpty()) {
         logReAddedTransactions(reAddRemoteTxs, "remote");

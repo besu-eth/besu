@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.messages.snap;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 
@@ -43,6 +44,7 @@ public class GetBlockAccessListsMessageTest {
 
     assertThat(StreamSupport.stream(message.blockHashes(true).spliterator(), false))
         .containsExactlyElementsOf(blockHashes);
+    assertThat(message.responseBytes(true)).isEqualTo(AbstractSnapMessageData.SIZE_REQUEST);
   }
 
   @Test
@@ -52,5 +54,6 @@ public class GetBlockAccessListsMessageTest {
     final GetBlockAccessListsMessage message = GetBlockAccessListsMessage.readFrom(raw);
 
     assertThat(message.blockHashes(false)).isEmpty();
+    assertThat(message.responseBytes(false)).isEqualTo(AbstractSnapMessageData.SIZE_REQUEST);
   }
 }

@@ -22,7 +22,6 @@ import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.transaction.BlockSimulationParameter;
 import org.hyperledger.besu.ethereum.transaction.BlockSimulationResult;
@@ -38,6 +37,7 @@ import org.hyperledger.besu.plugin.data.BlockOverrides;
 import org.hyperledger.besu.plugin.data.PluginBlockSimulationResult;
 import org.hyperledger.besu.plugin.data.TransactionSimulationResult;
 import org.hyperledger.besu.plugin.services.BlockSimulationService;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
 

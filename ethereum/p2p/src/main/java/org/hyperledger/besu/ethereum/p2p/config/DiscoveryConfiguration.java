@@ -153,8 +153,9 @@ public class DiscoveryConfiguration {
     return this;
   }
 
-  public void setDiscoveryV5Enabled(final boolean discoveryV5Enabled) {
+  public DiscoveryConfiguration setDiscoveryV5Enabled(final boolean discoveryV5Enabled) {
     this.discoveryV5Enabled = discoveryV5Enabled;
+    return this;
   }
 
   public boolean isDiscoveryV5Enabled() {

@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptDec
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration;
 import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.util.Collections;
 import java.util.Optional;
@@ -115,6 +116,30 @@ public class TransactionReceiptEncodingConfigurationTest {
         RLP.encode(rlpOut -> TransactionReceiptEncoder.writeTo(receipt, rlpOut, encodingOptions));
     final TransactionReceipt copy = TransactionReceiptDecoder.readFrom(RLP.input(encoded), true);
     assertThat(copy).isEqualTo(receipt);
+  }
+
+  @ParameterizedTest(name = "{0}={1}")
+  @MethodSource("provider")
+  public void frontierReceiptFirstFieldEncodingDependsOnReceiptFormat(
+      final String ignored, final TransactionReceiptEncodingConfiguration encodingOptions) {
+    final TransactionReceipt receipt = createTransactionReceiptStatus(FRONTIER, 1);
+    final Bytes encoded =
+        RLP.encode(rlpOut -> TransactionReceiptEncoder.writeTo(receipt, rlpOut, encodingOptions));
+
+    final RLPInput input = RLP.input(encoded);
+    input.enterList();
+    final Bytes firstField = input.readBytes();
+
+    if (encodingOptions.isWithEth69Receipt()) {
+      assertThat(firstField)
+          .as(
+              "eth69 includes the tx type, and frontier type must be encoded as empty string (0x80)")
+          .isEqualTo(Bytes.EMPTY);
+    } else {
+      assertThat(firstField)
+          .as("legacy receipt encoding has no tx type prefix; first field is receipt status")
+          .isEqualTo(Bytes.of((byte) 1));
+    }
   }
 
   private TransactionReceipt createTransactionReceiptStatus(

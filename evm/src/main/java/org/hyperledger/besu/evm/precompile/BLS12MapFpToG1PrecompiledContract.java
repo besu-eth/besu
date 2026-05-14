@@ -17,7 +17,6 @@ package org.hyperledger.besu.evm.precompile;
 import org.hyperledger.besu.nativelib.gnark.LibGnarkEIP2537;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import org.apache.tuweni.bytes.Bytes;
 
 /** The BLS12MapFpToG1 precompiled contract. */
@@ -25,7 +24,7 @@ public class BLS12MapFpToG1PrecompiledContract extends AbstractBLS12PrecompiledC
 
   private static final int PARAMETER_LENGTH = 64;
   private static final Cache<Integer, PrecompileInputResultTuple> mapFpToG1Cache =
-      Caffeine.newBuilder().maximumSize(1000).build();
+      AbstractPrecompiledContract.resultCacheBuilder().build();
 
   /** Instantiates a new BLS12MapFpToG1 precompiled contract. */
   BLS12MapFpToG1PrecompiledContract() {

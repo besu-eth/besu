@@ -16,10 +16,15 @@ package org.hyperledger.besu.ethereum.core;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncodingConfiguration;
 import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.rlp.RLPInput;
+
+import java.util.List;
+import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
@@ -161,5 +166,25 @@ public class TransactionReceiptTest {
         TransactionReceiptDecoder.readFrom(
             RLP.input(Bytes.fromHexString(encodedReceiptWith0x80AsType)), false);
     assertThat(with0x00).isEqualTo(with0x80);
+  }
+
+  @Test
+  public void encodeEth69FrontierTypeAs0x80() {
+    final TransactionReceiptEncodingConfiguration encodingConfiguration =
+        TransactionReceiptEncodingConfiguration.ETH69_RECEIPT_CONFIGURATION;
+    final BlockDataGenerator gen = new BlockDataGenerator();
+    final TransactionReceipt frontierReceipt =
+        new TransactionReceipt(
+            TransactionType.FRONTIER, 1, 1L, List.of(gen.log()), Optional.empty());
+
+    final Bytes encodedReceipt =
+        RLP.encode(
+            rlpOut ->
+                TransactionReceiptEncoder.writeTo(frontierReceipt, rlpOut, encodingConfiguration));
+
+    final RLPInput input = RLP.input(encodedReceipt);
+    input.enterList();
+    assertThat(input.readBytes()).isEqualTo(Bytes.EMPTY);
+    assertThat(RLP.encode(out -> out.writeBytes(Bytes.EMPTY))).isEqualTo(Bytes.of(0x80));
   }
 }

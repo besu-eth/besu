@@ -117,12 +117,13 @@ public abstract class AbstractBLS12PrecompiledContract implements PrecompiledCon
     PrecompileInputResultTuple res = null;
 
     Integer cacheKey = null;
+    final Bytes cachedInput = input.size() > inputLimit ? input.slice(0, inputLimit) : input;
 
     if (enableResultCaching) {
-      cacheKey = AbstractPrecompiledContract.getCacheKey(input);
+      cacheKey = AbstractPrecompiledContract.getCacheKey(input, inputLimit);
       res = getCache().getIfPresent(cacheKey);
       if (res != null) {
-        if (res.cachedInput().equals(input)) {
+        if (res.cachedInput().equals(cachedInput)) {
           cacheEventConsumer.accept(
               new AbstractPrecompiledContract.CacheEvent(
                   name, AbstractPrecompiledContract.CacheMetric.HIT));
@@ -134,7 +135,7 @@ public abstract class AbstractBLS12PrecompiledContract implements PrecompiledCon
               input.getClass().getSimpleName(),
               cacheKey,
               res.cachedInput().toHexString(),
-              input.toHexString());
+              cachedInput.toHexString());
 
           cacheEventConsumer.accept(
               new AbstractPrecompiledContract.CacheEvent(
@@ -169,7 +170,7 @@ public abstract class AbstractBLS12PrecompiledContract implements PrecompiledCon
     if (errorNo == 0) {
       res =
           new PrecompileInputResultTuple(
-              enableResultCaching ? input.copy() : input,
+              enableResultCaching ? cachedInput.copy() : input,
               PrecompileContractResult.success(Bytes.wrap(result, 0, o_len.getValue())));
     } else {
       final String errorMessage = new String(error, 0, err_len.getValue(), UTF_8);
@@ -177,7 +178,7 @@ public abstract class AbstractBLS12PrecompiledContract implements PrecompiledCon
       LOG.trace("Error executing precompiled contract {}: '{}'", name, errorMessage);
       res =
           new PrecompileInputResultTuple(
-              enableResultCaching ? input.copy() : input,
+              enableResultCaching ? cachedInput.copy() : input,
               PrecompileContractResult.halt(
                   null, Optional.of(ExceptionalHaltReason.PRECOMPILE_ERROR)));
     }

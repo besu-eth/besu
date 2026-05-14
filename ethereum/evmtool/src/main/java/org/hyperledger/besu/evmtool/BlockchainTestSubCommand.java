@@ -25,7 +25,6 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockImporter;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.mainnet.BlockImportResult;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -34,10 +33,14 @@ import org.hyperledger.besu.ethereum.referencetests.BlockchainReferenceTestCaseS
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
+import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.AccountState;
 import org.hyperledger.besu.evm.internal.EvmConfiguration.WorldUpdaterMode;
+import org.hyperledger.besu.evm.precompile.AbstractBLS12PrecompiledContract;
+import org.hyperledger.besu.evm.precompile.AbstractPrecompiledContract;
+import org.hyperledger.besu.evm.precompile.KZGPointEvalPrecompiledContract;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
 import org.hyperledger.besu.evm.tracing.StreamingOperationTracer;
@@ -45,6 +48,7 @@ import org.hyperledger.besu.evm.worldstate.WorldView;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.BlockImportTracerProvider;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -110,6 +114,13 @@ public class BlockchainTestSubCommand implements Runnable {
   private String traceOutput = null;
 
   @Option(
+      names = {"--cache-precompiles"},
+      description =
+          "Enable precompile result caching, matching the runtime behavior of `--cache-precompiles` in besu.",
+      negatable = true)
+  private Boolean enablePrecompileCache = false;
+
+  @Option(
       names = {"--verbose"},
       description = "Verbose logs, listing all skipped tests")
   private final Boolean verbose = false;
@@ -173,6 +184,9 @@ public class BlockchainTestSubCommand implements Runnable {
 
   @Override
   public void run() {
+    AbstractPrecompiledContract.setPrecompileCaching(enablePrecompileCache);
+    AbstractBLS12PrecompiledContract.setPrecompileCaching(enablePrecompileCache);
+    KZGPointEvalPrecompiledContract.setPrecompileCaching(enablePrecompileCache);
     final ObjectMapper blockchainTestMapper = JsonUtils.createObjectMapper();
     final TestResults results = new TestResults();
 
@@ -274,7 +288,8 @@ public class BlockchainTestSubCommand implements Runnable {
       parentCommand.out.println("Running " + test);
     }
     final MutableBlockchain blockchain = spec.buildBlockchain();
-    final ProtocolContext context = spec.buildProtocolContext(blockchain);
+    final ProtocolContext context =
+        spec.buildProtocolContext(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG, blockchain);
 
     final BlockHeader genesisBlockHeader = spec.getGenesisBlockHeader();
     final MutableWorldState worldState =
