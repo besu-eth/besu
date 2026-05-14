@@ -22,6 +22,7 @@
 - Fix `debug_trace*` `storage` field to emit only for SLOAD/SSTORE opcodes showing the single slot touched, matching the execution-apis spec and geth behaviour [#10176](https://github.com/besu-eth/besu/pull/10176)
 
 ### Additions and Improvements
+- Add state-proof support for Bonsai archive nodes: when `--Xbonsai-state-proofs-enabled` is set, trie nodes are checkpointed at configurable block intervals and `eth_getProof` can be served for any historical block covered by the archive
 - Add `eth_getStorageValues` JSON-RPC method for batched reads of multiple storage slots across multiple accounts in a single call [#10259](https://github.com/besu-eth/besu/pull/10259)
 - Add `enableReturnData` parameter to `debug_traceTransaction` and `debug_traceBlockByNumber`, and include `returnData` in `StructLog` when captured; the field is omitted when return data is empty or not captured. [#10172](https://github.com/besu-eth/besu/pull/10172)
 - Updated `Bouncycastle` to 1.84 and `maven-artifact` to 3.9.15 to resolve CVEs reported in those libraries. Besu's usage patterns are not affected by these vulnerabilities. [#10420](https://github.com/besu-eth/besu/pull/10420)
