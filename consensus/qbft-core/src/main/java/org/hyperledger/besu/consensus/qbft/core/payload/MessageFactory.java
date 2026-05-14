@@ -40,6 +40,7 @@ public class MessageFactory {
 
   private final NodeKey nodeKey;
   private final QbftBlockCodec blockEncoder;
+  private final boolean useLegacyEncoding;
 
   /**
    * Instantiates a new Message factory.
@@ -48,8 +49,24 @@ public class MessageFactory {
    * @param blockEncoder the block encoder
    */
   public MessageFactory(final NodeKey nodeKey, final QbftBlockCodec blockEncoder) {
+    this(nodeKey, blockEncoder, false);
+  }
+
+  /**
+   * Instantiates a new Message factory with explicit encoding mode.
+   *
+   * @param nodeKey the node key
+   * @param blockEncoder the block encoder
+   * @param useLegacyEncoding when true, emit the pre-26.1.0 wire format for RoundChange and
+   *     ProposalPayload (omits the blockAccessList field when absent). Required for interop with
+   *     Besu 25.x peers during a rolling upgrade. When false, emits the current 26.1.0+ format
+   *     which 26.1.0-26.5.0 peers expect.
+   */
+  public MessageFactory(
+      final NodeKey nodeKey, final QbftBlockCodec blockEncoder, final boolean useLegacyEncoding) {
     this.nodeKey = nodeKey;
     this.blockEncoder = blockEncoder;
+    this.useLegacyEncoding = useLegacyEncoding;
   }
 
   /**
@@ -70,7 +87,8 @@ public class MessageFactory {
       final List<SignedData<PreparePayload>> prepares) {
 
     final ProposalPayload payload =
-        new ProposalPayload(roundIdentifier, block, blockEncoder, blockAccessList);
+        new ProposalPayload(
+            roundIdentifier, block, blockEncoder, blockAccessList, useLegacyEncoding);
 
     return new Proposal(createSignedMessage(payload), roundChanges, prepares);
   }
@@ -147,7 +165,8 @@ public class MessageFactory {
           Optional.of(preparedBlock),
           preparedRoundData.get().getBlockAccessList(),
           blockEncoder,
-          preparedRoundData.get().getPrepares());
+          preparedRoundData.get().getPrepares(),
+          useLegacyEncoding);
 
     } else {
       payload = new RoundChangePayload(roundIdentifier, Optional.empty());
@@ -156,7 +175,8 @@ public class MessageFactory {
           Optional.empty(),
           Optional.empty(),
           blockEncoder,
-          Collections.emptyList());
+          Collections.emptyList(),
+          useLegacyEncoding);
     }
   }
 

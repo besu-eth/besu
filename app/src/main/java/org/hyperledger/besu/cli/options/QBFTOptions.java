@@ -38,6 +38,18 @@ public class QBFTOptions {
       hidden = true)
   private boolean enableEarlyRoundChange = false;
 
+  @CommandLine.Option(
+      names = {"--Xqbft-legacy-roundchange-encoding"},
+      description =
+          "Emit the pre-26.1.0 QBFT RoundChange and Proposal wire format (omits the "
+              + "blockAccessList field when absent). Set to true only when rolling-upgrading "
+              + "from Besu 25.x peers; this format cannot be decoded by Besu 26.1.0-26.5.0 "
+              + "peers. The flag is experimental and will be removed once Besu 25.x is no "
+              + "longer supported. (default: ${DEFAULT-VALUE})",
+      arity = "1",
+      hidden = true)
+  private boolean legacyRoundChangeEncoding = false;
+
   /**
    * Is early round change enabled boolean.
    *
@@ -45,5 +57,14 @@ public class QBFTOptions {
    */
   public boolean isEarlyRoundChangeEnabled() {
     return enableEarlyRoundChange;
+  }
+
+  /**
+   * Whether the encoder should emit the pre-26.1.0 RoundChange / Proposal wire format.
+   *
+   * @return true if legacy encoding is enabled
+   */
+  public boolean isLegacyRoundChangeEncodingEnabled() {
+    return legacyRoundChangeEncoding;
   }
 }

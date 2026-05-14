@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking Changes
+- QBFT wire-format compatibility window. The decoder is now backward-compatible with Besu 25.x peers (`RoundChange` no longer throws `RLPException`). The encoder default is unchanged - it still emits the 26.1.0+ `RoundChange` / `Proposal` wire shape, so rolling-upgrading from 26.1.0-26.5.0 to this release is supported out-of-the-box. If your fleet is currently on Besu 25.x, set `--Xqbft-legacy-roundchange-encoding=true` on every node before starting the rolling upgrade - the flag switches the encoder to the pre-26.1.0 shape that 25.x peers can decode. After the rolling upgrade completes the flag value no longer matters; remove it on the next restart. The flag is experimental and will be removed once Besu 25.x is no longer supported. [#10499](https://github.com/besu-eth/besu/pull/10499)
 
 ### Upcoming Breaking Changes
 - RPC changes to enhance compatibility with other ELs

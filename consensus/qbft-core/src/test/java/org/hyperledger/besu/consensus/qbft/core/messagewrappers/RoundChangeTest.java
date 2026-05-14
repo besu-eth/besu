@@ -218,4 +218,56 @@ public class RoundChangeTest {
     assertThat(decodedRoundChange.getPrepares().getFirst())
         .isEqualToComparingFieldByField(signedPreparePayload);
   }
+
+  @Test
+  public void defaultEncodingEmitsCurrentFourItemWireFormat() {
+    // Default useLegacyEncoding=false: RoundChange.encode() emits 4 top-level items
+    // [SignedPayload, Block-or-emptyList, BAL-or-null, Prepares] - required for interop with
+    // Besu 26.1.0 - 26.5.0 peers whose decoder expects the BAL slot.
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+
+    final RoundChangePayload payload =
+        new RoundChangePayload(new ConsensusRoundIdentifier(1, 1), Optional.empty());
+    final SignedData<RoundChangePayload> signedRoundChangePayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+
+    final RoundChange roundChange =
+        new RoundChange(
+            signedRoundChangePayload,
+            Optional.empty(),
+            Optional.empty(),
+            blockEncoder,
+            Collections.emptyList());
+
+    final org.hyperledger.besu.ethereum.rlp.RLPInput rlpIn =
+        org.hyperledger.besu.ethereum.rlp.RLP.input(roundChange.encode());
+    assertThat(rlpIn.enterList()).isEqualTo(4);
+  }
+
+  @Test
+  public void legacyEncodingOmitsBlockAccessListSlot() {
+    // When useLegacyEncoding=true, RoundChange.encode() emits 3 top-level items - the BAL slot
+    // is omitted when absent. Required for interop with Besu 25.x peers during rolling upgrade.
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+
+    final RoundChangePayload payload =
+        new RoundChangePayload(new ConsensusRoundIdentifier(1, 1), Optional.empty());
+    final SignedData<RoundChangePayload> signedRoundChangePayload =
+        SignedData.create(
+            payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
+
+    final RoundChange roundChange =
+        new RoundChange(
+            signedRoundChangePayload,
+            Optional.empty(),
+            Optional.empty(),
+            blockEncoder,
+            Collections.emptyList(),
+            true);
+
+    final org.hyperledger.besu.ethereum.rlp.RLPInput rlpIn =
+        org.hyperledger.besu.ethereum.rlp.RLP.input(roundChange.encode());
+    assertThat(rlpIn.enterList()).isEqualTo(3);
+  }
 }

@@ -2053,6 +2053,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .clock(Clock.systemUTC())
             .storageProvider(storageProvider)
             .isEarlyRoundChangeEnabled(unstableQbftOptions.isEarlyRoundChangeEnabled())
+            .isLegacyRoundChangeEncodingEnabled(
+                unstableQbftOptions.isLegacyRoundChangeEncodingEnabled())
             .requiredBlocks(requiredBlocks)
             .reorgLoggingThreshold(reorgLoggingThreshold)
             .evmConfiguration(unstableEvmOptions.toDomainObject())

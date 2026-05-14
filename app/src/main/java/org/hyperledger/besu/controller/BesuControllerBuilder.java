@@ -226,6 +226,13 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   /** When enabled, round changes on f+1 RC messages from higher rounds */
   protected boolean isEarlyRoundChangeEnabled = false;
 
+  /**
+   * When enabled, QBFT encodes RoundChange and Proposal messages in the pre-26.1.0 wire format
+   * (omits the blockAccessList field when absent). Only required for rolling upgrades from Besu
+   * 25.x peers; breaks interop with Besu 26.1.0 - 26.5.0 peers.
+   */
+  protected boolean isLegacyRoundChangeEncodingEnabled = false;
+
   /** The global code cache */
   protected CodeCache codeCache;
 
@@ -573,6 +580,18 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
    */
   public BesuControllerBuilder isEarlyRoundChangeEnabled(final boolean isEarlyRoundChangeEnabled) {
     this.isEarlyRoundChangeEnabled = isEarlyRoundChangeEnabled;
+    return this;
+  }
+
+  /**
+   * Configure the QBFT encoder to emit the pre-26.1.0 RoundChange / Proposal wire format.
+   *
+   * @param isLegacyRoundChangeEncodingEnabled whether to emit legacy encoding
+   * @return the besu controller builder
+   */
+  public BesuControllerBuilder isLegacyRoundChangeEncodingEnabled(
+      final boolean isLegacyRoundChangeEncodingEnabled) {
+    this.isLegacyRoundChangeEncodingEnabled = isLegacyRoundChangeEncodingEnabled;
     return this;
   }
 

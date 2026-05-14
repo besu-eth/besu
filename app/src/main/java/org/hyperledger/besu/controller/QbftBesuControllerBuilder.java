@@ -282,7 +282,8 @@ public class QbftBesuControllerBuilder extends BesuControllerBuilder {
     final MessageTracker duplicateMessageTracker =
         new MessageTracker(qbftConfig.getDuplicateMessageLimit());
 
-    final MessageFactory messageFactory = new MessageFactory(nodeKey, blockEncoder);
+    final MessageFactory messageFactory =
+        new MessageFactory(nodeKey, blockEncoder, isLegacyRoundChangeEncodingEnabled);
 
     QbftRoundFactory qbftRoundFactory =
         new QbftRoundFactory(

@@ -35,10 +35,17 @@ import org.apache.tuweni.bytes.Bytes;
 /** The Round change payload message. */
 public class RoundChange extends BftMessage<RoundChangePayload> {
 
+  /**
+   * Pre-26.1.0 RoundChange wire format: [SignedPayload, Block, Prepares]. The current 4-item format
+   * adds a BAL slot before Prepares.
+   */
+  private static final int LEGACY_ROUND_CHANGE_ITEM_COUNT = 3;
+
   private final Optional<QbftBlock> proposedBlock;
   private final Optional<BlockAccessList> blockAccessList;
   private final QbftBlockCodec blockEncoder;
   private final List<SignedData<PreparePayload>> prepares;
+  private final boolean useLegacyEncoding;
 
   /**
    * Instantiates a new Round change.
@@ -55,11 +62,33 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
       final Optional<BlockAccessList> blockAccessList,
       final QbftBlockCodec blockEncoder,
       final List<SignedData<PreparePayload>> prepares) {
+    this(payload, proposedBlock, blockAccessList, blockEncoder, prepares, false);
+  }
+
+  /**
+   * Instantiates a new Round change with explicit encoding mode.
+   *
+   * @param payload the payload
+   * @param proposedBlock the proposed block
+   * @param blockAccessList the block access list
+   * @param blockEncoder the qbft block encoder
+   * @param prepares the prepares
+   * @param useLegacyEncoding when true, omit the blockAccessList field entirely if absent, emitting
+   *     the pre-26.1.0 3-item wire format that Besu 25.x peers can decode
+   */
+  public RoundChange(
+      final SignedData<RoundChangePayload> payload,
+      final Optional<QbftBlock> proposedBlock,
+      final Optional<BlockAccessList> blockAccessList,
+      final QbftBlockCodec blockEncoder,
+      final List<SignedData<PreparePayload>> prepares,
+      final boolean useLegacyEncoding) {
     super(payload);
     this.proposedBlock = proposedBlock;
     this.blockAccessList = blockAccessList;
     this.blockEncoder = blockEncoder;
     this.prepares = prepares;
+    this.useLegacyEncoding = useLegacyEncoding;
   }
 
   /**
@@ -113,11 +142,17 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
     rlpOut.startList();
     getSignedPayload().writeTo(rlpOut);
     proposedBlock.ifPresentOrElse(pb -> blockEncoder.writeTo(pb, rlpOut), rlpOut::writeEmptyList);
-    // When blockAccessList is absent we omit the field entirely, emitting the legacy 3-item
-    // wire format. Pre-26.1.0 peers (which don't know about blockAccessList) can then decode
-    // RoundChange messages from this node, unblocking rolling upgrades. The 4-item format is
-    // only emitted when a BlockAccessList is actually present.
-    blockAccessList.ifPresent(bal -> bal.writeTo(rlpOut));
+    if (useLegacyEncoding) {
+      // Pre-26.1.0 wire format: omit the blockAccessList field entirely when absent so that
+      // Besu 25.x peers (which do not know about blockAccessList) can decode this message.
+      // When a BlockAccessList is actually present, we still emit the 4-item format.
+      blockAccessList.ifPresent(bal -> bal.writeTo(rlpOut));
+    } else {
+      // Current 26.1.0+ wire format: always emit a slot for blockAccessList, using the null
+      // marker when absent. This is what Besu 26.1.0 - 26.5.0 peers expect; switching to the
+      // legacy shape unconditionally would break interop with that release window.
+      blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOut), rlpOut::writeNull);
+    }
     rlpOut.writeList(prepares, SignedData::writeTo);
     rlpOut.endList();
     return rlpOut.encoded();
@@ -150,7 +185,7 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
     // legacy shape (Prepares is still pending). Use the item count from enterList() to
     // disambiguate.
     final Optional<BlockAccessList> blockAccessList =
-        (items == 3) ? Optional.empty() : readBlockAccessList(rlpIn);
+        (items == LEGACY_ROUND_CHANGE_ITEM_COUNT) ? Optional.empty() : readBlockAccessList(rlpIn);
 
     final List<SignedData<PreparePayload>> prepares =
         rlpIn.readList(r -> readPayload(r, PreparePayload::readFrom));

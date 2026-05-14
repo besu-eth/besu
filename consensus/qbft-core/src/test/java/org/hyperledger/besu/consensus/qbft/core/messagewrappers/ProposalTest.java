@@ -33,6 +33,8 @@ import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.core.Util;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
@@ -178,5 +180,35 @@ public class ProposalTest {
       assertThat(decodedProposal.getBlockAccessList()).isPresent();
       assertThat(decodedProposal.getSignedPayload().getPayload().getBlockAccessList()).isPresent();
     }
+  }
+
+  @Test
+  public void defaultProposalPayloadEncodingEmitsCurrentThreeFieldWireFormat() {
+    // Default useLegacyEncoding=false: ProposalPayload.writeTo emits 3 fields
+    // [roundIdentifier, block, BAL-or-null] - required for interop with Besu 26.1.0 - 26.5.0
+    // peers whose decoder expects the BAL slot.
+    final ProposalPayload payload =
+        new ProposalPayload(new ConsensusRoundIdentifier(1, 1), BLOCK, blockEncoder);
+
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    payload.writeTo(out);
+
+    final RLPInput rlpIn = RLP.input(out.encoded());
+    assertThat(rlpIn.enterList()).isEqualTo(3);
+  }
+
+  @Test
+  public void legacyProposalPayloadEncodingOmitsBlockAccessListSlot() {
+    // useLegacyEncoding=true: ProposalPayload.writeTo emits 2 fields - the BAL slot is omitted
+    // when absent. Required for interop with Besu 25.x peers during rolling upgrade.
+    final ProposalPayload payload =
+        new ProposalPayload(
+            new ConsensusRoundIdentifier(1, 1), BLOCK, blockEncoder, Optional.empty(), true);
+
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    payload.writeTo(out);
+
+    final RLPInput rlpIn = RLP.input(out.encoded());
+    assertThat(rlpIn.enterList()).isEqualTo(2);
   }
 }

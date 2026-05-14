@@ -36,6 +36,7 @@ public class ProposalPayload extends QbftPayload {
   private final QbftBlock proposedBlock;
   private final QbftBlockCodec blockEncoder;
   private final Optional<BlockAccessList> blockAccessList;
+  private final boolean useLegacyEncoding;
 
   /**
    * Instantiates a new Proposal payload.
@@ -50,10 +51,30 @@ public class ProposalPayload extends QbftPayload {
       final QbftBlock proposedBlock,
       final QbftBlockCodec blockEncoder,
       final Optional<BlockAccessList> blockAccessList) {
+    this(roundIdentifier, proposedBlock, blockEncoder, blockAccessList, false);
+  }
+
+  /**
+   * Instantiates a new Proposal payload with explicit encoding mode.
+   *
+   * @param roundIdentifier the round identifier
+   * @param proposedBlock the proposed block
+   * @param blockEncoder the qbft block encoder
+   * @param blockAccessList the block access list
+   * @param useLegacyEncoding when true, omit the blockAccessList field entirely if absent, emitting
+   *     the pre-26.1.0 2-field wire format that Besu 25.x peers can decode
+   */
+  public ProposalPayload(
+      final ConsensusRoundIdentifier roundIdentifier,
+      final QbftBlock proposedBlock,
+      final QbftBlockCodec blockEncoder,
+      final Optional<BlockAccessList> blockAccessList,
+      final boolean useLegacyEncoding) {
     this.roundIdentifier = roundIdentifier;
     this.proposedBlock = proposedBlock;
     this.blockEncoder = blockEncoder;
     this.blockAccessList = blockAccessList;
+    this.useLegacyEncoding = useLegacyEncoding;
   }
 
   /**
@@ -67,7 +88,7 @@ public class ProposalPayload extends QbftPayload {
       final ConsensusRoundIdentifier roundIdentifier,
       final QbftBlock proposedBlock,
       final QbftBlockCodec blockEncoder) {
-    this(roundIdentifier, proposedBlock, blockEncoder, Optional.empty());
+    this(roundIdentifier, proposedBlock, blockEncoder, Optional.empty(), false);
   }
 
   /**
@@ -93,11 +114,16 @@ public class ProposalPayload extends QbftPayload {
     rlpOutput.startList();
     writeConsensusRound(rlpOutput);
     blockEncoder.writeTo(proposedBlock, rlpOutput);
-    // When blockAccessList is absent we omit the field entirely, emitting the legacy 2-field
-    // payload format. Pre-26.1.0 peers (whose `leaveList()` is strict) can then decode Proposal
-    // messages from this node, unblocking rolling upgrades. The 3-field format is only emitted
-    // when a BlockAccessList is actually present.
-    blockAccessList.ifPresent(bal -> bal.writeTo(rlpOutput));
+    if (useLegacyEncoding) {
+      // Pre-26.1.0 wire format: omit the blockAccessList field entirely when absent so that
+      // Besu 25.x peers (whose leaveList() is strict) can decode this payload. The 3-field
+      // format is still emitted when a BlockAccessList is actually present.
+      blockAccessList.ifPresent(bal -> bal.writeTo(rlpOutput));
+    } else {
+      // Current 26.1.0+ wire format: always emit the BAL slot using the null marker when absent.
+      // Required for interop with Besu 26.1.0 - 26.5.0 peers whose decoder expects 3 fields.
+      blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOutput), rlpOutput::writeNull);
+    }
     rlpOutput.endList();
   }
 
