@@ -51,7 +51,7 @@ tasks.named('compileTestSupportJava', JavaCompile).configure {
 dependencies {
   annotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess'
 
-  errorprone 'com.uber.nullaway:nullaway:0.13.1'
+  errorprone 'com.uber.nullaway:nullaway'
 
   implementation 'io.consensys.tuweni:tuweni-bytes'
   implementation 'io.consensys.tuweni:tuweni-units'
