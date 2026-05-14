@@ -175,6 +175,15 @@ public interface Blockchain {
   Optional<BlockHeader> getBlockHeaderSafe(Hash blockHeaderHash);
 
   /**
+   * Safe version of {@code getBlockHeader(long)} (it should take any locks necessary to ensure any
+   * block updates that might be taking place have been completed first)
+   *
+   * @param blockNumber The reference block number whose header we want to retrieve.
+   * @return The block header corresponding to this block number.
+   */
+  Optional<BlockHeader> getBlockHeaderSafe(long blockNumber);
+
+  /**
    * Returns the block body corresponding to the given block header hash. Associated block is not
    * necessarily on the canonical chain.
    *
