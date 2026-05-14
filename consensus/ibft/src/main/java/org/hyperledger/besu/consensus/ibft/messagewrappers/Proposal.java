@@ -147,6 +147,10 @@ public class Proposal extends BftMessage<ProposalPayload> {
   }
 
   private static Optional<BlockAccessList> readBlockAccessList(final RLPInput rlpIn) {
+    if (rlpIn.isEndOfCurrentList()) {
+      // Backward compatibility: pre-26.1.0 messages do not include blockAccessList
+      return Optional.empty();
+    }
     if (!rlpIn.nextIsNull()) {
       return Optional.of(BlockAccessListDecoder.decode(rlpIn));
     }

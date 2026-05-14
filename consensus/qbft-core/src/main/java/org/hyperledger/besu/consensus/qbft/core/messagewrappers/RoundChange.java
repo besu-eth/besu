@@ -129,7 +129,7 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
   public static RoundChange decode(final Bytes data, final QbftBlockCodec blockEncoder) {
 
     final RLPInput rlpIn = RLP.input(data);
-    rlpIn.enterList();
+    final int items = rlpIn.enterList();
     final SignedData<RoundChangePayload> payload = readPayload(rlpIn, RoundChangePayload::readFrom);
 
     final Optional<QbftBlock> block;
@@ -140,7 +140,16 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
       block = Optional.of(blockEncoder.readFrom(rlpIn));
     }
 
-    final Optional<BlockAccessList> blockAccessList = readBlockAccessList(rlpIn);
+    // Backward compatibility: pre-26.1.0 RoundChange has 3 items, [SignedPayload, Block, Prepares].
+    // Current format has 4 items: [SignedPayload, Block, BAL-or-null, Prepares]. Because BAL sits
+    // BEFORE Prepares, isEndOfCurrentList() inside readBlockAccessList alone cannot detect the
+    // legacy shape — Prepares is still pending. Use the item count from enterList() to
+    // disambiguate.
+    // We additionally guard on !nextIsNull(): in production a legacy 3-item RoundChange has the
+    // Prepares list (never RLP null) at this position, while a current 4-item message has either
+    // the null marker (0x80) or a BAL list.
+    final Optional<BlockAccessList> blockAccessList =
+        (items == 3 && !rlpIn.nextIsNull()) ? Optional.empty() : readBlockAccessList(rlpIn);
 
     final List<SignedData<PreparePayload>> prepares =
         rlpIn.readList(r -> readPayload(r, PreparePayload::readFrom));

@@ -25,6 +25,7 @@ import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
 import java.util.Optional;
 
@@ -107,5 +108,34 @@ public class ProposalMessageTest {
     assertThatThrownBy(() -> ProposalMessageData.fromMessageData(messageData))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("MessageData has code 42 and thus is not a ProposalMessageData");
+  }
+
+  @Test
+  public void canDecodeProposalFromLegacyNodeWithoutBlockAccessList() {
+    // Pre-26.1.0 wire format: [SignedPayload, Block, RoundChangeCertificate-or-null]            (3
+    // items)
+    // Current wire format:    [SignedPayload, Block, RoundChangeCertificate-or-null, BAL-or-null]
+    // (4 items)
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final Proposal referenceProposal = TestHelpers.createSignedProposalPayload(nodeKey);
+
+    final BytesValueRLPOutput rlpOut = new BytesValueRLPOutput();
+    rlpOut.startList();
+    referenceProposal.getSignedPayload().writeTo(rlpOut);
+    referenceProposal.getBlock().writeTo(rlpOut);
+    referenceProposal
+        .getRoundChangeCertificate()
+        .ifPresentOrElse(rcc -> rcc.writeTo(rlpOut), rlpOut::writeNull);
+    rlpOut.endList();
+    final Bytes legacyEncoded = rlpOut.encoded();
+
+    when(messageData.getCode()).thenReturn(IbftV2.PROPOSAL);
+    when(messageData.getData()).thenReturn(legacyEncoded);
+    final ProposalMessageData legacyMessage = ProposalMessageData.fromMessageData(messageData);
+
+    final Proposal decoded = legacyMessage.decode();
+
+    assertThat(decoded.getSignedPayload()).isEqualTo(referenceProposal.getSignedPayload());
+    assertThat(decoded.getBlockAccessList()).isEmpty();
   }
 }
