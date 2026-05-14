@@ -18,11 +18,11 @@ package org.hyperledger.besu.ethereum.eth.sync.common;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
@@ -199,20 +199,58 @@ public class BackwardHeaderDriverTest {
   }
 
   @Test
-  public void shouldMatchStoredAncestorOnFirstBoundaryWhenParentAlreadyStored() {
-    // Scenario: the previously-stored anchor (passed to the constructor) has been reorged off the
-    // canonical chain. The canonical block at the anchor's height (block 0 in our test chain) is
-    // already present in storage from a prior sync cycle. When the backward walk reaches the
-    // boundary, it should consult the blockchain and stop at the stored canonical ancestor.
-    final BlockHeader canonicalBlock0 = anchorHeader; // canonical chain's block 0
-    lenient()
-        .when(blockchain.getBlockHeader(canonicalBlock0.getHash()))
-        .thenReturn(Optional.of(canonicalBlock0));
+  public void shouldDetectBoundaryWhenBatchExtendsBelowLowestHeaderToImport() {
+    // With trustAnchorBlockNumber=0 in the download step, batches are not clamped at the
+    // anchor — they always cover batchSize headers. The boundary batch can include headers
+    // both above and below lowestHeaderToImport. The driver must still detect the boundary
+    // crossing and compare the parent of the header AT lowestHeaderToImport against the
+    // anchor hash (not the parent of the batch's lowest header, which is below the anchor).
+    //
+    // Scenario: pivot 100, anchor at block 50 (canonical). Mid-walk batches walk down to 55,
+    // then the boundary batch [48..51] spans the boundary:
+    //  - block 51 is at lowestHeaderToImport. Its parent = block 50 = anchor → happy match.
+    //  - block 48 is the batch's last header, BELOW the boundary.
+    final BlockHeader anchorAt50 = blocks.get(50).getHeader();
 
-    // Use an unrelated block 0 as the "previously-stored anchor" — same height, different hash.
+    final BackwardHeaderDriver driver =
+        new BackwardHeaderDriver(
+            BATCH_SIZE,
+            anchorAt50,
+            pivotHeader,
+            blockchain,
+            true,
+            BackwardHeaderDriverTest::finalizationStatusForTests,
+            NO_OP_RECOVERY_COUNTER,
+            BackwardHeaderDriverTest::noOpDepthSetter);
+
+    // Mid-walk batches from 99 down to 55 (each entirely above the boundary).
+    for (int top = 99; top >= 55; top -= BATCH_SIZE) {
+      driver.accept(getHeadersRange(top, top - BATCH_SIZE + 1));
+    }
+    // Boundary batch: spans lowestHeaderToImport (block 51) and extends below to block 48.
+    driver.accept(getHeadersRange(51, 48));
+
+    // Happy match: no recovery, iterator finished.
+    assertThat(driver.hasNext()).isFalse();
+    assertThat(driver.getMatchedAncestor()).isEmpty();
+  }
+
+  @Test
+  public void shouldMatchStoredAncestorAfterRecoveryStartsWhenParentCanonicallyStored() {
+    // Scenario: the previously-stored anchor at height 50 has been reorged off the canonical
+    // chain. The canonical block at height 46 is already in storage from a prior cycle.
+    //  - First batch (99..51) reaches the original boundary; parent (block 50) is NOT equal to
+    //    the reorged anchor's hash, so recovery starts and one EXTEND decision is queued.
+    //  - Second batch (50..47) runs through the recovery branch; the recovery-match check
+    //    looks up the canonical header at lowestImportedHeader.number - 1 = 46. It finds
+    //    canonical block 46, whose hash matches block 47's parent hash. Match.
     final BlockDataGenerator otherGenerator = new BlockDataGenerator(99);
-    final BlockHeader reorgedAnchor = otherGenerator.blockSequence(1).getFirst().getHeader();
-    assertThat(reorgedAnchor.getHash()).isNotEqualTo(canonicalBlock0.getHash());
+    final BlockHeader reorgedAnchor = otherGenerator.blockSequence(51).get(50).getHeader();
+    assertThat(reorgedAnchor.getHash()).isNotEqualTo(blocks.get(50).getHeader().getHash());
+
+    final BlockHeader canonicalBlock46 = blocks.get(46).getHeader();
+    lenient().when(blockchain.getBlockHeader(anyLong())).thenReturn(Optional.empty());
+    lenient().when(blockchain.getBlockHeader(46L)).thenReturn(Optional.of(canonicalBlock46));
 
     final BackwardHeaderDriver driver =
         new BackwardHeaderDriver(
@@ -225,22 +263,22 @@ public class BackwardHeaderDriverTest {
             NO_OP_RECOVERY_COUNTER,
             BackwardHeaderDriverTest::noOpDepthSetter);
 
-    // Walk all the way down from 99 to 1; block 1's parent is the canonical block 0.
-    driver.accept(getHeadersRange(99, 1));
+    // First batch: boundary fires, anchor mismatch, recovery starts.
+    driver.accept(getHeadersRange(99, 51));
+    assertThat(driver.getMatchedAncestor()).isEmpty();
 
-    assertThat(driver.getMatchedAncestor()).contains(canonicalBlock0);
-    // hasNext() should return false because done has been signaled.
+    // Second batch (recovery branch): lookup at height 46 returns canonical block 46. Match.
+    driver.accept(getHeadersRange(50, 47));
+
+    assertThat(driver.getMatchedAncestor()).contains(canonicalBlock46);
     assertThat(driver.hasNext()).isFalse();
   }
 
   @Test
   public void shouldExtendWalkWhenAnchorBoundaryHasNoStoredCanonicalAncestor() {
-    // Scenario: the previously-stored anchor has been reorged off the canonical chain and there is
-    // NO stored canonical ancestor available. The driver should enter recovery mode, store the
-    // batch, lower stopBlock, and allow the iterator to continue descending below the original
-    // anchor's height.
-    lenient().when(blockchain.getBlockHeader(any(Hash.class))).thenReturn(Optional.empty());
-
+    // Scenario: the previously-stored anchor has been reorged off the canonical chain and the
+    // first boundary batch's parent does NOT match the anchor. The driver should enter recovery
+    // mode, queue an EXTEND decision, and the iterator should report more emissions available.
     final BlockDataGenerator otherGenerator = new BlockDataGenerator(99);
     final BlockHeader reorgedAnchor = otherGenerator.blockSequence(1).getFirst().getHeader();
     assertThat(reorgedAnchor.getHash()).isNotEqualTo(anchorHeader.getHash());
@@ -279,9 +317,9 @@ public class BackwardHeaderDriverTest {
     final BlockHeader reorgedAnchor = otherGenerator.blockSequence(51).get(50).getHeader();
     assertThat(reorgedAnchor.getHash()).isNotEqualTo(blocks.get(50).getHeader().getHash());
 
-    lenient().when(blockchain.getBlockHeader(any(Hash.class))).thenReturn(Optional.empty());
+    lenient().when(blockchain.getBlockHeader(anyLong())).thenReturn(Optional.empty());
     lenient()
-        .when(blockchain.getBlockHeader(blocks.get(46).getHeader().getHash()))
+        .when(blockchain.getBlockHeader(46L))
         .thenReturn(Optional.of(blocks.get(46).getHeader()));
 
     final Counter startedCounter = org.mockito.Mockito.mock(Counter.class);
