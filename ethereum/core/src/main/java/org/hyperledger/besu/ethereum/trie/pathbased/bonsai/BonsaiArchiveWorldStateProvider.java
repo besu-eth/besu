@@ -14,8 +14,12 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai;
 
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
+import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.ARCHIVE_PROOF_BLOCK_NUMBER_KEY;
+
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
@@ -25,17 +29,23 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorld
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
+import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,6 +56,9 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private final BonsaiWorldStateKeyValueStorage archiveReadStorage;
   private final CodeCache codeCache;
   private final WorldStateConfig archiveWorldStateConfig;
+  private final WorldStateConfig proofWorldStateConfig;
+  private final boolean stateProofsEnabled;
+  private final long trieNodeCheckpointInterval;
   private volatile LongSupplier archiveMigrationProgressSupplier = () -> -1L;
 
   public BonsaiArchiveWorldStateProvider(
@@ -70,6 +83,17 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
     this.codeCache = codeCache;
     this.archiveWorldStateConfig =
         WorldStateConfig.newBuilder(worldStateConfig).trieDisabled(true).build();
+    this.proofWorldStateConfig = WorldStateConfig.newBuilder(worldStateConfig).build();
+    this.stateProofsEnabled =
+        dataStorageConfiguration
+            .getPathBasedExtraStorageConfiguration()
+            .getUnstable()
+            .getStateProofsEnabled();
+    this.trieNodeCheckpointInterval =
+        dataStorageConfiguration
+            .getPathBasedExtraStorageConfiguration()
+            .getUnstable()
+            .getArchiveTrieNodeCheckpointInterval();
     final BonsaiArchiveReadFlatDbStrategyProvider archiveProvider =
         new BonsaiArchiveReadFlatDbStrategyProvider(metricsSystem, dataStorageConfiguration);
     archiveProvider.loadFlatDbStrategy(worldStateKeyValueStorage.getComposedWorldStateStorage());
@@ -82,6 +106,23 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
 
   @Override
   public Optional<MutableWorldState> getWorldState(final WorldStateQueryParams queryParams) {
+    if (stateProofsEnabled && !queryParams.shouldWorldStateUpdateHead()) {
+      final Optional<BlockHeader> checkpointBlock =
+          getCheckpointStateStartBlock(queryParams.getBlockHeader().getBlockHash());
+      if (checkpointBlock.isPresent()) {
+        LOG.debug(
+            "Returning archive proof state for block {} via checkpoint {}",
+            queryParams.getBlockHeader().getNumber(),
+            checkpointBlock.get().getNumber());
+        final BonsaiWorldState proofWorldState =
+            new BonsaiWorldState(
+                this, archiveReadStorage, evmConfiguration, proofWorldStateConfig, codeCache);
+        proofWorldState.freezeStorage();
+        return rollArchiveProofWorldStateToBlockHash(
+                proofWorldState, checkpointBlock.get(), queryParams.getBlockHeader().getBlockHash())
+            .map(MutableWorldState::freezeStorage);
+      }
+    }
     if (isHistoricalQuery(queryParams)) {
       LOG.debug(
           "Returning archive state without verifying state root for block {}",
@@ -96,6 +137,106 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
           archiveWorldState, queryParams.getBlockHeader().getBlockHash());
     }
     return super.getWorldState(queryParams);
+  }
+
+  private Optional<BlockHeader> getCheckpointStateStartBlock(final Hash targetHash) {
+    return blockchain
+        .getBlockHeader(targetHash)
+        .map(BlockHeader::getNumber)
+        .flatMap(
+            targetNumber -> {
+              long nearestCheckpoint =
+                  (((targetNumber + trieNodeCheckpointInterval) / trieNodeCheckpointInterval)
+                          * trieNodeCheckpointInterval)
+                      - 1;
+              return blockchain
+                  .getBlockHeaderSafe(nearestCheckpoint)
+                  .or(() -> blockchain.getBlockHeader(blockchain.getChainHeadHash()))
+                  .or(() -> blockchain.getBlockHeaderSafe(blockchain.getChainHeadHash()));
+            });
+  }
+
+  private Optional<MutableWorldState> rollArchiveProofWorldStateToBlockHash(
+      final PathBasedWorldState mutableState,
+      final BlockHeader checkpointBlock,
+      final Hash targetBlockHash) {
+
+    ((BonsaiWorldState) mutableState).resetWorldStateToCheckpoint(checkpointBlock);
+
+    if (targetBlockHash.equals(mutableState.blockHash())) {
+      return Optional.of(mutableState);
+    }
+
+    try {
+      final Optional<BlockHeader> maybePersistedHeader =
+          blockchain
+              .getBlockHeader(mutableState.blockHash())
+              .or(() -> blockchain.getBlockHeaderSafe(mutableState.blockHash()))
+              .map(BlockHeader.class::cast);
+
+      final List<TrieLog> rollBacks = new ArrayList<>();
+      if (maybePersistedHeader.isEmpty()) {
+        trieLogManager.getTrieLogLayer(mutableState.blockHash()).ifPresent(rollBacks::add);
+      } else {
+        final BlockHeader targetHeader =
+            blockchain
+                .getBlockHeader(targetBlockHash)
+                .or(() -> blockchain.getBlockHeaderSafe(targetBlockHash))
+                .get();
+        BlockHeader persistedHeader = maybePersistedHeader.get();
+        Hash persistedBlockHash = persistedHeader.getBlockHash();
+        while (persistedHeader.getNumber() > targetHeader.getNumber()) {
+          LOG.debug("Rollback {}", persistedBlockHash);
+          rollBacks.add(trieLogManager.getTrieLogLayer(persistedBlockHash).get());
+          persistedHeader = blockchain.getBlockHeaderSafe(persistedHeader.getParentHash()).get();
+          persistedBlockHash = persistedHeader.getBlockHash();
+        }
+      }
+
+      final PathBasedWorldStateUpdateAccumulator<?> diffBasedUpdater =
+          (PathBasedWorldStateUpdateAccumulator<?>) mutableState.updater();
+      try {
+        for (final TrieLog rollBack : rollBacks) {
+          LOG.info("Attempting rollback of {}", rollBack.getBlockHash());
+          diffBasedUpdater.rollBack(rollBack);
+        }
+        diffBasedUpdater.commit();
+
+        // Set ARCHIVE_PROOF_BLOCK_NUMBER_KEY so that trie-node writes during persist() use
+        // targetBlockNumber as the suffix, ensuring reads at targetBlock find them via
+        // nearest-before lookup in TRIE_BRANCH_STORAGE_ARCHIVE.
+        final long targetBlockNumber =
+            blockchain.getBlockHeaderSafe(targetBlockHash).get().getNumber();
+        final SegmentedKeyValueStorageTransaction tx =
+            mutableState.getWorldStateStorage().getComposedWorldStateStorage().startTransaction();
+        tx.put(
+            TRIE_BRANCH_STORAGE,
+            ARCHIVE_PROOF_BLOCK_NUMBER_KEY,
+            Bytes.ofUnsignedLong(targetBlockNumber).toArrayUnsafe());
+        tx.commit();
+
+        mutableState.persist(blockchain.getBlockHeaderSafe(targetBlockHash).get());
+
+        return Optional.of(mutableState);
+      } catch (final MerkleTrieException re) {
+        throw re;
+      } catch (final Exception e) {
+        diffBasedUpdater.reset();
+        LOG.atInfo()
+            .setMessage("Archive proof state rolling failed on {} for block hash {}: {}")
+            .addArgument(mutableState.getWorldStateStorage().getClass().getSimpleName())
+            .addArgument(targetBlockHash)
+            .addArgument(e)
+            .log();
+        return Optional.empty();
+      }
+    } catch (final RuntimeException re) {
+      LOG.info("Archive proof rolling failed for block hash {}", targetBlockHash, re);
+      if (re instanceof MerkleTrieException) {
+        throw re;
+      }
+      throw new MerkleTrieException("invalid archive proof rollback for " + targetBlockHash);
+    }
   }
 
   /**
