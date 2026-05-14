@@ -287,13 +287,14 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
         // Don't save empty nodes
         return this;
       }
-      composedWorldStateTransaction.put(
-          TRIE_BRANCH_STORAGE, location.toArrayUnsafe(), node.toArrayUnsafe());
+      flatDbStrategy.putFlatAccountTrieNode(
+          worldStorage, composedWorldStateTransaction, location, nodeHash, node);
       return this;
     }
 
     public Updater removeAccountStateTrieNode(final Bytes location) {
-      composedWorldStateTransaction.remove(TRIE_BRANCH_STORAGE, location.toArrayUnsafe());
+      flatDbStrategy.removeFlatAccountStateTrieNode(
+          worldStorage, composedWorldStateTransaction, location);
       return this;
     }
 
@@ -303,10 +304,8 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
         // Don't save empty nodes
         return this;
       }
-      composedWorldStateTransaction.put(
-          TRIE_BRANCH_STORAGE,
-          Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe(),
-          node.toArrayUnsafe());
+      flatDbStrategy.putFlatStorageTrieNode(
+          worldStorage, composedWorldStateTransaction, accountHash, location, nodeHash, node);
       return this;
     }
 
