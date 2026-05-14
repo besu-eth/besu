@@ -14,11 +14,16 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview;
 
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
+import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_HASH_KEY;
+import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
+import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_ROOT_HASH_KEY;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldView.encodeTrieValue;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.NoOpMerkleTrie;
@@ -42,6 +47,7 @@ import org.hyperledger.besu.ethereum.trie.patricia.ParallelStoredMerklePatriciaT
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Map;
@@ -478,6 +484,25 @@ public class BonsaiWorldState extends PathBasedWorldState {
 
   public void disableCacheMerkleTrieLoader() {
     this.bonsaiCachedMerkleTrieLoader = new NoopBonsaiCachedMerkleTrieLoader();
+  }
+
+  public void resetWorldStateToCheckpoint(final BlockHeader checkpointBlock) {
+    this.resetWorldStateTo(checkpointBlock);
+    final SegmentedKeyValueStorageTransaction tx =
+        this.getWorldStateStorage().getComposedWorldStateStorage().startTransaction();
+    tx.put(
+        TRIE_BRANCH_STORAGE,
+        WORLD_BLOCK_NUMBER_KEY,
+        Bytes.ofUnsignedLong(checkpointBlock.getNumber()).toArrayUnsafe());
+    tx.put(
+        TRIE_BRANCH_STORAGE,
+        WORLD_BLOCK_HASH_KEY,
+        checkpointBlock.getBlockHash().getBytes().toArrayUnsafe());
+    tx.put(
+        TRIE_BRANCH_STORAGE,
+        WORLD_ROOT_HASH_KEY,
+        checkpointBlock.getStateRoot().getBytes().toArrayUnsafe());
+    tx.commit();
   }
 
   private MerkleTrie<Bytes, Bytes> createTrie(final NodeLoader nodeLoader, final Bytes32 rootHash) {
