@@ -33,6 +33,7 @@ import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
@@ -795,7 +796,27 @@ public class BlockDataGenerator {
       accountChanges.add(accountChanges());
     }
 
-    return new BlockAccessList(accountChanges);
+    final BlockAccessList balNoRawRlp = new BlockAccessList(accountChanges);
+    final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
+    BlockAccessListEncoder.encode(balNoRawRlp, balOutput);
+    return new BlockAccessList(accountChanges, balOutput.encoded());
+  }
+
+  public BlockAccessList blockAccessListWithCodeSize(final int codeSize) {
+    final BlockAccessList blockAccessList =
+        new BlockAccessList(
+            List.of(
+                new BlockAccessList.AccountChanges(
+                    Address.ZERO,
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of(new BlockAccessList.CodeChange(0, Bytes.wrap(new byte[codeSize]))))));
+
+    final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
+    BlockAccessListEncoder.encode(blockAccessList, balOutput);
+    return new BlockAccessList(blockAccessList.accountChanges(), balOutput.encoded());
   }
 
   /**
@@ -882,7 +903,7 @@ public class BlockDataGenerator {
    * @return an empty BlockAccessList
    */
   public BlockAccessList emptyBlockAccessList() {
-    return new BlockAccessList(Collections.emptyList());
+    return new BlockAccessList(Collections.emptyList(), RLP.EMPTY_LIST);
   }
 
   public static class BlockOptions {

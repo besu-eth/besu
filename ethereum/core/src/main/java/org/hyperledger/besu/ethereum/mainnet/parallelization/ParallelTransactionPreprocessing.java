@@ -65,8 +65,7 @@ public class ParallelTransactionPreprocessing implements PreprocessingFunction {
 
     if (balConfiguration.isPerfectParallelizationEnabled() && maybeBlockBal.isPresent()) {
       parallelProcessor =
-          new BalConcurrentTransactionProcessor(
-              transactionProcessor, maybeBlockBal.get(), balConfiguration);
+          new BalConcurrentTransactionProcessor(transactionProcessor, maybeBlockBal.get());
     } else {
       parallelProcessor = new ParallelizedConcurrentTransactionProcessor(transactionProcessor);
     }

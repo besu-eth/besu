@@ -140,6 +140,6 @@ public class Era1Reader {
   }
 
   private long convertLittleEndianBytesToLong(final byte[] bytes) {
-    return Pack.littleEndianToLong(bytes, 0, bytes.length);
+    return Pack.littleEndianToLong_Low(bytes, 0, bytes.length);
   }
 }

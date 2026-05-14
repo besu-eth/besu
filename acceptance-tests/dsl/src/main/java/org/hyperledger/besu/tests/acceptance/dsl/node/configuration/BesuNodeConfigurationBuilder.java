@@ -84,6 +84,7 @@ public class BesuNodeConfigurationBuilder {
   private Boolean p2pEnabled = true;
   private int p2pPort = 0;
   private boolean discoveryEnabled = true;
+  private boolean discoveryV5Enabled = true;
   private boolean bootnodeEligible = true;
   private boolean revertReasonEnabled = false;
   private NetworkDefinition network = null;
@@ -375,6 +376,11 @@ public class BesuNodeConfigurationBuilder {
     return this;
   }
 
+  public BesuNodeConfigurationBuilder discoveryV5Enabled(final boolean discoveryV5Enabled) {
+    this.discoveryV5Enabled = discoveryV5Enabled;
+    return this;
+  }
+
   public BesuNodeConfigurationBuilder plugins(final List<String> plugins) {
     this.plugins.clear();
     this.plugins.addAll(plugins);
@@ -478,7 +484,8 @@ public class BesuNodeConfigurationBuilder {
     final NetworkingConfiguration networkingConfiguration =
         ImmutableNetworkingConfiguration.builder()
             .initiateConnectionsFrequency(Duration.ofSeconds(5))
-            .discoveryConfiguration(DiscoveryConfiguration.create().setDiscoveryV5Enabled(true))
+            .discoveryConfiguration(
+                DiscoveryConfiguration.create().setDiscoveryV5Enabled(discoveryV5Enabled))
             .build();
 
     return new BesuNodeConfiguration(
