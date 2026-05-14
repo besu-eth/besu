@@ -40,6 +40,9 @@ import org.hyperledger.besu.ethereum.p2p.config.ImmutableNetworkingConfiguration
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.permissioning.PermissioningConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.ImmutablePathBasedExtraStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.PathBasedUnstable;
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageFactory;
 import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.genesis.GenesisConfigurationProvider;
@@ -453,6 +456,24 @@ public class BesuNodeConfigurationBuilder {
   public BesuNodeConfigurationBuilder dataStorageConfiguration(
       final DataStorageConfiguration dataStorageConfiguration) {
     this.dataStorageConfiguration = dataStorageConfiguration;
+    return this;
+  }
+
+  public BesuNodeConfigurationBuilder withStateProofsEnabled(final boolean enabled) {
+    final PathBasedUnstable updatedUnstable =
+        ImmutablePathBasedExtraStorageConfiguration.PathBasedUnstable.builder()
+            .from(dataStorageConfiguration.getPathBasedExtraStorageConfiguration().getUnstable())
+            .stateProofsEnabled(enabled)
+            .build();
+    this.dataStorageConfiguration =
+        ImmutableDataStorageConfiguration.builder()
+            .from(dataStorageConfiguration)
+            .pathBasedExtraStorageConfiguration(
+                ImmutablePathBasedExtraStorageConfiguration.builder()
+                    .from(dataStorageConfiguration.getPathBasedExtraStorageConfiguration())
+                    .unstable(updatedUnstable)
+                    .build())
+            .build();
     return this;
   }
 
