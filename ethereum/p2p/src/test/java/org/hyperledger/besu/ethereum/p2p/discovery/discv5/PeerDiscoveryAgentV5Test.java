@@ -104,6 +104,7 @@ class PeerDiscoveryAgentV5Test {
     lenient()
         .when(mockSystem.searchForNewPeers())
         .thenReturn(CompletableFuture.completedFuture(List.of()));
+    lenient().when(mockSystem.streamLiveNodes()).thenAnswer(invocation -> Stream.empty());
 
     agent =
         new PeerDiscoveryAgentV5(
@@ -299,7 +300,7 @@ class PeerDiscoveryAgentV5Test {
   }
 
   @Test
-  public void shouldEvictPeerWhenPermissionsRevoked() {
+  public void shouldEvictPeerWhenPermissionsRevoked() throws Exception {
     final NodeRecord peerNodeRecord =
         NodeRecordFactory.DEFAULT.fromEnr(
             "enr:-KO4QK1ecw-CGrDDZ4YwFrhgqctD0tWMHKJhUVxsS4um3aUFe3yBHRtVL9uYKk16DurN1IdSKTOB1zNCvjBybjZ_KAq"
@@ -321,12 +322,17 @@ class PeerDiscoveryAgentV5Test {
             false,
             (nodeRecord, listener) -> mockSystem);
 
-    try {
-      restrictedAgent.start(1234);
-      restrictedAgent.addPeer(discoveryPeer);
-      Mockito.verify(mockSystem).addNodeRecord(peerNodeRecord);
+    // Pre-stub before start() so the stub is in place before the scheduler thread begins
+    // invoking mockSystem from another thread.
+    Mockito.when(mockSystem.getNodeRecordBuckets()).thenReturn(List.of(List.of(peerNodeRecord)));
 
-      Mockito.when(mockSystem.getNodeRecordBuckets()).thenReturn(List.of(List.of(peerNodeRecord)));
+    try {
+      // Block on start() so the thenApply/whenComplete chain (which schedules the discovery
+      // tick) has fully run before the test thread does anything else.
+      restrictedAgent.start(1234).get();
+      restrictedAgent.addPeer(discoveryPeer);
+      Mockito.verify(mockSystem, Mockito.timeout(5000)).addNodeRecord(peerNodeRecord);
+
       denylist.add(discoveryPeer.getId());
       Mockito.verify(mockSystem, Mockito.timeout(10000)).deleteNodeRecord(discoveryPeer.getId());
     } finally {

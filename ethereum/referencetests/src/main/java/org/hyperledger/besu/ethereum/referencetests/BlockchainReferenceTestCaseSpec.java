@@ -79,19 +79,20 @@ public class BlockchainReferenceTestCaseSpec {
   private final String sealEngine;
 
   private WorldStateArchive buildWorldStateArchive(
-      final long cacheSize, final Blockchain blockchain) {
+      final DataStorageConfiguration storageConfiguration,
+      final long cacheSize,
+      final Blockchain blockchain) {
 
     final InMemoryKeyValueStorageProvider inMemoryKeyValueStorageProvider =
         new InMemoryKeyValueStorageProvider();
     final WorldStateArchive worldStateArchive =
         new BonsaiWorldStateProvider(
             (BonsaiWorldStateKeyValueStorage)
-                inMemoryKeyValueStorageProvider.createWorldStateStorage(
-                    DataStorageConfiguration.DEFAULT_BONSAI_CONFIG),
+                inMemoryKeyValueStorageProvider.createWorldStateStorage(storageConfiguration),
             blockchain,
-            ImmutablePathBasedExtraStorageConfiguration.builder()
-                .maxLayersToLoad(cacheSize)
-                .build(),
+            ImmutablePathBasedExtraStorageConfiguration.copyOf(
+                    storageConfiguration.getPathBasedExtraStorageConfiguration())
+                .withMaxLayersToLoad(cacheSize),
             new NoopBonsaiCachedMerkleTrieLoader(),
             new ServiceManager() {
               @Override
@@ -156,11 +157,13 @@ public class BlockchainReferenceTestCaseSpec {
     return genesisBlockHeader;
   }
 
-  public ProtocolContext buildProtocolContext(final MutableBlockchain blockchain) {
+  public ProtocolContext buildProtocolContext(
+      final DataStorageConfiguration storageConfiguration, final MutableBlockchain blockchain) {
     return new ProtocolContext.Builder()
         .withBlockchain(blockchain)
         .withWorldStateArchive(
             buildWorldStateArchive(
+                storageConfiguration,
                 Stream.of(candidateBlocks).filter(CandidateBlock::isExecutable).count(),
                 blockchain))
         .withConsensusContext(new ConsensusContextFixture())
