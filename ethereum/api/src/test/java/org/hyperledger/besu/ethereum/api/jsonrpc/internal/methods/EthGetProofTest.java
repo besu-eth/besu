@@ -124,7 +124,7 @@ class EthGetProofTest {
         requestWithParams(
             Address.fromHexString("0x0000000000000000000000000000000000000000"),
             new String[] {storageKey.toString()},
-            String.valueOf(501));
+            "0x1f5");
 
     final JsonRpcResponse response = method.response(request);
 
@@ -139,7 +139,7 @@ class EthGetProofTest {
 
     final JsonRpcRequestContext request =
         requestWithParams(
-            address.toString(), new String[] {storageKey.toString()}, String.valueOf(blockNumber));
+            address.toString(), new String[] {storageKey.toString()}, "0x1f4");
 
     final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
     final GetProofResult result = (GetProofResult) response.getResult();
@@ -225,7 +225,7 @@ class EthGetProofTest {
 
     final JsonRpcRequestContext request =
         requestWithParams(
-            address.toString(), new String[] {storageKey.toString()}, String.valueOf(blockNumber));
+            address.toString(), new String[] {storageKey.toString()}, "0x1f4");
 
     final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
     final GetProofResult result = (GetProofResult) response.getResult();
