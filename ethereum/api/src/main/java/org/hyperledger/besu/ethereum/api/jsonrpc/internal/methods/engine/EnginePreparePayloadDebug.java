@@ -20,6 +20,7 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.Executi
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
+import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -109,12 +110,14 @@ public class EnginePreparePayloadDebug extends ExecutionEngineJsonRpcMethod {
         .map(
             parentHeader ->
                 mergeCoordinator.preparePayload(
-                    parentHeader,
-                    param.getTimestamp().orElse(parentHeader.getTimestamp() + 1L),
-                    param.getPrevRandao(),
-                    param.getFeeRecipient(),
-                    Optional.of(withdrawals),
-                    param.getParentBeaconBlockRoot(),
-                    Optional.empty()));
+                    new PreparePayloadArgsBuilder()
+                        .parentHeader(parentHeader)
+                        .timestamp(param.getTimestamp().orElse(parentHeader.getTimestamp() + 1L))
+                        .prevRandao(param.getPrevRandao())
+                        .feeRecipient(param.getFeeRecipient())
+                        .withdrawals(Optional.of(withdrawals))
+                        .parentBeaconBlockRoot(param.getParentBeaconBlockRoot())
+                        .slotNumber(Optional.empty())
+                        .build()));
   }
 }

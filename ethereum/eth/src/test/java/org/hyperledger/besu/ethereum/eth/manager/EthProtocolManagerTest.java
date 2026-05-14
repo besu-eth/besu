@@ -472,6 +472,30 @@ public final class EthProtocolManagerTest {
   }
 
   @Test
+  public void disconnectOnMalformedGetPooledTransactionsMessage() {
+    try (final EthProtocolManager ethManager =
+        EthProtocolManagerTestBuilder.builder()
+            .setProtocolSchedule(protocolSchedule)
+            .setBlockchain(blockchain)
+            .setEthScheduler(new DeterministicEthScheduler(() -> false))
+            .setWorldStateArchive(protocolContext.getWorldStateArchive())
+            .setTransactionPool(transactionPool)
+            .setEthereumWireProtocolConfiguration(EthProtocolConfiguration.DEFAULT)
+            .build()) {
+      final MessageData malformedMessageData =
+          new RawMessage(
+              EthProtocolMessages.GET_POOLED_TRANSACTIONS, Bytes.fromHexString("0xc1ff"));
+      final MockPeerConnection peer = setupPeer(ethManager, (cap, msg, conn) -> {});
+
+      ethManager.processMessage(EthProtocol.LATEST, new DefaultMessage(peer, malformedMessageData));
+
+      assertThat(peer.isDisconnected()).isTrue();
+      assertThat(peer.getDisconnectReason())
+          .contains(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+    }
+  }
+
+  @Test
   public void respondToGetHeaders() throws ExecutionException, InterruptedException {
     final CompletableFuture<Void> done = new CompletableFuture<>();
     try (final EthProtocolManager ethManager =

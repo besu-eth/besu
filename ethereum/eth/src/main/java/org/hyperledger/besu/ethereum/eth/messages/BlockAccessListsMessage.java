@@ -18,6 +18,9 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 
+import java.util.Optional;
+import java.util.stream.StreamSupport;
+
 import org.apache.tuweni.bytes.Bytes;
 
 public final class BlockAccessListsMessage extends AbstractMessageData {
@@ -34,8 +37,19 @@ public final class BlockAccessListsMessage extends AbstractMessageData {
     return new BlockAccessListsMessage(message.getData());
   }
 
-  public static BlockAccessListsMessage create(final Iterable<BlockAccessList> blockAccessLists) {
-    return new BlockAccessListsMessage(BlockAccessListsMessageData.encode(blockAccessLists));
+  public static BlockAccessListsMessage create(
+      final Iterable<Optional<BlockAccessList>> blockAccessLists) {
+    return new BlockAccessListsMessage(
+        BlockAccessListsMessageData.encodeEthResponse(blockAccessLists));
+  }
+
+  public static BlockAccessListsMessage createFromBlockAccessLists(
+      final Iterable<BlockAccessList> blockAccessLists) {
+    return create(
+        () ->
+            StreamSupport.stream(blockAccessLists.spliterator(), false)
+                .map(Optional::of)
+                .iterator());
   }
 
   /**
@@ -58,11 +72,11 @@ public final class BlockAccessListsMessage extends AbstractMessageData {
     return EthProtocolMessages.BLOCK_ACCESS_LISTS;
   }
 
-  public Iterable<BlockAccessList> blockAccessLists() {
-    return BlockAccessListsMessageData.decode(data, false);
+  public Iterable<Optional<BlockAccessList>> blockAccessLists() {
+    return BlockAccessListsMessageData.decodeEthResponse(data);
   }
 
   public Iterable<Bytes> blockAccessListsRaw() {
-    return BlockAccessListsMessageData.decodeRaw(data, false);
+    return BlockAccessListsMessageData.decodeEthResponseRaw(data);
   }
 }
