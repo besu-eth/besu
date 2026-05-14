@@ -60,4 +60,12 @@ public class KeyComparatorTest {
     int result = KeyComparator.compareKeyLeftToRight(key1, key2);
     assertEquals(-1, result, "0x0101 should be considered smaller than 0x02");
   }
+
+  @Test
+  public void test0101Vs0211() {
+    Bytes key1 = Bytes.fromHexString("0x0000");
+    Bytes key2 = Bytes.fromHexString("0x000000");
+    int result = KeyComparator.compareKeyLeftToRight(key1, key2);
+    assertEquals(-1, result, "0x0101 should be considered smaller than 0x02");
+  }
 }
