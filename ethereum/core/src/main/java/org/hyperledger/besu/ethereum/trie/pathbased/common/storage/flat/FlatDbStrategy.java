@@ -170,6 +170,19 @@ public abstract class FlatDbStrategy {
       final SegmentedKeyValueStorageTransaction transaction,
       final Bytes location);
 
+  public Optional<Bytes> getFlatAccountTrieNode(
+      final Bytes location, final Bytes32 nodeHash, final SegmentedKeyValueStorage storage) {
+    return Optional.empty();
+  }
+
+  public Optional<Bytes> getFlatStorageTrieNode(
+      final Hash accountHash,
+      final Bytes location,
+      final Bytes32 nodeHash,
+      final SegmentedKeyValueStorage storage) {
+    return Optional.empty();
+  }
+
   public abstract void clearAll(final SegmentedKeyValueStorage storage);
 
   public abstract void resetOnResync(final SegmentedKeyValueStorage storage);

@@ -18,6 +18,7 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
+import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.ARCHIVE_PROOF_BLOCK_NUMBER_KEY;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.ARCHIVE_PROOF_CHECKPOINT_INTERVAL_KEY;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
 
@@ -53,6 +54,7 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
   private final boolean stateProofsEnabled;
   private final Long trieNodeCheckpointInterval;
   private volatile boolean intervalSeeded = false;
+  private boolean archiveReadsEnabled = false;
 
   public BonsaiArchiveFlatDbStrategy(
       final MetricsSystem metricsSystem, final CodeStorageStrategy codeStorageStrategy) {
@@ -72,6 +74,11 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
 
   public static final byte[] DELETED_ACCOUNT_VALUE = new byte[0];
   public static final byte[] DELETED_STORAGE_VALUE = new byte[0];
+
+  public BonsaiArchiveFlatDbStrategy withArchiveReadsEnabled() {
+    this.archiveReadsEnabled = true;
+    return this;
+  }
 
   private Optional<BonsaiContext> getStateArchiveContextForWrite(
       final SegmentedKeyValueStorage storage) {
@@ -146,6 +153,13 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
   }
 
   private BonsaiContext getStateTrieArchiveContextForWrite(final SegmentedKeyValueStorage storage) {
+    // If ARCHIVE_PROOF_BLOCK_NUMBER_KEY is set (proof reconstruction path), use it directly as the
+    // suffix so reconstructed nodes are indexed by target block and readable during eth_getProof.
+    Optional<byte[]> proofBlockNumber =
+        storage.get(TRIE_BRANCH_STORAGE, ARCHIVE_PROOF_BLOCK_NUMBER_KEY);
+    if (proofBlockNumber.isPresent()) {
+      return new BonsaiContext(Bytes.wrap(proofBlockNumber.get()).toLong());
+    }
     // Suffix = floor((blockNumber + 1) / interval) * interval — the window's start block.
     // Genesis has no WORLD_BLOCK_NUMBER_KEY yet; use suffix 0.
     return storage
@@ -196,8 +210,12 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
     }
   }
 
+  @Override
   public Optional<Bytes> getFlatAccountTrieNode(
       final Bytes location, final Bytes32 nodeHash, final SegmentedKeyValueStorage storage) {
+    if (!archiveReadsEnabled) {
+      return Optional.empty();
+    }
     Bytes keyNearest =
         calculateArchiveKeyWithMaxSuffix(
             getStateArchiveContextForRead(storage), location.toArrayUnsafe());
@@ -208,11 +226,15 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
         .flatMap(SegmentedKeyValueStorage.NearestKeyValue::wrapBytes);
   }
 
+  @Override
   public Optional<Bytes> getFlatStorageTrieNode(
       final Hash accountHash,
       final Bytes location,
       final Bytes32 nodeHash,
       final SegmentedKeyValueStorage storage) {
+    if (!archiveReadsEnabled) {
+      return Optional.empty();
+    }
     Bytes accountHashLocation = Bytes.concatenate(accountHash.getBytes(), location);
     Bytes keyNearest =
         calculateArchiveKeyWithMaxSuffix(
