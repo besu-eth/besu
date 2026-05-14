@@ -26,10 +26,10 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.Condition;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.LongConsumer;
 import java.util.function.Supplier;
@@ -41,10 +41,6 @@ import org.slf4j.LoggerFactory;
  * Drives the backward header download pipeline by combining the source-side responsibility of
  * emitting descending block numbers with the import-side responsibility of validating and storing
  * the resulting header batches.
- *
- * <p>This consolidation co-locates state that is intrinsically shared between the two faces of the
- * pipeline (e.g. the stop block, the currently-expected child header) so that anchor-reorg recovery
- * logic (Task C1) can be added with minimal cross-class plumbing.
  */
 public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<BlockHeader>> {
 
@@ -52,10 +48,15 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   private static final int LOG_DELAY_SECONDS = 30;
   private static final int RECOVERY_WARN_EVERY_N_BATCHES = 3;
 
+  /** Decision the import side hands to the source side at the anchor boundary. */
+  private enum Decision {
+    EXTEND,
+    STOP
+  }
+
   // Source-side state
   private final AtomicLong currentBlock;
   private final int batchSize;
-  private volatile long stopBlock;
 
   // Import-side state
   private final MutableBlockchain blockchainStorage;
@@ -70,21 +71,30 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   private volatile BlockHeader currentChildHeader;
   private volatile BlockHeader lowestImportedHeader;
 
-  // Anchor-reorg recovery coordination (Task C1)
-  private final ReentrantLock lock = new ReentrantLock();
-  private final Condition decided = lock.newCondition();
-  // Guarded by lock for writes; read on the source thread via the volatile qualifier.
-  private volatile boolean done = false;
-  // Written under lock; volatile so the recovery / milestone / success log lines can read it
-  // without acquiring the lock.
-  private volatile int extraBatchesRequested = 0;
-  // Written under lock, read without lock by getMatchedAncestor().
+  // Anchor-reorg recovery coordination. The import side puts one Decision onto the queue per
+  // boundary batch (EXTEND = walk one more batch; STOP = finished). The source side blocks on
+  // {@code decisions.take()} in hasNext() once it reaches the original anchor and caches the
+  // result in {@code held} until next() emits the corresponding batch.
+  private final BlockingQueue<Decision> decisions = new LinkedBlockingQueue<>();
+  // Cached decision; accessed only on the source thread (set in hasNext, cleared in next).
+  private Decision held;
+  // Number of extra batches stored below the original anchor; written by accept(), read by
+  // emit*Log helpers on the same thread.
+  private int extraBatchesRequested = 0;
+  // Written by accept() on the recovery-match path, read by getMatchedAncestor() on the
+  // downloader thread after the pipeline future completes.
   private volatile BlockHeader matchedAncestor;
-  private volatile boolean recoveryMode = false;
+  // Set on the first recovery extension and never reset (recovery is monotonic).
+  private boolean recoveryMode = false;
+  // Short-circuits Phase 1 in hasNext() once accept() has decided STOP. In production this is
+  // redundant with currentBlock having dropped below lowestHeaderToImport (because next() runs
+  // before accept() for the boundary batch); for callers that bypass the iterator and feed a
+  // multi-batch range straight into accept(), this flag is what makes hasNext() return false.
+  private volatile boolean stopped = false;
 
   /**
    * Creates a new BackwardHeaderDriver. Stores the pivot header synchronously as the first imported
-   * header (matching the prior {@code ImportHeadersStep} behavior).
+   * header.
    *
    * @param batchSize the number of blocks per batch (also the stride of the descending iterator)
    * @param anchorHeader the anchor (checkpoint) header; the lowest header to import is {@code
@@ -92,14 +102,13 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
    * @param pivotHeader the pivot header at the top of the range to import
    * @param blockchain the blockchain to which headers will be stored
    * @param previousPivotWasSafe whether the previous pivot selection used a safe/finalized source;
-   *     surfaced via {@link #previousPivotWasSafe()} for downstream recovery logic (Task C1)
+   *     surfaced via {@link #previousPivotWasSafe()} for downstream recovery logic
    * @param finalizationStatusSupplier supplies the "CL finalization status" log triage tag emitted
-   *     alongside the recovery-start, milestone, and recovery-success log lines (Task D1)
-   * @param recoveryEventCounter labelled counter for anchor-mismatch recovery events (labels:
-   *     {@code result} ∈ {started, succeeded}, {@code previous_pivot_trust} ∈ {safe,
-   *     head_fallback}) (Task D2)
+   *     alongside the recovery-start, milestone, and recovery-success log lines
+   * @param recoveryEventCounter labeled counter for anchor-mismatch recovery events (labels: {@code
+   *     result} ∈ {started, succeeded}, {@code previous_pivot_trust} ∈ {safe, head_fallback})
    * @param recoveryDepthSetter setter for the "last recovery depth" gauge value; receives the
-   *     number of extra batches walked below the original anchor when recovery succeeds (Task D2)
+   *     number of extra batches walked below the original anchor when recovery succeeds
    */
   public BackwardHeaderDriver(
       final int batchSize,
@@ -124,11 +133,8 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
     this.anchorHash = anchorHeader.getHash();
     this.totalHeaders = pivotNumber - anchorNumber;
 
-    // Source-side: iterator emits pivot.number - 1, then strides down by batchSize.
     this.currentBlock = new AtomicLong(pivotNumber - 1);
-    this.stopBlock = lowestHeaderToImport;
 
-    // Import-side: pivot becomes the initial "child" and the initial lowest imported.
     this.currentChildHeader = pivotHeader;
     this.lowestImportedHeader = pivotHeader;
 
@@ -138,40 +144,47 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         anchorNumber,
         batchSize);
 
-    // Store the pivot block header as the first imported header.
     this.blockchainStorage.storeBlockHeaders(List.of(pivotHeader));
   }
 
   @Override
   public boolean hasNext() {
-    // Fast path: there is more above the boundary, no need to coordinate.
-    // `done` is checked first so a completed driver short-circuits even if the source thread has
-    // not yet decremented currentBlock past stopBlock.
-    if (!done && currentBlock.get() >= stopBlock) {
+    if (stopped) {
+      return false;
+    }
+    // Phase 1: normal walk down to the original anchor — no coordination needed, the iterator
+    // emits descending block numbers as long as we are still above the boundary.
+    if (currentBlock.get() >= lowestHeaderToImport) {
       return true;
     }
-    lock.lock();
-    try {
-      while (!done && currentBlock.get() < stopBlock) {
-        decided.await();
+    // Phase 2: at or past the boundary. Wait for the import side to hand us a Decision via the
+    // queue (EXTEND = walk one more batch; STOP = finished). Cache the decision in `held` so
+    // this call stays idempotent; next() consumes it.
+    if (held == null) {
+      try {
+        held = decisions.take();
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return false;
       }
-      return !done;
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      return false;
-    } finally {
-      lock.unlock();
     }
+    return held == Decision.EXTEND;
   }
 
   @Override
   public Long next() {
     final long block = currentBlock.getAndUpdate(current -> current - batchSize);
-
-    if (block >= stopBlock) {
+    if (block >= lowestHeaderToImport) {
+      // Phase 1 emit, still above the original boundary.
       return block;
     }
-    LOG.debug("BackwardHeaderDriver exhausted at block {} (stopBlock={})", block, stopBlock);
+    // Phase 2 emit — must have a live EXTEND permission cached by hasNext(). Consume it so the
+    // next hasNext() blocks again waiting for the next batch's decision.
+    if (held == Decision.EXTEND) {
+      held = null;
+      return block;
+    }
+    LOG.debug("BackwardHeaderDriver exhausted at block {}", block);
     throw new NoSuchElementException("BackwardHeaderDriver exhausted at block " + block);
   }
 
@@ -203,49 +216,41 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         // populate matchedAncestor — the existing blockDownloadAnchor is already correct.
         blockchainStorage.storeBlockHeaders(blockHeaders);
         lowestImportedHeader = blockHeaders.getLast();
-        lock.lock();
-        try {
-          done = true;
-          decided.signalAll();
-        } finally {
-          lock.unlock();
-        }
+        stopped = true;
+        decisions.add(Decision.STOP);
         return;
       }
-      if (blockchainStorage.getBlockHeader(parentHash).isPresent()) {
+      final Optional<BlockHeader> storedAncestor = blockchainStorage.getBlockHeader(parentHash);
+      if (storedAncestor.isPresent()) {
         // Recovery match: parent is a header stored canonically from a prior cycle. Populate
         // matchedAncestor so downstream code can rewrite the Stage 2 anchor.
+        // (Reaching block 0's parent always lands here — genesis is canonically stored — so the
+        // genesis floor is implicit; no explicit clamp is needed.)
         blockchainStorage.storeBlockHeaders(blockHeaders);
         lowestImportedHeader = blockHeaders.getLast();
-        final BlockHeader ancestor;
-        lock.lock();
-        try {
-          matchedAncestor = blockchainStorage.getBlockHeader(parentHash).orElseThrow();
-          ancestor = matchedAncestor;
-          done = true;
-          decided.signalAll();
-        } finally {
-          lock.unlock();
-        }
-        emitRecoverySuccessLog(ancestor);
+        matchedAncestor = storedAncestor.get();
+        stopped = true;
+        decisions.add(Decision.STOP);
+        emitRecoverySuccessLog(matchedAncestor);
         return;
       }
 
       // No match: store the canonical batch and extend the walk by one batch.
       blockchainStorage.storeBlockHeaders(blockHeaders);
       lowestImportedHeader = blockHeaders.getLast();
-      // First-time entry into recovery: emit the recovery-start log at appropriate severity.
-      // This MUST fire before extendWalkByOneBatch() sets recoveryMode to true so the log
-      // fires exactly once on first entry.
+      // First-time entry into recovery: emit the recovery-start log at appropriate severity
+      // before flipping recoveryMode so the log fires exactly once on first entry.
       if (!recoveryMode) {
         emitRecoveryStartLog();
+        recoveryMode = true;
       }
-      extendWalkByOneBatch();
-      // Milestone log: every N-th extra batch, emit a WARN. extraBatchesRequested is volatile
-      // and was just bumped inside extendWalkByOneBatch().
-      final int extras = extraBatchesRequested;
-      if (extras > 0 && extras % RECOVERY_WARN_EVERY_N_BATCHES == 0) {
-        emitRecoveryMilestoneLog(extras);
+      extraBatchesRequested++;
+      decisions.add(Decision.EXTEND);
+      LOG.debug(
+          "BackwardHeaderDriver: extending walk by one batch (extraBatches={})",
+          extraBatchesRequested);
+      if (extraBatchesRequested % RECOVERY_WARN_EVERY_N_BATCHES == 0) {
+        emitRecoveryMilestoneLog(extraBatchesRequested);
       }
       return;
     }
@@ -263,34 +268,6 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
           String.format("Header import progress %.2f%%", headersPercent),
           isTimeToLog,
           LOG_DELAY_SECONDS);
-    }
-  }
-
-  /**
-   * Lowers {@link #stopBlock} by one batch, enters recovery mode, and signals waiters. The
-   * read-modify-write of the volatile {@code stopBlock} is performed while holding {@link #lock};
-   * the volatile qualifier only guarantees that the unsynchronized read of {@code stopBlock} on the
-   * source thread (in {@link #hasNext()}) observes the latest value.
-   */
-  @SuppressWarnings("NonAtomicVolatileUpdate")
-  private void extendWalkByOneBatch() {
-    lock.lock();
-    try {
-      recoveryMode = true;
-      extraBatchesRequested++;
-      // Clamp at the genesis floor: blocks below 0 do not exist. In the (pathological) case where
-      // recovery walks all the way down without matching a stored ancestor, hasNext() will return
-      // false once the iterator descends past 0 — the pipeline drains and the caller can decide
-      // to re-pivot. Snap-sync stall detection is the primary bound; genesis floor is the
-      // backstop.
-      stopBlock = Math.max(0L, stopBlock - batchSize);
-      decided.signalAll();
-      LOG.debug(
-          "BackwardHeaderDriver: extending walk by one batch (extraBatches={}, stopBlock={})",
-          extraBatchesRequested,
-          stopBlock);
-    } finally {
-      lock.unlock();
     }
   }
 
