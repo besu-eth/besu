@@ -35,6 +35,8 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
 import java.util.function.Supplier;
 
 import org.slf4j.Logger;
@@ -46,9 +48,16 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
   private static final Logger LOG = LoggerFactory.getLogger(BalStateRootCommitterFactory.class);
 
   private final BalConfiguration balConfiguration;
+  private final Executor balAsyncExecutor;
 
   public BalStateRootCommitterFactory(final BalConfiguration balConfiguration) {
+    this(balConfiguration, ForkJoinPool.commonPool());
+  }
+
+  public BalStateRootCommitterFactory(
+      final BalConfiguration balConfiguration, final Executor balAsyncExecutor) {
     this.balConfiguration = balConfiguration;
+    this.balAsyncExecutor = balAsyncExecutor;
   }
 
   @Override
@@ -65,7 +74,8 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
     }
 
     final CompletableFuture<BalRootComputation> balFuture =
-        BalStateRootCalculator.computeAsync(protocolContext, blockHeader, maybeBal.get());
+        BalStateRootCalculator.computeAsync(
+            protocolContext, blockHeader, maybeBal.get(), balAsyncExecutor);
 
     if (balConfiguration.isBalStateRootTrusted()) {
       return new TrustedBalCommitter(balFuture);
