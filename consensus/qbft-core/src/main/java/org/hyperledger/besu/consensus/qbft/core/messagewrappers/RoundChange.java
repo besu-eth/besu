@@ -149,11 +149,8 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
     // BEFORE Prepares, isEndOfCurrentList() inside readBlockAccessList alone cannot detect the
     // legacy shape (Prepares is still pending). Use the item count from enterList() to
     // disambiguate.
-    // We additionally guard on !nextIsNull(): in production a legacy 3-item RoundChange has the
-    // Prepares list (never RLP null) at this position, while a current 4-item message has either
-    // the null marker (0x80) or a BAL list.
     final Optional<BlockAccessList> blockAccessList =
-        (items == 3 && !rlpIn.nextIsNull()) ? Optional.empty() : readBlockAccessList(rlpIn);
+        (items == 3) ? Optional.empty() : readBlockAccessList(rlpIn);
 
     final List<SignedData<PreparePayload>> prepares =
         rlpIn.readList(r -> readPayload(r, PreparePayload::readFrom));

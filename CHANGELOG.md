@@ -21,7 +21,7 @@
 - Fix `engine_forkchoiceUpdatedV1` now returns `-38003 INVALID_PAYLOAD_ATTRIBUTES` for invalid payload attribute timestamps (zero or not greater than head). [#10353](https://github.com/besu-eth/besu/pull/10353)
 - Fix `engine_newPayloadV4`/`V5` now returns `-32602 INVALID_PARAMS` instead of `INVALID` payload status when execution requests contain an unknown request type. [#10484](https://github.com/besu-eth/besu/pull/10484)
 - Fix `debug_trace*` `storage` field to emit only for SLOAD/SSTORE opcodes showing the single slot touched, matching the execution-apis spec and geth behaviour [#10176](https://github.com/besu-eth/besu/pull/10176)
-- Fix `RLPException` when a 26.1.0+ node decodes QBFT `RoundChange` or legacy-IBFT `RoundChange`/`Proposal` messages from a pre-26.1.0 peer. Enables rolling upgrades from `25.x` to `26.x+` without consensus disruption. [#10499](https://github.com/besu-eth/besu/pull/10499)
+- Fix `RLPException` when a 26.1.0+ node decodes QBFT `RoundChange` or IBFT2 `RoundChange`/`Proposal` messages from a pre-26.1.0 peer. Enables rolling upgrades from `25.x` to `26.x+` without consensus disruption. [#10499](https://github.com/besu-eth/besu/pull/10499)
 
 ### Additions and Improvements
 - Add `eth_getStorageValues` JSON-RPC method for batched reads of multiple storage slots across multiple accounts in a single call [#10259](https://github.com/besu-eth/besu/pull/10259)
