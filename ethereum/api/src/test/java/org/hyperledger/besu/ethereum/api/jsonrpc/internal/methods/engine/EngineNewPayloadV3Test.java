@@ -42,7 +42,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePaylo
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePayloadStatusResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
 import org.hyperledger.besu.ethereum.core.BlobTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
@@ -207,7 +207,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
                       List.of(shortHash.toHexString()),
                       "0x0000000000000000000000000000000000000000000000000000000000000000"
                     })));
-    final EnginePayloadStatusResult res = fromSuccessResp(badParam);
+    final PayloadStatusV1 res = fromSuccessResp(badParam);
     assertThat(res.getStatusAsString()).isEqualTo(INVALID.name());
     assertThat(res.getError()).isEqualTo("Invalid versionedHash");
   }
@@ -332,7 +332,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
             Optional.empty());
     var resp = resp(mockEnginePayload(mockHeader, transactions));
 
-    EnginePayloadStatusResult res = fromSuccessResp(resp);
+    PayloadStatusV1 res = fromSuccessResp(resp);
     assertThat(res.getStatusAsString()).isEqualTo(INVALID.name());
     assertThat(res.getError()).isEqualTo("Failed to decode transactions from block parameter");
     verify(engineCallListener, times(1)).executionEngineCalled();

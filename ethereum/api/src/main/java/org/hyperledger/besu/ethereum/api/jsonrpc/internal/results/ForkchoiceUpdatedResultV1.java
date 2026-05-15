@@ -29,22 +29,22 @@ import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 @JsonPropertyOrder({"payloadStatus", "payloadId"})
-public class EngineUpdateForkchoiceResult {
-  private final EnginePayloadStatusResult payloadStatus;
+public class ForkchoiceUpdatedResultV1 {
+  private final PayloadStatusV1 payloadStatus;
   private final PayloadIdentifier payloadId;
-  static final EnumSet<EngineStatus> FORK_CHOICE_ENGINE_STATUS =
+  private static final EnumSet<EngineStatus> FORK_CHOICE_ENGINE_STATUS =
       EnumSet.of(VALID, INVALID, SYNCING);
 
-  public EngineUpdateForkchoiceResult(final EngineStatus status, final Hash latestValidHash) {
+  public ForkchoiceUpdatedResultV1(final EngineStatus status, final Hash latestValidHash) {
     this(status, latestValidHash, null);
   }
 
-  public EngineUpdateForkchoiceResult(
+  public ForkchoiceUpdatedResultV1(
       final EngineStatus status, final Hash latestValidHash, final PayloadIdentifier payloadId) {
     this(status, latestValidHash, payloadId, Optional.empty());
   }
 
-  public EngineUpdateForkchoiceResult(
+  public ForkchoiceUpdatedResultV1(
       final EngineStatus status,
       final Hash latestValidHash,
       final PayloadIdentifier payloadId,
@@ -55,12 +55,12 @@ public class EngineUpdateForkchoiceResult {
           String.format("Invalid status response %s for EngineForkChoiceResult", status.name()));
     }
 
-    this.payloadStatus = new EnginePayloadStatusResult(status, latestValidHash, errorMessage);
+    this.payloadStatus = new PayloadStatusV1(status, latestValidHash, errorMessage);
     this.payloadId = payloadId;
   }
 
   @JsonGetter(value = "payloadStatus")
-  public EnginePayloadStatusResult getPayloadStatus() {
+  public PayloadStatusV1 getPayloadStatus() {
     return payloadStatus;
   }
 

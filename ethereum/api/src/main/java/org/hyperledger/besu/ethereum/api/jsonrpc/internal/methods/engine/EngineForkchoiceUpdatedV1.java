@@ -37,7 +37,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineUpdateForkchoiceResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpdatedResultV1;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
@@ -121,7 +121,7 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
           e);
     }
 
-    EngineForkchoiceUpdatedV1.LOG.debug("Forkchoice parameters {}", forkChoice);
+    LOG.debug("Forkchoice parameters {}", forkChoice);
 
     final Optional<PA> maybePayloadAttributes;
     try {
@@ -133,7 +133,7 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
       return new JsonRpcErrorResponse(requestId, getInvalidPayloadAttributesError());
     }
 
-    EngineForkchoiceUpdatedV1.LOG.debug("Payload attributes {}", maybePayloadAttributes);
+    LOG.debug("Payload attributes {}", maybePayloadAttributes);
 
     // Structural parameter check (-32602) — must happen before any FCU processing.
     final ValidationResult<RpcErrorType> structResult = validateForkchoiceStateParams(forkChoice);
@@ -145,7 +145,7 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
       logFCU(INVALID, forkChoice);
       return new JsonRpcSuccessResponse(
           requestId,
-          new EngineUpdateForkchoiceResult(
+          new ForkchoiceUpdatedResultV1(
               INVALID,
               mergeCoordinator
                   .getLatestValidHashOfBadBlock(forkChoice.getHeadBlockHash())
@@ -182,7 +182,7 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
     if (mergeCoordinator.isAncestorOfFinalized(newHead)) {
       logFCU(VALID, forkChoice);
       return new JsonRpcSuccessResponse(
-          requestId, new EngineUpdateForkchoiceResult(VALID, forkChoice.getHeadBlockHash()));
+          requestId, new ForkchoiceUpdatedResultV1(VALID, forkChoice.getHeadBlockHash()));
     }
 
     // 3. TODO? [SKIPPED] If forkchoiceState.headBlockHash references a PoW block, client software
@@ -215,8 +215,7 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
     // forkchoiceState.headBlockHash exceeds the limitation specific to the client software.
     final OptionalLong reorgDepth = mergeCoordinator.computeReorgDepth(newHead);
     if (reorgDepth.isPresent() && reorgDepth.getAsLong() > MergeMiningCoordinator.MAX_REORG_DEPTH) {
-      EngineForkchoiceUpdatedV1.LOG
-          .atWarn()
+      LOG.atWarn()
           .setMessage("Rejecting FCU: reorg depth {} exceeds limit {}")
           .addArgument(reorgDepth::getAsLong)
           .addArgument(MergeMiningCoordinator.MAX_REORG_DEPTH)
@@ -273,7 +272,7 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
     logFCU(VALID, forkChoice);
     return new JsonRpcSuccessResponse(
         requestId,
-        new EngineUpdateForkchoiceResult(
+        new ForkchoiceUpdatedResultV1(
             VALID,
             forkchoiceResult.getNewHead().map(BlockHeader::getHash).orElse(null),
             payloadId));
@@ -376,7 +375,7 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
     if (result.getStatus() == ForkchoiceResult.Status.INVALID) {
       return new JsonRpcSuccessResponse(
           requestId,
-          new EngineUpdateForkchoiceResult(
+          new ForkchoiceUpdatedResultV1(
               INVALID, latestValid.orElse(null), null, result.getErrorMessage()));
     }
     throw new AssertionError(
@@ -394,7 +393,7 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
         forkChoice.getSafeBlockHash(),
         forkChoice.getFinalizedBlockHash());
     return new JsonRpcSuccessResponse(
-        requestId, new EngineUpdateForkchoiceResult(SYNCING, null, null, Optional.empty()));
+        requestId, new ForkchoiceUpdatedResultV1(SYNCING, null, null, Optional.empty()));
   }
 
   private void logFCU(final EngineStatus status, final ForkchoiceStateV1 forkChoice) {

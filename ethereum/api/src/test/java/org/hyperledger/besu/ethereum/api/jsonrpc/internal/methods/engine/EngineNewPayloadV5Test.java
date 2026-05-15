@@ -37,7 +37,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePaylo
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePayloadStatusResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
@@ -139,7 +139,7 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
 
     final JsonRpcResponse resp = resp(super.mockEnginePayload(header, emptyList(), null, null));
 
-    final EnginePayloadStatusResult result = fromSuccessResp(resp);
+    final PayloadStatusV1 result = fromSuccessResp(resp);
     assertThat(result.getStatusAsString()).isEqualTo(INVALID.name());
     assertThat(result.getError()).isEqualTo("Missing block access list field");
     assertThat(result.getLatestValidHash()).isEmpty();
@@ -154,7 +154,7 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
         resp(
             super.mockEnginePayload(header, emptyList(), null, INVALID_BLOCK_ACCESS_LIST_ENCODING));
 
-    final EnginePayloadStatusResult result = fromSuccessResp(resp);
+    final PayloadStatusV1 result = fromSuccessResp(resp);
     assertThat(result.getStatusAsString()).isEqualTo(INVALID.name());
     assertThat(result.getError()).isEqualTo("Invalid block access list encoding");
     assertThat(result.getLatestValidHash()).isEmpty();
@@ -168,7 +168,7 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
     final JsonRpcResponse resp =
         resp(super.mockEnginePayload(header, emptyList(), null, INVALID_BLOCK_ACCESS_LIST_RLP));
 
-    final EnginePayloadStatusResult result = fromSuccessResp(resp);
+    final PayloadStatusV1 result = fromSuccessResp(resp);
     assertThat(result.getStatusAsString()).isEqualTo(INVALID.name());
     assertThat(result.getError()).isEqualTo("Invalid block access list encoding");
     assertThat(result.getLatestValidHash()).isEmpty();

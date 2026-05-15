@@ -44,7 +44,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineUpdateForkchoiceResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpdatedResultV1;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
@@ -172,8 +172,8 @@ public class EngineForkchoiceUpdatedV1Test {
             Optional.empty());
 
     assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
-    final EngineUpdateForkchoiceResult result =
-        (EngineUpdateForkchoiceResult) ((JsonRpcSuccessResponse) resp).getResult();
+    final ForkchoiceUpdatedResultV1 result =
+        (ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) resp).getResult();
     assertThat(result.getPayloadStatus().getStatus()).isEqualTo(INVALID);
     assertThat(result.getPayloadStatus().getLatestValidHash())
         .isEqualTo(Optional.of(latestValidHash));
@@ -369,7 +369,7 @@ public class EngineForkchoiceUpdatedV1Test {
         new ForkchoiceStateV1(
             mockHeader.getBlockHash(), mockParent.getBlockHash(), mockParent.getBlockHash());
 
-    final EngineUpdateForkchoiceResult resp = fromSuccessResp(resp(param, Optional.empty()));
+    final ForkchoiceUpdatedResultV1 resp = fromSuccessResp(resp(param, Optional.empty()));
 
     assertThat(resp.getPayloadStatus().getStatus()).isEqualTo(INVALID);
     assertThat(resp.getPayloadStatus().getLatestValidHash()).isPresent();
@@ -426,8 +426,8 @@ public class EngineForkchoiceUpdatedV1Test {
             Optional.empty());
 
     assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
-    final EngineUpdateForkchoiceResult result =
-        (EngineUpdateForkchoiceResult) ((JsonRpcSuccessResponse) resp).getResult();
+    final ForkchoiceUpdatedResultV1 result =
+        (ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) resp).getResult();
     assertThat(result.getPayloadStatus().getStatus()).isEqualTo(VALID);
     assertThat(result.getPayloadStatus().getLatestValidHashAsString())
         .isEqualTo(head.getHash().toHexString());
@@ -549,7 +549,7 @@ public class EngineForkchoiceUpdatedV1Test {
     when(mergeCoordinator.computeReorgDepth(head)).thenReturn(OptionalLong.empty());
   }
 
-  protected EngineUpdateForkchoiceResult assertSuccessWithPayloadForForkchoiceResult(
+  protected ForkchoiceUpdatedResultV1 assertSuccessWithPayloadForForkchoiceResult(
       final ForkchoiceStateV1 fcuParam,
       final Optional<Object> payloadParam,
       final ForkchoiceResult forkchoiceResult,
@@ -558,7 +558,7 @@ public class EngineForkchoiceUpdatedV1Test {
         fcuParam, payloadParam, forkchoiceResult, expectedStatus, Optional.empty());
   }
 
-  protected EngineUpdateForkchoiceResult assertSuccessWithPayloadForForkchoiceResult(
+  protected ForkchoiceUpdatedResultV1 assertSuccessWithPayloadForForkchoiceResult(
       final ForkchoiceStateV1 fcuParam,
       final Optional<Object> payloadParam,
       final ForkchoiceResult forkchoiceResult,
@@ -570,7 +570,7 @@ public class EngineForkchoiceUpdatedV1Test {
         .thenReturn(forkchoiceResult);
 
     final JsonRpcResponse resp = resp(fcuParam, payloadParam);
-    final EngineUpdateForkchoiceResult res = fromSuccessResp(resp);
+    final ForkchoiceUpdatedResultV1 res = fromSuccessResp(resp);
 
     assertThat(res.getPayloadStatus().getStatusAsString()).isEqualTo(expectedStatus.name());
 
@@ -609,12 +609,12 @@ public class EngineForkchoiceUpdatedV1Test {
                 Stream.concat(Stream.of(forkchoiceParam), payloadParam.stream()).toArray())));
   }
 
-  private EngineUpdateForkchoiceResult fromSuccessResp(final JsonRpcResponse resp) {
+  private ForkchoiceUpdatedResultV1 fromSuccessResp(final JsonRpcResponse resp) {
     assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
     return Optional.of(resp)
         .map(JsonRpcSuccessResponse.class::cast)
         .map(JsonRpcSuccessResponse::getResult)
-        .map(EngineUpdateForkchoiceResult.class::cast)
+        .map(ForkchoiceUpdatedResultV1.class::cast)
         .get();
   }
 
