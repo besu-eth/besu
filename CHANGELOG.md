@@ -19,7 +19,9 @@
 
 ### Bug fixes
 - Fix `testing_buildBlockV1` to return error `-32000` when an explicitly provided transaction is not applicable (e.g. wrong nonce), instead of silently dropping it and returning a success response. [#10486](https://github.com/besu-eth/besu/pull/10486)
+- Fix `LayeredKeyValueStorage.isClosed()` repeatedly re-walking the full parent chain on every storage operation, causing CPU saturation under a stalled forkchoice head. The closed-state is now cached per layer after the first propagation. [#10508](https://github.com/besu-eth/besu/issues/10508)
 - Fix `engine_forkchoiceUpdatedV1` now returns `-38003 INVALID_PAYLOAD_ATTRIBUTES` for invalid payload attribute timestamps (zero or not greater than head). [#10353](https://github.com/besu-eth/besu/pull/10353)
+- Fix `engine_newPayloadV4`/`V5` now returns `-32602 INVALID_PARAMS` instead of `INVALID` payload status when execution requests contain an unknown request type. [#10484](https://github.com/besu-eth/besu/pull/10484)
 - Fix `debug_trace*` `storage` field to emit only for SLOAD/SSTORE opcodes showing the single slot touched, matching the execution-apis spec and geth behaviour [#10176](https://github.com/besu-eth/besu/pull/10176)
 
 ### Additions and Improvements
@@ -49,6 +51,7 @@
 - BFT option `xemptyblockperiodseconds` has been taken out of experimental and been renamed `emptyblockperiodseconds`. The old config option is deprecated and will be removed in a future release.
 
 ### Bug fixes
+- Fix `eth_getBlockByNumber`/`eth_getBlockByHash` returning EIP-7928 block access list hash under key `balHash` instead of `blockAccessListHash`, breaking tooling that uses go-ethereum's `types.Header` struct [#10359](https://github.com/besu-eth/besu/issues/10359)
 - `engine_newPayloadV3`/V4/V5: validate parameters before fork-support check so that missing required fields return `-32602` (`INVALID_PARAMS`) instead of `-38005` (`UNSUPPORTED_FORK`), matching the Engine API spec [#10249](https://github.com/besu-eth/besu/pull/10249)
 - Fix data race in `SyncDurationMetrics` where the backing `HashMap` was mutated from multiple sync threads in parallel, causing missing or zero `sync_duration` samples. [#10277](https://github.com/besu-eth/besu/pull/10277)
 - Fix chain pruning race that could lose fork block metadata updates when concurrent same-height block events are recorded. [#10331](https://github.com/besu-eth/besu/pull/10331)
@@ -127,6 +130,7 @@ are provided with different values, using input as per the execution-apis spec i
 - Fix eth_simulateV1 returning wrong error code when transaction gas exceeds block gas limit: now correctly returns -38015 (BLOCK_GAS_LIMIT_EXCEEDED) instead of -38014 or succeeding [#10073](https://github.com/besu-eth/besu/pull/10073)
 - Wait for peers before starting chain download. Prevents an OutOfMemory (OOM) error when the node has zero peers [#9979](https://github.com/hyperledger/besu/pull/9979)
 - Upgrade besu-native libraries version to 1.5.0. This fixes the issue of besu-native/secp256r1 exporting OpenSSL symbols in JVM space. [besu-native #308](https://github.com/besu-eth/besu-native/pull/308)
+- Fix QBFT `xemptyblockperiodseconds` not working when transactions arrive before the timer expires, causing unnecessary delay in block production [#10153](https://github.com/besu-eth/besu/pull/10153)
 
 ### Additions and Improvements
 - Add `transactionReceipts` subscription type to `eth_subscribe` that pushes all transaction receipts when a new block is added, with optional `transactionHashes` filter to receive receipts for specific transactions only [#10190](https://github.com/besu-eth/besu/pull/10190)
@@ -142,6 +146,7 @@ are provided with different values, using input as per the execution-apis spec i
 - Limit pooled tx requests by size and remove pre-eth/68 transaction announcement support [#9990](https://github.com/besu-eth/besu/pull/9990)
 - Reduce tx p2p broadcast bandwidth and memory used [#9937](https://github.com/besu-eth/besu/pull/9937) 
 - Improve syncing time of the experimental Bonsai Archive storage by migrating after a Bonsai full sync [#9979](https://github.com/besu-eth/besu/pull/9997)
+- Add `selectedTxsEvaluation` metric to block creation timing log [#9179](https://github.com/besu-eth/besu/issues/9179)
 - Layered txpool: enable balance check by default [#10175](https://github.com/besu-eth/besu/pull/10175)
 
 ### Plugin API
