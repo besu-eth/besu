@@ -626,12 +626,13 @@ public class EthPeer implements Comparable<EthPeer> {
   }
 
   /**
-   * Record the latency of the newest response. Drops the oldest if more than {@code maxLatencySamples} samples
+   * Record the latency of the newest response. Drops the oldest if more than {@code
+   * maxLatencySamples} samples
    *
    * @param latencyNanos the latency of the newest response
    */
   public synchronized void recordLatency(final long latencyNanos) {
-    if (latencySamples.size() >= maxLatencySamples){
+    if (latencySamples.size() >= maxLatencySamples) {
       latencySamples.pollFirst(); // drop oldest
     }
     latencySamples.addLast(latencyNanos);
@@ -647,8 +648,10 @@ public class EthPeer implements Comparable<EthPeer> {
     if (latencySamples.isEmpty()) {
       return 0;
     }
-    long[] latencySamplesSorted = latencySamples.stream().mapToLong(Long::longValue).sorted().toArray(); // sort
-    int index = Math.max(0, (int) (Math.ceil(percentile / 100.0 * latencySamplesSorted.length) - 1));
+    long[] latencySamplesSorted =
+        latencySamples.stream().mapToLong(Long::longValue).sorted().toArray(); // sort
+    int index =
+        Math.max(0, (int) (Math.ceil(percentile / 100.0 * latencySamplesSorted.length) - 1));
     return latencySamplesSorted[index];
   }
 
@@ -687,7 +690,9 @@ public class EthPeer implements Comparable<EthPeer> {
    */
   public double getSuccessRate() {
     long totalResponses = usefulResponses + uselessResponses;
-    return totalResponses == 0 ? 1.0 : (double) usefulResponses / (usefulResponses + uselessResponses);
+    return totalResponses == 0
+        ? 1.0
+        : (double) usefulResponses / (usefulResponses + uselessResponses);
   }
 
   /**
@@ -705,7 +710,9 @@ public class EthPeer implements Comparable<EthPeer> {
    * @return average bytes per response
    */
   public double getAverageBytesPerResponse() {
-    return totalResponsesReceived == 0 ? 0.0 : (double) totalBytesTransferred / totalResponsesReceived;
+    return totalResponsesReceived == 0
+        ? 0.0
+        : (double) totalBytesTransferred / totalResponsesReceived;
   }
 
   /**
@@ -716,11 +723,11 @@ public class EthPeer implements Comparable<EthPeer> {
   public synchronized double getRollingAverageBytesPerSecond() {
     long nowTimestamp = System.nanoTime();
     removeOldByteSamples(nowTimestamp);
-    if (rollingWindowSamples.isEmpty()){
+    if (rollingWindowSamples.isEmpty()) {
       return 0.0;
     }
     long totalBytes = 0;
-    for (long[] sample : rollingWindowSamples){
+    for (long[] sample : rollingWindowSamples) {
       totalBytes += sample[1];
     }
     return (totalBytes * 1e9) / rollingWindowDurationNanos;
@@ -745,9 +752,9 @@ public class EthPeer implements Comparable<EthPeer> {
    *
    * @param nowTimestamp current Timestamp
    */
-  private void removeOldByteSamples(final long nowTimestamp){
+  private void removeOldByteSamples(final long nowTimestamp) {
     while (!rollingWindowSamples.isEmpty()
-            && rollingWindowSamples.peekFirst()[0] < nowTimestamp - rollingWindowDurationNanos) {
+        && rollingWindowSamples.peekFirst()[0] < nowTimestamp - rollingWindowDurationNanos) {
       rollingWindowSamples.pollFirst();
     }
   }
