@@ -37,6 +37,12 @@ public class RocksDBCLIOptions {
   /** The default value indicating whether read caching is enabled for snapshot access. */
   public static final boolean DEFAULT_ENABLE_READ_CACHE_FOR_SNAPSHOTS = false;
 
+  /**
+   * Default: do not use mmap for SST reads on Bonsai slot / trie-branch column families (see {@link
+   * #MMAP_READS_BONSAI_SLOT_TRIE_BRANCH_FLAG}).
+   */
+  public static final boolean DEFAULT_MMAP_READS_BONSAI_SLOT_TRIE_BRANCH = true;
+
   /** The constant MAX_OPEN_FILES_FLAG. */
   public static final String MAX_OPEN_FILES_FLAG = "--Xplugin-rocksdb-max-open-files";
 
@@ -74,13 +80,23 @@ public class RocksDBCLIOptions {
   public static final String ADDITIONAL_DATABASE_OPTIONS =
       "--Xplugin-rocksdb-additional-database-options";
 
+  /**
+   * When true, enables {@code block_based_table_factory.allow_mmap_reads} for Bonsai {@code
+   * ACCOUNT_STORAGE_STORAGE}, {@code ACCOUNT_STORAGE_ARCHIVE}, and {@code TRIE_BRANCH_STORAGE}
+   * column families only. Prefer {@link #MAX_OPEN_FILES_FLAG} {@code -1} so RocksDB can keep SSTs
+   * open for mmap. Experimental.
+   */
+  public static final String MMAP_READS_BONSAI_SLOT_TRIE_BRANCH_FLAG =
+      "--Xplugin-rocksdb-mmap-reads-bonsai-slot-trie-branch-enabled";
+
   /** The Max open files. */
   @CommandLine.Option(
       names = {MAX_OPEN_FILES_FLAG},
       hidden = true,
-      defaultValue = "1024",
+      defaultValue = "-1",
       paramLabel = "<INTEGER>",
-      description = "Max number of files RocksDB will open (default: ${DEFAULT-VALUE})")
+      description =
+          "Max number of files RocksDB will open; -1 means unlimited (default: ${DEFAULT-VALUE})")
   int maxOpenFiles;
 
   /** The Cache capacity. */
@@ -177,6 +193,16 @@ public class RocksDBCLIOptions {
           "Extra DB options as key=value pairs separated by ';' (native RocksDB DBOptions string).")
   Optional<String> additionalDatabaseOptions = Optional.empty();
 
+  /** Enables mmap reads for Bonsai slot and trie-branch column families (experimental). */
+  @CommandLine.Option(
+      names = {MMAP_READS_BONSAI_SLOT_TRIE_BRANCH_FLAG},
+      hidden = true,
+      negatable = true,
+      paramLabel = "<BOOLEAN>",
+      description =
+          "Use mmap for SST reads on ACCOUNT_STORAGE_* and TRIE_BRANCH_STORAGE column families (default: ${DEFAULT-VALUE}). Prefer unlimited max open files for this experiment.")
+  boolean mmapReadsBonsaiSlotTrieBranch = DEFAULT_MMAP_READS_BONSAI_SLOT_TRIE_BRANCH;
+
   private RocksDBCLIOptions() {}
 
   /**
@@ -206,6 +232,7 @@ public class RocksDBCLIOptions {
     options.blobGarbageCollectionForceThreshold = config.getBlobGarbageCollectionForceThreshold();
     options.additionalColumnFamilyOptions = config.getAdditionalColumnFamilyOptions();
     options.additionalDatabaseOptions = config.getAdditionalDatabaseOptions();
+    options.mmapReadsBonsaiSlotTrieBranch = config.isMmapReadsBonsaiSlotTrieBranchEnabled();
     return options;
   }
 
@@ -225,7 +252,8 @@ public class RocksDBCLIOptions {
         blobGarbageCollectionAgeCutoff,
         blobGarbageCollectionForceThreshold,
         additionalColumnFamilyOptions,
-        additionalDatabaseOptions);
+        additionalDatabaseOptions,
+        mmapReadsBonsaiSlotTrieBranch);
   }
 
   /**
@@ -262,6 +290,7 @@ public class RocksDBCLIOptions {
         .add("blobGarbageCollectionForceThreshold", blobGarbageCollectionForceThreshold)
         .add("additionalColumnFamilyOptions", additionalColumnFamilyOptions)
         .add("additionalDatabaseOptions", additionalDatabaseOptions)
+        .add("mmapReadsBonsaiSlotTrieBranch", mmapReadsBonsaiSlotTrieBranch)
         .toString();
   }
 

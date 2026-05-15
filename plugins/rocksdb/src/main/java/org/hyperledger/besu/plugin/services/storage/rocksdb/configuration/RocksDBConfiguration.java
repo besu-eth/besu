@@ -32,6 +32,7 @@ public class RocksDBConfiguration {
   private final Optional<Double> blobGarbageCollectionForceThreshold;
   private final Optional<String> additionalColumnFamilyOptions;
   private final Optional<String> additionalDatabaseOptions;
+  private final boolean mmapReadsBonsaiSlotTrieBranch;
 
   /**
    * Instantiates a new RocksDb configuration.
@@ -49,6 +50,7 @@ public class RocksDBConfiguration {
    * @param blobGarbageCollectionForceThreshold the blob garbage collection force threshold
    * @param additionalColumnFamilyOptions additional native column-family options string
    * @param additionalDatabaseOptions optional native DB options string
+   * @param mmapReadsBonsaiSlotTrieBranch mmap SST reads on Bonsai slot / trie-branch CFs
    */
   public RocksDBConfiguration(
       final Path databaseDir,
@@ -62,7 +64,8 @@ public class RocksDBConfiguration {
       final Optional<Double> blobGarbageCollectionAgeCutoff,
       final Optional<Double> blobGarbageCollectionForceThreshold,
       final Optional<String> additionalColumnFamilyOptions,
-      final Optional<String> additionalDatabaseOptions) {
+      final Optional<String> additionalDatabaseOptions,
+      final boolean mmapReadsBonsaiSlotTrieBranch) {
     this.backgroundThreadCount = backgroundThreadCount;
     this.databaseDir = databaseDir;
     this.maxOpenFiles = maxOpenFiles;
@@ -75,6 +78,7 @@ public class RocksDBConfiguration {
     this.blobGarbageCollectionForceThreshold = blobGarbageCollectionForceThreshold;
     this.additionalColumnFamilyOptions = additionalColumnFamilyOptions;
     this.additionalDatabaseOptions = additionalDatabaseOptions;
+    this.mmapReadsBonsaiSlotTrieBranch = mmapReadsBonsaiSlotTrieBranch;
   }
 
   /**
@@ -183,5 +187,14 @@ public class RocksDBConfiguration {
    */
   public Optional<String> getAdditionalDatabaseOptions() {
     return additionalDatabaseOptions;
+  }
+
+  /**
+   * Whether mmap reads are enabled for Bonsai slot and trie-branch column families.
+   *
+   * @return true when mmap reads are enabled for Bonsai slot and trie-branch column families
+   */
+  public boolean isMmapReadsBonsaiSlotTrieBranchEnabled() {
+    return mmapReadsBonsaiSlotTrieBranch;
   }
 }

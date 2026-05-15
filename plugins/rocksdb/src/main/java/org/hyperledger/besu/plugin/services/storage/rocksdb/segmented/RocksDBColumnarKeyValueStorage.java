@@ -15,8 +15,8 @@
 package org.hyperledger.besu.plugin.services.storage.rocksdb.segmented;
 
 import static java.util.stream.Collectors.toUnmodifiableSet;
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.BLOCKCHAIN;
 
+import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
@@ -243,6 +243,17 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     cfProps.setProperty("block_based_table_factory.cache_index_and_filter_blocks", "false");
     cfProps.setProperty("block_based_table_factory.block_size", Long.toString(ROCKSDB_BLOCK_SIZE));
     cfProps.setProperty("block_based_table_factory.block_cache", Long.toString(blockCacheBytes));
+    if (configuration.isMmapReadsBonsaiSlotTrieBranchEnabled()
+        && isMmapReadsTargetBonsaiSegment(segment)) {
+      cfProps.setProperty("block_based_table_factory.allow_mmap_reads", "true");
+    }
+  }
+
+  private static boolean isMmapReadsTargetBonsaiSegment(final SegmentIdentifier segment) {
+    final String n = segment.getName();
+    return KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE.name().equals(n)
+        || KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE.name().equals(n)
+        || KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE.name().equals(n);
   }
 
   /**
@@ -339,7 +350,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   private static boolean isStaticDataGarbageCollectionEnabled(
       final SegmentIdentifier segment, final RocksDBConfiguration configuration) {
-    if (BLOCKCHAIN.getName().equals(segment.getName())
+    if (KeyValueSegmentIdentifier.BLOCKCHAIN.getName().equals(segment.getName())
         && configuration.isBlockchainGarbageCollectionEnabled()) {
       return true;
     } else {

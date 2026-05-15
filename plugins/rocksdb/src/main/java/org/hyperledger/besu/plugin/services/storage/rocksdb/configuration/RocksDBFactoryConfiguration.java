@@ -29,6 +29,7 @@ public class RocksDBFactoryConfiguration {
   private final Optional<Double> blobGarbageCollectionForceThreshold;
   private final Optional<String> additionalColumnFamilyOptions;
   private final Optional<String> additionalDatabaseOptions;
+  private final boolean mmapReadsBonsaiSlotTrieBranch;
 
   /**
    * Instantiates a new RocksDb factory configuration.
@@ -48,6 +49,8 @@ public class RocksDBFactoryConfiguration {
    * @param additionalDatabaseOptions semicolon-separated {@code DBOptions} string for {@code
    *     DBOptions.getDBOptionsFromProps}; Besu still overlays create paths, max open files, stats,
    *     env threads, and WAL sizing
+   * @param mmapReadsBonsaiSlotTrieBranch when true, use mmap SST reads on Bonsai slot and trie
+   *     branch column families
    */
   public RocksDBFactoryConfiguration(
       final int maxOpenFiles,
@@ -59,7 +62,8 @@ public class RocksDBFactoryConfiguration {
       final Optional<Double> blobGarbageCollectionAgeCutoff,
       final Optional<Double> blobGarbageCollectionForceThreshold,
       final Optional<String> additionalColumnFamilyOptions,
-      final Optional<String> additionalDatabaseOptions) {
+      final Optional<String> additionalDatabaseOptions,
+      final boolean mmapReadsBonsaiSlotTrieBranch) {
     this.backgroundThreadCount = backgroundThreadCount;
     this.maxOpenFiles = maxOpenFiles;
     this.cacheCapacity = cacheCapacity;
@@ -70,6 +74,7 @@ public class RocksDBFactoryConfiguration {
     this.blobGarbageCollectionForceThreshold = blobGarbageCollectionForceThreshold;
     this.additionalColumnFamilyOptions = additionalColumnFamilyOptions;
     this.additionalDatabaseOptions = additionalDatabaseOptions;
+    this.mmapReadsBonsaiSlotTrieBranch = mmapReadsBonsaiSlotTrieBranch;
   }
 
   /**
@@ -161,5 +166,15 @@ public class RocksDBFactoryConfiguration {
    */
   public Optional<String> getAdditionalDatabaseOptions() {
     return additionalDatabaseOptions;
+  }
+
+  /**
+   * When true, SST reads for Bonsai {@code ACCOUNT_STORAGE_STORAGE}, {@code
+   * ACCOUNT_STORAGE_ARCHIVE}, and {@code TRIE_BRANCH_STORAGE} use RocksDB mmap.
+   *
+   * @return whether mmap reads are enabled for those column families
+   */
+  public boolean isMmapReadsBonsaiSlotTrieBranchEnabled() {
+    return mmapReadsBonsaiSlotTrieBranch;
   }
 }

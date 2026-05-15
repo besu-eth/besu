@@ -19,6 +19,7 @@ import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_ENABLE_READ_CACHE_FOR_SNAPSHOTS;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_IS_HIGH_SPEC;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_MAX_OPEN_FILES;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_MMAP_READS_BONSAI_SLOT_TRIE_BRANCH;
 
 import java.nio.file.Path;
 import java.util.Optional;
@@ -38,6 +39,7 @@ public class RocksDBConfigurationBuilder {
   private Optional<Double> blobGarbageCollectionForceThreshold = Optional.empty();
   private Optional<String> additionalColumnFamilyOptions = Optional.empty();
   private Optional<String> additionalDatabaseOptions = Optional.empty();
+  private boolean mmapReadsBonsaiSlotTrieBranch = DEFAULT_MMAP_READS_BONSAI_SLOT_TRIE_BRANCH;
 
   /** Instantiates a new Rocks db configuration builder. */
   public RocksDBConfigurationBuilder() {}
@@ -183,6 +185,18 @@ public class RocksDBConfigurationBuilder {
   }
 
   /**
+   * Enables mmap SST reads for Bonsai slot and trie-branch column families (experimental).
+   *
+   * @param mmapReadsBonsaiSlotTrieBranch when true, enable mmap reads for those CFs
+   * @return this builder
+   */
+  public RocksDBConfigurationBuilder mmapReadsBonsaiSlotTrieBranch(
+      final boolean mmapReadsBonsaiSlotTrieBranch) {
+    this.mmapReadsBonsaiSlotTrieBranch = mmapReadsBonsaiSlotTrieBranch;
+    return this;
+  }
+
+  /**
    * From.
    *
    * @param configuration the configuration
@@ -199,7 +213,8 @@ public class RocksDBConfigurationBuilder {
         .blobGarbageCollectionAgeCutoff(configuration.getBlobGarbageCollectionAgeCutoff())
         .blobGarbageCollectionForceThreshold(configuration.getBlobGarbageCollectionForceThreshold())
         .additionalColumnFamilyOptions(configuration.getAdditionalColumnFamilyOptions())
-        .additionalDatabaseOptions(configuration.getAdditionalDatabaseOptions());
+        .additionalDatabaseOptions(configuration.getAdditionalDatabaseOptions())
+        .mmapReadsBonsaiSlotTrieBranch(configuration.isMmapReadsBonsaiSlotTrieBranchEnabled());
   }
 
   /**
@@ -220,6 +235,7 @@ public class RocksDBConfigurationBuilder {
         blobGarbageCollectionAgeCutoff,
         blobGarbageCollectionForceThreshold,
         additionalColumnFamilyOptions,
-        additionalDatabaseOptions);
+        additionalDatabaseOptions,
+        mmapReadsBonsaiSlotTrieBranch);
   }
 }

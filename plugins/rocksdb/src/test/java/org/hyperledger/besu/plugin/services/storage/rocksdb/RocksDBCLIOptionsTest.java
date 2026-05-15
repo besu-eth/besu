@@ -21,9 +21,10 @@ import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_BACKGROUND_THREAD_COUNT;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_CACHE_CAPACITY;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_IS_HIGH_SPEC;
-import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_MAX_OPEN_FILES;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_MMAP_READS_BONSAI_SLOT_TRIE_BRANCH;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.IS_HIGH_SPEC;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.MAX_OPEN_FILES_FLAG;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.MMAP_READS_BONSAI_SLOT_TRIE_BRANCH_FLAG;
 
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBFactoryConfiguration;
@@ -43,8 +44,17 @@ public class RocksDBCLIOptionsTest {
     assertThat(configuration).isNotNull();
     assertThat(configuration.getBackgroundThreadCount()).isEqualTo(DEFAULT_BACKGROUND_THREAD_COUNT);
     assertThat(configuration.getCacheCapacity()).isEqualTo(DEFAULT_CACHE_CAPACITY);
-    assertThat(configuration.getMaxOpenFiles()).isEqualTo(DEFAULT_MAX_OPEN_FILES);
+    assertThat(configuration.getMaxOpenFiles()).isEqualTo(-1);
     assertThat(configuration.isHighSpec()).isEqualTo(DEFAULT_IS_HIGH_SPEC);
+    assertThat(configuration.isMmapReadsBonsaiSlotTrieBranchEnabled())
+        .isEqualTo(DEFAULT_MMAP_READS_BONSAI_SLOT_TRIE_BRANCH);
+  }
+
+  @Test
+  public void mmapReadsBonsaiSlotTrieBranchFlag() {
+    final RocksDBCLIOptions options = RocksDBCLIOptions.create();
+    new CommandLine(options).parseArgs(MMAP_READS_BONSAI_SLOT_TRIE_BRANCH_FLAG);
+    assertThat(options.toDomainObject().isMmapReadsBonsaiSlotTrieBranchEnabled()).isTrue();
   }
 
   @Test
@@ -60,7 +70,7 @@ public class RocksDBCLIOptionsTest {
     assertThat(configuration).isNotNull();
     assertThat(configuration.getBackgroundThreadCount()).isEqualTo(expectedBackgroundThreadCount);
     assertThat(configuration.getCacheCapacity()).isEqualTo(DEFAULT_CACHE_CAPACITY);
-    assertThat(configuration.getMaxOpenFiles()).isEqualTo(DEFAULT_MAX_OPEN_FILES);
+    assertThat(configuration.getMaxOpenFiles()).isEqualTo(-1);
     assertThat(configuration.isHighSpec()).isEqualTo(DEFAULT_IS_HIGH_SPEC);
   }
 
@@ -75,7 +85,7 @@ public class RocksDBCLIOptionsTest {
     assertThat(configuration).isNotNull();
     assertThat(configuration.getBackgroundThreadCount()).isEqualTo(DEFAULT_BACKGROUND_THREAD_COUNT);
     assertThat(configuration.getCacheCapacity()).isEqualTo(expectedCacheCapacity);
-    assertThat(configuration.getMaxOpenFiles()).isEqualTo(DEFAULT_MAX_OPEN_FILES);
+    assertThat(configuration.getMaxOpenFiles()).isEqualTo(-1);
     assertThat(configuration.isHighSpec()).isEqualTo(DEFAULT_IS_HIGH_SPEC);
   }
 
