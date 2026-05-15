@@ -43,12 +43,6 @@ public class DebugGetRawTransaction implements JsonRpcMethod {
   public JsonRpcResponse response(final JsonRpcRequestContext requestContext) {
     final Hash txHash;
     try {
-      final String rawHash = requestContext.getRequiredParameter(0, String.class);
-      if (!rawHash.startsWith("0x") && !rawHash.startsWith("0X")) {
-        throw new InvalidJsonRpcParameters(
-            "Invalid transaction hash parameter (index 0)",
-            RpcErrorType.INVALID_TRANSACTION_HASH_PARAMS);
-      }
       txHash = requestContext.getRequiredParameter(0, Hash.class);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcParameters(

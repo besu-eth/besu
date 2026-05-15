@@ -4,7 +4,7 @@
 
 ### Breaking Changes
 - RPC changes to enhance compatibility with other ELs
-  - Block number parameter in RPCs will only support hex values. Non-hex (decimal) block number parameters are now rejected. This affects `debug_getRawBlock`, `debug_getRawHeader`, `debug_getRawReceipts`, and `eth_getProof`. Transaction hash parameters in `debug_getRawTransaction` must also use a `0x` prefix.
+  - Block number parameter in RPCs will only support hex values. Non-hex (decimal) block number parameters are now rejected. This affects `debug_getRawBlock`, `debug_getRawHeader`, `debug_getRawReceipts`, and `eth_getProof`. [#10240](https://github.com/besu-eth/besu/pull/10240)
 
 ### Upcoming Breaking Changes
 - Sunsetting features - for more context on the reasoning behind the deprecation of these features, including alternative options, read [this blog post](https://www.lfdecentralizedtrust.org/blog/sunsetting-tessera-and-simplifying-hyperledger-besu)
@@ -20,7 +20,6 @@
 - Fix `engine_forkchoiceUpdatedV1` now returns `-38003 INVALID_PAYLOAD_ATTRIBUTES` for invalid payload attribute timestamps (zero or not greater than head). [#10353](https://github.com/besu-eth/besu/pull/10353)
 - Fix `engine_newPayloadV4`/`V5` now returns `-32602 INVALID_PARAMS` instead of `INVALID` payload status when execution requests contain an unknown request type. [#10484](https://github.com/besu-eth/besu/pull/10484)
 - Fix `debug_trace*` `storage` field to emit only for SLOAD/SSTORE opcodes showing the single slot touched, matching the execution-apis spec and geth behaviour [#10176](https://github.com/besu-eth/besu/pull/10176)
-- `debug_getRawBlock`, `debug_getRawHeader`, `debug_getRawReceipts`, and `eth_getProof` now reject non-hex block number parameters (e.g. decimal integers) with an `INVALID_BLOCK_PARAMS` error, consistent with the JSON-RPC spec. Validation is centralised in `BlockParameterOrBlockHash`. `debug_getRawTransaction` now rejects transaction hash parameters without a `0x` prefix. [#10240](https://github.com/besu-eth/besu/pull/10240)
 
 ### Additions and Improvements
 - Add `eth_getStorageValues` JSON-RPC method for batched reads of multiple storage slots across multiple accounts in a single call [#10259](https://github.com/besu-eth/besu/pull/10259)
