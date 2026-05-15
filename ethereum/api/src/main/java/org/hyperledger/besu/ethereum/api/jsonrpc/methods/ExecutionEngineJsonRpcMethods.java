@@ -129,14 +129,6 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
               engineQosTimer));
 
       executionEngineApisSupported.addAll(
-          createEngineNewPayloadMethods(
-              consensusEngineServer,
-              protocolSchedule,
-              protocolContext,
-              mergeCoordinator.get(),
-              engineQosTimer));
-
-      executionEngineApisSupported.addAll(
           Arrays.asList(
               new EngineGetPayloadV1(
                   consensusEngineServer,
@@ -151,6 +143,30 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
                   blockResultFactory,
                   engineQosTimer,
                   protocolSchedule),
+              new EngineNewPayloadV1(
+                  consensusEngineServer,
+                  protocolSchedule,
+                  protocolContext,
+                  mergeCoordinator.get(),
+                  ethPeers,
+                  engineQosTimer,
+                  metricsSystem),
+              new EngineNewPayloadV2(
+                  consensusEngineServer,
+                  protocolSchedule,
+                  protocolContext,
+                  mergeCoordinator.get(),
+                  ethPeers,
+                  engineQosTimer,
+                  metricsSystem),
+              new EngineNewPayloadV3(
+                  consensusEngineServer,
+                  protocolSchedule,
+                  protocolContext,
+                  mergeCoordinator.get(),
+                  ethPeers,
+                  engineQosTimer,
+                  metricsSystem),
               new EngineExchangeTransitionConfiguration(
                   consensusEngineServer, protocolContext, engineQosTimer),
               new EngineGetPayloadBodiesByHashV1(
@@ -190,6 +206,16 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
                 blockResultFactory,
                 engineQosTimer,
                 protocolSchedule));
+
+        executionEngineApisSupported.add(
+            new EngineNewPayloadV4(
+                consensusEngineServer,
+                protocolSchedule,
+                protocolContext,
+                mergeCoordinator.get(),
+                ethPeers,
+                engineQosTimer,
+                metricsSystem));
       }
 
       if (protocolSchedule.milestoneFor(OSAKA).isPresent()) {
@@ -234,6 +260,15 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
         executionEngineApisSupported.add(
             new EngineGetPayloadBodiesByRangeV2(
                 consensusEngineServer, protocolContext, blockResultFactory, engineQosTimer));
+        executionEngineApisSupported.add(
+            new EngineNewPayloadV5(
+                consensusEngineServer,
+                protocolSchedule,
+                protocolContext,
+                mergeCoordinator.get(),
+                ethPeers,
+                engineQosTimer,
+                metricsSystem));
       }
 
       return mapOf(executionEngineApisSupported);
@@ -267,65 +302,6 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
             engineQosTimer);
   }
 
-  private Collection<? extends JsonRpcMethod> createEngineNewPayloadMethods(
-      final Vertx consensusEngineServer,
-      final ProtocolSchedule protocolSchedule,
-      final ProtocolContext protocolContext,
-      final MergeMiningCoordinator mergeMiningCoordinator,
-      final EngineQosTimer engineQosTimer) {
-    final List<JsonRpcMethod> legacy = new ArrayList<>();
-    legacy.add(
-        new EngineNewPayloadV1(
-            consensusEngineServer,
-            protocolSchedule,
-            protocolContext,
-            mergeMiningCoordinator,
-            ethPeers,
-            engineQosTimer,
-            metricsSystem));
-    legacy.add(
-        new EngineNewPayloadV2(
-            consensusEngineServer,
-            protocolSchedule,
-            protocolContext,
-            mergeMiningCoordinator,
-            ethPeers,
-            engineQosTimer,
-            metricsSystem));
-    legacy.add(
-        new EngineNewPayloadV3(
-            consensusEngineServer,
-            protocolSchedule,
-            protocolContext,
-            mergeMiningCoordinator,
-            ethPeers,
-            engineQosTimer,
-            metricsSystem));
-    if (protocolSchedule.milestoneFor(PRAGUE).isPresent()) {
-      legacy.add(
-          new EngineNewPayloadV4(
-              consensusEngineServer,
-              protocolSchedule,
-              protocolContext,
-              mergeMiningCoordinator,
-              ethPeers,
-              engineQosTimer,
-              metricsSystem));
-    }
-    if (protocolSchedule.milestoneFor(AMSTERDAM).isPresent()) {
-      legacy.add(
-          new EngineNewPayloadV5(
-              consensusEngineServer,
-              protocolSchedule,
-              protocolContext,
-              mergeMiningCoordinator,
-              ethPeers,
-              engineQosTimer,
-              metricsSystem));
-    }
-    return legacy;
-  }
-
   private static class VersionScheduler {
     final List<MethodVersionBuildData> readyMethods = new ArrayList<>();
     List<MethodVersionBuildData> pendingMethods = new ArrayList<>();
@@ -339,7 +315,8 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       return vs;
     }
 
-    public VersionScheduler thenAlsoFromBeginning(final Class<EngineForkchoiceUpdatedV2> method) {
+    public VersionScheduler thenAlsoFromBeginning(
+        final Class<? extends ExecutionEngineJsonRpcMethod> method) {
       checkState(
           pendingMethods.isEmpty() || pendingMethods.stream().allMatch(mvbd -> mvbd.to == null),
           "This method can only be called for methods that are active since Paris hardfork");
