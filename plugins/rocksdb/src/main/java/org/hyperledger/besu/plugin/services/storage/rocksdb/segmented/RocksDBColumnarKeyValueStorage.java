@@ -201,19 +201,19 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         String latestOptionsFileName =
             OptionsUtil.getLatestOptionsFileName(
                 configuration.getDatabaseDir().toString(), Env.getDefault());
-        LOG.trace("Latest OPTIONS file detected: " + latestOptionsFileName);
+        LOG.trace("Latest OPTIONS file detected: {}", latestOptionsFileName);
 
         String optionsFilePath =
             configuration.getDatabaseDir().toString() + "/" + latestOptionsFileName;
         OptionsUtil.loadOptionsFromFile(configOptions, optionsFilePath, dbOptions, cfDescriptors);
 
-        LOG.trace("RocksDB options loaded successfully from: " + optionsFilePath);
+        LOG.trace("RocksDB options loaded successfully from: {}", optionsFilePath);
 
         if (!cfDescriptors.isEmpty()) {
           for (ColumnFamilyDescriptor descriptor : cfDescriptors) {
             if (Arrays.equals(descriptor.getName(), segment.getId())) {
               dynamicLevelBytes = descriptor.getOptions().levelCompactionDynamicLevelBytes();
-              LOG.trace("dynamicLevelBytes is set to an existing value : " + dynamicLevelBytes);
+              LOG.trace("dynamicLevelBytes is set to an existing value : {}", dynamicLevelBytes);
               break;
             }
           }
