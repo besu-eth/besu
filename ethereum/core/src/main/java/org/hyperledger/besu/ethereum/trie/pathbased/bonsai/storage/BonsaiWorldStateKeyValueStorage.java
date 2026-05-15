@@ -121,7 +121,7 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
               .getBonsaiCrossBlockCacheStorageSize(),
           metricsSystem);
     } else {
-      return CacheManager.EMPTY_CACHE;
+      return CacheManager.NO_OP_CACHE;
     }
   }
 

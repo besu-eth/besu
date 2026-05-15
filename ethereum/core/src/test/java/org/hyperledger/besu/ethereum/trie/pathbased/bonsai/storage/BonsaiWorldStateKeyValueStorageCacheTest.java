@@ -84,7 +84,7 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
   @Test
   void crossBlockDisabled_usesEmptyCacheManager() throws Exception {
     newHead(false);
-    assertThat(head.getCacheManager()).isSameAs(CacheManager.EMPTY_CACHE);
+    assertThat(head.getCacheManager()).isSameAs(CacheManager.NO_OP_CACHE);
 
     final Hash account = Hash.hash(Bytes.of(1));
     commitAccount(account, Bytes.of(1, 2, 3));

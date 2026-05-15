@@ -27,6 +27,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.config.MergeConfiguration;
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.PayloadWrapper;
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.PreparePayloadArgs;
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECPPrivateKey;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
@@ -326,13 +327,14 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
     transactions.addTransaction(createLocalTransaction(0, value), Optional.empty());
 
     coordinator.preparePayload(
-        genesisState.getBlock().getHeader(),
-        System.currentTimeMillis() / 1000,
-        random,
-        Address.ZERO,
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty());
+        new PreparePayloadArgs(
+            genesisState.getBlock().getHeader(),
+            System.currentTimeMillis() / 1000,
+            random,
+            Address.ZERO,
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty()));
 
     boolean built = latch.await(30, TimeUnit.SECONDS);
     assertThat(built)

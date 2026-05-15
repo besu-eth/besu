@@ -30,7 +30,7 @@ import org.apache.tuweni.bytes.Bytes;
  */
 public interface CacheManager {
 
-  CacheManager EMPTY_CACHE = new CacheManager() {};
+  CacheManager NO_OP_CACHE = new CacheManager() {};
 
   default long getCurrentVersion() {
     return 0;
