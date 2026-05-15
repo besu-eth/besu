@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal;
 
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 
 import java.util.List;
@@ -65,17 +66,41 @@ public class JsonRpcRequestContext {
 
   public <T> T getRequiredParameter(final int index, final Class<T> paramClass)
       throws JsonRpcParameterException {
-    return jsonRpcRequest.getRequiredParameter(index, paramClass);
+    return jsonRpcRequest.getRequiredParameter(
+        index, paramClass, JsonRpcParameter.Configuration.DEFAULT);
+  }
+
+  public <T> T getRequiredParameter(
+      final int index,
+      final Class<T> paramClass,
+      final JsonRpcParameter.Configuration configuration)
+      throws JsonRpcParameterException {
+    return jsonRpcRequest.getRequiredParameter(index, paramClass, configuration);
   }
 
   public <T> Optional<T> getOptionalParameter(final int index, final Class<T> paramClass)
       throws JsonRpcParameterException {
-    return jsonRpcRequest.getOptionalParameter(index, paramClass);
+    return jsonRpcRequest.getOptionalParameter(
+        index, paramClass, JsonRpcParameter.Configuration.DEFAULT);
+  }
+
+  public <T> Optional<T> getOptionalParameter(
+      final int index,
+      final Class<T> paramClass,
+      final JsonRpcParameter.Configuration configuration)
+      throws JsonRpcParameterException {
+    return jsonRpcRequest.getOptionalParameter(index, paramClass, configuration);
   }
 
   public <T> Optional<List<T>> getOptionalList(final int index, final Class<T> listOf)
       throws JsonRpcParameterException {
-    return jsonRpcRequest.getOptionalList(index, listOf);
+    return jsonRpcRequest.getOptionalList(index, listOf, JsonRpcParameter.Configuration.DEFAULT);
+  }
+
+  public <T> Optional<List<T>> getOptionalList(
+      final int index, final Class<T> listOf, final JsonRpcParameter.Configuration configuration)
+      throws JsonRpcParameterException {
+    return jsonRpcRequest.getOptionalList(index, listOf, configuration);
   }
 
   @Override
