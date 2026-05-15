@@ -21,6 +21,7 @@ import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.Sha256Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
@@ -99,13 +100,23 @@ public class TransactionTestFixture {
         builder.maxFeePerGas(maxFeePerGas.orElse(Wei.of(5000)));
         builder.accessList(accessListEntries.orElse(List.of()));
         builder.maxFeePerBlobGas(maxFeePerBlobGas.orElse(Wei.ONE));
+        versionedHashes.ifPresent(builder::versionedHashes);
         if (blobs.isPresent()) {
+          if (versionedHashes.isEmpty()) {
+            builder.versionedHashes(
+                blobs.get().getKzgCommitments().stream()
+                    .map(
+                        c ->
+                            new VersionedHash(
+                                VersionedHash.SHA256_VERSION_ID, Sha256Hash.sha256(c.getData())))
+                    .toList());
+          }
           builder.kzgBlobs(
               blobs.get().getBlobType(),
               blobs.get().getKzgCommitments(),
               blobs.get().getBlobs(),
               blobs.get().getKzgProofs());
-        } else versionedHashes.ifPresent(builder::versionedHashes);
+        }
         break;
       case DELEGATE_CODE:
         builder.maxPriorityFeePerGas(maxPriorityFeePerGas.orElse(Wei.of(500)));

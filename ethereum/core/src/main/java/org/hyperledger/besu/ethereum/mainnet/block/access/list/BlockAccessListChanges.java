@@ -33,10 +33,6 @@ public final class BlockAccessListChanges {
     final List<AccountFinalChanges> accountFinalChanges = new ArrayList<>();
 
     for (final BlockAccessList.AccountChanges accountChanges : blockAccessList.accountChanges()) {
-      if (!accountChanges.hasAnyChange()) {
-        continue;
-      }
-
       final List<StorageFinalChange> storageFinalChanges = new ArrayList<>();
       for (final BlockAccessList.SlotChanges slotChanges : accountChanges.storageChanges()) {
         final Optional<BlockAccessList.StorageChange> latestStorageChange =
@@ -69,7 +65,15 @@ public final class BlockAccessListChanges {
       Optional<Wei> balance,
       Optional<Long> nonce,
       Optional<Bytes> code,
-      List<StorageFinalChange> storageChanges) {}
+      List<StorageFinalChange> storageChanges) {
+    public boolean hasAnyChange() {
+      return !balance.isEmpty() || !nonce.isEmpty() || !code.isEmpty() || !storageChanges.isEmpty();
+    }
+
+    public boolean isEmpty() {
+      return !hasAnyChange();
+    }
+  }
 
   public record StorageFinalChange(StorageSlotKey slot, UInt256 value) {}
 

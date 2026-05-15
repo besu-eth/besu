@@ -30,9 +30,11 @@ import org.hyperledger.besu.ethereum.p2p.config.ImmutableNetworkingConfiguration
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.discovery.NodeRecordManager;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.DiscoveryPeerV4;
+import org.hyperledger.besu.ethereum.p2p.discovery.dns.EthereumNodeRecord;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissionSubnet;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
+import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissionsDenylist;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.net.InetSocketAddress;
@@ -41,7 +43,9 @@ import java.util.Optional;
 
 import inet.ipaddr.IPAddress;
 import inet.ipaddr.IPAddressString;
+import org.apache.tuweni.bytes.Bytes;
 import org.ethereum.beacon.discovery.AddressAccessPolicy;
+import org.ethereum.beacon.discovery.schema.EnrField;
 import org.ethereum.beacon.discovery.schema.NodeRecord;
 import org.ethereum.beacon.discovery.schema.NodeRecordFactory;
 import org.junit.jupiter.api.BeforeEach;
@@ -142,12 +146,14 @@ class PeerDiscoveryAgentFactoryV5Test {
   }
 
   @Test
-  void rejectNodeRecordWithNoAddressWhenSubnetsConfigured() {
+  void rejectNodeRecordWithNoAddressesAndMissingKey() {
+    when(nodeRecordManager.getLocalNode()).thenReturn(Optional.of(localPeer));
+
     final PeerPermissions permissions = subnetPermissions("10.0.0.0/8");
     final AddressAccessPolicy policy = createFactory(permissions).createAddressAccessPolicy();
 
-    // A NodeRecord with no advertised addresses is rejected early,
-    // before attempting DiscoveryPeer conversion or identity checks.
+    // A mock NodeRecord with no addresses and no secp256k1 field — key extraction fails,
+    // so the peer is rejected.
     final NodeRecord noAddressRecord = mock(NodeRecord.class);
     when(noAddressRecord.getUdpAddress()).thenReturn(Optional.empty());
     when(noAddressRecord.getUdp6Address()).thenReturn(Optional.empty());
@@ -155,6 +161,43 @@ class PeerDiscoveryAgentFactoryV5Test {
     when(noAddressRecord.getTcp6Address()).thenReturn(Optional.empty());
 
     assertThat(policy.allow(noAddressRecord)).isFalse();
+  }
+
+  @Test
+  void allowNoAddressRecordWhenNotOnDenylist() {
+    when(nodeRecordManager.getLocalNode()).thenReturn(Optional.of(localPeer));
+
+    final PeerPermissionsDenylist denylist = PeerPermissionsDenylist.create();
+    final AddressAccessPolicy policy = createFactory(denylist).createAddressAccessPolicy();
+
+    final Bytes compressedKey = (Bytes) testNodeRecord.get(EnrField.PKEY_SECP256K1);
+    assertThat(policy.allow(noAddressRecordWithKeyFrom(compressedKey))).isTrue();
+  }
+
+  @Test
+  void rejectNoAddressRecordWhenOnDenylist() {
+    when(nodeRecordManager.getLocalNode()).thenReturn(Optional.of(localPeer));
+
+    final Bytes compressedKey = (Bytes) testNodeRecord.get(EnrField.PKEY_SECP256K1);
+    final PeerPermissionsDenylist denylist = PeerPermissionsDenylist.create();
+    // The denylist stores the 64-byte uncompressed key; extract it the same way the allow path does
+    denylist.add(EthereumNodeRecord.uncompressedPublicKey(testNodeRecord));
+    final AddressAccessPolicy policy = createFactory(denylist).createAddressAccessPolicy();
+
+    assertThat(policy.allow(noAddressRecordWithKeyFrom(compressedKey))).isFalse();
+  }
+
+  /**
+   * Returns a mock NodeRecord that has no addresses but carries the given compressed secp256k1 key.
+   */
+  private static NodeRecord noAddressRecordWithKeyFrom(final Bytes compressedKey) {
+    final NodeRecord record = mock(NodeRecord.class);
+    when(record.getUdpAddress()).thenReturn(Optional.empty());
+    when(record.getUdp6Address()).thenReturn(Optional.empty());
+    when(record.getTcpAddress()).thenReturn(Optional.empty());
+    when(record.getTcp6Address()).thenReturn(Optional.empty());
+    when(record.get(EnrField.PKEY_SECP256K1)).thenReturn(compressedKey);
+    return record;
   }
 
   @Test

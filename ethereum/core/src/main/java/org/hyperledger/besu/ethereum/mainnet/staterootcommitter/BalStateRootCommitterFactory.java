@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
@@ -28,13 +27,16 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWo
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
+import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 
-import java.time.Duration;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
 import java.util.function.Supplier;
 
 import org.slf4j.Logger;
@@ -46,9 +48,16 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
   private static final Logger LOG = LoggerFactory.getLogger(BalStateRootCommitterFactory.class);
 
   private final BalConfiguration balConfiguration;
+  private final Executor balAsyncExecutor;
 
   public BalStateRootCommitterFactory(final BalConfiguration balConfiguration) {
+    this(balConfiguration, ForkJoinPool.commonPool());
+  }
+
+  public BalStateRootCommitterFactory(
+      final BalConfiguration balConfiguration, final Executor balAsyncExecutor) {
     this.balConfiguration = balConfiguration;
+    this.balAsyncExecutor = balAsyncExecutor;
   }
 
   @Override
@@ -58,20 +67,20 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
       final Optional<BlockAccessList> maybeBal) {
 
     if (maybeBal.isEmpty()
+        || !balConfiguration.isBalStateRootEnabled()
         || protocolContext.getWorldStateArchive() instanceof ForestWorldStateArchive
         || isTrieDisabled(protocolContext)) {
       return StateRootCommitter.SYNCHRONOUS;
     }
 
     final CompletableFuture<BalRootComputation> balFuture =
-        BalStateRootCalculator.computeAsync(protocolContext, blockHeader, maybeBal.get());
-    final Duration timeout = balConfiguration.getBalStateRootTimeout();
+        BalStateRootCalculator.computeAsync(
+            protocolContext, blockHeader, maybeBal.get(), balAsyncExecutor);
 
     if (balConfiguration.isBalStateRootTrusted()) {
-      return new TrustedBalCommitter(balFuture, timeout);
+      return new TrustedBalCommitter(balFuture);
     }
-    return new VerifyingBalCommitter(
-        balFuture, timeout, balConfiguration.isBalLenientOnStateRootMismatch());
+    return new VerifyingBalCommitter(balFuture, balConfiguration.isBalLenientOnStateRootMismatch());
   }
 
   // The BAL-computed root is the authoritative source. The standard trie
@@ -79,12 +88,9 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
   private static final class TrustedBalCommitter implements StateRootCommitter {
 
     private final CompletableFuture<BalRootComputation> balFuture;
-    private final Duration timeout;
 
-    TrustedBalCommitter(
-        final CompletableFuture<BalRootComputation> balFuture, final Duration timeout) {
+    TrustedBalCommitter(final CompletableFuture<BalRootComputation> balFuture) {
       this.balFuture = balFuture;
-      this.timeout = timeout;
     }
 
     @Override
@@ -95,8 +101,7 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
         final BlockHeader blockHeader) {
 
       final BalRootComputation bal =
-          awaitBal(balFuture, timeout, /* lenient= */ false)
-              .orElseThrow(); // unreachable in strict mode
+          awaitBal(balFuture, /* lenient= */ false).orElseThrow(); // unreachable in strict mode
 
       if (!blockHeader.getStateRoot().equals(bal.root())) {
         throw new IllegalStateException("BAL-computed root does not match block header state root");
@@ -120,15 +125,11 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
   private static final class VerifyingBalCommitter implements StateRootCommitter {
 
     private final CompletableFuture<BalRootComputation> balFuture;
-    private final Duration timeout;
     private final boolean lenient;
 
     VerifyingBalCommitter(
-        final CompletableFuture<BalRootComputation> balFuture,
-        final Duration timeout,
-        final boolean lenient) {
+        final CompletableFuture<BalRootComputation> balFuture, final boolean lenient) {
       this.balFuture = balFuture;
-      this.timeout = timeout;
       this.lenient = lenient;
     }
 
@@ -140,7 +141,7 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
         final BlockHeader blockHeader) {
 
       final Hash syncRoot = stateRootSupplier.get();
-      final Optional<BalRootComputation> maybeBal = awaitBal(balFuture, timeout, lenient);
+      final Optional<BalRootComputation> maybeBal = awaitBal(balFuture, lenient);
 
       if (maybeBal.isEmpty()) {
         LOG.warn("BAL root unavailable (lenient mode); proceeding with computed root {}", syncRoot);
@@ -183,26 +184,31 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
   }
 
   /**
-   * Awaits the BAL computation result with the configured timeout. In lenient mode, failures are
-   * logged and an empty Optional is returned. In strict mode, failures throw.
+   * Awaits the BAL computation result. In lenient mode, failures are logged and an empty Optional
+   * is returned. In strict mode, failures throw.
+   *
+   * <p>Handles {@link ExecutionException} and {@link InterruptedException} from {@link
+   * CompletableFuture#get()}, direct {@link CancellationException} from {@code get()} when the
+   * future was cancelled, and {@link CompletionException} (e.g. from {@link
+   * CompletableFuture#join()} if used later) including when its cause is cancellation.
    */
   private static Optional<BalRootComputation> awaitBal(
-      final CompletableFuture<BalRootComputation> future,
-      final Duration timeout,
-      final boolean lenient) {
+      final CompletableFuture<BalRootComputation> future, final boolean lenient) {
     try {
-      if (timeout.isNegative()) {
-        return Optional.of(future.join());
-      }
-      return Optional.of(future.get(timeout.toNanos(), TimeUnit.NANOSECONDS));
-    } catch (final TimeoutException e) {
-      future.cancel(true);
-      return handleFailure(lenient, "Timed out waiting " + timeout + " for BAL state root", e);
+      return Optional.of(future.get());
     } catch (final ExecutionException e) {
       return handleFailure(lenient, "Failed to compute BAL state root", e.getCause());
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
       return handleFailure(lenient, "Interrupted while waiting for BAL state root", e);
+    } catch (final CancellationException e) {
+      return handleFailure(lenient, "BAL state root computation was cancelled", e);
+    } catch (final CompletionException e) {
+      final Throwable cause = e.getCause();
+      if (cause instanceof CancellationException ce) {
+        return handleFailure(lenient, "BAL state root computation was cancelled", ce);
+      }
+      return handleFailure(lenient, "Failed to compute BAL state root", cause != null ? cause : e);
     }
   }
 

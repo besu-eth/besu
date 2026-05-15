@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask.Direction;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -31,6 +32,7 @@ import org.slf4j.LoggerFactory;
 
 public class BackwardSyncStep {
   private static final Logger LOG = LoggerFactory.getLogger(BackwardSyncStep.class);
+  private static final int RESTORE_BATCH_SIZE = 1_000;
   private final BackwardSyncContext context;
   private final BackwardChain backwardChain;
 
@@ -50,10 +52,18 @@ public class BackwardSyncStep {
   protected Hash possibleRestoreOldNodes(final BlockHeader firstAncestor) {
     Hash lastHash = firstAncestor.getParentHash();
     Optional<BlockHeader> iterator = backwardChain.getHeader(lastHash);
+    final List<BlockHeader> batch = new ArrayList<>(RESTORE_BATCH_SIZE);
     while (iterator.isPresent()) {
-      backwardChain.prependAncestorsHeader(iterator.get(), true);
+      batch.add(iterator.get());
       lastHash = iterator.get().getParentHash();
       iterator = backwardChain.getHeader(lastHash);
+      if (batch.size() >= RESTORE_BATCH_SIZE) {
+        backwardChain.prependRestoredAncestorsHeaders(batch);
+        batch.clear();
+      }
+    }
+    if (!batch.isEmpty()) {
+      backwardChain.prependRestoredAncestorsHeaders(batch);
     }
     return lastHash;
   }

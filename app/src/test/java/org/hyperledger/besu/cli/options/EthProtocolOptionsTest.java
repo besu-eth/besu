@@ -137,28 +137,6 @@ public class EthProtocolOptionsTest
   }
 
   @Test
-  public void parsesValidEwpMaxGetNodeDataOptions() {
-    final TestBesuCommand cmd = parseCommand("--Xewp-max-get-node-data", "16");
-
-    final EthProtocolOptions options = getOptionsFromBesuCommand(cmd);
-    final EthProtocolConfiguration config = options.toDomainObject();
-    assertThat(config.getMaxGetNodeData()).isEqualTo(16);
-
-    assertThat(commandOutput.toString(UTF_8)).isEmpty();
-    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
-  }
-
-  @Test
-  public void parsesInvalidEwpMaxGetNodeDataOptionsShouldFail() {
-    parseCommand("--Xewp-max-get-node-data", "-16");
-    verifyNoInteractions(mockRunnerBuilder);
-    assertThat(commandOutput.toString(UTF_8)).isEmpty();
-    assertThat(commandErrorOutput.toString(UTF_8))
-        .contains(
-            "Invalid value for option '--Xewp-max-get-node-data': cannot convert '-16' to PositiveNumber");
-  }
-
-  @Test
   public void parsesValidEthMaxProtocol() {
     final TestBesuCommand cmd = parseCommand("--Xeth-capability-max", "66");
 
@@ -196,7 +174,6 @@ public class EthProtocolOptionsTest
         .maxGetBlockHeaders(EthProtocolConfiguration.DEFAULT_MAX_GET_BLOCK_HEADERS + 2)
         .maxGetBlockBodies(EthProtocolConfiguration.DEFAULT_MAX_GET_BLOCK_BODIES + 2)
         .maxGetReceipts(EthProtocolConfiguration.DEFAULT_MAX_GET_RECEIPTS + 2)
-        .maxGetNodeData(EthProtocolConfiguration.DEFAULT_MAX_GET_NODE_DATA + 2)
         .maxGetPooledTransactions(EthProtocolConfiguration.DEFAULT_MAX_GET_POOLED_TRANSACTIONS + 2)
         .maxEthCapability(EthProtocolConfiguration.DEFAULT_MAX_CAPABILITY)
         .minEthCapability(EthProtocolConfiguration.DEFAULT_MIN_CAPABILITY)

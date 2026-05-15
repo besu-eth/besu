@@ -17,8 +17,6 @@ package org.hyperledger.besu.cli.options;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ImmutableBalConfiguration;
 
-import java.time.Duration;
-
 import picocli.CommandLine;
 
 /** Command-line options for configuring Block Access List behaviour. */
@@ -47,24 +45,18 @@ public class BalConfigurationOptions {
   boolean balTrustStateRoot = false;
 
   @CommandLine.Option(
+      names = {"--Xbal-state-root-enabled"},
+      hidden = true,
+      negatable = true,
+      description =
+          "Use the BAL-based state root commit path when a BAL is present (default: true).")
+  boolean balStateRootEnabled = true;
+
+  @CommandLine.Option(
       names = {"--Xbal-log-bals-on-mismatch"},
       hidden = true,
       description = "Log the constructed and block's BAL when they differ.")
   boolean balLogBalsOnMismatch = false;
-
-  @CommandLine.Option(
-      names = {"--Xbal-state-root-timeout"},
-      hidden = true,
-      paramLabel = "<INTEGER>",
-      description = "Timeout in milliseconds when waiting for the BAL-computed state root.")
-  private long balStateRootTimeoutMs = Duration.ofSeconds(1).toMillis();
-
-  @CommandLine.Option(
-      names = {"--Xbal-processing-timeout"},
-      hidden = true,
-      paramLabel = "<INTEGER>",
-      description = "Timeout in milliseconds when waiting for BAL transaction processing results.")
-  private long balProcessingTimeoutMs = Duration.ofSeconds(1).toMillis();
 
   /**
    * Builds the immutable {@link BalConfiguration} corresponding to the parsed CLI options.
@@ -77,8 +69,7 @@ public class BalConfigurationOptions {
         .shouldLogBalsOnMismatch(balLogBalsOnMismatch)
         .isBalLenientOnStateRootMismatch(balLenientOnStateRootMismatch)
         .isBalStateRootTrusted(balTrustStateRoot)
-        .balStateRootTimeout(Duration.ofMillis(balStateRootTimeoutMs))
-        .balProcessingTimeout(Duration.ofMillis(balProcessingTimeoutMs))
+        .isBalStateRootEnabled(balStateRootEnabled)
         .build();
   }
 }

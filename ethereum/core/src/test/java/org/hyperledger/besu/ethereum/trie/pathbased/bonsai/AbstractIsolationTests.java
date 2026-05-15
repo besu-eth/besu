@@ -43,7 +43,6 @@ import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration;
 import org.hyperledger.besu.ethereum.core.ImmutableMiningConfiguration.MutableInitValues;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.SealableBlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
@@ -81,6 +80,7 @@ import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBKeyValueStorageFactory;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetricsFactory;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBFactoryConfiguration;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 
 import java.nio.file.Path;
@@ -221,16 +221,6 @@ public abstract class AbstractIsolationTests {
                 RocksDBMetricsFactory.PUBLIC_ROCKS_DB_METRICS))
         .withCommonConfiguration(
             new BesuConfiguration() {
-
-              @Override
-              public Optional<String> getRpcHttpHost() {
-                return Optional.empty();
-              }
-
-              @Override
-              public Optional<Integer> getRpcHttpPort() {
-                return Optional.empty();
-              }
 
               @Override
               public String getConfiguredRpcHttpHost() {

@@ -15,13 +15,13 @@
 package org.hyperledger.besu.evmtool;
 
 import org.hyperledger.besu.ethereum.chain.Blockchain;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCacheModule;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.metrics.MetricsConfigurationModule;
 import org.hyperledger.besu.metrics.MetricsSystemModule;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import javax.inject.Singleton;
 

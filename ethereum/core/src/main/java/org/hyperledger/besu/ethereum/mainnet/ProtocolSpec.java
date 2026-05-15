@@ -90,6 +90,7 @@ public class ProtocolSpec {
   private final Optional<TransactionPoolPreProcessor> transactionPoolPreProcessor;
 
   private final Optional<BlockAccessListFactory> blockAccessListFactory;
+  private final BlockAccessListValidator blockAccessListValidator;
   private final StateRootCommitterFactory stateRootCommitterFactory;
   private final BlockGasAccountingStrategy blockGasAccountingStrategy;
   private final BlockGasUsedValidator blockGasUsedValidator;
@@ -128,6 +129,7 @@ public class ProtocolSpec {
    *     protection
    * @param blockGasAccountingStrategy the strategy for calculating block gas usage
    * @param blockGasUsedValidator the strategy for validating block gas used
+   * @param blockAccessListValidator the block access list validator for this fork
    */
   public ProtocolSpec(
       final HardforkId hardforkId,
@@ -161,6 +163,7 @@ public class ProtocolSpec {
       final boolean isReplayProtectionSupported,
       final Optional<TransactionPoolPreProcessor> transactionPoolPreProcessor,
       final Optional<BlockAccessListFactory> blockAccessListFactory,
+      final BlockAccessListValidator blockAccessListValidator,
       final StateRootCommitterFactory stateRootCommitterFactory,
       final BlockGasAccountingStrategy blockGasAccountingStrategy,
       final BlockGasUsedValidator blockGasUsedValidator) {
@@ -195,6 +198,7 @@ public class ProtocolSpec {
     this.isReplayProtectionSupported = isReplayProtectionSupported;
     this.transactionPoolPreProcessor = transactionPoolPreProcessor;
     this.blockAccessListFactory = blockAccessListFactory;
+    this.blockAccessListValidator = blockAccessListValidator;
     this.stateRootCommitterFactory = stateRootCommitterFactory;
     this.blockGasAccountingStrategy = blockGasAccountingStrategy;
     this.blockGasUsedValidator = blockGasUsedValidator;
@@ -433,6 +437,10 @@ public class ProtocolSpec {
 
   public boolean isBlockAccessListEnabled() {
     return blockAccessListFactory.isPresent();
+  }
+
+  public BlockAccessListValidator getBlockAccessListValidator() {
+    return blockAccessListValidator;
   }
 
   public StateRootCommitterFactory getStateRootCommitterFactory() {

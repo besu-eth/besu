@@ -121,6 +121,8 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     final BlockHeader pragueHeader =
         createBlockHeaderFixture(Optional.of(emptyList()))
             .timestamp(pragueHardfork.milestone())
+            .excessBlobGas(BlobGas.ZERO)
+            .blobGasUsed(0L)
             .buildHeader();
 
     var resp = resp(mockEnginePayload(pragueHeader, emptyList(), null));
@@ -134,11 +136,43 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     final BlockHeader shanghaiHeader =
         createBlockHeaderFixture(Optional.of(emptyList()))
             .timestamp(cancunHardfork.milestone() - 1)
+            .excessBlobGas(BlobGas.ZERO)
+            .blobGasUsed(0L)
             .buildHeader();
 
     var resp = resp(mockEnginePayload(shanghaiHeader, emptyList(), null));
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
     assertThat(jsonRpcError.getCode()).isEqualTo(UNSUPPORTED_FORK.getCode());
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
+  public void shouldReturnInvalidParamsIfBlobGasUsedIsNullBeforeCancun() {
+    final BlockHeader preCancunHeader =
+        createBlockHeaderFixture(Optional.of(emptyList()))
+            .timestamp(cancunHardfork.milestone() - 1)
+            .excessBlobGas(BlobGas.ZERO)
+            .blobGasUsed(null)
+            .buildHeader();
+
+    var resp = resp(mockEnginePayload(preCancunHeader, emptyList(), null));
+    final JsonRpcError jsonRpcError = fromErrorResp(resp);
+    assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
+  public void shouldReturnInvalidParamsIfExcessBlobGasIsNullBeforeCancun() {
+    final BlockHeader preCancunHeader =
+        createBlockHeaderFixture(Optional.of(emptyList()))
+            .timestamp(cancunHardfork.milestone() - 1)
+            .excessBlobGas(null)
+            .blobGasUsed(0L)
+            .buildHeader();
+
+    var resp = resp(mockEnginePayload(preCancunHeader, emptyList(), null));
+    final JsonRpcError jsonRpcError = fromErrorResp(resp);
+    assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 

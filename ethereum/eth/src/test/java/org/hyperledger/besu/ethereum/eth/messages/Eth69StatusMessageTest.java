@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.forkid.ForkId;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.math.BigInteger;
 import java.util.Random;
@@ -112,9 +113,31 @@ public class Eth69StatusMessageTest {
     out.writeBytes(genesisHash.getBytes());
     forkId.writeTo(out);
     out.endList();
-    assertThrows(
-        IllegalArgumentException.class,
-        () -> StatusMessage.create(out.encoded()).protocolVersion(),
-        "StatusMessage should not be able to deserialize invalid data");
+    // The decoder must surface this as an RLPException so the eth protocol handler's
+    // try/catch for RLPException performs a clean SUBPROTOCOL_TRIGGERED_UNPARSABLE_STATUS
+    // disconnect instead of letting an IllegalArgumentException escape the message loop.
+    final RLPException ex =
+        assertThrows(
+            RLPException.class,
+            () -> StatusMessage.create(out.encoded()).protocolVersion(),
+            "StatusMessage should not be able to deserialize invalid data");
+    assertThat(ex.getMessage()).contains("version must be <= 68");
+  }
+
+  @Test
+  public void shouldRejectEth68LayoutFromProdBesuV26Dot2Develop73d07f9() {
+    // Captured verbatim from bal-devnet-3 on 2026-04-15 from peer
+    // besu/v26.2-develop-73d07f9, which advertises eth/69 in Hello but encodes Status
+    // with the eth/68 layout (version=69, totalDifficulty present).
+    // Nimbus rejects this; Besu must too, via RLPException.
+    final Bytes bytes =
+        Bytes.fromHexString(
+            "0xf858458206bf8a0c70d815d562d3cfa955a035a6d5ca044bd77ca9169d2f77d0cb59ce19541a59a66097625620e543349c4aa0d4e56740f876aef8c010b86a40d5f56745a118d0906a34e69aec8c0db1cb8fa3c684fc9bfe8f80");
+    final RLPException ex =
+        assertThrows(
+            RLPException.class,
+            () -> StatusMessage.create(bytes).protocolVersion(),
+            "Real-world malformed Status from a broken eth/69 encoder must be rejected");
+    assertThat(ex.getMessage()).contains("version must be <= 68");
   }
 }

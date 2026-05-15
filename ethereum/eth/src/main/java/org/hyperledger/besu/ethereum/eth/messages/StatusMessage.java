@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
@@ -300,7 +301,22 @@ public final class StatusMessage extends AbstractMessageData {
       final RLPInput thirdElement = in.readAsRlp();
       // The fourth element is either block hash or fork ID. If it is a list, then it is fork ID and
       // the message is eth/69
-      if (in.nextIsList()) {
+      final boolean isEth69Shape = in.nextIsList();
+
+      if (isEth69Shape && protocolVersion <= EthProtocolVersion.V68) {
+        throw new RLPException(
+            "Status with protocolVersion="
+                + protocolVersion
+                + " uses eth/69+ layout (no totalDifficulty); version must be >= 69");
+      }
+      if (!isEth69Shape && protocolVersion >= EthProtocolVersion.V69) {
+        throw new RLPException(
+            "Status with protocolVersion="
+                + protocolVersion
+                + " uses eth/68 layout (with totalDifficulty); version must be <= 68");
+      }
+
+      if (isEth69Shape) {
         genesisHash = Hash.wrap(thirdElement.readBytes32());
         forkId = ForkId.readFrom(in);
         blockRange = new BlockRange(in.readLongScalar(), in.readLongScalar());

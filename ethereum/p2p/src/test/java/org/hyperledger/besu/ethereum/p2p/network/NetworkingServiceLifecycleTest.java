@@ -25,10 +25,10 @@ import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.ImmutableNetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
-import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryServiceException;
 import org.hyperledger.besu.plugin.data.EnodeURL;
 
 import java.io.IOException;
+import java.net.BindException;
 
 import io.vertx.core.Vertx;
 import jakarta.validation.constraints.NotNull;
@@ -154,11 +154,7 @@ public class NetworkingServiceLifecycleTest {
               try {
                 service2.start();
               } catch (final Exception e) {
-                assertThat(e).hasCauseExactlyInstanceOf(PeerDiscoveryServiceException.class);
-                assertThat(e)
-                    .hasMessageStartingWith(
-                        "org.hyperledger.besu.ethereum.p2p.discovery."
-                            + "PeerDiscoveryServiceException: Failed to bind Ethereum UDP discovery listener to 0.0.0.0:");
+                assertThat(e).hasCauseExactlyInstanceOf(BindException.class);
                 assertThat(e).hasMessageContaining("Address already in use");
               } finally {
                 service1.stop();

@@ -26,7 +26,6 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
@@ -39,7 +38,6 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAcces
 import org.hyperledger.besu.ethereum.mainnet.parallelization.PreprocessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitter;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
@@ -54,6 +52,8 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.BlockImportTracerProvider;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
+import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 
 import java.text.MessageFormat;
 import java.util.ArrayList;
@@ -326,9 +326,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                 blockHashLookup,
                 transactionLocationTracker);
 
-        applyPartialBlockAccessView(
-            transactionProcessingResult.getPartialBlockAccessView(), blockAccessListBuilder);
-
         if (transactionProcessingResult.isInvalid()) {
           String errorMessage =
               MessageFormat.format(
@@ -341,6 +338,26 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             ((BonsaiWorldStateUpdateAccumulator) blockUpdater).reset();
           }
           return new BlockProcessingResult(Optional.empty(), errorMessage);
+        }
+
+        applyPartialBlockAccessView(
+            transactionProcessingResult.getPartialBlockAccessView(), blockAccessListBuilder);
+
+        if (blockAccessListBuilder.isPresent()) {
+          final BlockAccessListItemSizeCheck itemSizeCheck =
+              protocolSpec
+                  .getBlockAccessListValidator()
+                  .validateExecutedBlockAccessListItemSize(
+                      blockAccessListBuilder.get().eip7928ItemCount(), blockHeader, protocolSpec);
+          if (itemSizeCheck.isOverBudget()) {
+            final String errorMessage =
+                itemSizeCheck.overBudgetError().orElseThrow().errorMessage();
+            LOG.error(errorMessage);
+            if (worldState instanceof BonsaiWorldState) {
+              ((BonsaiWorldStateUpdateAccumulator) blockUpdater).reset();
+            }
+            return new BlockProcessingResult(Optional.empty(), errorMessage);
+          }
         }
 
         if (transactionUpdater instanceof StackedUpdater<?, ?>) {
@@ -493,34 +510,23 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       try {
         if (blockAccessListBuilder.isPresent()) {
           final BlockAccessList bal = blockAccessListBuilder.get().build();
-          final Optional<Hash> headerBalHash = block.getHeader().getBalHash();
-          if (headerBalHash.isPresent()) {
-            final Hash expectedHash = BodyValidation.balHash(bal);
-            if (!headerBalHash.get().equals(expectedHash)) {
-              final String errorMessage =
-                  String.format(
-                      "Block access list hash mismatch, calculated: %s header: %s",
-                      expectedHash.getBytes().toHexString(),
-                      headerBalHash.get().getBytes().toHexString());
-              LOG.error(errorMessage);
-
-              if (balConfiguration.shouldLogBalsOnMismatch()) {
-                final String constructedBalStr = bal.toString();
-                final String blockBalStr =
-                    blockAccessList.map(Object::toString).orElse("<no BAL present for block>");
-                LOG.error(
-                    "--- BAL constructed during execution ---\n{}\n"
-                        + "--- BAL supplied for block ---\n{}",
-                    constructedBalStr,
-                    blockBalStr);
-              }
-
-              if (worldState instanceof BonsaiWorldState) {
-                ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
-              }
-              return new BlockProcessingResult(
-                  Optional.empty(), errorMessage, false, Optional.of(bal));
+          final Optional<BlockAccessListValidationError> constructedBalError =
+              protocolSpec
+                  .getBlockAccessListValidator()
+                  .validateExecutedBlockAccessListAfterBuild(
+                      bal,
+                      blockHeader,
+                      blockAccessList,
+                      balConfiguration.shouldLogBalsOnMismatch());
+          if (constructedBalError.isPresent()) {
+            if (worldState instanceof BonsaiWorldState) {
+              ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
             }
+            return new BlockProcessingResult(
+                Optional.empty(),
+                constructedBalError.get().errorMessage(),
+                false,
+                Optional.of(bal));
           }
           maybeBlockAccessList = Optional.of(bal);
           blockProcessingMetrics.recordBlockAccessListMetrics(bal);
@@ -528,7 +534,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
           maybeBlockAccessList = Optional.empty();
         }
       } catch (Exception e) {
-        LOG.error("Error validating BAL hash", e);
+        LOG.error("Error validating block access list", e);
         if (worldState instanceof BonsaiWorldState) {
           ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
         }

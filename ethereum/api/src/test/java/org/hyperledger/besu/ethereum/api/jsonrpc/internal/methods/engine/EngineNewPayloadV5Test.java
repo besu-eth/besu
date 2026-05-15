@@ -18,6 +18,8 @@ import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.UNSUPPORTED_FORK;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -33,6 +35,7 @@ import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePayloadStatusResult;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -98,6 +101,19 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
   @Override
   public void shouldReturnExpectedMethodName() {
     assertThat(method.getName()).isEqualTo("engine_newPayloadV5");
+  }
+
+  @Override
+  public void shouldReturnUnsupportedForkIfBlockTimestampIsBeforeCancunMilestone() {
+    final BlockHeader preCancunHeader =
+        createActivationBlockHeaderFixture(Optional.of(emptyList()))
+            .timestamp(cancunHardfork.milestone() - 1)
+            .buildHeader();
+
+    var resp = resp(mockEnginePayload(preCancunHeader, emptyList(), null));
+    final JsonRpcError jsonRpcError = fromErrorResp(resp);
+    assertThat(jsonRpcError.getCode()).isEqualTo(UNSUPPORTED_FORK.getCode());
+    verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
   @Override

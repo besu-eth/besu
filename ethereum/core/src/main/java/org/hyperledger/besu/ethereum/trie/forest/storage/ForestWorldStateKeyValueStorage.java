@@ -73,21 +73,6 @@ public class ForestWorldStateKeyValueStorage implements WorldStateKeyValueStorag
     }
   }
 
-  public boolean contains(final Bytes32 hash) {
-    // we don't have location info
-    return getNodeData(hash).isPresent();
-  }
-
-  public Optional<Bytes> getNodeData(final Bytes32 hash) {
-    if (hash.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
-      return Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
-    } else if (hash.equals(Hash.EMPTY.getBytes())) {
-      return Optional.of(Bytes.EMPTY);
-    } else {
-      return keyValueStorage.get(hash.toArrayUnsafe()).map(Bytes::wrap);
-    }
-  }
-
   public boolean isWorldStateAvailable(final Bytes32 rootHash) {
     return getAccountStateTrieNode(rootHash).isPresent();
   }

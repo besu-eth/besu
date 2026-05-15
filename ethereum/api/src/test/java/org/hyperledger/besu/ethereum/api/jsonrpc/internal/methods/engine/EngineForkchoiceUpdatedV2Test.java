@@ -18,9 +18,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.UNSUPPORTED_FORK;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
@@ -94,5 +97,24 @@ public class EngineForkchoiceUpdatedV2Test extends AbstractEngineForkchoiceUpdat
   @Override
   protected RpcErrorType expectedInvalidPayloadError() {
     return RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES;
+  }
+
+  @Test
+  public void shouldNotUseV4SpecHelpersForLegacyFlow() {
+    final BlockHeader mockParent = blockHeaderBuilder.number(9L).buildHeader();
+    final BlockHeader mockHeader =
+        blockHeaderBuilder.number(10L).parentHash(mockParent.getHash()).buildHeader();
+    setupValidForkchoiceUpdate(mockHeader);
+    when(mergeCoordinator.updateForkChoice(any(), any(), any()))
+        .thenReturn(ForkchoiceResult.withResult(Optional.of(mockParent), Optional.of(mockHeader)));
+
+    resp(
+        new EngineForkchoiceUpdatedParameter(mockHeader.getHash(), Hash.ZERO, mockParent.getHash()),
+        Optional.empty());
+
+    verify(mergeCoordinator).updateForkChoice(any(), any(), any());
+    verify(mergeCoordinator, never()).updateForkChoiceWithoutLegacySkip(any(), any(), any());
+    verify(mergeCoordinator, never()).isAncestorOfFinalized(any());
+    verify(mergeCoordinator, never()).computeReorgDepth(any());
   }
 }

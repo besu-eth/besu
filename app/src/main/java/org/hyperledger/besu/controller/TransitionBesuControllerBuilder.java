@@ -42,6 +42,7 @@ import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.eth.sync.DefaultSynchronizer;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncAlgorithmFactory;
 import org.hyperledger.besu.ethereum.eth.sync.backwardsync.BackwardSyncContext;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
@@ -122,7 +123,8 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
             metricsSystem,
             ethProtocolManager.ethContext(),
             syncState,
-            storageProvider);
+            storageProvider,
+            new BackwardSyncAlgorithmFactory());
 
     final TransitionCoordinator composedCoordinator =
         new TransitionCoordinator(
@@ -371,12 +373,6 @@ public class TransitionBesuControllerBuilder extends BesuControllerBuilder {
       final TransactionPoolConfiguration transactionPoolConfiguration) {
     super.transactionPoolConfiguration(transactionPoolConfiguration);
     return propagateConfig(z -> z.transactionPoolConfiguration(transactionPoolConfiguration));
-  }
-
-  @Override
-  public BesuControllerBuilder isRevertReasonEnabled(final boolean isRevertReasonEnabled) {
-    super.isRevertReasonEnabled(isRevertReasonEnabled);
-    return propagateConfig(z -> z.isRevertReasonEnabled(isRevertReasonEnabled));
   }
 
   @Override

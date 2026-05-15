@@ -57,6 +57,7 @@ public class TestMessageFrameBuilderV2 {
   private Optional<BlockHashLookup> blockHashLookup = Optional.empty();
   private Bytes memory = Bytes.EMPTY;
   private boolean isStatic = false;
+  private Address miningBeneficiary = Address.ZERO;
 
   public TestMessageFrameBuilderV2 worldUpdater(final WorldUpdater worldUpdater) {
     this.worldUpdater = Optional.of(worldUpdater);
@@ -143,6 +144,11 @@ public class TestMessageFrameBuilderV2 {
     return this;
   }
 
+  public TestMessageFrameBuilderV2 miningBeneficiary(final Address miningBeneficiary) {
+    this.miningBeneficiary = miningBeneficiary;
+    return this;
+  }
+
   public MessageFrame build() {
     final MessageFrame frame =
         MessageFrame.builder()
@@ -161,7 +167,7 @@ public class TestMessageFrameBuilderV2 {
             .code(code)
             .blockValues(blockValues.orElseGet(() -> new FakeBlockValues(1337)))
             .completer(c -> {})
-            .miningBeneficiary(Address.ZERO)
+            .miningBeneficiary(miningBeneficiary)
             .blockHashLookup(
                 blockHashLookup.orElse((__, number) -> Hash.hash(Words.longBytes(number))))
             .maxStackSize(maxStackSize)

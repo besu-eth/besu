@@ -15,10 +15,26 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult;
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EngineForkchoiceUpdatedParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadAttributesParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 
+import java.util.Optional;
+
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -45,7 +61,86 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractEngineForkchoiceUpdat
   }
 
   @Override
-  protected RpcErrorType expectedInvalidPayloadError() {
+  protected RpcErrorType expectedInvalidWithdrawalsError() {
     return RpcErrorType.INVALID_WITHDRAWALS_PARAMS;
+  }
+
+  @Test
+  public void shouldReturnInvalidPayloadAttributesWhenTimestampIsZero() {
+    BlockHeader mockParent = blockHeaderBuilder.timestamp(99).number(9L).buildHeader();
+    BlockHeader mockHeader =
+        blockHeaderBuilder.number(10L).parentHash(mockParent.getHash()).buildHeader();
+    setupValidForkchoiceUpdate(mockHeader);
+
+    final EnginePayloadAttributesParameter payloadParams =
+        new EnginePayloadAttributesParameter(
+            "0x0",
+            Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
+            Address.ECREC.toString(),
+            null,
+            null,
+            null);
+
+    final JsonRpcResponse resp =
+        resp(
+            new EngineForkchoiceUpdatedParameter(
+                mockHeader.getHash(), Hash.ZERO, mockParent.getHash()),
+            Optional.of(payloadParams));
+
+    final JsonRpcError jsonRpcError =
+        Optional.of(resp)
+            .map(JsonRpcErrorResponse.class::cast)
+            .map(JsonRpcErrorResponse::getError)
+            .get();
+    assertThat(jsonRpcError.getCode()).isEqualTo(RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES.getCode());
+  }
+
+  @Test
+  public void shouldReturnInvalidPayloadAttributesWhenTimestampEqualsParent() {
+    BlockHeader mockParent = blockHeaderBuilder.timestamp(99).number(9L).buildHeader();
+    BlockHeader mockHeader =
+        blockHeaderBuilder.number(10L).parentHash(mockParent.getHash()).buildHeader();
+    setupValidForkchoiceUpdate(mockHeader);
+
+    final EnginePayloadAttributesParameter payloadParams =
+        new EnginePayloadAttributesParameter(
+            String.valueOf(mockHeader.getTimestamp()),
+            Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
+            Address.ECREC.toString(),
+            null,
+            null,
+            null);
+
+    final JsonRpcResponse resp =
+        resp(
+            new EngineForkchoiceUpdatedParameter(
+                mockHeader.getHash(), Hash.ZERO, mockParent.getHash()),
+            Optional.of(payloadParams));
+
+    final JsonRpcError jsonRpcError =
+        Optional.of(resp)
+            .map(JsonRpcErrorResponse.class::cast)
+            .map(JsonRpcErrorResponse::getError)
+            .get();
+    assertThat(jsonRpcError.getCode()).isEqualTo(RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES.getCode());
+  }
+
+  @Test
+  public void shouldNotUseV4SpecHelpersForLegacyFlow() {
+    final BlockHeader mockParent = blockHeaderBuilder.number(9L).buildHeader();
+    final BlockHeader mockHeader =
+        blockHeaderBuilder.number(10L).parentHash(mockParent.getHash()).buildHeader();
+    setupValidForkchoiceUpdate(mockHeader);
+    when(mergeCoordinator.updateForkChoice(any(), any(), any()))
+        .thenReturn(ForkchoiceResult.withResult(Optional.of(mockParent), Optional.of(mockHeader)));
+
+    resp(
+        new EngineForkchoiceUpdatedParameter(mockHeader.getHash(), Hash.ZERO, mockParent.getHash()),
+        Optional.empty());
+
+    verify(mergeCoordinator).updateForkChoice(any(), any(), any());
+    verify(mergeCoordinator, never()).updateForkChoiceWithoutLegacySkip(any(), any(), any());
+    verify(mergeCoordinator, never()).isAncestorOfFinalized(any());
+    verify(mergeCoordinator, never()).computeReorgDepth(any());
   }
 }

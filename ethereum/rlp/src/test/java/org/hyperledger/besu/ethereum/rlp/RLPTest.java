@@ -180,6 +180,81 @@ public class RLPTest {
     Assertions.assertThatCode(() -> RLP.validate(validRlp)).doesNotThrowAnyException();
   }
 
+  @Test
+  public void listHeaderSize_emptyList() {
+    // 0xc0 = empty list, header is 1 byte
+    assertThat(RLP.listHeaderSize(Bytes.fromHexString("0xC0"))).isEqualTo(1);
+  }
+
+  @Test
+  public void listHeaderSize_maxShortList() {
+    // 0xf7 = short list with 55 bytes payload, header is 1 byte
+    assertThat(RLP.listHeaderSize(Bytes.fromHexString("0xF7"))).isEqualTo(1);
+  }
+
+  @Test
+  public void listHeaderSize_longList56Bytes() {
+    // 0xf8 = long list, 1 byte for length-of-length → header = 2 bytes
+    assertThat(RLP.listHeaderSize(Bytes.fromHexString("0xF838"))).isEqualTo(2);
+  }
+
+  @Test
+  public void listHeaderSize_longListMultiByteLength() {
+    // 0xf9 = long list, 2 bytes for length-of-length → header = 3 bytes
+    assertThat(RLP.listHeaderSize(Bytes.fromHexString("0xF90102"))).isEqualTo(3);
+  }
+
+  @Test
+  public void listHeaderSize_nonListPrefixThrows() {
+    // 0x80 is a string prefix, not a list
+    assertThatThrownBy(() -> RLP.listHeaderSize(Bytes.fromHexString("0x80")))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("Expected an RLP list prefix");
+  }
+
+  @Test
+  public void listHeaderSize_singleByteValueThrows() {
+    // 0x01 is a single-byte value, not a list
+    assertThatThrownBy(() -> RLP.listHeaderSize(Bytes.fromHexString("0x01")))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("Expected an RLP list prefix");
+  }
+
+  @Test
+  public void listHeader_emptyList() {
+    // Empty list payload → header should be 0xc0
+    assertThat(RLP.listHeader(0)).isEqualTo(Bytes.fromHexString("0xC0"));
+  }
+
+  @Test
+  public void listHeader_shortListBoundary() {
+    // 55 bytes payload → max short list, header should be 0xf7 (0xc0 + 55)
+    assertThat(RLP.listHeader(55)).isEqualTo(Bytes.fromHexString("0xF7"));
+  }
+
+  @Test
+  public void listHeader_longListBoundary() {
+    // 56 bytes payload → first long list, header should be 0xf8 0x38
+    assertThat(RLP.listHeader(56)).isEqualTo(Bytes.fromHexString("0xF838"));
+  }
+
+  @Test
+  public void listHeader_longListMultiByteLength() {
+    // 256 bytes payload → header should be 0xf9 0x01 0x00
+    assertThat(RLP.listHeader(256)).isEqualTo(Bytes.fromHexString("0xF90100"));
+  }
+
+  @Test
+  public void listHeader_roundTripWithListHeaderSize() {
+    // Verify listHeader and listHeaderSize are consistent
+    for (int payloadSize : new int[] {0, 1, 55, 56, 255, 256, 65535}) {
+      Bytes header = RLP.listHeader(payloadSize);
+      // Append dummy payload bytes so listHeaderSize can inspect the prefix
+      Bytes fullList = Bytes.wrap(header, Bytes.wrap(new byte[payloadSize]));
+      assertThat(RLP.listHeaderSize(fullList)).isEqualTo(header.size());
+    }
+  }
+
   private static Bytes h(final String hex) {
     return Bytes.fromHexString(hex);
   }

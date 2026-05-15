@@ -50,8 +50,7 @@ public class DefaultPeerId implements PeerId {
   @Override
   public boolean equals(final Object o) {
     if (this == o) return true;
-    if (o == null || o.getClass().isAssignableFrom(this.getClass())) return false;
-    final DefaultPeerId that = (DefaultPeerId) o;
+    if (!(o instanceof DefaultPeerId that)) return false;
     return Objects.equals(id, that.id);
   }
 

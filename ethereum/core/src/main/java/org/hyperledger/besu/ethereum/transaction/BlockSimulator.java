@@ -33,7 +33,6 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.ParsedExtraData;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -67,6 +66,7 @@ import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.data.BlockOverrides;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.ArrayList;
 import java.util.HashMap;

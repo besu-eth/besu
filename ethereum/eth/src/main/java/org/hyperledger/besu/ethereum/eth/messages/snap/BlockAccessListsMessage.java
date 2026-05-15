@@ -19,8 +19,8 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 
-import java.math.BigInteger;
 import java.util.Optional;
+import java.util.stream.StreamSupport;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -42,30 +42,19 @@ public final class BlockAccessListsMessage extends AbstractSnapMessageData {
     return new BlockAccessListsMessage(message.getData());
   }
 
-  public static BlockAccessListsMessage create(final Iterable<BlockAccessList> blockAccessLists) {
-    return create(Optional.empty(), blockAccessLists);
-  }
-
   public static BlockAccessListsMessage create(
-      final Optional<BigInteger> requestId, final Iterable<BlockAccessList> blockAccessLists) {
+      final Iterable<Optional<BlockAccessList>> blockAccessLists) {
     return new BlockAccessListsMessage(
-        BlockAccessListsMessageData.encode(requestId, blockAccessLists));
+        BlockAccessListsMessageData.encodeSnapResponse(blockAccessLists));
   }
 
-  /**
-   * Create a message with raw, already encoded data. No checks are performed to validate the
-   * rlp-encoded data.
-   *
-   * @param data An rlp-encoded list of block access lists
-   * @return A new BlockAccessListsMessage
-   */
-  public static BlockAccessListsMessage createUnsafe(final Bytes data) {
-    return new BlockAccessListsMessage(data);
-  }
-
-  @Override
-  protected Bytes wrap(final BigInteger requestId) {
-    return create(Optional.of(requestId), blockAccessLists(false)).getData();
+  public static BlockAccessListsMessage createFromBlockAccessLists(
+      final Iterable<BlockAccessList> blockAccessLists) {
+    return create(
+        () ->
+            StreamSupport.stream(blockAccessLists.spliterator(), false)
+                .map(Optional::of)
+                .iterator());
   }
 
   @Override
@@ -73,7 +62,11 @@ public final class BlockAccessListsMessage extends AbstractSnapMessageData {
     return SnapV2.BLOCK_ACCESS_LISTS;
   }
 
-  public Iterable<BlockAccessList> blockAccessLists(final boolean withRequestId) {
-    return BlockAccessListsMessageData.decode(data, withRequestId);
+  public Iterable<Optional<BlockAccessList>> blockAccessLists(final boolean withRequestId) {
+    return BlockAccessListsMessageData.decodeSnapResponse(data, withRequestId);
+  }
+
+  public Iterable<Bytes> blockAccessListsRaw(final boolean withRequestId) {
+    return BlockAccessListsMessageData.decodeSnapResponseRaw(data, withRequestId);
   }
 }

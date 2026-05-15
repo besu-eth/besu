@@ -66,8 +66,8 @@ public class SnapWorldStateDownloader implements WorldStateDownloader {
   private final int maxOutstandingRequests;
   private final int maxNodeRequestsWithoutProgress;
   private final ProtocolContext protocolContext;
-  private final ProtocolSchedule protocolSchedule;
   private final WorldStateStorageCoordinator worldStateStorageCoordinator;
+  private final ProtocolSchedule protocolSchedule;
 
   private final AtomicReference<SnapWorldDownloadState> downloadState = new AtomicReference<>();
   private final SyncDurationMetrics syncDurationMetrics;

@@ -104,6 +104,7 @@ jobs:
         run: ./gradlew verifySourceArtifacts
   unitTests:
     runs-on: besu-research-ubuntu-16 # more cores
+    timeout-minutes: 30
     needs: [spotless-checkLicense, gradle-wrapper, repolint]
     permissions:
       checks: write

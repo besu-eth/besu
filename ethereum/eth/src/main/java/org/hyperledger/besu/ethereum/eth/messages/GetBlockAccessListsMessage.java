@@ -18,8 +18,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 
-import java.util.Optional;
-
 import org.apache.tuweni.bytes.Bytes;
 
 public final class GetBlockAccessListsMessage extends AbstractMessageData {
@@ -38,7 +36,7 @@ public final class GetBlockAccessListsMessage extends AbstractMessageData {
 
   public static GetBlockAccessListsMessage create(final Iterable<Hash> blockHashes) {
     return new GetBlockAccessListsMessage(
-        GetBlockAccessListsMessageData.encode(Optional.empty(), blockHashes));
+        GetBlockAccessListsMessageData.encodeEthRequest(blockHashes));
   }
 
   private GetBlockAccessListsMessage(final Bytes data) {
@@ -51,6 +49,6 @@ public final class GetBlockAccessListsMessage extends AbstractMessageData {
   }
 
   public Iterable<Hash> blockHashes() {
-    return GetBlockAccessListsMessageData.decode(data, false);
+    return GetBlockAccessListsMessageData.decodeEthRequest(data);
   }
 }

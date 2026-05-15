@@ -32,11 +32,6 @@ public final class EthProtocolMessages {
 
   public static final int NEW_BLOCK = 0X07;
 
-  // Eth63 messages
-  public static final int GET_NODE_DATA = 0x0D;
-
-  public static final int NODE_DATA = 0x0E;
-
   public static final int GET_RECEIPTS = 0x0F;
 
   public static final int RECEIPTS = 0x10;

@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.trie.forest;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.proof.WorldStateProof;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
@@ -29,6 +28,7 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.storage.WorldStatePreimageStorage;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
 import java.util.Optional;
@@ -96,12 +96,6 @@ public class ForestWorldStateArchive implements WorldStateArchive {
   @Override
   public void resetArchiveStateTo(final BlockHeader blockHeader) {
     // ignore for forest
-  }
-
-  @Override
-  public Optional<Bytes> getNodeData(final Hash hash) {
-    // query by location is not supported, only query by content
-    return worldStateKeyValueStorage.getNodeData(Bytes32.wrap(hash.getBytes()));
   }
 
   public ForestWorldStateKeyValueStorage getWorldStateStorage() {

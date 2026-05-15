@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -127,5 +128,48 @@ public class BFTForkTest {
 
     final BftFork bftFork = new BftFork(config);
     assertThat(bftFork.isMiningBeneficiaryConfigured()).isTrue();
+  }
+
+  @Test
+  public void getEmptyBlockPeriodSeconds_fromNewKey() {
+    final ObjectNode config =
+        JsonUtil.objectNodeFromMap(
+            Map.of(
+                BftFork.FORK_BLOCK_KEY, 10,
+                BftFork.EMPTY_BLOCK_PERIOD_SECONDS_KEY, 60));
+
+    final BftFork bftFork = new BftFork(config);
+    assertThat(bftFork.getEmptyBlockPeriodSeconds()).hasValue(60);
+  }
+
+  @Test
+  public void getEmptyBlockPeriodSeconds_fromDeprecatedKey() {
+    final ObjectNode config =
+        JsonUtil.objectNodeFromMap(
+            Map.of(
+                BftFork.FORK_BLOCK_KEY, 10,
+                BftFork.X_EMPTY_BLOCK_PERIOD_SECONDS_KEY, 45));
+
+    final BftFork bftFork = new BftFork(config);
+    assertThat(bftFork.getEmptyBlockPeriodSeconds()).hasValue(45);
+  }
+
+  @Test
+  public void getEmptyBlockPeriodSeconds_newKeyWinsOverDeprecatedWhenBothSet() {
+    final Map<String, Object> raw = new HashMap<>();
+    raw.put(BftFork.FORK_BLOCK_KEY, 10);
+    raw.put(BftFork.EMPTY_BLOCK_PERIOD_SECONDS_KEY, 60);
+    raw.put(BftFork.X_EMPTY_BLOCK_PERIOD_SECONDS_KEY, 30);
+
+    final BftFork bftFork = new BftFork(JsonUtil.objectNodeFromMap(raw));
+    assertThat(bftFork.getEmptyBlockPeriodSeconds()).hasValue(60);
+  }
+
+  @Test
+  public void getEmptyBlockPeriodSeconds_isEmptyWhenNeitherKeySet() {
+    final ObjectNode config = JsonUtil.objectNodeFromMap(Map.of(BftFork.FORK_BLOCK_KEY, 10));
+
+    final BftFork bftFork = new BftFork(config);
+    assertThat(bftFork.getEmptyBlockPeriodSeconds()).isEmpty();
   }
 }

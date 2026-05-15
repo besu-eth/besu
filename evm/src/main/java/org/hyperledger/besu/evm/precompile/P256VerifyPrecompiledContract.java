@@ -25,7 +25,6 @@ import org.hyperledger.besu.nativelib.boringssl.BoringSSLPrecompiles;
 import java.math.BigInteger;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -92,7 +91,7 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
   private final SignatureAlgorithm signatureAlgorithm;
 
   private static final Cache<Integer, PrecompileInputResultTuple> p256VerifyCache =
-      Caffeine.newBuilder().maximumSize(1000).build();
+      AbstractPrecompiledContract.resultCacheBuilder().build();
 
   /**
    * Instantiates a new Abstract precompiled contract.
@@ -134,7 +133,7 @@ public class P256VerifyPrecompiledContract extends AbstractPrecompiledContract {
     PrecompileInputResultTuple res = null;
     Integer cacheKey = null;
     if (enableResultCaching) {
-      cacheKey = getCacheKey(input);
+      cacheKey = getCacheKey(input, SECP256R1_INPUT_LENGTH);
       res = p256VerifyCache.getIfPresent(cacheKey);
 
       if (res != null) {

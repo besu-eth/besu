@@ -33,7 +33,6 @@ import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.LogWithMetadata;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
@@ -44,6 +43,7 @@ import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.util.OrderStatistics;
 
 import java.io.EOFException;

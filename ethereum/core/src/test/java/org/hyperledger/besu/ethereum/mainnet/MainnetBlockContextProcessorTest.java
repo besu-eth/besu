@@ -24,10 +24,9 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
-import org.hyperledger.besu.ethereum.mainnet.systemcall.InvalidSystemCallAddressException;
+import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallNoCodeAtAddressException;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.SystemCallProcessor;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.MutableAccount;
@@ -38,6 +37,7 @@ import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Optional;
 
@@ -119,7 +119,7 @@ public class MainnetBlockContextProcessorTest {
   void shouldThrowExceptionIfSystemCallAddressDoesNotExist() {
     final MutableWorldState worldState = InMemoryKeyValueStorageProvider.createInMemoryWorldState();
     var exception =
-        assertThrows(InvalidSystemCallAddressException.class, () -> processSystemCall(worldState));
+        assertThrows(SystemCallNoCodeAtAddressException.class, () -> processSystemCall(worldState));
     assertThat(exception.getMessage()).isEqualTo("Invalid system call address: " + CALL_ADDRESS);
   }
 
@@ -128,7 +128,7 @@ public class MainnetBlockContextProcessorTest {
     Bytes code = Bytes.EMPTY;
     final MutableWorldState worldState = createWorldState(CALL_ADDRESS, code);
     var exception =
-        assertThrows(InvalidSystemCallAddressException.class, () -> processSystemCall(worldState));
+        assertThrows(SystemCallNoCodeAtAddressException.class, () -> processSystemCall(worldState));
     assertThat(exception.getMessage())
         .isEqualTo("Invalid system call, no code at address " + CALL_ADDRESS);
   }

@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.messages.snap;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -44,6 +45,23 @@ public final class BytecodeMessageTest {
 
     // check match originals.
     final ByteCodesMessage.ByteCodes response = message.bytecodes(false);
+    Assertions.assertThat(response.codes()).isEqualTo(codes);
+  }
+
+  @Test
+  public void wrapRoundTripTest() {
+    final List<Bytes> codes = new ArrayList<>();
+    for (int i = 0; i < 20; ++i) {
+      codes.add(Bytes32.random());
+    }
+
+    final ByteCodesMessage initialMessage = ByteCodesMessage.create(codes);
+    final MessageData wrapped = initialMessage.wrapMessageData(BigInteger.valueOf(42));
+    final MessageData raw = new RawMessage(SnapV1.BYTECODES, wrapped.getData());
+
+    final ByteCodesMessage message = ByteCodesMessage.readFrom(raw);
+
+    final ByteCodesMessage.ByteCodes response = message.bytecodes(true);
     Assertions.assertThat(response.codes()).isEqualTo(codes);
   }
 }

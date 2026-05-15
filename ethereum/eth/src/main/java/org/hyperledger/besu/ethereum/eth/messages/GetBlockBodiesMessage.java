@@ -17,12 +17,7 @@ package org.hyperledger.besu.ethereum.eth.messages;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
-import org.hyperledger.besu.ethereum.rlp.RLPInput;
-
-import java.util.ArrayList;
-import java.util.Collection;
 
 import org.apache.tuweni.bytes.Bytes;
 
@@ -58,13 +53,6 @@ public final class GetBlockBodiesMessage extends AbstractMessageData {
   }
 
   public Iterable<Hash> hashes() {
-    final RLPInput input = new BytesValueRLPInput(data, false);
-    input.enterList();
-    final Collection<Hash> hashes = new ArrayList<>();
-    while (!input.isEndOfCurrentList()) {
-      hashes.add(Hash.wrap(input.readBytes32()));
-    }
-    input.leaveList();
-    return hashes;
+    return LazyHashListDecoder.decode(data);
   }
 }

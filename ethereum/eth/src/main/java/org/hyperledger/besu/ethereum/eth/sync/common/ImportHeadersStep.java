@@ -37,6 +37,7 @@ public class ImportHeadersStep implements Consumer<List<BlockHeader>> {
   private final Hash checkpointBlockHash;
   private BlockHeader currentChildHeader;
   private final long totalHeaders;
+  private volatile BlockHeader lowestImportedHeader;
 
   public ImportHeadersStep(
       final MutableBlockchain blockchain,
@@ -49,6 +50,7 @@ public class ImportHeadersStep implements Consumer<List<BlockHeader>> {
     final long pivotBlockNumber = pivotBlockHeader.getNumber();
     this.currentChildHeader = pivotBlockHeader;
     this.totalHeaders = pivotBlockNumber - anchorForHeaderImportNumber;
+    this.lowestImportedHeader = pivotBlockHeader;
     // store the pivot block header as the first imported header
     this.blockchainStorage.storeBlockHeaders(List.of(pivotBlockHeader));
   }
@@ -79,6 +81,7 @@ public class ImportHeadersStep implements Consumer<List<BlockHeader>> {
     }
 
     blockchainStorage.storeBlockHeaders(blockHeaders);
+    lowestImportedHeader = blockHeaders.getLast();
 
     if (isTimeToLog.get()) {
       final long downloadedHeaders =
@@ -90,5 +93,9 @@ public class ImportHeadersStep implements Consumer<List<BlockHeader>> {
           isTimeToLog,
           LOG_DELAY_SECONDS);
     }
+  }
+
+  public BlockHeader getLowestImportedHeader() {
+    return lowestImportedHeader;
   }
 }

@@ -74,10 +74,10 @@ public class SystemCallProcessor {
     WorldUpdater systemCallUpdater = blockUpdater.updater();
     final Account maybeContract = systemCallUpdater.get(callAddress);
     if (maybeContract == null) {
-      throw new InvalidSystemCallAddressException("Invalid system call address: " + callAddress);
+      throw new SystemCallNoCodeAtAddressException("Invalid system call address: " + callAddress);
     }
     if (maybeContract.getCode().isEmpty()) {
-      throw new InvalidSystemCallAddressException(
+      throw new SystemCallNoCodeAtAddressException(
           "Invalid system call, no code at address " + callAddress);
     }
 

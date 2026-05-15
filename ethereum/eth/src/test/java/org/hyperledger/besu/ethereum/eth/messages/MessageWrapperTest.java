@@ -141,34 +141,6 @@ public class MessageWrapperTest {
   }
 
   @Test
-  public void GetNodeData() throws IOException {
-    final var testJson = parseTestFile("GetNodeDataPacket66.json");
-    final Bytes expected = Bytes.fromHexString(testJson.get("rlp").asText());
-    final GetNodeDataMessage getNodeDataMessage =
-        GetNodeDataMessage.create(
-            Stream.of(
-                    "0x00000000000000000000000000000000000000000000000000000000deadc0de",
-                    "0x00000000000000000000000000000000000000000000000000000000feedbeef")
-                .map(Hash::fromHexString)
-                .collect(toUnmodifiableList()));
-    final Bytes actual = getNodeDataMessage.wrapMessageData(BigInteger.valueOf(1111)).getData();
-    assertThat(actual).isEqualTo(expected);
-  }
-
-  @Test
-  public void NodeData() throws IOException {
-    final var testJson = parseTestFile("NodeDataPacket66.json");
-    final Bytes expected = Bytes.fromHexString(testJson.get("rlp").asText());
-    final NodeDataMessage nodeDataMessage =
-        NodeDataMessage.create(
-            Stream.of("0xdeadc0de", "0xfeedbeef")
-                .map(Bytes::fromHexString)
-                .collect(toUnmodifiableList()));
-    final Bytes actual = nodeDataMessage.wrapMessageData(BigInteger.valueOf(1111)).getData();
-    assertThat(actual).isEqualTo(expected);
-  }
-
-  @Test
   public void GetReceipts() throws IOException {
     final var testJson = parseTestFile("GetReceiptsPacket66.json");
     final Bytes expected = Bytes.fromHexString(testJson.get("rlp").asText());

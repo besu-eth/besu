@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.Difficulty;
+import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
 import org.hyperledger.besu.ethereum.core.SyncBlockBody;
 import org.hyperledger.besu.ethereum.core.SyncTransactionReceipt;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
@@ -341,6 +342,12 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
     @Override
     public void putBlockAccessList(final Hash blockHash, final BlockAccessList blockAccessList) {
       set(BLOCK_ACCESS_LIST_PREFIX, blockHash.getBytes(), rlpEncode(blockAccessList));
+    }
+
+    @Override
+    public void putSyncBlockAccessList(
+        final Hash blockHash, final SyncBlockAccessList syncBlockAccessList) {
+      set(BLOCK_ACCESS_LIST_PREFIX, blockHash.getBytes(), syncBlockAccessList.getRlp());
     }
 
     @Override

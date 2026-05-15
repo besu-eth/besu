@@ -459,6 +459,7 @@ public class ProtocolSpecBuilder {
         isReplayProtectionSupported,
         Optional.ofNullable(transactionPoolPreProcessor),
         Optional.ofNullable(blockAccessListFactory),
+        blockAccessListValidator,
         stateRootCommitterFactory,
         blockGasAccountingStrategy,
         blockGasUsedValidator);

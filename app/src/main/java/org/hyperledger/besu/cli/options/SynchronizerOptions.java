@@ -375,13 +375,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
   }
 
   @CommandLine.Option(
-      names = {"--Xpeertask-system-enabled"},
-      hidden = true,
-      description =
-          "Temporary feature toggle to enable using the new peertask system (default: ${DEFAULT-VALUE})")
-  private final Boolean isPeerTaskSystemEnabled = false;
-
-  @CommandLine.Option(
       names = SNAP_TRANSACTION_INDEXING_ENABLED_FLAG,
       paramLabel = "<Boolean>",
       arity = "0..1",
@@ -434,15 +427,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
    */
   public boolean isSnapsyncServerEnabled() {
     return snapsyncServerEnabled;
-  }
-
-  /**
-   * Flag to indicate whether the peer task system should be used where available
-   *
-   * @return true if the peer task system should be used where available
-   */
-  public boolean isPeerTaskSystemEnabled() {
-    return isPeerTaskSystemEnabled;
   }
 
   /**
@@ -503,7 +487,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     options.era1ImportPrepipelineEnabled = config.era1ImportPrepipelineEnabled();
     options.era1DataUri = config.era1DataUri();
     options.era1ImportPrepipelineConcurrency = config.era1ImportPrepipelineConcurrency();
-    options.receiptsDownloadStepTimeoutMillis = config.getReceiptsDownloadStepTimeoutMillis();
+    options.receiptsDownloadStepTimeoutMillis = config.getForwardDownloadStepTimeoutMillis();
     options.backwardHeadersDownloadStepTimeoutMillis =
         config.getBackwardHeadersDownloadStepTimeoutMillis();
     options.bodiesDownloadStepTimeoutMillis = config.getBodiesDownloadStepTimeoutMillis();
@@ -543,7 +527,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             .isSnapServerEnabled(snapsyncServerEnabled)
             .isSnapSyncTransactionIndexingEnabled(snapTransactionIndexingEnabled)
             .build());
-    builder.isPeerTaskSystemEnabled(isPeerTaskSystemEnabled);
     builder.snapSyncSavePreCheckpointHeadersOnlyEnabled(
         snapSyncSavePreCheckpointHeadersOnlyEnabled);
     builder.receiptsDownloadStepTimeoutMillis(receiptsDownloadStepTimeoutMillis);

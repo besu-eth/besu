@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncStateStorage;
+import org.hyperledger.besu.ethereum.eth.sync.common.ImportHeadersStep;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotUpdateListener;
 import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader;
@@ -89,6 +90,7 @@ public class SnapSyncChainDownloader
   private final AtomicBoolean initialized = new AtomicBoolean(false);
 
   private volatile Pipeline<?> currentPipeline;
+  private volatile ImportHeadersStep currentImportHeadersStep;
   private Instant overallStartTime;
 
   /**
@@ -361,21 +363,25 @@ public class SnapSyncChainDownloader
 
   private CompletableFuture<Void> runStage1BackwardHeaderDownload(final ChainSyncState state) {
     LOG.debug(
-        "Stage 1: Starting backward header download from pivot {} down to stop block {}",
+        "Stage 1: Starting backward header download from pivot {} down to stop block {}, progress={}",
         state.pivotBlockHeader().getNumber(),
         state.headerDownloadAnchor() != null
             ? state.headerDownloadAnchor().getNumber()
-            : state.blockDownloadAnchor().getNumber());
+            : state.blockDownloadAnchor().getNumber(),
+        state.headerDownloadProgress() != null
+            ? state.headerDownloadProgress().getNumber()
+            : "none");
 
     final Instant stage1StartTime = Instant.now();
 
-    final Pipeline<Long> headerPipeline =
+    final SnapSyncChainDownloadPipelineFactory.BackwardHeaderPipelineResult pipelineResult =
         pipelineFactory.createBackwardHeaderDownloadPipeline(state);
-    currentPipeline = headerPipeline;
+    currentPipeline = pipelineResult.pipeline();
+    currentImportHeadersStep = pipelineResult.importHeadersStep();
 
     return ethContext
         .getScheduler()
-        .startPipeline(headerPipeline)
+        .startPipeline(pipelineResult.pipeline())
         .thenApply(
             ignore -> {
               final Duration stage1Duration = Duration.between(stage1StartTime, Instant.now());
@@ -386,6 +392,7 @@ public class SnapSyncChainDownloader
               // Mark headers download as complete and persist
               chainSyncState.updateAndGet(ChainSyncState::withHeadersDownloadComplete);
               chainSyncStateStorage.storeState(chainSyncState.get());
+              currentImportHeadersStep = null;
               LOG.debug("Persisted backward header download completion state");
 
               return null;
@@ -533,6 +540,34 @@ public class SnapSyncChainDownloader
   }
 
   /**
+   * Saves header download progress from the current ImportHeadersStep into ChainSyncState. On
+   * pipeline restart, the backward header download will resume from this point instead of starting
+   * over.
+   */
+  private void saveHeaderProgress() {
+    final ImportHeadersStep importStep = currentImportHeadersStep;
+    if (importStep == null) {
+      return;
+    }
+
+    // Don't save header progress if headers are already complete
+    if (chainSyncState.get().headersDownloadComplete()) {
+      return;
+    }
+
+    final BlockHeader lowestImported = importStep.getLowestImportedHeader();
+    final long pivotNumber = chainSyncState.get().pivotBlockHeader().getNumber();
+
+    // Only save if progress was actually made (lowest imported is below pivot)
+    if (lowestImported.getNumber() < pivotNumber) {
+      LOG.debug(
+          "Saving header download progress: lowest imported header {}", lowestImported.getNumber());
+      chainSyncState.updateAndGet(state -> state.withHeaderProgress(lowestImported));
+      chainSyncStateStorage.storeState(chainSyncState.get());
+    }
+  }
+
+  /**
    * Handles error from a download cycle. Updates state and decides whether to retry.
    *
    * @param error the error that occurred
@@ -540,6 +575,9 @@ public class SnapSyncChainDownloader
    */
   private void handleDownloadError(
       final Throwable error, final CompletableFuture<Void> overallResult) {
+
+    // Save header download progress if any was made
+    saveHeaderProgress();
 
     // Update chain state to current blockchain head
     chainSyncState.updateAndGet(
