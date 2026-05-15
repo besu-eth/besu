@@ -113,6 +113,7 @@ public abstract class AbstractMinerExecutor<M extends BlockMiner<? extends Abstr
 
   public void changeTargetGasLimit(final Long newTargetGasLimit) {
     if (AbstractGasLimitSpecification.isValidTargetGasLimit(newTargetGasLimit)) {
+      miningConfiguration.setTargetGasLimit(newTargetGasLimit);
     } else {
       throw new UnsupportedOperationException("Specified target gas limit is invalid");
     }

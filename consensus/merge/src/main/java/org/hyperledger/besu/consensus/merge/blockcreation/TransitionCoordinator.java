@@ -26,7 +26,6 @@ import org.hyperledger.besu.ethereum.chain.PoWObserver;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
@@ -34,8 +33,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
-
-import org.apache.tuweni.bytes.Bytes32;
 
 /** The Transition coordinator. */
 public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
@@ -146,22 +143,8 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
   }
 
   @Override
-  public PayloadIdentifier preparePayload(
-      final BlockHeader parentHeader,
-      final Long timestamp,
-      final Bytes32 prevRandao,
-      final Address feeRecipient,
-      final Optional<List<Withdrawal>> withdrawals,
-      final Optional<Bytes32> parentBeaconBlockRoot,
-      final Optional<Long> slotNumber) {
-    return mergeCoordinator.preparePayload(
-        parentHeader,
-        timestamp,
-        prevRandao,
-        feeRecipient,
-        withdrawals,
-        parentBeaconBlockRoot,
-        slotNumber);
+  public PayloadIdentifier preparePayload(final PreparePayloadArgs preparePayloadArgs) {
+    return mergeCoordinator.preparePayload(preparePayloadArgs);
   }
 
   @Override

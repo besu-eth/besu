@@ -20,7 +20,9 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -48,6 +50,27 @@ public class GetBlockAccessListsMessageTest {
       assertThat(readBlockHashes.next()).isEqualTo(blockHashes.get(i));
     }
     assertThat(readBlockHashes.hasNext()).isFalse();
+  }
+
+  @Test
+  public void wrapsWithEth71WireShape() {
+    // [request-id, [hashes]]
+    final BlockDataGenerator generator = new BlockDataGenerator(1);
+    final Hash blockHash = generator.hash();
+
+    final GetBlockAccessListsMessage message =
+        GetBlockAccessListsMessage.create(List.of(blockHash));
+    final MessageData wrapped = message.wrapMessageData(BigInteger.valueOf(7));
+
+    final BytesValueRLPOutput expected = new BytesValueRLPOutput();
+    expected.startList();
+    expected.writeBigIntegerScalar(BigInteger.valueOf(7));
+    expected.startList();
+    expected.writeBytes(blockHash.getBytes());
+    expected.endList();
+    expected.endList();
+
+    assertThat(wrapped.getData()).isEqualTo(expected.encoded());
   }
 
   @Test

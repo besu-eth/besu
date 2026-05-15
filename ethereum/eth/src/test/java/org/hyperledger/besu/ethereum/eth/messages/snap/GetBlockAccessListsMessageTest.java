@@ -20,6 +20,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractSnapMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
 import java.math.BigInteger;
 import java.util.List;
@@ -45,6 +46,26 @@ public class GetBlockAccessListsMessageTest {
     assertThat(StreamSupport.stream(message.blockHashes(true).spliterator(), false))
         .containsExactlyElementsOf(blockHashes);
     assertThat(message.responseBytes(true)).isEqualTo(AbstractSnapMessageData.SIZE_REQUEST);
+  }
+
+  @Test
+  public void wrapsWithSnap2WireShape() {
+    // [request-id, [hashes], bytes]
+    final List<Hash> blockHashes = List.of(Hash.wrap(Bytes32.random()));
+
+    final GetBlockAccessListsMessage message = GetBlockAccessListsMessage.create(blockHashes);
+    final MessageData wrapped = message.wrapMessageData(BigInteger.valueOf(7));
+
+    final BytesValueRLPOutput expected = new BytesValueRLPOutput();
+    expected.startList();
+    expected.writeBigIntegerScalar(BigInteger.valueOf(7));
+    expected.startList();
+    expected.writeBytes(blockHashes.getFirst().getBytes());
+    expected.endList();
+    expected.writeBigIntegerScalar(AbstractSnapMessageData.SIZE_REQUEST);
+    expected.endList();
+
+    assertThat(wrapped.getData()).isEqualTo(expected.encoded());
   }
 
   @Test
