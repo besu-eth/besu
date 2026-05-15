@@ -49,8 +49,8 @@ public class RocksDBFactoryConfiguration {
    * @param additionalDatabaseOptions semicolon-separated {@code DBOptions} string for {@code
    *     DBOptions.getDBOptionsFromProps}; Besu still overlays create paths, max open files, stats,
    *     env threads, and WAL sizing
-   * @param mmapReadsBonsaiSlotTrieBranch when true, use mmap SST reads on Bonsai slot and trie
-   *     branch column families
+   * @param mmapReadsBonsaiSlotTrieBranch when true, enable mmap SST reads ({@code DBOptions} and
+   *     targeted {@code block_based_table_factory} options) for Bonsai slot and trie-branch CFs
    */
   public RocksDBFactoryConfiguration(
       final int maxOpenFiles,
@@ -169,8 +169,9 @@ public class RocksDBFactoryConfiguration {
   }
 
   /**
-   * When true, SST reads for Bonsai {@code ACCOUNT_STORAGE_STORAGE}, {@code
-   * ACCOUNT_STORAGE_ARCHIVE}, and {@code TRIE_BRANCH_STORAGE} use RocksDB mmap.
+   * When true, SST reads use RocksDB mmap: {@code DBOptions.allow_mmap_reads} for this database
+   * plus {@code block_based_table_factory.allow_mmap_reads} on Bonsai {@code
+   * ACCOUNT_STORAGE_STORAGE}, {@code ACCOUNT_STORAGE_ARCHIVE}, and {@code TRIE_BRANCH_STORAGE}.
    *
    * @return whether mmap reads are enabled for those column families
    */

@@ -41,7 +41,7 @@ public class RocksDBCLIOptions {
    * Default: do not use mmap for SST reads on Bonsai slot / trie-branch column families (see {@link
    * #MMAP_READS_BONSAI_SLOT_TRIE_BRANCH_FLAG}).
    */
-  public static final boolean DEFAULT_MMAP_READS_BONSAI_SLOT_TRIE_BRANCH = true;
+  public static final boolean DEFAULT_MMAP_READS_BONSAI_SLOT_TRIE_BRANCH = false;
 
   /** The constant MAX_OPEN_FILES_FLAG. */
   public static final String MAX_OPEN_FILES_FLAG = "--Xplugin-rocksdb-max-open-files";
@@ -81,10 +81,11 @@ public class RocksDBCLIOptions {
       "--Xplugin-rocksdb-additional-database-options";
 
   /**
-   * When true, enables {@code block_based_table_factory.allow_mmap_reads} for Bonsai {@code
-   * ACCOUNT_STORAGE_STORAGE}, {@code ACCOUNT_STORAGE_ARCHIVE}, and {@code TRIE_BRANCH_STORAGE}
-   * column families only. Prefer {@link #MAX_OPEN_FILES_FLAG} {@code -1} so RocksDB can keep SSTs
-   * open for mmap. Experimental.
+   * When true, enables mmap SST reads for Bonsai {@code ACCOUNT_STORAGE_STORAGE}, {@code
+   * ACCOUNT_STORAGE_ARCHIVE}, and {@code TRIE_BRANCH_STORAGE} column families ({@code
+   * block_based_table_factory.allow_mmap_reads}) and sets {@link org.rocksdb.DBOptions#setAllowMmapReads}
+   * so RocksDB logs {@code Options.allow_mmap_reads: 1} for this database. Prefer {@link
+   * #MAX_OPEN_FILES_FLAG} {@code -1} so RocksDB can keep SSTs open. Experimental.
    */
   public static final String MMAP_READS_BONSAI_SLOT_TRIE_BRANCH_FLAG =
       "--Xplugin-rocksdb-mmap-reads-bonsai-slot-trie-branch-enabled";
@@ -200,7 +201,7 @@ public class RocksDBCLIOptions {
       negatable = true,
       paramLabel = "<BOOLEAN>",
       description =
-          "Use mmap for SST reads on ACCOUNT_STORAGE_* and TRIE_BRANCH_STORAGE column families (default: ${DEFAULT-VALUE}). Prefer unlimited max open files for this experiment.")
+          "Mmap SST reads for ACCOUNT_STORAGE_* / TRIE_BRANCH_STORAGE CFs and DBOptions.allow_mmap_reads for this DB (default: ${DEFAULT-VALUE}). Prefer unlimited max open files for this experiment.")
   boolean mmapReadsBonsaiSlotTrieBranch = DEFAULT_MMAP_READS_BONSAI_SLOT_TRIE_BRANCH;
 
   private RocksDBCLIOptions() {}

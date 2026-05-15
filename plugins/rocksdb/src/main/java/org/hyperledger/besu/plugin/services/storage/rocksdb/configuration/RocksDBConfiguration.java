@@ -50,7 +50,8 @@ public class RocksDBConfiguration {
    * @param blobGarbageCollectionForceThreshold the blob garbage collection force threshold
    * @param additionalColumnFamilyOptions additional native column-family options string
    * @param additionalDatabaseOptions optional native DB options string
-   * @param mmapReadsBonsaiSlotTrieBranch mmap SST reads on Bonsai slot / trie-branch CFs
+   * @param mmapReadsBonsaiSlotTrieBranch mmap SST reads ({@code DBOptions} + targeted table options)
+   *     on Bonsai slot / trie-branch CFs
    */
   public RocksDBConfiguration(
       final Path databaseDir,
@@ -190,7 +191,8 @@ public class RocksDBConfiguration {
   }
 
   /**
-   * Whether mmap reads are enabled for Bonsai slot and trie-branch column families.
+   * Whether mmap SST reads are enabled for this database ({@code DBOptions}) and for Bonsai slot /
+   * trie-branch column families ({@code block_based_table_factory}).
    *
    * @return true when mmap reads are enabled for Bonsai slot and trie-branch column families
    */

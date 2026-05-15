@@ -388,7 +388,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         dbOpts = new DBOptions();
       }
     }
-    options =
+    final DBOptions built =
         dbOpts
             .setCreateIfMissing(true)
             .setMaxOpenFiles(configuration.getMaxOpenFiles())
@@ -399,6 +399,10 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
             .setEnv(Env.getDefault().setBackgroundThreads(configuration.getBackgroundThreadCount()))
             .setMaxTotalWalSize(WAL_MAX_TOTAL_SIZE)
             .setRecycleLogFileNum(WAL_MAX_TOTAL_SIZE / EXPECTED_WAL_FILE_SIZE);
+    options =
+        configuration.isMmapReadsBonsaiSlotTrieBranchEnabled()
+            ? built.setAllowMmapReads(true)
+            : built;
   }
 
   /**
