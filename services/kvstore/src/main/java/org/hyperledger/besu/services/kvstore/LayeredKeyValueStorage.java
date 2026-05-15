@@ -53,6 +53,13 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
   private final SegmentedKeyValueStorage parent;
 
   /**
+   * Cached result of parent.isClosed(). The closed state transitions from false to true exactly
+   * once per process lifetime and never back, so caching the first true result is safe and converts
+   * the O(N) parent-chain walk into an O(1) check.
+   */
+  private volatile boolean closedCache = false;
+
+  /**
    * Instantiates a new Layered key value storage.
    *
    * @param parent the parent key value storage for this layered storage.
@@ -359,7 +366,14 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
 
   @Override
   public boolean isClosed() {
-    return parent.isClosed();
+    if (closedCache) {
+      return true;
+    }
+    if (parent.isClosed()) {
+      closedCache = true;
+      return true;
+    }
+    return false;
   }
 
   @Override
@@ -368,7 +382,7 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
   }
 
   private void throwIfClosed() {
-    if (parent.isClosed()) {
+    if (isClosed()) {
       LOG.error("Attempting to use a closed RocksDBKeyValueStorage");
       throw new StorageException("Storage has been closed");
     }
