@@ -51,34 +51,29 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
   static final byte[] MIN_BLOCK_SUFFIX = Bytes.ofUnsignedLong(0L).toArrayUnsafe();
   private static final int KEY_SUFFIX_LENGTH = 8;
 
-  private final boolean stateProofsEnabled;
   private final Long trieNodeCheckpointInterval;
   private volatile boolean intervalSeeded = false;
-  private boolean archiveReadsEnabled = false;
+  private final boolean archiveReadsEnabled;
 
   public BonsaiArchiveFlatDbStrategy(
       final MetricsSystem metricsSystem, final CodeStorageStrategy codeStorageStrategy) {
     super(metricsSystem, codeStorageStrategy);
-    this.stateProofsEnabled = false;
     this.trieNodeCheckpointInterval = null;
+    this.archiveReadsEnabled = false;
   }
 
   public BonsaiArchiveFlatDbStrategy(
       final MetricsSystem metricsSystem,
       final CodeStorageStrategy codeStorageStrategy,
-      final long trieNodeCheckpointInterval) {
+      final long trieNodeCheckpointInterval,
+      final boolean archiveReadsEnabled) {
     super(metricsSystem, codeStorageStrategy);
-    this.stateProofsEnabled = true;
     this.trieNodeCheckpointInterval = trieNodeCheckpointInterval;
+    this.archiveReadsEnabled = archiveReadsEnabled;
   }
 
   public static final byte[] DELETED_ACCOUNT_VALUE = new byte[0];
   public static final byte[] DELETED_STORAGE_VALUE = new byte[0];
-
-  public BonsaiArchiveFlatDbStrategy withArchiveReadsEnabled() {
-    this.archiveReadsEnabled = true;
-    return this;
-  }
 
   private Optional<BonsaiContext> getStateArchiveContextForWrite(
       final SegmentedKeyValueStorage storage) {
@@ -182,7 +177,7 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
       final Bytes32 nodeHash,
       final Bytes node) {
     super.putFlatAccountTrieNode(storage, transaction, location, nodeHash, node);
-    if (stateProofsEnabled) {
+    if (trieNodeCheckpointInterval != null) {
       ensureIntervalSeeded(storage);
       byte[] keySuffixed =
           calculateArchiveKeyWithMinSuffix(
@@ -200,7 +195,7 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
       final Bytes32 nodeHash,
       final Bytes node) {
     super.putFlatStorageTrieNode(storage, transaction, accountHash, location, nodeHash, node);
-    if (stateProofsEnabled) {
+    if (trieNodeCheckpointInterval != null) {
       ensureIntervalSeeded(storage);
       byte[] keySuffixed =
           calculateArchiveKeyWithMinSuffix(
@@ -596,7 +591,7 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
 
   @Override
   public void clearAll(final SegmentedKeyValueStorage storage) {
-    if (stateProofsEnabled) {
+    if (trieNodeCheckpointInterval != null) {
       storage.clear(TRIE_BRANCH_STORAGE_ARCHIVE);
     }
     clearArchiveSegments(storage);
@@ -606,7 +601,7 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
 
   @Override
   public void resetOnResync(final SegmentedKeyValueStorage storage) {
-    if (stateProofsEnabled) {
+    if (trieNodeCheckpointInterval != null) {
       storage.clear(TRIE_BRANCH_STORAGE_ARCHIVE);
     }
     clearArchiveSegments(storage);

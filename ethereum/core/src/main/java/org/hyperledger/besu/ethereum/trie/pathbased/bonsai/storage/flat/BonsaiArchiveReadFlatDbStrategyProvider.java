@@ -45,13 +45,13 @@ public class BonsaiArchiveReadFlatDbStrategyProvider extends BonsaiFlatDbStrateg
             .getStateProofsEnabled();
     if (proofsEnabled) {
       return new BonsaiArchiveFlatDbStrategy(
-              metricsSystem,
-              codeStorageStrategy,
-              dataStorageConfiguration
-                  .getPathBasedExtraStorageConfiguration()
-                  .getUnstable()
-                  .getArchiveTrieNodeCheckpointInterval())
-          .withArchiveReadsEnabled();
+          metricsSystem,
+          codeStorageStrategy,
+          dataStorageConfiguration
+              .getPathBasedExtraStorageConfiguration()
+              .getUnstable()
+              .getArchiveTrieNodeCheckpointInterval(),
+          true);
     }
     return new BonsaiArchiveFlatDbStrategy(metricsSystem, codeStorageStrategy);
   }

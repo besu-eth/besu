@@ -101,7 +101,8 @@ public class BonsaiFlatDbStrategyProvider extends FlatDbStrategyProvider {
           dataStorageConfiguration
               .getPathBasedExtraStorageConfiguration()
               .getUnstable()
-              .getArchiveTrieNodeCheckpointInterval());
+              .getArchiveTrieNodeCheckpointInterval(),
+          false);
     }
     if (flatDbMode == FlatDbMode.FULL || flatDbMode == FlatDbMode.ARCHIVE) {
       return new BonsaiFullFlatDbStrategy(metricsSystem, codeStorageStrategy);

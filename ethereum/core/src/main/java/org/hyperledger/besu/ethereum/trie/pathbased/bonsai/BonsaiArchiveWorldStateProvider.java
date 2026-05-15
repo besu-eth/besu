@@ -56,7 +56,6 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private final BonsaiWorldStateKeyValueStorage archiveReadStorage;
   private final CodeCache codeCache;
   private final WorldStateConfig archiveWorldStateConfig;
-  private final WorldStateConfig proofWorldStateConfig;
   private final boolean stateProofsEnabled;
   private final long trieNodeCheckpointInterval;
   private volatile LongSupplier archiveMigrationProgressSupplier = () -> -1L;
@@ -83,7 +82,6 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
     this.codeCache = codeCache;
     this.archiveWorldStateConfig =
         WorldStateConfig.newBuilder(worldStateConfig).trieDisabled(true).build();
-    this.proofWorldStateConfig = WorldStateConfig.newBuilder(worldStateConfig).build();
     this.stateProofsEnabled =
         dataStorageConfiguration
             .getPathBasedExtraStorageConfiguration()
@@ -116,7 +114,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
             checkpointBlock.get().getNumber());
         final BonsaiWorldState proofWorldState =
             new BonsaiWorldState(
-                this, archiveReadStorage, evmConfiguration, proofWorldStateConfig, codeCache);
+                this, archiveReadStorage, evmConfiguration, worldStateConfig, codeCache);
         proofWorldState.freezeStorage();
         return rollArchiveProofWorldStateToBlockHash(
                 proofWorldState, checkpointBlock.get(), queryParams.getBlockHeader().getBlockHash())
@@ -151,7 +149,6 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
                       - 1;
               return blockchain
                   .getBlockHeaderSafe(nearestCheckpoint)
-                  .or(() -> blockchain.getBlockHeader(blockchain.getChainHeadHash()))
                   .or(() -> blockchain.getBlockHeaderSafe(blockchain.getChainHeadHash()));
             });
   }
@@ -168,27 +165,35 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
     }
 
     try {
-      final Optional<BlockHeader> maybePersistedHeader =
+      final BlockHeader targetHeader =
           blockchain
-              .getBlockHeader(mutableState.blockHash())
-              .or(() -> blockchain.getBlockHeaderSafe(mutableState.blockHash()))
-              .map(BlockHeader.class::cast);
+              .getBlockHeaderSafe(targetBlockHash)
+              .orElseThrow(
+                  () ->
+                      new MerkleTrieException("target block header not found: " + targetBlockHash));
+      final Optional<BlockHeader> maybePersistedHeader =
+          blockchain.getBlockHeaderSafe(mutableState.blockHash()).map(BlockHeader.class::cast);
 
       final List<TrieLog> rollBacks = new ArrayList<>();
       if (maybePersistedHeader.isEmpty()) {
         trieLogManager.getTrieLogLayer(mutableState.blockHash()).ifPresent(rollBacks::add);
       } else {
-        final BlockHeader targetHeader =
-            blockchain
-                .getBlockHeader(targetBlockHash)
-                .or(() -> blockchain.getBlockHeaderSafe(targetBlockHash))
-                .get();
         BlockHeader persistedHeader = maybePersistedHeader.get();
         Hash persistedBlockHash = persistedHeader.getBlockHash();
         while (persistedHeader.getNumber() > targetHeader.getNumber()) {
           LOG.debug("Rollback {}", persistedBlockHash);
-          rollBacks.add(trieLogManager.getTrieLogLayer(persistedBlockHash).get());
-          persistedHeader = blockchain.getBlockHeaderSafe(persistedHeader.getParentHash()).get();
+          final Hash blockHashForLog = persistedBlockHash;
+          rollBacks.add(
+              trieLogManager
+                  .getTrieLogLayer(persistedBlockHash)
+                  .orElseThrow(
+                      () -> new MerkleTrieException("missing trie log for " + blockHashForLog)));
+          final Hash parentHash = persistedHeader.getParentHash();
+          persistedHeader =
+              blockchain
+                  .getBlockHeaderSafe(parentHash)
+                  .orElseThrow(
+                      () -> new MerkleTrieException("missing parent header for " + parentHash));
           persistedBlockHash = persistedHeader.getBlockHash();
         }
       }
@@ -202,20 +207,16 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         }
         diffBasedUpdater.commit();
 
-        // Set ARCHIVE_PROOF_BLOCK_NUMBER_KEY so that trie-node writes during persist() use
-        // targetBlockNumber as the suffix, ensuring reads at targetBlock find them via
-        // nearest-before lookup in TRIE_BRANCH_STORAGE_ARCHIVE.
-        final long targetBlockNumber =
-            blockchain.getBlockHeaderSafe(targetBlockHash).get().getNumber();
+        // overrides suffix selection in putFlatAccountTrieNode/putFlatStorageTrieNode
         final SegmentedKeyValueStorageTransaction tx =
             mutableState.getWorldStateStorage().getComposedWorldStateStorage().startTransaction();
         tx.put(
             TRIE_BRANCH_STORAGE,
             ARCHIVE_PROOF_BLOCK_NUMBER_KEY,
-            Bytes.ofUnsignedLong(targetBlockNumber).toArrayUnsafe());
+            Bytes.ofUnsignedLong(targetHeader.getNumber()).toArrayUnsafe());
         tx.commit();
 
-        mutableState.persist(blockchain.getBlockHeaderSafe(targetBlockHash).get());
+        mutableState.persist(targetHeader);
 
         return Optional.of(mutableState);
       } catch (final MerkleTrieException re) {

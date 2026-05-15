@@ -205,7 +205,12 @@ public class BonsaiArchiveFlatDbStrategyTest {
 
   private BonsaiArchiveFlatDbStrategy newProofsStrategy() {
     return new BonsaiArchiveFlatDbStrategy(
-        new NoOpMetricsSystem(), new CodeHashCodeStorageStrategy(), INTERVAL);
+        new NoOpMetricsSystem(), new CodeHashCodeStorageStrategy(), INTERVAL, false);
+  }
+
+  private BonsaiArchiveFlatDbStrategy newProofsReadStrategy() {
+    return new BonsaiArchiveFlatDbStrategy(
+        new NoOpMetricsSystem(), new CodeHashCodeStorageStrategy(), INTERVAL, true);
   }
 
   /** window = ((blockNumber + 1) / interval) * interval */
@@ -333,7 +338,7 @@ public class BonsaiArchiveFlatDbStrategyTest {
 
   @Test
   public void getFlatAccountTrieNode_readsLatestBefore() {
-    final BonsaiArchiveFlatDbStrategy s = newProofsStrategy();
+    final BonsaiArchiveFlatDbStrategy s = newProofsReadStrategy();
 
     // write at block 0 → window 0
     setWorldBlockNumber(0);
@@ -350,7 +355,7 @@ public class BonsaiArchiveFlatDbStrategyTest {
 
   @Test
   public void getFlatAccountTrieNode_differentLocation_returnsEmpty() {
-    final BonsaiArchiveFlatDbStrategy s = newProofsStrategy();
+    final BonsaiArchiveFlatDbStrategy s = newProofsReadStrategy();
     final Bytes otherLocation = Bytes.fromHexString("0x0FFFFFFF00");
 
     setWorldBlockNumber(0);
@@ -365,7 +370,7 @@ public class BonsaiArchiveFlatDbStrategyTest {
 
   @Test
   public void getFlatStorageTrieNode_readsLatestBefore() {
-    final BonsaiArchiveFlatDbStrategy s = newProofsStrategy();
+    final BonsaiArchiveFlatDbStrategy s = newProofsReadStrategy();
     final Hash accountHash =
         Address.fromHexString("0x0000000000000000000000000000000000000020").addressHash();
 
