@@ -246,8 +246,7 @@ public class BonsaiArchiveWorldStateProviderTest {
     final BonsaiArchiveWorldStateProvider proofsProvider =
         createProviderWithProofs(false, true, 100L);
 
-    final BlockHeader unknownHeader =
-        new BlockHeaderTestFixture().number(50L).buildHeader();
+    final BlockHeader unknownHeader = new BlockHeaderTestFixture().number(50L).buildHeader();
     // No blockchain mock for unknownHeader.getHash() → getBlockHeader returns empty by default
 
     final var result =
