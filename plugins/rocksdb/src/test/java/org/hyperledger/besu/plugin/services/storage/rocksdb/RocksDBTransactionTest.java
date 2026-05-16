@@ -33,8 +33,7 @@ class RocksDBTransactionTest {
   @Test
   void isDiskFull_returnsFalseForStructuredIoErrorWithoutNoSpaceSubCode() {
     final Status status = new Status(Status.Code.IOError, Status.SubCode.None, null);
-    final RocksDBException e =
-        new RocksDBException("IO error: No space left on device", status);
+    final RocksDBException e = new RocksDBException("IO error: No space left on device", status);
 
     assertThat(RocksDBTransaction.isDiskFull(e)).isFalse();
   }

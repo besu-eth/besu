@@ -65,7 +65,7 @@ public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
       innerTx.put(columnFamilyMapper.apply(segmentId), key, value);
     } catch (final RocksDBException e) {
       if (isDiskFull(e)) {
-        logger.error(e.getMessage());
+        logger.error("Disk full detected: {}", e.getMessage(), e);
         System.exit(DISK_FULL_EXIT_CODE);
       }
       throw new StorageException(e);
@@ -78,7 +78,7 @@ public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
       innerTx.delete(columnFamilyMapper.apply(segmentId), key);
     } catch (final RocksDBException e) {
       if (isDiskFull(e)) {
-        logger.error(e.getMessage());
+        logger.error("Disk full detected: {}", e.getMessage(), e);
         System.exit(DISK_FULL_EXIT_CODE);
       }
       throw new StorageException(e);
@@ -91,7 +91,7 @@ public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
       innerTx.commit();
     } catch (final RocksDBException e) {
       if (isDiskFull(e)) {
-        logger.error(e.getMessage());
+        logger.error("Disk full detected: {}", e.getMessage(), e);
         System.exit(DISK_FULL_EXIT_CODE);
       }
       throw new StorageException(e);
@@ -107,7 +107,7 @@ public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
       metrics.getRollbackCount().inc();
     } catch (final RocksDBException e) {
       if (isDiskFull(e)) {
-        logger.error(e.getMessage());
+        logger.error("Disk full detected: {}", e.getMessage(), e);
         System.exit(DISK_FULL_EXIT_CODE);
       }
       throw new StorageException(e);
