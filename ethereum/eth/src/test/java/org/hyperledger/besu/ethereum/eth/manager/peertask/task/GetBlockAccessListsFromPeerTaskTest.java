@@ -17,8 +17,8 @@ package org.hyperledger.besu.ethereum.eth.manager.peertask.task;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
@@ -37,6 +37,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 import org.apache.commons.lang3.StringUtils;
@@ -47,6 +48,7 @@ class GetBlockAccessListsFromPeerTaskTest {
 
   private static final Set<org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability>
       AGREED_CAPABILITIES = Set.of(EthProtocol.LATEST);
+  private static final BlockDataGenerator dataGenerator = new BlockDataGenerator(1);
 
   @Test
   void testGetRequestMessage() {
@@ -75,10 +77,11 @@ class GetBlockAccessListsFromPeerTaskTest {
     final GetBlockAccessListsFromPeerTask task =
         new GetBlockAccessListsFromPeerTask(List.of(header));
 
-    final List<BlockAccessList> response =
-        task.processResponse(BlockAccessListsMessage.create(List.of(blockAccessList)), Set.of());
+    final List<Optional<BlockAccessList>> response =
+        task.processResponse(
+            BlockAccessListsMessage.createFromBlockAccessLists(List.of(blockAccessList)), Set.of());
 
-    assertThat(response).containsExactly(blockAccessList);
+    assertThat(response).containsExactly(Optional.of(blockAccessList));
   }
 
   @Test
@@ -86,21 +89,12 @@ class GetBlockAccessListsFromPeerTaskTest {
     final BlockAccessList expectedBal = new BlockAccessList(List.of());
     final BlockHeader header = mockBlockHeader(1, expectedBal);
 
-    final BlockAccessList mismatchingBal =
-        new BlockAccessList(
-            List.of(
-                new BlockAccessList.AccountChanges(
-                    Address.fromHexString("0x0000000000000000000000000000000000000001"),
-                    List.of(),
-                    List.of(),
-                    List.of(),
-                    List.of(),
-                    List.of())));
+    final BlockAccessList mismatchingBal = dataGenerator.blockAccessList(1);
 
     final GetBlockAccessListsFromPeerTask task =
         new GetBlockAccessListsFromPeerTask(List.of(header));
 
-    assertThat(task.validateResult(List.of(mismatchingBal)))
+    assertThat(task.validateResult(List.of(Optional.of(mismatchingBal))))
         .isEqualTo(PeerTaskValidationResponse.RESULTS_DO_NOT_MATCH_QUERY);
   }
 
@@ -146,11 +140,15 @@ class GetBlockAccessListsFromPeerTaskTest {
 
     assertThat(task.validateResult(List.of()))
         .isEqualTo(PeerTaskValidationResponse.NO_RESULTS_RETURNED);
-    assertThat(task.validateResult(List.of(new BlockAccessList(List.of()))))
+    assertThat(task.validateResult(List.of(Optional.empty())))
+        .isEqualTo(PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD);
+    assertThat(task.validateResult(List.of(Optional.of(dataGenerator.emptyBlockAccessList()))))
         .isEqualTo(PeerTaskValidationResponse.RESULTS_VALID_AND_GOOD);
     assertThat(
             task.validateResult(
-                List.of(new BlockAccessList(List.of()), new BlockAccessList(List.of()))))
+                List.of(
+                    Optional.of(new BlockAccessList(List.of())),
+                    Optional.of(new BlockAccessList(List.of())))))
         .isEqualTo(PeerTaskValidationResponse.TOO_MANY_RESULTS_RETURNED);
   }
 

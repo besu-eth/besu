@@ -121,7 +121,7 @@ public class GetSyncReceiptsFromPeerTaskTest {
 
     assertEquals(EthProtocolMessages.GET_RECEIPTS, getReceiptsMessage.getCode());
 
-    final List<Hash> hashesInMessage = getReceiptsMessage.blockHashes();
+    final Iterable<Hash> hashesInMessage = getReceiptsMessage.blockHashes();
     final List<Hash> expectedHashes =
         mockedBlocks.stream()
             .map(MockedBlock::block)
@@ -150,7 +150,7 @@ public class GetSyncReceiptsFromPeerTaskTest {
 
     assertEquals(EthProtocolMessages.GET_RECEIPTS, getReceiptsMessage.getCode());
 
-    final List<Hash> hashesInMessage = getReceiptsMessage.blockHashes();
+    final Iterable<Hash> hashesInMessage = getReceiptsMessage.blockHashes();
     final List<Hash> expectedHashes =
         mockedBlocks.stream()
             .map(MockedBlock::block)

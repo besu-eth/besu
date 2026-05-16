@@ -263,13 +263,15 @@ final class DeFramer extends ByteToMessageDecoder {
       } else {
         // Unexpected message - disconnect
 
-        LOG.debug(
-            "Message received before HELLO's exchanged (BREACH_OF_PROTOCOL), disconnecting.  Peer: {}, Code: {}, Data: {}",
-            expectedPeer.map(Peer::getEnodeURLString).orElse("unknown"),
-            message.getCode(),
-            message instanceof RawMessage raw && raw.getCompressedData() != null
-                ? "snappy compressed data: " + Bytes.wrap(raw.getCompressedData())
-                : message.getData().toString());
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(
+              "Message received before HELLO's exchanged (BREACH_OF_PROTOCOL), disconnecting.  Peer: {}, Code: {}, Data: {}",
+              expectedPeer.map(Peer::getEnodeURLString).orElse("unknown"),
+              message.getCode(),
+              message instanceof RawMessage raw && raw.getCompressedData() != null
+                  ? "snappy compressed data: " + Bytes.wrap(raw.getCompressedData())
+                  : message.getData());
+        }
         ctx.writeAndFlush(
                 new OutboundMessage(
                     null,

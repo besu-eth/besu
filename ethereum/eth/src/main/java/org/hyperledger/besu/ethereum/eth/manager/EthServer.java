@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
-import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.TransactionReceiptEncoder;
@@ -285,32 +284,21 @@ class EthServer {
       final int maxMessageSize) {
     final GetPaginatedReceiptsMessage getPaginatedReceipts =
         GetPaginatedReceiptsMessage.readFrom(message);
-    final List<Hash> requestedBlockHashes = getPaginatedReceipts.blockHashes();
-    final List<Hash> blockHashes;
-    if (requestedBlockHashes.size() > requestLimit) {
-      LOG.atDebug()
-          .setMessage(
-              "Requested receipts for {} blocks, more than allowed max number of {}, ignoring extra blocks")
-          .addArgument(requestedBlockHashes::size)
-          .addArgument(requestLimit)
-          .log();
-      blockHashes = requestedBlockHashes.subList(0, requestLimit);
-    } else {
-      blockHashes = requestedBlockHashes;
-    }
+    final Iterable<Hash> blockHashes = getPaginatedReceipts.blockHashes();
 
-    final var blockReceiptsRLPs = new ArrayList<BytesValueRLPOutput>(blockHashes.size());
+    final var blockReceiptsRLPs = new ArrayList<BytesValueRLPOutput>(requestLimit);
 
     int skipBefore = getPaginatedReceipts.firstBlockReceiptIndex();
-    LOG.trace(
-        "Paginated receipt request for {} blocks with first block receipt index {}",
-        blockHashes.size(),
-        skipBefore);
     // Account for the outer list header and the lastBlockIncomplete scalar (max 2 bytes).
     int responseSizeEstimate = RLP.MAX_PREFIX_SIZE + 2;
     boolean lastBlockIncomplete = false;
 
+    int count = 0;
     for (final Hash blockHash : blockHashes) {
+      if (count >= requestLimit) {
+        break;
+      }
+      count++;
       final Optional<List<TransactionReceipt>> maybeReceipts = blockchain.getTxReceipts(blockHash);
       if (maybeReceipts.isEmpty()) {
         LOG.debug(
@@ -372,7 +360,7 @@ class EthServer {
     final Bytes encodedResponse = rlp.encoded();
     LOG.trace(
         "Returning paginated receipts for {} blocks, with last block incomplete {}, enconded size {}",
-        blockHashes.size(),
+        blockReceiptsRLPs.size(),
         lastBlockIncomplete,
         encodedResponse.size());
     return PaginatedReceiptsMessage.createUnsafe(encodedResponse, lastBlockIncomplete);
@@ -388,8 +376,7 @@ class EthServer {
     final Iterable<Hash> blockHashes = getBlockAccessLists.blockHashes();
 
     int responseSizeEstimate = RLP.MAX_PREFIX_SIZE;
-    final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
-    rlp.startList();
+    final List<Optional<BlockAccessList>> blockAccessLists = new ArrayList<>();
     int count = 0;
     for (final Hash blockHash : blockHashes) {
       if (count >= requestLimit) {
@@ -401,11 +388,14 @@ class EthServer {
           blockchain.getBlockAccessList(blockHash);
       final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
       if (maybeBlockAccessList.isPresent()) {
-        BlockAccessListEncoder.encode(maybeBlockAccessList.get(), balOutput);
+        final BlockAccessList blockAccessList = maybeBlockAccessList.get();
+        if (blockAccessList.rawRlp().isPresent()) {
+          balOutput.writeBytes(blockAccessList.rawRlp().get());
+        } else {
+          throw new IllegalStateException("Expected BAL read from storage to contain RLP bytes");
+        }
       } else {
-        // EIP-8159: Empty lists are returned for blocks where the BAL is unavailable.
-        balOutput.startList();
-        balOutput.endList();
+        balOutput.writeBytes(Bytes.EMPTY);
       }
 
       final int encodedSize = balOutput.encodedSize();
@@ -413,11 +403,10 @@ class EthServer {
         break;
       }
       responseSizeEstimate += encodedSize;
-      rlp.writeRaw(balOutput.encoded());
+      blockAccessLists.add(maybeBlockAccessList);
     }
-    rlp.endList();
 
-    return BlockAccessListsMessage.createUnsafe(rlp.encoded());
+    return BlockAccessListsMessage.create(blockAccessLists);
   }
 
   static MessageData constructGetPooledTransactionsResponse(
@@ -428,21 +417,34 @@ class EthServer {
       final int maxMessageSize) {
     final GetPooledTransactionsMessage getPooledTransactions =
         GetPooledTransactionsMessage.readFrom(message);
-    final List<Hash> hashes = getPooledTransactions.pooledTransactions();
+    final Iterable<Hash> hashes = getPooledTransactions.pooledTransactions();
 
-    LOG.trace("Requested pooled transactions: peer={}, requested hashes={}", peer, hashes);
-
-    final List<Hash> returnedHashes = new ArrayList<>(hashes.size());
+    final boolean traceEnabled = LOG.isTraceEnabled();
+    final Iterable<Hash> hashesToProcess;
+    if (traceEnabled) {
+      final List<Hash> requested = new ArrayList<>();
+      hashes.forEach(requested::add);
+      LOG.atTrace()
+          .setMessage("Requested pooled transactions: peer={}, requested hashes={}")
+          .addArgument(peer)
+          .addArgument(requested)
+          .log();
+      hashesToProcess = requested;
+    } else {
+      hashesToProcess = hashes;
+    }
 
     int responseSizeEstimate = RLP.MAX_PREFIX_SIZE;
     final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
     rlp.startList();
-    int count = 0;
-    for (final Hash hash : hashes) {
-      if (count >= requestLimit) {
+    final List<Hash> returnedHashes = traceEnabled ? new ArrayList<>() : null;
+    int requestedCount = 0;
+    int returnedCount = 0;
+    for (final Hash hash : hashesToProcess) {
+      if (requestedCount >= requestLimit) {
         break;
       }
-      count++;
+      requestedCount++;
       final Optional<Transaction> maybeTx = transactionPool.getTransactionByHash(hash);
       if (maybeTx.isEmpty()) {
         continue;
@@ -457,16 +459,21 @@ class EthServer {
 
       responseSizeEstimate += encodedSize;
       rlp.writeRaw(txRlp.encoded());
-      returnedHashes.add(hash);
+      returnedCount++;
+      if (returnedHashes != null) {
+        returnedHashes.add(hash);
+      }
     }
     rlp.endList();
 
-    LOG.atTrace()
-        .setMessage("Sending pooled transactions: peer={}, returned hashes={}, notFoundCount={}")
-        .addArgument(peer)
-        .addArgument(returnedHashes)
-        .addArgument(() -> hashes.size() - returnedHashes.size())
-        .log();
+    if (traceEnabled) {
+      LOG.atTrace()
+          .setMessage("Sending pooled transactions: peer={}, returned hashes={}, notFoundCount={}")
+          .addArgument(peer)
+          .addArgument(returnedHashes)
+          .addArgument(requestedCount - returnedCount)
+          .log();
+    }
 
     return PooledTransactionsMessage.createUnsafe(rlp.encoded());
   }

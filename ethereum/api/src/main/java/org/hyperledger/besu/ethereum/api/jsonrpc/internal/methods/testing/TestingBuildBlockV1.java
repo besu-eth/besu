@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadAttributesParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -49,11 +50,13 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import org.hyperledger.besu.util.HexUtils;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -229,6 +232,21 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
               Optional.ofNullable(parentBeaconBlockRoot),
               Optional.ofNullable(slotNumber),
               parentHeader);
+
+      // When transactions are explicitly provided, return an error if any were not applied.
+      // Iterate in original transaction order for deterministic error reporting.
+      if (transactionsProvided) {
+        final Map<Transaction, TransactionSelectionResult> notSelected =
+            result.getTransactionSelectionResults().getNotSelectedTransactions();
+        for (final Transaction tx : transactions) {
+          final TransactionSelectionResult selectionResult = notSelected.get(tx);
+          if (selectionResult != null) {
+            final String reason =
+                selectionResult.maybeInvalidReason().orElse("transaction not applicable");
+            return new JsonRpcErrorResponse(requestId, new JsonRpcError(-32000, reason, null));
+          }
+        }
+      }
 
       final Block block = result.getBlock();
 
