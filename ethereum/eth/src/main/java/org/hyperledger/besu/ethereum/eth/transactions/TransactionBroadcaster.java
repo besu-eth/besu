@@ -30,8 +30,8 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -51,7 +51,7 @@ public class TransactionBroadcaster
   private final TransactionsMessageSender transactionsMessageSender;
   private final NewPooledTransactionHashesMessageSender newPooledTransactionHashesMessageSender;
   private final EthContext ethContext;
-  private final Random random;
+  private final Optional<Random> random;
 
   public TransactionBroadcaster(
       final EthContext ethContext,
@@ -77,7 +77,7 @@ public class TransactionBroadcaster
     this.transactionsMessageSender = transactionsMessageSender;
     this.newPooledTransactionHashesMessageSender = newPooledTransactionHashesMessageSender;
     this.ethContext = ethContext;
-    this.random = seed != null ? new Random(seed) : null;
+    this.random = Optional.ofNullable(seed).map(Random::new);
   }
 
   public void relayTransactionPoolTo(
@@ -113,10 +113,10 @@ public class TransactionBroadcaster
             .map(EthPeerImmutableAttributes::ethPeer)
             .collect(Collectors.toCollection(ArrayList::new));
 
-    if (random != null) {
-      Collections.shuffle(peers, random);
+    if (random.isPresent()) {
+      Collections.shuffle(peers, random.get());
     } else {
-      Collections.shuffle(peers, ThreadLocalRandom.current());
+      Collections.shuffle(peers);
     }
 
     final List<EthPeer> sendFullTransactionsPeers =
