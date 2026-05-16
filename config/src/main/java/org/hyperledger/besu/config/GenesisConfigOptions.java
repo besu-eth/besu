@@ -140,11 +140,11 @@ public interface GenesisConfigOptions {
   DiscoveryOptions getDiscoveryOptions();
 
   /**
-   * Gets ethash config options.
+   * Gets fixed difficulty config options.
    *
-   * @return the ethash config options
+   * @return the fixed difficulty config options
    */
-  EthashConfigOptions getEthashConfigOptions();
+  FixedDifficultyConfigOptions getFixedDifficultyConfigOptions();
 
   /**
    * Gets homestead block number.
