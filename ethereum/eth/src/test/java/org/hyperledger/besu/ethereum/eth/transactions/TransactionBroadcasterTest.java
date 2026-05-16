@@ -126,6 +126,37 @@ public class TransactionBroadcasterTest {
     verifyNothingSent();
   }
 
+  /**
+   * Regression test for the race condition that caused an IndexOutOfBoundsException in
+   * TransactionBroadcaster.onTransactionsAdded.
+   *
+   * <p>The race: {@code peerCount()} is called first to calculate
+   * {@code numPeersToSendFullTransactions = sqrt(peerCount)}. Then {@code streamAvailablePeers()}
+   * is called to get the actual peer list. Between these two calls, peers can disconnect, so
+   * {@code streamAvailablePeers()} may return fewer peers than {@code peerCount()} indicated.
+   *
+   * <p>Before the fix, {@code peers.subList(0, numPeersToSendFullTransactions)} would throw
+   * {@link IndexOutOfBoundsException} when {@code numPeersToSendFullTransactions > peers.size()}.
+   * The fix clamps the index with {@code Math.min(numPeersToSendFullTransactions, peers.size())}.
+   */
+  @Test
+  public void onTransactionsAddedDoesNotThrowWhenPeersDisconnectBetweenCountAndStream() {
+    // Simulate: peerCount() returns 9 (so numPeersToSendFullTransactions = sqrt(9) = 3),
+    // but by the time streamAvailablePeers() is called, only 2 peers remain.
+    // Before the fix this triggered: IndexOutOfBoundsException from subList(0, 3) on a list of 2.
+    when(ethPeers.peerCount()).thenReturn(9);
+    when(ethPeers.streamAvailablePeers())
+        .thenReturn(Stream.of(ethPeer, ethPeer2).map(EthPeerImmutableAttributes::from));
+
+    List<Transaction> txs = toTransactionList(setupTransactionPool(1, 1));
+
+    // Must not throw IndexOutOfBoundsException
+    txBroadcaster.onTransactionsAdded(txs);
+
+    // All available peers should receive the transactions (as full or hash-only)
+    sendTaskCapture.getAllValues().forEach(Runnable::run);
+  }
+
   @Test
   public void onTransactionsAddedWithOnly2PeersSendFullTransactions() {
     when(ethPeers.peerCount()).thenReturn(2);
