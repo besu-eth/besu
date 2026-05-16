@@ -40,7 +40,9 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.Di
 import org.hyperledger.besu.plugin.services.permissioning.NodeMessagePermissioningProvider;
 
 import java.time.Clock;
+import java.util.ArrayDeque;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -91,6 +93,15 @@ public class EthPeer implements Comparable<EthPeer> {
   private final AtomicInteger lastProtocolVersion = new AtomicInteger(0);
 
   private volatile long lastRequestTimestamp = 0;
+
+  private final long rollingWindowDurationNanos = 30_000_000_000L;
+  private final Deque<long[]> rollingWindowSamples = new ArrayDeque<>();
+  private volatile long totalBytesTransferred = 0;
+  private volatile long totalResponsesReceived = 0;
+  private volatile long usefulResponses = 0;
+  private volatile long uselessResponses = 0;
+  private final int maxLatencySamples = 1000;
+  private final Deque<Long> latencySamples = new ArrayDeque<>(maxLatencySamples);
 
   private final Map<String, Map<Integer, RequestManager>> requestManagers;
 
@@ -211,16 +222,18 @@ public class EthPeer implements Comparable<EthPeer> {
     reputation.recordRequestTimeout(protocolName, requestCode, this).ifPresent(this::disconnect);
   }
 
-  public void recordUselessResponse(final String requestType) {
+  public synchronized void recordUselessResponse(final String requestType) {
     LOG.atTrace()
         .setMessage("Received useless response for request type {} from peer {}")
         .addArgument(requestType)
         .addArgument(this::getLoggableId)
         .log();
+    uselessResponses++;
     reputation.recordUselessResponse(System.currentTimeMillis(), this).ifPresent(this::disconnect);
   }
 
-  public void recordUsefulResponse() {
+  public synchronized void recordUsefulResponse() {
+    usefulResponses++;
     reputation.recordUsefulResponse();
   }
 
@@ -599,6 +612,140 @@ public class EthPeer implements Comparable<EthPeer> {
         .flatMap(m -> m.values().stream())
         .mapToInt(RequestManager::outstandingRequests)
         .sum();
+  }
+
+  /**
+   * Record the latency of the newest response. Drops the oldest if more than {@code
+   * maxLatencySamples} samples
+   *
+   * @param latencyNanos the latency of the newest response
+   */
+  public synchronized void recordLatency(final long latencyNanos) {
+    if (latencySamples.size() >= maxLatencySamples) {
+      latencySamples.pollFirst(); // drop oldest
+    }
+    latencySamples.addLast(latencyNanos);
+  }
+
+  /**
+   * Compute the latency of the given percentile
+   *
+   * @param percentile the percentile for the computation
+   * @return latency of the given percentile
+   */
+  private long computePercentile(final double percentile) {
+    if (latencySamples.isEmpty()) {
+      return 0;
+    }
+    long[] latencySamplesSorted =
+        latencySamples.stream().mapToLong(Long::longValue).sorted().toArray(); // sort
+    int index =
+        Math.max(0, (int) (Math.ceil(percentile / 100.0 * latencySamplesSorted.length) - 1));
+    return latencySamplesSorted[index];
+  }
+
+  /**
+   * Return the latency of the 50th percentile
+   *
+   * @return p50 latency
+   */
+  public long getP50Latency() {
+    return computePercentile(50);
+  }
+
+  /**
+   * Return the latency of the 95th percentile
+   *
+   * @return p95 latency
+   */
+  public long getP95Latency() {
+    return computePercentile(95);
+  }
+
+  /**
+   * Return the latency of the 99th percentile
+   *
+   * @return p99 latency
+   */
+  public long getP99Latency() {
+    return computePercentile(99);
+  }
+
+  /**
+   * Return the success rate calculated from useful responses divided by total number of responses
+   * Returns 1.0 if no responses have been recorded
+   *
+   * @return success rate
+   */
+  public double getSuccessRate() {
+    long totalResponses = usefulResponses + uselessResponses;
+    return totalResponses == 0
+        ? 1.0
+        : (double) usefulResponses / (usefulResponses + uselessResponses);
+  }
+
+  /**
+   * Return the total number of bytes transferred
+   *
+   * @return total bytes transferred
+   */
+  public long getTotalBytesTransferred() {
+    return totalBytesTransferred;
+  }
+
+  /**
+   * Return the average bytes per response
+   *
+   * @return average bytes per response
+   */
+  public double getAverageBytesPerResponse() {
+    return totalResponsesReceived == 0
+        ? 0.0
+        : (double) totalBytesTransferred / totalResponsesReceived;
+  }
+
+  /**
+   * Return the rolling average bytes per second over the last {@code rollingWindowDurationNanos}
+   *
+   * @return bytes per second
+   */
+  public synchronized double getRollingAverageBytesPerSecond() {
+    long nowTimestamp = System.nanoTime();
+    removeOldByteSamples(nowTimestamp);
+    if (rollingWindowSamples.isEmpty()) {
+      return 0.0;
+    }
+    long totalBytes = 0;
+    for (long[] sample : rollingWindowSamples) {
+      totalBytes += sample[1];
+    }
+    return (totalBytes * 1e9) / rollingWindowDurationNanos;
+  }
+
+  /**
+   * Record the amount of bytes for a new response
+   *
+   * @param bytes the amount of bytes in the response
+   * @param responseTimestamp the timestamp of the response
+   */
+  public synchronized void recordBytesReceived(final long bytes, final long responseTimestamp) {
+    long[] sample = {responseTimestamp, bytes};
+    totalBytesTransferred += bytes;
+    totalResponsesReceived++;
+    rollingWindowSamples.addLast(sample);
+    removeOldByteSamples(responseTimestamp);
+  }
+
+  /**
+   * Remove byte samples older than {@code nowTimestamp} - {@code rollingWindowDurationNanos}
+   *
+   * @param nowTimestamp current Timestamp
+   */
+  private void removeOldByteSamples(final long nowTimestamp) {
+    while (!rollingWindowSamples.isEmpty()
+        && rollingWindowSamples.peekFirst()[0] < nowTimestamp - rollingWindowDurationNanos) {
+      rollingWindowSamples.pollFirst();
+    }
   }
 
   public long getLastRequestTimestamp() {

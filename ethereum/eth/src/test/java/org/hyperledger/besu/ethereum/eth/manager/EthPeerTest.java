@@ -336,11 +336,82 @@ public class EthPeerTest {
   @Test
   public void recordUsefulResponse() {
     final EthPeer peer = createPeer();
+
+    // no recorded responses
+    assertThat(peer.getSuccessRate()).isEqualTo(1.0);
+
     peer.recordUselessResponse("bodies");
     final EthPeer peer2 = createPeer();
     peer2.recordUselessResponse("bodies");
     peer.recordUsefulResponse();
     assertThat(peer.getReputation().compareTo(peer2.getReputation())).isGreaterThan(0);
+    assertThat(peer.getSuccessRate()).isEqualTo(0.5);
+    assertThat(peer2.getSuccessRate()).isEqualTo(0.0);
+  }
+
+  @Test
+  public void recordLatency_correctPercentileComputation() {
+    final EthPeer peer = createPeer();
+    for (long latency = 10L; latency <= 1_000L; latency += 10L) {
+      peer.recordLatency(latency);
+    }
+    assertThat(peer.getP95Latency()).isGreaterThan(peer.getP50Latency());
+    assertThat(peer.getP99Latency()).isGreaterThan(peer.getP95Latency());
+    assertThat(peer.getP50Latency()).isEqualTo(500L);
+    assertThat(peer.getP95Latency()).isEqualTo(950L);
+    assertThat(peer.getP99Latency()).isEqualTo(990L);
+  }
+
+  @Test
+  public void recordLatency_tooManySamples() {
+    final EthPeer peer = createPeer();
+    for (int i = 0; i < 499; i++) {
+      peer.recordLatency(100L);
+    }
+    peer.recordLatency(200L);
+    peer.recordLatency(300L);
+    for (int i = 0; i < 499; i++) {
+      peer.recordLatency(400L);
+    }
+    assertThat(peer.getP50Latency()).isEqualTo(200L);
+    peer.recordLatency(400L); // Drop first sample
+    assertThat(peer.getP50Latency()).isEqualTo(300L);
+  }
+
+  @Test
+  public void recordLatency_noSamples() {
+    final EthPeer peer = createPeer();
+    assertThat(peer.getP50Latency()).isEqualTo(0L);
+    assertThat(peer.getP95Latency()).isEqualTo(0L);
+    assertThat(peer.getP99Latency()).isEqualTo(0L);
+  }
+
+  @Test
+  public void recordBytesReceived() {
+    final EthPeer peer = createPeer();
+
+    // no payloads
+    assertThat(peer.getTotalBytesTransferred()).isEqualTo(0L);
+    assertThat(peer.getAverageBytesPerResponse()).isEqualTo(0.0);
+    assertThat(peer.getRollingAverageBytesPerSecond()).isEqualTo(0.0);
+
+    // old payload
+    peer.recordBytesReceived(4500L, System.nanoTime() - 30_100_000_000L);
+    assertThat(peer.getTotalBytesTransferred()).isEqualTo(4500L);
+    assertThat(peer.getAverageBytesPerResponse()).isEqualTo(4500.0);
+    assertThat(peer.getRollingAverageBytesPerSecond()).isEqualTo(0.0);
+
+    // two payloads (one in window)
+    peer.recordBytesReceived(3000L, System.nanoTime());
+    assertThat(peer.getTotalBytesTransferred()).isEqualTo(7500L);
+    assertThat(peer.getAverageBytesPerResponse()).isEqualTo(3750.0);
+    assertThat(peer.getRollingAverageBytesPerSecond()).isEqualTo(100.0);
+
+    // three payloads (two in window)
+    peer.recordBytesReceived(1500L, System.nanoTime());
+    assertThat(peer.getTotalBytesTransferred()).isEqualTo(9000L);
+    assertThat(peer.getAverageBytesPerResponse()).isEqualTo(3000.0);
+    assertThat(peer.getRollingAverageBytesPerSecond()).isEqualTo(150.0);
   }
 
   private void messageStream(

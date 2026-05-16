@@ -174,6 +174,146 @@ public class EthPeers implements PeerSelector {
         "The maximum number of peers this node allows to connect",
         () -> peerUpperBound);
 
+    // Total bytes transferred across all active peers
+    metricsSystem.createLongGauge(
+        BesuMetricCategory.PEERS,
+        "peer_total_bytes_transferred",
+        "Total bytes transferred across all active peers",
+        () ->
+            activeConnections.values().stream().mapToLong(EthPeer::getTotalBytesTransferred).sum());
+
+    // Average peer performance metrics
+    metricsSystem.createGauge(
+        BesuMetricCategory.PEERS,
+        "peer_avg_p99_latency_seconds",
+        "Average p99 latency across all active peers in seconds",
+        () ->
+            activeConnections.values().stream()
+                    .mapToLong(EthPeer::getP99Latency)
+                    .average()
+                    .orElse(0.0)
+                / 1e9);
+    metricsSystem.createGauge(
+        BesuMetricCategory.PEERS,
+        "peer_avg_p95_latency_seconds",
+        "Average p95 latency across all active peers in seconds",
+        () ->
+            activeConnections.values().stream()
+                    .mapToLong(EthPeer::getP95Latency)
+                    .average()
+                    .orElse(0.0)
+                / 1e9);
+    metricsSystem.createGauge(
+        BesuMetricCategory.PEERS,
+        "peer_avg_p50_latency_seconds",
+        "Average p50 latency across all active peers in seconds",
+        () ->
+            activeConnections.values().stream()
+                    .mapToLong(EthPeer::getP50Latency)
+                    .average()
+                    .orElse(0.0)
+                / 1e9);
+    metricsSystem.createGauge(
+        BesuMetricCategory.PEERS,
+        "peer_avg_success_rate",
+        "Average response success rate across all active peers",
+        () ->
+            activeConnections.values().stream()
+                .mapToDouble(EthPeer::getSuccessRate)
+                .average()
+                .orElse(0.0));
+    metricsSystem.createGauge(
+        BesuMetricCategory.PEERS,
+        "peer_avg_response_payload_bytes",
+        "Average bytes per response across all active peers",
+        () ->
+            activeConnections.values().stream()
+                .mapToDouble(EthPeer::getAverageBytesPerResponse)
+                .average()
+                .orElse(0.0));
+
+    // Minimum peer performance metrics
+    metricsSystem.createGauge(
+        BesuMetricCategory.PEERS,
+        "peer_min_p99_latency_seconds",
+        "Minimum p99 latency across all active peers in seconds",
+        () ->
+            activeConnections.values().stream().mapToLong(EthPeer::getP99Latency).min().orElse(0)
+                / 1e9);
+    metricsSystem.createGauge(
+        BesuMetricCategory.PEERS,
+        "peer_min_p95_latency_seconds",
+        "Minimum p95 latency across all active peers in seconds",
+        () ->
+            activeConnections.values().stream().mapToLong(EthPeer::getP95Latency).min().orElse(0)
+                / 1e9);
+    metricsSystem.createGauge(
+        BesuMetricCategory.PEERS,
+        "peer_min_p50_latency_seconds",
+        "Minimum p50 latency across all active peers in seconds",
+        () ->
+            activeConnections.values().stream().mapToLong(EthPeer::getP50Latency).min().orElse(0)
+                / 1e9);
+    metricsSystem.createGauge(
+        BesuMetricCategory.PEERS,
+        "peer_min_success_rate",
+        "Minimum response success rate across all active peers",
+        () ->
+            activeConnections.values().stream()
+                .mapToDouble(EthPeer::getSuccessRate)
+                .min()
+                .orElse(0.0));
+    metricsSystem.createGauge(
+        BesuMetricCategory.PEERS,
+        "peer_min_response_payload_bytes",
+        "Minimum bytes per response across all active peers",
+        () ->
+            activeConnections.values().stream()
+                .mapToDouble(EthPeer::getAverageBytesPerResponse)
+                .min()
+                .orElse(0.0));
+
+    // Maximum peer performance metrics
+    metricsSystem.createGauge(
+        BesuMetricCategory.PEERS,
+        "peer_max_p99_latency_seconds",
+        "Maximum p99 latency across all active peers in seconds",
+        () ->
+            activeConnections.values().stream().mapToLong(EthPeer::getP99Latency).max().orElse(0)
+                / 1e9);
+    metricsSystem.createGauge(
+        BesuMetricCategory.PEERS,
+        "peer_max_p95_latency_seconds",
+        "Maximum p95 latency across all active peers in seconds",
+        () ->
+            activeConnections.values().stream().mapToLong(EthPeer::getP95Latency).max().orElse(0)
+                / 1e9);
+    metricsSystem.createGauge(
+        BesuMetricCategory.PEERS,
+        "peer_max_p50_latency_seconds",
+        "Maximum p50 latency across all active peers in seconds",
+        () ->
+            activeConnections.values().stream().mapToLong(EthPeer::getP50Latency).max().orElse(0)
+                / 1e9);
+    metricsSystem.createGauge(
+        BesuMetricCategory.PEERS,
+        "peer_max_success_rate",
+        "Maximum response success rate across all active peers",
+        () ->
+            activeConnections.values().stream()
+                .mapToDouble(EthPeer::getSuccessRate)
+                .max()
+                .orElse(0.0));
+    metricsSystem.createGauge(
+        BesuMetricCategory.PEERS,
+        "peer_max_response_payload_bytes",
+        "Maximum bytes per response across all active peers",
+        () ->
+            activeConnections.values().stream()
+                .mapToDouble(EthPeer::getAverageBytesPerResponse)
+                .max()
+                .orElse(0.0));
+
     connectedPeersCounter =
         metricsSystem.createCounter(
             BesuMetricCategory.PEERS, "connected_total", "Total number of peers connected");
