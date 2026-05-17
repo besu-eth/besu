@@ -22,40 +22,50 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import java.math.BigInteger;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
-import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 
 public final class GetBlockAccessListsMessageData {
   private GetBlockAccessListsMessageData() {}
 
-  public static Bytes encode(final Iterable<Hash> blockHashes) {
-    return encode(blockHashes, Optional.empty());
-  }
-
-  public static Bytes encode(
-      final Iterable<Hash> blockHashes, final Optional<BigInteger> responseBytes) {
+  public static Bytes encodeEthRequest(final Iterable<Hash> blockHashes) {
     final BytesValueRLPOutput output = new BytesValueRLPOutput();
     output.startList();
-    // request-id is prepended before sending the message
-    output.startList();
     blockHashes.forEach(hash -> output.writeBytes(hash.getBytes()));
-    output.endList();
-    responseBytes.ifPresent(output::writeBigIntegerScalar);
     output.endList();
     return output.encoded();
   }
 
-  public static Iterable<Hash> decode(final Bytes data, final boolean withRequestId) {
-    return decode(data, withRequestId, false);
+  public static Bytes encodeSnapRequest(
+      final Iterable<Hash> blockHashes, final BigInteger responseBytes) {
+    final BytesValueRLPOutput output = new BytesValueRLPOutput();
+    output.startList();
+    // Snap splices request-id into this body: [[hashes], bytes].
+    output.writeRaw(encodeEthRequest(blockHashes));
+    output.writeBigIntegerScalar(responseBytes);
+    output.endList();
+    return output.encoded();
   }
 
-  public static BigInteger decodeResponseBytes(final Bytes data, final boolean withRequestId) {
+  public static Iterable<Hash> decodeEthRequest(final Bytes data) {
+    return decodeHashes(data, false, false);
+  }
+
+  // snap outbound bodies before wrapMessageData: [[hashes], bytes]
+  // snap wire payloads after wrapMessageData: [request-id, [hashes], bytes]
+  // AbstractSnapMessageData.unwrapMessageData extracts the id but preserves the wire payload.
+  // Decode withRequestId=true for inbound snap requests; false only for pre-wrap message bodies.
+  public static Iterable<Hash> decodeSnapRequest(final Bytes data, final boolean withRequestId) {
+    return decodeHashes(data, withRequestId, true);
+  }
+
+  public static BigInteger decodeSnapResponseBytes(final Bytes data, final boolean withRequestId) {
     final RLPInput input = new BytesValueRLPInput(data, false);
     input.enterList();
     if (withRequestId) {
       input.skipNext();
     }
+    // Skip [hashes], then read snap's trailing bytes limit.
     input.enterList();
     while (!input.isEndOfCurrentList()) {
       input.skipNext();
@@ -66,12 +76,14 @@ public final class GetBlockAccessListsMessageData {
     return responseBytes;
   }
 
-  public static Iterable<Hash> decode(
-      final Bytes data, final boolean withRequestId, final boolean withResponseBytes) {
+  private static Iterable<Hash> decodeHashes(
+      final Bytes data, final boolean withRequestId, final boolean nested) {
+    // eth body: [hashes]; snap body: [request-id?, [hashes], bytes].
     return () ->
         new Iterator<>() {
           private final RLPInput input = new BytesValueRLPInput(data, false);
           private boolean initialized = false;
+          private boolean complete = false;
 
           private void ensureInitialized() {
             if (!initialized) {
@@ -79,28 +91,37 @@ public final class GetBlockAccessListsMessageData {
               if (withRequestId) {
                 input.skipNext();
               }
-              input.enterList();
+              // Snap has an extra list level around hashes; eth is already there.
+              if (nested) {
+                input.enterList();
+              }
               initialized = true;
             }
           }
 
           @Override
           public boolean hasNext() {
+            if (complete) {
+              return false;
+            }
             ensureInitialized();
             if (!input.isEndOfCurrentList()) {
               return true;
             }
-            input.leaveListLenient();
-            if (withResponseBytes && !input.isEndOfCurrentList()) {
-              input.skipNext();
+            // After snap's hash list, discard fields not used by the hash iterator.
+            if (nested) {
+              input.leaveListLenient();
+              if (!input.isEndOfCurrentList()) {
+                input.skipNext();
+              }
             }
             input.leaveListLenient();
+            complete = true;
             return false;
           }
 
           @Override
           public Hash next() {
-            ensureInitialized();
             if (!hasNext()) {
               throw new NoSuchElementException();
             }
