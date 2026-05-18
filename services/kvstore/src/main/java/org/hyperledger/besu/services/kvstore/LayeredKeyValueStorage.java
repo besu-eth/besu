@@ -95,14 +95,47 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
     final Lock lock = rwLock.readLock();
     lock.lock();
     try {
-      Bytes wrapKey = Bytes.wrap(key);
+      final Bytes wrapKey = Bytes.wrap(key);
       final Optional<byte[]> foundKey =
           hashValueStore.computeIfAbsent(segmentId, __ -> newSegmentMap()).get(wrapKey);
+      return foundKey == null ? parent.get(segmentId, key) : foundKey;
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  /**
+   * Bytes-keyed variant for callers that want to inject a function evaluated at the bottom of the
+   * layer chain when no layer has a value for the key. Used by Bonsai to consult the cross-block
+   * cache without going through the persistent storage twice.
+   *
+   * @param segmentId the segment identifier
+   * @param key the key
+   * @param cacheGetFunction function evaluated on the persistent parent when no layer holds the key
+   * @return optional value as {@link Bytes}
+   */
+  public Optional<Bytes> get(
+      final SegmentIdentifier segmentId,
+      final Bytes key,
+      final Function<SegmentedKeyValueStorage, Optional<Bytes>> cacheGetFunction) {
+    throwIfClosed();
+
+    final Lock lock = rwLock.readLock();
+    lock.lock();
+    try {
+      final Optional<byte[]> foundKey =
+          hashValueStore.computeIfAbsent(segmentId, __ -> newSegmentMap()).get(key);
+
       if (foundKey == null) {
-        return parent.get(segmentId, key);
-      } else {
-        return foundKey;
+        if (parent instanceof LayeredKeyValueStorage) {
+          return ((LayeredKeyValueStorage) parent).get(segmentId, key, cacheGetFunction);
+        }
+        if (cacheGetFunction != null) {
+          return cacheGetFunction.apply(parent);
+        }
+        return parent.get(segmentId, key.toArrayUnsafe()).map(Bytes::wrap);
       }
+      return foundKey.map(Bytes::wrap);
     } finally {
       lock.unlock();
     }
