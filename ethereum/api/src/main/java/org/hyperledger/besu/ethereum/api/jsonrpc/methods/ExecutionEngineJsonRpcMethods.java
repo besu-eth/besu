@@ -129,6 +129,16 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
               engineQosTimer));
 
       executionEngineApisSupported.addAll(
+          createEngineNewPayloadMethods(
+              consensusEngineServer,
+              protocolSchedule,
+              protocolContext,
+              mergeCoordinator.get(),
+              ethPeers,
+              engineQosTimer,
+              metricsSystem));
+
+      executionEngineApisSupported.addAll(
           Arrays.asList(
               new EngineGetPayloadV1(
                   consensusEngineServer,
@@ -143,30 +153,6 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
                   blockResultFactory,
                   engineQosTimer,
                   protocolSchedule),
-              new EngineNewPayloadV1(
-                  consensusEngineServer,
-                  protocolSchedule,
-                  protocolContext,
-                  mergeCoordinator.get(),
-                  ethPeers,
-                  engineQosTimer,
-                  metricsSystem),
-              new EngineNewPayloadV2(
-                  consensusEngineServer,
-                  protocolSchedule,
-                  protocolContext,
-                  mergeCoordinator.get(),
-                  ethPeers,
-                  engineQosTimer,
-                  metricsSystem),
-              new EngineNewPayloadV3(
-                  consensusEngineServer,
-                  protocolSchedule,
-                  protocolContext,
-                  mergeCoordinator.get(),
-                  ethPeers,
-                  engineQosTimer,
-                  metricsSystem),
               new EngineExchangeTransitionConfiguration(
                   consensusEngineServer, protocolContext, engineQosTimer),
               new EngineGetPayloadBodiesByHashV1(
@@ -206,16 +192,6 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
                 blockResultFactory,
                 engineQosTimer,
                 protocolSchedule));
-
-        executionEngineApisSupported.add(
-            new EngineNewPayloadV4(
-                consensusEngineServer,
-                protocolSchedule,
-                protocolContext,
-                mergeCoordinator.get(),
-                ethPeers,
-                engineQosTimer,
-                metricsSystem));
       }
 
       if (protocolSchedule.milestoneFor(OSAKA).isPresent()) {
@@ -260,15 +236,6 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
         executionEngineApisSupported.add(
             new EngineGetPayloadBodiesByRangeV2(
                 consensusEngineServer, protocolContext, blockResultFactory, engineQosTimer));
-        executionEngineApisSupported.add(
-            new EngineNewPayloadV5(
-                consensusEngineServer,
-                protocolSchedule,
-                protocolContext,
-                mergeCoordinator.get(),
-                ethPeers,
-                engineQosTimer,
-                metricsSystem));
       }
 
       return mapOf(executionEngineApisSupported);
@@ -300,6 +267,31 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
             protocolContext,
             mergeMiningCoordinator,
             engineQosTimer);
+  }
+
+  private Collection<? extends JsonRpcMethod> createEngineNewPayloadMethods(
+      final Vertx consensusEngineServer,
+      final ProtocolSchedule protocolSchedule,
+      final ProtocolContext protocolContext,
+      final MergeMiningCoordinator mergeMiningCoordinator,
+      final EthPeers ethPeers,
+      final EngineQosTimer engineQosTimer,
+      final MetricsSystem metricsSystem) {
+
+    return VersionScheduler.startsWith(EngineNewPayloadV1.class, SHANGHAI)
+        .thenAlsoFromBeginning(EngineNewPayloadV2.class)
+        .thenFrom(CANCUN, EngineNewPayloadV3.class)
+        .thenFrom(PRAGUE, EngineNewPayloadV4.class)
+        .thenFrom(AMSTERDAM, EngineNewPayloadV5.class)
+        .build(
+            protocolSchedule,
+            consensusEngineServer,
+            protocolSchedule,
+            protocolContext,
+            mergeMiningCoordinator,
+            ethPeers,
+            engineQosTimer,
+            metricsSystem);
   }
 
   private static class VersionScheduler {

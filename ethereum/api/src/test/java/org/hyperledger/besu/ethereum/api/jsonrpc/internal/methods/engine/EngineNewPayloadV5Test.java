@@ -33,7 +33,7 @@ import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
@@ -82,15 +82,21 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
         .thenReturn(Optional.of(amsterdamHardfork.milestone()));
     lenient().when(protocolSpec.getGasCalculator()).thenReturn(new PragueGasCalculator());
     lenient().when(protocolSpec.getRequestsValidator()).thenReturn(new MainnetRequestsValidator());
-    this.method =
-        new EngineNewPayloadV5(
-            vertx,
-            protocolSchedule,
-            protocolContext,
-            mergeCoordinator,
-            ethPeers,
-            engineCallListener,
-            new NoOpMetricsSystem());
+    createMethod();
+  }
+
+  @Override
+  protected EngineNewPayloadV1 createMethodInstance() {
+    return new EngineNewPayloadV5(
+        vertx,
+        protocolSchedule,
+        protocolContext,
+        mergeCoordinator,
+        ethPeers,
+        engineCallListener,
+        new NoOpMetricsSystem(),
+        AMSTERDAM,
+        null);
   }
 
   @Override
@@ -99,11 +105,13 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
   }
 
   @Override
+  @Test
   public void shouldReturnExpectedMethodName() {
     assertThat(method.getName()).isEqualTo("engine_newPayloadV5");
   }
 
   @Override
+  @Test
   public void shouldReturnUnsupportedForkIfBlockTimestampIsBeforeCancunMilestone() {
     final BlockHeader preCancunHeader =
         createActivationBlockHeaderFixture(Optional.of(emptyList()))
@@ -117,6 +125,7 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
   }
 
   @Override
+  @Test
   public void shouldReturnUnsupportedForkIfBlockTimestampIsAtOrAfterAmsterdamMilestone() {
     final BlockHeader header =
         setupValidPayload(
@@ -137,7 +146,7 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
   public void shouldReturnInvalidIfBlockAccessListIsMissing() {
     final BlockHeader header = createValidBlockHeader(Optional.empty());
 
-    final JsonRpcResponse resp = resp(super.mockEnginePayload(header, emptyList(), null, null));
+    final JsonRpcResponse resp = resp(mockEnginePayload(header, emptyList(), null, null));
 
     final PayloadStatusV1 result = fromSuccessResp(resp);
     assertThat(result.getStatusAsString()).isEqualTo(INVALID.name());
@@ -151,8 +160,7 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
     final BlockHeader header = createValidBlockHeader(Optional.empty());
 
     final JsonRpcResponse resp =
-        resp(
-            super.mockEnginePayload(header, emptyList(), null, INVALID_BLOCK_ACCESS_LIST_ENCODING));
+        resp(mockEnginePayload(header, emptyList(), null, INVALID_BLOCK_ACCESS_LIST_ENCODING));
 
     final PayloadStatusV1 result = fromSuccessResp(resp);
     assertThat(result.getStatusAsString()).isEqualTo(INVALID.name());
@@ -166,7 +174,7 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
     final BlockHeader header = createValidBlockHeader(Optional.empty());
 
     final JsonRpcResponse resp =
-        resp(super.mockEnginePayload(header, emptyList(), null, INVALID_BLOCK_ACCESS_LIST_RLP));
+        resp(mockEnginePayload(header, emptyList(), null, INVALID_BLOCK_ACCESS_LIST_RLP));
 
     final PayloadStatusV1 result = fromSuccessResp(resp);
     assertThat(result.getStatusAsString()).isEqualTo(INVALID.name());
@@ -197,17 +205,25 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
   }
 
   @Override
-  protected EnginePayloadParameter mockEnginePayload(
-      final BlockHeader header, final List<String> txs) {
-    return super.mockEnginePayload(header, txs, null, ENCODED_BLOCK_ACCESS_LIST);
+  protected ExecutionPayloadV4 mockEnginePayload(final BlockHeader header, final List<String> txs) {
+    return executionPayloadV4(header, txs, null, ENCODED_BLOCK_ACCESS_LIST);
   }
 
   @Override
-  protected EnginePayloadParameter mockEnginePayload(
+  protected ExecutionPayloadV4 mockEnginePayload(
       final BlockHeader header,
       final List<String> txs,
       final List<WithdrawalParameter> withdrawals) {
-    return super.mockEnginePayload(header, txs, withdrawals, ENCODED_BLOCK_ACCESS_LIST);
+    return executionPayloadV4(header, txs, withdrawals, ENCODED_BLOCK_ACCESS_LIST);
+  }
+
+  @Override
+  protected ExecutionPayloadV4 mockEnginePayload(
+      final BlockHeader header,
+      final List<String> txs,
+      final List<WithdrawalParameter> withdrawals,
+      final String blockAccessList) {
+    return executionPayloadV4(header, txs, withdrawals, blockAccessList);
   }
 
   @Override

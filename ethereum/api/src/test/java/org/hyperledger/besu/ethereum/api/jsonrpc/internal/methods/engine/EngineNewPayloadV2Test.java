@@ -15,11 +15,12 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameterTestFixture.WITHDRAWAL_PARAM_1;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_BLOB_GAS_USED_PARAMS;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_PARAMS;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_REQUEST;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.UNSUPPORTED_FORK;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -28,11 +29,16 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.BlobGas;
+import org.hyperledger.besu.datatypes.parameters.UnsignedLongParameter;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.ScheduledProtocolSpec;
@@ -40,10 +46,13 @@ import org.hyperledger.besu.ethereum.mainnet.WithdrawalsValidator;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -53,7 +62,7 @@ import org.mockito.quality.Strictness;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
-public class EngineNewPayloadV2Test extends AbstractEngineNewPayloadTest {
+public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
 
   protected Set<ScheduledProtocolSpec.Hardfork> supportedHardforks() {
     return Set.of(shanghaiHardfork);
@@ -65,15 +74,21 @@ public class EngineNewPayloadV2Test extends AbstractEngineNewPayloadTest {
   @BeforeEach
   public void before() {
     super.before();
-    this.method =
-        new EngineNewPayloadV2(
-            vertx,
-            protocolSchedule,
-            protocolContext,
-            mergeCoordinator,
-            ethPeers,
-            engineCallListener,
-            new NoOpMetricsSystem());
+    createMethod();
+  }
+
+  @Override
+  protected EngineNewPayloadV1 createMethodInstance() {
+    return new EngineNewPayloadV2(
+        vertx,
+        protocolSchedule,
+        protocolContext,
+        mergeCoordinator,
+        ethPeers,
+        engineCallListener,
+        new NoOpMetricsSystem(),
+        null,
+        CANCUN);
   }
 
   @Override
@@ -138,32 +153,34 @@ public class EngineNewPayloadV2Test extends AbstractEngineNewPayloadTest {
 
   @Test
   public void shouldValidateBlobGasUsedCorrectly() {
-    // V2 should return error if non-null blobGasUsed
     BlockHeader blockHeader =
         createBlockHeaderFixture(Optional.of(Collections.emptyList()))
             .blobGasUsed(100L)
             .buildHeader();
+    final Map<String, Object> payload =
+        executionPayloadV2Json(blockHeader, Collections.emptyList(), List.of());
+    payload.put("blobGasUsed", "0x64");
 
-    var resp = resp(mockEnginePayload(blockHeader, Collections.emptyList(), List.of()));
+    var resp = resp(payload);
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
-    assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_BLOB_GAS_USED_PARAMS.getCode());
-    assertThat(jsonRpcError.getData()).isEqualTo("Unexpected blob gas used field present");
+    assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_REQUEST.getCode());
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
   @Test
   public void shouldValidateExcessBlobGasCorrectly() {
-    // V2 should return error if non-null ExcessBlobGas
     BlockHeader blockHeader =
         createBlockHeaderFixture(Optional.of(Collections.emptyList()))
             .excessBlobGas(BlobGas.MAX_BLOB_GAS)
             .buildHeader();
+    final Map<String, Object> payload =
+        executionPayloadV2Json(blockHeader, Collections.emptyList(), List.of());
+    payload.put("excessBlobGas", BlobGas.MAX_BLOB_GAS.toHexString());
 
-    var resp = resp(mockEnginePayload(blockHeader, Collections.emptyList(), List.of()));
+    var resp = resp(payload);
 
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
-    assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
-    assertThat(jsonRpcError.getData()).isEqualTo("Unexpected excess blob gas field present");
+    assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_REQUEST.getCode());
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
@@ -196,6 +213,59 @@ public class EngineNewPayloadV2Test extends AbstractEngineNewPayloadTest {
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
     assertThat(jsonRpcError.getCode()).isEqualTo(UNSUPPORTED_FORK.getCode());
     verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Override
+  protected ExecutionPayloadV2 mockEnginePayload(final BlockHeader header, final List<String> txs) {
+    return executionPayloadV2(header, txs, null);
+  }
+
+  @Override
+  protected ExecutionPayloadV2 mockEnginePayload(
+      final BlockHeader header,
+      final List<String> txs,
+      final List<WithdrawalParameter> withdrawals) {
+    return executionPayloadV2(header, txs, withdrawals);
+  }
+
+  private JsonRpcResponse resp(final Map<String, Object> payload) {
+    return method.response(
+        new JsonRpcRequestContext(
+            new JsonRpcRequest("2.0", this.method.getName(), new Object[] {payload})));
+  }
+
+  private Map<String, Object> executionPayloadV2Json(
+      final BlockHeader header,
+      final List<String> txs,
+      final List<WithdrawalParameter> withdrawals) {
+    return new HashMap<>(
+        Map.ofEntries(
+            Map.entry("blockHash", header.getHash()),
+            Map.entry("parentHash", header.getParentHash()),
+            Map.entry("feeRecipient", header.getCoinbase()),
+            Map.entry("stateRoot", header.getStateRoot()),
+            Map.entry("blockNumber", new UnsignedLongParameter(header.getNumber())),
+            Map.entry("baseFeePerGas", header.getBaseFee().map(w -> w.toHexString()).orElse("0x0")),
+            Map.entry("gasLimit", new UnsignedLongParameter(header.getGasLimit())),
+            Map.entry("gasUsed", new UnsignedLongParameter(header.getGasUsed())),
+            Map.entry("timestamp", new UnsignedLongParameter(header.getTimestamp())),
+            Map.entry(
+                "extraData",
+                header.getExtraData() == null ? "0x" : header.getExtraData().toHexString()),
+            Map.entry("receiptsRoot", header.getReceiptsRoot()),
+            Map.entry("logsBloom", header.getLogsBloom()),
+            Map.entry("prevRandao", header.getPrevRandao().map(Bytes32::toHexString).orElse("0x0")),
+            Map.entry("transactions", txs),
+            Map.entry("withdrawals", withdrawals)));
+  }
+
+  @Override
+  protected ExecutionPayloadV2 mockEnginePayload(
+      final BlockHeader header,
+      final List<String> txs,
+      final List<WithdrawalParameter> withdrawals,
+      final String blockAccessList) {
+    return executionPayloadV2(header, txs, withdrawals);
   }
 
   @Override

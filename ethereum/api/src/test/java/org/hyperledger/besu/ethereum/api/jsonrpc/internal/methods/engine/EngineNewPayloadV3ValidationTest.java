@@ -15,6 +15,8 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.when;
@@ -31,7 +33,6 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
-import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.util.List;
 import java.util.Optional;
@@ -46,14 +47,14 @@ import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
-public class AbstractEngineNewPayloadValidationTest {
+public class EngineNewPayloadV3ValidationTest {
 
   @Mock private BlockHeader mockHeader;
   @Mock private BlockHeader mockParentHeader;
   @Mock private ProtocolSpec mockProtocolSpec;
   @Mock private GasCalculator mockGasCalculator;
 
-  private TestableAbstractEngineNewPayload method;
+  private EngineNewPayloadV3 method;
 
   @BeforeEach
   void setUp() {
@@ -63,16 +64,17 @@ public class AbstractEngineNewPayloadValidationTest {
     final MergeMiningCoordinator mergeCoordinator = mock(MergeMiningCoordinator.class);
     final EthPeers ethPeers = mock(EthPeers.class);
     final EngineCallListener engineCallListener = mock(EngineCallListener.class);
-    final MetricsSystem metricsSystem = new NoOpMetricsSystem();
     method =
-        new TestableAbstractEngineNewPayload(
+        new EngineNewPayloadV3(
             vertx,
             protocolSchedule,
             protocolContext,
             mergeCoordinator,
             ethPeers,
             engineCallListener,
-            metricsSystem);
+            new NoOpMetricsSystem(),
+            CANCUN,
+            PRAGUE);
   }
 
   @Test
@@ -171,7 +173,7 @@ public class AbstractEngineNewPayloadValidationTest {
           .thenReturn(BlobGas.of(1000));
 
       var result =
-          method.testValidateBlobs(
+          method.validateBlobs(
               List.of(),
               mockHeader,
               Optional.of(mockParentHeader),
@@ -207,7 +209,7 @@ public class AbstractEngineNewPayloadValidationTest {
     List<Transaction> blobTransactions = List.of(blobTx1, blobTx2);
 
     var result =
-        method.testValidateBlobs(
+        method.validateBlobs(
             blobTransactions,
             mockHeader,
             Optional.of(mockParentHeader),
@@ -236,7 +238,7 @@ public class AbstractEngineNewPayloadValidationTest {
     List<VersionedHash> provided = List.of(createValidVersionedHash(2));
 
     var result =
-        method.testValidateBlobs(
+        method.validateBlobs(
             blobTransactions,
             mockHeader,
             Optional.of(mockParentHeader),
@@ -255,43 +257,6 @@ public class AbstractEngineNewPayloadValidationTest {
   private Optional<Long> invokeValidateBlobGasUsed(
       final BlockHeader header, final List<VersionedHash> hashes, final ProtocolSpec spec) {
     return method.validateBlobGasUsed(header, hashes, spec);
-  }
-
-  private static class TestableAbstractEngineNewPayload extends AbstractEngineNewPayload {
-    public TestableAbstractEngineNewPayload(
-        final Vertx vertx,
-        final ProtocolSchedule protocolSchedule,
-        final ProtocolContext protocolContext,
-        final MergeMiningCoordinator mergeCoordinator,
-        final EthPeers ethPeers,
-        final EngineCallListener engineCallListener,
-        final MetricsSystem metricsSystem) {
-      super(
-          vertx,
-          protocolSchedule,
-          protocolContext,
-          mergeCoordinator,
-          ethPeers,
-          engineCallListener,
-          metricsSystem);
-    }
-
-    @Override
-    public String getName() {
-      return "engine_test";
-    }
-
-    public org.hyperledger.besu.ethereum.mainnet.ValidationResult<
-            org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType>
-        testValidateBlobs(
-            final List<Transaction> blobTransactions,
-            final BlockHeader header,
-            final Optional<BlockHeader> maybeParentHeader,
-            final Optional<List<VersionedHash>> maybeVersionedHashes,
-            final ProtocolSpec protocolSpec) {
-      return validateBlobs(
-          blobTransactions, header, maybeParentHeader, maybeVersionedHashes, protocolSpec);
-    }
   }
 
   private VersionedHash createValidVersionedHash() {

@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.hyperledger.besu.ethereum.api.graphql.internal.response.GraphQLError.INVALID_PARAMS;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
@@ -37,7 +38,8 @@ import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -87,26 +89,34 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
   public void before() {
     super.before();
     maybeParentBeaconBlockRoot = Optional.of(Bytes32.ZERO);
-    this.method =
-        new EngineNewPayloadV4(
-            vertx,
-            protocolSchedule,
-            protocolContext,
-            mergeCoordinator,
-            ethPeers,
-            engineCallListener,
-            new NoOpMetricsSystem());
     lenient().when(protocolSchedule.hardforkFor(any())).thenReturn(Optional.of(pragueHardfork));
     lenient().when(protocolSpec.getGasCalculator()).thenReturn(new PragueGasCalculator());
     mockAllowedRequestsValidator();
+    createMethod();
   }
 
   @Override
+  protected EngineNewPayloadV1 createMethodInstance() {
+    return new EngineNewPayloadV4(
+        vertx,
+        protocolSchedule,
+        protocolContext,
+        mergeCoordinator,
+        ethPeers,
+        engineCallListener,
+        new NoOpMetricsSystem(),
+        PRAGUE,
+        AMSTERDAM);
+  }
+
+  @Override
+  @Test
   public void shouldReturnExpectedMethodName() {
     assertThat(method.getName()).isEqualTo("engine_newPayloadV4");
   }
 
   @Override
+  @Test
   public void shouldReturnUnsupportedForkIfBlockTimestampIsAfterPragueMilestone() {
     // Only relevant for V3
   }
@@ -124,12 +134,9 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
 
   @Test
   public void shouldReturnUnsupportedForkIfBlockTimestampIsAtOrAfterAmsterdamMilestone() {
-    when(protocolSchedule.milestoneFor(AMSTERDAM))
-        .thenReturn(Optional.of(pragueHardfork.milestone() + 10L));
-
     final BlockHeader futureEipsHeader =
         createActivationBlockHeaderFixture(Optional.empty())
-            .timestamp(pragueHardfork.milestone() + 10L)
+            .timestamp(amsterdamHardfork.milestone())
             .requestsHash(BodyValidation.requestsHash(VALID_REQUESTS))
             .buildHeader();
 
@@ -238,14 +245,15 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
         setupValidPayload(
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             Optional.empty());
-    final EnginePayloadParameter payload = mockEnginePayload(mockHeader, emptyList(), null);
+    final ExecutionPayloadV3 payload = mockEnginePayload(mockHeader, emptyList(), null);
 
     ValidationResult<RpcErrorType> res =
         method.validateParameters(
-            payload,
-            Optional.of(List.of()),
-            Optional.of("0x0000000000000000000000000000000000000000000000000000000000000000"),
-            Optional.of(List.of()));
+            requestParameters(
+                payload,
+                Optional.of(List.of()),
+                Optional.of("0x0000000000000000000000000000000000000000000000000000000000000000"),
+                Optional.of(List.of())));
     assertThat(res.isValid()).isTrue();
   }
 
@@ -256,14 +264,15 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
         setupValidPayload(
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             Optional.empty());
-    final EnginePayloadParameter payload = mockEnginePayload(mockHeader, emptyList(), null);
+    final ExecutionPayloadV3 payload = mockEnginePayload(mockHeader, emptyList(), null);
 
     ValidationResult<RpcErrorType> res =
         method.validateParameters(
-            payload,
-            Optional.of(List.of()),
-            Optional.of("0x0000000000000000000000000000000000000000000000000000000000000000"),
-            Optional.of(emptyList()));
+            requestParameters(
+                payload,
+                Optional.of(List.of()),
+                Optional.of("0x0000000000000000000000000000000000000000000000000000000000000000"),
+                Optional.of(emptyList())));
     assertThat(res.isValid()).isTrue();
   }
 
@@ -308,7 +317,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
   }
 
   @Override
-  protected JsonRpcResponse resp(final EnginePayloadParameter payload) {
+  protected JsonRpcResponse resp(final ExecutionPayloadV1 payload) {
     final List<String> requestsWithoutRequestId =
         VALID_REQUESTS.stream()
             .sorted(Comparator.comparing(Request::getType))
@@ -329,7 +338,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
         new JsonRpcRequestContext(new JsonRpcRequest("2.0", this.method.getName(), params)));
   }
 
-  protected JsonRpcResponse respWithInvalidRequests(final EnginePayloadParameter payload) {
+  protected JsonRpcResponse respWithInvalidRequests(final ExecutionPayloadV1 payload) {
     Object[] params =
         maybeParentBeaconBlockRoot
             .map(

@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_PARAMS;
@@ -38,7 +40,12 @@ import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV3;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV2;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV3;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -96,22 +103,29 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
   public void before() {
     super.before();
     maybeParentBeaconBlockRoot = Optional.of(Bytes32.ZERO);
-    this.method =
-        new EngineNewPayloadV3(
-            vertx,
-            protocolSchedule,
-            protocolContext,
-            mergeCoordinator,
-            ethPeers,
-            engineCallListener,
-            new NoOpMetricsSystem());
     lenient().when(protocolSpec.getGasCalculator()).thenReturn(new CancunGasCalculator());
     lenient()
         .when(protocolSpec.getGasLimitCalculator())
         .thenReturn(mock(CancunTargetingGasLimitCalculator.class));
+    createMethod();
   }
 
   @Override
+  protected EngineNewPayloadV1 createMethodInstance() {
+    return new EngineNewPayloadV3(
+        vertx,
+        protocolSchedule,
+        protocolContext,
+        mergeCoordinator,
+        ethPeers,
+        engineCallListener,
+        new NoOpMetricsSystem(),
+        CANCUN,
+        PRAGUE);
+  }
+
+  @Override
+  @Test
   public void shouldReturnUnsupportedForkIfBlockTimestampIsAfterCancunMilestone() {
     // only relevant for v2
   }
@@ -180,7 +194,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
   public void shouldInvalidVersionedHash_whenShortVersionedHash() {
     final Bytes shortHash = Bytes.fromHexString("0x" + "69".repeat(31));
 
-    final EnginePayloadParameter payload = mock(EnginePayloadParameter.class);
+    final ExecutionPayloadV3 payload = mock(ExecutionPayloadV3.class);
     when(payload.getTimestamp()).thenReturn(cancunHardfork.milestone());
     when(payload.getExcessBlobGas()).thenReturn("99");
     when(payload.getBlobGasUsed()).thenReturn(9l);
@@ -195,7 +209,9 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
             mergeCoordinator,
             ethPeers,
             engineCallListener,
-            new NoOpMetricsSystem());
+            new NoOpMetricsSystem(),
+            CANCUN,
+            PRAGUE);
     final JsonRpcResponse badParam =
         methodV3.response(
             new JsonRpcRequestContext(
@@ -218,14 +234,15 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
         setupValidPayload(
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             Optional.empty());
-    final EnginePayloadParameter payload = mockEnginePayload(mockHeader, emptyList(), null);
+    final ExecutionPayloadV3 payload = mockEnginePayload(mockHeader, emptyList(), null);
 
     ValidationResult<RpcErrorType> res =
         method.validateParameters(
-            payload,
-            Optional.of(List.of()),
-            Optional.of("0x0000000000000000000000000000000000000000000000000000000000000000"),
-            Optional.empty());
+            requestParameters(
+                payload,
+                Optional.of(List.of()),
+                Optional.of("0x0000000000000000000000000000000000000000000000000000000000000000"),
+                Optional.empty()));
     assertThat(res.isValid()).isTrue();
   }
 
@@ -235,16 +252,54 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
         setupValidPayload(
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             Optional.empty());
-    final EnginePayloadParameter payload = mockEnginePayload(mockHeader, emptyList(), null);
+    final ExecutionPayloadV3 payload = mockEnginePayload(mockHeader, emptyList(), null);
 
     ValidationResult<RpcErrorType> res =
         method.validateParameters(
-            payload,
-            Optional.of(List.of()),
-            Optional.of("0x0000000000000000000000000000000000000000000000000000000000000000"),
-            Optional.of(emptyList()));
-    assertThat(res.isValid()).isFalse();
-    assertThat(res.getInvalidReason()).isEqualTo(RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS);
+            requestParameters(
+                payload,
+                Optional.of(List.of()),
+                Optional.of("0x0000000000000000000000000000000000000000000000000000000000000000"),
+                Optional.of(emptyList())));
+    assertThat(res.isValid()).isTrue();
+  }
+
+  protected NewPayloadRequestParametersV1 requestParameters(
+      final ExecutionPayloadV1 payload,
+      final Optional<List<String>> expectedBlobVersionedHashes,
+      final Optional<String> parentBeaconBlockRootParameter,
+      final Optional<List<String>> executionRequests) {
+    final NewPayloadRequestParametersV2 requestParameters =
+        new NewPayloadRequestParametersV2(
+            new NewPayloadRequestParametersV1(payload),
+            expectedBlobVersionedHashes,
+            parentBeaconBlockRootParameter);
+    if (executionRequests.isPresent()) {
+      return new NewPayloadRequestParametersV3(requestParameters, executionRequests);
+    }
+    return requestParameters;
+  }
+
+  @Override
+  protected ExecutionPayloadV3 mockEnginePayload(final BlockHeader header, final List<String> txs) {
+    return executionPayloadV3(header, txs, null);
+  }
+
+  @Override
+  protected ExecutionPayloadV3 mockEnginePayload(
+      final BlockHeader header,
+      final List<String> txs,
+      final List<WithdrawalParameter> withdrawals) {
+    return executionPayloadV3(header, txs, withdrawals);
+  }
+
+  @Override
+  protected ExecutionPayloadV3 mockEnginePayload(
+      final BlockHeader header,
+      final List<String> txs,
+      final List<WithdrawalParameter> withdrawals,
+      final String blockAccessList) {
+    return executionPayloadV3(header, txs, withdrawals);
   }
 
   @Override
@@ -355,7 +410,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
   }
 
   @Override
-  protected JsonRpcResponse resp(final EnginePayloadParameter payload) {
+  protected JsonRpcResponse resp(final ExecutionPayloadV1 payload) {
     Object[] params =
         maybeParentBeaconBlockRoot
             .map(bytes32 -> new Object[] {payload, emptyList(), bytes32.toHexString()})
