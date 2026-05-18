@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.LONDON;
 import static org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider.createInMemoryBlockchain;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -61,6 +63,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -499,11 +502,44 @@ public class EthFeeHistoryTest {
     assertBlobBaseFee(List.of(Wei.ZERO, Wei.ONE));
   }
 
+  @Test
+  public void latestResultCacheMissesWhenNextBlockHardforkChanges() {
+    final ProtocolSpec londonSpec = mock(ProtocolSpec.class);
+    when(londonSpec.getGasCalculator()).thenReturn(new LondonGasCalculator());
+    when(londonSpec.getFeeMarket()).thenReturn(FeeMarket.london(5));
+    when(londonSpec.getGasLimitCalculator()).thenReturn(mock(GasLimitCalculator.class));
+    when(londonSpec.getHardforkId()).thenReturn(LONDON);
+
+    final ProtocolSpec cancunSpec = mock(ProtocolSpec.class);
+    when(cancunSpec.getGasCalculator()).thenReturn(new CancunGasCalculator());
+    when(cancunSpec.getFeeMarket()).thenReturn(FeeMarket.cancunDefault(5, Optional.empty()));
+    when(cancunSpec.getGasLimitCalculator())
+        .thenReturn(mock(CancunTargetingGasLimitCalculator.class));
+    when(cancunSpec.getHardforkId()).thenReturn(CANCUN);
+
+    when(protocolSchedule.getByBlockHeader(any())).thenReturn(londonSpec);
+    final long chainHeadTimestamp = blockchain.getChainHeadHeader().getTimestamp();
+    final AtomicInteger latestProtocolCalls = new AtomicInteger();
+    when(protocolSchedule.getForNextBlockHeader(any(), anyLong()))
+        .thenAnswer(
+            invocation -> {
+              final long timestamp = invocation.getArgument(1, Long.class);
+              if (timestamp == chainHeadTimestamp) {
+                return londonSpec;
+              }
+              return latestProtocolCalls.getAndIncrement() == 0 ? londonSpec : cancunSpec;
+            });
+
+    assertBlobBaseFee(List.of(Wei.ZERO, Wei.ZERO));
+    assertBlobBaseFee(List.of(Wei.ZERO, Wei.ONE));
+  }
+
   private void mockFork() {
     final ProtocolSpec londonSpec = mock(ProtocolSpec.class);
     when(londonSpec.getGasCalculator()).thenReturn(new LondonGasCalculator());
     when(londonSpec.getFeeMarket()).thenReturn(FeeMarket.london(5));
     when(londonSpec.getGasLimitCalculator()).thenReturn(mock(GasLimitCalculator.class));
+    when(londonSpec.getHardforkId()).thenReturn(LONDON);
 
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(londonSpec);
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(londonSpec);
@@ -515,6 +551,7 @@ public class EthFeeHistoryTest {
     when(cancunSpec.getFeeMarket()).thenReturn(FeeMarket.cancunDefault(5, Optional.empty()));
     when(cancunSpec.getGasLimitCalculator())
         .thenReturn(mock(CancunTargetingGasLimitCalculator.class));
+    when(cancunSpec.getHardforkId()).thenReturn(CANCUN);
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(cancunSpec);
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(cancunSpec);
   }
@@ -525,6 +562,7 @@ public class EthFeeHistoryTest {
     when(cancunSpec.getFeeMarket()).thenReturn(FeeMarket.cancunDefault(5, Optional.empty()));
     when(cancunSpec.getGasLimitCalculator())
         .thenReturn(mock(CancunTargetingGasLimitCalculator.class));
+    when(cancunSpec.getHardforkId()).thenReturn(CANCUN);
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(cancunSpec);
   }
 

@@ -26,6 +26,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
 import org.hyperledger.besu.ethereum.api.ImmutableApiConfiguration;
 import org.hyperledger.besu.ethereum.api.query.cache.TransactionLogBloomCacher;
+import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.TransactionLocation;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -57,6 +58,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -148,6 +150,60 @@ public class BlockchainQueries {
             : Optional.empty();
     this.apiConfig = apiConfig;
     this.miningConfiguration = miningConfiguration;
+    // Warm the fee oracle off the block-import thread when a scheduler is available. The
+    // request-time path below still self-heals on cold miss, so constructors without a scheduler
+    // avoid adding an observer that wakes up on every imported block.
+    ethScheduler.ifPresent(ignored -> blockchain.observeBlockAdded(this::refreshFeeOracleSnapshot));
+  }
+
+  // Pre-computed at block-import time so eth_gasPrice and eth_maxPriorityFeePerGas don't have to
+  // re-scan the last 100 blocks per request. Keyed on the head's block hash so any stale read
+  // (e.g. mid-reorg) falls through to a live recompute instead of returning the wrong value.
+  // Only the RAW percentile sample is stored — bounds are re-applied on every read using the
+  // current mining configuration, preserving the original race-free behaviour of
+  // miner_setMinGasPrice / miner_setMinPriorityFee.
+  private record FeeOracleSnapshot(
+      Hash headHash,
+      Optional<Wei> rawGasPriceSample,
+      Optional<Wei> rawPrioritySample) {}
+
+  private final AtomicReference<FeeOracleSnapshot> feeOracleRef = new AtomicReference<>();
+
+  private void refreshFeeOracleSnapshot(final BlockAddedEvent event) {
+    if (!event.isNewCanonicalHead()) {
+      return;
+    }
+    ethScheduler.ifPresent(
+        scheduler ->
+            scheduler.scheduleServiceTask(() -> computeAndPublishSnapshot(event.getHeader())));
+  }
+
+  private void computeAndPublishSnapshot(final BlockHeader chainHeadHeader) {
+    try {
+      final Hash headHash = chainHeadHeader.getBlockHash();
+      if (!blockchain.getChainHeadHash().equals(headHash)) {
+        return;
+      }
+      final Optional<FeeOracleSnapshot> maybeSnapshot = computeSnapshot(chainHeadHeader);
+      if (blockchain.getChainHeadHash().equals(headHash)) {
+        maybeSnapshot.ifPresent(feeOracleRef::set);
+      }
+      // If the head changed away and back while this task was queued, a stale write is still safe:
+      // the snapshot is keyed by head hash and stale entries are dropped by getOrCompute... on read.
+    } catch (RuntimeException e) {
+      LOG.warn(
+          "Failed to precompute fee oracle for new head {}", chainHeadHeader.toLogString(), e);
+    }
+  }
+
+  private Optional<Wei> pickPercentileSample(final Wei[] samples) {
+    if (samples.length == 0) {
+      return Optional.empty();
+    }
+    return Optional.of(
+        OrderStatistics.selectKthInPlace(
+            samples,
+            Math.min(samples.length - 1, (int) (samples.length * apiConfig.getGasPriceFraction()))));
   }
 
   public Blockchain getBlockchain() {
@@ -1074,45 +1130,20 @@ public class BlockchainQueries {
   }
 
   public Wei gasPrice() {
-    final Block chainHeadBlock = blockchain.getChainHeadBlock();
-    final var chainHeadHeader = chainHeadBlock.getHeader();
-    final long blockHeight = chainHeadHeader.getNumber();
+    final BlockHeader chainHeadHeader = blockchain.getChainHeadHeader();
+    final FeeMarket nextBlockFeeMarket =
+        protocolSchedule
+            .getForNextBlockHeader(chainHeadHeader, System.currentTimeMillis())
+            .getFeeMarket();
 
-    final var nextBlockProtocolSpec =
-        protocolSchedule.getForNextBlockHeader(chainHeadHeader, System.currentTimeMillis());
-    final var nextBlockFeeMarket = nextBlockProtocolSpec.getFeeMarket();
+    final Optional<Wei> rawSample = getOrComputeGasPriceSample(chainHeadHeader);
 
-    final Wei[] gasCollection =
-        Stream.concat(
-                LongStream.range(
-                        Math.max(0, blockHeight - apiConfig.getGasPriceBlocks() + 1), blockHeight)
-                    .mapToObj(
-                        l ->
-                            blockchain
-                                .getBlockByNumber(l)
-                                .orElseThrow(
-                                    () ->
-                                        new IllegalStateException(
-                                            "Could not retrieve block #" + l))),
-                Stream.of(chainHeadBlock))
-            .map(Block::getBody)
-            .map(BlockBody::getTransactions)
-            .flatMap(Collection::stream)
-            .filter(t -> t.getGasPrice().isPresent())
-            .map(t -> t.getGasPrice().get())
-            .toArray(Wei[]::new);
-
-    return gasCollection.length == 0
-        ? gasPriceLowerBound(chainHeadHeader, nextBlockFeeMarket)
-        : UInt256s.max(
-            gasPriceLowerBound(chainHeadHeader, nextBlockFeeMarket),
-            UInt256s.min(
-                apiConfig.getGasPriceMax(),
-                OrderStatistics.selectKthInPlace(
-                    gasCollection,
-                    Math.min(
-                        gasCollection.length - 1,
-                        (int) ((gasCollection.length) * apiConfig.getGasPriceFraction())))));
+    if (rawSample.isEmpty()) {
+      return gasPriceLowerBound(chainHeadHeader, nextBlockFeeMarket);
+    }
+    return UInt256s.max(
+        gasPriceLowerBound(chainHeadHeader, nextBlockFeeMarket),
+        UInt256s.min(apiConfig.getGasPriceMax(), rawSample.get()));
   }
 
   /**
@@ -1143,38 +1174,79 @@ public class BlockchainQueries {
   }
 
   public Wei gasPriorityFee() {
-    final Block chainHeadBlock = blockchain.getChainHeadBlock();
-    final long blockHeight = chainHeadBlock.getHeader().getNumber();
+    final BlockHeader chainHeadHeader = blockchain.getChainHeadHeader();
+    final Optional<Wei> rawSample = getOrComputePrioritySample(chainHeadHeader);
 
-    final Wei[] gasCollection =
-        Stream.concat(
-                LongStream.range(
-                        Math.max(0, blockHeight - apiConfig.getGasPriceBlocks() + 1), blockHeight)
-                    .mapToObj(
-                        l ->
-                            blockchain
-                                .getBlockByNumber(l)
-                                .orElseThrow(
-                                    () ->
-                                        new IllegalStateException(
-                                            "Could not retrieve block #" + l))),
-                Stream.of(chainHeadBlock))
-            .map(Block::getBody)
-            .map(BlockBody::getTransactions)
-            .flatMap(Collection::stream)
-            .filter(t -> t.getMaxPriorityFeePerGas().isPresent())
-            .map(t -> t.getMaxPriorityFeePerGas().get())
-            .toArray(Wei[]::new);
+    if (rawSample.isEmpty()) {
+      return miningConfiguration.getMinPriorityFeePerGas();
+    }
+    return UInt256s.max(miningConfiguration.getMinPriorityFeePerGas(), rawSample.get());
+  }
 
-    return gasCollection.length == 0
-        ? miningConfiguration.getMinPriorityFeePerGas()
-        : UInt256s.max(
-            miningConfiguration.getMinPriorityFeePerGas(),
-            OrderStatistics.selectKthInPlace(
-                gasCollection,
-                Math.min(
-                    gasCollection.length - 1,
-                    (int) ((gasCollection.length) * apiConfig.getGasPriceFraction()))));
+  /**
+   * Returns the raw percentile gas-price sample for the current chain head, hitting the
+   * pre-computed snapshot when the head matches. On miss (startup, or a request that arrives
+   * after a head change but before the BlockAddedObserver has refreshed the snapshot) it
+   * computes both samples live and seeds the snapshot for subsequent callers — this is what
+   * makes the cold path self-healing: only one request per head change pays the scan cost.
+   */
+  private Optional<Wei> getOrComputeGasPriceSample(final BlockHeader chainHeadHeader) {
+    return getOrComputeFeeOracleSample(chainHeadHeader, FeeOracleSnapshot::rawGasPriceSample);
+  }
+
+  private Optional<Wei> getOrComputePrioritySample(final BlockHeader chainHeadHeader) {
+    return getOrComputeFeeOracleSample(chainHeadHeader, FeeOracleSnapshot::rawPrioritySample);
+  }
+
+  private Optional<Wei> getOrComputeFeeOracleSample(
+      final BlockHeader chainHeadHeader,
+      final Function<FeeOracleSnapshot, Optional<Wei>> sampleSelector) {
+    final FeeOracleSnapshot snap = feeOracleRef.get();
+    final Hash headHash = chainHeadHeader.getBlockHash();
+    if (snap != null && snap.headHash().equals(headHash)) {
+      return sampleSelector.apply(snap);
+    }
+    return computeAndCacheSnapshot(chainHeadHeader).flatMap(sampleSelector);
+  }
+
+  /**
+   * Computes both fee oracle samples for the given chain head in a single body scan and publishes
+   * them to the snapshot. Multiple concurrent callers may all run this on a cold miss; that just
+   * wastes a few duplicate scans (the last writer wins on the AtomicReference set), it doesn't race
+   * — each result is the deterministic function of an immutable block hash.
+   */
+  private Optional<FeeOracleSnapshot> computeAndCacheSnapshot(final BlockHeader chainHeadHeader) {
+    final Optional<FeeOracleSnapshot> snap = computeSnapshot(chainHeadHeader);
+    snap.ifPresent(feeOracleRef::set);
+    return snap;
+  }
+
+  private Optional<FeeOracleSnapshot> computeSnapshot(final BlockHeader chainHeadHeader) {
+    final long chainHeadNumber = chainHeadHeader.getNumber();
+    final long startBlock = Math.max(0, chainHeadNumber - apiConfig.getGasPriceBlocks() + 1);
+    final int blockCount = (int) (chainHeadNumber - startBlock + 1);
+    final List<BlockHeader> headers = blockchain.getBlockHeaders(startBlock, blockCount);
+    final ArrayList<Wei> gasPriceSamples = new ArrayList<>();
+    final ArrayList<Wei> prioritySamples = new ArrayList<>();
+    for (final BlockHeader header : headers) {
+      final Optional<BlockBody> maybeBody = blockchain.getBlockBody(header.getBlockHash());
+      if (maybeBody.isEmpty()) {
+        // A partial window would bias the percentile. Prefer no snapshot so callers fall back to
+        // configured lower bounds instead of returning a misleading estimate or surfacing a 500.
+        return Optional.empty();
+      }
+      final BlockBody body = maybeBody.get();
+      for (final Transaction tx : body.getTransactions()) {
+        tx.getGasPrice().ifPresent(gasPriceSamples::add);
+        tx.getMaxPriorityFeePerGas().ifPresent(prioritySamples::add);
+      }
+    }
+
+    return Optional.of(
+        new FeeOracleSnapshot(
+            chainHeadHeader.getBlockHash(),
+            pickPercentileSample(gasPriceSamples.toArray(Wei[]::new)),
+            pickPercentileSample(prioritySamples.toArray(Wei[]::new))));
   }
 
   /**

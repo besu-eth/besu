@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 import static org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator.calculateExcessBlobGasForParent;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.datatypes.parameters.UnsignedIntParameter;
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
@@ -46,17 +47,13 @@ import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
-import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.annotations.VisibleForTesting;
-import com.google.common.collect.Streams;
 import org.apache.tuweni.units.bigints.UInt256s;
 
 public class EthFeeHistory implements JsonRpcMethod {
@@ -66,10 +63,31 @@ public class EthFeeHistory implements JsonRpcMethod {
   private final MiningCoordinator miningCoordinator;
   private final ApiConfiguration apiConfiguration;
   private final Cache<RewardCacheKey, List<Wei>> cache;
+  // Result cache for the common "latest, N blocks, fixed percentile set" pattern. Keyed on the
+  // chain head hash plus the normalized request shape, so a head advance (HEAD_ADVANCED or
+  // CHAIN_REORG) cleanly evicts every entry that used the old head — no per-request
+  // invalidation logic, no torn reads. Only requests that resolve to "latest" hit the cache;
+  // historical-block queries skip it and recompute on every call.
+  private final Cache<ResultCacheKey, FeeHistory.FeeHistoryResult> resultCache;
   private static final int MAXIMUM_CACHE_SIZE = 100_000;
+  // Keeps the hot "latest" request shapes for a few heads without becoming a historical cache.
+  private static final int MAXIMUM_RESULT_CACHE_SIZE = 256;
   private static final int MAXIMUM_QUERY_PERCENTILES = 100;
 
   record RewardCacheKey(Hash blockHash, List<Double> rewardPercentiles) {}
+
+  // For the cache to be race-free against miner_setMinGasPrice / miner_setMinPriorityFee, the
+  // key must capture the live mining-config snapshot used to compute the bounded rewards;
+  // otherwise a config change mid-flight would let a stale result leak out. The snapshot is
+  // taken once per request and threaded through computation.
+  record RewardBounds(Wei lowerBoundGasPrice, Wei minPriorityFee) {}
+
+  record ResultCacheKey(
+      Hash chainHeadHash,
+      int blockCount,
+      Optional<List<Double>> sortedRewardPercentiles,
+      Optional<RewardBounds> rewardBounds,
+      HardforkId nextBlockHardforkId) {}
 
   public EthFeeHistory(
       final ProtocolSchedule protocolSchedule,
@@ -82,6 +100,7 @@ public class EthFeeHistory implements JsonRpcMethod {
     this.apiConfiguration = apiConfiguration;
     this.blockchain = blockchainQueries.getBlockchain();
     this.cache = Caffeine.newBuilder().maximumSize(MAXIMUM_CACHE_SIZE).build();
+    this.resultCache = Caffeine.newBuilder().maximumSize(MAXIMUM_RESULT_CACHE_SIZE).build();
   }
 
   @Override
@@ -128,23 +147,58 @@ public class EthFeeHistory implements JsonRpcMethod {
       return new JsonRpcErrorResponse(requestId, RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS);
     }
 
+    final Optional<List<Double>> sortedRewardPercentiles =
+        maybeRewardPercentiles
+            .filter(list -> list.size() <= MAXIMUM_QUERY_PERCENTILES)
+            .map(percentiles -> percentiles.stream().sorted().toList());
+
+    // Only cache "latest" lookups. Historic block queries are rare and would flood the cache
+    // with single-use entries — better to recompute them.
+    final boolean isLatestRequest = highestBlockNumber == chainHeadBlockNumber;
+    final Optional<RewardBounds> rewardBounds =
+        sortedRewardPercentiles.isPresent()
+                && apiConfiguration.isGasAndPriorityFeeLimitingEnabled()
+            ? Optional.of(
+                new RewardBounds(
+                    blockchainQueries.gasPriceLowerBound(),
+                    miningCoordinator.getMinPriorityFeePerGas()))
+            : Optional.empty();
+    final ProtocolSpec nextBlockProtocolSpec =
+        protocolSchedule.getForNextBlockHeader(chainHeadHeader, System.currentTimeMillis());
+    final ResultCacheKey resultCacheKey =
+        isLatestRequest
+            ? new ResultCacheKey(
+                chainHeadHeader.getBlockHash(),
+                blockCount,
+                sortedRewardPercentiles,
+                rewardBounds,
+                nextBlockProtocolSpec.getHardforkId())
+            : null;
+
+    if (resultCacheKey != null) {
+      final FeeHistory.FeeHistoryResult cached = resultCache.getIfPresent(resultCacheKey);
+      if (cached != null) {
+        return new JsonRpcSuccessResponse(requestId, cached);
+      }
+    }
+
     final long firstBlock = Math.max(0, highestBlockNumber - (blockCount - 1));
     final long lastBlock =
         blockCount > highestBlockNumber ? (highestBlockNumber + 1) : (firstBlock + blockCount);
 
     final List<BlockHeader> blockHeaderRange = getBlockHeaders(firstBlock, lastBlock);
     final List<Wei> requestedBaseFees = getBaseFees(blockHeaderRange);
-    final List<Wei> requestedBlobBaseFees = getBlobBaseFees(blockHeaderRange);
+    final List<Wei> requestedBlobBaseFees =
+        getBlobBaseFees(blockHeaderRange, nextBlockProtocolSpec);
     final Wei nextBaseFee =
         getNextBaseFee(highestBlockNumber, chainHeadHeader, requestedBaseFees, blockHeaderRange);
     final List<Double> gasUsedRatios = getGasUsedRatios(blockHeaderRange);
     final List<Double> blobGasUsedRatios = getBlobGasUsedRatios(blockHeaderRange);
     final Optional<List<List<Wei>>> maybeRewards =
-        maybeRewardPercentiles
-            .filter(list -> list.size() <= MAXIMUM_QUERY_PERCENTILES)
-            .map(percentiles -> getRewards(percentiles, blockHeaderRange, nextBaseFee));
-    return new JsonRpcSuccessResponse(
-        requestId,
+        sortedRewardPercentiles.map(
+            percentiles ->
+                computeRewardsForRange(percentiles, blockHeaderRange, nextBaseFee, rewardBounds));
+    final FeeHistory.FeeHistoryResult result =
         createFeeHistoryResult(
             firstBlock,
             requestedBaseFees,
@@ -152,7 +206,32 @@ public class EthFeeHistory implements JsonRpcMethod {
             nextBaseFee,
             gasUsedRatios,
             blobGasUsedRatios,
-            maybeRewards));
+            maybeRewards);
+    if (resultCacheKey != null) {
+      resultCache.put(resultCacheKey, result);
+    }
+    return new JsonRpcSuccessResponse(requestId, result);
+  }
+
+  private List<List<Wei>> computeRewardsForRange(
+      final List<Double> sortedPercentiles,
+      final List<BlockHeader> blockHeaders,
+      final Wei nextBaseFee,
+      final Optional<RewardBounds> rewardBounds) {
+    final List<List<Wei>> rewards = new ArrayList<>(blockHeaders.size());
+    if (rewardBounds.isEmpty()) {
+      for (final BlockHeader header : blockHeaders) {
+        calculateBlockHeaderReward(sortedPercentiles, header).ifPresent(rewards::add);
+      }
+      return rewards;
+    }
+    final RewardBounds bounds = rewardBounds.get();
+    for (final BlockHeader header : blockHeaders) {
+      calculateBlockHeaderReward(sortedPercentiles, header)
+          .map(blockRewards -> boundRewardsWithSnapshot(blockRewards, nextBaseFee, bounds))
+          .ifPresent(rewards::add);
+    }
+    return rewards;
   }
 
   private Wei getNextBaseFee(
@@ -161,6 +240,14 @@ public class EthFeeHistory implements JsonRpcMethod {
       final List<Wei> explicitlyRequestedBaseFees,
       final List<BlockHeader> blockHeaders) {
     final long nextBlockNumber = resolvedHighestBlockNumber + 1;
+    // When the highestBlock argument is "latest" (the overwhelming common case) nextBlockNumber
+    // is strictly greater than chainHead — the block doesn't exist yet, so skip the RocksDB
+    // round-trip and go straight to compute. Only the rare "feeHistory at a historical block"
+    // path needs the storage read.
+    if (nextBlockNumber > chainHeadHeader.getNumber()) {
+      return computeNextBaseFee(
+          nextBlockNumber, chainHeadHeader, explicitlyRequestedBaseFees, blockHeaders);
+    }
     return blockchain
         .getBlockHeader(nextBlockNumber)
         .map(blockHeader -> blockHeader.getBaseFee().orElse(Wei.ZERO))
@@ -208,111 +295,101 @@ public class EthFeeHistory implements JsonRpcMethod {
         .orElse(Wei.ZERO); // If the fee market does not implement base fee, return zero
   }
 
-  private List<List<Wei>> getRewards(
-      final List<Double> rewardPercentiles,
-      final List<BlockHeader> blockHeaders,
-      final Wei nextBaseFee) {
-    var sortedPercentiles = rewardPercentiles.stream().sorted().toList();
-    return blockHeaders.stream()
-        .parallel()
-        .map(blockHeader -> calculateBlockHeaderReward(sortedPercentiles, blockHeader, nextBaseFee))
-        .flatMap(Optional::stream)
-        .toList();
-  }
-
   private Optional<List<Wei>> calculateBlockHeaderReward(
-      final List<Double> sortedPercentiles, final BlockHeader blockHeader, final Wei nextBaseFee) {
+      final List<Double> sortedPercentiles, final BlockHeader blockHeader) {
 
-    // Create a new key for the reward cache
+    // Cache only the unbounded rewards. Request-specific bounding (which depends on the live
+    // miner_setMinGasPrice / miner_setMinPriorityFee snapshot) is applied by the caller via
+    // boundRewardsWithSnapshot — this keeps the cache entry pure (function of immutable block
+    // state) and lets miner-config changes take effect on the next request without invalidation.
     final RewardCacheKey key = new RewardCacheKey(blockHeader.getBlockHash(), sortedPercentiles);
 
-    // Try to get the rewards from the cache
     return Optional.ofNullable(cache.getIfPresent(key))
         .or(
             () -> {
-              // If the rewards are not in the cache, compute them
-              Optional<Block> block = blockchain.getBlockByHash(blockHeader.getBlockHash());
+              final Optional<Block> block = blockchain.getBlockByHash(blockHeader.getBlockHash());
               return block.map(
                   b -> {
-                    List<Wei> rewards = computeRewards(sortedPercentiles, b, nextBaseFee);
-                    // Put the computed rewards in the cache for future use
+                    final List<Wei> rewards = computeUnboundedRewards(sortedPercentiles, b);
                     cache.put(key, rewards);
                     return rewards;
                   });
             });
   }
 
-  record TransactionInfo(Transaction transaction, Long gasUsed, Wei effectivePriorityFeePerGas) {}
+  record TransactionInfo(long gasUsed, Wei effectivePriorityFeePerGas) {}
 
   @VisibleForTesting
   public List<Wei> computeRewards(
       final List<Double> rewardPercentiles, final Block block, final Wei nextBaseFee) {
+    final List<Wei> realRewards = computeUnboundedRewards(rewardPercentiles, block);
+    if (apiConfiguration.isGasAndPriorityFeeLimitingEnabled()) {
+      return boundRewardsWithSnapshot(
+          realRewards,
+          nextBaseFee,
+          new RewardBounds(
+              blockchainQueries.gasPriceLowerBound(), miningCoordinator.getMinPriorityFeePerGas()));
+    }
+    return realRewards;
+  }
+
+  private List<Wei> computeUnboundedRewards(
+      final List<Double> rewardPercentiles, final Block block) {
     final List<Transaction> transactions = block.getBody().getTransactions();
     if (transactions.isEmpty()) {
-      // all 0's for empty block
-      return generateZeroWeiList(rewardPercentiles.size());
+      return Collections.nCopies(rewardPercentiles.size(), Wei.ZERO);
     }
     final Optional<Wei> baseFee = block.getHeader().getBaseFee();
-    final List<Long> transactionsGasUsed = calculateTransactionsGasUsed(block);
-    final List<TransactionInfo> transactionsInfo =
+    final long[] transactionsGasUsed = calculateTransactionsGasUsed(block);
+    final TransactionInfo[] transactionsInfo =
         generateTransactionsInfo(transactions, transactionsGasUsed, baseFee);
-
-    var realRewards = calculateRewards(rewardPercentiles, block, transactionsInfo);
-
-    // If the priority fee boundary is set, return the bounded rewards. Otherwise, return the real
-    // rewards.
-    if (apiConfiguration.isGasAndPriorityFeeLimitingEnabled()) {
-      return boundRewards(realRewards, nextBaseFee);
-    } else {
-      return realRewards;
-    }
+    return calculateRewards(rewardPercentiles, block, transactionsInfo);
   }
 
   private List<Wei> calculateRewards(
       final List<Double> rewardPercentiles,
       final Block block,
-      final List<TransactionInfo> sortedTransactionsInfo) {
+      final TransactionInfo[] sortedTransactionsInfo) {
     final ArrayList<Wei> rewards = new ArrayList<>(rewardPercentiles.size());
 
     // Start with the gas used by the first transaction
-    double cumulativeGasUsed = sortedTransactionsInfo.get(0).gasUsed();
-    var transactionIndex = 0;
+    double cumulativeGasUsed = sortedTransactionsInfo[0].gasUsed();
+    int transactionIndex = 0;
+    final long blockGasUsed = block.getHeader().getGasUsed();
     // Iterate over each reward percentile
     for (double rewardPercentile : rewardPercentiles) {
       // Calculate the threshold gas used for the current reward percentile
       // This is the amount of gas that needs to be used to reach this percentile
-      var thresholdGasUsed = rewardPercentile * block.getHeader().getGasUsed() / 100;
+      final double thresholdGasUsed = rewardPercentile * blockGasUsed / 100;
 
       // Update cumulativeGasUsed by adding the gas used by each transaction
       // Stop when cumulativeGasUsed reaches the threshold or there are no more transactions
       while (cumulativeGasUsed < thresholdGasUsed
-          && transactionIndex < sortedTransactionsInfo.size() - 1) {
+          && transactionIndex < sortedTransactionsInfo.length - 1) {
         transactionIndex++;
-        cumulativeGasUsed += sortedTransactionsInfo.get(transactionIndex).gasUsed();
+        cumulativeGasUsed += sortedTransactionsInfo[transactionIndex].gasUsed();
       }
       // Add the effective priority fee per gas of the transaction that reached the percentile to
       // the rewards list
-      rewards.add(sortedTransactionsInfo.get(transactionIndex).effectivePriorityFeePerGas);
+      rewards.add(sortedTransactionsInfo[transactionIndex].effectivePriorityFeePerGas);
     }
     return rewards;
   }
 
   /**
-   * This method returns a list of bounded rewards.
-   *
-   * @param rewards The list of rewards to be bounded.
-   * @param nextBaseFee The base fee of the next block.
-   * @return The list of bounded rewards.
+   * Bound each reward to a min/max derived from the supplied mining-config snapshot. The
+   * snapshot is taken once per request and threaded through here so the cache key carries
+   * the exact values used in computation (avoids a torn read when miner_setMinGasPrice /
+   * miner_setMinPriorityFee lands mid-request).
    */
-  private List<Wei> boundRewards(final List<Wei> rewards, final Wei nextBaseFee) {
-    final Wei lowerBoundGasPrice = blockchainQueries.gasPriceLowerBound();
-    // prevent unsigned underflow when nextBaseFee exceeds lower bound
+  private List<Wei> boundRewardsWithSnapshot(
+      final List<Wei> rewards, final Wei nextBaseFee, final RewardBounds bounds) {
     final Wei lowerBoundPriorityFee =
-        lowerBoundGasPrice.greaterThan(nextBaseFee)
-            ? lowerBoundGasPrice.subtract(nextBaseFee)
+        bounds.lowerBoundGasPrice().greaterThan(nextBaseFee)
+            ? bounds.lowerBoundGasPrice().subtract(nextBaseFee)
             : Wei.ZERO;
-    final Wei minPriorityFee = miningCoordinator.getMinPriorityFeePerGas();
-    final Wei forcedMinPriorityFee = UInt256s.max(minPriorityFee, lowerBoundPriorityFee);
+    final Wei forcedMinPriorityFee =
+        UInt256s.max(bounds.minPriorityFee(), lowerBoundPriorityFee);
     final Wei lowerBound =
         forcedMinPriorityFee
             .multiply(apiConfiguration.getLowerBoundGasAndPriorityFeeCoefficient())
@@ -322,7 +399,11 @@ public class EthFeeHistory implements JsonRpcMethod {
             .multiply(apiConfiguration.getUpperBoundGasAndPriorityFeeCoefficient())
             .divide(100);
 
-    return rewards.stream().map(reward -> boundReward(reward, lowerBound, upperBound)).toList();
+    final List<Wei> bounded = new ArrayList<>(rewards.size());
+    for (final Wei reward : rewards) {
+      bounded.add(boundReward(reward, lowerBound, upperBound));
+    }
+    return bounded;
   }
 
   /**
@@ -339,29 +420,35 @@ public class EthFeeHistory implements JsonRpcMethod {
         : reward.compareTo(upperBound) >= 0 ? upperBound : reward;
   }
 
-  private List<Long> calculateTransactionsGasUsed(final Block block) {
-    final List<Long> transactionsGasUsed = new ArrayList<>();
+  private long[] calculateTransactionsGasUsed(final Block block) {
+    final List<TransactionReceipt> receipts = blockchain.getTxReceipts(block.getHash()).get();
+    final long[] gasUsed = new long[receipts.size()];
     long cumulativeGasUsed = 0L;
-    for (final TransactionReceipt transactionReceipt :
-        blockchain.getTxReceipts(block.getHash()).get()) {
-      transactionsGasUsed.add(transactionReceipt.getCumulativeGasUsed() - cumulativeGasUsed);
-      cumulativeGasUsed = transactionReceipt.getCumulativeGasUsed();
+    for (int i = 0; i < receipts.size(); i++) {
+      final long cum = receipts.get(i).getCumulativeGasUsed();
+      gasUsed[i] = cum - cumulativeGasUsed;
+      cumulativeGasUsed = cum;
     }
-    return transactionsGasUsed;
+    return gasUsed;
   }
 
-  private List<TransactionInfo> generateTransactionsInfo(
+  private TransactionInfo[] generateTransactionsInfo(
       final List<Transaction> transactions,
-      final List<Long> transactionsGasUsed,
+      final long[] transactionsGasUsed,
       final Optional<Wei> baseFee) {
-    return Streams.zip(
-            transactions.stream(),
-            transactionsGasUsed.stream(),
-            (transaction, gasUsed) ->
-                new TransactionInfo(
-                    transaction, gasUsed, transaction.getEffectivePriorityFeePerGas(baseFee)))
-        .sorted(Comparator.comparing(TransactionInfo::effectivePriorityFeePerGas))
-        .toList();
+    // Build a TransactionInfo[] directly and sort with a direct comparator instead of
+    // Streams.zip + Comparator.comparing — drops the stream-pipeline boxing on the hot path
+    // when feeHistory carries reward percentiles for big block ranges.
+    final int n = transactions.size();
+    final TransactionInfo[] info = new TransactionInfo[n];
+    for (int i = 0; i < n; i++) {
+      final Transaction tx = transactions.get(i);
+      info[i] =
+          new TransactionInfo(transactionsGasUsed[i], tx.getEffectivePriorityFeePerGas(baseFee));
+    }
+    Arrays.sort(
+        info, (a, b) -> a.effectivePriorityFeePerGas().compareTo(b.effectivePriorityFeePerGas()));
+    return info;
   }
 
   private boolean isInvalidBlockCount(final int blockCount) {
@@ -369,11 +456,15 @@ public class EthFeeHistory implements JsonRpcMethod {
   }
 
   private List<BlockHeader> getBlockHeaders(final long oldestBlock, final long lastBlock) {
-    return LongStream.range(oldestBlock, lastBlock)
-        .parallel()
-        .mapToObj(blockchain::getBlockHeader)
-        .flatMap(Optional::stream)
-        .toList();
+    // Use the bulk Blockchain API: one number→hash translation at the high end, then walk
+    // parent hashes for the remaining headers. With the in-memory header cache each step is
+    // a microsecond cache hit. Replaces the per-block number→hash translation that the
+    // parallel LongStream did.
+    final int count = (int) (lastBlock - oldestBlock);
+    if (count <= 0) {
+      return List.of();
+    }
+    return blockchain.getBlockHeaders(oldestBlock, count);
   }
 
   private List<Wei> getBaseFees(final List<BlockHeader> blockHeaders) {
@@ -382,39 +473,55 @@ public class EthFeeHistory implements JsonRpcMethod {
         .toList();
   }
 
-  private List<Wei> getBlobBaseFees(final List<BlockHeader> blockHeaders) {
+  private List<Wei> getBlobBaseFees(
+      final List<BlockHeader> blockHeaders, final ProtocolSpec nextBlockProtocolSpec) {
     if (blockHeaders.isEmpty()) {
-      return Collections.emptyList();
+      // Keep return mutability consistent for Error Prone's MixedMutabilityReturnType check.
+      return new ArrayList<>();
     }
-    // Calculate the BlobFee for the requested range
-    List<Wei> baseFeesPerBlobGas =
-        blockHeaders.stream().map(this::getBlobGasFee).collect(Collectors.toList());
+    // The requested headers arrive sorted from oldest to newest, so the parent of
+    // blockHeaders[i+1] is exactly blockHeaders[i]. Reuse the in-memory previous header
+    // instead of issuing one parent-hash storage read per block — that one optimization
+    // eliminates `blockHeaders.size()-1` redundant RocksDB lookups per request (255 on
+    // feeHistory-256). The first header still needs a real parent lookup since its parent
+    // isn't part of the requested range.
+    final List<Wei> baseFeesPerBlobGas = new ArrayList<>(blockHeaders.size() + 1);
+    BlockHeader previous = null;
+    for (final BlockHeader header : blockHeaders) {
+      final BlockHeader parent;
+      if (previous != null && header.getParentHash().equals(previous.getHash())) {
+        parent = previous;
+      } else {
+        parent = blockchain.getBlockHeader(header.getParentHash()).orElse(null);
+      }
+      if (parent == null) {
+        baseFeesPerBlobGas.add(Wei.ZERO);
+      } else {
+        baseFeesPerBlobGas.add(getBlobGasFee(protocolSchedule.getByBlockHeader(header), parent));
+      }
+      previous = header;
+    }
 
-    // Calculate the next blob base fee and add it to the list
-    Wei nextBlobBaseFee = getNextBlobFee(blockHeaders.get(blockHeaders.size() - 1));
-    baseFeesPerBlobGas.add(nextBlobBaseFee);
-
+    baseFeesPerBlobGas.add(
+        getNextBlobFee(blockHeaders.get(blockHeaders.size() - 1), nextBlockProtocolSpec));
     return baseFeesPerBlobGas;
-  }
-
-  private Wei getBlobGasFee(final BlockHeader header) {
-    return blockchain
-        .getBlockHeader(header.getParentHash())
-        .map(parent -> getBlobGasFee(protocolSchedule.getByBlockHeader(header), parent))
-        .orElse(Wei.ZERO);
   }
 
   private Wei getBlobGasFee(final ProtocolSpec spec, final BlockHeader parent) {
     return spec.getFeeMarket().blobGasPricePerGas(calculateExcessBlobGasForParent(spec, parent));
   }
 
-  private Wei getNextBlobFee(final BlockHeader header) {
+  private Wei getNextBlobFee(final BlockHeader header, final ProtocolSpec nextBlockProtocolSpec) {
     // Attempt to retrieve the next header based on the current header's number.
-    long nextBlockNumber = header.getNumber() + 1;
+    final long nextBlockNumber = header.getNumber() + 1;
+    // Skip the storage lookup if we already know the next block doesn't exist — true for
+    // every "latest" request, which is the dominant case for feeHistory.
+    if (nextBlockNumber > blockchain.getChainHeadBlockNumber()) {
+      return getBlobGasFee(nextBlockProtocolSpec, header);
+    }
     return blockchain
         .getBlockHeader(nextBlockNumber)
         .map(nextHeader -> getBlobGasFee(protocolSchedule.getByBlockHeader(nextHeader), header))
-        // If the next header is not present, calculate the fee using the current time.
         .orElseGet(
             () ->
                 getBlobGasFee(
@@ -463,7 +570,4 @@ public class EthFeeHistory implements JsonRpcMethod {
             .build());
   }
 
-  private List<Wei> generateZeroWeiList(final int size) {
-    return Stream.generate(() -> Wei.ZERO).limit(size).toList();
-  }
 }
