@@ -106,10 +106,10 @@ public class SelfDestructOperation extends AbstractOperation {
     // EIP-8037: Deduct regular gas before charging state gas (ordering requirement).
     frame.decrementRemainingGas(cost);
 
-    // EIP-8037: Charge state gas for new account creation in SELFDESTRUCT
-    if (!gasCalculator()
-        .stateGasCostCalculator()
-        .chargeSelfDestructNewAccountStateGas(frame, beneficiaryNullable, originatorBalance)) {
+    // EIP-8037: Charge state gas when SELFDESTRUCT forces creation of an empty beneficiary.
+    if ((beneficiaryNullable == null || beneficiaryNullable.isEmpty())
+        && !originatorBalance.isZero()
+        && !frame.consumeStateGas(gasCalculator().stateGasCostCalculator().newAccountStateGas())) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 

@@ -879,9 +879,9 @@ public class MessageFrame {
   // ============================================================
   //
   // The state-gas dimension is shared transaction-wide via TxValues. UndoScalar-backed counters
-  // (stateGasUsed, stateGasReservoir, noGrowthStateGasRefunds) roll back on revert/halt; long[]-
-  // backed counters (stateGasSpillBurned, initialFrameRegularHaltBurn) accumulate permanently for
-  // block accounting and are NOT undone.
+  // (stateGasUsed, stateGasReservoir, stateGasRefills) roll back on revert/halt; plain
+  // long counters on TxValues (stateGasSpillBurned, stateGasReservoirBurn,
+  // initialFrameRegularHaltBurn) accumulate permanently for block accounting and are NOT undone.
 
   // ---- stateGasUsed ----
 
@@ -951,7 +951,7 @@ public class MessageFrame {
   }
 
   /**
-   * Deducts {@code amount} from the reservoir (used to remove a no-growth refund credit during
+   * Deducts {@code amount} from the reservoir (used to remove a state-gas refill credit during
    * spill-burn handling on revert/halt).
    *
    * @param amount the amount to subtract from the reservoir
@@ -1037,27 +1037,51 @@ public class MessageFrame {
     return sufficient;
   }
 
-  // ---- no-growth refund counter ----
+  // ---- state-gas refill counter (EIP-8037 "state_gas_refund") ----
 
   /**
-   * Records a no-growth state gas refund (SSTORE 0→X→0, CREATE silent failure, same-tx
-   * SELFDESTRUCT). Read by {@code AbstractMessageProcessor.handleStateGasRevertSpill} / {@code
-   * handleStateGasHalt} to subtract refunds-in-scope from the spill credit on revert/halt — those
-   * refunds must contribute nothing to a parent's reservoir when any frame in the chain fails.
+   * Records a state-gas refill (SSTORE 0→X→0, CREATE silent failure, same-tx SELFDESTRUCT). The
+   * spec calls this counter {@code state_gas_refund}; we call them "refills" because the gas is
+   * refilled to {@code state_gas_reservoir} when the state growth did not happen. Read by {@code
+   * AbstractMessageProcessor.handleStateGasRevertSpill} / {@code handleStateGasHalt} to subtract
+   * refills-in-scope from the spill credit on revert/halt — those refills must contribute nothing
+   * to a parent's reservoir when any frame in the chain fails.
    *
-   * @param amount the refund amount to record
+   * @param amount the refill amount to record
    */
-  public void recordNoGrowthStateGasRefund(final long amount) {
-    txValues.noGrowthStateGasRefunds().set(txValues.noGrowthStateGasRefunds().get() + amount);
+  public void recordStateGasRefill(final long amount) {
+    txValues.stateGasRefills().set(txValues.stateGasRefills().get() + amount);
   }
 
   /**
-   * Returns the cumulative no-growth state gas refunds applied so far.
+   * Returns the cumulative state-gas refills applied so far.
    *
-   * @return the cumulative no-growth refunds
+   * @return the cumulative state-gas refills
    */
-  public long getNoGrowthStateGasRefunds() {
-    return txValues.noGrowthStateGasRefunds().get();
+  public long getStateGasRefills() {
+    return txValues.stateGasRefills().get();
+  }
+
+  /**
+   * Refills the state-gas reservoir (EIP-8037): credits {@code amount} back to the reservoir,
+   * decrements {@code stateGasUsed}, and records the refill in the {@code state_gas_refund}
+   * counter. Applied when a state-growing operation does not actually grow state (SSTORE 0→X→0,
+   * CREATE silent or child failure, same-tx SELFDESTRUCT).
+   *
+   * <p>The credit goes directly to {@code state_gas_reservoir}, bypassing the 20% refund-counter
+   * cap. All three mutations are {@code UndoScalar}-scoped and therefore rolled back on revert/halt
+   * — the refill contributes to the reservoir only when the full frame chain succeeds.
+   *
+   * <p>The amount is also recorded via {@link #recordStateGasRefill(long)} so {@code
+   * AbstractMessageProcessor.handleStateGasRevertSpill} / {@code handleStateGasHalt} can subtract
+   * refills-in-scope from the spill credit on revert/halt.
+   *
+   * @param amount the refill amount
+   */
+  public void refillStateGasReservoir(final long amount) {
+    incrementStateGasReservoir(amount);
+    decrementStateGasUsed(amount);
+    recordStateGasRefill(amount);
   }
 
   // ---- block-accounting counters (NOT undone on revert) ----
@@ -1069,7 +1093,7 @@ public class MessageFrame {
    * @param amount the spill-burn amount to add
    */
   public void accumulateStateGasSpillBurned(final long amount) {
-    txValues.stateGasSpillBurned()[0] += amount;
+    txValues.addStateGasSpillBurned(amount);
   }
 
   /**
@@ -1078,28 +1102,28 @@ public class MessageFrame {
    * @return the cumulative spill-burn
    */
   public long getStateGasSpillBurned() {
-    return txValues.stateGasSpillBurned()[0];
+    return txValues.stateGasSpillBurned();
   }
 
   /**
-   * Accumulates reservoir gas that was drained for an in-scope charge whose matching no-growth
-   * refund was nullified by a reverted ancestor (EIP-8037). Spec semantics: the refund is
+   * Accumulates reservoir gas that was drained for an in-scope charge whose matching state-gas
+   * refill was nullified by a reverted ancestor (EIP-8037). Spec semantics: the refill is
    * subtracted at {@code incorporate_child_on_error} so the drain "stays paid" even though Besu's
    * UndoScalar rollback restores the shared reservoir to entry. NOT undone on revert.
    *
    * @param amount the reservoir-burn amount to add
    */
   public void accumulateStateGasReservoirBurn(final long amount) {
-    txValues.stateGasReservoirBurn()[0] += amount;
+    txValues.addStateGasReservoirBurn(amount);
   }
 
   /**
-   * Returns the cumulative reservoir gas effectively burned by reverted no-growth refunds.
+   * Returns the cumulative reservoir gas effectively burned by reverted state-gas refills.
    *
    * @return the cumulative reservoir-burn
    */
   public long getStateGasReservoirBurn() {
-    return txValues.stateGasReservoirBurn()[0];
+    return txValues.stateGasReservoirBurn();
   }
 
   /**
@@ -1110,7 +1134,7 @@ public class MessageFrame {
    * @param amount the halt-burn amount to add
    */
   public void accumulateInitialFrameRegularHaltBurn(final long amount) {
-    txValues.initialFrameRegularHaltBurn()[0] += amount;
+    txValues.addInitialFrameRegularHaltBurn(amount);
   }
 
   /**
@@ -1119,7 +1143,7 @@ public class MessageFrame {
    * @return the cumulative initial-frame halt-burn
    */
   public long getInitialFrameRegularHaltBurn() {
-    return txValues.initialFrameRegularHaltBurn()[0];
+    return txValues.initialFrameRegularHaltBurn();
   }
 
   // ============================================================
@@ -1649,6 +1673,9 @@ public class MessageFrame {
 
     private Optional<List<VersionedHash>> versionedHashes = Optional.empty();
 
+    private long initialStateGasReservoir = 0L;
+    private long initialStateGasUsed = 0L;
+
     private boolean enableEvmV2 = false;
 
     /** Instantiates a new Builder. */
@@ -1955,6 +1982,31 @@ public class MessageFrame {
       return this;
     }
 
+    /**
+     * EIP-8037: initial state-gas reservoir for the transaction's top-level frame. Ignored for
+     * child frames (they inherit the parent's {@link TxValues}). Default 0.
+     *
+     * @param initialStateGasReservoir the reservoir value at frame entry
+     * @return the builder
+     */
+    public Builder initialStateGasReservoir(final long initialStateGasReservoir) {
+      this.initialStateGasReservoir = initialStateGasReservoir;
+      return this;
+    }
+
+    /**
+     * EIP-8037: initial {@code stateGasUsed} for the transaction's top-level frame, used to bake
+     * intrinsic state gas charges into the frame before execution begins. Ignored for child frames.
+     * Default 0.
+     *
+     * @param initialStateGasUsed the cumulative state gas already charged at frame entry
+     * @return the builder
+     */
+    public Builder initialStateGasUsed(final long initialStateGasUsed) {
+      this.initialStateGasUsed = initialStateGasUsed;
+      return this;
+    }
+
     private void validate() {
       if (parentMessageFrame == null) {
         checkState(worldUpdater != null, "Missing message frame world updater");
@@ -2002,7 +2054,9 @@ public class MessageFrame {
                 blobGasPrice,
                 blockValues,
                 miningBeneficiary,
-                versionedHashes);
+                versionedHashes,
+                initialStateGasUsed,
+                initialStateGasReservoir);
         updater = worldUpdater;
         newStatic = isStatic;
       } else {

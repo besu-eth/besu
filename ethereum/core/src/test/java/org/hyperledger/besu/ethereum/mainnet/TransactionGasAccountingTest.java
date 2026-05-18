@@ -121,7 +121,7 @@ public class TransactionGasAccountingTest {
 
   @Test
   public void stateGasSpill_doubleCountingAvoided() {
-    // EIP-8037: state-gas spillover absorbed by no-growth refunds in
+    // EIP-8037: state-gas spillover absorbed by state-gas refills in
     // failed sub-frames is "burned" (sender pays, block accounting excludes from both regular
     // and state). The spillBurned is subtracted from regularGas so it is not counted as regular
     // gas; stateGas is just stateGasUsed (no initialFrameStateGasSpill addition).
@@ -166,8 +166,9 @@ public class TransactionGasAccountingTest {
   @Test
   public void initialFrameRegularHaltBurn_excludedFromRegularGas() {
     // EIP-3607 collision scenario: CREATE tx with gas_limit=600k halts at
-    // ContractCreationProcessor.start(). chargeCreateStateGas charged 131488 state gas
-    // (spilled into gasRemaining). At halt, gasRemaining=438012 was cleared by
+    // ContractCreationProcessor.start(). The intrinsic newContractStateGas charge (131488) had been
+    // baked into the frame's stateGasUsed/reservoir at construction time and spilled into
+    // gasRemaining. At halt, gasRemaining=438012 was cleared by
     // clearGasRemaining() and captured into initialFrameRegularHaltBurn.
     // The sender still pays the full 600k via receipts, but block regular gas must
     // only reflect intrinsic regular (i.e. 0 executionGas attributable to the frame

@@ -42,9 +42,9 @@ class Eip8037StateGasCostCalculatorTest {
   }
 
   @Test
-  void createStateGas() {
+  void newContractStateGas() {
     // 112 bytes per account * cpsb(1174) = 131_488
-    assertThat(calculator.createStateGas()).isEqualTo(112L * AMSTERDAM_CPSB);
+    assertThat(calculator.newContractStateGas()).isEqualTo(112L * AMSTERDAM_CPSB);
   }
 
   @Test
@@ -72,7 +72,7 @@ class Eip8037StateGasCostCalculatorTest {
 
   @Test
   void newAccountStateGasMatchesCreate() {
-    assertThat(calculator.newAccountStateGas()).isEqualTo(calculator.createStateGas());
+    assertThat(calculator.newAccountStateGas()).isEqualTo(calculator.newContractStateGas());
   }
 
   @Test
@@ -83,7 +83,8 @@ class Eip8037StateGasCostCalculatorTest {
 
   @Test
   void emptyAccountDelegationStateGasMatchesCreate() {
-    assertThat(calculator.emptyAccountDelegationStateGas()).isEqualTo(calculator.createStateGas());
+    assertThat(calculator.emptyAccountDelegationStateGas())
+        .isEqualTo(calculator.newContractStateGas());
   }
 
   @Test
@@ -97,7 +98,7 @@ class Eip8037StateGasCostCalculatorTest {
   void noneImplementationReturnsZeroForAllCosts() {
     final StateGasCostCalculator none = StateGasCostCalculator.NONE;
     assertThat(none.costPerStateByte()).isEqualTo(0L);
-    assertThat(none.createStateGas()).isEqualTo(0L);
+    assertThat(none.newContractStateGas()).isEqualTo(0L);
     assertThat(none.storageSetStateGas()).isEqualTo(0L);
     assertThat(none.codeDepositStateGas(100)).isEqualTo(0L);
     assertThat(none.codeDepositHashGas(100)).isEqualTo(0L);
@@ -132,13 +133,13 @@ class Eip8037StateGasCostCalculatorTest {
     frame.addSelfDestruct(addr);
 
     final long expected =
-        calculator.createStateGas()
+        calculator.newContractStateGas()
             + calculator.codeDepositStateGas(code.size())
             + 2L * calculator.storageSetStateGas();
     // Simulate execution-time state gas charges that the refund will return.
     frame.incrementStateGasUsed(expected);
 
-    calculator.refundSameTransactionSelfDestructStateGas(frame, 0L);
+    StateGasRefunds.applySameTransactionSelfDestructRefund(frame, 0L, calculator);
 
     assertThat(frame.getStateGasReservoir()).isEqualTo(expected);
     assertThat(frame.getStateGasUsed()).isZero();
@@ -148,7 +149,8 @@ class Eip8037StateGasCostCalculatorTest {
   void refundSameTxSelfDestructCappedAtExecutionStateGas() {
     // Top-level CREATE whose own contract self-destructs in initcode: the address sits in both
     // createSet and selfDestructSet, but the only state gas charged was the intrinsic
-    // createStateGas. Without the cap, the refund would erase intrinsic and zero out stateGasUsed.
+    // newContractStateGas. Without the cap, the refund would erase intrinsic and zero out
+    // stateGasUsed.
     final Address addr = Address.fromHexString("0x00000000000000000000000000000000000000cc");
     final ToyWorld world = new ToyWorld();
     world.createAccount(addr, 1, Wei.ZERO);
@@ -157,10 +159,10 @@ class Eip8037StateGasCostCalculatorTest {
     frame.addCreate(addr);
     frame.addSelfDestruct(addr);
 
-    final long intrinsicStateGas = calculator.createStateGas();
+    final long intrinsicStateGas = calculator.newContractStateGas();
     frame.incrementStateGasUsed(intrinsicStateGas);
 
-    calculator.refundSameTransactionSelfDestructStateGas(frame, intrinsicStateGas);
+    StateGasRefunds.applySameTransactionSelfDestructRefund(frame, intrinsicStateGas, calculator);
 
     assertThat(frame.getStateGasReservoir()).isZero();
     assertThat(frame.getStateGasUsed()).isEqualTo(intrinsicStateGas);
@@ -169,7 +171,7 @@ class Eip8037StateGasCostCalculatorTest {
   @Test
   void refundSameTxSelfDestructPartiallyCappedWhenExecutionGasBelowFullRefund() {
     // Top-level CREATE that did one SSTORE then SELFDESTRUCTed. Total stateGasUsed =
-    // intrinsic + storageSetStateGas. The full refund (createStateGas + storageSetStateGas)
+    // intrinsic + storageSetStateGas. The full refund (newContractStateGas + storageSetStateGas)
     // exceeds execution-time gas (storageSetStateGas), so the cap clamps it.
     final Address addr = Address.fromHexString("0x00000000000000000000000000000000000000dd");
     final ToyWorld world = new ToyWorld();
@@ -180,11 +182,11 @@ class Eip8037StateGasCostCalculatorTest {
     frame.addCreate(addr);
     frame.addSelfDestruct(addr);
 
-    final long intrinsicStateGas = calculator.createStateGas();
+    final long intrinsicStateGas = calculator.newContractStateGas();
     final long executionStateGas = calculator.storageSetStateGas();
     frame.incrementStateGasUsed(intrinsicStateGas + executionStateGas);
 
-    calculator.refundSameTransactionSelfDestructStateGas(frame, intrinsicStateGas);
+    StateGasRefunds.applySameTransactionSelfDestructRefund(frame, intrinsicStateGas, calculator);
 
     assertThat(frame.getStateGasReservoir()).isEqualTo(executionStateGas);
     assertThat(frame.getStateGasUsed()).isEqualTo(intrinsicStateGas);
@@ -199,7 +201,7 @@ class Eip8037StateGasCostCalculatorTest {
     final MessageFrame frame = buildFrame(world);
     frame.addSelfDestruct(addr); // destroyed but not created in this tx — EIP-6780 no-op
 
-    calculator.refundSameTransactionSelfDestructStateGas(frame, 0L);
+    StateGasRefunds.applySameTransactionSelfDestructRefund(frame, 0L, calculator);
 
     assertThat(frame.getStateGasReservoir()).isZero();
     assertThat(frame.getStateGasUsed()).isZero();
@@ -210,7 +212,7 @@ class Eip8037StateGasCostCalculatorTest {
     final ToyWorld world = new ToyWorld();
     final MessageFrame frame = buildFrame(world);
 
-    calculator.refundSameTransactionSelfDestructStateGas(frame, 0L);
+    StateGasRefunds.applySameTransactionSelfDestructRefund(frame, 0L, calculator);
 
     assertThat(frame.getStateGasReservoir()).isZero();
     assertThat(frame.getStateGasUsed()).isZero();

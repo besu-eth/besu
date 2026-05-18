@@ -142,17 +142,17 @@ public abstract class AbstractMessageProcessor {
    * EIP-8037: Handles state-gas accounting on REVERT.
    *
    * <p>Snapshots the state-gas counters, runs the frame rollback (which automatically undoes all
-   * UndoScalar-tracked state-gas mutations within the frame's scope — including no-growth refund
+   * UndoScalar-tracked state-gas mutations within the frame's scope — including state-gas refill
    * credits to the shared reservoir), then credits any gas-left spill back to the reservoir so the
    * parent (or sender, on top-level revert) can recover it via {@code refundedGas}.
    *
    * <p>Per EIP-8037, a reverted frame returns the full state-gas charge to the parent: {@code
    * parent.state_gas_left += child.state_gas_used + child.state_gas_left - child.state_gas_refund}.
-   * The {@code state_gas_refund} subtraction prevents in-scope no-growth refunds (SSTORE 0→X→0
-   * etc.) from inflating the parent's state gas. Besu mirrors this with {@code
-   * noGrowthRefundsInScope}: even though rollback already undoes the reservoir credit, the in-scope
-   * refund should also cancel out the matching gas-left spill that the refund would have "made up
-   * for" — otherwise the parent would recover spill that the refund had effectively reclaimed.
+   * The {@code state_gas_refund} subtraction prevents in-scope refills (SSTORE 0→X→0 etc.) from
+   * inflating the parent's state gas. Besu mirrors this with {@code stateGasRefillsInScope}: even
+   * though rollback already undoes the reservoir credit, the in-scope refill should also cancel out
+   * the matching gas-left spill that the refill would have "made up for" — otherwise the parent
+   * would recover spill that the refill had effectively reclaimed.
    *
    * <p>Initial-frame revert is the exception: at top level the {@code state_gas_refund} stays
    * inside {@code state_gas_left} (no parent to absorb it), so the spill is fully restored without
@@ -162,11 +162,11 @@ public abstract class AbstractMessageProcessor {
     final boolean isInitialFrame = frame.getMessageFrameStack().size() == 1;
     final long stateGasUsedBefore = frame.getStateGasUsed();
     final long reservoirBefore = frame.getStateGasReservoir();
-    final long noGrowthRefundsBefore = frame.getNoGrowthStateGasRefunds();
+    final long stateGasRefillsBefore = frame.getStateGasRefills();
     clearAccumulatedStateBesidesGasAndOutput(frame);
     final long stateGasRestored = stateGasUsedBefore - frame.getStateGasUsed();
     final long reservoirRestored = frame.getStateGasReservoir() - reservoirBefore;
-    final long noGrowthRefundsInScope = noGrowthRefundsBefore - frame.getNoGrowthStateGasRefunds();
+    final long stateGasRefillsInScope = stateGasRefillsBefore - frame.getStateGasRefills();
     final long grossSpill = stateGasRestored - reservoirRestored;
     final long restored;
     final long gasLeftBurn;
@@ -179,8 +179,8 @@ public abstract class AbstractMessageProcessor {
       gasLeftBurn = 0L;
       reservoirBurn = 0L;
     } else {
-      // Non-initial revert: the matched portion of an in-scope charge ↔ in-scope refund must
-      // stay paid by the user (parent's incorporate-on-error subtracts the refund). Split
+      // Non-initial revert: the matched portion of an in-scope charge ↔ in-scope refill must
+      // stay paid by the user (parent's incorporate-on-error subtracts the refill). Split
       // the matched amount into:
       //   - gasLeftBurn: portion that was originally drained from gas_left (spill); gas_left is
       //     already short by this amount, so block accounting just needs to exclude it from
@@ -189,10 +189,10 @@ public abstract class AbstractMessageProcessor {
       //     the reservoir, so this loss has to be tracked separately and subtracted from the
       //     "effective" reservoir at tx end (raises gasUsedByTransaction; credits the loss to
       //     effective state gas so block-regular still excludes it).
-      // Cap by chargesInScope to avoid burning when the refund came from a deeper successful
+      // Cap by chargesInScope to avoid burning when the refill came from a deeper successful
       // sub-frame (rollback already removed the inflation; no further action needed).
-      final long chargesInScope = stateGasRestored + noGrowthRefundsInScope;
-      final long matched = Math.min(noGrowthRefundsInScope, Math.max(0L, chargesInScope));
+      final long chargesInScope = stateGasRestored + stateGasRefillsInScope;
+      final long matched = Math.min(stateGasRefillsInScope, Math.max(0L, chargesInScope));
       gasLeftBurn = Math.min(matched, Math.max(0L, grossSpill));
       reservoirBurn = matched - gasLeftBurn;
       restored = Math.max(0L, grossSpill - gasLeftBurn);
@@ -207,12 +207,12 @@ public abstract class AbstractMessageProcessor {
       frame.accumulateStateGasReservoirBurn(reservoirBurn);
     }
     LOG.trace(
-        "EIP-8037 SPILL_RESTORE depth={} isInitial={} stateGasRestored={} reservoirRestored={} noGrowthRefundsInScope={} grossSpill={} burned={} restored={}",
+        "EIP-8037 SPILL_RESTORE depth={} isInitial={} stateGasRestored={} reservoirRestored={} stateGasRefillsInScope={} grossSpill={} burned={} restored={}",
         frame.getDepth(),
         isInitialFrame,
         stateGasRestored,
         reservoirRestored,
-        noGrowthRefundsInScope,
+        stateGasRefillsInScope,
         grossSpill,
         gasLeftBurn,
         restored);
@@ -227,7 +227,7 @@ public abstract class AbstractMessageProcessor {
    * portion stays burned alongside {@code gas_left}.
    *
    * <p>In Besu this collapses to "rollback only": {@code clearAccumulatedStateBesidesGasAndOutput}
-   * → {@code rollback()} restores the reservoir, {@code stateGasUsed}, and the no-growth refund
+   * → {@code rollback()} restores the reservoir, {@code stateGasUsed}, and the state-gas refills
    * counter to the frame's entry values. Subsequently {@code clearGasRemaining} (in the caller)
    * zeros {@code gasRemaining}, naturally re-classifying the spilled portion as regular-gas
    * consumption via {@code executionGas = txGas - gasRemaining - reservoir}. Unlike the revert

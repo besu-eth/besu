@@ -182,10 +182,10 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
             .flatMap(Optional::stream)
             .findFirst();
     if (firstValidationFailure.isPresent()) {
-      // EIP-8037: on code deposit validation failure
-      // (e.g. oversized code), trigger an exceptional halt. handleStateGasHalt will refund
-      // execution state gas to the reservoir; intrinsic state gas (preserved past
-      // advanceUndoMark) remains.
+      // EIP-8037: on code deposit validation failure (e.g. oversized code), trigger an
+      // exceptional halt. handleStateGasHalt refunds execution-time state gas to the reservoir;
+      // intrinsic state gas was baked into the frame's stateGasUsed at construction (with no
+      // undo entries) so it survives the rollback.
       frame.setExceptionalHaltReason(firstValidationFailure);
       frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
       operationTracer.traceAccountCreationResult(frame, firstValidationFailure);
@@ -215,13 +215,13 @@ public class ContractCreationProcessor extends AbstractMessageProcessor {
     frame.decrementRemainingGas(depositFee);
 
     // Only now charge state gas for code deposit (cpsb * codeSize).
-    if (!evm.getGasCalculator()
-        .stateGasCostCalculator()
-        .chargeCodeDepositStateGas(frame, contractCode.size())) {
+    if (!frame.consumeStateGas(
+        evm.getGasCalculator().stateGasCostCalculator().codeDepositStateGas(contractCode.size()))) {
       LOG.trace("Contract creation error: insufficient state gas for code deposit");
       // EIP-8037: code deposit OOG is an exceptional halt. handleStateGasHalt refunds the
-      // execution state gas (including any spillover) to the reservoir; intrinsic state gas
-      // is preserved by the advanceUndoMark applied to the initial frame.
+      // execution-time state gas (including any spillover) to the reservoir; intrinsic state gas
+      // is preserved because it was baked into the frame's stateGasUsed at construction with no
+      // undo entries.
       frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
       frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
       operationTracer.traceAccountCreationResult(

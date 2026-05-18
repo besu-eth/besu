@@ -103,7 +103,7 @@ public abstract class TransactionGasAccounting {
     // BlockGasAccountingStrategy.AMSTERDAM = gasUsedByTransaction - stateGasUsed) reflects ONLY
     // legitimate consumption: actual state growth + actual regular execution. Burned gas-left
     // spill (charge drained from gasRemaining in a reverted frame, cancelled by an in-scope
-    // no-growth refund) is sender-paid (visible in receipt cumulative via the refund
+    // state-gas refill) is sender-paid (visible in receipt cumulative via the refund
     // calculation) but excluded from block-regular — revert spillover never increments
     // regular_gas_used. The reservoir burn (drain that stays paid because the matching refund
     // was eaten by a reverted ancestor's incorporate-on-error) is similarly excluded from block

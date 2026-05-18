@@ -237,11 +237,14 @@ public abstract class AbstractCallOperation extends AbstractOperation {
     }
     frame.decrementRemainingGas(cost);
 
-    // EIP-8037: Charge state gas for new account creation in CALL
-    if (!gasCalculator()
-        .stateGasCostCalculator()
-        .chargeCallNewAccountStateGas(frame, recipientAddress, transferValue)) {
-      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    // EIP-8037: Charge state gas for new account creation in CALL.
+    if (!transferValue.isZero()) {
+      final Account recipient = frame.getWorldUpdater().get(recipientAddress);
+      if (recipient == null || recipient.isEmpty()) {
+        if (!frame.consumeStateGas(gasCalculator().stateGasCostCalculator().newAccountStateGas())) {
+          return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+        }
+      }
     }
 
     frame.clearReturnData();

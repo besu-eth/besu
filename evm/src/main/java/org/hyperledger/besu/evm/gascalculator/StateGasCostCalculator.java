@@ -14,42 +14,38 @@
  */
 package org.hyperledger.besu.evm.gascalculator;
 
-import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.evm.account.Account;
-import org.hyperledger.besu.evm.frame.MessageFrame;
-
-import java.util.function.Supplier;
-
-import org.apache.tuweni.units.bigints.UInt256;
+import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
+import static org.hyperledger.besu.evm.internal.Words.clampedMultiply;
 
 /**
- * Strategy interface for EIP-8037 state creation gas cost calculations.
+ * Strategy interface for EIP-8037 state-creation gas cost calculations.
  *
  * <p>EIP-8037 introduces multidimensional gas metering, splitting gas into regular gas and state
- * gas. State-creation operations (CREATE, SSTORE 0->nonzero, CALL to new accounts, code deposits,
- * EIP-7702 delegations) get their costs split into a regular gas portion and a state gas portion,
- * where the state gas depends on a dynamic cost_per_state_byte (cpsb) derived from the block gas
- * limit.
+ * gas. State-creation operations (CREATE, SSTORE 0→nonzero, CALL to new accounts, code deposits,
+ * EIP-7702 delegations) have their costs split into a regular gas portion and a state gas portion,
+ * where state gas depends on a fixed {@code cost_per_state_byte} (cpsb) for the active fork.
  *
- * <p>Operations call the {@code charge*} methods to deduct state gas. The default (NONE)
- * implementation is a no-op; the EIP-8037 implementation performs the actual deduction.
+ * <p>This interface is intentionally a pure cost calculator: it returns gas amounts only. Charging
+ * (and refunding) is the responsibility of the operation or transaction processor that issues the
+ * cost — see e.g. {@code SStoreOperation}, {@code AbstractCreateOperation}, and {@code
+ * MainnetTransactionProcessor}.
  */
 public interface StateGasCostCalculator {
 
   /**
-   * Returns the cost per state byte for the given block gas limit.
+   * Returns the cost per state byte for the active fork.
    *
    * @return the cost per state byte
    */
   long costPerStateByte();
 
   /**
-   * Returns the state gas for a CREATE operation (112 * cpsb).
+   * Returns the state gas for creating a new contract account (112 * cpsb). Charged for the
+   * CREATE/CREATE2 opcodes and for the intrinsic charge of a contract-creation transaction.
    *
-   * @return the state gas for CREATE
+   * @return the state gas for a new contract
    */
-  long createStateGas();
+  long newContractStateGas();
 
   /**
    * Returns the state gas for code deposit (cpsb * codeSize).
@@ -75,7 +71,7 @@ public interface StateGasCostCalculator {
   long newAccountStateGas();
 
   /**
-   * Returns the state gas for storage set 0->nonzero (32 * cpsb).
+   * Returns the state gas for storage set 0→nonzero (32 * cpsb).
    *
    * @return the state gas for storage set
    */
@@ -127,144 +123,6 @@ public interface StateGasCostCalculator {
     return false;
   }
 
-  // ---- Charge methods (strategy pattern for state gas deduction) ----
-
-  /**
-   * Charges state gas for SSTORE 0→nonzero (storage set). Only charges when the original value is
-   * zero, current value is zero, and the new value is nonzero.
-   *
-   * @param frame the message frame
-   * @param newValue the new storage value being written
-   * @param currentValue supplier for the current storage value
-   * @param originalValue supplier for the original storage value
-   * @return true if gas was successfully charged, false if insufficient gas
-   */
-  default boolean chargeStorageSetStateGas(
-      final MessageFrame frame,
-      final UInt256 newValue,
-      final Supplier<UInt256> currentValue,
-      final Supplier<UInt256> originalValue) {
-    return true;
-  }
-
-  /**
-   * Charges state gas for CREATE/CREATE2 operations (new account: 112 * cpsb).
-   *
-   * @param frame the message frame
-   * @return true if gas was successfully charged, false if insufficient gas
-   */
-  default boolean chargeCreateStateGas(final MessageFrame frame) {
-    return true;
-  }
-
-  /**
-   * Charges state gas for code deposit (cpsb * codeSize).
-   *
-   * @param frame the message frame
-   * @param codeSize the size of the deployed code in bytes
-   * @return true if gas was successfully charged, false if insufficient gas
-   */
-  default boolean chargeCodeDepositStateGas(final MessageFrame frame, final int codeSize) {
-    return true;
-  }
-
-  /**
-   * Charges state gas for CALL-family operations that create a new account. Only charges when the
-   * transfer value is nonzero and the recipient does not exist or is empty.
-   *
-   * @param frame the message frame
-   * @param recipientAddress the recipient address
-   * @param transferValue the value being transferred
-   * @return true if gas was successfully charged, false if insufficient gas
-   */
-  default boolean chargeCallNewAccountStateGas(
-      final MessageFrame frame, final Address recipientAddress, final Wei transferValue) {
-    return true;
-  }
-
-  /**
-   * Charges state gas for SELFDESTRUCT that sends to a new account. Only charges when the
-   * beneficiary does not exist or is empty and the originator has nonzero balance.
-   *
-   * @param frame the message frame
-   * @param beneficiary the beneficiary account (may be null)
-   * @param originatorBalance the originator's balance
-   * @return true if gas was successfully charged, false if insufficient gas
-   */
-  default boolean chargeSelfDestructNewAccountStateGas(
-      final MessageFrame frame, final Account beneficiary, final Wei originatorBalance) {
-    return true;
-  }
-
-  /**
-   * Charges state gas for EIP-7702 code delegation intrinsic costs.
-   *
-   * @param frame the message frame
-   * @param totalDelegations total number of code delegations
-   * @param alreadyExistingDelegators number of delegators that already existed
-   * @return true if gas was successfully charged, false if insufficient gas
-   */
-  default boolean chargeCodeDelegationStateGas(
-      final MessageFrame frame, final long totalDelegations, final long alreadyExistingDelegators) {
-    return true;
-  }
-
-  /**
-   * Refunds state gas for SSTORE when reverting a storage set (0→X→0). Only refunds when the new
-   * value is zero, the current value is nonzero, and the original value is zero.
-   *
-   * @param frame the message frame
-   * @param newValue the new storage value being written
-   * @param currentValue supplier for the current storage value
-   * @param originalValue supplier for the original storage value
-   */
-  default void refundStorageSetStateGas(
-      final MessageFrame frame,
-      final UInt256 newValue,
-      final Supplier<UInt256> currentValue,
-      final Supplier<UInt256> originalValue) {}
-
-  /**
-   * Refunds the state gas previously charged by {@link #chargeCreateStateGas(MessageFrame)} when a
-   * CREATE/CREATE2 silently fails at the opcode level (insufficient balance, nonce overflow, stack
-   * depth limit, or address collision), before a child frame is entered. The refund is credited
-   * directly to state_gas_reservoir and execution_state_gas_used is decremented. Per EIP-8037
-   * (ethereum/EIPs #11532 item 3): no account was created, so no state gas should be paid.
-   *
-   * @param frame the message frame performing the CREATE
-   */
-  default void refundCreateStateGas(final MessageFrame frame) {}
-
-  /**
-   * Applies the end-of-transaction refund for accounts that were both created and self-destructed
-   * within the same transaction (EIP-6780). Per EIP-8037 (ethereum/EIPs #11532 item 4): for each
-   * such account, refund to state_gas_reservoir (and decrement execution_state_gas_used) the state
-   * gas for:
-   *
-   * <ul>
-   *   <li>account creation: {@code 112 × cost_per_state_byte}
-   *   <li>code deposit: {@code len(code) × cost_per_state_byte}
-   *   <li>non-zero storage slots: {@code 32 × cost_per_state_byte} per slot
-   * </ul>
-   *
-   * <p>The total refund is capped at execution-time state gas ({@code stateGasUsed -
-   * intrinsicStateGas}); the intrinsic charge paid at transaction start is never refunded. This
-   * matters when a top-level CREATE's own contract address is in {@code createSet ∩
-   * selfDestructSet} — without the cap, the refund would erase the intrinsic create-state-gas.
-   * Matches geth/nethermind/erigon/ethrex.
-   *
-   * <p>This must be applied before {@code tx_gas_used_before_refund} is computed so the sender is
-   * not charged for state that was destroyed. Storage slots restored to zero during execution
-   * (0→X→0) are not counted here because they have a final value of zero — the SSTORE restoration
-   * refund already returned their state gas.
-   *
-   * @param initialFrame the initial (depth-0) frame after transaction execution
-   * @param intrinsicStateGas the intrinsic state gas charged at tx start; refund cannot consume
-   *     this portion of {@code stateGasUsed}
-   */
-  default void refundSameTransactionSelfDestructStateGas(
-      final MessageFrame initialFrame, final long intrinsicStateGas) {}
-
   /**
    * Computes the intrinsic state gas for a transaction. This is the worst-case state gas charged
    * upfront (assuming all delegation targets are new accounts). Existing-account refunds are
@@ -276,18 +134,16 @@ public interface StateGasCostCalculator {
    */
   default long transactionIntrinsicStateGas(
       final boolean isContractCreation, final long codeDelegationCount) {
-    long stateGas = 0;
-    if (isContractCreation) {
-      stateGas += createStateGas();
-    }
+    long stateGas = isContractCreation ? newContractStateGas() : 0L;
     if (codeDelegationCount > 0) {
       // Worst case: all delegators are new accounts → (112 + 23) * cpsb each
-      stateGas += (emptyAccountDelegationStateGas() + authBaseStateGas()) * codeDelegationCount;
+      final long perDelegation = clampedAdd(emptyAccountDelegationStateGas(), authBaseStateGas());
+      stateGas = clampedAdd(stateGas, clampedMultiply(perDelegation, codeDelegationCount));
     }
     return stateGas;
   }
 
-  /** A no-op implementation that returns 0 for all state gas costs and performs no charging. */
+  /** A no-op implementation that returns 0 for all state gas costs. */
   StateGasCostCalculator NONE =
       new StateGasCostCalculator() {
         @Override
@@ -296,7 +152,7 @@ public interface StateGasCostCalculator {
         }
 
         @Override
-        public long createStateGas() {
+        public long newContractStateGas() {
           return 0L;
         }
 

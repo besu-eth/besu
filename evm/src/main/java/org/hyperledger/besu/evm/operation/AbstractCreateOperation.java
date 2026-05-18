@@ -105,7 +105,8 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     frame.decrementRemainingGas(cost);
 
     // EIP-8037: Charge state gas for CREATE operation.
-    if (!gasCalculator().stateGasCostCalculator().chargeCreateStateGas(frame)) {
+    final long newContractStateGas = gasCalculator().stateGasCostCalculator().newContractStateGas();
+    if (!frame.consumeStateGas(newContractStateGas)) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 
@@ -119,7 +120,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     if (insufficientBalance || maxDepthReached || invalidState) {
       // EIP-8037: on opcode-level silent failure no account
       // is created, so refund the 112 × cpsb account-creation state gas to the reservoir.
-      gasCalculator().stateGasCostCalculator().refundCreateStateGas(frame);
+      frame.refillStateGasReservoir(newContractStateGas);
       fail(frame);
       // Set soft failure reason for callTracer compatibility
       final SoftFailureReason softFailureReason =
@@ -265,7 +266,7 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
       // The child's own state gas charges (e.g. inner SSTOREs, code deposits) are already
       // refunded into the reservoir by handleStateGasRevertSpill / handleStateGasHalt in
       // AbstractMessageProcessor.
-      gasCalculator().stateGasCostCalculator().refundCreateStateGas(frame);
+      frame.refillStateGasReservoir(gasCalculator().stateGasCostCalculator().newContractStateGas());
       frame.setReturnData(childFrame.getOutputData());
       frame.pushStackItem(Bytes.EMPTY);
       onFailure(frame, childFrame.getExceptionalHaltReason());

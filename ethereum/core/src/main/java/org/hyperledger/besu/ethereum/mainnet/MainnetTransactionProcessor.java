@@ -39,6 +39,7 @@ import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
+import org.hyperledger.besu.evm.gascalculator.StateGasRefunds;
 import org.hyperledger.besu.evm.log.TransferLogEmitter;
 import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
 import org.hyperledger.besu.evm.processor.ContractCreationProcessor;
@@ -342,6 +343,18 @@ public class MainnetTransactionProcessor {
           transaction.getGasLimit(),
           intrinsicRegularGas);
 
+      // EIP-8037: split the available gas budget into regular gas and reservoir, then bake the
+      // intrinsic state-gas charge into those values so the initial frame is constructed with
+      // its final reservoir / gasRemaining / stateGasUsed and no post-construction setter +
+      // undo-mark dance is needed.
+      final IntrinsicStateGasCharge intrinsicCharge =
+          IntrinsicStateGasCharge.compute(
+              transaction,
+              alreadyExistingDelegators,
+              gasAvailable,
+              intrinsicRegularGas,
+              stateGasCalc);
+
       final WorldUpdater worldUpdater = worldState.updater();
 
       operationTracer.traceStartTransaction(worldUpdater, transaction);
@@ -350,7 +363,9 @@ public class MainnetTransactionProcessor {
           MessageFrame.builder()
               .maxStackSize(maxStackSize)
               .worldUpdater(worldUpdater.updater())
-              .initialGas(gasAvailable)
+              .initialGas(intrinsicCharge.gasLeft())
+              .initialStateGasReservoir(intrinsicCharge.reservoir())
+              .initialStateGasUsed(intrinsicCharge.stateGasUsed())
               .originator(senderAddress)
               .gasPrice(transactionGasPrice)
               .blobGasPrice(blobGasPrice)
@@ -407,13 +422,6 @@ public class MainnetTransactionProcessor {
                 .eip2930AccessListWarmAddresses(eip2930WarmAddressList)
                 .build();
       }
-      initializeStateGasReservoir(initialFrame, gasAvailable, intrinsicRegularGas, stateGasCalc);
-      chargeIntrinsicStateGas(initialFrame, transaction, alreadyExistingDelegators, stateGasCalc);
-      // EIP-8037: Advance the undo mark so intrinsic state gas charges (auth delegation,
-      // contract creation) are not rolled back if the initial frame's execution reverts.
-      // These are transaction-level costs that persist regardless of execution outcome.
-      initialFrame.advanceUndoMark();
-
       Deque<MessageFrame> messageFrameStack = initialFrame.getMessageFrameStack();
 
       // EIP-8037: Track spillBurned before the initial frame's final processing step.
@@ -458,9 +466,13 @@ public class MainnetTransactionProcessor {
         worldUpdater.commit();
         // EIP-8037: end-of-tx refund for accounts created and
         // self-destructed within this transaction. Must run before tx_gas_used_before_refund is
-        // computed below so the sender is not charged for state that was destroyed. Pass the
-        // intrinsic state gas so the refund is capped at execution-time state gas only.
-        stateGasCalc.refundSameTransactionSelfDestructStateGas(initialFrame, intrinsicStateGas);
+        // computed below so the sender is not charged for state that was destroyed. The refund
+        // is capped at execution-time state gas only — intrinsic was paid up-front and is not
+        // refundable.
+        if (stateGasCalc.isActive()) {
+          StateGasRefunds.applySameTransactionSelfDestructRefund(
+              initialFrame, intrinsicStateGas, stateGasCalc);
+        }
       } else {
         if (initialFrame.getExceptionalHaltReason().isPresent()) {
           validationResult =
@@ -705,41 +717,82 @@ public class MainnetTransactionProcessor {
   }
 
   /**
-   * EIP-8037: Initializes the state gas reservoir for Amsterdam+ forks. When multidimensional gas
-   * is active, regular gas is capped at {@code TX_MAX_GAS_LIMIT - intrinsic}; gas beyond that cap
-   * goes into the state gas reservoir. No-op for pre-Amsterdam forks.
+   * EIP-8037: regular-gas / reservoir / state-gas-used split for the initial frame after applying
+   * the transaction's intrinsic state-gas charges. Computed before frame construction so the frame
+   * is built with its final values.
+   *
+   * @param gasLeft regular gas remaining in the initial frame at entry
+   * @param reservoir state-gas reservoir balance at entry
+   * @param stateGasUsed cumulative state gas already charged at entry (= intrinsic state gas)
    */
-  private static void initializeStateGasReservoir(
-      final MessageFrame initialFrame,
-      final long gasAvailable,
-      final long intrinsicRegularGas,
-      final StateGasCostCalculator stateGasCalc) {
-    if (!stateGasCalc.isActive()) {
-      return;
-    }
-    final long regularBudget =
-        Math.max(0L, stateGasCalc.transactionRegularGasLimit() - intrinsicRegularGas);
-    final long gasLeft = Math.min(regularBudget, gasAvailable);
-    final long reservoir = gasAvailable - gasLeft;
-    initialFrame.setGasRemaining(gasLeft);
-    initialFrame.setStateGasReservoir(reservoir);
-  }
+  private record IntrinsicStateGasCharge(long gasLeft, long reservoir, long stateGasUsed) {
 
-  /**
-   * EIP-8037: Charges intrinsic state gas (contract creation and authorization delegation) before
-   * frame execution begins.
-   */
-  private static void chargeIntrinsicStateGas(
-      final MessageFrame initialFrame,
-      final Transaction transaction,
-      final long alreadyExistingDelegators,
-      final StateGasCostCalculator stateGasCalc) {
-    if (transaction.isContractCreation()) {
-      stateGasCalc.chargeCreateStateGas(initialFrame);
+    static IntrinsicStateGasCharge compute(
+        final Transaction transaction,
+        final long alreadyExistingDelegators,
+        final long gasAvailable,
+        final long intrinsicRegularGas,
+        final StateGasCostCalculator stateGasCalc) {
+      if (!stateGasCalc.isActive()) {
+        return new IntrinsicStateGasCharge(gasAvailable, 0L, 0L);
+      }
+      final long regularBudget =
+          Math.max(0L, stateGasCalc.transactionRegularGasLimit() - intrinsicRegularGas);
+      final long initialGasLeft = Math.min(regularBudget, gasAvailable);
+      final Accumulator acc = new Accumulator(initialGasLeft, gasAvailable - initialGasLeft);
+
+      if (transaction.isContractCreation()) {
+        acc.drain(stateGasCalc.newContractStateGas());
+      }
+
+      if (transaction.getType().equals(TransactionType.DELEGATE_CODE)) {
+        final long totalDelegations = transaction.codeDelegationListSize();
+        final long newEmptyAccounts = totalDelegations - alreadyExistingDelegators;
+        acc.drain(stateGasCalc.authBaseStateGas() * totalDelegations);
+        if (newEmptyAccounts > 0) {
+          acc.drain(stateGasCalc.emptyAccountDelegationStateGas() * newEmptyAccounts);
+        }
+        if (alreadyExistingDelegators > 0) {
+          // The 112 × cpsb portion of the intrinsic charge is refunded for each pre-existing
+          // delegator (EIP-8037 spec). The matching gasLeft debit preserves the sender invariant
+          // tx.gas - (gasLeft + reservoir) = gas actually charged, given intrinsic state gas is
+          // not pre-deducted from tx.gas. Skipped if gasLeft cannot cover the credit (corner
+          // case at the gas-limit floor).
+          acc.creditReservoirFromGasLeft(
+              stateGasCalc.emptyAccountDelegationStateGas() * alreadyExistingDelegators);
+        }
+      }
+
+      return new IntrinsicStateGasCharge(acc.gasLeft, acc.reservoir, acc.stateGasUsed);
     }
-    if (transaction.getType().equals(TransactionType.DELEGATE_CODE)) {
-      stateGasCalc.chargeCodeDelegationStateGas(
-          initialFrame, transaction.codeDelegationListSize(), alreadyExistingDelegators);
+
+    /**
+     * Drains state-gas charges from {@code reservoir} first, then {@code gasLeft}, accumulating
+     * into {@code stateGasUsed}.
+     */
+    private static final class Accumulator {
+      long gasLeft;
+      long reservoir;
+      long stateGasUsed;
+
+      Accumulator(final long gasLeft, final long reservoir) {
+        this.gasLeft = gasLeft;
+        this.reservoir = reservoir;
+      }
+
+      void drain(final long amount) {
+        final long fromReservoir = Math.min(reservoir, amount);
+        reservoir -= fromReservoir;
+        gasLeft -= (amount - fromReservoir);
+        stateGasUsed += amount;
+      }
+
+      void creditReservoirFromGasLeft(final long amount) {
+        if (gasLeft >= amount) {
+          gasLeft -= amount;
+          reservoir += amount;
+        }
+      }
     }
   }
 
