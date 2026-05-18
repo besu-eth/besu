@@ -19,7 +19,7 @@
 
 ### Bug fixes
 - Fix `engine_forkchoiceUpdatedV1` now returns `-38003 INVALID_PAYLOAD_ATTRIBUTES` for invalid payload attribute timestamps (zero or not greater than head). [#10353](https://github.com/besu-eth/besu/pull/10353)
-- Fix `engine_newPayloadV4`/`V5` now returns `-32602 INVALID_PARAMS` instead of `INVALID` payload status when execution requests contain an unknown request type. [#10484](https://github.com/besu-eth/besu/pull/10484)
+- Fix `engine_newPayloadV4`/`V5` returns `-32602 INVALID_PARAMS` when execution requests are out of order, have empty data, contain duplicate type bytes, or the param is null; returns `INVALID` payload status for unknown request type bytes. [#10484](https://github.com/besu-eth/besu/pull/10484)
 - Fix `debug_trace*` `storage` field to emit only for SLOAD/SSTORE opcodes showing the single slot touched, matching the execution-apis spec and geth behaviour [#10176](https://github.com/besu-eth/besu/pull/10176)
 
 ### Additions and Improvements
