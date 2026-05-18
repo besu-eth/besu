@@ -19,27 +19,24 @@ package org.hyperledger.besu.evm.gascalculator;
  * at the call site (operations / transaction processor).
  */
 public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
-  /**
-   * Number of state bytes per new account (20-byte address + 8-byte nonce + 32-byte balance +
-   * 32-byte code hash + 20-byte storage root = 112 bytes).
-   */
-  static final int STATE_BYTES_PER_NEW_ACCOUNT = 112;
+  /** Number of state bytes per new account. */
+  static final int STATE_BYTES_PER_NEW_ACCOUNT = 120;
 
-  /** Number of state bytes per storage slot (32 bytes for key + value). */
-  static final int STATE_BYTES_PER_STORAGE_SLOT = 32;
+  /** Number of state bytes per storage slot. */
+  static final int STATE_BYTES_PER_STORAGE_SLOT = 64;
 
   /** Number of state bytes per auth delegation (23 bytes). */
   static final int STATE_BYTES_PER_AUTH = 23;
 
   /**
    * Regular gas for storage set (GAS_STORAGE_UPDATE - GAS_COLD_SLOAD = 5000 - 2100 = 2900). The
-   * state portion (32 * cpsb) is charged separately.
+   * state portion ({@code STATE_BYTES_PER_STORAGE_SLOT * cpsb}) is charged separately.
    */
   static final long STORAGE_SET_REGULAR_GAS = 2_900L;
 
   /**
    * Regular gas for EIP-7702 auth base (calldata + ecrecover + cold access + warm write ≈ 7500).
-   * The state portion (23 * cpsb) is charged separately.
+   * The state portion ({@code STATE_BYTES_PER_AUTH * cpsb}) is charged separately.
    */
   static final long AUTH_BASE_REGULAR_GAS = 7_500L;
 
@@ -49,7 +46,7 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
   /** The mainnet transaction gas limit cap from EIP-7825, enforced at runtime on regular gas. */
   static final long TX_MAX_GAS_LIMIT = 16_777_216L;
 
-  static final long COST_PER_STATE_BYTE = 1174L;
+  static final long COST_PER_STATE_BYTE = 1530L;
 
   /** Instantiates a new EIP-8037 state gas cost calculator. */
   public Eip8037StateGasCostCalculator() {}

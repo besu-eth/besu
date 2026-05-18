@@ -139,136 +139,25 @@ public abstract class AbstractMessageProcessor {
   }
 
   /**
-   * EIP-8037: Handles state-gas accounting on REVERT.
-   *
-   * <p>Snapshots the state-gas counters, runs the frame rollback (which automatically undoes all
-   * UndoScalar-tracked state-gas mutations within the frame's scope — including state-gas refill
-   * credits to the shared reservoir), then credits any gas-left spill back to the reservoir so the
-   * parent (or sender, on top-level revert) can recover it via {@code refundedGas}.
-   *
-   * <p>Per EIP-8037, a reverted frame returns the full state-gas charge to the parent: {@code
-   * parent.state_gas_left += child.state_gas_used + child.state_gas_left - child.state_gas_refund}.
-   * The {@code state_gas_refund} subtraction prevents in-scope refills (SSTORE 0→X→0 etc.) from
-   * inflating the parent's state gas. Besu mirrors this with {@code stateGasRefillsInScope}: even
-   * though rollback already undoes the reservoir credit, the in-scope refill should also cancel out
-   * the matching gas-left spill that the refill would have "made up for" — otherwise the parent
-   * would recover spill that the refill had effectively reclaimed.
-   *
-   * <p>Initial-frame revert is the exception: at top level the {@code state_gas_refund} stays
-   * inside {@code state_gas_left} (no parent to absorb it), so the spill is fully restored without
-   * subtraction — matching {@code state_gas_left += state_gas_used} in the tx-end error fixup.
+   * EIP-8037 state-gas accounting on frame failure (REVERT or exceptional HALT). Rolls back the
+   * frame's UndoScalar state-gas mutations, then credits any gas-left spill back to the reservoir
+   * so the parent (or sender, on top-level failure) recovers it. Halt and revert share this path
+   * because both propagate the full state_gas_used back via incorporate_child_on_error.
    */
-  private void handleStateGasRevertSpill(final MessageFrame frame) {
-    final boolean isInitialFrame = frame.getMessageFrameStack().size() == 1;
+  private void handleStateGasOnFrameFailure(final MessageFrame frame) {
     final long stateGasUsedBefore = frame.getStateGasUsed();
     final long reservoirBefore = frame.getStateGasReservoir();
-    final long stateGasRefillsBefore = frame.getStateGasRefills();
     clearAccumulatedStateBesidesGasAndOutput(frame);
     final long stateGasRestored = stateGasUsedBefore - frame.getStateGasUsed();
     final long reservoirRestored = frame.getStateGasReservoir() - reservoirBefore;
-    final long stateGasRefillsInScope = stateGasRefillsBefore - frame.getStateGasRefills();
-    final long grossSpill = stateGasRestored - reservoirRestored;
-    final long restored;
-    final long gasLeftBurn;
-    final long reservoirBurn;
-    if (isInitialFrame) {
-      // Top-level revert: no parent to absorb refunds. Restore the full spill so the sender
-      // recovers it via reservoir leftover (matches the tx-end fixup `state_gas_left +=
-      // state_gas_used`).
-      restored = Math.max(0L, grossSpill);
-      gasLeftBurn = 0L;
-      reservoirBurn = 0L;
-    } else {
-      // Non-initial revert: the matched portion of an in-scope charge ↔ in-scope refill must
-      // stay paid by the user (parent's incorporate-on-error subtracts the refill). Split
-      // the matched amount into:
-      //   - gasLeftBurn: portion that was originally drained from gas_left (spill); gas_left is
-      //     already short by this amount, so block accounting just needs to exclude it from
-      //     block-regular (revert spill does not add to regular_gas_used).
-      //   - reservoirBurn: portion drained from the reservoir; UndoScalar rollback restored
-      //     the reservoir, so this loss has to be tracked separately and subtracted from the
-      //     "effective" reservoir at tx end (raises gasUsedByTransaction; credits the loss to
-      //     effective state gas so block-regular still excludes it).
-      // Cap by chargesInScope to avoid burning when the refill came from a deeper successful
-      // sub-frame (rollback already removed the inflation; no further action needed).
-      final long chargesInScope = stateGasRestored + stateGasRefillsInScope;
-      final long matched = Math.min(stateGasRefillsInScope, Math.max(0L, chargesInScope));
-      gasLeftBurn = Math.min(matched, Math.max(0L, grossSpill));
-      reservoirBurn = matched - gasLeftBurn;
-      restored = Math.max(0L, grossSpill - gasLeftBurn);
-    }
-    if (restored > 0) {
-      frame.incrementStateGasReservoir(restored);
-    }
-    if (gasLeftBurn > 0) {
-      frame.accumulateStateGasSpillBurned(gasLeftBurn);
-    }
-    if (reservoirBurn > 0) {
-      frame.accumulateStateGasReservoirBurn(reservoirBurn);
-    }
-    LOG.trace(
-        "EIP-8037 SPILL_RESTORE depth={} isInitial={} stateGasRestored={} reservoirRestored={} stateGasRefillsInScope={} grossSpill={} burned={} restored={}",
-        frame.getDepth(),
-        isInitialFrame,
-        stateGasRestored,
-        reservoirRestored,
-        stateGasRefillsInScope,
-        grossSpill,
-        gasLeftBurn,
-        restored);
-  }
-
-  /**
-   * EIP-8037: Handles state-gas accounting on exceptional HALT.
-   *
-   * <p>Per EIP-8037, halt unconditionally resets the frame's {@code state_gas_left} to its entry
-   * reservoir, zeros {@code state_gas_used} and {@code state_gas_refund}, and adds any spill
-   * (state-gas charges drained from {@code gas_left}) to {@code regular_gas_used}. The spilled
-   * portion stays burned alongside {@code gas_left}.
-   *
-   * <p>In Besu this collapses to "rollback only": {@code clearAccumulatedStateBesidesGasAndOutput}
-   * → {@code rollback()} restores the reservoir, {@code stateGasUsed}, and the state-gas refills
-   * counter to the frame's entry values. Subsequently {@code clearGasRemaining} (in the caller)
-   * zeros {@code gasRemaining}, naturally re-classifying the spilled portion as regular-gas
-   * consumption via {@code executionGas = txGas - gasRemaining - reservoir}. Unlike the revert
-   * path, no spill is credited back to the reservoir — that's the whole point of the halt rule.
-   */
-  private void handleStateGasHalt(final MessageFrame frame) {
-    clearAccumulatedStateBesidesGasAndOutput(frame);
-  }
-
-  /**
-   * Snapshots the initial frame's gasRemaining into {@code initialFrameRegularHaltBurn} when a
-   * pre-execution halt fires on the initial frame (e.g. EIP-684 CREATE collision) so that gas paid
-   * by the sender but never spent on regular or state work is excluded from block regular gas. When
-   * opcode execution has already run on the frame, the halt-burn must remain in block regular gas
-   * (no-op here).
-   *
-   * @param frame the initial (depth-0) message frame
-   */
-  private static void recordInitialFrameRegularHaltBurn(final MessageFrame frame) {
-    if (frame.isCodeExecuted()) {
-      return;
-    }
-    final long haltBurn = frame.getRemainingGas();
-    if (haltBurn > 0) {
-      frame.accumulateInitialFrameRegularHaltBurn(haltBurn);
+    final long spill = stateGasRestored - reservoirRestored;
+    if (spill > 0) {
+      frame.incrementStateGasReservoir(spill);
     }
   }
 
-  /**
-   * Gets called when the message frame encounters an exceptional halt.
-   *
-   * @param frame The message frame
-   */
   private void exceptionalHalt(final MessageFrame frame) {
-    final boolean isInitialFrame = frame.getMessageFrameStack().size() == 1;
-
-    handleStateGasHalt(frame);
-
-    if (isInitialFrame) {
-      recordInitialFrameRegularHaltBurn(frame);
-    }
+    handleStateGasOnFrameFailure(frame);
 
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
     traceFrameExit(frame, "HALT");
@@ -276,13 +165,8 @@ public abstract class AbstractMessageProcessor {
     frame.clearOutputData();
   }
 
-  /**
-   * Gets called when the message frame requests a revert.
-   *
-   * @param frame The message frame
-   */
   protected void revert(final MessageFrame frame) {
-    handleStateGasRevertSpill(frame);
+    handleStateGasOnFrameFailure(frame);
 
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
     traceFrameExit(frame, "REVERT");
@@ -329,7 +213,6 @@ public abstract class AbstractMessageProcessor {
    * @param operationTracer The tracer recording execution
    */
   private void codeExecute(final MessageFrame frame, final OperationTracer operationTracer) {
-    frame.markCodeExecuted();
     try {
       evm.runToHalt(frame, operationTracer);
     } catch (final ModificationNotAllowedException e) {

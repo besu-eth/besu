@@ -19,6 +19,7 @@ import static org.hyperledger.besu.evm.frame.SoftFailureReason.LEGACY_MAX_CALL_D
 import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
 import static org.hyperledger.besu.evm.internal.Words.clampedToLong;
 import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.getTarget;
+import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.getTargetAddress;
 import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.hasCodeDelegation;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -236,6 +237,19 @@ public abstract class AbstractCallOperation extends AbstractOperation {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
     frame.decrementRemainingGas(cost);
+
+    // Record the 7702 delegation target in the BAL once the gas check has passed. getCode() does
+    // this on the success path, but it doesn't run on soft failures (insufficient balance, max
+    // depth) — record it here so the BAL stays accurate either way. Touching only after the gas
+    // check ensures OOG calls don't add the delegation target to the BAL.
+    if (contract != null) {
+      final Bytes contractCode = contract.getCode();
+      if (hasCodeDelegation(contractCode)) {
+        frame
+            .getEip7928AccessList()
+            .ifPresent(t -> t.addTouchedAccount(getTargetAddress(contractCode)));
+      }
+    }
 
     // EIP-8037: Charge state gas for new account creation in CALL.
     if (!transferValue.isZero()) {

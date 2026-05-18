@@ -113,7 +113,7 @@ class SStoreOperationTest {
                     return blockGasLimit;
                   }
                 })
-            .initialGas(100_000L)
+            .initialGas(200_000L)
             .build();
     worldStateUpdater.getOrCreate(address).setBalance(Wei.of(1));
     worldStateUpdater.commit();
@@ -125,8 +125,7 @@ class SStoreOperationTest {
     final OperationResult result = operation.execute(frame, null);
     assertThat(result.getHaltReason()).isNull();
 
-    // State gas: 32 * cpsb
-    final long expectedStateGas = 32L * new Eip8037StateGasCostCalculator().costPerStateByte();
+    final long expectedStateGas = new Eip8037StateGasCostCalculator().storageSetStateGas();
     assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas);
   }
 
@@ -212,7 +211,7 @@ class SStoreOperationTest {
     final OperationResult result1 = operation.execute(frame, null);
     assertThat(result1.getHaltReason()).isNull();
 
-    final long expectedStateGas = 32L * new Eip8037StateGasCostCalculator().costPerStateByte();
+    final long expectedStateGas = new Eip8037StateGasCostCalculator().storageSetStateGas();
     assertThat(frame.getStateGasUsed()).isEqualTo(expectedStateGas);
 
     // Second SSTORE: key=1, value=0 (nonzero -> 0, original=0 triggers state gas refund)
@@ -302,14 +301,15 @@ class SStoreOperationTest {
     frame.setStateGasReservoir(10_000L);
     final long gasBeforeSstore = frame.getRemainingGas();
 
-    // SSTORE 0 -> nonzero: needs 37,568 state gas but only 10k in reservoir
+    // SSTORE 0 -> nonzero: state gas demand exceeds the 10k reservoir, the excess must spill to
+    // regular gas.
     frame.pushStackItem(UInt256.valueOf(42));
     frame.pushStackItem(UInt256.ONE);
     final OperationResult result = operation.execute(frame, null);
     assertThat(result.getHaltReason()).isNull();
 
-    final long expectedStateGas = 32L * new Eip8037StateGasCostCalculator().costPerStateByte();
-    final long expectedSpill = expectedStateGas - 10_000L; // 27,568
+    final long expectedStateGas = new Eip8037StateGasCostCalculator().storageSetStateGas();
+    final long expectedSpill = expectedStateGas - 10_000L;
 
     // Reservoir fully drained
     assertThat(frame.getStateGasReservoir()).isEqualTo(0L);

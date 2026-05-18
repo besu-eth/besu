@@ -229,13 +229,9 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
       final long codeDelegationRefund) {
 
     final long gasLimit = transaction.getGasLimit();
-    // EIP-8037: leftover reservoir is unspent state gas returned to the user; the tracked
-    // reservoir burn is gas the user paid that incorporate-on-error subtracted from the parent's
-    // state_gas_left, so it must not be returned even though rollback restored the reservoir.
+    // EIP-8037: leftover reservoir is unspent state gas returned to the user.
     final long totalRemaining =
-        initialFrame.getRemainingGas()
-            + initialFrame.getStateGasReservoir()
-            - initialFrame.getStateGasReservoirBurn();
+        initialFrame.getRemainingGas() + initialFrame.getStateGasReservoir();
     final long totalConsumed = gasLimit - totalRemaining;
 
     final long selfDestructRefund =

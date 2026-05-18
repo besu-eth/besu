@@ -49,22 +49,6 @@ public abstract class TransactionGasAccounting {
   /** State gas consumed by the initial frame. */
   public abstract long stateGasUsed();
 
-  /** State gas spilled from the initial frame's own revert/halt. */
-  public abstract long initialFrameStateGasSpill();
-
-  /** Total state gas spilled into gasRemaining from reverted frames. */
-  public abstract long stateGasSpillBurned();
-
-  /**
-   * Gas that was sitting unused in the initial frame's gasRemaining at the moment of an exceptional
-   * halt (EIP-7778/EIP-8037). Paid by the sender (receipts) but must be excluded from block regular
-   * gas since no operation consumed it.
-   */
-  @Value.Default
-  public long initialFrameRegularHaltBurn() {
-    return 0L;
-  }
-
   /** Gas refunded to the sender. */
   public abstract long refundedGas();
 
@@ -82,44 +66,22 @@ public abstract class TransactionGasAccounting {
   /**
    * Calculate gas accounting for a completed transaction.
    *
-   * <p>Two paths:
-   *
-   * <ul>
-   *   <li><b>regularGasLimitExceeded=true:</b> All gas consumed. effectiveStateGas = stateGasUsed +
-   *       initialFrameStateGasSpill.
-   *   <li><b>regularGasLimitExceeded=false:</b> Computes executionGas, stateGas, regularGas with
-   *       double-counting avoidance. Floor cost applies to regularGas only.
-   * </ul>
-   *
    * @return the gas result containing effectiveStateGas, gasUsedByTransaction, and usedGas
    */
   public GasResult calculate() {
     if (regularGasLimitExceeded()) {
-      final long effectiveStateGas = stateGasUsed();
-      return new GasResult(effectiveStateGas, txGasLimit(), txGasLimit());
+      return new GasResult(stateGasUsed(), txGasLimit(), txGasLimit());
     }
 
-    // EIP-8037: gasUsedByTransaction (used for block-regular accounting via
-    // BlockGasAccountingStrategy.AMSTERDAM = gasUsedByTransaction - stateGasUsed) reflects ONLY
-    // legitimate consumption: actual state growth + actual regular execution. Burned gas-left
-    // spill (charge drained from gasRemaining in a reverted frame, cancelled by an in-scope
-    // state-gas refill) is sender-paid (visible in receipt cumulative via the refund
-    // calculation) but excluded from block-regular — revert spillover never increments
-    // regular_gas_used. The reservoir burn (drain that stays paid because the matching refund
-    // was eaten by a reverted ancestor's incorporate-on-error) is similarly excluded from block
-    // dimensions: it belongs to neither block_regular nor block_state, only to the receipt-level
-    // cumulative via state_gas_left = 0.
     final long executionGas = txGasLimit() - remainingGas() - stateGasReservoir();
     final long stateGas = stateGasUsed();
-    final long regularGas =
-        executionGas - stateGas - stateGasSpillBurned() - initialFrameRegularHaltBurn();
+    final long regularGas = executionGas - stateGas;
     if (regularGas < 0) {
       LOG.error(
-          "Negative regularGas={} (executionGas={}, stateGas={}, spillBurned={})",
+          "Negative regularGas={} (executionGas={}, stateGas={})",
           regularGas,
           executionGas,
-          stateGas,
-          stateGasSpillBurned());
+          stateGas);
     }
     final long gasUsedByTransaction = Math.max(regularGas, floorCost()) + stateGas;
     final long usedGas = txGasLimit() - refundedGas();

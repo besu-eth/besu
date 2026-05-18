@@ -36,9 +36,7 @@ import org.apache.tuweni.bytes.Bytes32;
  *
  * <p>Holds the immutable per-transaction inputs (originator, gas price, block values, …) and the
  * mutable counters whose state must persist across frame boundaries: the {@link UndoScalar} /
- * {@link UndoSet} / {@link UndoTable} fields are rolled back on revert via {@link #undoChanges},
- * while the plain {@code long} block-accounting counters ({@link #stateGasSpillBurned()}, {@link
- * #stateGasReservoirBurn()}, {@link #initialFrameRegularHaltBurn()}) accumulate permanently.
+ * {@link UndoSet} / {@link UndoTable} fields are rolled back on revert via {@link #undoChanges}.
  */
 public class TxValues {
 
@@ -59,30 +57,6 @@ public class TxValues {
   private final UndoScalar<Long> gasRefunds;
   private final UndoScalar<Long> stateGasUsed;
   private final UndoScalar<Long> stateGasReservoir;
-  private final UndoScalar<Long> stateGasRefills;
-
-  /**
-   * EIP-8037 accumulated gas-left spill that was cancelled by an in-scope state-gas refill inside a
-   * reverted frame; the gas was drained from {@code gasRemaining} (not the reservoir) so the user
-   * pays for it via receipt cumulative, but block-regular accounting must exclude it — revert
-   * spillover does not increment {@code regular_gas_used}. NOT undone on revert.
-   */
-  private long stateGasSpillBurned;
-
-  /**
-   * EIP-8037 accumulated reservoir gas drained for an in-scope charge that was cancelled by an
-   * in-scope state-gas refill inside a reverted frame; the parent's incorporate-on-error path
-   * subtracts the refill, so the matching drain stays paid even though Besu's {@link UndoScalar}
-   * rollback restores the shared reservoir to the frame's entry value. NOT undone on revert.
-   */
-  private long stateGasReservoirBurn;
-
-  /**
-   * EIP-7778/EIP-8037 gas burned when the initial frame halts exceptionally (gasRemaining at halt
-   * time). Paid by the sender via receipts, but must be excluded from block regular gas. NOT undone
-   * on revert.
-   */
-  private long initialFrameRegularHaltBurn;
 
   TxValues(
       final BlockHashLookup blockHashLookup,
@@ -101,8 +75,7 @@ public class TxValues {
       final UndoSet<Address> selfDestructs,
       final UndoScalar<Long> gasRefunds,
       final UndoScalar<Long> stateGasUsed,
-      final UndoScalar<Long> stateGasReservoir,
-      final UndoScalar<Long> stateGasRefills) {
+      final UndoScalar<Long> stateGasReservoir) {
     this.blockHashLookup = blockHashLookup;
     this.maxStackSize = maxStackSize;
     this.warmedUpAddresses = warmedUpAddresses;
@@ -120,7 +93,6 @@ public class TxValues {
     this.gasRefunds = gasRefunds;
     this.stateGasUsed = stateGasUsed;
     this.stateGasReservoir = stateGasReservoir;
-    this.stateGasRefills = stateGasRefills;
   }
 
   /**
@@ -171,14 +143,11 @@ public class TxValues {
         UndoSet.of(new HashSet<>()),
         new UndoScalar<>(0L),
         new UndoScalar<>(initialStateGasUsed),
-        new UndoScalar<>(initialStateGasReservoir),
-        new UndoScalar<>(0L));
+        new UndoScalar<>(initialStateGasReservoir));
   }
 
   /**
-   * For all data stored in this object, undo the changes since the mark. Plain {@code long}
-   * counters (state-gas spill/reservoir burn, initial-frame regular-halt burn) are intentionally
-   * not undone: they accumulate for block accounting.
+   * For all data stored in this object, undo the changes since the mark.
    *
    * @param mark the mark to which it should be rolled back to
    */
@@ -191,7 +160,6 @@ public class TxValues {
     gasRefunds.undo(mark);
     stateGasUsed.undo(mark);
     stateGasReservoir.undo(mark);
-    stateGasRefills.undo(mark);
   }
 
   /**
@@ -345,68 +313,5 @@ public class TxValues {
    */
   public UndoScalar<Long> stateGasReservoir() {
     return stateGasReservoir;
-  }
-
-  /**
-   * Returns the cumulative state-gas refills (EIP-8037 {@code state_gas_refund} counter).
-   *
-   * @return the state-gas refills counter
-   */
-  public UndoScalar<Long> stateGasRefills() {
-    return stateGasRefills;
-  }
-
-  /**
-   * Returns the accumulated state-gas spill burned (EIP-8037).
-   *
-   * @return the spill-burned counter
-   */
-  public long stateGasSpillBurned() {
-    return stateGasSpillBurned;
-  }
-
-  /**
-   * Accumulates state-gas spill burned (NOT undone on revert).
-   *
-   * @param amount the amount to add
-   */
-  public void addStateGasSpillBurned(final long amount) {
-    stateGasSpillBurned += amount;
-  }
-
-  /**
-   * Returns the accumulated reservoir gas burned for cancelled state-gas refills (EIP-8037).
-   *
-   * @return the reservoir-burn counter
-   */
-  public long stateGasReservoirBurn() {
-    return stateGasReservoirBurn;
-  }
-
-  /**
-   * Accumulates reservoir gas burned for cancelled state-gas refills (NOT undone on revert).
-   *
-   * @param amount the amount to add
-   */
-  public void addStateGasReservoirBurn(final long amount) {
-    stateGasReservoirBurn += amount;
-  }
-
-  /**
-   * Returns the gas burned on the initial frame's exceptional halt (EIP-7778/EIP-8037).
-   *
-   * @return the initial-frame halt-burn counter
-   */
-  public long initialFrameRegularHaltBurn() {
-    return initialFrameRegularHaltBurn;
-  }
-
-  /**
-   * Accumulates the initial frame's regular-halt burn (NOT undone on revert).
-   *
-   * @param amount the amount to add
-   */
-  public void addInitialFrameRegularHaltBurn(final long amount) {
-    initialFrameRegularHaltBurn += amount;
   }
 }
