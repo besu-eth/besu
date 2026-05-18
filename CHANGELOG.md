@@ -19,6 +19,7 @@
 
 ### Bug fixes
 - Fix `testing_buildBlockV1` to return error `-32000` when an explicitly provided transaction is not applicable (e.g. wrong nonce), instead of silently dropping it and returning a success response. [#10486](https://github.com/besu-eth/besu/pull/10486)
+- Fix full `newPendingTransactions` subscription responses to include the shared transaction fields for modern transaction types. [#10516](https://github.com/besu-eth/besu/pull/10516)
 - Fix `LayeredKeyValueStorage.isClosed()` repeatedly re-walking the full parent chain on every storage operation, causing CPU saturation under a stalled forkchoice head. The closed-state is now cached per layer after the first propagation. [#10508](https://github.com/besu-eth/besu/issues/10508)
 - Fix `engine_forkchoiceUpdatedV1` now returns `-38003 INVALID_PAYLOAD_ATTRIBUTES` for invalid payload attribute timestamps (zero or not greater than head). [#10353](https://github.com/besu-eth/besu/pull/10353)
 - Fix `engine_newPayloadV4`/`V5` now returns `-32602 INVALID_PARAMS` instead of `INVALID` payload status when execution requests contain an unknown request type. [#10484](https://github.com/besu-eth/besu/pull/10484)
