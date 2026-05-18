@@ -419,8 +419,7 @@ public abstract class AbstractEngineNewPayloadTest extends AbstractScheduledApiT
     final int callCount = 10;
     for (int i = 0; i < callCount; i++) {
       BlockHeader header = createBlockHeader(Optional.empty());
-      EnginePayloadStatusResult res =
-          fromSuccessResp(resp(mockEnginePayload(header, emptyList())));
+      EnginePayloadStatusResult res = fromSuccessResp(resp(mockEnginePayload(header, emptyList())));
       assertThat(res.getStatusAsString()).isEqualTo(SYNCING.name());
       assertThat(res.getLatestValidHash()).isEmpty();
     }
