@@ -61,6 +61,7 @@ import org.hyperledger.besu.ethereum.mainnet.requests.ProhibitedRequestValidator
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.cache.PathBasedCachedWorldStorageManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.PathBasedWorldStateProvider;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
@@ -348,6 +349,82 @@ public abstract class AbstractEngineNewPayloadTest extends AbstractScheduledApiT
     var resp = resp(mockEnginePayload(mockHeader, emptyList()));
 
     assertValidResponse(mockHeader, resp);
+  }
+
+  @Test
+  public void shouldReturnValidAfterLayerCountDropsBelowThreshold() {
+    // Set up full valid-payload mocks so the second call (post-recovery) can complete normally.
+    BlockHeader mockHeader =
+        setupValidPayload(
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            Optional.empty());
+    lenient()
+        .when(blockchain.getBlockHeader(mockHeader.getParentHash()))
+        .thenReturn(Optional.of(mock(BlockHeader.class)));
+
+    PathBasedWorldStateProvider worldStateProvider = mock(PathBasedWorldStateProvider.class);
+    PathBasedCachedWorldStorageManager cacheManager =
+        mock(PathBasedCachedWorldStorageManager.class);
+    when(protocolContext.getWorldStateArchive()).thenReturn(worldStateProvider);
+    when(worldStateProvider.getCachedWorldStorageManager()).thenReturn(cacheManager);
+    // First call: stalled (above threshold). Second call: recovered (below threshold).
+    when(cacheManager.cachedLayerCount())
+        .thenReturn(AbstractEngineNewPayload.MAX_CACHED_WORLD_STATE_LAYERS + 1)
+        .thenReturn(1);
+
+    EnginePayloadStatusResult stalledResult =
+        fromSuccessResp(resp(mockEnginePayload(mockHeader, emptyList())));
+    assertThat(stalledResult.getStatusAsString()).isEqualTo(SYNCING.name());
+    assertThat(stalledResult.getLatestValidHash()).isEmpty();
+
+    EnginePayloadStatusResult recoveredResult =
+        fromSuccessResp(resp(mockEnginePayload(mockHeader, emptyList())));
+    assertThat(recoveredResult.getStatusAsString()).isEqualTo(VALID.name());
+    assertThat(recoveredResult.getLatestValidHash().get()).isEqualTo(mockHeader.getHash());
+    assertThat(recoveredResult.getError()).isNull();
+
+    verify(engineCallListener, times(2)).executionEngineCalled();
+  }
+
+  @Test
+  public void shouldNotCheckLayerCountWhenArchiveIsNotPathBased() {
+    // Forest (or any non-PathBased) archive must not trigger the layer-count guard.
+    BlockHeader mockHeader =
+        setupValidPayload(
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            Optional.empty());
+    lenient()
+        .when(blockchain.getBlockHeader(mockHeader.getParentHash()))
+        .thenReturn(Optional.of(mock(BlockHeader.class)));
+
+    when(protocolContext.getWorldStateArchive()).thenReturn(mock(WorldStateArchive.class));
+
+    var resp = resp(mockEnginePayload(mockHeader, emptyList()));
+
+    assertValidResponse(mockHeader, resp);
+  }
+
+  @Test
+  public void shouldReturnSyncingRepeatedly_whenLayerCountStaysAboveThreshold() {
+    // Simulates a sustained stall: engine_newPayload keeps arriving but FCU never advances.
+    // Every call must return SYNCING and must not throw or OOM.
+    PathBasedWorldStateProvider worldStateProvider = mock(PathBasedWorldStateProvider.class);
+    PathBasedCachedWorldStorageManager cacheManager =
+        mock(PathBasedCachedWorldStorageManager.class);
+    when(protocolContext.getWorldStateArchive()).thenReturn(worldStateProvider);
+    when(worldStateProvider.getCachedWorldStorageManager()).thenReturn(cacheManager);
+    when(cacheManager.cachedLayerCount())
+        .thenReturn(AbstractEngineNewPayload.MAX_CACHED_WORLD_STATE_LAYERS + 1);
+
+    final int callCount = 10;
+    for (int i = 0; i < callCount; i++) {
+      BlockHeader header = createBlockHeader(Optional.empty());
+      EnginePayloadStatusResult res =
+          fromSuccessResp(resp(mockEnginePayload(header, emptyList())));
+      assertThat(res.getStatusAsString()).isEqualTo(SYNCING.name());
+      assertThat(res.getLatestValidHash()).isEmpty();
+    }
+    verify(engineCallListener, times(callCount)).executionEngineCalled();
   }
 
   @Test
