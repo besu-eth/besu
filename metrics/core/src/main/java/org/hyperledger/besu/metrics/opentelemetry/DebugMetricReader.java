@@ -24,7 +24,6 @@ import io.opentelemetry.sdk.metrics.data.AggregationTemporality;
 import io.opentelemetry.sdk.metrics.data.MetricData;
 import io.opentelemetry.sdk.metrics.export.CollectionRegistration;
 import io.opentelemetry.sdk.metrics.export.MetricReader;
-import jakarta.validation.constraints.NotNull;
 import org.jspecify.annotations.Nullable;
 
 class DebugMetricReader implements MetricReader {
@@ -37,7 +36,7 @@ class DebugMetricReader implements MetricReader {
   }
 
   @Override
-  public void register(final @NotNull CollectionRegistration registration) {
+  public void register(final CollectionRegistration registration) {
     this.registration = registration;
   }
 
@@ -52,8 +51,7 @@ class DebugMetricReader implements MetricReader {
   }
 
   @Override
-  public AggregationTemporality getAggregationTemporality(
-      final @NotNull InstrumentType instrumentType) {
+  public AggregationTemporality getAggregationTemporality(final InstrumentType instrumentType) {
     return AggregationTemporality.CUMULATIVE;
   }
 }
