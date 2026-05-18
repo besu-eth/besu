@@ -58,6 +58,35 @@ public class BalConfigurationOptions {
       description = "Log the constructed and block's BAL when they differ.")
   boolean balLogBalsOnMismatch = false;
 
+  @CommandLine.Option(
+      names = {"--Xbal-prefetch-reading-enabled"},
+      hidden = true,
+      description = "Enable prefetching of state data based on BAL read operations.")
+  boolean balPreFetchReadingEnabled = false;
+
+  @CommandLine.Option(
+      names = {"--Xbal-prefetch-sorting-enabled"},
+      hidden = true,
+      description =
+          "Enable key sorting during BAL prefetch operations (default: ${DEFAULT-VALUE}).")
+  boolean balPreFetchSortingEnabled = true;
+
+  @CommandLine.Option(
+      names = {"--Xbal-prefetch-batch-size"},
+      hidden = true,
+      paramLabel = "<INTEGER>",
+      description =
+          "BAL prefetch batch size. A value of 0 or lower fetches each segment in one batch (default: ${DEFAULT-VALUE}).")
+  int balPreFetchBatchSize = BalConfiguration.DEFAULT_BAL_PREFETCH_BATCH_SIZE;
+
+  @CommandLine.Option(
+      names = {"--Xbal-prefetch-concurrency"},
+      hidden = true,
+      paramLabel = "<INTEGER>",
+      description =
+          "Maximum number of concurrent BAL prefetch fetch workers (default: ${DEFAULT-VALUE}).")
+  int balPreFetchConcurrency = BalConfiguration.DEFAULT_BAL_PREFETCH_CONCURRENCY;
+
   /**
    * Builds the immutable {@link BalConfiguration} corresponding to the parsed CLI options.
    *
@@ -70,6 +99,10 @@ public class BalConfigurationOptions {
         .isBalLenientOnStateRootMismatch(balLenientOnStateRootMismatch)
         .isBalStateRootTrusted(balTrustStateRoot)
         .isBalStateRootEnabled(balStateRootEnabled)
+        .isBalPreFetchReadingEnabled(balPreFetchReadingEnabled)
+        .isBalPreFetchSortingEnabled(balPreFetchSortingEnabled)
+        .balPreFetchBatchSize(balPreFetchBatchSize)
+        .balPreFetchConcurrency(balPreFetchConcurrency)
         .build();
   }
 }

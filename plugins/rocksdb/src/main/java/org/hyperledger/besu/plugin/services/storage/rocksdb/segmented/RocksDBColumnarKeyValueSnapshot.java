@@ -26,6 +26,9 @@ import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetrics;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbIterator;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -88,7 +91,10 @@ public class RocksDBColumnarKeyValueSnapshot
     this.columnFamilyMapper = columnFamilyMapper;
     this.snapshot = new RocksDBSnapshot(db);
     this.readOptions =
-        new ReadOptions().setVerifyChecksums(false).setSnapshot(snapshot.getSnapshot());
+        new ReadOptions()
+            .setAsyncIo(true)
+            .setVerifyChecksums(false)
+            .setSnapshot(snapshot.getSnapshot());
     if (isReadCacheEnabledForSnapshots) {
       maybeCache =
           Optional.of(
@@ -110,6 +116,28 @@ public class RocksDBColumnarKeyValueSnapshot
       } else {
         return Optional.ofNullable(snapshot.get(handle, readOptions, key));
       }
+    } catch (final RocksDBException e) {
+      throw new StorageException(e);
+    }
+  }
+
+  @Override
+  public List<Optional<byte[]>> multiget(final SegmentIdentifier segment, final List<byte[]> keys)
+      throws StorageException {
+    throwIfClosed();
+    if (keys.isEmpty()) {
+      return List.of();
+    }
+
+    try (final OperationTimer.TimingContext ignored = metrics.getReadLatency().startTimer()) {
+      final ColumnFamilyHandle handle = columnFamilyMapper.apply(segment);
+      final List<byte[]> values =
+          db.multiGetAsList(readOptions, Collections.nCopies(keys.size(), handle), keys);
+      final List<Optional<byte[]>> result = new ArrayList<>(values.size());
+      for (final byte[] value : values) {
+        result.add(Optional.ofNullable(value));
+      }
+      return result;
     } catch (final RocksDBException e) {
       throw new StorageException(e);
     }

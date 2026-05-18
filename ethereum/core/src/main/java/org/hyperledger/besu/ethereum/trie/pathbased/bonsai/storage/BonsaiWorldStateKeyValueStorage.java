@@ -43,6 +43,7 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -182,6 +183,24 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
                     accountHash,
                     storageSlotKey,
                     composedWorldStateStorage));
+  }
+
+  public List<Optional<Bytes>> getMultipleKeys(
+      final SegmentIdentifier segmentIdentifier, final List<Bytes> keys) {
+    if (keys.isEmpty()) {
+      return List.of();
+    }
+    return cacheManager.getMultipleFromCacheOrStorage(
+        segmentIdentifier,
+        keys,
+        getCurrentVersion(),
+        keysToFetch -> {
+          final List<byte[]> rawKeys = new ArrayList<>(keysToFetch.size());
+          keysToFetch.forEach(key -> rawKeys.add(key.toArrayUnsafe()));
+          return composedWorldStateStorage.multiget(segmentIdentifier, rawKeys).stream()
+              .map(value -> value.map(Bytes::wrap))
+              .toList();
+        });
   }
 
   public Optional<Bytes> getCode(final Hash codeHash, final Hash accountHash) {

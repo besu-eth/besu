@@ -19,11 +19,13 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.prefetch.BalPrefetcher;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
@@ -36,8 +38,10 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
@@ -51,12 +55,95 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
   private final MainnetTransactionProcessor transactionProcessor;
   private final BlockAccessList blockAccessList;
+  private final Optional<BalPrefetcher> maybePrefetcher;
+  private final Optional<Executor> maybePrefetchExecutor;
 
   public BalConcurrentTransactionProcessor(
       final MainnetTransactionProcessor transactionProcessor,
       final BlockAccessList blockAccessList) {
+    this(transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+  }
+
+  public BalConcurrentTransactionProcessor(
+      final MainnetTransactionProcessor transactionProcessor,
+      final BlockAccessList blockAccessList,
+      final BalConfiguration balConfiguration) {
+    this(transactionProcessor, blockAccessList, balConfiguration, Optional.empty());
+  }
+
+  public BalConcurrentTransactionProcessor(
+      final MainnetTransactionProcessor transactionProcessor,
+      final BlockAccessList blockAccessList,
+      final BalConfiguration balConfiguration,
+      final Executor prefetchExecutor) {
+    this(transactionProcessor, blockAccessList, balConfiguration, Optional.of(prefetchExecutor));
+  }
+
+  private BalConcurrentTransactionProcessor(
+      final MainnetTransactionProcessor transactionProcessor,
+      final BlockAccessList blockAccessList,
+      final BalConfiguration balConfiguration,
+      final Optional<Executor> maybePrefetchExecutor) {
     this.transactionProcessor = transactionProcessor;
     this.blockAccessList = blockAccessList;
+    this.maybePrefetchExecutor = maybePrefetchExecutor;
+    this.maybePrefetcher =
+        balConfiguration.isBalPreFetchReadingEnabled()
+            ? Optional.of(
+                new BalPrefetcher(
+                    balConfiguration.isBalPreFetchSortingEnabled(),
+                    balConfiguration.getBalPreFetchBatchSize(),
+                    balConfiguration.getBalPreFetchConcurrency()))
+            : Optional.empty();
+  }
+
+  @Override
+  public void runAsyncBlock(
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final List<Transaction> transactions,
+      final Address miningBeneficiary,
+      final BlockHashLookup blockHashLookup,
+      final Wei blobGasPrice,
+      final Executor executor,
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder,
+      final Optional<BlockHeader> maybeParentHeader) {
+
+    maybePrefetcher.ifPresent(
+        prefetcher -> {
+          if (maybeParentHeader.isEmpty() || blockAccessList.isEmpty()) {
+            return;
+          }
+
+          final Optional<BonsaiWorldState> maybeWorldState =
+              getWorldState(protocolContext, maybeParentHeader.get());
+          if (maybeWorldState.isEmpty()) {
+            LOG.debug(
+                "BAL prefetch skipped: parent world state is unavailable for {}", blockHeader);
+            return;
+          }
+
+          final BonsaiWorldState prefetchWorldState = maybeWorldState.get();
+          prefetcher
+              .prefetch(prefetchWorldState, blockAccessList, maybePrefetchExecutor.orElse(executor))
+              .exceptionally(
+                  throwable -> {
+                    LOG.warn("BAL prefetch failed", throwable);
+                    return null;
+                  })
+              .whenComplete((ignored, throwable) -> prefetchWorldState.close());
+        });
+
+    super.runAsyncBlock(
+        protocolContext,
+        blockHeader,
+        transactions,
+        miningBeneficiary,
+        blockHashLookup,
+        blobGasPrice,
+        executor,
+        blockAccessListBuilder,
+        maybeParentHeader);
   }
 
   @Override

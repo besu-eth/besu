@@ -22,6 +22,9 @@ public interface BalConfiguration {
 
   BalConfiguration DEFAULT = ImmutableBalConfiguration.builder().build();
 
+  int DEFAULT_BAL_PREFETCH_BATCH_SIZE = 100;
+  int DEFAULT_BAL_PREFETCH_CONCURRENCY = 2;
+
   /** Returns whether the BAL-computed state root should be trusted without verification. */
   @Value.Default
   default boolean isBalStateRootTrusted() {
@@ -41,6 +44,33 @@ public interface BalConfiguration {
   @Value.Default
   default boolean isPerfectParallelizationEnabled() {
     return true;
+  }
+
+  /** Returns whether prefetching of state data based on BAL read operations is enabled. */
+  @Value.Default
+  default boolean isBalPreFetchReadingEnabled() {
+    return false;
+  }
+
+  /** Returns whether BAL prefetch keys should be sorted for better storage locality. */
+  @Value.Default
+  default boolean isBalPreFetchSortingEnabled() {
+    return true;
+  }
+
+  /**
+   * Returns the batch size for prefetch operations. A value of 0 or lower fetches each segment in a
+   * single batch.
+   */
+  @Value.Default
+  default int getBalPreFetchBatchSize() {
+    return DEFAULT_BAL_PREFETCH_BATCH_SIZE;
+  }
+
+  /** Returns the maximum number of concurrent BAL prefetch fetch workers. */
+  @Value.Default
+  default int getBalPreFetchConcurrency() {
+    return DEFAULT_BAL_PREFETCH_CONCURRENCY;
   }
 
   /**
