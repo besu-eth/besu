@@ -184,7 +184,8 @@ public class IbftGetSignerMetricsTest {
 
     signerMetricResultList.add(new SignerMetricResult(VALIDATORS[0])); // missing validator
 
-    final JsonRpcRequestContext request = requestWithParams("0x" + Long.toHexString(startBlock), "latest");
+    final JsonRpcRequestContext request =
+        requestWithParams("0x" + Long.toHexString(startBlock), "latest");
 
     final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
 
@@ -208,7 +209,8 @@ public class IbftGetSignerMetricsTest {
 
     signerMetricResultList.add(new SignerMetricResult(VALIDATORS[0])); // missing validator
 
-    final JsonRpcRequestContext request = requestWithParams("0x" + Long.toHexString(startBlock), "pending");
+    final JsonRpcRequestContext request =
+        requestWithParams("0x" + Long.toHexString(startBlock), "pending");
 
     final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
 
@@ -230,7 +232,8 @@ public class IbftGetSignerMetricsTest {
     LongStream.range(startBlock, endBlock)
         .forEach(value -> signerMetricResultList.add(generateBlock(value)));
 
-    final JsonRpcRequestContext request = requestWithParams("earliest", "0x" + Long.toHexString(endBlock));
+    final JsonRpcRequestContext request =
+        requestWithParams("earliest", "0x" + Long.toHexString(endBlock));
 
     final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
 
