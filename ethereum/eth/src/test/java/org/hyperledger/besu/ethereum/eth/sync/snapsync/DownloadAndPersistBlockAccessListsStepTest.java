@@ -110,6 +110,46 @@ class DownloadAndPersistBlockAccessListsStepTest {
   }
 
   @Test
+  void shouldSkipUnavailableBlockAccessListPlaceholders() {
+    final BlockAccessList availableBal = blockDataGenerator.blockAccessList();
+    final BlockAccessList unavailableBal = blockDataGenerator.blockAccessList();
+
+    final BlockHeader availableBalHeader = balEnabledHeader(250, availableBal);
+    final BlockHeader unavailableBalHeader = balEnabledHeader(251, unavailableBal);
+
+    final List<SyncBlockWithReceipts> syncBlocks =
+        List.of(syncBlockWithHeader(availableBalHeader), syncBlockWithHeader(unavailableBalHeader));
+
+    final DownloadAndPersistBlockAccessListsStep step =
+        new DownloadAndPersistBlockAccessListsStep(
+            blockchain,
+            Duration.ofSeconds(2),
+            headers ->
+                CompletableFuture.completedFuture(
+                    List.of(syncBal(availableBal), unavailableBal())));
+
+    step.apply(syncBlocks).join();
+
+    assertThat(blockchain.getBlockAccessList(availableBalHeader.getHash())).contains(availableBal);
+    assertThat(blockchain.getBlockAccessList(unavailableBalHeader.getHash())).isEmpty();
+  }
+
+  @Test
+  void shouldPersistEmptyBlockAccessList() {
+    final BlockAccessList emptyBal = new BlockAccessList(List.of());
+    final BlockHeader emptyBalHeader = balEnabledHeader(252, emptyBal);
+    final List<SyncBlockWithReceipts> syncBlocks = List.of(syncBlockWithHeader(emptyBalHeader));
+
+    final DownloadAndPersistBlockAccessListsStep step =
+        new DownloadAndPersistBlockAccessListsStep(
+            blockchain, Duration.ofSeconds(2), headers -> completedFutureWithSyncBals(emptyBal));
+
+    step.apply(syncBlocks).join();
+
+    assertThat(blockchain.getBlockAccessList(emptyBalHeader.getHash())).contains(emptyBal);
+  }
+
+  @Test
   void shouldSkipPersistingWhenDownloaderFails() {
     final BlockAccessList expectedBal = blockDataGenerator.blockAccessList();
     final BlockHeader balHeader = balEnabledHeader(300, expectedBal);
@@ -192,5 +232,9 @@ class DownloadAndPersistBlockAccessListsStepTest {
 
   private SyncBlockAccessList syncBal(final BlockAccessList blockAccessList) {
     return new SyncBlockAccessList(RLP.encode(blockAccessList::writeTo));
+  }
+
+  private SyncBlockAccessList unavailableBal() {
+    return new SyncBlockAccessList(RLP.NULL);
   }
 }
