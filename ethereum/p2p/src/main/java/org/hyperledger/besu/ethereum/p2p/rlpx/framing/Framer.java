@@ -222,6 +222,10 @@ public class Framer {
     frameSize = (frameSize << 8) + (length[1] & 0xff);
     frameSize = (frameSize << 8) + (length[2] & 0xff);
 
+    if (frameSize < LENGTH_MESSAGE_ID) {
+      throw error("Frame size %s below minimum %s", frameSize, LENGTH_MESSAGE_ID);
+    }
+
     // Discard the header data (RLP): being set to fixed value 0xc28080 (list of two null
     // elements) by other clients.
     final int headerDataLength = RLP.calculateSize(Bytes.wrapByteBuffer(h.nioBuffer()));
