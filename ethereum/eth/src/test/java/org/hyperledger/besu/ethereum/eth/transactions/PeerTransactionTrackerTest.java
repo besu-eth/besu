@@ -420,6 +420,32 @@ public class PeerTransactionTrackerTest {
             transactions.stream().map(Transaction::getHash).toList());
   }
 
+  @Test
+  public void receivedAnnouncements_shouldAcceptBatchLargerThanQueueCap() {
+    final int queueCap = 4;
+    final PeerTransactionTracker smallQueueTracker =
+        new PeerTransactionTracker(
+            ImmutableTransactionPoolConfiguration.builder()
+                .unstable(
+                    ImmutableTransactionPoolConfiguration.Unstable.builder()
+                        .maxSendQueueSizePerPeer(queueCap)
+                        .build())
+                .build(),
+            ethPeers,
+            ethScheduler);
+    smallQueueTracker.onPeerConnected(ethPeer1);
+
+    final List<Transaction> transactions = new ArrayList<>(generator.transactions(queueCap * 2));
+
+    smallQueueTracker.receivedAnnouncements(
+        ethPeer1, TransactionAnnouncement.create(transactions));
+
+    final List<TransactionAnnouncement> claimed =
+        smallQueueTracker.claimAnnouncementsToRequestFromPeer(
+            ethPeer1, queueCap * 2, Long.MAX_VALUE);
+    assertThat(claimed).hasSize(queueCap);
+  }
+
   private List<Transaction> claimAllAnnouncementsToSend(
       final PeerTransactionTracker tracker, final EthPeer peer) {
     final List<Transaction> result = new ArrayList<>();

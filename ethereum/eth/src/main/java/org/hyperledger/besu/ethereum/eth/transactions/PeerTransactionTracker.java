@@ -266,7 +266,7 @@ public class PeerTransactionTracker
     if (!freshAnnouncements.isEmpty()) {
       final LRUMap<Hash, TransactionAnnouncement> announcementsByHashForPeer =
           announcementsToRequestByHash.computeIfAbsent(
-              peer, key -> new LRUMap<>(maxSendQueueSizePerPeer, freshAnnouncements.size()));
+              peer, key -> boundedLRUMap(freshAnnouncements.size(), maxSendQueueSizePerPeer));
       freshAnnouncements.forEach(ann -> announcementsByHashForPeer.put(ann.hash(), ann));
     }
 
@@ -330,6 +330,10 @@ public class PeerTransactionTracker
             return size() > maxSize;
           }
         });
+  }
+
+  private static <K, V> LRUMap<K, V> boundedLRUMap(final int initialCapacity, final int maxSize) {
+    return new LRUMap<>(maxSize, Math.min(initialCapacity, maxSize));
   }
 
   @Override
