@@ -14,36 +14,39 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
+import org.hyperledger.besu.datatypes.VersionedHash;
+
 import java.util.List;
-import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes32;
 
-public sealed class NewPayloadRequestParametersV2 extends NewPayloadRequestParametersV1
-    permits NewPayloadRequestParametersV3 {
-  private final Optional<List<String>> expectedBlobVersionedHashes;
-  private final Optional<String> parentBeaconBlockRootParameter;
-  private final Optional<Bytes32> parentBeaconBlockRoot;
+public sealed class NewPayloadRequestParametersV2<EP extends ExecutionPayloadV3>
+    extends NewPayloadRequestParametersV1<EP> permits NewPayloadRequestParametersV3 {
+  private final List<VersionedHash> expectedBlobVersionedHashes;
+  private final Bytes32 parentBeaconBlockRoot;
 
   public NewPayloadRequestParametersV2(
-      final NewPayloadRequestParametersV1 requestParameters,
-      final Optional<List<String>> expectedBlobVersionedHashes,
-      final Optional<String> parentBeaconBlockRootParameter) {
-    super(requestParameters.payloadParameter());
+      final NewPayloadRequestParametersV1<? extends EP> requestParametersV1,
+      final List<VersionedHash> expectedBlobVersionedHashes,
+      final Bytes32 parentBeaconBlockRoot) {
+    super(requestParametersV1.payloadParameter());
     this.expectedBlobVersionedHashes = expectedBlobVersionedHashes;
-    this.parentBeaconBlockRootParameter = parentBeaconBlockRootParameter;
-    this.parentBeaconBlockRoot = parentBeaconBlockRootParameter.map(Bytes32::fromHexString);
+    this.parentBeaconBlockRoot = parentBeaconBlockRoot;
   }
 
-  public Optional<List<String>> expectedBlobVersionedHashes() {
+  public NewPayloadRequestParametersV2(
+      final NewPayloadRequestParametersV2<? extends EP> requestParameters) {
+    this(
+        requestParameters,
+        requestParameters.expectedBlobVersionedHashes(),
+        requestParameters.parentBeaconBlockRoot());
+  }
+
+  public List<VersionedHash> expectedBlobVersionedHashes() {
     return expectedBlobVersionedHashes;
   }
 
-  public Optional<String> parentBeaconBlockRootParameter() {
-    return parentBeaconBlockRootParameter;
-  }
-
-  public Optional<Bytes32> parentBeaconBlockRoot() {
+  public Bytes32 parentBeaconBlockRoot() {
     return parentBeaconBlockRoot;
   }
 }

@@ -24,16 +24,15 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV1;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
-import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
@@ -43,7 +42,11 @@ import java.util.Optional;
 
 import io.vertx.core.Vertx;
 
-public sealed class EngineNewPayloadV2 extends EngineNewPayloadV1 permits EngineNewPayloadV3 {
+public sealed class EngineNewPayloadV2<
+        EP extends ExecutionPayloadV2, NPRP extends NewPayloadRequestParametersV1<? extends EP>>
+    extends EngineNewPayloadV1<EP, NPRP> permits EngineNewPayloadV3 {
+
+  private final Optional<Long> shanghaiTimestamp;
 
   public EngineNewPayloadV2(
       final Vertx vertx,
@@ -65,6 +68,7 @@ public sealed class EngineNewPayloadV2 extends EngineNewPayloadV1 permits Engine
         metricsSystem,
         minSupportedFork,
         firstUnsupportedFork);
+    shanghaiTimestamp = protocolSchedule.milestoneFor(HardforkId.MainnetHardforkId.SHANGHAI);
   }
 
   @Override
@@ -83,87 +87,78 @@ public sealed class EngineNewPayloadV2 extends EngineNewPayloadV1 permits Engine
   }
 
   @Override
-  protected VersionSpecificPayloadData createVersionSpecificPayloadData(
-      final NewPayloadRequestParametersV1 requestParameters)
-      throws InvalidVersionSpecificPayloadException {
-    final ExecutionPayloadV2 payloadParameter =
-        (ExecutionPayloadV2) requestParameters.payloadParameter();
-    final Optional<List<Withdrawal>> maybeWithdrawals =
-        Optional.ofNullable(payloadParameter.getWithdrawals())
-            .map(ws -> ws.stream().map(WithdrawalParameter::toWithdrawal).toList());
-    return new V2PayloadData(maybeWithdrawals);
-  }
-
-  @Override
-  protected ValidationResult<RpcErrorType> validateVersionSpecificPayloadData(
-      final NewPayloadRequestParametersV1 requestParameters,
-      final VersionSpecificPayloadData versionSpecificPayloadData) {
+  protected ValidationResult<RpcErrorType> validateNewBlock(
+      final Block newBlock,
+      final ProtocolSpec protocolSpec,
+      final BlockHeader parentHeader,
+      final NPRP requestParameters) {
     final ValidationResult<RpcErrorType> result =
-        super.validateVersionSpecificPayloadData(requestParameters, versionSpecificPayloadData);
-    if (!result.isValid()) {
-      return result;
+        super.validateNewBlock(newBlock, protocolSpec, parentHeader, requestParameters);
+    return result.isValid() ? validateExecutionPayloadV2(newBlock) : result;
+  }
+
+  private ValidationResult<RpcErrorType> validateExecutionPayloadV2(final Block newBlock) {
+    // engine_newPayloadV2 is peculiar since it allows 2 different versions of execution payload,
+    // so we need to check the timestamp for withdrawal validation.
+
+    // Spec: executionPayload: instance of ExecutionPayloadV1 | ExecutionPayloadV2, where:
+    // ExecutionPayloadV1 MUST be used if the timestamp value is lower than the Shanghai timestamp,
+    // ExecutionPayloadV2 MUST be used if the timestamp value is greater or equal to the
+    // Shanghai timestamp,
+    // Client software MUST return -32602: Invalid params error if the wrong version of the
+    // structure is used in the method call.
+    if (newBlock.getHeader().getTimestamp() < shanghaiTimestamp.orElse(0L)) {
+      if (newBlock.getBody().getWithdrawals().isPresent()) {
+        return ValidationResult.invalid(
+            RpcErrorType.INVALID_PARAMS,
+            "Withdrawals must not be present before Shanghai hardfork");
+      }
+    } else {
+      if (newBlock.getBody().getWithdrawals().isEmpty()) {
+        return ValidationResult.invalid(
+            RpcErrorType.INVALID_PARAMS, "Withdrawals must be present after Shanghai hardfork");
+      }
     }
-    final ExecutionPayloadV2 payloadParameter =
-        (ExecutionPayloadV2) requestParameters.payloadParameter();
-    final V2PayloadData v2PayloadData = (V2PayloadData) versionSpecificPayloadData;
-    if (!getWithdrawalsValidator(
-            protocolSchedule.get(),
-            payloadParameter.getTimestamp(),
-            payloadParameter.getBlockNumber())
-        .validateWithdrawals(v2PayloadData.maybeWithdrawals())) {
-      return ValidationResult.invalid(RpcErrorType.INVALID_WITHDRAWALS_PARAMS);
-    }
-    return ValidationResult.valid();
+
+    return getWithdrawalsValidator(
+                protocolSchedule.get(),
+                newBlock.getHeader().getTimestamp(),
+                newBlock.getHeader().getNumber())
+            .validateWithdrawals(newBlock.getBody().getWithdrawals())
+        ? ValidationResult.valid()
+        : ValidationResult.invalid(RpcErrorType.INVALID_WITHDRAWALS_PARAMS);
   }
 
   @Override
-  protected void setVersionSpecificBlockHeaderFields(
-      final BlockHeaderBuilder blockHeaderBuilder,
-      final NewPayloadRequestParametersV1 requestParameters,
-      final VersionSpecificPayloadData versionSpecificPayloadData) {
-    super.setVersionSpecificBlockHeaderFields(
-        blockHeaderBuilder, requestParameters, versionSpecificPayloadData);
-    final V2PayloadData v2PayloadData = (V2PayloadData) versionSpecificPayloadData;
-    blockHeaderBuilder.withdrawalsRoot(
-        v2PayloadData.maybeWithdrawals().map(BodyValidation::withdrawalsRoot).orElse(null));
+  protected void setBlockHeaderFields(
+      final BlockHeaderBuilder blockHeaderBuilder, final NPRP requestParameters) {
+    super.setBlockHeaderFields(blockHeaderBuilder, requestParameters);
+    final ExecutionPayloadV2 executionPayloadV2 = requestParameters.payloadParameter();
+    if (executionPayloadV2.getWithdrawals() != null) {
+      blockHeaderBuilder.withdrawalsRoot(
+          BodyValidation.withdrawalsRoot(executionPayloadV2.getWithdrawals()));
+    }
   }
 
   @Override
-  protected BlockBody createBlockBody(
-      final List<Transaction> transactions,
-      final VersionSpecificPayloadData versionSpecificPayloadData) {
-    final V2PayloadData v2PayloadData = (V2PayloadData) versionSpecificPayloadData;
-    return new BlockBody(transactions, Collections.emptyList(), v2PayloadData.maybeWithdrawals());
+  protected BlockBody createBlockBody(final EP executionPayload) {
+    return new BlockBody(
+        executionPayload.getTransactions(),
+        Collections.emptyList(),
+        Optional.of(executionPayload.getWithdrawals()));
   }
 
   @Override
   protected void appendVersionSpecificLogInfo(
-      final StringBuilder message,
-      final List<Object> messageArgs,
-      final Block block,
-      final List<Transaction> transactions,
-      final VersionSpecificPayloadData versionSpecificPayloadData) {
-    super.appendVersionSpecificLogInfo(
-        message, messageArgs, block, transactions, versionSpecificPayloadData);
-    final V2PayloadData v2PayloadData = (V2PayloadData) versionSpecificPayloadData;
-    v2PayloadData
-        .maybeWithdrawals()
+      final StringBuilder message, final List<Object> messageArgs, final Block block) {
+    super.appendVersionSpecificLogInfo(message, messageArgs, block);
+    block
+        .getBody()
+        .getWithdrawals()
         .ifPresent(
             withdrawals -> {
               message.append("| %2d ws");
               messageArgs.add(withdrawals.size());
             });
-  }
-
-  protected static class V2PayloadData extends VersionSpecificPayloadData {
-    private final Optional<List<Withdrawal>> maybeWithdrawals;
-
-    protected V2PayloadData(final Optional<List<Withdrawal>> maybeWithdrawals) {
-      this.maybeWithdrawals = maybeWithdrawals;
-    }
-
-    protected Optional<List<Withdrawal>> maybeWithdrawals() {
-      return maybeWithdrawals;
-    }
   }
 }

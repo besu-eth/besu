@@ -20,6 +20,7 @@ import org.apache.tuweni.bytes.Bytes;
 
 public record Request(RequestType type, Bytes data)
     implements org.hyperledger.besu.plugin.data.Request {
+
   @Override
   public RequestType getType() {
     return type();

@@ -146,6 +146,24 @@ public class JsonRpcParameter {
     return optional(params, index, paramClass, Configuration.DEFAULT);
   }
 
+  public <T> List<T> requiredList(final Object[] params, final int index, final Class<T> listClass)
+      throws JsonRpcParameterException {
+    return requiredList(params, index, listClass, Configuration.DEFAULT);
+  }
+
+  public <T> List<T> requiredList(
+      final Object[] params,
+      final int index,
+      final Class<T> listClass,
+      final Configuration configuration)
+      throws JsonRpcParameterException {
+    return optionalList(params, index, listClass, configuration)
+        .orElseThrow(
+            () ->
+                new JsonRpcParameterException(
+                    "Missing required json rpc parameter at index " + index));
+  }
+
   /**
    * Retrieves an optional list parameter at the given index whose elements are interpreted as the
    * given class.

@@ -14,19 +14,21 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
+import org.hyperledger.besu.ethereum.core.Withdrawal;
+
 import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonSetter;
 
 public sealed class ExecutionPayloadV2 extends ExecutionPayloadV1 permits ExecutionPayloadV3 {
-  private List<WithdrawalParameter> withdrawals;
+  private List<Withdrawal> withdrawals;
 
   @JsonSetter("withdrawals")
-  public void setWithdrawals(final List<WithdrawalParameter> withdrawals) {
+  public void setWithdrawals(final List<Withdrawal> withdrawals) {
     this.withdrawals = withdrawals;
   }
 
-  public List<WithdrawalParameter> getWithdrawals() {
+  public List<Withdrawal> getWithdrawals() {
     return withdrawals;
   }
 }

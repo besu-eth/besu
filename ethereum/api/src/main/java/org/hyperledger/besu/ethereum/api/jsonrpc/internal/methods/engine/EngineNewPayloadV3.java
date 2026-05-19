@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.Configuration.FAIL_ON_UNKNOWN_BUT_NULL;
+
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.HardforkId;
@@ -25,7 +27,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -39,7 +40,6 @@ import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
-import java.security.InvalidParameterException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -48,7 +48,9 @@ import com.google.common.annotations.VisibleForTesting;
 import io.vertx.core.Vertx;
 import org.apache.tuweni.bytes.Bytes32;
 
-public sealed class EngineNewPayloadV3 extends EngineNewPayloadV2 permits EngineNewPayloadV4 {
+public sealed class EngineNewPayloadV3<
+        EP extends ExecutionPayloadV3, NPRP extends NewPayloadRequestParametersV2<? extends EP>>
+    extends EngineNewPayloadV2<EP, NPRP> permits EngineNewPayloadV4 {
 
   public EngineNewPayloadV3(
       final Vertx vertx,
@@ -83,13 +85,13 @@ public sealed class EngineNewPayloadV3 extends EngineNewPayloadV2 permits Engine
   }
 
   @Override
-  protected NewPayloadRequestParametersV2 readRequestParameters(
-      final JsonRpcRequestContext requestContext) {
-    final NewPayloadRequestParametersV1 requestParameters =
-        super.readRequestParameters(requestContext);
-    final Optional<List<String>> expectedBlobVersionedHashes;
+  @SuppressWarnings("unchecked")
+  protected NPRP readRequestParameters(final JsonRpcRequestContext requestContext) {
+    final NPRP requestParameters = super.readRequestParameters(requestContext);
+    final List<VersionedHash> expectedBlobVersionedHashes;
     try {
-      expectedBlobVersionedHashes = requestContext.getOptionalList(1, String.class);
+      expectedBlobVersionedHashes =
+          requestContext.getRequiredList(1, VersionedHash.class, FAIL_ON_UNKNOWN_BUT_NULL);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcRequestException(
           "Invalid versioned hash parameters (index 1)",
@@ -97,9 +99,10 @@ public sealed class EngineNewPayloadV3 extends EngineNewPayloadV2 permits Engine
           e);
     }
 
-    final Optional<String> parentBeaconBlockRootParameter;
+    final Bytes32 parentBeaconBlockRootParameter;
     try {
-      parentBeaconBlockRootParameter = requestContext.getOptionalParameter(2, String.class);
+      parentBeaconBlockRootParameter =
+          requestContext.getRequiredParameter(2, Bytes32.class, FAIL_ON_UNKNOWN_BUT_NULL);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcRequestException(
           "Invalid parent beacon block root parameters (index 2)",
@@ -107,127 +110,100 @@ public sealed class EngineNewPayloadV3 extends EngineNewPayloadV2 permits Engine
           e);
     }
 
-    return new NewPayloadRequestParametersV2(
-        requestParameters, expectedBlobVersionedHashes, parentBeaconBlockRootParameter);
+    return (NPRP)
+        new NewPayloadRequestParametersV2<>(
+            requestParameters, expectedBlobVersionedHashes, parentBeaconBlockRootParameter);
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateParameters(
-      final NewPayloadRequestParametersV1 requestParameters) {
+  protected ValidationResult<RpcErrorType> validateParameters(final NPRP requestParameters) {
     final ValidationResult<RpcErrorType> result = super.validateParameters(requestParameters);
-    if (!result.isValid()) {
-      return result;
-    }
-    final var payloadParameter = requestParameters.payloadParameter();
-    final ExecutionPayloadV3 executionPayload = (ExecutionPayloadV3) payloadParameter;
-    final NewPayloadRequestParametersV2 requestParametersV2 =
-        (NewPayloadRequestParametersV2) requestParameters;
-    final Long blobGasUsed = executionPayload.getBlobGasUsed();
-    final String excessBlobGas = executionPayload.getExcessBlobGas();
-    final Optional<List<String>> expectedBlobVersionedHashes =
-        requestParametersV2.expectedBlobVersionedHashes();
-    final Optional<String> parentBeaconBlockRootParameter =
-        requestParametersV2.parentBeaconBlockRootParameter();
-    if (blobGasUsed == null) {
+    return result.isValid() ? validateParametersV2(requestParameters) : result;
+  }
+
+  private ValidationResult<RpcErrorType> validateParametersV2(
+      final NewPayloadRequestParametersV2<? extends EP> requestParameters) {
+    final ExecutionPayloadV3 executionPayload = requestParameters.payloadParameter();
+    if (executionPayload.getBlobGasUsed() == null) {
       return ValidationResult.invalid(
           RpcErrorType.INVALID_BLOB_GAS_USED_PARAMS, "Missing blob gas used field");
-    } else if (excessBlobGas == null) {
+    } else if (executionPayload.getExcessBlobGas() == null) {
       return ValidationResult.invalid(
           RpcErrorType.INVALID_EXCESS_BLOB_GAS_PARAMS, "Missing excess blob gas field");
-    } else if (expectedBlobVersionedHashes.isEmpty()) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_VERSIONED_HASH_PARAMS, "Missing versioned hashes field");
-    } else if (parentBeaconBlockRootParameter.isEmpty()) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_PARENT_BEACON_BLOCK_ROOT_PARAMS,
-          "Missing parent beacon block root field");
-    } else {
-      return ValidationResult.valid();
     }
+    //    } else if (requestParameters.expectedBlobVersionedHashes()  == null) {
+    //      return ValidationResult.invalid(
+    //          RpcErrorType.INVALID_VERSIONED_HASH_PARAMS, "Missing versioned hashes field");
+    //    } else if (requestParameters.parentBeaconBlockRoot() == null) {
+    //      return ValidationResult.invalid(
+    //          RpcErrorType.INVALID_PARENT_BEACON_BLOCK_ROOT_PARAMS,
+    //          "Missing parent beacon block root field");
+    //    } else {
+    return ValidationResult.valid();
   }
 
   @Override
-  protected VersionSpecificPayloadData createVersionSpecificPayloadData(
-      final NewPayloadRequestParametersV1 requestParameters)
-      throws InvalidVersionSpecificPayloadException {
-    final V2PayloadData v2PayloadData =
-        (V2PayloadData) super.createVersionSpecificPayloadData(requestParameters);
-    final NewPayloadRequestParametersV2 requestParametersV2 =
-        (NewPayloadRequestParametersV2) requestParameters;
-    try {
-      return new V3PayloadData(
-          v2PayloadData, parseVersionedHashes(requestParametersV2.expectedBlobVersionedHashes()));
-    } catch (final RuntimeException e) {
-      throw InvalidVersionSpecificPayloadException.invalidPayload("Invalid versionedHash");
-    }
-  }
-
-  @Override
-  protected void setVersionSpecificBlockHeaderFields(
-      final BlockHeaderBuilder blockHeaderBuilder,
-      final NewPayloadRequestParametersV1 requestParameters,
-      final VersionSpecificPayloadData versionSpecificPayloadData) {
-    super.setVersionSpecificBlockHeaderFields(
-        blockHeaderBuilder, requestParameters, versionSpecificPayloadData);
-    final ExecutionPayloadV3 payloadParameter =
-        (ExecutionPayloadV3) requestParameters.payloadParameter();
-    final NewPayloadRequestParametersV2 requestParametersV2 =
-        (NewPayloadRequestParametersV2) requestParameters;
+  protected void setBlockHeaderFields(
+      final BlockHeaderBuilder blockHeaderBuilder, final NPRP requestParameters) {
+    super.setBlockHeaderFields(blockHeaderBuilder, requestParameters);
+    final ExecutionPayloadV3 payloadParameter = requestParameters.payloadParameter();
     blockHeaderBuilder
         .blobGasUsed(payloadParameter.getBlobGasUsed())
         .excessBlobGas(BlobGas.fromHexString(payloadParameter.getExcessBlobGas()))
-        .parentBeaconBlockRoot(requestParametersV2.parentBeaconBlockRoot().orElse(null));
+        .parentBeaconBlockRoot(requestParameters.parentBeaconBlockRoot());
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateVersionSpecificBlockData(
-      final List<Transaction> transactions,
-      final BlockHeader header,
-      final BlockHeader parentHeader,
+  protected ValidationResult<RpcErrorType> validateNewBlock(
+      final Block newBlock,
       final ProtocolSpec protocolSpec,
-      final VersionSpecificPayloadData versionSpecificPayloadData) {
+      final BlockHeader parentHeader,
+      final NPRP requestParameters) {
     final ValidationResult<RpcErrorType> result =
-        super.validateVersionSpecificBlockData(
-            transactions, header, parentHeader, protocolSpec, versionSpecificPayloadData);
-    if (!result.isValid()) {
-      return result;
-    }
-    final V3PayloadData v3PayloadData = (V3PayloadData) versionSpecificPayloadData;
-    final List<Transaction> blobTransactions =
-        transactions.stream().filter(transaction -> transaction.getType().supportsBlob()).toList();
-    return validateBlobTransactions(
-        blobTransactions, header, parentHeader, v3PayloadData.maybeVersionedHashes(), protocolSpec);
+        super.validateNewBlock(newBlock, protocolSpec, parentHeader, requestParameters);
+    return result.isValid()
+        ? validateExecutionPayloadV3(newBlock, protocolSpec, parentHeader, requestParameters)
+        : result;
   }
 
-  protected ValidationResult<RpcErrorType> validateBlobs(
-      final List<Transaction> blobTransactions,
-      final BlockHeader header,
+  private ValidationResult<RpcErrorType> validateExecutionPayloadV3(
+      final Block newBlock,
+      final ProtocolSpec protocolSpec,
       final BlockHeader parentHeader,
-      final Optional<List<VersionedHash>> maybeVersionedHashes,
-      final ProtocolSpec protocolSpec) {
+      final NewPayloadRequestParametersV2<? extends EP> requestParameters) {
+    final List<Transaction> blobTransactions =
+        newBlock.getBody().getTransactions().stream()
+            .filter(transaction -> transaction.getType().supportsBlob())
+            .toList();
     return validateBlobTransactions(
-        blobTransactions, header, parentHeader, maybeVersionedHashes, protocolSpec);
+        blobTransactions,
+        newBlock.getHeader(),
+        parentHeader,
+        requestParameters.expectedBlobVersionedHashes(),
+        protocolSpec);
   }
 
   protected ValidationResult<RpcErrorType> validateBlobTransactions(
       final List<Transaction> blobTransactions,
       final BlockHeader header,
       final BlockHeader parentHeader,
-      final Optional<List<VersionedHash>> maybeVersionedHashes,
+      final List<VersionedHash> versionedHashesParam,
       final ProtocolSpec protocolSpec) {
 
-    final List<VersionedHash> transactionVersionedHashes = new ArrayList<>();
-    long transactionBlobGasLimitCap =
+    final List<VersionedHash> transactionVersionedHashes =
+        new ArrayList<>(versionedHashesParam.size());
+    final long transactionBlobGasLimitCap =
         protocolSpec.getGasLimitCalculator().transactionBlobGasLimitCap();
-    long blockBlobGasLimit = protocolSpec.getGasLimitCalculator().currentBlobGasLimit();
+    final long blockBlobGasLimit = protocolSpec.getGasLimitCalculator().currentBlobGasLimit();
     for (Transaction transaction : blobTransactions) {
-      var versionedHashes = transaction.getVersionedHashes();
+      final var maybeTxVersionedHashes = transaction.getVersionedHashes();
       // blob transactions must have at least one blob
-      if (versionedHashes.isEmpty()) {
+      if (maybeTxVersionedHashes.isEmpty()) {
         return ValidationResult.invalid(
             RpcErrorType.INVALID_BLOB_COUNT, "There must be at least one blob");
       }
-      int totalBlobCount = versionedHashes.get().size();
+      final List<VersionedHash> txVersionedHashes = maybeTxVersionedHashes.get();
+      final int totalBlobCount = txVersionedHashes.size();
       long transactionBlobGasUsed = protocolSpec.getGasCalculator().blobGasCost(totalBlobCount);
       // Check if blob gas used by tx exceeds block blob gas limit
       if (transactionBlobGasUsed > blockBlobGasLimit) {
@@ -243,29 +219,22 @@ public sealed class EngineNewPayloadV3 extends EngineNewPayloadV2 permits Engine
             RpcErrorType.INVALID_BLOB_COUNT,
             String.format("Blob transaction has too many blobs: %d", totalBlobCount));
       }
-      transactionVersionedHashes.addAll(versionedHashes.get());
-    }
-
-    if (maybeVersionedHashes.isEmpty() && !transactionVersionedHashes.isEmpty()) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_VERSIONED_HASH_PARAMS,
-          "Payload must contain versioned hashes for transactions");
+      transactionVersionedHashes.addAll(txVersionedHashes);
     }
 
     // Validate versionedHashesParam
-    if (maybeVersionedHashes.isPresent()
-        && !maybeVersionedHashes.get().equals(transactionVersionedHashes)) {
+    if (!versionedHashesParam.equals(transactionVersionedHashes)) {
       return ValidationResult.invalid(
           RpcErrorType.INVALID_VERSIONED_HASH_PARAMS,
           "Versioned hashes from blob transactions do not match expected values");
     }
 
     // Validate excessBlobGas
-    Optional<BlobGas> maybeCalculatedExcess =
+    final Optional<BlobGas> maybeCalculatedExcess =
         validateExcessBlobGas(header, parentHeader, protocolSpec);
     if (maybeCalculatedExcess.isPresent()) {
-      BlobGas calculated = maybeCalculatedExcess.get();
-      BlobGas actual = header.getExcessBlobGas().orElse(BlobGas.ZERO);
+      final BlobGas calculated = maybeCalculatedExcess.get();
+      final BlobGas actual = header.getExcessBlobGas().orElse(BlobGas.ZERO);
       return ValidationResult.invalid(
           RpcErrorType.INVALID_EXCESS_BLOB_GAS_PARAMS,
           String.format(
@@ -274,12 +243,12 @@ public sealed class EngineNewPayloadV3 extends EngineNewPayloadV2 permits Engine
     }
 
     // Validate blobGasUsed
-    if (header.getBlobGasUsed().isPresent() && maybeVersionedHashes.isPresent()) {
-      Optional<Long> maybeCalculatedBlobGas =
-          validateBlobGasUsed(header, maybeVersionedHashes.get(), protocolSpec);
+    if (header.getBlobGasUsed().isPresent()) {
+      final Optional<Long> maybeCalculatedBlobGas =
+          validateBlobGasUsed(header, versionedHashesParam, protocolSpec);
       if (maybeCalculatedBlobGas.isPresent()) {
-        long calculated = maybeCalculatedBlobGas.get();
-        long actual = header.getBlobGasUsed().orElse(0L);
+        final long calculated = maybeCalculatedBlobGas.get();
+        final long actual = header.getBlobGasUsed().orElse(0L);
         return ValidationResult.invalid(
             RpcErrorType.INVALID_BLOB_GAS_USED_PARAMS,
             String.format(
@@ -304,9 +273,9 @@ public sealed class EngineNewPayloadV3 extends EngineNewPayloadV2 permits Engine
   @VisibleForTesting
   Optional<BlobGas> validateExcessBlobGas(
       final BlockHeader header, final BlockHeader parentHeader, final ProtocolSpec protocolSpec) {
-    BlobGas calculated =
+    final BlobGas calculated =
         ExcessBlobGasCalculator.calculateExcessBlobGasForParent(protocolSpec, parentHeader);
-    BlobGas actual = header.getExcessBlobGas().orElse(BlobGas.ZERO);
+    final BlobGas actual = header.getExcessBlobGas().orElse(BlobGas.ZERO);
 
     return calculated.equals(actual) ? Optional.empty() : Optional.of(calculated);
   }
@@ -320,60 +289,23 @@ public sealed class EngineNewPayloadV3 extends EngineNewPayloadV2 permits Engine
       final BlockHeader header,
       final List<VersionedHash> versionedHashes,
       final ProtocolSpec protocolSpec) {
-    long calculated = protocolSpec.getGasCalculator().blobGasCost(versionedHashes.size());
-    long actual = header.getBlobGasUsed().orElse(0L);
+    final long calculated = protocolSpec.getGasCalculator().blobGasCost(versionedHashes.size());
+    final long actual = header.getBlobGasUsed().orElse(0L);
 
     return calculated == actual ? Optional.empty() : Optional.of(calculated);
   }
 
-  protected Optional<List<VersionedHash>> parseVersionedHashes(
-      final Optional<List<String>> maybeVersionedHashParam) {
-    return maybeVersionedHashParam.map(
-        versionedHashes ->
-            versionedHashes.stream()
-                .map(Bytes32::fromHexString)
-                .map(
-                    hash -> {
-                      try {
-                        return new VersionedHash(hash);
-                      } catch (InvalidParameterException e) {
-                        throw new RuntimeException(e);
-                      }
-                    })
-                .toList());
-  }
-
   @Override
   protected void appendVersionSpecificLogInfo(
-      final StringBuilder message,
-      final List<Object> messageArgs,
-      final Block block,
-      final List<Transaction> transactions,
-      final VersionSpecificPayloadData versionSpecificPayloadData) {
-    super.appendVersionSpecificLogInfo(
-        message, messageArgs, block, transactions, versionSpecificPayloadData);
+      final StringBuilder message, final List<Object> messageArgs, final Block block) {
+    super.appendVersionSpecificLogInfo(message, messageArgs, block);
     final int blobCount =
-        transactions.stream()
+        block.getBody().getTransactions().stream()
             .map(Transaction::getVersionedHashes)
             .flatMap(Optional::stream)
             .mapToInt(List::size)
             .sum();
     message.append("| %2d blobs");
     messageArgs.add(blobCount);
-  }
-
-  protected static class V3PayloadData extends V2PayloadData {
-    private final Optional<List<VersionedHash>> maybeVersionedHashes;
-
-    protected V3PayloadData(
-        final V2PayloadData v2PayloadData,
-        final Optional<List<VersionedHash>> maybeVersionedHashes) {
-      super(v2PayloadData.maybeWithdrawals());
-      this.maybeVersionedHashes = maybeVersionedHashes;
-    }
-
-    protected Optional<List<VersionedHash>> maybeVersionedHashes() {
-      return maybeVersionedHashes;
-    }
   }
 }

@@ -19,6 +19,7 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.Executi
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID_BLOCK_HASH;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.SYNCING;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.Configuration.FAIL_ON_UNKNOWN_BUT_NULL;
 import static org.hyperledger.besu.metrics.BesuMetricCategory.BLOCK_PROCESSING;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
@@ -67,15 +68,17 @@ import io.vertx.core.json.Json;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public sealed class EngineNewPayloadV1 extends ExecutionEngineJsonRpcMethod
-    permits EngineNewPayloadV2 {
+public sealed class EngineNewPayloadV1<
+        EP extends ExecutionPayloadV1, NPRP extends NewPayloadRequestParametersV1<? extends EP>>
+    extends ExecutionEngineJsonRpcMethod permits EngineNewPayloadV2 {
 
-  private static final Hash OMMERS_HASH_CONSTANT = Hash.EMPTY_LIST_HASH;
   private static final Logger LOG = LoggerFactory.getLogger(EngineNewPayloadV1.class);
-  private static final BlockHeaderFunctions headerFunctions = new MainnetBlockHeaderFunctions();
-  private final MergeMiningCoordinator mergeCoordinator;
+  private static final Hash OMMERS_HASH_CONSTANT = Hash.EMPTY_LIST_HASH;
+  private static final BlockHeaderFunctions HEADER_FUNCTIONS = new MainnetBlockHeaderFunctions();
   private final EthPeers ethPeers;
   private long lastExecutionTimeInNs = 0L;
+  private long lastInvalidWarn = 0L;
+  protected final MergeMiningCoordinator mergeCoordinator;
 
   private final Optional<Long> minForkTimestamp;
   private final Optional<Long> maxForkTimestamp;
@@ -124,7 +127,7 @@ public sealed class EngineNewPayloadV1 extends ExecutionEngineJsonRpcMethod
 
     final Object reqId = requestContext.getRequest().getId();
 
-    final NewPayloadRequestParametersV1 requestParameters;
+    final NPRP requestParameters;
     try {
       // 1. Client software MUST validate that all transactions have non-zero length (at least 1
       // byte). Client software MUST run this validation in all cases even if this branch or any
@@ -136,10 +139,10 @@ public sealed class EngineNewPayloadV1 extends ExecutionEngineJsonRpcMethod
       // {status: INVALID, latestValidHash: null, validationError: errorMessage | null} if
       // transactions contain zero length or invalid entries
       return respondWithInvalid(
-          reqId, INVALID, "Failed to decode block parameter (" + e.getMessage() + ")");
+          reqId, null, null, INVALID, "Failed to decode block parameter (" + e.getMessage() + ")");
     }
 
-    final ExecutionPayloadV1 blockParam = requestParameters.payloadParameter();
+    final EP blockParam = requestParameters.payloadParameter();
     LOG.atTrace()
         .setMessage("blockparam: {}")
         .addArgument(() -> Json.encodePrettily(blockParam))
@@ -153,22 +156,8 @@ public sealed class EngineNewPayloadV1 extends ExecutionEngineJsonRpcMethod
 
     final ValidationResult<RpcErrorType> forkValidationResult =
         validateForkSupported(blockParam.getTimestamp());
-
     if (!forkValidationResult.isValid()) {
       return new JsonRpcErrorResponse(reqId, forkValidationResult);
-    }
-
-    final VersionSpecificPayloadData versionSpecificPayloadData;
-    try {
-      versionSpecificPayloadData = createVersionSpecificPayloadData(requestParameters);
-    } catch (final InvalidVersionSpecificPayloadException e) {
-      return respondToInvalidVersionSpecificPayload(reqId, blockParam, e);
-    }
-
-    final ValidationResult<RpcErrorType> versionSpecificPayloadValidationResult =
-        validateVersionSpecificPayloadData(requestParameters, versionSpecificPayloadData);
-    if (!versionSpecificPayloadValidationResult.isValid()) {
-      return new JsonRpcErrorResponse(reqId, versionSpecificPayloadValidationResult);
     }
 
     // 2. Client software MUST validate blockHash value as being equivalent to
@@ -178,9 +167,8 @@ public sealed class EngineNewPayloadV1 extends ExecutionEngineJsonRpcMethod
     // EIP-3675, extended with the corresponding section of EIP-4399. Client software MUST run this
     // validation in all cases even if this branch or any other branches of the block tree are in an
     // active sync process.
-    final BlockHeaderBuilder blockHeaderBuilder = createBlockHeaderBuilder(blockParam);
-    setVersionSpecificBlockHeaderFields(
-        blockHeaderBuilder, requestParameters, versionSpecificPayloadData);
+    final BlockHeaderBuilder blockHeaderBuilder = BlockHeaderBuilder.create();
+    setBlockHeaderFields(blockHeaderBuilder, requestParameters);
     final BlockHeader newBlockHeader = blockHeaderBuilder.buildBlockHeader();
 
     // ensure the block hash matches the blockParam hash
@@ -224,10 +212,7 @@ public sealed class EngineNewPayloadV1 extends ExecutionEngineJsonRpcMethod
     final Optional<BlockHeader> maybeParentHeader =
         protocolContext.getBlockchain().getBlockHeader(blockParam.getParentHash());
 
-    final var unvalidatedBlock =
-        new Block(
-            newBlockHeader,
-            createBlockBody(blockParam.getTransactions(), versionSpecificPayloadData));
+    final var unvalidatedBlock = new Block(newBlockHeader, createBlockBody(blockParam));
 
     // 3. Client software MAY initiate a sync process if requisite data for payload validation is
     // missing. Sync process is specified in the Sync section.
@@ -237,22 +222,23 @@ public sealed class EngineNewPayloadV1 extends ExecutionEngineJsonRpcMethod
           .addArgument(unvalidatedBlock::toLogString)
           .log();
       mergeCoordinator.appendNewPayloadToSync(unvalidatedBlock);
+      // 6. Client software MUST respond to this method call in the following way:
+      // {status: SYNCING, latestValidHash: null, validationError: null} if requisite data for the
+      // payload's acceptance or validation is missing
       return respondWith(reqId, blockParam, null, SYNCING);
     }
 
+    final ProtocolSpec protocolSpec = protocolSchedule.get().getByBlockHeader(newBlockHeader);
     final BlockHeader parentHeader = maybeParentHeader.get();
     final var maybeLatestValidAncestor = mergeCoordinator.getLatestValidAncestor(newBlockHeader);
 
     // 4. Client software MUST validate the payload if it extends the canonical chain, and requisite
     // data for the validation is locally available. The validation process is specified in the
     // Payload validation section.
+    // 5. Client software MAY NOT validate the payload if the payload doesn't belong to the
+    // canonical chain.
     final ValidationResult<RpcErrorType> versionSpecificBlockValidationResult =
-        validateVersionSpecificBlockData(
-            blockParam.getTransactions(),
-            newBlockHeader,
-            parentHeader,
-            protocolSchedule.get().getByBlockHeader(newBlockHeader),
-            versionSpecificPayloadData);
+        validateNewBlock(unvalidatedBlock, protocolSpec, parentHeader, requestParameters);
     if (!versionSpecificBlockValidationResult.isValid()) {
       return respondWithInvalid(
           reqId,
@@ -260,15 +246,6 @@ public sealed class EngineNewPayloadV1 extends ExecutionEngineJsonRpcMethod
           maybeLatestValidAncestor.orElse(null),
           getInvalidBlockHashStatus(),
           versionSpecificBlockValidationResult.getErrorMessage());
-    }
-
-    if (Long.compareUnsigned(parentHeader.getTimestamp(), blockParam.getTimestamp()) >= 0) {
-      return respondWithInvalid(
-          reqId,
-          blockParam,
-          maybeLatestValidAncestor.orElse(null),
-          INVALID,
-          "block timestamp not greater than parent");
     }
 
     // block is now valid and can be processed
@@ -288,18 +265,16 @@ public sealed class EngineNewPayloadV1 extends ExecutionEngineJsonRpcMethod
 
     final Hash latestValidAncestor = maybeLatestValidAncestor.get();
 
+    // async precompute sender to improve performance during transaction processing
+    asyncPrecomputeSenders(blockParam.getTransactions());
+
     // execute block and return result response
-    precomputeSenders(blockParam.getTransactions());
     final long startTimeNs = System.nanoTime();
-    final BlockProcessingResult executionResult = rememberBlock(block, versionSpecificPayloadData);
+    final BlockProcessingResult executionResult = rememberBlock(block, blockParam);
     if (executionResult.isSuccessful()) {
       lastExecutionTimeInNs = System.nanoTime() - startTimeNs;
       logImportedBlockInfo(
-          block,
-          blockParam.getTransactions(),
-          versionSpecificPayloadData,
-          lastExecutionTimeInNs,
-          executionResult.getNbParallelizedTransactions());
+          block, lastExecutionTimeInNs, executionResult.getNbParallelizedTransactions());
       return respondWith(reqId, blockParam, newBlockHeader.getHash(), VALID);
     } else {
       LOG.debug("New payload is invalid: {}", executionResult);
@@ -318,46 +293,27 @@ public sealed class EngineNewPayloadV1 extends ExecutionEngineJsonRpcMethod
     }
   }
 
-  protected NewPayloadRequestParametersV1 readRequestParameters(
-      final JsonRpcRequestContext requestContext) {
+  @SuppressWarnings("unchecked")
+  protected NPRP readRequestParameters(final JsonRpcRequestContext requestContext) {
     final ExecutionPayloadV1 blockParam;
     try {
-      blockParam = requestContext.getRequiredParameter(0, getPayloadParameterClass());
+      blockParam =
+          requestContext.getRequiredParameter(
+              0, getPayloadParameterClass(), FAIL_ON_UNKNOWN_BUT_NULL);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcRequestException(
           "Invalid engine payload parameter (index 0)",
           RpcErrorType.INVALID_ENGINE_NEW_PAYLOAD_PARAMS,
           e);
     }
-    return new NewPayloadRequestParametersV1(blockParam);
+    return (NPRP) new NewPayloadRequestParametersV1<>(blockParam);
   }
 
   protected Class<? extends ExecutionPayloadV1> getPayloadParameterClass() {
     return ExecutionPayloadV1.class;
   }
 
-  private BlockHeaderBuilder createBlockHeaderBuilder(final ExecutionPayloadV1 blockParam) {
-    return BlockHeaderBuilder.create()
-        .parentHash(blockParam.getParentHash())
-        .ommersHash(OMMERS_HASH_CONSTANT)
-        .coinbase(blockParam.getFeeRecipient())
-        .stateRoot(blockParam.getStateRoot())
-        .transactionsRoot(BodyValidation.transactionsRoot(blockParam.getTransactions()))
-        .receiptsRoot(blockParam.getReceiptsRoot())
-        .logsBloom(blockParam.getLogsBloom())
-        .difficulty(Difficulty.ZERO)
-        .number(blockParam.getBlockNumber())
-        .gasLimit(blockParam.getGasLimit())
-        .gasUsed(blockParam.getGasUsed())
-        .timestamp(blockParam.getTimestamp())
-        .extraData(blockParam.getExtraData())
-        .baseFee(blockParam.getBaseFeePerGas())
-        .prevRandao(blockParam.getPrevRandao())
-        .nonce(0)
-        .blockHeaderFunctions(headerFunctions);
-  }
-
-  private void precomputeSenders(final List<Transaction> transactions) {
+  private void asyncPrecomputeSenders(final List<Transaction> transactions) {
     transactions.forEach(
         transaction -> {
           mergeCoordinator
@@ -373,12 +329,12 @@ public sealed class EngineNewPayloadV1 extends ExecutionEngineJsonRpcMethod
                     return sender;
                   });
           if (transaction.getType().supportsDelegateCode()) {
-            precomputeAuthorities(transaction);
+            asyncPrecomputeAuthorities(transaction);
           }
         });
   }
 
-  private void precomputeAuthorities(final Transaction transaction) {
+  private void asyncPrecomputeAuthorities(final Transaction transaction) {
     final var codeDelegations = transaction.getCodeDelegationList().get();
     int index = 0;
     for (final var codeDelegation : codeDelegations) {
@@ -407,7 +363,7 @@ public sealed class EngineNewPayloadV1 extends ExecutionEngineJsonRpcMethod
       final EngineStatus status) {
     if (INVALID.equals(status) || INVALID_BLOCK_HASH.equals(status)) {
       throw new IllegalArgumentException(
-          "Don't call respondWith() with invalid status of " + status.toString());
+          "Don't call respondWith() with invalid status of " + status);
     }
     LOG.atDebug()
         .setMessage(
@@ -423,26 +379,6 @@ public sealed class EngineNewPayloadV1 extends ExecutionEngineJsonRpcMethod
         requestId, new PayloadStatusV1(status, latestValidHash, Optional.empty()));
   }
 
-  // engine api calls are synchronous, no need for volatile
-  private long lastInvalidWarn = 0;
-
-  JsonRpcResponse respondWithInvalid(
-      final Object requestId, final EngineStatus invalidStatus, final String validationError) {
-    final String invalidBlockLogMessage =
-        String.format(
-            "Invalid new payload: status: %s, validationError: %s",
-            invalidStatus.name(), validationError);
-    // always log invalid at DEBUG
-    LOG.debug(invalidBlockLogMessage);
-    // periodically log at WARN
-    if (lastInvalidWarn + ENGINE_API_LOGGING_THRESHOLD < System.currentTimeMillis()) {
-      lastInvalidWarn = System.currentTimeMillis();
-      LOG.warn(invalidBlockLogMessage);
-    }
-    return new JsonRpcSuccessResponse(
-        requestId, new PayloadStatusV1(invalidStatus, null, Optional.of(validationError)));
-  }
-
   JsonRpcResponse respondWithInvalid(
       final Object requestId,
       final ExecutionPayloadV1 param,
@@ -456,9 +392,9 @@ public sealed class EngineNewPayloadV1 extends ExecutionEngineJsonRpcMethod
     final String invalidBlockLogMessage =
         String.format(
             "Invalid new payload: number: %s, hash: %s, parentHash: %s, latestValidHash: %s, status: %s, validationError: %s",
-            param.getBlockNumber(),
-            param.getBlockHash(),
-            param.getParentHash(),
+            param == null ? null : param.getBlockNumber(),
+            param == null ? null : param.getBlockHash(),
+            param == null ? null : param.getParentHash(),
             latestValidHash == null ? null : latestValidHash.getBytes().toHexString(),
             invalidStatus.name(),
             validationError);
@@ -478,45 +414,51 @@ public sealed class EngineNewPayloadV1 extends ExecutionEngineJsonRpcMethod
     return INVALID_BLOCK_HASH;
   }
 
-  protected ValidationResult<RpcErrorType> validateParameters(
-      final NewPayloadRequestParametersV1 requestParameters) {
+  protected ValidationResult<RpcErrorType> validateParameters(final NPRP requestParameters) {
     return ValidationResult.valid();
   }
 
-  protected VersionSpecificPayloadData createVersionSpecificPayloadData(
-      final NewPayloadRequestParametersV1 requestParameters)
-      throws InvalidVersionSpecificPayloadException {
-    return new VersionSpecificPayloadData();
-  }
-
-  protected ValidationResult<RpcErrorType> validateVersionSpecificPayloadData(
-      final NewPayloadRequestParametersV1 requestParameters,
-      final VersionSpecificPayloadData versionSpecificPayloadData) {
-    return ValidationResult.valid();
-  }
-
-  protected void setVersionSpecificBlockHeaderFields(
-      final BlockHeaderBuilder blockHeaderBuilder,
-      final NewPayloadRequestParametersV1 requestParameters,
-      final VersionSpecificPayloadData versionSpecificPayloadData) {}
-
-  protected BlockBody createBlockBody(
-      final List<Transaction> transactions,
-      final VersionSpecificPayloadData versionSpecificPayloadData) {
-    return new BlockBody(transactions, Collections.emptyList());
-  }
-
-  protected ValidationResult<RpcErrorType> validateVersionSpecificBlockData(
-      final List<Transaction> transactions,
-      final BlockHeader header,
-      final BlockHeader maybeParentHeader,
+  protected ValidationResult<RpcErrorType> validateNewBlock(
+      final Block newBlock,
       final ProtocolSpec protocolSpec,
-      final VersionSpecificPayloadData versionSpecificPayloadData) {
+      final BlockHeader parentHeader,
+      final NPRP requestParameters) {
+    if (Long.compareUnsigned(parentHeader.getTimestamp(), newBlock.getHeader().getTimestamp())
+        >= 0) {
+      ValidationResult.invalid(
+          RpcErrorType.INVALID_TIMESTAMP_PARAMS, "block timestamp not greater than parent");
+    }
     return ValidationResult.valid();
   }
 
-  protected BlockProcessingResult rememberBlock(
-      final Block block, final VersionSpecificPayloadData versionSpecificPayloadData) {
+  protected void setBlockHeaderFields(
+      final BlockHeaderBuilder blockHeaderBuilder, final NPRP requestParameters) {
+    final ExecutionPayloadV1 blockParam = requestParameters.payloadParameter();
+    blockHeaderBuilder
+        .parentHash(blockParam.getParentHash())
+        .ommersHash(OMMERS_HASH_CONSTANT)
+        .coinbase(blockParam.getFeeRecipient())
+        .stateRoot(blockParam.getStateRoot())
+        .transactionsRoot(BodyValidation.transactionsRoot(blockParam.getTransactions()))
+        .receiptsRoot(blockParam.getReceiptsRoot())
+        .logsBloom(blockParam.getLogsBloom())
+        .difficulty(Difficulty.ZERO)
+        .number(blockParam.getBlockNumber())
+        .gasLimit(blockParam.getGasLimit())
+        .gasUsed(blockParam.getGasUsed())
+        .timestamp(blockParam.getTimestamp())
+        .extraData(blockParam.getExtraData())
+        .baseFee(blockParam.getBaseFeePerGas())
+        .prevRandao(blockParam.getPrevRandao())
+        .nonce(0)
+        .blockHeaderFunctions(HEADER_FUNCTIONS);
+  }
+
+  protected BlockBody createBlockBody(final EP executionPayload) {
+    return new BlockBody(executionPayload.getTransactions(), Collections.emptyList());
+  }
+
+  protected BlockProcessingResult rememberBlock(final Block block, final EP executionPayload) {
     return mergeCoordinator.rememberBlock(block, Optional.empty());
   }
 
@@ -525,11 +467,7 @@ public sealed class EngineNewPayloadV1 extends ExecutionEngineJsonRpcMethod
   }
 
   private void logImportedBlockInfo(
-      final Block block,
-      final List<Transaction> transactions,
-      final VersionSpecificPayloadData versionSpecificPayloadData,
-      final long timeInNs,
-      final Optional<Integer> nbParallelizedTransactions) {
+      final Block block, final long timeInNs, final Optional<Integer> nbParallelizedTransactions) {
     final StringBuilder message = new StringBuilder();
     final int nbTransactions = block.getBody().getTransactions().size();
     message.append("Imported #%,d  (%s)| %4d tx");
@@ -543,8 +481,7 @@ public sealed class EngineNewPayloadV1 extends ExecutionEngineJsonRpcMethod
       message.append(" (%5.1f%% parallel)");
       messageArgs.add(parallelizedTxPercentage);
     }
-    appendVersionSpecificLogInfo(
-        message, messageArgs, block, transactions, versionSpecificPayloadData);
+    appendVersionSpecificLogInfo(message, messageArgs, block);
     double mgasPerSec =
         (timeInNs != 0) ? (double) (block.getHeader().getGasUsed() * 1_000) / timeInNs : 0;
     double timeInMs = (double) timeInNs / 1_000_000;
@@ -566,52 +503,7 @@ public sealed class EngineNewPayloadV1 extends ExecutionEngineJsonRpcMethod
   }
 
   protected void appendVersionSpecificLogInfo(
-      final StringBuilder message,
-      final List<Object> messageArgs,
-      final Block block,
-      final List<Transaction> transactions,
-      final VersionSpecificPayloadData versionSpecificPayloadData) {}
-
-  protected static class VersionSpecificPayloadData {}
-
-  protected static class InvalidVersionSpecificPayloadException extends Exception {
-    private final Optional<RpcErrorType> rpcErrorType;
-
-    private InvalidVersionSpecificPayloadException(
-        final String message, final Optional<RpcErrorType> rpcErrorType) {
-      super(message);
-      this.rpcErrorType = rpcErrorType;
-    }
-
-    protected static InvalidVersionSpecificPayloadException invalidPayload(final String message) {
-      return new InvalidVersionSpecificPayloadException(message, Optional.empty());
-    }
-
-    protected static InvalidVersionSpecificPayloadException jsonRpcError(
-        final RpcErrorType rpcErrorType) {
-      return new InvalidVersionSpecificPayloadException(
-          rpcErrorType.name(), Optional.of(rpcErrorType));
-    }
-
-    Optional<RpcErrorType> getRpcErrorType() {
-      return rpcErrorType;
-    }
-  }
-
-  private JsonRpcResponse respondToInvalidVersionSpecificPayload(
-      final Object reqId,
-      final ExecutionPayloadV1 blockParam,
-      final InvalidVersionSpecificPayloadException exception) {
-    if (exception.getRpcErrorType().isPresent()) {
-      return new JsonRpcErrorResponse(reqId, exception.getRpcErrorType().get());
-    }
-    return respondWithInvalid(
-        reqId,
-        blockParam,
-        mergeCoordinator.getLatestValidAncestor(blockParam.getParentHash()).orElse(null),
-        INVALID,
-        exception.getMessage());
-  }
+      final StringBuilder message, final List<Object> messageArgs, final Block block) {}
 
   private long getLastExecutionTime() {
     return this.lastExecutionTimeInNs;

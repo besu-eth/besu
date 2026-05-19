@@ -14,14 +14,20 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
-public sealed class NewPayloadRequestParametersV1 permits NewPayloadRequestParametersV2 {
-  private final ExecutionPayloadV1 payloadParameter;
+public sealed class NewPayloadRequestParametersV1<EP extends ExecutionPayloadV1>
+    permits NewPayloadRequestParametersV2 {
+  private final EP payloadParameter;
 
-  public NewPayloadRequestParametersV1(final ExecutionPayloadV1 payloadParameter) {
+  public NewPayloadRequestParametersV1(final EP payloadParameter) {
     this.payloadParameter = payloadParameter;
   }
 
-  public ExecutionPayloadV1 payloadParameter() {
+  public NewPayloadRequestParametersV1(
+      final NewPayloadRequestParametersV1<? extends EP> requestParameters) {
+    this.payloadParameter = requestParameters.payloadParameter();
+  }
+
+  public EP payloadParameter() {
     return payloadParameter;
   }
 }

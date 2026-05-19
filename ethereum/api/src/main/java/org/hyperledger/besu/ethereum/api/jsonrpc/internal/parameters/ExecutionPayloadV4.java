@@ -15,24 +15,29 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
 import org.hyperledger.besu.datatypes.parameters.UnsignedLongParameter;
+import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListDecoder;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 
 import com.fasterxml.jackson.annotation.JsonSetter;
+import org.apache.tuweni.bytes.Bytes;
 
 public final class ExecutionPayloadV4 extends ExecutionPayloadV3 {
-  private String blockAccessList;
+  private BlockAccessList blockAccessList;
   private Long slotNumber;
 
   @JsonSetter("blockAccessList")
-  public void setBlockAccessList(final String blockAccessList) {
-    this.blockAccessList = blockAccessList;
+  public void setBlockAccessList(final Bytes rawBlockAccessList) {
+    this.blockAccessList =
+        BlockAccessListDecoder.decode(new BytesValueRLPInput(rawBlockAccessList, false));
   }
 
   @JsonSetter("slotNumber")
   public void setSlotNumber(final UnsignedLongParameter slotNumber) {
-    this.slotNumber = slotNumber == null ? null : slotNumber.getValue();
+    this.slotNumber = slotNumber.getValue();
   }
 
-  public String getBlockAccessList() {
+  public BlockAccessList getBlockAccessList() {
     return blockAccessList;
   }
 

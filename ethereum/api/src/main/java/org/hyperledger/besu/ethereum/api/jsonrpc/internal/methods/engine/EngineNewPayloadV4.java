@@ -15,24 +15,26 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.RequestValidatorProvider.getRequestsValidator;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.Configuration.FAIL_ON_UNKNOWN_BUT_NULL;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.datatypes.HardforkId;
-import org.hyperledger.besu.datatypes.RequestType;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcRequestException;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
-import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
@@ -40,9 +42,10 @@ import java.util.List;
 import java.util.Optional;
 
 import io.vertx.core.Vertx;
-import org.apache.tuweni.bytes.Bytes;
 
-public sealed class EngineNewPayloadV4 extends EngineNewPayloadV3 permits EngineNewPayloadV5 {
+public sealed class EngineNewPayloadV4<
+        EP extends ExecutionPayloadV3, NPRP extends NewPayloadRequestParametersV3<? extends EP>>
+    extends EngineNewPayloadV3<EP, NPRP> permits EngineNewPayloadV5 {
 
   public EngineNewPayloadV4(
       final Vertx vertx,
@@ -72,119 +75,50 @@ public sealed class EngineNewPayloadV4 extends EngineNewPayloadV3 permits Engine
   }
 
   @Override
-  protected NewPayloadRequestParametersV3 readRequestParameters(
-      final JsonRpcRequestContext requestContext) {
-    final NewPayloadRequestParametersV2 requestParameters =
+  @SuppressWarnings("unchecked")
+  protected NPRP readRequestParameters(final JsonRpcRequestContext requestContext) {
+    final NewPayloadRequestParametersV2<? extends EP> requestParameters =
         super.readRequestParameters(requestContext);
-    final Optional<List<String>> executionRequests;
+    final List<String> executionRequests;
     try {
-      executionRequests = requestContext.getOptionalList(3, String.class);
+      executionRequests = requestContext.getRequiredList(3, String.class, FAIL_ON_UNKNOWN_BUT_NULL);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcRequestException(
           "Invalid execution request parameters (index 3)",
           RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS,
           e);
     }
-    return new NewPayloadRequestParametersV3(requestParameters, executionRequests);
+    return (NPRP) new NewPayloadRequestParametersV3<>(requestParameters, executionRequests);
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateParameters(
-      final NewPayloadRequestParametersV1 requestParameters) {
-    final ValidationResult<RpcErrorType> result = super.validateParameters(requestParameters);
-    if (!result.isValid()) {
-      return result;
-    }
-    final NewPayloadRequestParametersV3 requestParametersV3 =
-        (NewPayloadRequestParametersV3) requestParameters;
-    final Optional<List<String>> executionRequests = requestParametersV3.executionRequests();
-    if (executionRequests.isEmpty()) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS, "Missing execution requests field");
-    }
-    return ValidationResult.valid();
+  protected void setBlockHeaderFields(
+      final BlockHeaderBuilder blockHeaderBuilder, final NPRP requestParameters) {
+    super.setBlockHeaderFields(blockHeaderBuilder, requestParameters);
+    blockHeaderBuilder.requestsHash(
+        BodyValidation.requestsHash(requestParameters.executionRequests()));
   }
 
   @Override
-  protected VersionSpecificPayloadData createVersionSpecificPayloadData(
-      final NewPayloadRequestParametersV1 requestParameters)
-      throws InvalidVersionSpecificPayloadException {
-    final V3PayloadData v3PayloadData =
-        (V3PayloadData) super.createVersionSpecificPayloadData(requestParameters);
-    final NewPayloadRequestParametersV3 requestParametersV3 =
-        (NewPayloadRequestParametersV3) requestParameters;
-    try {
-      return new V4PayloadData(
-          v3PayloadData, parseRequests(requestParametersV3.executionRequests()));
-    } catch (final RuntimeException e) {
-      throw InvalidVersionSpecificPayloadException.jsonRpcError(
-          RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS);
-    }
-  }
-
-  @Override
-  protected ValidationResult<RpcErrorType> validateVersionSpecificPayloadData(
-      final NewPayloadRequestParametersV1 requestParameters,
-      final VersionSpecificPayloadData versionSpecificPayloadData) {
+  protected ValidationResult<RpcErrorType> validateNewBlock(
+      final Block newBlock,
+      final ProtocolSpec protocolSpec,
+      final BlockHeader parentHeader,
+      final NPRP requestParameters) {
     final ValidationResult<RpcErrorType> result =
-        super.validateVersionSpecificPayloadData(requestParameters, versionSpecificPayloadData);
-    if (!result.isValid()) {
-      return result;
-    }
-    final V4PayloadData v4PayloadData = (V4PayloadData) versionSpecificPayloadData;
+        super.validateNewBlock(newBlock, protocolSpec, parentHeader, requestParameters);
+    return result.isValid() ? validateExecutionPayloadV4(requestParameters) : result;
+  }
+
+  private ValidationResult<RpcErrorType> validateExecutionPayloadV4(final NPRP requestParameters) {
     final var payloadParameter = requestParameters.payloadParameter();
     if (!getRequestsValidator(
             protocolSchedule.get(),
             payloadParameter.getTimestamp(),
             payloadParameter.getBlockNumber())
-        .validate(v4PayloadData.maybeRequests())) {
+        .validate(Optional.of(requestParameters.executionRequests()))) {
       return ValidationResult.invalid(RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS);
     }
     return ValidationResult.valid();
-  }
-
-  @Override
-  protected void setVersionSpecificBlockHeaderFields(
-      final BlockHeaderBuilder blockHeaderBuilder,
-      final NewPayloadRequestParametersV1 requestParameters,
-      final VersionSpecificPayloadData versionSpecificPayloadData) {
-    super.setVersionSpecificBlockHeaderFields(
-        blockHeaderBuilder, requestParameters, versionSpecificPayloadData);
-    final V4PayloadData v4PayloadData = (V4PayloadData) versionSpecificPayloadData;
-    blockHeaderBuilder.requestsHash(
-        v4PayloadData.maybeRequests().map(BodyValidation::requestsHash).orElse(null));
-  }
-
-  protected Optional<List<Request>> parseRequests(final Optional<List<String>> maybeRequestsParam) {
-    if (maybeRequestsParam.isEmpty()) {
-      return Optional.empty();
-    }
-    return maybeRequestsParam.map(
-        requests ->
-            requests.stream()
-                .map(
-                    s -> {
-                      final Bytes request = Bytes.fromHexString(s);
-                      final Bytes requestData = request.slice(1);
-                      if (requestData.isEmpty()) {
-                        throw new IllegalArgumentException("Request data cannot be empty");
-                      }
-                      return new Request(RequestType.of(request.get(0)), requestData);
-                    })
-                .toList());
-  }
-
-  protected static class V4PayloadData extends V3PayloadData {
-    private final Optional<List<Request>> maybeRequests;
-
-    protected V4PayloadData(
-        final V3PayloadData v3PayloadData, final Optional<List<Request>> maybeRequests) {
-      super(v3PayloadData, v3PayloadData.maybeVersionedHashes());
-      this.maybeRequests = maybeRequests;
-    }
-
-    protected Optional<List<Request>> maybeRequests() {
-      return maybeRequests;
-    }
   }
 }

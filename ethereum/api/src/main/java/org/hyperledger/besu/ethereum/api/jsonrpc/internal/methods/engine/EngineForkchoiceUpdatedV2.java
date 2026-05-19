@@ -83,8 +83,7 @@ public sealed class EngineForkchoiceUpdatedV2<PA extends PayloadAttributesV2>
   private ValidationResult<RpcErrorType> validatePayloadAttributesV2(
       final BlockHeader newHead, final PayloadAttributesV2 attrs) {
     // engine_forkchoiceUpdatedV2 is peculiar since it allows 2 different versions of payload
-    // attributes
-    // so we need to check the timestamp for withdrawals validation.
+    // attribute so we need to check the timestamp for withdrawal validation.
 
     // Spec: payloadAttributes: instance of PayloadAttributesV1 | PayloadAttributesV2, where:
     // PayloadAttributesV1 MUST be used to build a payload with the timestamp value lower than the

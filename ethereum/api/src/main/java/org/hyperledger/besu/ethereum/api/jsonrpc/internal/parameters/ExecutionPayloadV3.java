@@ -24,7 +24,7 @@ public sealed class ExecutionPayloadV3 extends ExecutionPayloadV2 permits Execut
 
   @JsonSetter("blobGasUsed")
   public void setBlobGasUsed(final UnsignedLongParameter blobGasUsed) {
-    this.blobGasUsed = blobGasUsed == null ? null : blobGasUsed.getValue();
+    this.blobGasUsed = blobGasUsed.getValue();
   }
 
   @JsonSetter("excessBlobGas")

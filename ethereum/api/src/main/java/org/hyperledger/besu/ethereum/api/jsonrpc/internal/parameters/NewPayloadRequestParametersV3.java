@@ -14,23 +14,42 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
-import java.util.List;
-import java.util.Optional;
+import org.hyperledger.besu.datatypes.RequestType;
+import org.hyperledger.besu.ethereum.core.Request;
 
-public final class NewPayloadRequestParametersV3 extends NewPayloadRequestParametersV2 {
-  private final Optional<List<String>> executionRequests;
+import java.util.List;
+
+import org.apache.tuweni.bytes.Bytes;
+
+public final class NewPayloadRequestParametersV3<EP extends ExecutionPayloadV3>
+    extends NewPayloadRequestParametersV2<EP> {
+  private final List<Request> executionRequests;
 
   public NewPayloadRequestParametersV3(
-      final NewPayloadRequestParametersV2 requestParameters,
-      final Optional<List<String>> executionRequests) {
-    super(
-        requestParameters,
-        requestParameters.expectedBlobVersionedHashes(),
-        requestParameters.parentBeaconBlockRootParameter());
-    this.executionRequests = executionRequests;
+      final NewPayloadRequestParametersV2<? extends EP> requestParameters,
+      final List<String> hexExecutionRequests) {
+    super(requestParameters);
+    this.executionRequests =
+        hexExecutionRequests.stream()
+            .map(
+                s -> {
+                  final Bytes request = Bytes.fromHexString(s);
+                  final Bytes requestData = request.slice(1);
+                  if (requestData.isEmpty()) {
+                    throw new IllegalArgumentException("Request data cannot be empty");
+                  }
+                  return new Request(RequestType.of(request.get(0)), requestData);
+                })
+            .toList();
   }
 
-  public Optional<List<String>> executionRequests() {
+  public NewPayloadRequestParametersV3(
+      final NewPayloadRequestParametersV3<? extends EP> requestParameters) {
+    super(requestParameters);
+    this.executionRequests = requestParameters.executionRequests();
+  }
+
+  public List<Request> executionRequests() {
     return executionRequests;
   }
 }
