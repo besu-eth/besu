@@ -24,7 +24,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapWorldDownloadState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRangeRequestContext;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
@@ -77,7 +77,7 @@ public class AccountFlatDatabaseHealingRangeRequest extends SnapDataRequest {
 
   @Override
   public Stream<SnapDataRequest> getChildRequests(
-      final SnapRangeRequestContext downloadState,
+      final SnapRequestContext downloadState,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncProcessState snapSyncState) {
     final List<SnapDataRequest> childRequests = new ArrayList<>();
@@ -149,7 +149,7 @@ public class AccountFlatDatabaseHealingRangeRequest extends SnapDataRequest {
   protected int doPersist(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
-      final SnapRangeRequestContext downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration syncConfig) {
 

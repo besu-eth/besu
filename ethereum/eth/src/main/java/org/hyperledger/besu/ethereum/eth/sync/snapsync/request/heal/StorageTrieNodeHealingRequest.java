@@ -20,7 +20,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRangeRequestContext;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
@@ -48,7 +48,7 @@ public class StorageTrieNodeHealingRequest extends TrieNodeHealingRequest {
   protected int doPersist(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
-      final SnapRangeRequestContext downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
     applyForStrategy(
@@ -78,7 +78,7 @@ public class StorageTrieNodeHealingRequest extends TrieNodeHealingRequest {
   @Override
   protected Stream<SnapDataRequest> getRequestsFromTrieNodeValue(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
-      final SnapRangeRequestContext downloadState,
+      final SnapRequestContext downloadState,
       final Bytes location,
       final Bytes path,
       final Bytes value) {

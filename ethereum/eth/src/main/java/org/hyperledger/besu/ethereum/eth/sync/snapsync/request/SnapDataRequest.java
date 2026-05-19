@@ -118,7 +118,7 @@ public abstract class SnapDataRequest implements TasksPriorityProvider {
   public int persist(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
-      final SnapRangeRequestContext downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
     return doPersist(
@@ -128,7 +128,7 @@ public abstract class SnapDataRequest implements TasksPriorityProvider {
   protected abstract int doPersist(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
-      final SnapRangeRequestContext downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration);
 
@@ -139,7 +139,7 @@ public abstract class SnapDataRequest implements TasksPriorityProvider {
   }
 
   public abstract Stream<SnapDataRequest> getChildRequests(
-      final SnapRangeRequestContext downloadState,
+      final SnapRequestContext downloadState,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncProcessState snapSyncState);
 
@@ -159,7 +159,7 @@ public abstract class SnapDataRequest implements TasksPriorityProvider {
   protected int saveParent(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
-      final SnapRangeRequestContext downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
     if (pendingChildren.decrementAndGet() == 0) {

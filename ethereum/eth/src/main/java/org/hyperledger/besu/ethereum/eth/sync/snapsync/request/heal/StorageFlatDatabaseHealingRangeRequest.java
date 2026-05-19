@@ -21,7 +21,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRangeRequestContext;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
@@ -76,7 +76,7 @@ public class StorageFlatDatabaseHealingRangeRequest extends SnapDataRequest {
 
   @Override
   public Stream<SnapDataRequest> getChildRequests(
-      final SnapRangeRequestContext downloadState,
+      final SnapRequestContext downloadState,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncProcessState snapSyncState) {
     final List<SnapDataRequest> childRequests = new ArrayList<>();
@@ -140,7 +140,7 @@ public class StorageFlatDatabaseHealingRangeRequest extends SnapDataRequest {
   protected int doPersist(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
-      final SnapRangeRequestContext downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
 

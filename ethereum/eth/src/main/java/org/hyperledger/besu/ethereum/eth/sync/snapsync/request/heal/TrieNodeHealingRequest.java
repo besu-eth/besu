@@ -21,7 +21,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRangeRequestContext;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
 import org.hyperledger.besu.ethereum.trie.Node;
 import org.hyperledger.besu.ethereum.trie.patricia.TrieNodeDecoder;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -58,7 +58,7 @@ public abstract class TrieNodeHealingRequest extends SnapDataRequest
   public int persist(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
-      final SnapRangeRequestContext downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
     if (isExpired(snapSyncState) || pendingChildren.get() > 0) {
@@ -92,7 +92,7 @@ public abstract class TrieNodeHealingRequest extends SnapDataRequest
 
   @Override
   public Stream<SnapDataRequest> getChildRequests(
-      final SnapRangeRequestContext downloadState,
+      final SnapRequestContext downloadState,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncProcessState snapSyncState) {
     if (!isResponseReceived()) {
@@ -196,7 +196,7 @@ public abstract class TrieNodeHealingRequest extends SnapDataRequest
 
   protected abstract Stream<SnapDataRequest> getRequestsFromTrieNodeValue(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
-      final SnapRangeRequestContext downloadState,
+      final SnapRequestContext downloadState,
       final Bytes location,
       final Bytes path,
       final Bytes value);

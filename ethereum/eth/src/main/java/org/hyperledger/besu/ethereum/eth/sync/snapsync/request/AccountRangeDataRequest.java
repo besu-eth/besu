@@ -107,7 +107,7 @@ public class AccountRangeDataRequest extends SnapDataRequest {
   protected int doPersist(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
-      final SnapRangeRequestContext downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
 
@@ -186,7 +186,7 @@ public class AccountRangeDataRequest extends SnapDataRequest {
 
   @Override
   public Stream<SnapDataRequest> getChildRequests(
-      final SnapRangeRequestContext downloadState,
+      final SnapRequestContext downloadState,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncProcessState snapSyncState) {
     final List<SnapDataRequest> childRequests = new ArrayList<>();

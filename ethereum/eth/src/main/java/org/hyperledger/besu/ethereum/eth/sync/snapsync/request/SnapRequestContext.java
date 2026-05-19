@@ -18,8 +18,8 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncMetricsManager;
 
 import org.apache.tuweni.bytes.Bytes;
 
-/** Context needed by snap range requests to enqueue follow-up work and report progress. */
-public interface SnapRangeRequestContext {
+/** Context needed by snap requests to enqueue follow-up work and report progress. */
+public interface SnapRequestContext {
 
   void enqueueRequest(SnapDataRequest request);
 

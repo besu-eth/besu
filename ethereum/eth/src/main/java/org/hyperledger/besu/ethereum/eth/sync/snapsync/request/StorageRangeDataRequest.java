@@ -88,7 +88,7 @@ public class StorageRangeDataRequest extends SnapDataRequest {
   protected int doPersist(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
-      final SnapRangeRequestContext downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
 
@@ -124,7 +124,7 @@ public class StorageRangeDataRequest extends SnapDataRequest {
   }
 
   public void addResponse(
-      final SnapRangeRequestContext downloadState,
+      final SnapRequestContext downloadState,
       final WorldStateProofProvider worldStateProofProvider,
       final NavigableMap<Bytes32, Bytes> slots,
       final ArrayDeque<Bytes> proofs) {
@@ -165,7 +165,7 @@ public class StorageRangeDataRequest extends SnapDataRequest {
 
   @Override
   public Stream<SnapDataRequest> getChildRequests(
-      final SnapRangeRequestContext downloadState,
+      final SnapRequestContext downloadState,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncProcessState snapSyncState) {
     final List<SnapDataRequest> childRequests = new ArrayList<>();

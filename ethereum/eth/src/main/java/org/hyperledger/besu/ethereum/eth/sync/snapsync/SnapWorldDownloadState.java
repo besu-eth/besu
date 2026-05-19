@@ -27,7 +27,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePers
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.AccountRangeDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.BytecodeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRangeRequestContext;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.StorageRangeDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.AccountFlatDatabaseHealingRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.StorageFlatDatabaseHealingRangeRequest;
@@ -65,7 +65,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
-    implements SnapRangeRequestContext {
+    implements SnapRequestContext {
 
   private static final Logger LOG = LoggerFactory.getLogger(SnapWorldDownloadState.class);
 
