@@ -22,7 +22,7 @@ public class NoAvailablePeersException extends EthTaskException {
    * object and capturing a JVM stack trace on every retry attempt.
    */
   @SuppressWarnings("StaticAssignmentOfThrowable")
-  public static final NoAvailablePeersException INSTANCE =
+  public static final NoAvailablePeersException WITHOUT_STACKTRACE =
       new NoAvailablePeersException() {
         @Override
         public synchronized Throwable fillInStackTrace() {

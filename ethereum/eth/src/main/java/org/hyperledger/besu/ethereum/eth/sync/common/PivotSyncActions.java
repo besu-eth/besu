@@ -204,7 +204,7 @@ public class PivotSyncActions {
                 LOG.error(
                     "Failed to download pivot block header. Response Code was {}",
                     taskResult.responseCode());
-                return CompletableFuture.failedFuture(NoAvailablePeersException.INSTANCE);
+                return CompletableFuture.failedFuture(NoAvailablePeersException.WITHOUT_STACKTRACE);
               } else if (taskResult.responseCode() != PeerTaskExecutorResponseCode.SUCCESS
                   || taskResult.result().isEmpty()) {
                 LOG.error(
