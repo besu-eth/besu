@@ -165,6 +165,11 @@ public abstract class AbstractMessageProcessor {
     frame.clearOutputData();
   }
 
+  /**
+   * Gets called when the message frame reverts.
+   *
+   * @param frame The message frame
+   */
   protected void revert(final MessageFrame frame) {
     handleStateGasOnFrameFailure(frame);
 
