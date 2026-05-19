@@ -174,11 +174,7 @@ public class EngineNewPayloadV3ValidationTest {
 
       var result =
           method.validateBlobs(
-              List.of(),
-              mockHeader,
-              Optional.of(mockParentHeader),
-              Optional.empty(),
-              mockProtocolSpec);
+              List.of(), mockHeader, mockParentHeader, Optional.empty(), mockProtocolSpec);
 
       assertThat(result.isValid()).isFalse();
       assertThat(result.getErrorMessage()).contains("Expected", "1000");
@@ -212,7 +208,7 @@ public class EngineNewPayloadV3ValidationTest {
         method.validateBlobs(
             blobTransactions,
             mockHeader,
-            Optional.of(mockParentHeader),
+            mockParentHeader,
             Optional.of(versionedHashes),
             mockProtocolSpec);
 
@@ -241,7 +237,7 @@ public class EngineNewPayloadV3ValidationTest {
         method.validateBlobs(
             blobTransactions,
             mockHeader,
-            Optional.of(mockParentHeader),
+            mockParentHeader,
             Optional.of(provided),
             mockProtocolSpec);
 

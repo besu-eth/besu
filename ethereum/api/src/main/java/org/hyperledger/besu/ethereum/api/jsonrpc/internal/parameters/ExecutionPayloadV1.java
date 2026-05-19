@@ -19,10 +19,14 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.LogsBloomFilter;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.datatypes.parameters.UnsignedLongParameter;
+import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 
 import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonSetter;
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
@@ -36,10 +40,10 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
   private long gasLimit;
   private long gasUsed;
   private long timestamp;
-  private String extraData;
+  private Bytes32 extraData;
   private Hash receiptsRoot;
   private LogsBloomFilter logsBloom;
-  private List<String> transactions;
+  private List<Transaction> transactions;
 
   @JsonSetter("blockHash")
   public void setBlockHash(final Hash blockHash) {
@@ -88,7 +92,7 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
 
   @JsonSetter("extraData")
   public void setExtraData(final String extraData) {
-    this.extraData = extraData;
+    this.extraData = Bytes32.fromHexString(extraData);
   }
 
   @JsonSetter("receiptsRoot")
@@ -107,8 +111,12 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
   }
 
   @JsonSetter("transactions")
-  public void setTransactions(final List<String> transactions) {
-    this.transactions = transactions;
+  public void setTransactions(final List<String> hexTransactions) {
+    this.transactions =
+        hexTransactions.stream()
+            .map(Bytes::fromHexString)
+            .map(in -> TransactionDecoder.decodeOpaqueBytes(in, EncodingContext.BLOCK_BODY))
+            .toList();
   }
 
   public Hash getBlockHash() {
@@ -147,7 +155,7 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
     return timestamp;
   }
 
-  public String getExtraData() {
+  public Bytes32 getExtraData() {
     return extraData;
   }
 
@@ -163,7 +171,7 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
     return prevRandao;
   }
 
-  public List<String> getTransactions() {
+  public List<Transaction> getTransactions() {
     return transactions;
   }
 }

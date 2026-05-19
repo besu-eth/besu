@@ -183,12 +183,12 @@ public sealed class EngineNewPayloadV3 extends EngineNewPayloadV2 permits Engine
   protected ValidationResult<RpcErrorType> validateVersionSpecificBlockData(
       final List<Transaction> transactions,
       final BlockHeader header,
-      final Optional<BlockHeader> maybeParentHeader,
+      final BlockHeader parentHeader,
       final ProtocolSpec protocolSpec,
       final VersionSpecificPayloadData versionSpecificPayloadData) {
     final ValidationResult<RpcErrorType> result =
         super.validateVersionSpecificBlockData(
-            transactions, header, maybeParentHeader, protocolSpec, versionSpecificPayloadData);
+            transactions, header, parentHeader, protocolSpec, versionSpecificPayloadData);
     if (!result.isValid()) {
       return result;
     }
@@ -196,27 +196,23 @@ public sealed class EngineNewPayloadV3 extends EngineNewPayloadV2 permits Engine
     final List<Transaction> blobTransactions =
         transactions.stream().filter(transaction -> transaction.getType().supportsBlob()).toList();
     return validateBlobTransactions(
-        blobTransactions,
-        header,
-        maybeParentHeader,
-        v3PayloadData.maybeVersionedHashes(),
-        protocolSpec);
+        blobTransactions, header, parentHeader, v3PayloadData.maybeVersionedHashes(), protocolSpec);
   }
 
   protected ValidationResult<RpcErrorType> validateBlobs(
       final List<Transaction> blobTransactions,
       final BlockHeader header,
-      final Optional<BlockHeader> maybeParentHeader,
+      final BlockHeader parentHeader,
       final Optional<List<VersionedHash>> maybeVersionedHashes,
       final ProtocolSpec protocolSpec) {
     return validateBlobTransactions(
-        blobTransactions, header, maybeParentHeader, maybeVersionedHashes, protocolSpec);
+        blobTransactions, header, parentHeader, maybeVersionedHashes, protocolSpec);
   }
 
   protected ValidationResult<RpcErrorType> validateBlobTransactions(
       final List<Transaction> blobTransactions,
       final BlockHeader header,
-      final Optional<BlockHeader> maybeParentHeader,
+      final BlockHeader parentHeader,
       final Optional<List<VersionedHash>> maybeVersionedHashes,
       final ProtocolSpec protocolSpec) {
 
@@ -265,18 +261,16 @@ public sealed class EngineNewPayloadV3 extends EngineNewPayloadV2 permits Engine
     }
 
     // Validate excessBlobGas
-    if (maybeParentHeader.isPresent()) {
-      Optional<BlobGas> maybeCalculatedExcess =
-          validateExcessBlobGas(header, maybeParentHeader.get(), protocolSpec);
-      if (maybeCalculatedExcess.isPresent()) {
-        BlobGas calculated = maybeCalculatedExcess.get();
-        BlobGas actual = header.getExcessBlobGas().orElse(BlobGas.ZERO);
-        return ValidationResult.invalid(
-            RpcErrorType.INVALID_EXCESS_BLOB_GAS_PARAMS,
-            String.format(
-                "Payload excessBlobGas does not match calculated excessBlobGas. Expected %s, got %s",
-                calculated, actual));
-      }
+    Optional<BlobGas> maybeCalculatedExcess =
+        validateExcessBlobGas(header, parentHeader, protocolSpec);
+    if (maybeCalculatedExcess.isPresent()) {
+      BlobGas calculated = maybeCalculatedExcess.get();
+      BlobGas actual = header.getExcessBlobGas().orElse(BlobGas.ZERO);
+      return ValidationResult.invalid(
+          RpcErrorType.INVALID_EXCESS_BLOB_GAS_PARAMS,
+          String.format(
+              "Payload excessBlobGas does not match calculated excessBlobGas. Expected %s, got %s",
+              calculated, actual));
     }
 
     // Validate blobGasUsed
