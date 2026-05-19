@@ -227,13 +227,11 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   protected boolean isEarlyRoundChangeEnabled = false;
 
   /**
-   * When enabled, QBFT encodes RoundChange and Proposal messages in the pre-26.1.0 wire format when
-   * blockAccessList is absent (omits the BAL slot entirely). Only required for rolling upgrades
-   * from Besu 25.x peers; breaks interop with Besu 26.1.0 - 26.5.0 peers. When blockAccessList is
-   * present the current format is still emitted, so 25.x interop only holds on chains where BAL is
-   * not active.
+   * When enabled, BFT (QBFT and IBFT2) encoders emit the 25.x wire format when blockAccessList is
+   * absent. Required only for rolling upgrades from Besu 25.x peers; no effect when blockAccessList
+   * is active on the chain.
    */
-  protected boolean isLegacyRoundChangeEncodingEnabled = false;
+  protected boolean isLegacyBftProtocolEncodingEnabled = false;
 
   /** The global code cache */
   protected CodeCache codeCache;
@@ -586,14 +584,14 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   }
 
   /**
-   * Configure the QBFT encoder to emit the pre-26.1.0 RoundChange / Proposal wire format.
+   * Configure the BFT (QBFT/IBFT2) encoders to emit the 25.x wire format.
    *
-   * @param isLegacyRoundChangeEncodingEnabled whether to emit legacy encoding
+   * @param isLegacyBftProtocolEncodingEnabled whether to emit legacy encoding
    * @return the besu controller builder
    */
-  public BesuControllerBuilder isLegacyRoundChangeEncodingEnabled(
-      final boolean isLegacyRoundChangeEncodingEnabled) {
-    this.isLegacyRoundChangeEncodingEnabled = isLegacyRoundChangeEncodingEnabled;
+  public BesuControllerBuilder isLegacyBftProtocolEncodingEnabled(
+      final boolean isLegacyBftProtocolEncodingEnabled) {
+    this.isLegacyBftProtocolEncodingEnabled = isLegacyBftProtocolEncodingEnabled;
     return this;
   }
 

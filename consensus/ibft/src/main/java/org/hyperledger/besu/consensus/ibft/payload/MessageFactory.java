@@ -36,6 +36,7 @@ import org.apache.tuweni.bytes.Bytes32;
 public class MessageFactory {
 
   private final NodeKey nodeKey;
+  private final boolean useLegacyEncoding;
 
   /**
    * Instantiates a new Message factory.
@@ -43,7 +44,19 @@ public class MessageFactory {
    * @param nodeKey the node key
    */
   public MessageFactory(final NodeKey nodeKey) {
+    this(nodeKey, false);
+  }
+
+  /**
+   * Instantiates a new Message factory with explicit encoding mode.
+   *
+   * @param nodeKey the node key
+   * @param useLegacyEncoding when true and blockAccessList is absent, the encoder emits the 25.x
+   *     wire format (omits the BAL slot). Has no effect when blockAccessList is present.
+   */
+  public MessageFactory(final NodeKey nodeKey, final boolean useLegacyEncoding) {
     this.nodeKey = nodeKey;
+    this.useLegacyEncoding = useLegacyEncoding;
   }
 
   /**
@@ -64,7 +77,11 @@ public class MessageFactory {
     final ProposalPayload payload = new ProposalPayload(roundIdentifier, block.getHash());
 
     return new Proposal(
-        createSignedMessage(payload), block, blockAccessList, roundChangeCertificate);
+        createSignedMessage(payload),
+        block,
+        blockAccessList,
+        roundChangeCertificate,
+        useLegacyEncoding);
   }
 
   /**
@@ -132,7 +149,8 @@ public class MessageFactory {
     return new RoundChange(
         createSignedMessage(payload),
         preparedRoundArtifacts.map(PreparedRoundArtifacts::getBlock),
-        preparedRoundArtifacts.flatMap(PreparedRoundArtifacts::getBlockAccessList));
+        preparedRoundArtifacts.flatMap(PreparedRoundArtifacts::getBlockAccessList),
+        useLegacyEncoding);
   }
 
   private <M extends Payload> SignedData<M> createSignedMessage(final M payload) {

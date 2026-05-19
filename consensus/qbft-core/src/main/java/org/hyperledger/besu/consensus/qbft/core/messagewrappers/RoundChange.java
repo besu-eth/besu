@@ -146,17 +146,10 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
     getSignedPayload().writeTo(rlpOut);
     proposedBlock.ifPresentOrElse(pb -> blockEncoder.writeTo(pb, rlpOut), rlpOut::writeEmptyList);
     if (useLegacyEncoding) {
-      // Pre-26.1.0 wire format: omit the blockAccessList slot entirely when absent so that
-      // Besu 25.x peers (which do not know about blockAccessList) can decode this message.
-      // When a BlockAccessList is actually present we still emit the 4-item format - dropping
-      // BAL data on the wire would risk consensus divergence on chains where BAL is active.
-      // The flag therefore only enables 25.x interop on chains where BAL is not active (which
-      // is the typical enterprise QBFT scenario).
+      // Flag is a no-op when blockAccessList is present: BAL is still written to preserve
+      // consensus semantics on chains where it is active.
       blockAccessList.ifPresent(bal -> bal.writeTo(rlpOut));
     } else {
-      // Current 26.1.0+ wire format: always emit a slot for blockAccessList, using the null
-      // marker when absent. This is what Besu 26.1.0 - 26.5.0 peers expect; switching to the
-      // legacy shape unconditionally would break interop with that release window.
       blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOut), rlpOut::writeNull);
     }
     rlpOut.writeList(prepares, SignedData::writeTo);

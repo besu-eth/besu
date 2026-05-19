@@ -39,6 +39,7 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
   private static final IbftExtraDataCodec BFT_EXTRA_DATA_ENCODER = new IbftExtraDataCodec();
   private final Optional<Block> proposedBlock;
   private final Optional<BlockAccessList> blockAccessList;
+  private final boolean useLegacyEncoding;
 
   /**
    * Instantiates a new Round change.
@@ -51,9 +52,28 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
       final SignedData<RoundChangePayload> payload,
       final Optional<Block> proposedBlock,
       final Optional<BlockAccessList> blockAccessList) {
+    this(payload, proposedBlock, blockAccessList, false);
+  }
+
+  /**
+   * Instantiates a new Round change with explicit encoding mode.
+   *
+   * @param payload the payload
+   * @param proposedBlock the proposed block
+   * @param blockAccessList the block access list
+   * @param useLegacyEncoding when true and blockAccessList is absent, omit the blockAccessList slot
+   *     entirely (25.x wire format). When blockAccessList is present, the current format is emitted
+   *     regardless.
+   */
+  public RoundChange(
+      final SignedData<RoundChangePayload> payload,
+      final Optional<Block> proposedBlock,
+      final Optional<BlockAccessList> blockAccessList,
+      final boolean useLegacyEncoding) {
     super(payload);
     this.proposedBlock = proposedBlock;
     this.blockAccessList = blockAccessList;
+    this.useLegacyEncoding = useLegacyEncoding;
   }
 
   /**
@@ -103,7 +123,13 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
     } else {
       rlpOut.writeNull();
     }
-    blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOut), rlpOut::writeNull);
+    if (useLegacyEncoding) {
+      // Flag is a no-op when blockAccessList is present: BAL is still written to preserve
+      // semantics on chains where it is active.
+      blockAccessList.ifPresent(bal -> bal.writeTo(rlpOut));
+    } else {
+      blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOut), rlpOut::writeNull);
+    }
     rlpOut.endList();
     return rlpOut.encoded();
   }

@@ -41,6 +41,7 @@ public class Proposal extends BftMessage<ProposalPayload> {
   private final Optional<BlockAccessList> blockAccessList;
 
   private final Optional<RoundChangeCertificate> roundChangeCertificate;
+  private final boolean useLegacyEncoding;
 
   /**
    * Instantiates a new Proposal.
@@ -55,10 +56,31 @@ public class Proposal extends BftMessage<ProposalPayload> {
       final Block proposedBlock,
       final Optional<BlockAccessList> blockAccessList,
       final Optional<RoundChangeCertificate> certificate) {
+    this(payload, proposedBlock, blockAccessList, certificate, false);
+  }
+
+  /**
+   * Instantiates a new Proposal with explicit encoding mode.
+   *
+   * @param payload the payload
+   * @param proposedBlock the proposed block
+   * @param blockAccessList the block access list
+   * @param certificate the certificate
+   * @param useLegacyEncoding when true and blockAccessList is absent, omit the blockAccessList slot
+   *     entirely (25.x wire format). When blockAccessList is present, the current format is emitted
+   *     regardless.
+   */
+  public Proposal(
+      final SignedData<ProposalPayload> payload,
+      final Block proposedBlock,
+      final Optional<BlockAccessList> blockAccessList,
+      final Optional<RoundChangeCertificate> certificate,
+      final boolean useLegacyEncoding) {
     super(payload);
     this.proposedBlock = proposedBlock;
     this.blockAccessList = blockAccessList;
     this.roundChangeCertificate = certificate;
+    this.useLegacyEncoding = useLegacyEncoding;
   }
 
   /**
@@ -108,7 +130,13 @@ public class Proposal extends BftMessage<ProposalPayload> {
     } else {
       rlpOut.writeNull();
     }
-    blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOut), rlpOut::writeNull);
+    if (useLegacyEncoding) {
+      // Flag is a no-op when blockAccessList is present: BAL is still written to preserve
+      // semantics on chains where it is active.
+      blockAccessList.ifPresent(bal -> bal.writeTo(rlpOut));
+    } else {
+      blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOut), rlpOut::writeNull);
+    }
     rlpOut.endList();
     return rlpOut.encoded();
   }
