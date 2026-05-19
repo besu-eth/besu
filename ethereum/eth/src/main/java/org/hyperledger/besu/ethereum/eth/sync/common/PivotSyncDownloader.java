@@ -20,8 +20,6 @@ import org.hyperledger.besu.ethereum.eth.manager.exceptions.MaxRetriesReachedExc
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.NoAvailablePeersException;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncChainDownloader;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapWorldStateDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.StalledDownloadException;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -192,13 +190,7 @@ public class PivotSyncDownloader {
       LOG.debug("Registered chain downloader as pivot update listener");
     }
 
-    // Wire bidirectional references for SnapSync
-    if (worldStateDownloader instanceof SnapWorldStateDownloader
-        && chainDownloader instanceof SnapSyncChainDownloader) {
-      ((SnapWorldStateDownloader) worldStateDownloader)
-          .setChainDownloader((SnapSyncChainDownloader) chainDownloader);
-      LOG.debug("Wired bidirectional references between chain and world state downloaders");
-    }
+    worldStateDownloader.setChainDownloader(chainDownloader);
   }
 
   protected PivotSyncState storeState(final PivotSyncState state) {
