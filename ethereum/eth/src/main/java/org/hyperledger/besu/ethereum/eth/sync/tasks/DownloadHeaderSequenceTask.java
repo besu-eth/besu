@@ -164,7 +164,8 @@ public class DownloadHeaderSequenceTask extends AbstractRetryingPeerTask<List<Bl
               if (taskResult.responseCode() != PeerTaskExecutorResponseCode.SUCCESS
                   || taskResult.result().isEmpty()) {
                 if (taskResult.responseCode() == PeerTaskExecutorResponseCode.NO_PEER_AVAILABLE) {
-                  return CompletableFuture.failedFuture(NoAvailablePeersException.WITHOUT_STACKTRACE);
+                  return CompletableFuture.failedFuture(
+                      NoAvailablePeersException.WITHOUT_STACKTRACE);
                 } else {
                   return CompletableFuture.failedFuture(
                       new RuntimeException(
