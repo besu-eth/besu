@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.trie;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.trie.InnerNodeDiscoveryManager.InnerNode;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 
 import java.math.BigInteger;
@@ -171,7 +172,30 @@ public class RangeManager {
     } catch (MerkleTrieException e) {
       return Optional.of(InnerNodeDiscoveryManager.decodePath(e.getLocation()));
     }
-    return Optional.empty();
+
+    // visitAll completes whenever every node it touches resolves through the supplied node
+    // source. If the source itself encodes leaves the responder did not include in
+    // receivedKeys, the walk silently visits them — so scan the discovered inner nodes for
+    // any in-range leaf the responder omitted.
+    Bytes32 firstOmitted = null;
+    for (InnerNode innerNode : manager.getInnerNodes()) {
+      final Bytes concatenated = Bytes.concatenate(innerNode.location(), innerNode.path());
+      if (concatenated.size() != Bytes32.SIZE * 2 + 1) {
+        continue;
+      }
+      final Bytes32 leafKey =
+          InnerNodeDiscoveryManager.decodePath(concatenated.slice(0, concatenated.size() - 1));
+      if (leafKey.compareTo(probeStart) <= 0 || leafKey.compareTo(endKeyHash) > 0) {
+        continue;
+      }
+      if (receivedKeys.containsKey(leafKey)) {
+        continue;
+      }
+      if (firstOmitted == null || leafKey.compareTo(firstOmitted) < 0) {
+        firstOmitted = leafKey;
+      }
+    }
+    return Optional.ofNullable(firstOmitted);
   }
 
   private static Bytes32 format(final BigInteger data) {
