@@ -178,13 +178,7 @@ public class SnapSyncDownloader {
       LOG.debug("Registered chain downloader as pivot update listener");
     }
 
-    // Wire bidirectional references for SnapSync
-    if (worldStateDownloader instanceof SnapWorldStateDownloader
-        && chainDownloader instanceof SnapSyncChainDownloader) {
-      ((SnapWorldStateDownloader) worldStateDownloader)
-          .setChainDownloader((SnapSyncChainDownloader) chainDownloader);
-      LOG.debug("Wired bidirectional references between chain and world state downloaders");
-    }
+    worldStateDownloader.setChainDownloader(chainDownloader);
   }
 
   private PivotSyncState storeState(final PivotSyncState fastSyncState) {

@@ -97,6 +97,7 @@ public class SnapSyncDownloaderTest {
         .createChainDownloader(
             snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
     verify(chainDownloader).start();
+    verify(worldStateDownloader).setChainDownloader(chainDownloader);
     verify(worldStateDownloader)
         .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
@@ -134,6 +135,7 @@ public class SnapSyncDownloaderTest {
         .createChainDownloader(
             snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
     verify(chainDownloader).start();
+    verify(worldStateDownloader).setChainDownloader(chainDownloader);
     verify(worldStateDownloader)
         .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
@@ -182,6 +184,7 @@ public class SnapSyncDownloaderTest {
     verify(fastSyncActions)
         .createChainDownloader(
             snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+    verify(worldStateDownloader).setChainDownloader(chainDownloader);
     verify(worldStateDownloader)
         .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
@@ -223,6 +226,7 @@ public class SnapSyncDownloaderTest {
     verify(fastSyncActions)
         .createChainDownloader(
             snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+    verify(worldStateDownloader).setChainDownloader(chainDownloader);
     verify(worldStateDownloader)
         .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions);
@@ -298,6 +302,7 @@ public class SnapSyncDownloaderTest {
     verify(fastSyncActions)
         .createChainDownloader(
             snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+    verify(worldStateDownloader).setChainDownloader(chainDownloader);
     verify(worldStateDownloader)
         .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions);
@@ -337,6 +342,7 @@ public class SnapSyncDownloaderTest {
     verify(fastSyncActions)
         .createChainDownloader(
             snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+    verify(worldStateDownloader).setChainDownloader(chainDownloader);
     verify(worldStateDownloader)
         .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions);
@@ -398,6 +404,7 @@ public class SnapSyncDownloaderTest {
     verify(fastSyncActions)
         .createChainDownloader(
             snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+    verify(worldStateDownloader).setChainDownloader(chainDownloader);
     verify(worldStateDownloader)
         .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
@@ -415,6 +422,7 @@ public class SnapSyncDownloaderTest {
     verify(fastSyncActions)
         .createChainDownloader(
             snapSyncState(secondPivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+    verify(worldStateDownloader).setChainDownloader(secondChainDownloader);
     verify(worldStateDownloader)
         .run(any(PivotSyncActions.class), eq(snapSyncState(secondPivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
@@ -476,6 +484,7 @@ public class SnapSyncDownloaderTest {
     verify(fastSyncActions)
         .createChainDownloader(
             snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+    verify(worldStateDownloader).setChainDownloader(chainDownloader);
     verify(worldStateDownloader)
         .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
@@ -495,6 +504,7 @@ public class SnapSyncDownloaderTest {
     verify(fastSyncActions)
         .createChainDownloader(
             snapSyncState(secondPivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+    verify(worldStateDownloader).setChainDownloader(secondChainDownloader);
     verify(worldStateDownloader)
         .run(any(PivotSyncActions.class), eq(snapSyncState(secondPivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
