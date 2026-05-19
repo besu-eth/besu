@@ -22,6 +22,8 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorl
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriority;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriorityContext;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLogEvent;
 
 import java.util.Comparator;
@@ -107,7 +109,11 @@ public class TrieLogPruner implements TrieLogEvent.TrieLogObserver {
         .log();
 
     try (final ExecutorService preloadExecutor = Executors.newSingleThreadExecutor()) {
-      final Future<?> future = preloadExecutor.submit(this::preloadQueue);
+      final Future<?> future =
+          preloadExecutor.submit(
+              () ->
+                  StorageReadPriorityContext.withPriority(
+                      StorageReadPriority.LOW, "trielog-preload", this::preloadQueue));
 
       LOG.atInfo()
           .setMessage(

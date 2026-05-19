@@ -20,6 +20,8 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriority;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriorityContext;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
@@ -71,6 +73,18 @@ public class MainnetBlockProcessor extends AbstractBlockProcessor {
 
   @Override
   protected boolean rewardCoinbase(
+      final MutableWorldState worldState,
+      final BlockHeader header,
+      final List<BlockHeader> ommers,
+      final boolean skipZeroBlockRewards) {
+    return StorageReadPriorityContext.withPriority(
+        StorageReadPriority.HIGH,
+        "block-account",
+        () ->
+            rewardCoinbaseWithHighPriorityReads(worldState, header, ommers, skipZeroBlockRewards));
+  }
+
+  private boolean rewardCoinbaseWithHighPriorityReads(
       final MutableWorldState worldState,
       final BlockHeader header,
       final List<BlockHeader> ommers,

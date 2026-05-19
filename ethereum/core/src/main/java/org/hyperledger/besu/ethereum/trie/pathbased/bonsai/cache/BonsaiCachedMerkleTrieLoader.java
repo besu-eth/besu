@@ -25,6 +25,8 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldSt
 import org.hyperledger.besu.ethereum.trie.pathbased.common.StorageSubscriber;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriority;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriorityContext;
 
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -59,7 +61,11 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
       final Hash worldStateRootHash,
       final Address account) {
     CompletableFuture.runAsync(
-        () -> cacheAccountNodes(worldStateKeyValueStorage, worldStateRootHash, account),
+        () ->
+            StorageReadPriorityContext.withPriority(
+                StorageReadPriority.LOW,
+                "bonsai-preload-account",
+                () -> cacheAccountNodes(worldStateKeyValueStorage, worldStateRootHash, account)),
         VIRTUAL_POOL);
   }
 
@@ -94,7 +100,12 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
       final Address account,
       final StorageSlotKey slotKey) {
     CompletableFuture.runAsync(
-        () -> cacheStorageNodes(worldStateKeyValueStorage, account, slotKey), VIRTUAL_POOL);
+        () ->
+            StorageReadPriorityContext.withPriority(
+                StorageReadPriority.LOW,
+                "bonsai-preload-storage",
+                () -> cacheStorageNodes(worldStateKeyValueStorage, account, slotKey)),
+        VIRTUAL_POOL);
   }
 
   @VisibleForTesting

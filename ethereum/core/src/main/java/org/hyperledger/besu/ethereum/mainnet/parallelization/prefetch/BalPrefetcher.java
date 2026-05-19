@@ -21,12 +21,15 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriority;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriorityContext;
 
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -63,16 +66,15 @@ public class BalPrefetcher {
     if (blockAccessList.isEmpty()) {
       return CompletableFuture.completedFuture(null);
     }
+    final boolean shouldLogPrefetchMetrics = LOG.isDebugEnabled();
+    final long startedAtNanos = shouldLogPrefetchMetrics ? System.nanoTime() : 0L;
 
     return CompletableFuture.supplyAsync(
             () -> {
               worldState.disableCacheMerkleTrieLoader();
 
               final PrefetchKeys keys = collectKeys(blockAccessList.accountChanges());
-              LOG.debug(
-                  "BAL prefetch collected {} account keys and {} storage keys",
-                  keys.accountKeys().size(),
-                  keys.storageKeys().size());
+              logPrefetchCollected(keys);
               return keys;
             },
             executor)
@@ -81,10 +83,7 @@ public class BalPrefetcher {
                 fetchKeys(worldState, keys, executor)
                     .thenRun(
                         () ->
-                            LOG.debug(
-                                "BAL prefetch completed: {} accounts and {} storage slots",
-                                keys.accountKeys().size(),
-                                keys.storageKeys().size())));
+                            logPrefetchCompleted(keys, shouldLogPrefetchMetrics, startedAtNanos)));
   }
 
   private PrefetchKeys collectKeys(final List<BlockAccessList.AccountChanges> accounts) {
@@ -115,11 +114,11 @@ public class BalPrefetcher {
     }
 
     if (sortingEnabled) {
-      accountKeys.sort(BalPrefetcher::compareBytes);
-      storageKeys.sort(BalPrefetcher::compareBytes);
+      accountKeys.sort(Bytes::compareTo);
+      storageKeys.sort(Bytes::compareTo);
     }
 
-    return new PrefetchKeys(accountKeys, storageKeys);
+    return new PrefetchKeys(deduplicateKeys(accountKeys), deduplicateKeys(storageKeys));
   }
 
   private static int expectedStorageKeyCount(final List<BlockAccessList.AccountChanges> accounts) {
@@ -140,8 +139,26 @@ public class BalPrefetcher {
     return Bytes.wrap(key);
   }
 
-  private static int compareBytes(final Bytes left, final Bytes right) {
-    return Arrays.compareUnsigned(left.toArrayUnsafe(), right.toArrayUnsafe());
+  private List<Bytes> deduplicateKeys(final List<Bytes> keys) {
+    if (keys.size() < 2) {
+      return keys;
+    }
+    if (sortingEnabled) {
+      int writeIndex = 1;
+      Bytes previous = keys.get(0);
+      for (int readIndex = 1; readIndex < keys.size(); readIndex++) {
+        final Bytes current = keys.get(readIndex);
+        if (!current.equals(previous)) {
+          keys.set(writeIndex, current);
+          writeIndex++;
+          previous = current;
+        }
+      }
+      keys.subList(writeIndex, keys.size()).clear();
+      return keys;
+    }
+
+    return new ArrayList<>(new LinkedHashSet<>(keys));
   }
 
   private CompletableFuture<Void> fetchKeys(
@@ -197,19 +214,55 @@ public class BalPrefetcher {
     final boolean batching = shouldBatch(keys.size());
     final int start = batching ? batchIndex * batchSize : 0;
     final int end = batching ? Math.min(start + batchSize, keys.size()) : keys.size();
-    worldState.getWorldStateStorage().getMultipleKeys(segment, keys.subList(start, end));
+    StorageReadPriorityContext.withPriority(
+        StorageReadPriority.LOW,
+        ACCOUNT_INFO_STATE.equals(segment) ? "bal-prefetch-account" : "bal-prefetch-storage",
+        () -> worldState.getWorldStateStorage().getMultipleKeys(segment, keys.subList(start, end)));
   }
 
   private int batchCount(final int keyCount) {
     return keyCount == 0 ? 0 : shouldBatch(keyCount) ? calculateBatchCount(keyCount) : 1;
   }
 
+  /**
+   * Returns whether the given segment should be split into multiple fetches.
+   *
+   * <p>The configured {@code batchSize} is a maximum batch size, not a rigid partition size. A
+   * non-positive value disables batching, and segments whose key count is less than or equal to the
+   * configured batch size are also fetched in a single call.
+   */
   private boolean shouldBatch(final int keyCount) {
     return batchSize > 0 && keyCount > batchSize;
   }
 
   private int calculateBatchCount(final int totalKeys) {
     return (totalKeys + batchSize - 1) / batchSize;
+  }
+
+  private void logPrefetchCollected(final PrefetchKeys keys) {
+    if (!LOG.isDebugEnabled()) {
+      return;
+    }
+    LOG.debug(
+        "BAL prefetch collected accounts={}, storageSlots={}, fetchConcurrency={}, batchSize={}, sortingEnabled={}",
+        keys.accountKeys().size(),
+        keys.storageKeys().size(),
+        fetchConcurrency,
+        batchSize,
+        sortingEnabled);
+  }
+
+  private void logPrefetchCompleted(
+      final PrefetchKeys keys, final boolean shouldLogPrefetchMetrics, final long startedAtNanos) {
+    if (!shouldLogPrefetchMetrics) {
+      return;
+    }
+    LOG.debug(
+        "BAL prefetch completed accounts={}, storageSlots={}, fetchConcurrency={}, elapsedMs={}",
+        keys.accountKeys().size(),
+        keys.storageKeys().size(),
+        fetchConcurrency,
+        TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAtNanos));
   }
 
   private record PrefetchKeys(List<Bytes> accountKeys, List<Bytes> storageKeys) {}

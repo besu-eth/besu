@@ -2258,7 +2258,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       dataStorageConfiguration = dataStorageOptions.toDomainObject();
     }
 
-    if (balConfigurationOptions.toDomainObject().isBalPreFetchReadingEnabled()
+    if (balConfigurationOptions.isBalPrefetchReadingEnabled()
         && DataStorageFormat.BONSAI.equals(dataStorageConfiguration.getDataStorageFormat())
         && !dataStorageConfiguration
             .getPathBasedExtraStorageConfiguration()

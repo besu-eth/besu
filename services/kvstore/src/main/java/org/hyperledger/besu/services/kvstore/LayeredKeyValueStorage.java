@@ -136,6 +136,14 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
 
     if (!missingKeys.isEmpty()) {
       final List<Optional<byte[]>> parentValues = parent.multiget(segmentId, missingKeys);
+      if (parentValues.size() != missingKeys.size()) {
+        throw new StorageException(
+            "Parent multiget returned "
+                + parentValues.size()
+                + " values for "
+                + missingKeys.size()
+                + " keys");
+      }
       for (int i = 0; i < parentValues.size(); i++) {
         result.set(missingIndexes.get(i), parentValues.get(i));
       }

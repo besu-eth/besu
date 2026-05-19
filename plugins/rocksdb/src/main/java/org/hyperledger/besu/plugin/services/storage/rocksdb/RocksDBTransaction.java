@@ -32,6 +32,7 @@ import org.slf4j.LoggerFactory;
 public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
   private static final Logger logger = LoggerFactory.getLogger(RocksDBTransaction.class);
   private static final String NO_SPACE_LEFT_ON_DEVICE = "No space left on device";
+  private static final RocksDBReadController READ_CONTROLLER = RocksDBReadController.global();
 
   private final RocksDBMetrics metrics;
   private final Transaction innerTx;
@@ -87,6 +88,10 @@ public class RocksDBTransaction implements SegmentedKeyValueStorageTransaction {
   public void commit() throws StorageException {
     try (final OperationTimer.TimingContext ignored = metrics.getCommitLatency().startTimer()) {
       innerTx.commit();
+      READ_CONTROLLER
+          .metricsSummaryAndReset()
+          .ifPresent(
+              summary -> logger.info("RocksDB read controller metrics at commit: {}", summary));
     } catch (final RocksDBException e) {
       if (e.getMessage().contains(NO_SPACE_LEFT_ON_DEVICE)) {
         logger.error(e.getMessage());

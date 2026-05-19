@@ -88,12 +88,12 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
     this.blockAccessList = blockAccessList;
     this.maybePrefetchExecutor = maybePrefetchExecutor;
     this.maybePrefetcher =
-        balConfiguration.isBalPreFetchReadingEnabled()
+        balConfiguration.isBalPrefetchReadingEnabled()
             ? Optional.of(
                 new BalPrefetcher(
-                    balConfiguration.isBalPreFetchSortingEnabled(),
-                    balConfiguration.getBalPreFetchBatchSize(),
-                    balConfiguration.getBalPreFetchConcurrency()))
+                    balConfiguration.isBalPrefetchSortingEnabled(),
+                    balConfiguration.getBalPrefetchBatchSize(),
+                    balConfiguration.getBalPrefetchConcurrency()))
             : Optional.empty();
   }
 
@@ -124,14 +124,24 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
           }
 
           final BonsaiWorldState prefetchWorldState = maybeWorldState.get();
-          prefetcher
-              .prefetch(prefetchWorldState, blockAccessList, maybePrefetchExecutor.orElse(executor))
-              .exceptionally(
-                  throwable -> {
-                    LOG.warn("BAL prefetch failed", throwable);
-                    return null;
-                  })
-              .whenComplete((ignored, throwable) -> prefetchWorldState.close());
+          try {
+            prefetcher
+                .prefetch(
+                    prefetchWorldState, blockAccessList, maybePrefetchExecutor.orElse(executor))
+                .exceptionally(
+                    throwable -> {
+                      LOG.warn("BAL prefetch failed", throwable);
+                      return null;
+                    })
+                .whenComplete((ignored, throwable) -> prefetchWorldState.close());
+          } catch (final RuntimeException e) {
+            try {
+              prefetchWorldState.close();
+            } catch (final RuntimeException closeException) {
+              e.addSuppressed(closeException);
+            }
+            LOG.warn("BAL prefetch failed before scheduling", e);
+          }
         });
 
     super.runAsyncBlock(

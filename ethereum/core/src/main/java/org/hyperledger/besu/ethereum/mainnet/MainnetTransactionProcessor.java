@@ -45,6 +45,8 @@ import org.hyperledger.besu.evm.processor.MessageCallProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriority;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriorityContext;
 
 import java.util.Deque;
 import java.util.HashSet;
@@ -196,6 +198,32 @@ public class MainnetTransactionProcessor {
   }
 
   public TransactionProcessingResult processTransaction(
+      final WorldUpdater worldState,
+      final ProcessableBlockHeader blockHeader,
+      final Transaction transaction,
+      final Address miningBeneficiary,
+      final OperationTracer operationTracer,
+      final BlockHashLookup blockHashLookup,
+      final TransactionValidationParams transactionValidationParams,
+      final Wei blobGasPrice,
+      final Optional<AccessLocationTracker> accessLocationTracker) {
+    return StorageReadPriorityContext.withPriority(
+        StorageReadPriority.HIGH,
+        "execution",
+        () ->
+            processTransactionWithHighPriorityReads(
+                worldState,
+                blockHeader,
+                transaction,
+                miningBeneficiary,
+                operationTracer,
+                blockHashLookup,
+                transactionValidationParams,
+                blobGasPrice,
+                accessLocationTracker));
+  }
+
+  private TransactionProcessingResult processTransactionWithHighPriorityReads(
       final WorldUpdater worldState,
       final ProcessableBlockHeader blockHeader,
       final Transaction transaction,

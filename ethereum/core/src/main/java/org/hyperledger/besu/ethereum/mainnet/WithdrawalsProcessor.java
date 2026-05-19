@@ -19,6 +19,8 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTra
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriority;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriorityContext;
 
 import java.util.List;
 import java.util.Optional;
@@ -26,6 +28,19 @@ import java.util.Optional;
 public class WithdrawalsProcessor {
 
   public void processWithdrawals(
+      final List<Withdrawal> withdrawals,
+      final WorldUpdater blockUpdater,
+      final Optional<AccessLocationTracker> accessLocationTracker,
+      final Optional<BlockAccessListBuilder> blockAccessListBuilder) {
+    StorageReadPriorityContext.withPriority(
+        StorageReadPriority.HIGH,
+        "block-account",
+        () ->
+            processWithdrawalsWithHighPriorityReads(
+                withdrawals, blockUpdater, accessLocationTracker, blockAccessListBuilder));
+  }
+
+  private void processWithdrawalsWithHighPriorityReads(
       final List<Withdrawal> withdrawals,
       final WorldUpdater blockUpdater,
       final Optional<AccessLocationTracker> accessLocationTracker,

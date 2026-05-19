@@ -36,8 +36,11 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.NoOpTrieLogMa
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.stream.Stream;
 
@@ -47,6 +50,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 public class BalPrefetcherTest {
 
@@ -152,6 +156,37 @@ public class BalPrefetcherTest {
     worldState.close();
   }
 
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  public void prefetchDeduplicatesAccountAndStorageKeys(final boolean sortingEnabled) {
+    final Address address = Address.fromHexString("0x1111111111111111111111111111111111111111");
+    final StorageSlotKey slot = new StorageSlotKey(UInt256.valueOf(1));
+    final RecordingBonsaiWorldStateKeyValueStorage recordingStorage =
+        new RecordingBonsaiWorldStateKeyValueStorage(cacheManager);
+    final BonsaiWorldState worldState = createWorldState(recordingStorage);
+    final BlockAccessList blockAccessList =
+        new BlockAccessList(
+            List.of(
+                accountChanges(
+                    address,
+                    List.of(
+                        new BlockAccessList.SlotChanges(slot, List.of()),
+                        new BlockAccessList.SlotChanges(slot, List.of())),
+                    List.of(
+                        new BlockAccessList.SlotRead(slot), new BlockAccessList.SlotRead(slot))),
+                accountChanges(address, List.of(), List.of())));
+
+    new BalPrefetcher(sortingEnabled, 0, 1)
+        .prefetch(worldState, blockAccessList, SYNC_EXECUTOR)
+        .join();
+
+    assertThat(recordingStorage.accountKeys()).containsExactly(address.addressHash().getBytes());
+    assertThat(recordingStorage.storageKeys())
+        .containsExactly(
+            Bytes.concatenate(address.addressHash().getBytes(), slot.getSlotHash().getBytes()));
+    worldState.close();
+  }
+
   private BonsaiWorldStateKeyValueStorage createStorage(final StorageMode mode) {
     return switch (mode) {
       case BASE -> baseStorage;
@@ -207,5 +242,39 @@ public class BalPrefetcherTest {
               assertThat(value.isRemoval()).isFalse();
               assertThat(value.getValue()).isEqualTo(expectedValue);
             });
+  }
+
+  private static class RecordingBonsaiWorldStateKeyValueStorage
+      extends BonsaiWorldStateKeyValueStorage {
+
+    private final List<Bytes> accountKeys = new ArrayList<>();
+    private final List<Bytes> storageKeys = new ArrayList<>();
+
+    RecordingBonsaiWorldStateKeyValueStorage(final VersionedCacheManager cacheManager) {
+      super(
+          new InMemoryKeyValueStorageProvider(),
+          new NoOpMetricsSystem(),
+          DataStorageConfiguration.DEFAULT_BONSAI_CONFIG,
+          cacheManager);
+    }
+
+    @Override
+    public List<Optional<Bytes>> getMultipleKeys(
+        final SegmentIdentifier segmentIdentifier, final List<Bytes> keys) {
+      if (ACCOUNT_INFO_STATE.equals(segmentIdentifier)) {
+        accountKeys.addAll(keys);
+      } else if (ACCOUNT_STORAGE_STORAGE.equals(segmentIdentifier)) {
+        storageKeys.addAll(keys);
+      }
+      return keys.stream().map(__ -> Optional.<Bytes>empty()).toList();
+    }
+
+    private List<Bytes> accountKeys() {
+      return accountKeys;
+    }
+
+    private List<Bytes> storageKeys() {
+      return storageKeys;
+    }
   }
 }

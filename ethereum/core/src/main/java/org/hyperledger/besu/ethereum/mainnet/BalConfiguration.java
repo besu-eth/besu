@@ -48,28 +48,28 @@ public interface BalConfiguration {
 
   /** Returns whether prefetching of state data based on BAL read operations is enabled. */
   @Value.Default
-  default boolean isBalPreFetchReadingEnabled() {
+  default boolean isBalPrefetchReadingEnabled() {
     return false;
   }
 
   /** Returns whether BAL prefetch keys should be sorted for better storage locality. */
   @Value.Default
-  default boolean isBalPreFetchSortingEnabled() {
+  default boolean isBalPrefetchSortingEnabled() {
     return true;
   }
 
   /**
-   * Returns the batch size for prefetch operations. A value of 0 or lower fetches each segment in a
-   * single batch.
+   * Returns the maximum batch size for prefetch operations. A value of 0 or lower fetches each
+   * segment in a single batch, and segments with at most this many keys are fetched in one call.
    */
   @Value.Default
-  default int getBalPreFetchBatchSize() {
+  default int getBalPrefetchBatchSize() {
     return DEFAULT_BAL_PREFETCH_BATCH_SIZE;
   }
 
   /** Returns the maximum number of concurrent BAL prefetch fetch workers. */
   @Value.Default
-  default int getBalPreFetchConcurrency() {
+  default int getBalPrefetchConcurrency() {
     return DEFAULT_BAL_PREFETCH_CONCURRENCY;
   }
 

@@ -46,6 +46,8 @@ import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -64,10 +66,11 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
 
   private static final int NCPU = Runtime.getRuntime().availableProcessors();
   private static final int BAL_PREFETCH_IO_THREADS = Math.max(1, Math.min(4, NCPU));
+  private static final int BAL_PREFETCH_QUEUE_CAPACITY = BAL_PREFETCH_IO_THREADS * 16;
   private static final Executor TRANSACTION_EXECUTOR = Executors.newFixedThreadPool(NCPU);
   private static final ExecutorService BAL_PREFETCH_EXECUTOR =
       createBoundedDaemonExecutor(
-          "bal-prefetch-io", BAL_PREFETCH_IO_THREADS, BAL_PREFETCH_IO_THREADS * 2);
+          "bal-prefetch-io", BAL_PREFETCH_IO_THREADS, BAL_PREFETCH_QUEUE_CAPACITY);
 
   public MainnetParallelBlockProcessor(
       final MainnetTransactionProcessor transactionProcessor,
@@ -225,8 +228,24 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
               thread.setDaemon(true);
               return thread;
             },
-            new ThreadPoolExecutor.CallerRunsPolicy());
+            new BlockingRejectedExecutionHandler());
     threadPoolExecutor.allowCoreThreadTimeOut(true);
     return threadPoolExecutor;
+  }
+
+  private static class BlockingRejectedExecutionHandler implements RejectedExecutionHandler {
+    @Override
+    public void rejectedExecution(final Runnable runnable, final ThreadPoolExecutor executor) {
+      if (executor.isShutdown()) {
+        throw new RejectedExecutionException("Executor is shut down");
+      }
+      try {
+        executor.getQueue().put(runnable);
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new RejectedExecutionException(
+            "Interrupted while waiting for BAL prefetch executor capacity", e);
+      }
+    }
   }
 }

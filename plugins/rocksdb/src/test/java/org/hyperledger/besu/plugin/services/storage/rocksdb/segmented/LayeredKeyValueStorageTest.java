@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.plugin.services.storage.rocksdb.segmented;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -26,6 +27,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.services.kvstore.LayeredKeyValueStorage;
@@ -253,6 +255,19 @@ public class LayeredKeyValueStorageTest {
     assertArrayEquals(layerValue2, result.get(1).orElseThrow());
     assertArrayEquals(parentValue1, result.get(2).orElseThrow());
     verify(parentStorage).multiget(segmentId, List.of(key1, key1));
+  }
+
+  @Test
+  void shouldThrowWhenParentMultigetReturnsUnexpectedValueCount() {
+    byte[] key1 = {1};
+    byte[] key2 = {2};
+
+    when(parentStorage.multiget(segmentId, List.of(key1, key2)))
+        .thenReturn(List.of(Optional.empty()));
+
+    assertThatThrownBy(() -> layeredKeyValueStorage.multiget(segmentId, List.of(key1, key2)))
+        .isInstanceOf(StorageException.class)
+        .hasMessageContaining("Parent multiget returned 1 values for 2 keys");
   }
 
   @Test
