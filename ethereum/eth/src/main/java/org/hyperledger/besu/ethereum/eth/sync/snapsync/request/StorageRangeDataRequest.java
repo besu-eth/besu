@@ -181,7 +181,8 @@ public class StorageRangeDataRequest extends SnapDataRequest {
       return Stream.empty();
     }
 
-    findNewBeginElementInRange(storageRoot, taskElement.proofs(), taskElement.keys(), endKeyHash)
+    findNewBeginElementInRange(
+            storageRoot, taskElement.proofs(), taskElement.keys(), startKeyHash, endKeyHash)
         .ifPresent(
             missingRightElement -> {
               final int nbRanges = getRangeCount(startKeyHash, endKeyHash, taskElement.keys());

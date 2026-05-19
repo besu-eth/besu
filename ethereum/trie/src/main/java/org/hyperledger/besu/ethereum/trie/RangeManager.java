@@ -117,7 +117,7 @@ public class RangeManager {
    * @param worldstateRootHash the root hash
    * @param proofs proof received
    * @param endKeyHash the end of the range initially wanted
-   * @param receivedKeys the last key received
+   * @param receivedKeys the keys already returned by the responder
    * @return begin of the new range
    */
   public static Optional<Bytes32> findNewBeginElementInRange(
@@ -125,31 +125,53 @@ public class RangeManager {
       final List<Bytes> proofs,
       final NavigableMap<Bytes32, Bytes> receivedKeys,
       final Bytes32 endKeyHash) {
-    if (receivedKeys.isEmpty() || receivedKeys.lastKey().compareTo(endKeyHash) >= 0) {
-      return Optional.empty();
-    } else {
-      final Map<Bytes32, Bytes> proofsEntries = new HashMap<>();
-      for (Bytes proof : proofs) {
-        proofsEntries.put(Bytes32.wrap(Hash.hash(proof).getBytes()), proof);
-      }
-      final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
-          new StoredMerklePatriciaTrie<>(
-              new InnerNodeDiscoveryManager<>(
-                  (location, key) -> Optional.ofNullable(proofsEntries.get(key)),
-                  Function.identity(),
-                  Function.identity(),
-                  receivedKeys.lastKey(),
-                  endKeyHash,
-                  false),
-              worldstateRootHash);
+    return findNewBeginElementInRange(
+        worldstateRootHash, proofs, receivedKeys, MIN_RANGE, endKeyHash);
+  }
 
-      try {
-        storageTrie.visitAll(bytesNode -> {});
-      } catch (MerkleTrieException e) {
-        return Optional.of(InnerNodeDiscoveryManager.decodePath(e.getLocation()));
-      }
+  /**
+   * Helps to create a new range according to the last data obtained. This happens when a peer
+   * doesn't return all of the data in a range.
+   *
+   * @param worldstateRootHash the root hash
+   * @param proofs proof received
+   * @param receivedKeys the keys already returned by the responder
+   * @param startKeyHash the start of the range initially wanted (used as the probe origin when no
+   *     keys were returned)
+   * @param endKeyHash the end of the range initially wanted
+   * @return begin of the new range
+   */
+  public static Optional<Bytes32> findNewBeginElementInRange(
+      final Bytes32 worldstateRootHash,
+      final List<Bytes> proofs,
+      final NavigableMap<Bytes32, Bytes> receivedKeys,
+      final Bytes32 startKeyHash,
+      final Bytes32 endKeyHash) {
+    if (!receivedKeys.isEmpty() && receivedKeys.lastKey().compareTo(endKeyHash) >= 0) {
       return Optional.empty();
     }
+    final Bytes32 probeStart = receivedKeys.isEmpty() ? startKeyHash : receivedKeys.lastKey();
+    final Map<Bytes32, Bytes> proofsEntries = new HashMap<>();
+    for (Bytes proof : proofs) {
+      proofsEntries.put(Bytes32.wrap(Hash.hash(proof).getBytes()), proof);
+    }
+    final InnerNodeDiscoveryManager<Bytes> manager =
+        new InnerNodeDiscoveryManager<>(
+            (location, key) -> Optional.ofNullable(proofsEntries.get(key)),
+            Function.identity(),
+            Function.identity(),
+            probeStart,
+            endKeyHash,
+            false);
+    final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
+        new StoredMerklePatriciaTrie<>(manager, worldstateRootHash);
+
+    try {
+      storageTrie.visitAll(bytesNode -> {});
+    } catch (MerkleTrieException e) {
+      return Optional.of(InnerNodeDiscoveryManager.decodePath(e.getLocation()));
+    }
+    return Optional.empty();
   }
 
   private static Bytes32 format(final BigInteger data) {
