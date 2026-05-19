@@ -19,7 +19,7 @@ import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -179,12 +179,15 @@ public final class PartialBlockAccessView {
     }
 
     public PartialBlockAccessView build() {
-      List<AccountChanges> accountChanges =
-          accountBuilders.values().stream()
-              .map(AccountChangesBuilder::build)
-              .sorted(
-                  Comparator.comparing(ac -> ac.getAddress().getBytes().toUnprefixedHexString()))
-              .toList();
+      final List<AccountChanges> accountChanges = new ArrayList<>(accountBuilders.size());
+      for (AccountChangesBuilder accountBuilder : accountBuilders.values()) {
+        accountChanges.add(accountBuilder.build());
+      }
+      accountChanges.sort(
+          (left, right) ->
+              Arrays.compareUnsigned(
+                  left.getAddress().getBytes().toArrayUnsafe(),
+                  right.getAddress().getBytes().toArrayUnsafe()));
       return new PartialBlockAccessView(accountChanges, txIndex);
     }
   }

@@ -1,0 +1,61 @@
+/*
+ * Copyright contributors to Hyperledger Besu.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed on
+ * an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the License for the
+ * specific language governing permissions and limitations under the License.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+package org.hyperledger.besu.ethereum.eth.messages;
+
+import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
+import org.hyperledger.besu.ethereum.rlp.RLPInput;
+
+import java.util.Iterator;
+import java.util.NoSuchElementException;
+
+import org.apache.tuweni.bytes.Bytes;
+
+final class LazyHashListDecoder {
+
+  private LazyHashListDecoder() {}
+
+  static Iterable<Hash> decode(final Bytes data) {
+    return () ->
+        new Iterator<>() {
+          private final RLPInput input = new BytesValueRLPInput(data, false);
+          private boolean leftList = false;
+
+          {
+            input.enterList();
+          }
+
+          @Override
+          public boolean hasNext() {
+            if (input.isEndOfCurrentList()) {
+              if (!leftList) {
+                input.leaveList();
+                leftList = true;
+              }
+              return false;
+            }
+            return true;
+          }
+
+          @Override
+          public Hash next() {
+            if (!hasNext()) {
+              throw new NoSuchElementException();
+            }
+            return Hash.wrap(input.readBytes32());
+          }
+        };
+  }
+}
