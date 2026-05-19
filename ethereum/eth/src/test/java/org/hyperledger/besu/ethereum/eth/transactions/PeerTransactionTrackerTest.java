@@ -437,8 +437,7 @@ public class PeerTransactionTrackerTest {
 
     final List<Transaction> transactions = new ArrayList<>(generator.transactions(queueCap * 2));
 
-    smallQueueTracker.receivedAnnouncements(
-        ethPeer1, TransactionAnnouncement.create(transactions));
+    smallQueueTracker.receivedAnnouncements(ethPeer1, TransactionAnnouncement.create(transactions));
 
     final List<TransactionAnnouncement> claimed =
         smallQueueTracker.claimAnnouncementsToRequestFromPeer(
