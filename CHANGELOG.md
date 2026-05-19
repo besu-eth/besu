@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Breaking Changes
-- `debug_getRawTransaction` now rejects transaction hash parameters without a `0x` prefix with `-32602 INVALID_PARAMS`, as part of the ongoing RPC hex-only enforcement for compatibility with other ELs. [#10505](https://github.com/besu-eth/besu/pull/10505)
+- RPC methods that accept a hash parameter (e.g. `debug_getRawTransaction`, `eth_getTransactionByHash`, `eth_getTransactionReceipt`) now reject hash values without a `0x` prefix with `-32602 INVALID_PARAMS`, as part of the ongoing RPC hex-only enforcement for compatibility with other ELs. [#10505](https://github.com/besu-eth/besu/pull/10505)
 
 ### Upcoming Breaking Changes
 - RPC changes to enhance compatibility with other ELs
