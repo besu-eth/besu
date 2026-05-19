@@ -73,8 +73,7 @@ public abstract class AbstractRetryingSwitchingPeerTask<T> extends AbstractRetry
           .addArgument(this::getRetryCount)
           .addArgument(triedPeers)
           .log();
-      final var ex = new NoAvailablePeersException();
-      return CompletableFuture.failedFuture(ex);
+      return CompletableFuture.failedFuture(NoAvailablePeersException.INSTANCE);
     }
 
     final EthPeer peerToUse = maybePeer.get();
