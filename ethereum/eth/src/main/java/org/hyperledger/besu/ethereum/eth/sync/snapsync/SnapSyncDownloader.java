@@ -29,7 +29,6 @@ import org.hyperledger.besu.ethereum.eth.sync.common.PivotUpdateListener;
 import org.hyperledger.besu.ethereum.eth.sync.common.SyncException;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.StalledDownloadException;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloader;
-import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
 import org.hyperledger.besu.util.ExceptionUtils;
 
@@ -50,22 +49,18 @@ import org.slf4j.LoggerFactory;
 public class SnapSyncDownloader {
 
   private static final Duration FAST_SYNC_RETRY_DELAY = Duration.ofSeconds(5);
+  private static final Logger LOG = LoggerFactory.getLogger(SnapSyncDownloader.class);
 
-  @SuppressWarnings("PrivateStaticFinalLoggers")
-  protected final Logger LOG = LoggerFactory.getLogger(getClass());
-
+  private final PivotSyncActions fastSyncActions;
   private final WorldStateDownloader worldStateDownloader;
   private final Path fastSyncDataDirectory;
   private final SyncDurationMetrics syncDurationMetrics;
   private volatile Optional<TrailingPeerRequirements> trailingPeerRequirements = Optional.empty();
   private final AtomicBoolean running = new AtomicBoolean(false);
-
-  protected final PivotSyncActions fastSyncActions;
-  protected PivotSyncState initialPivotSyncState;
+  private PivotSyncState initialPivotSyncState;
 
   public SnapSyncDownloader(
       final PivotSyncActions fastSyncActions,
-      final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateDownloader worldStateDownloader,
       final Path fastSyncDataDirectory,
       final PivotSyncState initialPivotSyncState,
@@ -86,12 +81,12 @@ public class SnapSyncDownloader {
     return start(initialPivotSyncState);
   }
 
-  protected CompletableFuture<PivotSyncState> start(final PivotSyncState fastSyncState) {
+  private CompletableFuture<PivotSyncState> start(final PivotSyncState fastSyncState) {
     LOG.debug("Start snap sync with initial sync state {}", fastSyncState);
-    return findPivotBlock(fastSyncState, fss -> downloadChainAndWorldState(fastSyncActions, fss));
+    return findPivotBlock(fastSyncState, this::downloadChainAndWorldState);
   }
 
-  public CompletableFuture<PivotSyncState> findPivotBlock(
+  private CompletableFuture<PivotSyncState> findPivotBlock(
       final PivotSyncState fastSyncState,
       final Function<PivotSyncState, CompletableFuture<PivotSyncState>> onNewPivotBlock) {
     return exceptionallyCompose(
@@ -104,7 +99,7 @@ public class SnapSyncDownloader {
         this::handleFailure);
   }
 
-  protected CompletableFuture<PivotSyncState> handleFailure(final Throwable error) {
+  private CompletableFuture<PivotSyncState> handleFailure(final Throwable error) {
     trailingPeerRequirements = Optional.empty();
     Throwable rootCause = ExceptionUtils.rootCause(error);
     if (rootCause instanceof NoSyncRequiredException) {
@@ -160,7 +155,7 @@ public class SnapSyncDownloader {
     }
   }
 
-  protected PivotSyncState updateMaxTrailingPeers(final PivotSyncState state) {
+  private PivotSyncState updateMaxTrailingPeers(final PivotSyncState state) {
     if (state.getPivotBlockNumber().isPresent()) {
       trailingPeerRequirements =
           Optional.of(new TrailingPeerRequirements(state.getPivotBlockNumber().getAsLong(), 0));
@@ -192,7 +187,7 @@ public class SnapSyncDownloader {
     }
   }
 
-  protected PivotSyncState storeState(final PivotSyncState fastSyncState) {
+  private PivotSyncState storeState(final PivotSyncState fastSyncState) {
     final Optional<BlockHeader> firstPivotBlockHeader =
         initialPivotSyncState instanceof SnapSyncProcessState snapSyncState
             ? snapSyncState.getFirstPivotBlockHeader().or(fastSyncState::getPivotBlockHeader)
@@ -201,8 +196,8 @@ public class SnapSyncDownloader {
     return new SnapSyncProcessState(fastSyncState, firstPivotBlockHeader);
   }
 
-  protected CompletableFuture<PivotSyncState> downloadChainAndWorldState(
-      final PivotSyncActions fastSyncActions, final PivotSyncState currentState) {
+  private CompletableFuture<PivotSyncState> downloadChainAndWorldState(
+      final PivotSyncState currentState) {
     // Synchronized ensures that stop isn't called while we're in the process of starting a
     // world state and chain download. If it did we might wind up starting a new download
     // after the stop method had called cancel.

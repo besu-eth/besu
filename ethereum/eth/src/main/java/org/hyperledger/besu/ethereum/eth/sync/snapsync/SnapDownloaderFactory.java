@@ -127,7 +127,6 @@ public class SnapDownloaderFactory {
                 pivotBlockSelector,
                 metricsSystem,
                 syncDataDirectory),
-            worldStateStorageCoordinator,
             snapWorldStateDownloader,
             syncDataDirectory,
             snapSyncState,
