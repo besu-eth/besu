@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -26,7 +27,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ForkchoiceStateV1;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV4;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
@@ -45,82 +46,78 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
-public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test {
+public class EngineForkchoiceUpdatedV3Test extends EngineForkchoiceUpdatedV2Test {
+
+  static final long AMSTERDAM_MILESTONE = 2_000_000L;
 
   @Override
   protected EngineForkchoiceUpdatedV1<?> createMethodInstance() {
-    // V4 has no upper bound (null maxFork = open-ended).
-    return new EngineForkchoiceUpdatedV4<>(
+    return new EngineForkchoiceUpdatedV3<>(
         vertx,
         protocolSchedule,
         protocolContext,
         mergeCoordinator,
         engineCallListener,
-        AMSTERDAM,
-        null);
+        CANCUN,
+        AMSTERDAM);
   }
 
   @Override
   @BeforeEach
   public void before() {
     super.before();
-    // Set blockHeaderBuilder default timestamp to AMSTERDAM_MILESTONE so inherited tests that call
-    // blockHeaderBuilder.buildHeader() produce payloads >= AMSTERDAM_MILESTONE (V4's lower bound).
-    blockHeaderBuilder.timestamp(AMSTERDAM_MILESTONE);
+    // AMSTERDAM upper bound; set blockHeaderBuilder default timestamp to CANCUN_MILESTONE so
+    // inherited tests that call buildHeader() produce payloads in the valid [CANCUN, AMSTERDAM)
+    // window.
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(AMSTERDAM_MILESTONE));
+    blockHeaderBuilder.timestamp(CANCUN_MILESTONE);
     createMethod();
   }
 
   @Override
   @Test
   public void shouldReturnExpectedMethodName() {
-    assertThat(method.getName()).isEqualTo("engine_forkchoiceUpdatedV4");
+    assertThat(method.getName()).isEqualTo("engine_forkchoiceUpdatedV3");
   }
 
   @Override
   protected String getMethodName() {
-    return RpcMethod.ENGINE_FORKCHOICE_UPDATED_V4.getMethodName();
+    return RpcMethod.ENGINE_FORKCHOICE_UPDATED_V3.getMethodName();
   }
 
   @Override
   protected Object validPayloadAttributesForBlock(final BlockHeader head) {
-    return new PayloadAttributesV4(
+    return new PayloadAttributesV3(
         String.valueOf(head.getTimestamp() + 1),
         Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
         Address.ECREC.toString(),
         Collections.emptyList(),
-        Bytes32.ZERO.toHexString(),
-        "0x1");
+        Bytes32.ZERO.toHexString());
   }
 
   @Override
   protected Object invalidTimestampPayloadAttributesForBlock(final BlockHeader head) {
-    return new PayloadAttributesV4(
+    return new PayloadAttributesV3(
         String.valueOf(head.getTimestamp()),
         Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
         Address.ECREC.toString(),
         Collections.emptyList(),
-        Bytes32.ZERO.toHexString(),
-        "0x1");
+        Bytes32.ZERO.toHexString());
   }
 
-  // Inherited from V3Test: V4 has no upper bound, so Amsterdam timestamps are valid (open-ended).
+  // Inherited from V2Test: in V3, Cancun-era timestamps are within the valid [CANCUN, AMSTERDAM)
+  // window — the V2 upper-bound scenario no longer applies here.
   @Override
   @Test
-  public void shouldReturnUnsupportedForkIfBlockTimestampIsAfterAmsterdamMilestone() {}
+  public void shouldReturnUnsupportedForkIfBlockTimestampIsAfterCancunMilestone() {}
 
-  // Inherited from V3Test: Cancun timestamps (< Amsterdam) are below V4's minimum — not applicable.
-  @Override
-  @Test
-  public void shouldReturnValidForTimestampInCancunWindow() {}
-
-  // ---- V4-specific tests ----
+  // ---- V3-specific tests ----
 
   @Test
-  public void shouldReturnUnsupportedForkIfBlockTimestampIsBeforeAmsterdamMilestone() {
-    // head.timestamp = AMSTERDAM_MILESTONE-2 so payload = AMSTERDAM_MILESTONE-1 (> head) and
-    // AMSTERDAM_MILESTONE-1 < AMSTERDAM_MILESTONE triggers the min-bound UNSUPPORTED_FORK
-    final BlockHeader mockHeader =
-        blockHeaderBuilder.timestamp(AMSTERDAM_MILESTONE - 2).buildHeader();
+  public void shouldReturnUnsupportedForkIfBlockTimestampIsBeforeCancunMilestone() {
+    // head.timestamp = CANCUN_MILESTONE-2 so payload = CANCUN_MILESTONE-1 (> head) and
+    // CANCUN_MILESTONE-1 < CANCUN_MILESTONE triggers the min-bound UNSUPPORTED_FORK
+    final BlockHeader mockHeader = blockHeaderBuilder.timestamp(CANCUN_MILESTONE - 2).buildHeader();
     when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))
         .thenReturn(Optional.of(mockHeader));
     when(mergeCoordinator.isDescendantOf(any(), any())).thenReturn(true);
@@ -142,8 +139,33 @@ public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test
   }
 
   @Test
-  public void shouldReturnValidForTimestampAtAmsterdamMilestone() {
+  public void shouldReturnUnsupportedForkIfBlockTimestampIsAfterAmsterdamMilestone() {
+    // head.timestamp = AMSTERDAM_MILESTONE so payload = AMSTERDAM_MILESTONE+1 (> head) and
+    // AMSTERDAM_MILESTONE+1 >= AMSTERDAM_MILESTONE triggers the max-bound UNSUPPORTED_FORK
     final BlockHeader mockHeader = blockHeaderBuilder.timestamp(AMSTERDAM_MILESTONE).buildHeader();
+    when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))
+        .thenReturn(Optional.of(mockHeader));
+    when(mergeCoordinator.isDescendantOf(any(), any())).thenReturn(true);
+    when(mergeCoordinator.computeReorgDepth(any())).thenReturn(OptionalLong.empty());
+    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(any(), any(), any()))
+        .thenReturn(mock(ForkchoiceResult.class));
+
+    final JsonRpcResponse resp =
+        resp(
+            new ForkchoiceStateV1(mockHeader.getBlockHash(), Hash.ZERO, Hash.ZERO),
+            Optional.of(validPayloadAttributesForBlock(mockHeader)));
+
+    final JsonRpcError jsonRpcError =
+        Optional.of(resp)
+            .map(JsonRpcErrorResponse.class::cast)
+            .map(JsonRpcErrorResponse::getError)
+            .get();
+    assertThat(jsonRpcError.getCode()).isEqualTo(RpcErrorType.UNSUPPORTED_FORK.getCode());
+  }
+
+  @Test
+  public void shouldReturnValidForTimestampInCancunWindow() {
+    final BlockHeader mockHeader = blockHeaderBuilder.timestamp(CANCUN_MILESTONE).buildHeader();
     when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))
         .thenReturn(Optional.of(mockHeader));
     when(mergeCoordinator.isDescendantOf(any(), any())).thenReturn(true);
@@ -156,65 +178,6 @@ public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test
         resp(
             new ForkchoiceStateV1(mockHeader.getBlockHash(), Hash.ZERO, Hash.ZERO),
             Optional.of(validPayloadAttributesForBlock(mockHeader)));
-
-    assertThat(resp).isInstanceOf(JsonRpcSuccessResponse.class);
-  }
-
-  @Test
-  public void shouldReturnInvalidSlotNumberParamsForNegativeSlotNumber() {
-    final BlockHeader mockHeader =
-        blockHeaderBuilder.timestamp(AMSTERDAM_MILESTONE + 1).buildHeader();
-    when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))
-        .thenReturn(Optional.of(mockHeader));
-    when(mergeCoordinator.isDescendantOf(any(), any())).thenReturn(true);
-    when(mergeCoordinator.computeReorgDepth(any())).thenReturn(OptionalLong.empty());
-    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(any(), any(), any()))
-        .thenReturn(mock(ForkchoiceResult.class));
-
-    final PayloadAttributesV4 payloadWithNegativeSlot =
-        new PayloadAttributesV4(
-            String.valueOf(mockHeader.getTimestamp() + 1),
-            Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
-            Address.ECREC.toString(),
-            Collections.emptyList(),
-            Bytes32.ZERO.toHexString(),
-            "-0x1");
-
-    final JsonRpcResponse resp =
-        resp(
-            new ForkchoiceStateV1(mockHeader.getBlockHash(), Hash.ZERO, Hash.ZERO),
-            Optional.of(payloadWithNegativeSlot));
-
-    assertThat(resp).isInstanceOf(JsonRpcErrorResponse.class);
-    assertThat(((JsonRpcErrorResponse) resp).getErrorType())
-        .isEqualTo(RpcErrorType.INVALID_SLOT_NUMBER_PARAMS);
-  }
-
-  @Test
-  public void shouldReturnValidForZeroSlotNumber() {
-    final BlockHeader mockHeader =
-        blockHeaderBuilder.timestamp(AMSTERDAM_MILESTONE + 1).buildHeader();
-    when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))
-        .thenReturn(Optional.of(mockHeader));
-    when(mergeCoordinator.isDescendantOf(any(), any())).thenReturn(true);
-    when(mergeCoordinator.computeReorgDepth(any())).thenReturn(OptionalLong.empty());
-    when(mergeCoordinator.preparePayload(any())).thenReturn(new PayloadIdentifier(1337L));
-    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(any(), any(), any()))
-        .thenReturn(ForkchoiceResult.withResult(Optional.empty(), Optional.of(mockHeader)));
-
-    final PayloadAttributesV4 payloadWithZeroSlot =
-        new PayloadAttributesV4(
-            String.valueOf(mockHeader.getTimestamp() + 1),
-            Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
-            Address.ECREC.toString(),
-            Collections.emptyList(),
-            Bytes32.ZERO.toHexString(),
-            "0x0");
-
-    final JsonRpcResponse resp =
-        resp(
-            new ForkchoiceStateV1(mockHeader.getBlockHash(), Hash.ZERO, Hash.ZERO),
-            Optional.of(payloadWithZeroSlot));
 
     assertThat(resp).isInstanceOf(JsonRpcSuccessResponse.class);
   }

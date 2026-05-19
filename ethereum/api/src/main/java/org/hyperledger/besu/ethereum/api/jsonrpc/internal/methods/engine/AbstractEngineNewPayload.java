@@ -43,7 +43,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePayloadStatusResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -465,7 +465,7 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
         .addArgument(status::name)
         .log();
     return new JsonRpcSuccessResponse(
-        requestId, new EnginePayloadStatusResult(status, latestValidHash, Optional.empty()));
+        requestId, new PayloadStatusV1(status, latestValidHash, Optional.empty()));
   }
 
   // engine api calls are synchronous, no need for volatile
@@ -499,8 +499,7 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     }
     return new JsonRpcSuccessResponse(
         requestId,
-        new EnginePayloadStatusResult(
-            invalidStatus, latestValidHash, Optional.of(validationError)));
+        new PayloadStatusV1(invalidStatus, latestValidHash, Optional.of(validationError)));
   }
 
   protected EngineStatus getInvalidBlockHashStatus() {

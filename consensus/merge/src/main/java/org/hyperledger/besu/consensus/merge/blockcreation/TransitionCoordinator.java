@@ -177,8 +177,8 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
   }
 
   @Override
-  public boolean isAncestorOfFinalized(final Hash candidateHeadHash) {
-    return mergeCoordinator.isAncestorOfFinalized(candidateHeadHash);
+  public boolean isAncestorOfFinalized(final BlockHeader candidateBlockHeader) {
+    return mergeCoordinator.isAncestorOfFinalized(candidateBlockHeader);
   }
 
   @Override

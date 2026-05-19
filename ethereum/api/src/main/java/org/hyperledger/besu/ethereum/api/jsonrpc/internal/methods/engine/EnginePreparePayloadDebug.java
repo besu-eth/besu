@@ -115,9 +115,8 @@ public class EnginePreparePayloadDebug extends ExecutionEngineJsonRpcMethod {
                         .timestamp(param.getTimestamp().orElse(parentHeader.getTimestamp() + 1L))
                         .prevRandao(param.getPrevRandao())
                         .feeRecipient(param.getFeeRecipient())
-                        .withdrawals(Optional.of(withdrawals))
+                        .withdrawals(withdrawals)
                         .parentBeaconBlockRoot(param.getParentBeaconBlockRoot())
-                        .slotNumber(Optional.empty())
                         .build()));
   }
 }

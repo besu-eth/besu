@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -15,41 +15,59 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.UNSUPPORTED_FORK;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult;
+import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EngineForkchoiceUpdatedParameter;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadAttributesParameter;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ForkchoiceStateV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.mainnet.WithdrawalsValidator;
 
+import java.util.Collections;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes32;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.junit.jupiter.MockitoSettings;
-import org.mockito.quality.Strictness;
 
 @ExtendWith(MockitoExtension.class)
-@MockitoSettings(strictness = Strictness.LENIENT)
-public class EngineForkchoiceUpdatedV2Test extends AbstractEngineForkchoiceUpdatedTest {
+public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test {
 
-  public EngineForkchoiceUpdatedV2Test() {
-    super(EngineForkchoiceUpdatedV2::new);
+  static final long CANCUN_MILESTONE = 1_000_000L;
+
+  @Override
+  protected EngineForkchoiceUpdatedV1<?> createMethodInstance() {
+    return new EngineForkchoiceUpdatedV2<>(
+        vertx,
+        protocolSchedule,
+        protocolContext,
+        mergeCoordinator,
+        engineCallListener,
+        SHANGHAI,
+        CANCUN);
+  }
+
+  @Override
+  @BeforeEach
+  public void before() {
+    super.before();
+    // CANCUN upper bound; stub after super.before() for LIFO precedence.
+    // AllowedWithdrawals needed so inherited "valid with payload" tests pass.
+    when(protocolSchedule.milestoneFor(CANCUN)).thenReturn(Optional.of(CANCUN_MILESTONE));
+    when(protocolSpec.getWithdrawalsValidator())
+        .thenReturn(new WithdrawalsValidator.AllowedWithdrawals());
+    createMethod();
   }
 
   @Override
@@ -58,63 +76,76 @@ public class EngineForkchoiceUpdatedV2Test extends AbstractEngineForkchoiceUpdat
     assertThat(method.getName()).isEqualTo("engine_forkchoiceUpdatedV2");
   }
 
-  @Test
-  public void shouldReturnUnsupportedForkIfBlockTimestampIsAfterCancunMilestone() {
-    when(mergeCoordinator.updateForkChoice(
-            any(BlockHeader.class), any(Hash.class), any(Hash.class)))
-        .thenReturn(mock(MergeMiningCoordinator.ForkchoiceResult.class));
-
-    BlockHeader mockHeader = blockHeaderBuilder.timestamp(CANCUN_MILESTONE + 1).buildHeader();
-    setupValidForkchoiceUpdate(mockHeader);
-
-    final EngineForkchoiceUpdatedParameter param =
-        new EngineForkchoiceUpdatedParameter(mockHeader.getBlockHash(), Hash.ZERO, Hash.ZERO);
-
-    final EnginePayloadAttributesParameter payloadParams =
-        new EnginePayloadAttributesParameter(
-            String.valueOf(mockHeader.getTimestamp()),
-            Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
-            Address.ECREC.toString(),
-            null,
-            null,
-            null);
-
-    final JsonRpcResponse resp = resp(param, Optional.of(payloadParams));
-
-    final JsonRpcError jsonRpcError =
-        Optional.of(resp)
-            .map(JsonRpcErrorResponse.class::cast)
-            .map(JsonRpcErrorResponse::getError)
-            .get();
-    assertThat(jsonRpcError.getCode()).isEqualTo(UNSUPPORTED_FORK.getCode());
-  }
-
   @Override
   protected String getMethodName() {
     return RpcMethod.ENGINE_FORKCHOICE_UPDATED_V2.getMethodName();
   }
 
   @Override
-  protected RpcErrorType expectedInvalidPayloadError() {
-    return RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES;
+  protected Object validPayloadAttributesForBlock(final BlockHeader head) {
+    return new PayloadAttributesV2(
+        String.valueOf(head.getTimestamp() + 1),
+        Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
+        Address.ECREC.toString(),
+        Collections.emptyList());
+  }
+
+  @Override
+  protected Object invalidTimestampPayloadAttributesForBlock(final BlockHeader head) {
+    return new PayloadAttributesV2(
+        String.valueOf(head.getTimestamp()),
+        Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
+        Address.ECREC.toString(),
+        Collections.emptyList());
+  }
+
+  // ---- V2-specific tests ----
+
+  @Test
+  public void shouldReturnUnsupportedForkIfBlockTimestampIsAfterCancunMilestone() {
+    // head.timestamp = CANCUN_MILESTONE so payload = CANCUN_MILESTONE+1 (> head)
+    // and CANCUN_MILESTONE+1 >= CANCUN_MILESTONE triggers UNSUPPORTED_FORK for V2
+    final BlockHeader mockHeader = blockHeaderBuilder.timestamp(CANCUN_MILESTONE).buildHeader();
+    setupValidForkchoiceUpdate(mockHeader);
+
+    final JsonRpcResponse resp =
+        resp(
+            new ForkchoiceStateV1(mockHeader.getBlockHash(), Hash.ZERO, Hash.ZERO),
+            Optional.of(validPayloadAttributesForBlock(mockHeader)));
+
+    assertInvalidForkchoiceState(resp, RpcErrorType.UNSUPPORTED_FORK);
   }
 
   @Test
-  public void shouldNotUseV4SpecHelpersForLegacyFlow() {
-    final BlockHeader mockParent = blockHeaderBuilder.number(9L).buildHeader();
-    final BlockHeader mockHeader =
-        blockHeaderBuilder.number(10L).parentHash(mockParent.getHash()).buildHeader();
+  public void shouldReturnInvalidIfWithdrawalsIsNotNull_WhenWithdrawalsProhibited() {
+    // Override AllowedWithdrawals (from before()) back to ProhibitedWithdrawals for this test.
+    when(protocolSpec.getWithdrawalsValidator())
+        .thenReturn(new WithdrawalsValidator.ProhibitedWithdrawals());
+
+    final BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
     setupValidForkchoiceUpdate(mockHeader);
-    when(mergeCoordinator.updateForkChoice(any(), any(), any()))
-        .thenReturn(ForkchoiceResult.withResult(Optional.of(mockParent), Optional.of(mockHeader)));
 
-    resp(
-        new EngineForkchoiceUpdatedParameter(mockHeader.getHash(), Hash.ZERO, mockParent.getHash()),
-        Optional.empty());
+    // validPayloadAttributesForBlock returns non-null withdrawals (emptyList) — prohibited
+    final JsonRpcResponse resp =
+        resp(
+            new ForkchoiceStateV1(mockHeader.getHash(), Hash.ZERO, Hash.ZERO),
+            Optional.of(validPayloadAttributesForBlock(mockHeader)));
 
-    verify(mergeCoordinator).updateForkChoice(any(), any(), any());
-    verify(mergeCoordinator, never()).updateForkChoiceWithoutLegacySkip(any(), any(), any());
-    verify(mergeCoordinator, never()).isAncestorOfFinalized(any());
-    verify(mergeCoordinator, never()).computeReorgDepth(any());
+    assertInvalidForkchoiceState(resp, RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES);
+  }
+
+  @Test
+  public void shouldReturnValidIfWithdrawalsIsEmpty_WhenWithdrawalsAllowed() {
+    // AllowedWithdrawals already set in before(); validPayloadAttributesForBlock returns emptyList
+    final BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
+    setupValidForkchoiceUpdate(mockHeader);
+    when(mergeCoordinator.preparePayload(any())).thenReturn(new PayloadIdentifier(1337L));
+
+    assertSuccessWithPayloadForForkchoiceResult(
+        new ForkchoiceStateV1(mockHeader.getHash(), Hash.ZERO, Hash.ZERO),
+        Optional.of(validPayloadAttributesForBlock(mockHeader)),
+        ForkchoiceResult.withResult(Optional.empty(), Optional.of(mockHeader)),
+        org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod
+            .EngineStatus.VALID);
   }
 }

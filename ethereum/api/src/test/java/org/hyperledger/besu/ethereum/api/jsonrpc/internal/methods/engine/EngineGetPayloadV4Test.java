@@ -24,9 +24,9 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.PayloadWrapper;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
+import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.RequestType;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
@@ -133,13 +133,12 @@ public class EngineGetPayloadV4Test extends AbstractEngineGetPayloadTest {
     // should return withdrawals, deposits and excessGas for a post-6110 block
     PayloadIdentifier payloadIdentifier =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            pragueHardfork.milestone(),
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(new BlockHeaderTestFixture().buildHeader())
+                .timestamp(pragueHardfork.milestone())
+                .prevRandao(Bytes32.random())
+                .feeRecipient(Address.fromHexString("0x42"))
+                .build());
 
     BlobTestFixture blobTestFixture = new BlobTestFixture();
     BlobsWithCommitments bwc = blobTestFixture.createBlobsWithCommitments(1);
@@ -214,13 +213,12 @@ public class EngineGetPayloadV4Test extends AbstractEngineGetPayloadTest {
         new BlockHeaderTestFixture().timestamp(pragueHardfork.milestone() + 1).buildHeader();
     PayloadIdentifier payloadIdentifier =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            pragueHardfork.milestone(),
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(new BlockHeaderTestFixture().buildHeader())
+                .timestamp(pragueHardfork.milestone())
+                .prevRandao(Bytes32.random())
+                .feeRecipient(Address.fromHexString("0x42"))
+                .build());
 
     BlockWithReceipts block =
         new BlockWithReceipts(

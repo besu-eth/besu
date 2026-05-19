@@ -26,9 +26,9 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.PayloadWrapper;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
+import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
@@ -103,13 +103,12 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
 
     PayloadIdentifier shanghaiPid =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            cancunHardfork.milestone() - 1,
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(new BlockHeaderTestFixture().buildHeader())
+                .timestamp(cancunHardfork.milestone() - 1)
+                .prevRandao(Bytes32.random())
+                .feeRecipient(Address.fromHexString("0x42"))
+                .build());
 
     BlockWithReceipts shanghaiBlock =
         new BlockWithReceipts(
@@ -144,13 +143,12 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
 
     PayloadIdentifier postCancunPid =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            cancunHardfork.milestone(),
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(new BlockHeaderTestFixture().buildHeader())
+                .timestamp(cancunHardfork.milestone())
+                .prevRandao(Bytes32.random())
+                .feeRecipient(Address.fromHexString("0x42"))
+                .build());
 
     BlockWithReceipts pragueBlock =
         new BlockWithReceipts(
@@ -187,13 +185,12 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
     // should return withdrawals and excessGas for a post-cancun block
     PayloadIdentifier postCancunPid =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            cancunHardfork.milestone(),
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(new BlockHeaderTestFixture().buildHeader())
+                .timestamp(cancunHardfork.milestone())
+                .prevRandao(Bytes32.random())
+                .feeRecipient(Address.fromHexString("0x42"))
+                .build());
 
     BlobTestFixture blobTestFixture = new BlobTestFixture();
     BlobsWithCommitments bwc = blobTestFixture.createBlobsWithCommitments(1);

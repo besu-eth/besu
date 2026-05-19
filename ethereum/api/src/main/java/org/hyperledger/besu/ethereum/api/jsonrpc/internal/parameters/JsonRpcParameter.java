@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
+import org.hyperledger.besu.ethereum.core.json.UInt64Deserializer;
+
 import java.util.List;
 import java.util.Optional;
 
@@ -24,9 +26,14 @@ import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
+import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import org.apache.tuweni.units.bigints.UInt64;
 
 public class JsonRpcParameter {
+
+  private static final SimpleModule ETH_MODULE =
+      new SimpleModule("eth").addDeserializer(UInt64.class, new UInt64Deserializer());
 
   /**
    * Jackson's default {@link ObjectMapper}. Classes that need to tolerate unknown JSON properties
@@ -36,7 +43,8 @@ public class JsonRpcParameter {
   private static final ObjectMapper mapperDefault =
       new ObjectMapper()
           .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true)
-          .registerModule(new Jdk8Module()); // Handle JDK8 Optionals (de)serialization
+          .registerModule(new Jdk8Module()) // Handle JDK8 Optionals (de)serialization
+          .registerModule(ETH_MODULE); // Handle ETH specific data structures
 
   /**
    * Like mapperDefault but with {@link DeserializationFeature#FAIL_ON_UNKNOWN_PROPERTIES}
