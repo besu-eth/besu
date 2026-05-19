@@ -38,6 +38,8 @@ import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationRes
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockValueCalculator;
+import org.hyperledger.besu.ethereum.core.BlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -265,13 +267,17 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
       final String slotNumberHex =
           block.getHeader().getOptionalSlotNumber().map(Quantity::create).orElse(null);
 
+      final Wei blockValue =
+          BlockValueCalculator.calculateBlockValue(
+              new BlockWithReceipts(block, result.getTransactionSelectionResults().getReceipts()));
+
       final EngineGetPayloadResultV6 responsePayload =
           new EngineGetPayloadResultV6(
               block.getHeader(),
               txsAsHex,
               block.getBody().getWithdrawals(),
               executionRequests,
-              Quantity.create(Wei.ZERO),
+              Quantity.create(blockValue),
               blobsBundle,
               blockAccessListHex,
               slotNumberHex);
