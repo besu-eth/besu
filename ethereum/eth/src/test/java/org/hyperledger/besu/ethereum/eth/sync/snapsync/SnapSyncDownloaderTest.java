@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.eth.sync.common;
+package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,6 +30,10 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
+import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
+import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
+import org.hyperledger.besu.ethereum.eth.sync.common.SyncError;
+import org.hyperledger.besu.ethereum.eth.sync.common.SyncException;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.StalledDownloadException;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloader;
 import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
@@ -40,6 +44,7 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
@@ -54,7 +59,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.ArgumentsProvider;
 import org.junit.jupiter.params.provider.ArgumentsSource;
 
-public class PivotSyncDownloaderTest {
+public class SnapSyncDownloaderTest {
 
   @SuppressWarnings("unchecked")
   private final PivotSyncActions fastSyncActions = mock(PivotSyncActions.class);
@@ -65,9 +70,9 @@ public class PivotSyncDownloaderTest {
 
   private final Path fastSyncDataDirectory = null;
   private WorldStateStorageCoordinator worldStateStorageCoordinator;
-  private PivotSyncDownloader downloader;
+  private SnapSyncDownloader downloader;
 
-  static class PivotSyncDownloaderTestArguments implements ArgumentsProvider {
+  static class SnapSyncDownloaderTestArguments implements ArgumentsProvider {
     @Override
     public Stream<? extends Arguments> provideArguments(final ExtensionContext context) {
       return Stream.of(
@@ -91,7 +96,7 @@ public class PivotSyncDownloaderTest {
     when(worldStateKeyValueStorage.getDataStorageFormat()).thenReturn(dataStorageFormat);
     worldStateStorageCoordinator = new WorldStateStorageCoordinator(worldStateKeyValueStorage);
     downloader =
-        new PivotSyncDownloader(
+        new SnapSyncDownloader(
             fastSyncActions,
             worldStateStorageCoordinator,
             worldStateDownloader,
@@ -101,7 +106,7 @@ public class PivotSyncDownloaderTest {
   }
 
   @ParameterizedTest
-  @ArgumentsSource(PivotSyncDownloaderTestArguments.class)
+  @ArgumentsSource(SnapSyncDownloaderTestArguments.class)
   public void shouldCompleteFastSyncSuccessfully(final DataStorageFormat dataStorageFormat) {
     setup(dataStorageFormat);
     final PivotSyncState selectPivotBlockState = new PivotSyncState(50, false);
@@ -113,11 +118,10 @@ public class PivotSyncDownloaderTest {
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
     when(fastSyncActions.createChainDownloader(
-            downloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
         .thenReturn(chainDownloader);
     when(chainDownloader.start()).thenReturn(completedFuture(null));
-    when(worldStateDownloader.run(
-            any(PivotSyncActions.class), eq(new PivotSyncState(pivotBlockHeader, false))))
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
         .thenReturn(completedFuture(null));
 
     final CompletableFuture<PivotSyncState> result = downloader.start();
@@ -126,16 +130,16 @@ public class PivotSyncDownloaderTest {
     verify(fastSyncActions).downloadPivotBlockHeader(selectPivotBlockState);
     verify(fastSyncActions)
         .createChainDownloader(
-            downloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
     verify(chainDownloader).start();
     verify(worldStateDownloader)
-        .run(any(PivotSyncActions.class), eq(new PivotSyncState(pivotBlockHeader, false)));
+        .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
-    assertThat(result).isCompletedWithValue(downloadPivotBlockHeaderState);
+    assertThat(result).isCompletedWithValue(snapSyncState(pivotBlockHeader));
   }
 
   @ParameterizedTest
-  @ArgumentsSource(PivotSyncDownloaderTestArguments.class)
+  @ArgumentsSource(SnapSyncDownloaderTestArguments.class)
   public void shouldResumeFastSync(final DataStorageFormat dataStorageFormat) {
     setup(dataStorageFormat);
     final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
@@ -144,15 +148,14 @@ public class PivotSyncDownloaderTest {
     when(fastSyncActions.selectPivotBlock(fastSyncState)).thenReturn(complete);
     when(fastSyncActions.downloadPivotBlockHeader(fastSyncState)).thenReturn(complete);
     when(fastSyncActions.createChainDownloader(
-            fastSyncState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
         .thenReturn(chainDownloader);
     when(chainDownloader.start()).thenReturn(completedFuture(null));
-    when(worldStateDownloader.run(
-            any(PivotSyncActions.class), eq(new PivotSyncState(pivotBlockHeader, false))))
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
         .thenReturn(completedFuture(null));
 
-    final PivotSyncDownloader resumedDownloader =
-        new PivotSyncDownloader(
+    final SnapSyncDownloader resumedDownloader =
+        new SnapSyncDownloader(
             fastSyncActions,
             worldStateStorageCoordinator,
             worldStateDownloader,
@@ -165,16 +168,17 @@ public class PivotSyncDownloaderTest {
     verify(fastSyncActions).selectPivotBlock(fastSyncState);
     verify(fastSyncActions).downloadPivotBlockHeader(fastSyncState);
     verify(fastSyncActions)
-        .createChainDownloader(fastSyncState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+        .createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
     verify(chainDownloader).start();
     verify(worldStateDownloader)
-        .run(any(PivotSyncActions.class), eq(new PivotSyncState(pivotBlockHeader, false)));
+        .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
-    assertThat(result).isCompletedWithValue(fastSyncState);
+    assertThat(result).isCompletedWithValue(snapSyncState(pivotBlockHeader));
   }
 
   @ParameterizedTest
-  @ArgumentsSource(PivotSyncDownloaderTestArguments.class)
+  @ArgumentsSource(SnapSyncDownloaderTestArguments.class)
   public void shouldAbortIfSelectPivotBlockFails(final DataStorageFormat dataStorageFormat) {
     setup(dataStorageFormat);
     when(fastSyncActions.selectPivotBlock(PivotSyncState.EMPTY_SYNC_STATE))
@@ -189,7 +193,7 @@ public class PivotSyncDownloaderTest {
   }
 
   @ParameterizedTest
-  @ArgumentsSource(PivotSyncDownloaderTestArguments.class)
+  @ArgumentsSource(SnapSyncDownloaderTestArguments.class)
   public void shouldAbortIfWorldStateDownloadFails(final DataStorageFormat dataStorageFormat) {
     setup(dataStorageFormat);
     final CompletableFuture<Void> worldStateFuture = new CompletableFuture<>();
@@ -204,11 +208,10 @@ public class PivotSyncDownloaderTest {
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
     when(fastSyncActions.createChainDownloader(
-            downloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
         .thenReturn(chainDownloader);
     when(chainDownloader.start()).thenReturn(chainFuture);
-    when(worldStateDownloader.run(
-            any(PivotSyncActions.class), eq(new PivotSyncState(pivotBlockHeader, false))))
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
         .thenReturn(worldStateFuture);
 
     final CompletableFuture<PivotSyncState> result = downloader.start();
@@ -217,9 +220,9 @@ public class PivotSyncDownloaderTest {
     verify(fastSyncActions).downloadPivotBlockHeader(selectPivotBlockState);
     verify(fastSyncActions)
         .createChainDownloader(
-            downloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
     verify(worldStateDownloader)
-        .run(any(PivotSyncActions.class), eq(new PivotSyncState(pivotBlockHeader, false)));
+        .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
 
     assertThat(result).isNotDone();
@@ -232,7 +235,7 @@ public class PivotSyncDownloaderTest {
   }
 
   @ParameterizedTest
-  @ArgumentsSource(PivotSyncDownloaderTestArguments.class)
+  @ArgumentsSource(SnapSyncDownloaderTestArguments.class)
   public void shouldAbortIfChainDownloadFails(final DataStorageFormat dataStorageFormat) {
     setup(dataStorageFormat);
     final CompletableFuture<Void> chainFuture = new CompletableFuture<>();
@@ -247,11 +250,10 @@ public class PivotSyncDownloaderTest {
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
     when(fastSyncActions.createChainDownloader(
-            downloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
         .thenReturn(chainDownloader);
     when(chainDownloader.start()).thenReturn(chainFuture);
-    when(worldStateDownloader.run(
-            any(PivotSyncActions.class), eq(new PivotSyncState(pivotBlockHeader, false))))
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
         .thenReturn(worldStateFuture);
 
     final CompletableFuture<PivotSyncState> result = downloader.start();
@@ -260,9 +262,9 @@ public class PivotSyncDownloaderTest {
     verify(fastSyncActions).downloadPivotBlockHeader(selectPivotBlockState);
     verify(fastSyncActions)
         .createChainDownloader(
-            downloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
     verify(worldStateDownloader)
-        .run(any(PivotSyncActions.class), eq(new PivotSyncState(pivotBlockHeader, false)));
+        .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions);
     verifyNoMoreInteractions(worldStateDownloader);
 
@@ -274,7 +276,7 @@ public class PivotSyncDownloaderTest {
   }
 
   @ParameterizedTest
-  @ArgumentsSource(PivotSyncDownloaderTestArguments.class)
+  @ArgumentsSource(SnapSyncDownloaderTestArguments.class)
   public void shouldAbortIfStopped(final DataStorageFormat dataStorageFormat) {
     setup(dataStorageFormat);
     final PivotSyncState selectPivotBlockState = new PivotSyncState(50, false);
@@ -310,7 +312,7 @@ public class PivotSyncDownloaderTest {
   }
 
   @ParameterizedTest
-  @ArgumentsSource(PivotSyncDownloaderTestArguments.class)
+  @ArgumentsSource(SnapSyncDownloaderTestArguments.class)
   public void shouldNotConsiderFastSyncCompleteIfOnlyWorldStateDownloadIsComplete(
       final DataStorageFormat dataStorageFormat) {
     setup(dataStorageFormat);
@@ -326,11 +328,10 @@ public class PivotSyncDownloaderTest {
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
     when(fastSyncActions.createChainDownloader(
-            downloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
         .thenReturn(chainDownloader);
     when(chainDownloader.start()).thenReturn(chainFuture);
-    when(worldStateDownloader.run(
-            any(PivotSyncActions.class), eq(new PivotSyncState(pivotBlockHeader, false))))
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
         .thenReturn(worldStateFuture);
 
     final CompletableFuture<PivotSyncState> result = downloader.start();
@@ -339,9 +340,9 @@ public class PivotSyncDownloaderTest {
     verify(fastSyncActions).downloadPivotBlockHeader(selectPivotBlockState);
     verify(fastSyncActions)
         .createChainDownloader(
-            downloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
     verify(worldStateDownloader)
-        .run(any(PivotSyncActions.class), eq(new PivotSyncState(pivotBlockHeader, false)));
+        .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions);
     verifyNoMoreInteractions(worldStateDownloader);
 
@@ -352,7 +353,7 @@ public class PivotSyncDownloaderTest {
   }
 
   @ParameterizedTest
-  @ArgumentsSource(PivotSyncDownloaderTestArguments.class)
+  @ArgumentsSource(SnapSyncDownloaderTestArguments.class)
   public void shouldNotConsiderFastSyncCompleteIfOnlyChainDownloadIsComplete(
       final DataStorageFormat dataStorageFormat) {
     setup(dataStorageFormat);
@@ -368,11 +369,10 @@ public class PivotSyncDownloaderTest {
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
     when(fastSyncActions.createChainDownloader(
-            downloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
         .thenReturn(chainDownloader);
     when(chainDownloader.start()).thenReturn(chainFuture);
-    when(worldStateDownloader.run(
-            any(PivotSyncActions.class), eq(new PivotSyncState(pivotBlockHeader, false))))
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
         .thenReturn(worldStateFuture);
 
     final CompletableFuture<PivotSyncState> result = downloader.start();
@@ -381,9 +381,9 @@ public class PivotSyncDownloaderTest {
     verify(fastSyncActions).downloadPivotBlockHeader(selectPivotBlockState);
     verify(fastSyncActions)
         .createChainDownloader(
-            downloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
     verify(worldStateDownloader)
-        .run(any(PivotSyncActions.class), eq(new PivotSyncState(pivotBlockHeader, false)));
+        .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions);
     verifyNoMoreInteractions(worldStateDownloader);
 
@@ -395,7 +395,7 @@ public class PivotSyncDownloaderTest {
 
   @SuppressWarnings("unchecked")
   @ParameterizedTest
-  @ArgumentsSource(PivotSyncDownloaderTestArguments.class)
+  @ArgumentsSource(SnapSyncDownloaderTestArguments.class)
   public void shouldResetPivotSyncStateAndRestartProcessIfWorldStateIsUnavailable(
       final DataStorageFormat dataStorageFormat) {
     setup(dataStorageFormat);
@@ -420,11 +420,10 @@ public class PivotSyncDownloaderTest {
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
     when(fastSyncActions.createChainDownloader(
-            downloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
         .thenReturn(chainDownloader);
     when(chainDownloader.start()).thenReturn(chainFuture);
-    when(worldStateDownloader.run(
-            any(PivotSyncActions.class), eq(new PivotSyncState(pivotBlockHeader, false))))
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
         .thenReturn(firstWorldStateFuture);
 
     // Second attempt with new pivot block
@@ -432,11 +431,11 @@ public class PivotSyncDownloaderTest {
         .thenReturn(completedFuture(secondDownloadPivotBlockHeaderState));
 
     when(fastSyncActions.createChainDownloader(
-            secondDownloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+            snapSyncState(secondPivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
         .thenReturn(secondChainDownloader);
     when(secondChainDownloader.start()).thenReturn(completedFuture(null));
     when(worldStateDownloader.run(
-            any(PivotSyncActions.class), eq(new PivotSyncState(secondPivotBlockHeader, false))))
+            any(PivotSyncActions.class), eq(snapSyncState(secondPivotBlockHeader))))
         .thenReturn(secondWorldStateFuture);
 
     final CompletableFuture<PivotSyncState> result = downloader.start();
@@ -445,9 +444,9 @@ public class PivotSyncDownloaderTest {
     verify(fastSyncActions).downloadPivotBlockHeader(selectPivotBlockState);
     verify(fastSyncActions)
         .createChainDownloader(
-            downloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
     verify(worldStateDownloader)
-        .run(any(PivotSyncActions.class), eq(new PivotSyncState(pivotBlockHeader, false)));
+        .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
 
     assertThat(result).isNotDone();
@@ -462,19 +461,19 @@ public class PivotSyncDownloaderTest {
     verify(fastSyncActions).downloadPivotBlockHeader(secondSelectPivotBlockState);
     verify(fastSyncActions)
         .createChainDownloader(
-            secondDownloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+            snapSyncState(secondPivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
     verify(worldStateDownloader)
-        .run(any(PivotSyncActions.class), eq(new PivotSyncState(secondPivotBlockHeader, false)));
+        .run(any(PivotSyncActions.class), eq(snapSyncState(secondPivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
 
     secondWorldStateFuture.complete(null);
 
-    assertThat(result).isCompletedWithValue(secondDownloadPivotBlockHeaderState);
+    assertThat(result).isCompletedWithValue(snapSyncState(secondPivotBlockHeader));
   }
 
   @SuppressWarnings("unchecked")
   @ParameterizedTest
-  @ArgumentsSource(PivotSyncDownloaderTestArguments.class)
+  @ArgumentsSource(SnapSyncDownloaderTestArguments.class)
   public void shouldResetPivotSyncStateAndRestartProcessIfANonFastSyncExceptionOccurs(
       final DataStorageFormat dataStorageFormat) {
     setup(dataStorageFormat);
@@ -499,11 +498,10 @@ public class PivotSyncDownloaderTest {
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
     when(fastSyncActions.createChainDownloader(
-            downloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
         .thenReturn(chainDownloader);
     when(chainDownloader.start()).thenReturn(chainFuture);
-    when(worldStateDownloader.run(
-            any(PivotSyncActions.class), eq(new PivotSyncState(pivotBlockHeader, false))))
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
         .thenReturn(firstWorldStateFuture);
     when(fastSyncActions.scheduleFutureTask(any(), any()))
         .thenAnswer(invocation -> ((Supplier) invocation.getArgument(0)).get());
@@ -513,11 +511,11 @@ public class PivotSyncDownloaderTest {
         .thenReturn(completedFuture(secondDownloadPivotBlockHeaderState));
 
     when(fastSyncActions.createChainDownloader(
-            secondDownloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+            snapSyncState(secondPivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
         .thenReturn(secondChainDownloader);
     when(secondChainDownloader.start()).thenReturn(completedFuture(null));
     when(worldStateDownloader.run(
-            any(PivotSyncActions.class), eq(new PivotSyncState(secondPivotBlockHeader, false))))
+            any(PivotSyncActions.class), eq(snapSyncState(secondPivotBlockHeader))))
         .thenReturn(secondWorldStateFuture);
 
     final CompletableFuture<PivotSyncState> result = downloader.start();
@@ -526,9 +524,9 @@ public class PivotSyncDownloaderTest {
     verify(fastSyncActions).downloadPivotBlockHeader(selectPivotBlockState);
     verify(fastSyncActions)
         .createChainDownloader(
-            downloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
     verify(worldStateDownloader)
-        .run(any(PivotSyncActions.class), eq(new PivotSyncState(pivotBlockHeader, false)));
+        .run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
 
     assertThat(result).isNotDone();
@@ -545,18 +543,18 @@ public class PivotSyncDownloaderTest {
     verify(fastSyncActions).downloadPivotBlockHeader(secondSelectPivotBlockState);
     verify(fastSyncActions)
         .createChainDownloader(
-            secondDownloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
+            snapSyncState(secondPivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
     verify(worldStateDownloader)
-        .run(any(PivotSyncActions.class), eq(new PivotSyncState(secondPivotBlockHeader, false)));
+        .run(any(PivotSyncActions.class), eq(snapSyncState(secondPivotBlockHeader)));
     verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
 
     secondWorldStateFuture.complete(null);
 
-    assertThat(result).isCompletedWithValue(secondDownloadPivotBlockHeaderState);
+    assertThat(result).isCompletedWithValue(snapSyncState(secondPivotBlockHeader));
   }
 
   @ParameterizedTest
-  @ArgumentsSource(PivotSyncDownloaderTestArguments.class)
+  @ArgumentsSource(SnapSyncDownloaderTestArguments.class)
   public void shouldNotHaveTrailingPeerRequirementsBeforePivotBlockSelected(
       final DataStorageFormat dataStorageFormat) {
     setup(dataStorageFormat);
@@ -565,7 +563,7 @@ public class PivotSyncDownloaderTest {
   }
 
   @ParameterizedTest
-  @ArgumentsSource(PivotSyncDownloaderTestArguments.class)
+  @ArgumentsSource(SnapSyncDownloaderTestArguments.class)
   public void shouldNotAllowPeersBeforePivotBlockOnceSelected(
       final DataStorageFormat dataStorageFormat) {
     setup(dataStorageFormat);
@@ -579,11 +577,10 @@ public class PivotSyncDownloaderTest {
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
     when(fastSyncActions.createChainDownloader(
-            downloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
         .thenReturn(chainDownloader);
     when(chainDownloader.start()).thenReturn(new CompletableFuture<>());
-    when(worldStateDownloader.run(
-            any(PivotSyncActions.class), eq(new PivotSyncState(pivotBlockHeader, false))))
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
         .thenReturn(new CompletableFuture<>());
 
     downloader.start();
@@ -592,7 +589,7 @@ public class PivotSyncDownloaderTest {
   }
 
   @ParameterizedTest
-  @ArgumentsSource(PivotSyncDownloaderTestArguments.class)
+  @ArgumentsSource(SnapSyncDownloaderTestArguments.class)
   public void shouldNotHaveTrailingPeerRequirementsAfterDownloadCompletes(
       final DataStorageFormat dataStorageFormat) {
     setup(dataStorageFormat);
@@ -606,17 +603,21 @@ public class PivotSyncDownloaderTest {
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
     when(fastSyncActions.createChainDownloader(
-            downloadPivotBlockHeaderState, SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
         .thenReturn(chainDownloader);
     when(chainDownloader.start()).thenReturn(completedFuture(null));
-    when(worldStateDownloader.run(
-            any(PivotSyncActions.class), eq(new PivotSyncState(pivotBlockHeader, false))))
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
         .thenReturn(completedFuture(null));
 
     final CompletableFuture<PivotSyncState> result = downloader.start();
     assertThat(result).isDone();
 
     Assertions.assertThat(downloader.calculateTrailingPeerRequirements()).isEmpty();
+  }
+
+  private SnapSyncProcessState snapSyncState(final BlockHeader pivotBlockHeader) {
+    return new SnapSyncProcessState(
+        new PivotSyncState(pivotBlockHeader, false), Optional.of(pivotBlockHeader));
   }
 
   private <T> void assertCompletedExceptionally(
