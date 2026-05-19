@@ -128,7 +128,7 @@ public class GetBlockAccessListsFromPeerTask
                 .formatted(blockHeaders.size(), index + 1));
       }
       final SyncBlockAccessList syncBlockAccessList = new SyncBlockAccessList(balRlp);
-      if (!syncBlockAccessList.isEmpty()) {
+      if (!syncBlockAccessList.isUnavailable()) {
         final int currentIndex = index;
         final BlockHeader blockHeader = blockHeaders.get(currentIndex);
         final Hash expected =
