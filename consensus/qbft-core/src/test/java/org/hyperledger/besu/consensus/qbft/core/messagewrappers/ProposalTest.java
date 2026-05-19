@@ -16,6 +16,7 @@ package org.hyperledger.besu.consensus.qbft.core.messagewrappers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.common.bft.ConsensusRoundIdentifier;
@@ -41,6 +42,7 @@ import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 import java.util.List;
 import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -64,7 +66,23 @@ public class ProposalTest {
   }
 
   private void testRoundTripProposal(final Optional<BlockAccessList> blockAccessList) {
-    when(blockEncoder.readFrom(any())).thenReturn(BLOCK);
+    // Stub the mock codec to round-trip a single byte for the block. Without writing real bytes
+    // for the block the encoded RLP would be off by one top-level item (mock writeTo is a no-op),
+    // which makes the legacy/current item-count discrimination in readFrom misclassify the input.
+    final Bytes blockPlaceholder = Bytes.of(0xAB);
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.getArgument(0, RLPInput.class).readBytes();
+              return BLOCK;
+            });
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class).writeBytes(blockPlaceholder);
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
 
     final NodeKey nodeKey = NodeKeyUtils.generate();
     final Address addr = Util.publicKeyToAddress(nodeKey.getPublicKey());

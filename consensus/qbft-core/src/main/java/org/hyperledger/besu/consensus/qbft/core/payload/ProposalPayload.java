@@ -31,6 +31,13 @@ import com.google.common.base.MoreObjects;
 /** The Proposal payload. */
 public class ProposalPayload extends QbftPayload {
 
+  /**
+   * Pre-26.1.0 ProposalPayload wire format: [sequence, round, block] (3 items, BAL omitted). The
+   * current format adds a BAL slot (4 items). ConsensusRound is encoded as two scalars (sequence +
+   * round), not as a sub-list - so the legacy item count is 3, not 2.
+   */
+  private static final int LEGACY_PROPOSAL_PAYLOAD_ITEM_COUNT = 3;
+
   private static final int TYPE = QbftV1.PROPOSAL;
   private final ConsensusRoundIdentifier roundIdentifier;
   private final QbftBlock proposedBlock;
@@ -103,13 +110,20 @@ public class ProposalPayload extends QbftPayload {
    */
   public static ProposalPayload readFrom(
       final RLPInput rlpInput, final QbftBlockCodec blockEncoder) {
-    rlpInput.enterList();
+    final int items = rlpInput.enterList();
     final ConsensusRoundIdentifier roundIdentifier = readConsensusRound(rlpInput);
     final QbftBlock proposedBlock = blockEncoder.readFrom(rlpInput);
-    final Optional<BlockAccessList> blockAccessList = readBlockAccessList(rlpInput);
+    // Backward compatibility: pre-26.1.0 ProposalPayload is 3 items [sequence, round, block].
+    // Current format is 4 items: [sequence, round, block, BAL-or-null]. The decoded payload's
+    // encoding mode must match the wire format so that signature verification (which re-encodes
+    // via writeTo to compute hashForSignature) produces the same bytes the sender signed.
+    final boolean wasLegacyEncoded = (items == LEGACY_PROPOSAL_PAYLOAD_ITEM_COUNT);
+    final Optional<BlockAccessList> blockAccessList =
+        wasLegacyEncoded ? Optional.empty() : readBlockAccessList(rlpInput);
     rlpInput.leaveList();
 
-    return new ProposalPayload(roundIdentifier, proposedBlock, blockEncoder, blockAccessList);
+    return new ProposalPayload(
+        roundIdentifier, proposedBlock, blockEncoder, blockAccessList, wasLegacyEncoded);
   }
 
   @Override
