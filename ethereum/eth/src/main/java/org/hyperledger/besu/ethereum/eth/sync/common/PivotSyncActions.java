@@ -115,7 +115,7 @@ public class PivotSyncActions {
         .exceptionallyCompose(throwable -> retrySelectPivotBlockAfterDelay());
   }
 
-  <T> CompletableFuture<T> scheduleFutureTask(
+  public <T> CompletableFuture<T> scheduleFutureTask(
       final Supplier<CompletableFuture<T>> future, final Duration duration) {
     return ethContext.getScheduler().scheduleFutureTask(future, duration);
   }
