@@ -44,8 +44,6 @@ public class EthProtocol implements SubProtocol {
             EthProtocolMessages.BLOCK_BODIES,
             EthProtocolMessages.GET_POOLED_TRANSACTIONS,
             EthProtocolMessages.POOLED_TRANSACTIONS,
-            EthProtocolMessages.GET_NODE_DATA,
-            EthProtocolMessages.NODE_DATA,
             EthProtocolMessages.GET_RECEIPTS,
             EthProtocolMessages.RECEIPTS,
             EthProtocolMessages.GET_BLOCK_ACCESS_LISTS,
@@ -96,8 +94,6 @@ public class EthProtocol implements SubProtocol {
       case EthProtocolMessages.NEW_POOLED_TRANSACTION_HASHES -> "NewPooledTransactionHashes";
       case EthProtocolMessages.GET_POOLED_TRANSACTIONS -> "GetPooledTransactions";
       case EthProtocolMessages.POOLED_TRANSACTIONS -> "PooledTransactions";
-      case EthProtocolMessages.GET_NODE_DATA -> "GetNodeData";
-      case EthProtocolMessages.NODE_DATA -> "NodeData";
       case EthProtocolMessages.GET_RECEIPTS -> "GetReceipts";
       case EthProtocolMessages.RECEIPTS -> "Receipts";
       case EthProtocolMessages.BLOCK_RANGE_UPDATE -> "BlockRangeUpdate";

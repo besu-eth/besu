@@ -41,7 +41,8 @@ public class ProcessableBlockHeader
   // The block creation timestamp (seconds since the unix epoch)
   protected final long timestamp;
   // base fee is included for post EIP-1559 blocks
-  protected final Wei baseFee;
+  // store optional base fee to compute it at build time
+  protected final Optional<Wei> maybeBaseFee;
   // prevRandao is included for post-merge blocks
   protected final Bytes32 mixHashOrPrevRandao;
   // parentBeaconBlockRoot is included for Cancun
@@ -66,7 +67,7 @@ public class ProcessableBlockHeader
     this.number = number;
     this.gasLimit = gasLimit;
     this.timestamp = timestamp;
-    this.baseFee = baseFee;
+    this.maybeBaseFee = Optional.ofNullable(baseFee);
     this.mixHashOrPrevRandao = mixHashOrPrevRandao;
     this.parentBeaconBlockRoot = parentBeaconBlockRoot;
     this.slotNumber = slotNumber;
@@ -149,7 +150,7 @@ public class ProcessableBlockHeader
    */
   @Override
   public Optional<Wei> getBaseFee() {
-    return Optional.ofNullable(baseFee);
+    return maybeBaseFee;
   }
 
   /**
@@ -216,7 +217,9 @@ public class ProcessableBlockHeader
     sb.append("difficulty=").append(difficulty).append(", ");
     sb.append("gasLimit=").append(gasLimit).append(", ");
     sb.append("timestamp=").append(timestamp).append(", ");
-    sb.append("baseFee=").append(baseFee).append(", ");
+    if (maybeBaseFee.isPresent()) {
+      sb.append("baseFee=").append(maybeBaseFee.get()).append(", ");
+    }
     sb.append("mixHashOrPrevRandao=").append(mixHashOrPrevRandao).append(", ");
     if (parentBeaconBlockRoot != null) {
       sb.append("parentBeaconBlockRoot=").append(parentBeaconBlockRoot).append(", ");

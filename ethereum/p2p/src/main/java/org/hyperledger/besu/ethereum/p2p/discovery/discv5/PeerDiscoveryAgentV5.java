@@ -186,6 +186,8 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
       return CompletableFuture.failedFuture(e);
     }
 
+    peerPermissions.subscribeUpdate(this::handlePermissionsUpdate);
+
     return system
         .start()
         .thenApply(
@@ -496,7 +498,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
    * @param remotePeer the remote peer to check
    * @return {@code true} if the peer is permitted
    */
-  private boolean isPeerPermitted(final Peer localNode, final DiscoveryPeer remotePeer) {
+  private boolean isPeerPermitted(final Peer localNode, final Peer remotePeer) {
     if (localNode == null) {
       // Local node not yet initialized — reject rather than bypass identity checks.
       // The peer will be re-discovered on the next FINDNODE round.
@@ -571,5 +573,27 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
         "discv5_total_nodes_current",
         "Current number of total nodes tracked by the DiscV5 discovery system",
         () -> system.getBucketStats().getTotalNodeCount());
+  }
+
+  private void handlePermissionsUpdate(
+      final boolean addRestrictions, final Optional<List<Peer>> affectedPeers) {
+    if (addRestrictions) {
+      nodeRecordManager
+          .getLocalNode()
+          .ifPresent(
+              ((localNode) -> {
+                affectedPeers.ifPresentOrElse(
+                    (peers) ->
+                        peers.stream()
+                            .filter((peer) -> !isPeerPermitted(localNode, peer))
+                            .forEach(this::dropPeer),
+                    () ->
+                        discoverySystem.get().getNodeRecordBuckets().stream()
+                            .flatMap(List::stream)
+                            .map(nr -> DiscoveryPeerFactory.fromNodeRecord(nr, preferIpv6Outbound))
+                            .filter((peer) -> !isPeerPermitted(localNode, peer))
+                            .forEach(this::dropPeer));
+              }));
+    }
   }
 }

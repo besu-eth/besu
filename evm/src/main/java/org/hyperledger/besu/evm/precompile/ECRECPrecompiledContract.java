@@ -26,11 +26,9 @@ import org.hyperledger.besu.nativelib.secp256k1.LibSecp256k1;
 import org.hyperledger.besu.nativelib.secp256k1.LibSecp256k1JNI;
 
 import java.math.BigInteger;
-import java.util.NoSuchElementException;
 import java.util.Optional;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -44,10 +42,11 @@ public class ECRECPrecompiledContract extends AbstractPrecompiledContract {
 
   private static final Logger LOG = LoggerFactory.getLogger(ECRECPrecompiledContract.class);
   private static final int V_BASE = 27;
+  private static final int SEMANTIC_INPUT_LENGTH = 128;
   final SignatureAlgorithm signatureAlgorithm;
   private static final String PRECOMPILE_NAME = "ECREC";
   private static final Cache<Integer, PrecompileInputResultTuple> ecrecCache =
-      Caffeine.newBuilder().maximumSize(1000).build();
+      AbstractPrecompiledContract.resultCacheBuilder().build();
 
   /**
    * Instantiates a new ECREC precompiled contract with the default signature algorithm.
@@ -92,12 +91,14 @@ public class ECRECPrecompiledContract extends AbstractPrecompiledContract {
 
     PrecompileInputResultTuple res;
     Integer cacheKey = null;
+    final Bytes cachedInput =
+        input.size() > SEMANTIC_INPUT_LENGTH ? input.slice(0, SEMANTIC_INPUT_LENGTH) : input;
     if (enableResultCaching) {
-      cacheKey = getCacheKey(input);
+      cacheKey = getCacheKey(input, SEMANTIC_INPUT_LENGTH);
       res = ecrecCache.getIfPresent(cacheKey);
 
       if (res != null) {
-        if (res.cachedInput().equals(input)) {
+        if (res.cachedInput().equals(cachedInput)) {
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.HIT));
           return res.cachedResult();
         } else {
@@ -106,7 +107,7 @@ public class ECRECPrecompiledContract extends AbstractPrecompiledContract {
               input.getClass().getSimpleName(),
               cacheKey,
               res.cachedInput().toHexString(),
-              input.toHexString());
+              cachedInput.toHexString());
           cacheEventConsumer.accept(new CacheEvent(PRECOMPILE_NAME, CacheMetric.FALSE_POSITIVE));
         }
       } else {
@@ -122,7 +123,7 @@ public class ECRECPrecompiledContract extends AbstractPrecompiledContract {
     }
     res =
         new PrecompileInputResultTuple(
-            enableResultCaching ? input.copy() : input,
+            enableResultCaching ? cachedInput.copy() : input,
             PrecompileContractResult.success(resultBytes));
 
     if (enableResultCaching) {
@@ -147,23 +148,20 @@ public class ECRECPrecompiledContract extends AbstractPrecompiledContract {
 
   @NotNull
   private Bytes computeK1Native(final Bytes safeInput) {
-    try {
-      final Bytes32 messageHash = Bytes32.wrap(safeInput, 0);
-      final int recId = safeInput.get(63) - V_BASE;
-      final byte[] sigBytes = safeInput.slice(64, 64).toArrayUnsafe();
+    final Bytes32 messageHash = Bytes32.wrap(safeInput, 0);
+    final int recId = safeInput.get(63) - V_BASE;
+    final byte[] sigBytes = safeInput.slice(64, 64).toArrayUnsafe();
 
-      final LibSecp256k1JNI.ECRecoverResult ecres =
-          LibSecp256k1JNI.ecrecover(messageHash.toArrayUnsafe(), sigBytes, recId);
-      if (!(ecres.status() == 0)) {
-        return Bytes.EMPTY;
-      }
+    final LibSecp256k1JNI.ECRecoverResult ecres =
+        LibSecp256k1JNI.ecrecover(messageHash.toArrayUnsafe(), sigBytes, recId);
 
-      final Bytes32 hashed = Hash.keccak256(Bytes.wrap(ecres.publicKey().orElseThrow()));
+    if (!(ecres.status() == 0) || ecres.publicKey().isEmpty()) {
+      return Bytes.EMPTY;
+    } else {
+      final Bytes32 hashed = Hash.keccak256(Bytes.wrap(ecres.publicKey().get()));
       final MutableBytes32 result = MutableBytes32.create();
       hashed.slice(12).copyTo(result, 12);
       return result;
-    } catch (final IllegalArgumentException | NoSuchElementException e) {
-      return Bytes.EMPTY;
     }
   }
 

@@ -63,6 +63,14 @@ public class ChainDataPrunerStorage {
         .orElse(Lists.newArrayList());
   }
 
+  public synchronized void addForkBlock(final long blockNumber, final Hash blockHash) {
+    final KeyValueStorageTransaction transaction = startTransaction();
+    final Collection<Hash> forkBlocks = getForkBlocks(blockNumber);
+    forkBlocks.add(blockHash);
+    setForkBlocks(transaction, blockNumber, forkBlocks);
+    transaction.commit();
+  }
+
   public void setChainPruningMark(
       final KeyValueStorageTransaction transaction, final long pruningMark) {
     set(transaction, VARIABLES_PREFIX, CHAIN_PRUNING_MARK_KEY, UInt256.valueOf(pruningMark));
@@ -73,7 +81,7 @@ public class ChainDataPrunerStorage {
     set(transaction, VARIABLES_PREFIX, BAL_PRUNING_MARK_KEY, UInt256.valueOf(balPruningMark));
   }
 
-  public void setForkBlocks(
+  private void setForkBlocks(
       final KeyValueStorageTransaction transaction,
       final long blockNumber,
       final Collection<Hash> forkBlocks) {

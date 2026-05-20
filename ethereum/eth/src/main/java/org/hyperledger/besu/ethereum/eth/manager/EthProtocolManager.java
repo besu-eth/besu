@@ -120,12 +120,7 @@ public class EthProtocolManager implements ProtocolManager, MinedBlockObserver {
     }
 
     // Set up request handlers
-    new EthServer(
-        blockchain,
-        worldStateArchive,
-        transactionPool,
-        ethMessages,
-        ethereumWireProtocolConfiguration);
+    new EthServer(blockchain, transactionPool, ethMessages, ethereumWireProtocolConfiguration);
   }
 
   @VisibleForTesting

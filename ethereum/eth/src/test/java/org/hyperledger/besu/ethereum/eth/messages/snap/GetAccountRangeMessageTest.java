@@ -20,6 +20,8 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 
+import java.math.BigInteger;
+
 import org.apache.tuweni.bytes.Bytes32;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -43,6 +45,26 @@ public final class GetAccountRangeMessageTest {
     final GetAccountRangeMessage.Range range = message.range(false);
     Assertions.assertThat(range.worldStateRootHash()).isEqualTo(rootHash);
     Assertions.assertThat(range.startKeyHash().getBytes()).isEqualTo(startKeyHash);
+    Assertions.assertThat(range.responseBytes()).isEqualTo(AbstractSnapMessageData.SIZE_REQUEST);
+  }
+
+  @Test
+  public void wrapRoundTripTest() {
+    final Hash rootHash = Hash.wrap(Bytes32.random());
+    final Bytes32 startKeyHash = RangeManager.MIN_RANGE;
+    final Bytes32 endKeyHash = RangeManager.MAX_RANGE;
+
+    final GetAccountRangeMessage initialMessage =
+        GetAccountRangeMessage.create(rootHash, startKeyHash, endKeyHash);
+    final MessageData wrapped = initialMessage.wrapMessageData(BigInteger.valueOf(42));
+    final MessageData raw = new RawMessage(SnapV1.GET_ACCOUNT_RANGE, wrapped.getData());
+
+    final GetAccountRangeMessage message = GetAccountRangeMessage.readFrom(raw);
+
+    final GetAccountRangeMessage.Range range = message.range(true);
+    Assertions.assertThat(range.worldStateRootHash()).isEqualTo(rootHash);
+    Assertions.assertThat(range.startKeyHash().getBytes()).isEqualTo(startKeyHash);
+    Assertions.assertThat(range.endKeyHash().getBytes()).isEqualTo(endKeyHash);
     Assertions.assertThat(range.responseBytes()).isEqualTo(AbstractSnapMessageData.SIZE_REQUEST);
   }
 }

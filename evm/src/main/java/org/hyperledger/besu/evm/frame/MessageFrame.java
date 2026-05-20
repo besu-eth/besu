@@ -212,6 +212,7 @@ public class MessageFrame {
   // significant)
   private final long[] stackDataV2;
   private int stackTopV2;
+  private final int stackMaxSizeV2;
   private Bytes output = Bytes.EMPTY;
   private Bytes returnData = Bytes.EMPTY;
   private Code createdCode = null;
@@ -282,6 +283,7 @@ public class MessageFrame {
     this.stack = new OperandStack(txValues.maxStackSize());
     this.stackDataV2 = enableEvmV2 ? new long[txValues.maxStackSize() * 4] : null;
     this.stackTopV2 = 0;
+    this.stackMaxSizeV2 = txValues.maxStackSize();
     this.pc = 0;
     this.recipient = recipient;
     this.contract = contract;
@@ -518,8 +520,18 @@ public class MessageFrame {
    * @param n the number of items required
    * @return true if the stack contains at least n items
    */
-  public boolean stackHasItems(final int n) {
+  public boolean stackHasItemsV2(final int n) {
     return stackTopV2 >= n;
+  }
+
+  /**
+   * Returns true if the stack has space for {@code n} more items.
+   *
+   * @param n the number of additional items
+   * @return true if the stack can accommodate n more items
+   */
+  public boolean stackHasSpaceV2(final int n) {
+    return stackTopV2 + n <= stackMaxSizeV2;
   }
 
   // ---------------------------------------------------------------------------

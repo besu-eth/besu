@@ -18,10 +18,24 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.operation.SubOperationOptimized;
 
-public class SubOperationOptimizedBenchmark extends BinaryOperationBenchmark {
+import org.openjdk.jmh.annotations.Param;
+
+public class SubOperationOptimizedBenchmark extends BinaryArithmeticOperationBenchmark {
+  @Param("SUB_RANDOM_RANDOM")
+  private String caseName;
 
   @Override
   protected Operation.OperationResult invoke(final MessageFrame frame) {
     return SubOperationOptimized.staticOperation(frame);
+  }
+
+  @Override
+  protected String caseName() {
+    return caseName;
+  }
+
+  @Override
+  protected String opCode() {
+    return "SUB";
   }
 }

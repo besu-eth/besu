@@ -27,10 +27,14 @@ import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.ImmutableNetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
+import org.hyperledger.besu.ethereum.p2p.discovery.DiscoveryPeer;
+import org.hyperledger.besu.ethereum.p2p.discovery.DiscoveryPeerFactory;
 import org.hyperledger.besu.ethereum.p2p.discovery.NodeRecordManager;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.DiscoveryPeerV4;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
+import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions.Action;
+import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissionsDenylist;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -54,6 +58,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
@@ -99,6 +104,7 @@ class PeerDiscoveryAgentV5Test {
     lenient()
         .when(mockSystem.searchForNewPeers())
         .thenReturn(CompletableFuture.completedFuture(List.of()));
+    lenient().when(mockSystem.streamLiveNodes()).thenAnswer(invocation -> Stream.empty());
 
     agent =
         new PeerDiscoveryAgentV5(
@@ -288,6 +294,47 @@ class PeerDiscoveryAgentV5Test {
 
       // Peers should never be connected — they are rejected by permissions
       verify(rlpxAgent, never()).connect(any());
+    } finally {
+      restrictedAgent.stop();
+    }
+  }
+
+  @Test
+  public void shouldEvictPeerWhenPermissionsRevoked() throws Exception {
+    final NodeRecord peerNodeRecord =
+        NodeRecordFactory.DEFAULT.fromEnr(
+            "enr:-KO4QK1ecw-CGrDDZ4YwFrhgqctD0tWMHKJhUVxsS4um3aUFe3yBHRtVL9uYKk16DurN1IdSKTOB1zNCvjBybjZ_KAq"
+                + "GAYtJ5U8wg2V0aMfGhJsZKtCAgmlkgnY0gmlwhA_MtDmJc2VjcDI1NmsxoQNXD7fj3sscyOKBiHYy14igj1vJYWdKYZH7n3T8qRpIcYRzb"
+                + "mFwwIN0Y3CCdl-DdWRwgnZf");
+    final DiscoveryPeer discoveryPeer = DiscoveryPeerFactory.fromNodeRecord(peerNodeRecord, false);
+    final PeerPermissionsDenylist denylist = PeerPermissionsDenylist.create();
+
+    when(mockSystem.start()).thenReturn(CompletableFuture.completedFuture(null));
+
+    final PeerDiscoveryAgentV5 restrictedAgent =
+        new PeerDiscoveryAgentV5(
+            config,
+            denylist,
+            forkIdManager,
+            nodeRecordManager,
+            rlpxAgent,
+            new NoOpMetricsSystem(),
+            false,
+            (nodeRecord, listener) -> mockSystem);
+
+    // Pre-stub before start() so the stub is in place before the scheduler thread begins
+    // invoking mockSystem from another thread.
+    Mockito.when(mockSystem.getNodeRecordBuckets()).thenReturn(List.of(List.of(peerNodeRecord)));
+
+    try {
+      // Block on start() so the thenApply/whenComplete chain (which schedules the discovery
+      // tick) has fully run before the test thread does anything else.
+      restrictedAgent.start(1234).get();
+      restrictedAgent.addPeer(discoveryPeer);
+      Mockito.verify(mockSystem, Mockito.timeout(5000)).addNodeRecord(peerNodeRecord);
+
+      denylist.add(discoveryPeer.getId());
+      Mockito.verify(mockSystem, Mockito.timeout(10000)).deleteNodeRecord(discoveryPeer.getId());
     } finally {
       restrictedAgent.stop();
     }

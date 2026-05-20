@@ -57,6 +57,7 @@ public class TestMessageFrameBuilderV2 {
   private Optional<BlockHashLookup> blockHashLookup = Optional.empty();
   private Bytes memory = Bytes.EMPTY;
   private boolean isStatic = false;
+  private Address miningBeneficiary = Address.ZERO;
 
   public TestMessageFrameBuilderV2 worldUpdater(final WorldUpdater worldUpdater) {
     this.worldUpdater = Optional.of(worldUpdater);
@@ -143,6 +144,11 @@ public class TestMessageFrameBuilderV2 {
     return this;
   }
 
+  public TestMessageFrameBuilderV2 miningBeneficiary(final Address miningBeneficiary) {
+    this.miningBeneficiary = miningBeneficiary;
+    return this;
+  }
+
   public MessageFrame build() {
     final MessageFrame frame =
         MessageFrame.builder()
@@ -161,7 +167,7 @@ public class TestMessageFrameBuilderV2 {
             .code(code)
             .blockValues(blockValues.orElseGet(() -> new FakeBlockValues(1337)))
             .completer(c -> {})
-            .miningBeneficiary(Address.ZERO)
+            .miningBeneficiary(miningBeneficiary)
             .blockHashLookup(
                 blockHashLookup.orElse((__, number) -> Hash.hash(Words.longBytes(number))))
             .maxStackSize(maxStackSize)
@@ -182,6 +188,19 @@ public class TestMessageFrameBuilderV2 {
         });
     frame.writeMemory(0, memory.size(), memory);
     return frame;
+  }
+
+  /**
+   * Reads a 256-bit word from the V2 stack at the given depth below the current top.
+   *
+   * @param frame the message frame with a V2 stack
+   * @param offset 0 for the topmost item, 1 for the item below, etc.
+   * @return the value as a {@link UInt256}
+   */
+  public static UInt256 getV2StackItem(final MessageFrame frame, final int offset) {
+    final long[] s = frame.stackDataV2();
+    final int idx = (frame.stackTopV2() - 1 - offset) << 2;
+    return new UInt256(s[idx], s[idx + 1], s[idx + 2], s[idx + 3]);
   }
 
   private WorldUpdater createDefaultWorldUpdater() {

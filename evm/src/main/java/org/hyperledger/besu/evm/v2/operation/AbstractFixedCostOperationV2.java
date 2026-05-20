@@ -18,25 +18,15 @@ import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-import org.hyperledger.besu.evm.internal.OverflowException;
-import org.hyperledger.besu.evm.internal.UnderflowException;
-import org.hyperledger.besu.evm.operation.AbstractOperation;
 
-/** The Abstract fixed cost operation. */
-abstract class AbstractFixedCostOperationV2 extends AbstractOperation {
-
-  /** Shared underflow response for static operation methods. */
-  static final OperationResult UNDERFLOW_RESPONSE =
-      new OperationResult(0L, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
+/** The Abstract fixed cost operation for V2 (long[] stack) operations. */
+abstract class AbstractFixedCostOperationV2 extends AbstractOperationV2 {
 
   /** The Success response. */
   protected final OperationResult successResponse;
 
   /** The Out of gas response. */
   protected final OperationResult outOfGasResponse;
-
-  private final OperationResult underflowResponse;
-  private final OperationResult overflowResponse;
 
   /** The Gas cost. */
   protected final long gasCost;
@@ -62,24 +52,14 @@ abstract class AbstractFixedCostOperationV2 extends AbstractOperation {
     gasCost = fixedCost;
     successResponse = new OperationResult(gasCost, null);
     outOfGasResponse = new OperationResult(gasCost, ExceptionalHaltReason.INSUFFICIENT_GAS);
-    underflowResponse =
-        new OperationResult(gasCost, ExceptionalHaltReason.INSUFFICIENT_STACK_ITEMS);
-    overflowResponse = new OperationResult(gasCost, ExceptionalHaltReason.TOO_MANY_STACK_ITEMS);
   }
 
   @Override
   public final OperationResult execute(final MessageFrame frame, final EVM evm) {
-    try {
-      if (frame.getRemainingGas() < gasCost) {
-        return outOfGasResponse;
-      } else {
-        return executeFixedCostOperation(frame, evm);
-      }
-    } catch (final UnderflowException ufe) {
-      return underflowResponse;
-    } catch (final OverflowException ofe) {
-      return overflowResponse;
+    if (frame.getRemainingGas() < gasCost) {
+      return outOfGasResponse;
     }
+    return executeFixedCostOperation(frame, evm);
   }
 
   /**

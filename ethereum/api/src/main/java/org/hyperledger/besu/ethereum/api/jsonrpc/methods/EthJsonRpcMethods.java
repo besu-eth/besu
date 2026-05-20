@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthAccounts;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthBlobBaseFee;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthBlockNumber;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthCall;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthCapabilities;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthChainId;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthConfig;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthCreateAccessList;
@@ -41,6 +42,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetFilterLo
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetLogs;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetProof;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetStorageAt;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetStorageValues;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetTransactionByBlockHashAndIndex;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetTransactionByBlockNumberAndIndex;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetTransactionByHash;
@@ -165,11 +167,13 @@ public class EthJsonRpcMethods extends ApiGroupJsonRpcMethods {
             new EthGetFilterLogs(filterManager),
             new EthSyncing(synchronizer),
             new EthGetStorageAt(blockchainQueries),
+            new EthGetStorageValues(blockchainQueries),
             new EthSendRawTransaction(transactionPool),
             new EthSendTransaction(),
             new EthEstimateGas(blockchainQueries, transactionSimulator, apiConfiguration),
             new EthCreateAccessList(blockchainQueries, transactionSimulator),
             new EthMining(miningCoordinator),
+            new EthCapabilities(blockchainQueries),
             new EthConfig(blockchainQueries, protocolSchedule, genesisConfigOptions),
             new EthProtocolVersion(supportedCapabilities),
             new EthGasPrice(blockchainQueries, apiConfiguration),

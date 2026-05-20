@@ -54,11 +54,7 @@ public class ECIESHandshaker implements Handshaker {
   private static final Logger LOG = LoggerFactory.getLogger(ECIESHandshaker.class);
   private static final SecureRandom RANDOM = SecureRandomProvider.publicSecureRandom();
 
-  static final int SIGNATURE_LENGTH = 65;
-  static final int HASH_EPH_PUBKEY_LENGTH = 32;
   static final int PUBKEY_LENGTH = 64;
-  static final int NONCE_LENGTH = 32;
-  static final int TOKEN_FLAG_LENGTH = 1;
 
   // Keypairs under our control.
   private NodeKey nodeKey;
@@ -85,8 +81,6 @@ public class ECIESHandshaker implements Handshaker {
   private final AtomicReference<Handshaker.HandshakeStatus> status =
       new AtomicReference<>(Handshaker.HandshakeStatus.UNINITIALIZED);
   private HandshakeSecrets secrets;
-
-  private boolean version4 = true;
 
   private final SignatureAlgorithm signatureAlgorithm = SignatureAlgorithmFactory.getInstance();
 
@@ -130,21 +124,11 @@ public class ECIESHandshaker implements Handshaker {
         "illegal invocation of firstMessage, handshake had already started");
 
     final Bytes32 staticSharedSecret = nodeKey.calculateECDHKeyAgreement(partyPubKey);
-    if (version4) {
-      initiatorMsg =
-          InitiatorHandshakeMessageV4.create(
-              nodeKey.getPublicKey(), ephKeyPair, staticSharedSecret, initiatorNonce);
-    } else {
-      initiatorMsg =
-          InitiatorHandshakeMessageV1.create(
-              nodeKey.getPublicKey(), ephKeyPair, staticSharedSecret, initiatorNonce, false);
-    }
+    initiatorMsg =
+        InitiatorHandshakeMessageV4.create(
+            nodeKey.getPublicKey(), ephKeyPair, staticSharedSecret, initiatorNonce);
     try {
-      if (version4) {
-        initiatorMsgEnc = EncryptedMessage.encryptMsgEip8(initiatorMsg.encode(), partyPubKey);
-      } else {
-        initiatorMsgEnc = EncryptedMessage.encryptMsg(initiatorMsg.encode(), partyPubKey);
-      }
+      initiatorMsgEnc = EncryptedMessage.encryptMsgEip8(initiatorMsg.encode(), partyPubKey);
     } catch (final InvalidCipherTextException e) {
       status.set(Handshaker.HandshakeStatus.FAILED);
       throw new HandshakeException("Encrypting the first handshake message failed", e);
@@ -161,51 +145,26 @@ public class ECIESHandshaker implements Handshaker {
         status.get() == Handshaker.HandshakeStatus.IN_PROGRESS,
         "illegal invocation of onMessage on handshake that is not in progress");
 
-    // Take as many bytes as expected in the next message.
-    int expectedLength = ECIESEncryptionEngine.ENCRYPTION_OVERHEAD;
-    expectedLength +=
-        initiator
-            ? ResponderHandshakeMessageV1.MESSAGE_LENGTH
-            : InitiatorHandshakeMessageV1.MESSAGE_LENGTH;
-
-    if (buf.readableBytes() < expectedLength) {
-      buf.markReaderIndex();
-      final int size = buf.readUnsignedShort();
-      if (size > buf.readableBytes() + 2) {
-        buf.resetReaderIndex();
-        return Optional.empty();
-      }
-      expectedLength = size;
+    // Read the EIP-8 size prefix to determine the full message length.
+    buf.markReaderIndex();
+    if (buf.readableBytes() < 2) {
+      return Optional.empty();
+    }
+    final int size = buf.readUnsignedShort();
+    if (size > buf.readableBytes()) {
       buf.resetReaderIndex();
+      return Optional.empty();
     }
 
-    buf.markReaderIndex();
-    final ByteBuf bufferedBytes = buf.readSlice(expectedLength);
-    final byte[] encryptedBytes = new byte[bufferedBytes.readableBytes()];
-    bufferedBytes.getBytes(0, encryptedBytes);
-    Bytes bytes = Bytes.wrap(encryptedBytes);
+    // Read the full EIP-8 message (size prefix + payload).
+    buf.resetReaderIndex();
+    final byte[] fullMessage = new byte[size + 2];
+    buf.readBytes(fullMessage);
+    final Bytes encryptedMsg = Bytes.wrap(fullMessage);
 
-    Bytes encryptedMsg = bytes;
+    final Bytes bytes;
     try {
-      // Decrypt the message with our private key.
-      try {
-        // Assume new format
-        final int size = bufferedBytes.readUnsignedShort();
-        if (buf.writerIndex() >= size) {
-          bufferedBytes.readerIndex(0);
-          final byte[] fullMessage = new byte[size + 2];
-          bufferedBytes.readBytes(fullMessage, 0, expectedLength);
-          buf.readBytes(fullMessage, expectedLength, size - expectedLength + 2);
-          encryptedMsg = Bytes.wrap(fullMessage);
-          bytes = EncryptedMessage.decryptMsgEIP8(encryptedMsg, nodeKey);
-          version4 = true;
-        } else {
-          throw new HandshakeException("Failed to decrypt handshake message");
-        }
-      } catch (final Exception ex) {
-        bytes = EncryptedMessage.decryptMsg(bytes, nodeKey);
-        version4 = false;
-      }
+      bytes = EncryptedMessage.decryptMsgEIP8(encryptedMsg, nodeKey);
     } catch (final InvalidCipherTextException e) {
       status.set(Handshaker.HandshakeStatus.FAILED);
       throw new HandshakeException("Decrypting an incoming handshake message failed", e);
@@ -226,11 +185,7 @@ public class ECIESHandshaker implements Handshaker {
 
       // Store the message, as we need it to generating our ingress and egress MACs.
       responderMsgEnc = encryptedMsg;
-      if (version4) {
-        responderMsg = ResponderHandshakeMessageV4.decode(bytes);
-      } else {
-        responderMsg = ResponderHandshakeMessageV1.decode(bytes);
-      }
+      responderMsg = ResponderHandshakeMessageV4.decode(bytes);
 
       // Extract the responder's nonce and ephemeral pubkey, which will be used to generate the
       // shared secrets.
@@ -253,11 +208,7 @@ public class ECIESHandshaker implements Handshaker {
       // Store the message, as we need it to generating our ingress and egress MACs.
       initiatorMsgEnc = encryptedMsg;
       try {
-        if (version4) {
-          initiatorMsg = InitiatorHandshakeMessageV4.decode(bytes, nodeKey);
-        } else {
-          initiatorMsg = InitiatorHandshakeMessageV1.decode(bytes, nodeKey);
-        }
+        initiatorMsg = InitiatorHandshakeMessageV4.decode(bytes, nodeKey);
       } catch (final SecurityModuleException e) {
         status.set(Handshaker.HandshakeStatus.FAILED);
         throw new HandshakeException(
@@ -279,13 +230,7 @@ public class ECIESHandshaker implements Handshaker {
           "keccak hash of recovered ephemeral pubkey does not match announced hash");
 
       // Build the response message.
-      if (version4) {
-        responderMsg =
-            ResponderHandshakeMessageV4.create(ephKeyPair.getPublicKey(), responderNonce);
-      } else {
-        responderMsg =
-            ResponderHandshakeMessageV1.create(ephKeyPair.getPublicKey(), responderNonce, false);
-      }
+      responderMsg = ResponderHandshakeMessageV4.create(ephKeyPair.getPublicKey(), responderNonce);
 
       LOG.trace(
           "Generated responder's ECIES handshake message against peer {}...: {}",
@@ -293,11 +238,7 @@ public class ECIESHandshaker implements Handshaker {
           responderMsg);
 
       try {
-        if (version4) {
-          responderMsgEnc = EncryptedMessage.encryptMsgEip8(responderMsg.encode(), partyPubKey);
-        } else {
-          responderMsgEnc = EncryptedMessage.encryptMsg(responderMsg.encode(), partyPubKey);
-        }
+        responderMsgEnc = EncryptedMessage.encryptMsgEip8(responderMsg.encode(), partyPubKey);
       } catch (final InvalidCipherTextException e) {
         status.set(Handshaker.HandshakeStatus.FAILED);
         throw new HandshakeException("Encrypting the next handshake message failed", e);
@@ -434,15 +375,5 @@ public class ECIESHandshaker implements Handshaker {
   @VisibleForTesting
   void setResponderNonce(final Bytes32 responderNonce) {
     this.responderNonce = responderNonce;
-  }
-
-  @VisibleForTesting
-  void setInitiatorMsgEnc(final Bytes initiatorMsgEnc) {
-    this.initiatorMsgEnc = initiatorMsgEnc;
-  }
-
-  @VisibleForTesting
-  void setResponderMsgEnc(final Bytes responderMsgEnc) {
-    this.responderMsgEnc = responderMsgEnc;
   }
 }

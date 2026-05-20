@@ -60,8 +60,18 @@ public abstract class AbstractSnapMessageData extends AbstractMessageData {
     return new AbstractMap.SimpleImmutableEntry<>(requestId, new RawMessage(getCode(), getData()));
   }
 
+  /**
+   * Wraps this message by prepending a requestId to the existing RLP list. Uses zero-copy splicing:
+   * the payload bytes are shared via {@link Bytes#wrap(Bytes...)} rather than copied.
+   *
+   * <p>Original: [field1, field2, ...] Wrapped: [requestId, field1, field2, ...]
+   */
   protected Bytes wrap(final BigInteger requestId) {
-    throw new UnsupportedOperationException("cannot wrap this message");
+    final Bytes reqIdBytes = RLP.encode(out -> out.writeBigIntegerScalar(requestId));
+    // Slice past the RLP list header to get content (view, no copy)
+    final Bytes content = data.slice(RLP.listHeaderSize(data));
+    // Build new list header and concatenate without copying the payload
+    return Bytes.wrap(RLP.listHeader(reqIdBytes.size() + content.size()), reqIdBytes, content);
   }
 
   public static MessageData create(final Message message) {

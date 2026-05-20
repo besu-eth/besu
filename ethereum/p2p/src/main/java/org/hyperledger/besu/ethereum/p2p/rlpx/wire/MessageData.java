@@ -14,13 +14,11 @@
  */
 package org.hyperledger.besu.ethereum.p2p.rlpx.wire;
 
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
 import java.util.AbstractMap;
-import java.util.ArrayList;
 import java.util.Map;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -51,26 +49,38 @@ public interface MessageData extends org.hyperledger.besu.datatypes.p2p.MessageD
   @Override
   Bytes getData();
 
+  /**
+   * Wraps this message by prepending a requestId to the existing RLP-encoded data. Uses zero-copy
+   * splicing: the payload bytes are shared via {@link Bytes#wrap(Bytes...)} rather than copied.
+   *
+   * <p>Original: [field1, field2, ...] Wrapped: [requestId, [field1, field2, ...]]
+   */
   default MessageData wrapMessageData(final BigInteger requestId) {
-    final BytesValueRLPOutput rlpOutput = new BytesValueRLPOutput();
-    rlpOutput.startList();
-    rlpOutput.writeBigIntegerScalar(requestId);
-    rlpOutput.writeRaw(getData());
-    rlpOutput.endList();
-    return new RawMessage(getCode(), rlpOutput.encoded());
+    final Bytes data = getData();
+    final Bytes reqIdBytes = RLP.encode(out -> out.writeBigIntegerScalar(requestId));
+    return new RawMessage(
+        getCode(), Bytes.wrap(RLP.listHeader(reqIdBytes.size() + data.size()), reqIdBytes, data));
   }
 
+  /**
+   * Unwraps a requestId-prefixed message, returning the requestId and the original message. Uses
+   * zero-copy slicing rather than copying.
+   *
+   * <p>Wrapped: [requestId, [field1, field2, ...]] Unwrapped: requestId + [field1, field2, ...]
+   */
   default Map.Entry<BigInteger, MessageData> unwrapMessageData() {
-    final RLPInput messageDataRLP = RLP.input(getData());
+    final Bytes data = getData();
+    final int listHeaderSize = RLP.listHeaderSize(data);
+    final Bytes content = data.slice(listHeaderSize);
+    // Read the requestId value
+    final RLPInput messageDataRLP = RLP.input(data);
     messageDataRLP.enterList();
     final BigInteger requestId = messageDataRLP.readBigIntegerScalar();
-    final var params = new ArrayList<Bytes>();
-    while (!messageDataRLP.isEndOfCurrentList()) {
-      params.add(messageDataRLP.readAsRlp().raw());
-    }
-    messageDataRLP.leaveList();
-    return new AbstractMap.SimpleImmutableEntry<>(
-        requestId, new RawMessage(getCode(), Bytes.concatenate(params)));
+    messageDataRLP.leaveListLenient();
+    // Slice past the requestId element to get the inner message
+    final int reqIdSize = RLP.calculateSize(content);
+    final Bytes remaining = content.slice(reqIdSize);
+    return new AbstractMap.SimpleImmutableEntry<>(requestId, new RawMessage(getCode(), remaining));
   }
 
   /**

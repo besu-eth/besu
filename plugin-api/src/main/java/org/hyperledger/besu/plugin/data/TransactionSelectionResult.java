@@ -193,6 +193,14 @@ public class TransactionSelectionResult {
       TransactionSelectionResult.invalidTransient("TOO_LARGE_FOR_REMAINING_BLOCK_SIZE");
 
   /**
+   * The transaction has not been selected because merging its execution access view would exceed
+   * the EIP-7928 block access list item budget for the pending block gas limit, but selection
+   * should continue.
+   */
+  public static final TransactionSelectionResult BLOCK_ACCESS_LIST_ITEM_BUDGET_EXCEEDED =
+      TransactionSelectionResult.invalidTransient("BLOCK_ACCESS_LIST_ITEM_BUDGET_EXCEEDED");
+
+  /**
    * The transaction has not been selected since its current price is below the configured min
    * price, but the selection should continue.
    */

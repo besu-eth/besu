@@ -1,0 +1,20 @@
+{
+  "request": {
+    "id": 341,
+    "jsonrpc": "2.0",
+    "method": "eth_getStorageValues",
+    "params": [
+      {},
+      "latest"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 341,
+    "error": {
+      "code": -32602,
+      "message": "empty request"
+    }
+  },
+  "statusCode": 200
+}

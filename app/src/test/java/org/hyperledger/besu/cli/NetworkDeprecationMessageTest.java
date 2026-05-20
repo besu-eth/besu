@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.cli;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.config.NetworkDefinition;
@@ -23,15 +22,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 
 class NetworkDeprecationMessageTest {
-
-  @ParameterizedTest
-  @EnumSource(
-      value = NetworkDefinition.class,
-      names = {"HOLESKY"})
-  void shouldGenerateDeprecationMessageForDeprecatedNetworks(final NetworkDefinition network) {
-    assertThat(NetworkDeprecationMessage.generate(network))
-        .contains(network.normalize() + " is deprecated");
-  }
 
   @ParameterizedTest
   @EnumSource(

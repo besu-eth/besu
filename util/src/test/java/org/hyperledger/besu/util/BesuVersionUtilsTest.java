@@ -17,6 +17,7 @@ package org.hyperledger.besu.util;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -34,7 +35,10 @@ public final class BesuVersionUtilsTest {
   @Test
   public void versionStringIsEthstatsFriendly() {
     assertThat(BesuVersionUtils.version())
-        .matches("[^/]+/v(\\d+\\.\\d+\\.\\d+[^/]*|null)/[^/]+/[^/]+");
+        .matches(
+            "[^/]+/v(\\d+\\.\\d+\\.\\d+[^/]*|"
+                + Pattern.quote(BesuVersionUtils.UNKNOWN)
+                + ")/[^/]+/[^/]+");
   }
 
   /**
@@ -46,7 +50,10 @@ public final class BesuVersionUtilsTest {
   @Test
   public void noIdentityNodeNameIsEthstatsFriendly() {
     assertThat(BesuVersionUtils.nodeName(Optional.empty()))
-        .matches("[^/]+/v(\\d+\\.\\d+\\.\\d+[^/]*|null)/[^/]+/[^/]+");
+        .matches(
+            "[^/]+/v(\\d+\\.\\d+\\.\\d+[^/]*|"
+                + Pattern.quote(BesuVersionUtils.UNKNOWN)
+                + ")/[^/]+/[^/]+");
   }
 
   /**
@@ -59,6 +66,9 @@ public final class BesuVersionUtilsTest {
   @Test
   public void userIdentityNodeNameIsEthstatsFriendly() {
     assertThat(BesuVersionUtils.nodeName(Optional.of("TestUserIdentity")))
-        .matches("[^/]+/[^/]+/v(\\d+\\.\\d+\\.\\d+[^/]*|null)/[^/]+/[^/]+");
+        .matches(
+            "[^/]+/[^/]+/v(\\d+\\.\\d+\\.\\d+[^/]*|"
+                + Pattern.quote(BesuVersionUtils.UNKNOWN)
+                + ")/[^/]+/[^/]+");
   }
 }
