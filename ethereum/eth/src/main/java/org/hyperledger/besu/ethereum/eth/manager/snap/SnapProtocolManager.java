@@ -68,15 +68,17 @@ public class SnapProtocolManager implements ProtocolManager {
     this.ethPeers = ethPeers;
     this.snapMessages = snapMessages;
     this.ethScheduler = ethScheduler;
-    this.supportedCapabilities = calculateCapabilities(protocolSchedule);
+    this.supportedCapabilities = calculateCapabilities(snapConfig, protocolSchedule);
     new SnapServer(
         snapConfig, snapMessages, worldStateStorageCoordinator, protocolContext, synchronizer);
   }
 
-  private List<Capability> calculateCapabilities(final ProtocolSchedule protocolSchedule) {
+  private List<Capability> calculateCapabilities(
+      final SnapSyncConfiguration snapConfig, final ProtocolSchedule protocolSchedule) {
     final ImmutableList.Builder<Capability> capabilities = ImmutableList.builder();
     capabilities.add(SnapProtocol.SNAP1);
-    if (protocolSchedule.anyMatch(spec -> spec.spec().isBlockAccessListEnabled())) {
+    if (Boolean.TRUE.equals(snapConfig.isSnap2Enabled())
+        && protocolSchedule.anyMatch(spec -> spec.spec().isBlockAccessListEnabled())) {
       capabilities.add(SnapProtocol.SNAP2);
     }
 

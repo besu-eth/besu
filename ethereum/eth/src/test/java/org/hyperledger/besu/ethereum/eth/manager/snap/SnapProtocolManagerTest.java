@@ -63,16 +63,38 @@ class SnapProtocolManagerTest {
   @BeforeEach
   void setUp() {
     when(snapConfig.isSnapServerEnabled()).thenReturn(false);
-    snapProtocolManager =
-        new SnapProtocolManager(
-            worldStateStorageCoordinator,
-            snapConfig,
-            ethPeers,
-            snapMessages,
-            ethScheduler,
-            protocolSchedule,
-            protocolContext,
-            synchronizer);
+    snapProtocolManager = createSnapProtocolManager();
+  }
+
+  @Test
+  void advertisesOnlySnap1WhenSnap2IsDisabledAndBalForkIsScheduled() {
+    when(snapConfig.isSnap2Enabled()).thenReturn(false);
+    when(protocolSchedule.anyMatch(any())).thenReturn(true);
+
+    snapProtocolManager = createSnapProtocolManager();
+
+    assertThat(snapProtocolManager.getSupportedCapabilities()).containsExactly(SnapProtocol.SNAP1);
+  }
+
+  @Test
+  void advertisesOnlySnap1WhenSnap2IsEnabledButBalForkIsNotScheduled() {
+    when(snapConfig.isSnap2Enabled()).thenReturn(true);
+    when(protocolSchedule.anyMatch(any())).thenReturn(false);
+
+    snapProtocolManager = createSnapProtocolManager();
+
+    assertThat(snapProtocolManager.getSupportedCapabilities()).containsExactly(SnapProtocol.SNAP1);
+  }
+
+  @Test
+  void advertisesSnap2WhenSnap2IsEnabledAndBalForkIsScheduled() {
+    when(snapConfig.isSnap2Enabled()).thenReturn(true);
+    when(protocolSchedule.anyMatch(any())).thenReturn(true);
+
+    snapProtocolManager = createSnapProtocolManager();
+
+    assertThat(snapProtocolManager.getSupportedCapabilities())
+        .containsExactly(SnapProtocol.SNAP1, SnapProtocol.SNAP2);
   }
 
   @Test
@@ -92,5 +114,17 @@ class SnapProtocolManagerTest {
     // ethPeer (mock) receives the disconnect call
     org.mockito.Mockito.verify(ethPeer)
         .disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+  }
+
+  private SnapProtocolManager createSnapProtocolManager() {
+    return new SnapProtocolManager(
+        worldStateStorageCoordinator,
+        snapConfig,
+        ethPeers,
+        snapMessages,
+        ethScheduler,
+        protocolSchedule,
+        protocolContext,
+        synchronizer);
   }
 }
