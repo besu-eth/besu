@@ -19,7 +19,6 @@ import static org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2.ge
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.evm.UInt256;
-import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.BerlinGasCalculator;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
