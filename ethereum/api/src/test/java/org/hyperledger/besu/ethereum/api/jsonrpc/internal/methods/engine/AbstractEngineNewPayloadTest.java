@@ -22,6 +22,7 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.Executi
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
@@ -424,6 +425,48 @@ public abstract class AbstractEngineNewPayloadTest extends AbstractScheduledApiT
       assertThat(res.getLatestValidHash()).isEmpty();
     }
     verify(engineCallListener, times(callCount)).executionEngineCalled();
+  }
+
+  /**
+   * Regression test for the FCU-deadlock scenario: stale layers accumulated during a CL outage are
+   * never evicted by forkchoiceUpdated (because the CL stops sending FCU when it receives SYNCING),
+   * so the layer count stays above the threshold indefinitely. The fix is to call
+   * scrubStaleLayers() proactively on every engine_newPayload, so that once backward sync has
+   * caught the node up to chain head, the next call clears the stale layers and returns VALID.
+   */
+  @Test
+  public void shouldScrubStaleLayersOnEachCallAndRecoverWhenNodeCatchesUp() {
+    // Set up full valid-payload mocks for the recovery call.
+    BlockHeader mockHeader =
+        setupValidPayload(
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            Optional.empty());
+    lenient()
+        .when(blockchain.getBlockHeader(mockHeader.getParentHash()))
+        .thenReturn(Optional.of(mock(BlockHeader.class)));
+
+    PathBasedWorldStateProvider worldStateProvider = mock(PathBasedWorldStateProvider.class);
+    PathBasedCachedWorldStorageManager cacheManager =
+        mock(PathBasedCachedWorldStorageManager.class);
+    when(protocolContext.getWorldStateArchive()).thenReturn(worldStateProvider);
+    when(worldStateProvider.getCachedWorldStorageManager()).thenReturn(cacheManager);
+
+    // First call: stale layers still present (scrub hasn't helped yet)
+    when(cacheManager.cachedLayerCount())
+        .thenReturn(AbstractEngineNewPayload.MAX_CACHED_WORLD_STATE_LAYERS + 1)
+        // Second call: scrub cleared the stale layers, count is now below threshold
+        .thenReturn(1);
+
+    EnginePayloadStatusResult stalledResult =
+        fromSuccessResp(resp(mockEnginePayload(mockHeader, emptyList())));
+    assertThat(stalledResult.getStatusAsString()).isEqualTo(SYNCING.name());
+
+    EnginePayloadStatusResult recoveredResult =
+        fromSuccessResp(resp(mockEnginePayload(mockHeader, emptyList())));
+    assertThat(recoveredResult.getStatusAsString()).isEqualTo(VALID.name());
+
+    // scrubStaleLayers must be called on every engine_newPayload invocation
+    verify(cacheManager, times(2)).scrubStaleLayers(anyLong());
   }
 
   @Test

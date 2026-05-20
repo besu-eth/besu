@@ -210,6 +210,18 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
     return cachedWorldStatesByHash.size();
   }
 
+  /**
+   * Evicts cached layers older than {@code currentChainHeadBlockNumber - RETAINED_LAYERS}. Exposed
+   * for the engine_newPayload layer-accumulation guard, which must scrub stale layers proactively
+   * because forkchoiceUpdated (the normal scrub trigger) is not sent by the CL while the EL is
+   * returning SYNCING.
+   *
+   * @param currentChainHeadBlockNumber the current canonical chain-head block number
+   */
+  public void scrubStaleLayers(final long currentChainHeadBlockNumber) {
+    scrubCachedLayers(currentChainHeadBlockNumber);
+  }
+
   public void reset() {
     this.cachedWorldStatesByHash.clear();
   }
