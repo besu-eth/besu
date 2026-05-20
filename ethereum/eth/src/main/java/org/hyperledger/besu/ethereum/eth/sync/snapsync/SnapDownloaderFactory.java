@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncStateStorage;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePersistenceManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
@@ -48,7 +47,7 @@ public class SnapDownloaderFactory {
   private static final Logger LOG = LoggerFactory.getLogger(SnapDownloaderFactory.class);
   protected static final String SYNC_FOLDER = "syncFolder";
 
-  public static Optional<PivotSyncDownloader> createSnapDownloader(
+  public static Optional<SnapSyncDownloader> createSnapDownloader(
       final SnapSyncStatePersistenceManager snapContext,
       final PivotBlockSelector pivotBlockSelector,
       final SynchronizerConfiguration syncConfig,
@@ -116,7 +115,7 @@ public class SnapDownloaderFactory {
             clock,
             metricsSystem,
             syncDurationMetrics);
-    final PivotSyncDownloader fastSyncDownloader =
+    final SnapSyncDownloader fastSyncDownloader =
         new SnapSyncDownloader(
             new PivotSyncActions(
                 syncConfig,
@@ -128,7 +127,6 @@ public class SnapDownloaderFactory {
                 pivotBlockSelector,
                 metricsSystem,
                 syncDataDirectory),
-            worldStateStorageCoordinator,
             snapWorldStateDownloader,
             syncDataDirectory,
             snapSyncState,
