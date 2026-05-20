@@ -33,21 +33,14 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
-import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.datatypes.parameters.UnsignedLongParameter;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV2;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV3;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV4;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -57,9 +50,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
-import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
-import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.WithdrawalsValidator;
 import org.hyperledger.besu.ethereum.mainnet.requests.ProhibitedRequestValidator;
@@ -68,17 +59,20 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import io.vertx.core.Vertx;
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -87,8 +81,7 @@ import org.mockito.quality.Strictness;
 @MockitoSettings(strictness = Strictness.LENIENT)
 public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
-  protected EngineNewPayloadV1 method;
-  protected Optional<Bytes32> maybeParentBeaconBlockRoot = Optional.empty();
+  protected EngineNewPayloadV1<?, ?> method;
 
   public EngineNewPayloadV1Test() {}
 
@@ -113,7 +106,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
   @Override
   public void before() {
     super.before();
-    when(protocolContext.safeConsensusContext(Mockito.any())).thenReturn(Optional.of(mergeContext));
+    when(protocolContext.safeConsensusContext(any())).thenReturn(Optional.of(mergeContext));
     when(protocolContext.getBlockchain()).thenReturn(blockchain);
     lenient()
         .when(protocolSpec.getWithdrawalsValidator())
@@ -129,8 +122,8 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     assertThat(method.getName()).isEqualTo("engine_newPayloadV1");
   }
 
-  protected EngineNewPayloadV1 createMethodInstance() {
-    return new EngineNewPayloadV1(
+  protected EngineNewPayloadV1<?, ?> createMethodInstance() {
+    return new EngineNewPayloadV1<>(
         vertx,
         protocolSchedule,
         protocolContext,
@@ -150,24 +143,22 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
   public void shouldReturnValid() {
     BlockHeader mockHeader =
         setupValidPayload(
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
-            Optional.empty());
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))));
     lenient()
         .when(blockchain.getBlockHeader(mockHeader.getParentHash()))
         .thenReturn(Optional.of(mock(BlockHeader.class)));
-    var resp = resp(mockEnginePayload(mockHeader, emptyList()));
+    var resp = resp(mockEnginePayloadParam(mockHeader, emptyList()));
 
     assertValidResponse(mockHeader, resp);
   }
 
   @Test
   public void shouldReturnInvalidOnBlockExecutionError() {
-    BlockHeader mockHeader =
-        setupValidPayload(new BlockProcessingResult("error 42"), Optional.empty());
+    BlockHeader mockHeader = setupValidPayload(new BlockProcessingResult("error 42"));
     lenient()
         .when(blockchain.getBlockHeader(mockHeader.getParentHash()))
         .thenReturn(Optional.of(mock(BlockHeader.class)));
-    var resp = resp(mockEnginePayload(mockHeader, emptyList()));
+    var resp = resp(mockEnginePayloadParam(mockHeader, emptyList()));
 
     PayloadStatusV1 res = fromSuccessResp(resp);
     assertThat(res.getLatestValidHash().get()).isEqualTo(mockHash);
@@ -178,14 +169,14 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
   @Test
   public void shouldReturnAcceptedOnLatestValidAncestorEmpty() {
-    BlockHeader mockHeader = createBlockHeader(Optional.empty());
+    BlockHeader mockHeader = createBlockHeader();
     when(blockchain.getBlockByHash(mockHeader.getHash())).thenReturn(Optional.empty());
     when(blockchain.getBlockHeader(mockHeader.getParentHash()))
         .thenReturn(Optional.of(mock(BlockHeader.class)));
     when(mergeCoordinator.getLatestValidAncestor(any(BlockHeader.class)))
         .thenReturn(Optional.empty());
 
-    var resp = resp(mockEnginePayload(mockHeader, emptyList()));
+    var resp = resp(mockEnginePayloadParam(mockHeader, emptyList()));
 
     PayloadStatusV1 res = fromSuccessResp(resp);
     assertThat(res.getLatestValidHash()).isEmpty();
@@ -196,19 +187,19 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
   @Test
   public void shouldReturnSuccessOnAlreadyPresent() {
-    BlockHeader mockHeader = createBlockHeader(Optional.empty());
+    BlockHeader mockHeader = createBlockHeader();
     Block mockBlock = new Block(mockHeader, new BlockBody(emptyList(), emptyList()));
 
     when(blockchain.getBlockByHash(any())).thenReturn(Optional.of(mockBlock));
 
-    var resp = resp(mockEnginePayload(mockHeader, emptyList()));
+    var resp = resp(mockEnginePayloadParam(mockHeader, emptyList()));
 
     assertValidResponse(mockHeader, resp);
   }
 
   @Test
   public void shouldReturnInvalidWithLatestValidHashIsABadBlock() {
-    BlockHeader mockHeader = createBlockHeader(Optional.empty());
+    BlockHeader mockHeader = createBlockHeader();
     Hash latestValidHash = Hash.hash(Bytes32.fromHexStringLenient("0xcafebabe"));
 
     when(blockchain.getBlockByHash(mockHeader.getHash())).thenReturn(Optional.empty());
@@ -216,7 +207,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     when(mergeCoordinator.getLatestValidHashOfBadBlock(mockHeader.getHash()))
         .thenReturn(Optional.of(latestValidHash));
 
-    var resp = resp(mockEnginePayload(mockHeader, emptyList()));
+    var resp = resp(mockEnginePayloadParam(mockHeader, emptyList()));
 
     PayloadStatusV1 res = fromSuccessResp(resp);
     assertThat(res.getLatestValidHash()).isEqualTo(Optional.of(latestValidHash));
@@ -228,12 +219,11 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
   public void shouldNotReturnInvalidOnStorageException() {
     BlockHeader mockHeader =
         setupValidPayload(
-            new BlockProcessingResult(Optional.empty(), new StorageException("database bedlam")),
-            Optional.empty());
+            new BlockProcessingResult(Optional.empty(), new StorageException("database bedlam")));
     lenient()
         .when(blockchain.getBlockHeader(mockHeader.getParentHash()))
         .thenReturn(Optional.of(mock(BlockHeader.class)));
-    var resp = resp(mockEnginePayload(mockHeader, emptyList()));
+    var resp = resp(mockEnginePayloadParam(mockHeader, emptyList()));
 
     fromErrorResp(resp);
     verify(engineCallListener, times(1)).executionEngineCalled();
@@ -243,13 +233,12 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
   public void shouldNotReturnInvalidOnHandledMerkleTrieException() {
     BlockHeader mockHeader =
         setupValidPayload(
-            new BlockProcessingResult(Optional.empty(), new MerkleTrieException("missing leaf")),
-            Optional.empty());
+            new BlockProcessingResult(Optional.empty(), new MerkleTrieException("missing leaf")));
 
     lenient()
         .when(blockchain.getBlockHeader(mockHeader.getParentHash()))
         .thenReturn(Optional.of(mock(BlockHeader.class)));
-    var resp = resp(mockEnginePayload(mockHeader, emptyList()));
+    var resp = resp(mockEnginePayloadParam(mockHeader, emptyList()));
 
     verify(engineCallListener, times(1)).executionEngineCalled();
 
@@ -258,7 +247,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
   @Test
   public void shouldNotReturnInvalidOnThrownMerkleTrieException() {
-    BlockHeader mockHeader = createBlockHeader(Optional.empty());
+    BlockHeader mockHeader = createBlockHeader();
     when(blockchain.getBlockByHash(mockHeader.getHash())).thenReturn(Optional.empty());
     when(blockchain.getBlockHeader(mockHeader.getParentHash()))
         .thenReturn(Optional.of(mock(BlockHeader.class)));
@@ -267,7 +256,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     when(mergeCoordinator.rememberBlock(any(), any()))
         .thenThrow(new MerkleTrieException("missing leaf"));
 
-    var resp = resp(mockEnginePayload(mockHeader, emptyList()));
+    var resp = resp(mockEnginePayloadParam(mockHeader, emptyList()));
 
     verify(engineCallListener, times(1)).executionEngineCalled();
 
@@ -276,7 +265,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
   @Test
   public void shouldReturnInvalidBlockHashOnBadHashParameter() {
-    BlockHeader mockHeader = spy(createBlockHeader(Optional.empty()));
+    BlockHeader mockHeader = spy(createBlockHeader());
     lenient()
         .when(mergeCoordinator.getLatestValidAncestor(mockHeader.getBlockHash()))
         .thenReturn(Optional.empty());
@@ -284,7 +273,7 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
         .when(blockchain.getBlockHeader(mockHeader.getParentHash()))
         .thenReturn(Optional.of(mock(BlockHeader.class)));
     lenient().when(mockHeader.getHash()).thenReturn(Hash.fromHexStringLenient("0x1337"));
-    var resp = resp(mockEnginePayload(mockHeader, emptyList()));
+    var resp = resp(mockEnginePayloadParam(mockHeader, emptyList()));
 
     PayloadStatusV1 res = fromSuccessResp(resp);
     assertThat(res.getStatusAsString()).isEqualTo(getExpectedInvalidBlockHashStatus().name());
@@ -293,11 +282,11 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
   @Test
   public void shouldCheckBlockValidityBeforeCheckingByHashForExisting() {
-    BlockHeader realHeader = createBlockHeader(Optional.empty());
+    BlockHeader realHeader = createBlockHeader();
     BlockHeader paramHeader = spy(realHeader);
     when(paramHeader.getHash()).thenReturn(Hash.fromHexStringLenient("0x1337"));
 
-    var resp = resp(mockEnginePayload(paramHeader, emptyList()));
+    var resp = resp(mockEnginePayloadParam(paramHeader, emptyList()));
 
     PayloadStatusV1 res = fromSuccessResp(resp);
     assertThat(res.getLatestValidHash()).isEmpty();
@@ -306,25 +295,27 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
   }
 
   @Test
-  public void shouldReturnInvalidOnMalformedTransactions() {
-    BlockHeader mockHeader = createBlockHeader(Optional.empty());
+  public void shouldReturnInvalidOnMalformedTransactions() throws JsonProcessingException {
+    BlockHeader mockHeader = createBlockHeader();
     when(mergeCoordinator.getLatestValidAncestor(any(Hash.class)))
         .thenReturn(Optional.of(mockHash));
 
-    var resp = resp(mockEnginePayload(mockHeader, List.of("0xDEAD", "0xBEEF")));
+    var executionPayload = mockEnginePayloadParam(mockHeader, List.of("0xDEAD", "0xBEEF"));
+
+    var resp = resp(executionPayload);
 
     PayloadStatusV1 res = fromSuccessResp(resp);
-    assertThat(res.getLatestValidHash().get()).isEqualTo(mockHash);
+    assertThat(res.getLatestValidHash()).isEmpty();
     assertThat(res.getStatusAsString()).isEqualTo(INVALID.name());
-    assertThat(res.getError()).isEqualTo("Failed to decode transactions from block parameter");
+    assertThat(res.getError()).startsWith("Failed to decode transactions from block parameter");
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
   @Test
   public void shouldRespondWithSyncingDuringForwardSync() {
-    BlockHeader mockHeader = createBlockHeader(Optional.empty());
+    BlockHeader mockHeader = createBlockHeader();
     when(mergeContext.isSyncing()).thenReturn(Boolean.TRUE);
-    var resp = resp(mockEnginePayload(mockHeader, emptyList()));
+    var resp = resp(mockEnginePayloadParam(mockHeader, emptyList()));
 
     PayloadStatusV1 res = fromSuccessResp(resp);
     assertThat(res.getError()).isNull();
@@ -335,10 +326,10 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
   @Test
   public void shouldRespondWithSyncingDuringBackwardsSync() {
-    BlockHeader mockHeader = createBlockHeader(Optional.empty());
+    BlockHeader mockHeader = createBlockHeader();
     when(mergeCoordinator.appendNewPayloadToSync(any()))
         .thenReturn(CompletableFuture.completedFuture(null));
-    var resp = resp(mockEnginePayload(mockHeader, emptyList()));
+    var resp = resp(mockEnginePayloadParam(mockHeader, emptyList()));
 
     PayloadStatusV1 res = fromSuccessResp(resp);
     assertThat(res.getLatestValidHash()).isEmpty();
@@ -349,25 +340,25 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
 
   @Test
   public void shouldRespondWithInvalidIfExtraDataIsNull() {
-    BlockHeader realHeader = createBlockHeader(Optional.empty());
+    BlockHeader realHeader = createBlockHeader();
     BlockHeader paramHeader = spy(realHeader);
     when(paramHeader.getHash()).thenReturn(Hash.fromHexStringLenient("0x1337"));
     when(paramHeader.getExtraData().toHexString()).thenReturn(null);
 
-    var resp = resp(mockEnginePayload(paramHeader, emptyList()));
+    var resp = resp(mockEnginePayloadParam(paramHeader, emptyList()));
 
     PayloadStatusV1 res = fromSuccessResp(resp);
     assertThat(res.getLatestValidHash()).isEmpty();
     assertThat(res.getStatusAsString()).isEqualTo(INVALID.name());
-    assertThat(res.getError()).isEqualTo("Field extraData must not be null");
+    assertThat(res.getError()).startsWith("Failed to decode extraData from block parameter");
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
   @Test
   public void shouldReturnInvalidWhenBadBlock() {
     when(mergeCoordinator.isBadBlock(any(Hash.class))).thenReturn(true);
-    BlockHeader mockHeader = createBlockHeader(Optional.empty());
-    var resp = resp(mockEnginePayload(mockHeader, emptyList()));
+    BlockHeader mockHeader = createBlockHeader();
+    var resp = resp(mockEnginePayloadParam(mockHeader, emptyList()));
     when(protocolSpec.getWithdrawalsValidator())
         .thenReturn(new WithdrawalsValidator.AllowedWithdrawals());
     PayloadStatusV1 res = fromSuccessResp(resp);
@@ -382,112 +373,55 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(null);
     BlockHeader mockHeader =
         setupValidPayload(
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
-            Optional.empty());
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))));
     lenient()
         .when(blockchain.getBlockHeader(mockHeader.getParentHash()))
         .thenReturn(Optional.of(mock(BlockHeader.class)));
-    var resp = resp(mockEnginePayload(mockHeader, emptyList()));
+    var resp = resp(mockEnginePayloadParam(mockHeader, emptyList()));
 
     assertValidResponse(mockHeader, resp);
   }
 
-  protected JsonRpcResponse resp(final ExecutionPayloadV1 payload) {
-    Object[] params =
-        maybeParentBeaconBlockRoot
-            .map(bytes32 -> new Object[] {payload, null, bytes32.toHexString()})
-            .orElseGet(() -> new Object[] {payload});
+  protected JsonRpcResponse resp(final Object payload) {
+    Object[] params = new Object[] {payload};
     return method.response(
         new JsonRpcRequestContext(new JsonRpcRequest("2.0", this.method.getName(), params)));
   }
 
-  protected ExecutionPayloadV1 mockEnginePayload(final BlockHeader header, final List<String> txs) {
-    return executionPayloadV1(header, txs);
-  }
-
-  protected ExecutionPayloadV1 mockEnginePayload(
-      final BlockHeader header,
-      final List<String> txs,
-      final List<WithdrawalParameter> withdrawals) {
-    return executionPayloadV1(header, txs);
-  }
-
-  protected ExecutionPayloadV1 mockEnginePayload(
-      final BlockHeader header,
-      final List<String> txs,
-      final List<WithdrawalParameter> withdrawals,
-      final String blockAccessList) {
-    return executionPayloadV1(header, txs);
-  }
-
-  protected ExecutionPayloadV1 executionPayloadV1(
+  protected Map<String, Object> mockEnginePayloadParam(
       final BlockHeader header, final List<String> txs) {
-    final ExecutionPayloadV1 payload = new ExecutionPayloadV1();
-    setExecutionPayloadV1Fields(payload, header, txs);
-    return payload;
+    return executionPayloadV1(header, txs);
   }
 
-  protected ExecutionPayloadV2 executionPayloadV2(
-      final BlockHeader header,
-      final List<String> txs,
-      final List<WithdrawalParameter> withdrawals) {
-    final ExecutionPayloadV2 payload = new ExecutionPayloadV2();
+  protected Map<String, Object> executionPayloadV1(
+      final BlockHeader header, final List<String> txs) {
+    final Map<String, Object> payload = new HashMap<>();
     setExecutionPayloadV1Fields(payload, header, txs);
-    payload.setWithdrawals(withdrawals);
-    return payload;
-  }
-
-  protected ExecutionPayloadV3 executionPayloadV3(
-      final BlockHeader header,
-      final List<String> txs,
-      final List<WithdrawalParameter> withdrawals) {
-    final ExecutionPayloadV3 payload = new ExecutionPayloadV3();
-    setExecutionPayloadV1Fields(payload, header, txs);
-    payload.setWithdrawals(withdrawals);
-    payload.setBlobGasUsed(header.getBlobGasUsed().map(UnsignedLongParameter::new).orElse(null));
-    payload.setExcessBlobGas(header.getExcessBlobGas().map(BlobGas::toHexString).orElse(null));
-    return payload;
-  }
-
-  protected ExecutionPayloadV4 executionPayloadV4(
-      final BlockHeader header,
-      final List<String> txs,
-      final List<WithdrawalParameter> withdrawals,
-      final String blockAccessList) {
-    final ExecutionPayloadV4 payload = new ExecutionPayloadV4();
-    setExecutionPayloadV1Fields(payload, header, txs);
-    payload.setWithdrawals(withdrawals);
-    payload.setBlobGasUsed(header.getBlobGasUsed().map(UnsignedLongParameter::new).orElse(null));
-    payload.setExcessBlobGas(header.getExcessBlobGas().map(BlobGas::toHexString).orElse(null));
-    payload.setBlockAccessList(blockAccessList);
-    payload.setSlotNumber(
-        header.getOptionalSlotNumber().map(UnsignedLongParameter::new).orElse(null));
     return payload;
   }
 
   protected void setExecutionPayloadV1Fields(
-      final ExecutionPayloadV1 payload, final BlockHeader header, final List<String> txs) {
-    payload.setBlockHash(header.getHash());
-    payload.setParentHash(header.getParentHash());
-    payload.setFeeRecipient(header.getCoinbase());
-    payload.setStateRoot(header.getStateRoot());
-    payload.setBlockNumber(new UnsignedLongParameter(header.getNumber()));
-    payload.setBaseFeePerGas(header.getBaseFee().map(w -> w.toHexString()).orElse("0x0"));
-    payload.setGasLimit(new UnsignedLongParameter(header.getGasLimit()));
-    payload.setGasUsed(new UnsignedLongParameter(header.getGasUsed()));
-    payload.setTimestamp(new UnsignedLongParameter(header.getTimestamp()));
-    payload.setExtraData(
-        header.getExtraData() == null ? null : header.getExtraData().toHexString());
-    payload.setReceiptsRoot(header.getReceiptsRoot());
-    payload.setLogsBloom(header.getLogsBloom());
-    payload.setPrevRandao(header.getPrevRandao().map(Bytes32::toHexString).orElse("0x0"));
-    payload.setTransactions(txs);
+      final Map<String, Object> payload, final BlockHeader header, final List<String> txs) {
+    payload.put("blockHash", header.getHash().toHexString());
+    payload.put("parentHash", header.getParentHash().toHexString());
+    payload.put("feeRecipient", header.getCoinbase().getBytes().toHexString());
+    payload.put("stateRoot", header.getStateRoot().toHexString());
+    payload.put("blockNumber", Bytes.ofUnsignedLong(header.getNumber()).toHexString());
+    payload.put("baseFeePerGas", header.getBaseFee().map(Wei::toHexString).orElse("0x0"));
+    payload.put("gasLimit", Bytes.ofUnsignedLong(header.getGasLimit()).toHexString());
+    payload.put("gasUsed", Bytes.ofUnsignedLong(header.getGasUsed()).toHexString());
+    payload.put("timestamp", Bytes.ofUnsignedLong(header.getTimestamp()).toHexString());
+    payload.put(
+        "extraData", header.getExtraData() == null ? null : header.getExtraData().toHexString());
+    payload.put("receiptsRoot", header.getReceiptsRoot().toHexString());
+    payload.put("logsBloom", header.getLogsBloom().toHexString());
+    payload.put("prevRandao", header.getPrevRandao().map(Bytes32::toHexString).orElse("0x0"));
+    payload.put("transactions", txs);
   }
 
-  protected BlockHeader setupValidPayload(
-      final BlockProcessingResult value, final Optional<List<Withdrawal>> maybeWithdrawals) {
+  protected BlockHeader setupValidPayload(final BlockProcessingResult value) {
 
-    BlockHeader mockHeader = createBlockHeader(maybeWithdrawals);
+    BlockHeader mockHeader = createBlockHeader();
     when(blockchain.getBlockByHash(mockHeader.getHash())).thenReturn(Optional.empty());
     when(mergeCoordinator.getLatestValidAncestor(any(BlockHeader.class)))
         .thenReturn(Optional.of(mockHash));
@@ -513,21 +447,18 @@ public class EngineNewPayloadV1Test extends AbstractScheduledApiTest {
         .get();
   }
 
-  protected BlockHeader createBlockHeader(final Optional<List<Withdrawal>> maybeWithdrawals) {
-    return createBlockHeaderFixture(maybeWithdrawals).buildHeader();
+  protected BlockHeader createBlockHeader() {
+    return createBlockHeaderFixture().buildHeader();
   }
 
-  protected BlockHeaderTestFixture createBlockHeaderFixture(
-      final Optional<List<Withdrawal>> maybeWithdrawals) {
+  protected BlockHeaderTestFixture createBlockHeaderFixture() {
     BlockHeader parentBlockHeader =
         new BlockHeaderTestFixture().baseFeePerGas(Wei.ONE).buildHeader();
     return new BlockHeaderTestFixture()
         .baseFeePerGas(Wei.ONE)
         .parentHash(parentBlockHeader.getParentHash())
         .number(parentBlockHeader.getNumber() + 1)
-        .timestamp(parentBlockHeader.getTimestamp() + 1)
-        .withdrawalsRoot(maybeWithdrawals.map(BodyValidation::withdrawalsRoot).orElse(null))
-        .parentBeaconBlockRoot(maybeParentBeaconBlockRoot);
+        .timestamp(parentBlockHeader.getTimestamp() + 1);
   }
 
   protected void assertValidResponse(final BlockHeader mockHeader, final JsonRpcResponse resp) {

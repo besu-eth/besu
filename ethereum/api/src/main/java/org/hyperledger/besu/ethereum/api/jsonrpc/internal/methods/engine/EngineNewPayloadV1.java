@@ -33,6 +33,8 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcRequestException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1.InvalidField;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.FieldDeserializationException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
@@ -53,7 +55,6 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
-import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -61,6 +62,7 @@ import org.hyperledger.besu.plugin.services.exception.StorageException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 import io.vertx.core.Vertx;
@@ -134,12 +136,11 @@ public sealed class EngineNewPayloadV1<
       // other branches of the block tree are in an active sync process.
       // the validation is done during the deserialization process
       requestParameters = readRequestParameters(requestContext);
-    } catch (final RLPException | IllegalArgumentException e) {
+    } catch (final InvalidJsonRpcRequestException e) {
       // 6. Client software MUST respond to this method call in the following way:
       // {status: INVALID, latestValidHash: null, validationError: errorMessage | null} if
       // transactions contain zero length or invalid entries
-      return respondWithInvalid(
-          reqId, null, null, INVALID, "Failed to decode block parameter (" + e.getMessage() + ")");
+      return processParametersParsingException(reqId, e);
     }
 
     final EP blockParam = requestParameters.payloadParameter();
@@ -423,9 +424,14 @@ public sealed class EngineNewPayloadV1<
       final ProtocolSpec protocolSpec,
       final BlockHeader parentHeader,
       final NPRP requestParameters) {
+    final BlockHeader newBlockHeader = newBlock.getHeader();
+    if (newBlockHeader.getExtraData().size() > 32) {
+      return ValidationResult.invalid(
+          RpcErrorType.INVALID_EXTRA_DATA_PARAMS, "extra data field larger than 32 bytes");
+    }
     if (Long.compareUnsigned(parentHeader.getTimestamp(), newBlock.getHeader().getTimestamp())
         >= 0) {
-      ValidationResult.invalid(
+      return ValidationResult.invalid(
           RpcErrorType.INVALID_TIMESTAMP_PARAMS, "block timestamp not greater than parent");
     }
     return ValidationResult.valid();
@@ -513,5 +519,32 @@ public sealed class EngineNewPayloadV1<
   protected final ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
     return ForkSupportHelper.validateForkSupported(
         minSupportedFork, minForkTimestamp, firstUnsupportedFork, maxForkTimestamp, blockTimestamp);
+  }
+
+  protected JsonRpcResponse processParametersParsingException(
+      final Object reqId, final InvalidJsonRpcRequestException e) {
+    final Optional<FieldDeserializationException> maybeFieldEx =
+        extractFieldDeserializationException(e);
+
+    // specific invalid field with custom error response
+    String customMessage = null;
+    if (maybeFieldEx.isPresent()) {
+      final FieldDeserializationException fieldEx = maybeFieldEx.get();
+      if (fieldEx.getInvalidField().equals(InvalidField.TRANSACTIONS)) {
+        customMessage =
+            "Failed to decode transactions from block parameter (" + fieldEx.getMessage() + ")";
+      } else if (fieldEx.getInvalidField().equals(InvalidField.EXTRA_DATA)) {
+        customMessage =
+            "Failed to decode extraData from block parameter (" + fieldEx.getMessage() + ")";
+      }
+    }
+
+    return respondWithInvalid(
+        reqId,
+        null,
+        null,
+        INVALID,
+        Objects.requireNonNullElse(
+            customMessage, "Failed to decode block parameter (" + e.getMessage() + ")"));
   }
 }

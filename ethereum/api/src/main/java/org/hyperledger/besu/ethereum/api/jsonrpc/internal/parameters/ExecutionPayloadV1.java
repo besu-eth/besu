@@ -40,7 +40,7 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
   private long gasLimit;
   private long gasUsed;
   private long timestamp;
-  private Bytes32 extraData;
+  private Bytes extraData;
   private Hash receiptsRoot;
   private LogsBloomFilter logsBloom;
   private List<Transaction> transactions;
@@ -92,7 +92,10 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
 
   @JsonSetter("extraData")
   public void setExtraData(final String extraData) {
-    this.extraData = Bytes32.fromHexString(extraData);
+    if (extraData == null) {
+      throw new FieldDeserializationException(InvalidField.EXTRA_DATA, "extraData must be present");
+    }
+    this.extraData = Bytes.fromHexString(extraData);
   }
 
   @JsonSetter("receiptsRoot")
@@ -112,11 +115,15 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
 
   @JsonSetter("transactions")
   public void setTransactions(final List<String> hexTransactions) {
-    this.transactions =
-        hexTransactions.stream()
-            .map(Bytes::fromHexString)
-            .map(in -> TransactionDecoder.decodeOpaqueBytes(in, EncodingContext.BLOCK_BODY))
-            .toList();
+    try {
+      this.transactions =
+          hexTransactions.stream()
+              .map(Bytes::fromHexString)
+              .map(in -> TransactionDecoder.decodeOpaqueBytes(in, EncodingContext.BLOCK_BODY))
+              .toList();
+    } catch (final Exception e) {
+      throw new FieldDeserializationException(InvalidField.TRANSACTIONS, e.getMessage());
+    }
   }
 
   public Hash getBlockHash() {
@@ -155,7 +162,7 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
     return timestamp;
   }
 
-  public Bytes32 getExtraData() {
+  public Bytes getExtraData() {
     return extraData;
   }
 
@@ -173,5 +180,10 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
 
   public List<Transaction> getTransactions() {
     return transactions;
+  }
+
+  public enum InvalidField implements FieldDeserializationException.InvalidField {
+    TRANSACTIONS,
+    EXTRA_DATA
   }
 }

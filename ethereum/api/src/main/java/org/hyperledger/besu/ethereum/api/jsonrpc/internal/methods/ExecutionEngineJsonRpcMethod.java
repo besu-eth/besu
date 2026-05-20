@@ -17,7 +17,9 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcRequestException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.FieldDeserializationException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -141,5 +143,17 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
 
   protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
     return ValidationResult.valid();
+  }
+
+  protected Optional<FieldDeserializationException> extractFieldDeserializationException(
+      final InvalidJsonRpcRequestException paramException) {
+    Throwable cause = paramException.getCause();
+    while (cause != null) {
+      if (cause instanceof FieldDeserializationException) {
+        return Optional.of((FieldDeserializationException) cause);
+      }
+      cause = cause.getCause();
+    }
+    return Optional.empty();
   }
 }
