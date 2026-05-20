@@ -19,7 +19,7 @@ import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -59,11 +59,11 @@ public final class PartialBlockAccessView {
   @Override
   public String toString() {
     return "PartialBlockAccessView{"
-        + "txIndex="
-        + txIndex
-        + ", accountChanges="
-        + accountChanges
-        + '}';
+            + "txIndex="
+            + txIndex
+            + ", accountChanges="
+            + accountChanges
+            + '}';
   }
 
   public long getTxIndex() {
@@ -103,12 +103,12 @@ public final class PartialBlockAccessView {
     private final List<SlotChange> storageChanges;
 
     public AccountChanges(
-        final Address address,
-        final Optional<Wei> postBalance,
-        final Optional<Long> nonceChange,
-        final Optional<Bytes> newCode,
-        final List<StorageSlotKey> storageReads,
-        final List<SlotChange> storageChanges) {
+            final Address address,
+            final Optional<Wei> postBalance,
+            final Optional<Long> nonceChange,
+            final Optional<Bytes> newCode,
+            final List<StorageSlotKey> storageReads,
+            final List<SlotChange> storageChanges) {
       this.address = address;
       this.postBalance = postBalance;
       this.nonceChange = nonceChange;
@@ -148,19 +148,19 @@ public final class PartialBlockAccessView {
     @Override
     public String toString() {
       return "AccountChanges{"
-          + "address="
-          + address
-          + ", storageChanges="
-          + storageChanges
-          + ", storageReads="
-          + storageReads
-          + ", postBalance="
-          + postBalance
-          + ", postBalance="
-          + postBalance
-          + ", newCode="
-          + newCode
-          + '}';
+              + "address="
+              + address
+              + ", storageChanges="
+              + storageChanges
+              + ", storageReads="
+              + storageReads
+              + ", postBalance="
+              + postBalance
+              + ", postBalance="
+              + postBalance
+              + ", newCode="
+              + newCode
+              + '}';
     }
   }
 
@@ -179,12 +179,15 @@ public final class PartialBlockAccessView {
     }
 
     public PartialBlockAccessView build() {
-      List<AccountChanges> accountChanges =
-          accountBuilders.values().stream()
-              .map(AccountChangesBuilder::build)
-              .sorted(
-                  Comparator.comparing(ac -> ac.getAddress().getBytes().toUnprefixedHexString()))
-              .toList();
+      final List<AccountChanges> accountChanges = new ArrayList<>(accountBuilders.size());
+      for (AccountChangesBuilder accountBuilder : accountBuilders.values()) {
+        accountChanges.add(accountBuilder.build());
+      }
+      accountChanges.sort(
+              (left, right) ->
+                      Arrays.compareUnsigned(
+                              left.getAddress().getBytes().toArrayUnsafe(),
+                              right.getAddress().getBytes().toArrayUnsafe()));
       return new PartialBlockAccessView(accountChanges, txIndex);
     }
   }
@@ -222,14 +225,14 @@ public final class PartialBlockAccessView {
     }
 
     public AccountChangesBuilder addStorageChange(
-        final StorageSlotKey slot, final UInt256 newValue) {
+            final StorageSlotKey slot, final UInt256 newValue) {
       storageChanges.add(new SlotChange(slot, newValue));
       return this;
     }
 
     public AccountChanges build() {
       return new AccountChanges(
-          address, postBalance, nonceChange, newCode, storageReads, storageChanges);
+              address, postBalance, nonceChange, newCode, storageReads, storageChanges);
     }
   }
 }

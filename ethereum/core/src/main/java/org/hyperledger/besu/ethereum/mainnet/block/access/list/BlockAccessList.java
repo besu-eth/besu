@@ -22,21 +22,28 @@ import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeMap;
-import java.util.TreeSet;
-import java.util.stream.Collectors;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
-public record BlockAccessList(List<AccountChanges> accountChanges) {
+public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Bytes> rawRlp) {
+
+  public BlockAccessList(final List<AccountChanges> accountChanges) {
+    this(accountChanges, Optional.empty());
+  }
+
+  public BlockAccessList(final List<AccountChanges> accountChanges, final Bytes rawRlp) {
+    this(accountChanges, Optional.of(rawRlp));
+  }
 
   @Override
   public boolean equals(final Object o) {
@@ -124,38 +131,42 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
   }
 
   public record AccountChanges(
-      Address address,
-      List<SlotChanges> storageChanges,
-      List<SlotRead> storageReads,
-      List<BalanceChange> balanceChanges,
-      List<NonceChange> nonceChanges,
-      List<CodeChange> codeChanges) {
+          Address address,
+          List<SlotChanges> storageChanges,
+          List<SlotRead> storageReads,
+          List<BalanceChange> balanceChanges,
+          List<NonceChange> nonceChanges,
+          List<CodeChange> codeChanges) {
 
     public boolean hasAnyChange() {
       return !balanceChanges.isEmpty()
-          || !nonceChanges.isEmpty()
-          || !codeChanges.isEmpty()
-          || !storageChanges.isEmpty();
+              || !nonceChanges.isEmpty()
+              || !codeChanges.isEmpty()
+              || !storageChanges.isEmpty();
     }
 
     @Override
     public String toString() {
       return "AccountChanges{"
-          + "address="
-          + address
-          + ", storageChanges="
-          + storageChanges
-          + ", storageReads="
-          + storageReads
-          + ", balanceChanges="
-          + balanceChanges
-          + ", nonceChanges="
-          + nonceChanges
-          + ", codeChanges="
-          + codeChanges
-          + '}';
+              + "address="
+              + address
+              + ", storageChanges="
+              + storageChanges
+              + ", storageReads="
+              + storageReads
+              + ", balanceChanges="
+              + balanceChanges
+              + ", nonceChanges="
+              + nonceChanges
+              + ", codeChanges="
+              + codeChanges
+              + '}';
     }
   }
+
+  private record SortableSlotChanges(byte[] sortKey, SlotChanges value) {}
+
+  private record SortableSlotRead(byte[] sortKey, StorageSlotKey value) {}
 
   public static class BlockAccessListBuilder {
     final Map<Address, AccountBuilder> accountChangesBuilders = new HashMap<>();
@@ -165,12 +176,12 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
     }
 
     public static AccessLocationTracker createPostExecutionAccessLocationTracker(
-        final int numberOfTransactions) {
+            final int numberOfTransactions) {
       return new AccessLocationTracker((long) numberOfTransactions + 1L);
     }
 
     public static AccessLocationTracker createTransactionAccessLocationTracker(
-        final int transactionLocation) {
+            final int transactionLocation) {
       return new AccessLocationTracker((long) transactionLocation + 1L);
     }
 
@@ -179,48 +190,48 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
     }
 
     public void apply(
-        final AccessLocationTracker accessLocationTracker, final WorldUpdater updater) {
+            final AccessLocationTracker accessLocationTracker, final WorldUpdater updater) {
       apply(accessLocationTracker.createPartialBlockAccessView(updater));
     }
 
     public void apply(final PartialBlockAccessView partialBlockAccessView) {
       partialBlockAccessView
-          .accountChanges()
-          .forEach(
-              account -> {
-                final AccountBuilder builder = getOrCreateAccountBuilder(account.getAddress());
-                account
-                    .getStorageChanges()
-                    .forEach(
-                        slotChange -> {
-                          builder.addStorageWrite(
-                              slotChange.slot(),
-                              partialBlockAccessView.getTxIndex(),
-                              slotChange.newValue());
-                        });
+              .accountChanges()
+              .forEach(
+                      account -> {
+                        final AccountBuilder builder = getOrCreateAccountBuilder(account.getAddress());
+                        account
+                                .getStorageChanges()
+                                .forEach(
+                                        slotChange -> {
+                                          builder.addStorageWrite(
+                                                  slotChange.slot(),
+                                                  partialBlockAccessView.getTxIndex(),
+                                                  slotChange.newValue());
+                                        });
 
-                account.getStorageReads().forEach(builder::addStorageRead);
+                        account.getStorageReads().forEach(builder::addStorageRead);
 
-                account
-                    .getPostBalance()
-                    .ifPresent(
-                        change -> {
-                          builder.addBalanceChange(partialBlockAccessView.getTxIndex(), change);
-                        });
+                        account
+                                .getPostBalance()
+                                .ifPresent(
+                                        change -> {
+                                          builder.addBalanceChange(partialBlockAccessView.getTxIndex(), change);
+                                        });
 
-                account
-                    .getNonceChange()
-                    .ifPresent(
-                        change -> {
-                          builder.addNonceChange(partialBlockAccessView.getTxIndex(), change);
-                        });
-                account
-                    .getNewCode()
-                    .ifPresent(
-                        change -> {
-                          builder.addCodeChange(partialBlockAccessView.getTxIndex(), change);
-                        });
-              });
+                        account
+                                .getNonceChange()
+                                .ifPresent(
+                                        change -> {
+                                          builder.addNonceChange(partialBlockAccessView.getTxIndex(), change);
+                                        });
+                        account
+                                .getNewCode()
+                                .ifPresent(
+                                        change -> {
+                                          builder.addCodeChange(partialBlockAccessView.getTxIndex(), change);
+                                        });
+                      });
     }
 
     /**
@@ -251,12 +262,16 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
     }
 
     public BlockAccessList build() {
-
-      return new BlockAccessList(
-          accountChangesBuilders.values().stream()
-              .map(AccountBuilder::build)
-              .sorted(Comparator.comparing(ac -> ac.address().getBytes().toUnprefixedHexString()))
-              .toList());
+      final List<AccountChanges> accountChanges = new ArrayList<>(accountChangesBuilders.size());
+      for (AccountBuilder accountBuilder : accountChangesBuilders.values()) {
+        accountChanges.add(accountBuilder.build());
+      }
+      accountChanges.sort(
+              (left, right) ->
+                      Arrays.compareUnsigned(
+                              left.address().getBytes().toArrayUnsafe(),
+                              right.address().getBytes().toArrayUnsafe()));
+      return new BlockAccessList(accountChanges);
     }
 
     public long eip7928ItemCount() {
@@ -269,8 +284,8 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
 
     public static class AccountBuilder {
       final Address address;
-      final Map<StorageSlotKey, List<StorageChange>> slotWrites = new TreeMap<>();
-      final Set<StorageSlotKey> slotReads = new TreeSet<>();
+      final Map<StorageSlotKey, List<StorageChange>> slotWrites = new HashMap<>();
+      final Set<StorageSlotKey> slotReads = new HashSet<>();
       final List<BalanceChange> balances = new ArrayList<>();
       final List<NonceChange> nonces = new ArrayList<>();
       final List<CodeChange> codes = new ArrayList<>();
@@ -327,7 +342,7 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
 
       void addStorageWrite(final StorageSlotKey slot, final long txIndex, final UInt256 value) {
         final List<StorageChange> changes =
-            slotWrites.computeIfAbsent(slot, __ -> new ArrayList<>());
+                slotWrites.computeIfAbsent(slot, __ -> new ArrayList<>());
         slotReads.remove(slot);
         changes.add(new StorageChange(txIndex, value));
       }
@@ -351,31 +366,63 @@ public record BlockAccessList(List<AccountChanges> accountChanges) {
       }
 
       AccountChanges build() {
-        final List<SlotChanges> slotChanges =
-            slotWrites.entrySet().stream()
-                .sorted(Comparator.comparing(e -> e.getKey().getSlotKey().orElseThrow().toBytes()))
-                .map(
-                    e ->
-                        new SlotChanges(
-                            e.getKey(),
-                            e.getValue().stream()
-                                .sorted(Comparator.comparingLong(StorageChange::txIndex))
-                                .collect(Collectors.toList())))
-                .collect(Collectors.toList());
+        final List<BalanceChange> sortedBalances = new ArrayList<>(balances);
+        sortedBalances.sort(Comparator.comparingLong(BalanceChange::txIndex));
 
-        final List<SlotRead> reads =
-            slotReads.stream()
-                .sorted(Comparator.comparing(e -> e.getSlotKey().orElseThrow().toBytes()))
-                .map(SlotRead::new)
-                .collect(Collectors.toList());
+        final List<NonceChange> sortedNonces = new ArrayList<>(nonces);
+        sortedNonces.sort(Comparator.comparingLong(NonceChange::txIndex));
+
+        final List<CodeChange> sortedCodes = new ArrayList<>(codes);
+        sortedCodes.sort(Comparator.comparingLong(CodeChange::txIndex));
 
         return new AccountChanges(
-            address,
-            slotChanges,
-            reads,
-            balances.stream().sorted(Comparator.comparingLong(BalanceChange::txIndex)).toList(),
-            nonces.stream().sorted(Comparator.comparingLong(NonceChange::txIndex)).toList(),
-            codes.stream().sorted(Comparator.comparingLong(CodeChange::txIndex)).toList());
+                address,
+                sortedSlotChanges(),
+                sortedSlotReads(),
+                sortedBalances,
+                sortedNonces,
+                sortedCodes);
+      }
+
+      private List<SlotChanges> sortedSlotChanges() {
+        final int n = slotWrites.size();
+        if (n == 0) {
+          return List.of();
+        }
+        final SortableSlotChanges[] entries = new SortableSlotChanges[n];
+        int i = 0;
+        for (Map.Entry<StorageSlotKey, List<StorageChange>> e : slotWrites.entrySet()) {
+          final List<StorageChange> changes = new ArrayList<>(e.getValue());
+          changes.sort(Comparator.comparingLong(StorageChange::txIndex));
+          entries[i++] =
+                  new SortableSlotChanges(
+                          e.getKey().getSlotKey().orElseThrow().toArray(),
+                          new SlotChanges(e.getKey(), changes));
+        }
+        Arrays.sort(entries, (a, b) -> Arrays.compareUnsigned(a.sortKey(), b.sortKey()));
+        final List<SlotChanges> result = new ArrayList<>(n);
+        for (SortableSlotChanges e : entries) {
+          result.add(e.value());
+        }
+        return result;
+      }
+
+      private List<SlotRead> sortedSlotReads() {
+        final int n = slotReads.size();
+        if (n == 0) {
+          return List.of();
+        }
+        final SortableSlotRead[] entries = new SortableSlotRead[n];
+        int i = 0;
+        for (StorageSlotKey k : slotReads) {
+          entries[i++] = new SortableSlotRead(k.getSlotKey().orElseThrow().toArray(), k);
+        }
+        Arrays.sort(entries, (a, b) -> Arrays.compareUnsigned(a.sortKey(), b.sortKey()));
+        final List<SlotRead> result = new ArrayList<>(n);
+        for (SortableSlotRead e : entries) {
+          result.add(new SlotRead(e.value()));
+        }
+        return result;
       }
     }
   }

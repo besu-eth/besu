@@ -17,6 +17,8 @@ package org.hyperledger.besu.datatypes;
 import static com.google.common.base.Preconditions.checkArgument;
 import static org.hyperledger.besu.crypto.Hash.keccak256;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.hyperledger.besu.crypto.SECPPublicKey;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
@@ -94,17 +96,7 @@ public class Address extends BytesHolder {
   /** The constant ZERO. */
   public static final Address ZERO = Address.fromHexString("0x0");
 
-  static LoadingCache<Address, Hash> hashCache =
-      CacheBuilder.newBuilder()
-          .maximumSize(4000)
-          // .weakKeys() // unless we "intern" all addresses we cannot use weak or soft keys.
-          .build(
-              new CacheLoader<>() {
-                @Override
-                public Hash load(final Address key) {
-                  return Hash.hash(key.getBytes());
-                }
-              });
+  static final Cache<Address, Hash> hashCache =   Caffeine.newBuilder().executor(Runnable::run).maximumSize(20_000).build();
 
   /**
    * Instantiates a new Address.
@@ -244,10 +236,6 @@ public class Address extends BytesHolder {
    * @return the hash of the address.
    */
   public Hash addressHash() {
-    try {
-      return hashCache.get(this);
-    } catch (ExecutionException e) {
-      return Hash.hash(getBytes());
-    }
+    return hashCache.get(this, k -> Hash.hash(k.getBytes()));
   }
 }
