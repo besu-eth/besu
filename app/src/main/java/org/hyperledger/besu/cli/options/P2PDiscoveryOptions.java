@@ -265,6 +265,7 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
   @Override
   public P2PDiscoveryConfiguration toDomainObject() {
     applySmartDefaults();
+    logIpv6AutoDiscovery();
 
     return new P2PDiscoveryConfiguration(
         p2pEnabled,
@@ -293,10 +294,6 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
    * <p>If --p2p-host-ipv6 is specified but --p2p-interface-ipv6 is not, automatically sets
    * --p2p-interface-ipv6 to :: (listen on all IPv6 interfaces). This matches the IPv4 behavior
    * where --p2p-interface defaults to 0.0.0.0.
-   *
-   * <p>Logs a warning if --p2p-interface-ipv6 is specified without --p2p-host-ipv6, as this creates
-   * an incomplete dual-stack configuration where the node listens on IPv6 but doesn't advertise an
-   * IPv6 address in its ENR.
    */
   private void applySmartDefaults() {
     // Auto-set IPv6 interface to listen on all IPv6 addresses when IPv6 host is specified
@@ -307,13 +304,21 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
               + "To use a different interface, explicitly set --p2p-interface-ipv6.",
           p2pInterfaceIpv6);
     }
+  }
 
-    // Warn about incomplete dual-stack configuration
-    if (p2pInterfaceIpv6 != null && p2pHostIpv6 == null) {
-      LOG.warn(
-          "--p2p-interface-ipv6 specified without --p2p-host-ipv6. "
-              + "Node will listen on IPv6 but will not advertise IPv6 address in ENR. "
-              + "For full dual-stack support, specify --p2p-host-ipv6.");
+  /**
+   * Logs an informational message when --p2p-interface-ipv6 is specified without --p2p-host-ipv6.
+   *
+   * <p>This is the opt-in path for DiscV5 peer-consensus IPv6 auto-discovery: when DiscV5 is
+   * enabled, the IPv6 ENR fields are populated once at least two peers report a consistent external
+   * IPv6 address.
+   */
+  private void logIpv6AutoDiscovery() {
+    if (p2pHostIpv6 == null && p2pInterfaceIpv6 != null) {
+      LOG.info(
+          "--p2p-interface-ipv6 set without --p2p-host-ipv6: IPv6 address in ENR may be "
+              + "auto-discovered from DiscV5 peer consensus when DiscV5 is enabled "
+              + "(requires >=2 peer confirmations). Set --p2p-host-ipv6 to pin it explicitly.");
     }
   }
 
