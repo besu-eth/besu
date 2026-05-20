@@ -80,17 +80,16 @@ public class EngineGetPayloadBodiesByHashV2 extends AbstractEngineGetPayloadBodi
 
     final Blockchain blockchain = protocolContext.getBlockchain();
 
-    final List<Optional<String>> blockAccessLists =
+    final List<BlockBodyWithAccessList> results =
         Arrays.stream(blockHashes)
             .parallel()
-            .map(blockHash -> getBlockAccessList(blockchain, blockHash))
+            .map(hash -> getBlockBodyWithAccessList(blockchain, hash))
             .collect(Collectors.toList());
 
     final List<Optional<BlockBody>> blockBodies =
-        Arrays.stream(blockHashes)
-            .parallel()
-            .map(blockchain::getBlockBody)
-            .collect(Collectors.toList());
+        results.stream().map(BlockBodyWithAccessList::body).collect(Collectors.toList());
+    final List<Optional<String>> blockAccessLists =
+        results.stream().map(BlockBodyWithAccessList::accessList).collect(Collectors.toList());
 
     final EngineGetPayloadBodiesResultV2 engineGetPayloadBodiesResultV2 =
         blockResultFactory.payloadBodiesCompleteV2(blockBodies, blockAccessLists);
