@@ -48,7 +48,7 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
   private final boolean useLegacyEncoding;
 
   /**
-   * Instantiates a new Round change using current (26.1.0+) encoding.
+   * Instantiates a new Round change.
    *
    * @param payload the payload
    * @param proposedBlock the proposed block

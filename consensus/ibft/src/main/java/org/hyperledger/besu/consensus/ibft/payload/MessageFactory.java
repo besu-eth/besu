@@ -39,7 +39,7 @@ public class MessageFactory {
   private final boolean useLegacyEncoding;
 
   /**
-   * Instantiates a new Message factory using current (26.1.0+) encoding.
+   * Instantiates a new Message factory.
    *
    * @param nodeKey the node key
    */
@@ -47,13 +47,6 @@ public class MessageFactory {
     this(nodeKey, false);
   }
 
-  /**
-   * Instantiates a new Message factory.
-   *
-   * @param nodeKey the node key
-   * @param useLegacyEncoding when true, the encoder omits the BAL slot entirely (pre-26.1.0 wire
-   *     format). Use false for the current 26.1.0+ format.
-   */
   private MessageFactory(final NodeKey nodeKey, final boolean useLegacyEncoding) {
     this.nodeKey = nodeKey;
     this.useLegacyEncoding = useLegacyEncoding;

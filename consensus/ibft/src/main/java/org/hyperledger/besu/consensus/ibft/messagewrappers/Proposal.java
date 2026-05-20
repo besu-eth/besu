@@ -44,7 +44,7 @@ public class Proposal extends BftMessage<ProposalPayload> {
   private final boolean useLegacyEncoding;
 
   /**
-   * Instantiates a new Proposal using current (26.1.0+) encoding.
+   * Instantiates a new Proposal.
    *
    * @param payload the payload
    * @param proposedBlock the proposed block
