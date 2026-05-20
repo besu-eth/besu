@@ -45,7 +45,7 @@ public class QbftNode {
 
   public static QbftNode create(final QbftBlockCodec qbftBlockCodec) {
     final NodeKey nodeKey = NodeKeyUtils.generate();
-    final MessageFactory factory = new MessageFactory(nodeKey, qbftBlockCodec);
+    final MessageFactory factory = new MessageFactory(nodeKey, qbftBlockCodec, false);
 
     return new QbftNode(nodeKey, factory);
   }

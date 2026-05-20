@@ -70,8 +70,10 @@ import org.mockito.quality.Strictness;
 @MockitoSettings(strictness = Strictness.LENIENT)
 public class IbftRoundIntegrationTest {
 
-  private final MessageFactory peerMessageFactory = new MessageFactory(NodeKeyUtils.generate());
-  private final MessageFactory peerMessageFactory2 = new MessageFactory(NodeKeyUtils.generate());
+  private final MessageFactory peerMessageFactory =
+      new MessageFactory(NodeKeyUtils.generate(), false);
+  private final MessageFactory peerMessageFactory2 =
+      new MessageFactory(NodeKeyUtils.generate(), false);
   private final ConsensusRoundIdentifier roundIdentifier = new ConsensusRoundIdentifier(1, 0);
   private final Subscribers<MinedBlockObserver> subscribers = Subscribers.create();
   private ProtocolContext protocolContext;
@@ -106,7 +108,7 @@ public class IbftRoundIntegrationTest {
 
     when(nodeKey.sign(any())).thenThrow(new SecurityModuleException("Hsm Is Down"));
 
-    throwingMessageFactory = new MessageFactory(nodeKey);
+    throwingMessageFactory = new MessageFactory(nodeKey, false);
     transmitter = new IbftMessageTransmitter(throwingMessageFactory, multicaster);
 
     final BftExtraData proposedExtraData =

@@ -69,7 +69,7 @@ public class RoundStateTest {
   public void setup() {
     for (int i = 0; i < 3; i++) {
       final NodeKey newNodeKey = NodeKeyUtils.generate();
-      validatorMessageFactories.add(new MessageFactory(newNodeKey, blockEncoder));
+      validatorMessageFactories.add(new MessageFactory(newNodeKey, blockEncoder, false));
     }
   }
 

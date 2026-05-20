@@ -47,7 +47,7 @@ public class IntegrationTestHelpers {
                     .calculateDataHashForCommittedSeal(block.getHeader(), extraData)
                     .getBytes()));
 
-    final MessageFactory messageFactory = new MessageFactory(nodeKey);
+    final MessageFactory messageFactory = new MessageFactory(nodeKey, false);
 
     return messageFactory.createCommit(roundId, block.getHash(), commitSeal).getSignedPayload();
   }

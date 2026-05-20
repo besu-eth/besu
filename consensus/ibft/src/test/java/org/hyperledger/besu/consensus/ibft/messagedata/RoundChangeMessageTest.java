@@ -153,6 +153,22 @@ public class RoundChangeMessageTest {
   }
 
   @Test
+  public void legacyEncodingSkipsBalEvenWhenPresent() {
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final RoundChange reference = TestHelpers.createSignedRoundChangePayload(nodeKey);
+
+    final RoundChange legacy =
+        new RoundChange(
+            reference.getSignedPayload(),
+            reference.getProposedBlock(),
+            Optional.of(BlockAccessList.builder().build()),
+            true);
+
+    final RLPInput rlpIn = RLP.input(legacy.encode());
+    assertThat(rlpIn.enterList()).isEqualTo(2);
+  }
+
+  @Test
   public void canDecodeRoundChangeFromLegacyNodeWithoutBlockAccessList() {
     // Pre-26.1.0 wire format: [SignedPayload, Block-or-null]            (2 items)
     // Current wire format:    [SignedPayload, Block-or-null, BAL-or-null] (3 items)

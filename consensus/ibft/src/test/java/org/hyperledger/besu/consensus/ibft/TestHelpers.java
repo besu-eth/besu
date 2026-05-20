@@ -44,7 +44,7 @@ public class TestHelpers {
       final NodeKey signerNodeKey,
       final int round,
       final Optional<BlockAccessList> blockAccessList) {
-    final MessageFactory messageFactory = new MessageFactory(signerNodeKey);
+    final MessageFactory messageFactory = new MessageFactory(signerNodeKey, false);
     final ConsensusRoundIdentifier roundIdentifier =
         new ConsensusRoundIdentifier(0x1234567890ABCDEFL, round);
     final Block block =
@@ -54,7 +54,7 @@ public class TestHelpers {
   }
 
   public static RoundChange createSignedRoundChangePayload(final NodeKey signerKeys) {
-    final MessageFactory messageFactory = new MessageFactory(signerKeys);
+    final MessageFactory messageFactory = new MessageFactory(signerKeys, false);
     final ConsensusRoundIdentifier roundIdentifier =
         new ConsensusRoundIdentifier(0x1234567890ABCDEFL, 0xFEDCBA98);
     return messageFactory.createRoundChange(roundIdentifier, Optional.empty());
@@ -62,7 +62,7 @@ public class TestHelpers {
 
   public static RoundChange createSignedRoundChangePayload(
       final NodeKey signerKeys, final Optional<PreparedRoundArtifacts> preparedRoundArtifacts) {
-    final MessageFactory messageFactory = new MessageFactory(signerKeys);
+    final MessageFactory messageFactory = new MessageFactory(signerKeys, false);
     final ConsensusRoundIdentifier roundIdentifier =
         new ConsensusRoundIdentifier(0x1234567890ABCDEFL, 0xFEDCBA98);
     return messageFactory.createRoundChange(roundIdentifier, preparedRoundArtifacts);

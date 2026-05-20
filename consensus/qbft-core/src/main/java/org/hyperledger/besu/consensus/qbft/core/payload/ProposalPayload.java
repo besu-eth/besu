@@ -46,33 +46,15 @@ public class ProposalPayload extends QbftPayload {
   private final boolean useLegacyEncoding;
 
   /**
-   * Instantiates a new Proposal payload.
-   *
-   * @param roundIdentifier the round identifier
-   * @param proposedBlock the proposed block
-   * @param blockEncoder the qbft block encoder
-   * @param blockAccessList the block access list
-   */
-  public ProposalPayload(
-      final ConsensusRoundIdentifier roundIdentifier,
-      final QbftBlock proposedBlock,
-      final QbftBlockCodec blockEncoder,
-      final Optional<BlockAccessList> blockAccessList) {
-    this(roundIdentifier, proposedBlock, blockEncoder, blockAccessList, false);
-  }
-
-  /**
    * Instantiates a new Proposal payload with explicit encoding mode.
    *
    * @param roundIdentifier the round identifier
    * @param proposedBlock the proposed block
    * @param blockEncoder the qbft block encoder
    * @param blockAccessList the block access list
-   * @param useLegacyEncoding when true and blockAccessList is absent, omit the blockAccessList slot
-   *     entirely, emitting the pre-26.1.0 2-field wire format that Besu 25.x peers can decode. When
-   *     blockAccessList is present the current 3-field format is emitted regardless and 25.x peers
-   *     cannot decode it; the flag therefore only enables 25.x interop on chains where BAL is not
-   *     active.
+   * @param useLegacyEncoding when true, omit the blockAccessList slot entirely (pre-26.1.0 2-field
+   *     wire format). Pre-26.1.0 peers cannot decode BAL regardless, so BAL is always omitted in
+   *     legacy mode. Use false for the current 26.1.0+ format.
    */
   public ProposalPayload(
       final ConsensusRoundIdentifier roundIdentifier,
@@ -85,20 +67,6 @@ public class ProposalPayload extends QbftPayload {
     this.blockEncoder = blockEncoder;
     this.blockAccessList = blockAccessList;
     this.useLegacyEncoding = useLegacyEncoding;
-  }
-
-  /**
-   * Instantiates a new Proposal payload.
-   *
-   * @param roundIdentifier the round identifier
-   * @param proposedBlock the proposed block
-   * @param blockEncoder the qbft block encoder
-   */
-  public ProposalPayload(
-      final ConsensusRoundIdentifier roundIdentifier,
-      final QbftBlock proposedBlock,
-      final QbftBlockCodec blockEncoder) {
-    this(roundIdentifier, proposedBlock, blockEncoder, Optional.empty(), false);
   }
 
   /**
@@ -131,14 +99,11 @@ public class ProposalPayload extends QbftPayload {
     rlpOutput.startList();
     writeConsensusRound(rlpOutput);
     blockEncoder.writeTo(proposedBlock, rlpOutput);
-    if (useLegacyEncoding) {
-      // Flag is a no-op when blockAccessList is present: BAL is still written to preserve
-      // signature integrity (the payload bytes are what gets signed) and consensus semantics on
-      // chains where it is active.
-      blockAccessList.ifPresent(bal -> bal.writeTo(rlpOutput));
-    } else {
+    if (!useLegacyEncoding) {
+      // Current 26.1.0+ format: write BAL or null slot
       blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOutput), rlpOutput::writeNull);
     }
+    // else: legacy mode — omit BAL entirely (pre-26.1.0 wire format, 2 fields)
     rlpOutput.endList();
   }
 

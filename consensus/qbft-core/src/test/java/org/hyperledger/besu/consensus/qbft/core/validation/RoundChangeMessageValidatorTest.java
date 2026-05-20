@@ -401,7 +401,8 @@ public class RoundChangeMessageValidatorTest {
             Optional.of(block),
             Optional.empty(),
             blockEncoder,
-            emptyList());
+            emptyList(),
+            false);
 
     assertThat(messageValidator.validate(message)).isFalse();
   }
@@ -442,7 +443,8 @@ public class RoundChangeMessageValidatorTest {
             Optional.empty(),
             blockEncoder,
             createPreparePayloads(
-                roundIdentifier, block.getHash(), toArray(validators.getNodes(), QbftNode.class)));
+                roundIdentifier, block.getHash(), toArray(validators.getNodes(), QbftNode.class)),
+            false);
 
     assertThat(messageValidator.validate(message)).isFalse();
   }

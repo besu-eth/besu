@@ -39,7 +39,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 public class ProposalBlockConsistencyValidatorTest {
 
-  private final MessageFactory proposerMessageFactory = new MessageFactory(NodeKeyUtils.generate());
+  private final MessageFactory proposerMessageFactory =
+      new MessageFactory(NodeKeyUtils.generate(), false);
   private final long chainHeight = 2;
   private final ConsensusRoundIdentifier roundIdentifier =
       new ConsensusRoundIdentifier(chainHeight, 4);

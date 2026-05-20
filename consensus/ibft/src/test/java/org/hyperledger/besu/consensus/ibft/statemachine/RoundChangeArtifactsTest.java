@@ -45,7 +45,7 @@ public class RoundChangeArtifactsTest {
   public void setup() {
     for (int i = 0; i < 4; i++) {
       final NodeKey nodeKey = NodeKeyUtils.generate();
-      final MessageFactory messageFactory = new MessageFactory(nodeKey);
+      final MessageFactory messageFactory = new MessageFactory(nodeKey, false);
       messageFactories.add(messageFactory);
     }
   }

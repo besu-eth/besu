@@ -73,7 +73,7 @@ public class RoundStateTest {
       final NodeKey newNodeKey = NodeKeyUtils.generate();
       validatorKeys.add(newNodeKey);
       validators.add(Util.publicKeyToAddress(newNodeKey.getPublicKey()));
-      validatorMessageFactories.add(new MessageFactory(newNodeKey));
+      validatorMessageFactories.add(new MessageFactory(newNodeKey, false));
     }
     lenient().when(block.getHash()).thenReturn(blockHash);
   }

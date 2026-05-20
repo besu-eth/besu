@@ -101,8 +101,8 @@ public class QbftRoundTest {
 
   @BeforeEach
   public void setup() {
-    messageFactory = new MessageFactory(nodeKey, blockEncoder);
-    messageFactory2 = new MessageFactory(nodeKey2, blockEncoder);
+    messageFactory = new MessageFactory(nodeKey, blockEncoder, false);
+    messageFactory2 = new MessageFactory(nodeKey2, blockEncoder, false);
 
     when(messageValidator.validateProposal(any())).thenReturn(true);
     when(messageValidator.validatePrepare(any())).thenReturn(true);
@@ -374,7 +374,8 @@ public class QbftRoundTest {
     final int QUORUM_SIZE = 1;
     final RoundState roundState = new RoundState(roundIdentifier, QUORUM_SIZE, messageValidator);
     final NodeKey throwingNodeKey = mock(NodeKey.class);
-    final MessageFactory throwingMessageFactory = new MessageFactory(throwingNodeKey, blockEncoder);
+    final MessageFactory throwingMessageFactory =
+        new MessageFactory(throwingNodeKey, blockEncoder, false);
     when(throwingNodeKey.sign(any())).thenThrow(new SecurityModuleException("Hsm is Offline"));
 
     final QbftRound round =

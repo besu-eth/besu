@@ -139,6 +139,23 @@ public class ProposalMessageTest {
   }
 
   @Test
+  public void legacyEncodingSkipsBalEvenWhenPresent() {
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final Proposal reference = TestHelpers.createSignedProposalPayload(nodeKey);
+
+    final Proposal legacy =
+        new Proposal(
+            reference.getSignedPayload(),
+            reference.getBlock(),
+            Optional.of(BlockAccessList.builder().build()),
+            reference.getRoundChangeCertificate(),
+            true);
+
+    final RLPInput rlpIn = RLP.input(legacy.encode());
+    assertThat(rlpIn.enterList()).isEqualTo(3);
+  }
+
+  @Test
   public void canDecodeProposalFromLegacyNodeWithoutBlockAccessList() {
     // Pre-26.1.0 wire format: [SignedPayload, Block, RoundChangeCertificate-or-null]            (3
     // items)

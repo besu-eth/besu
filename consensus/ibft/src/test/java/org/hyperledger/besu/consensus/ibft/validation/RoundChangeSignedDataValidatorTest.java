@@ -50,9 +50,10 @@ public class RoundChangeSignedDataValidatorTest {
   private final NodeKey proposerKey = NodeKeyUtils.generate();
   private final NodeKey validatorKey = NodeKeyUtils.generate();
   private final NodeKey nonValidatorKey = NodeKeyUtils.generate();
-  private final MessageFactory proposerMessageFactory = new MessageFactory(proposerKey);
-  private final MessageFactory validatorMessageFactory = new MessageFactory(validatorKey);
-  private final MessageFactory nonValidatorMessageFactory = new MessageFactory(nonValidatorKey);
+  private final MessageFactory proposerMessageFactory = new MessageFactory(proposerKey, false);
+  private final MessageFactory validatorMessageFactory = new MessageFactory(validatorKey, false);
+  private final MessageFactory nonValidatorMessageFactory =
+      new MessageFactory(nonValidatorKey, false);
 
   private final long chainHeight = 2;
   private final ConsensusRoundIdentifier currentRound =

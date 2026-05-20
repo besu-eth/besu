@@ -42,17 +42,8 @@ public class MessageFactory {
    * Instantiates a new Message factory.
    *
    * @param nodeKey the node key
-   */
-  public MessageFactory(final NodeKey nodeKey) {
-    this(nodeKey, false);
-  }
-
-  /**
-   * Instantiates a new Message factory with explicit encoding mode.
-   *
-   * @param nodeKey the node key
-   * @param useLegacyEncoding when true and blockAccessList is absent, the encoder emits the 25.x
-   *     wire format (omits the BAL slot). Has no effect when blockAccessList is present.
+   * @param useLegacyEncoding when true, the encoder omits the BAL slot entirely (pre-26.1.0 wire
+   *     format). Use false for the current 26.1.0+ format.
    */
   public MessageFactory(final NodeKey nodeKey, final boolean useLegacyEncoding) {
     this.nodeKey = nodeKey;

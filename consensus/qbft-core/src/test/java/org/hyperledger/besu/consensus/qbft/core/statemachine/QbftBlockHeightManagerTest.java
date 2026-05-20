@@ -125,12 +125,12 @@ public class QbftBlockHeightManagerTest {
 
   @BeforeEach
   public void setup() {
-    messageFactory = new MessageFactory(nodeKey, blockEncoder);
+    messageFactory = new MessageFactory(nodeKey, blockEncoder, false);
 
     for (int i = 0; i < 3; i++) {
       final NodeKey nodeKey = NodeKeyUtils.generate();
       validators.add(Util.publicKeyToAddress(nodeKey.getPublicKey()));
-      validatorMessageFactory.add(new MessageFactory(nodeKey, blockEncoder));
+      validatorMessageFactory.add(new MessageFactory(nodeKey, blockEncoder, false));
     }
 
     final MessageValidator messageValidator = mock(MessageValidator.class);

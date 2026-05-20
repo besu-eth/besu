@@ -34,10 +34,7 @@ public class BftOptions {
   @CommandLine.Option(
       names = {"--Xbft-legacy-protocol-encoding"},
       description =
-          "Use the 25.x QBFT/IBFT2 protocol encoding format. Set to true only when "
-              + "rolling-upgrading from Besu 25.x peers. Has no effect on chains where "
-              + "blockAccessList is active. Experimental - will be removed once Besu 25.x "
-              + "is no longer supported. (default: ${DEFAULT-VALUE})",
+          "Enable for rolling upgrade from Besu 25.x to 26.5.0+. (default: ${DEFAULT-VALUE})",
       arity = "1",
       hidden = true)
   private boolean legacyProtocolEncoding = false;

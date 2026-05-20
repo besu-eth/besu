@@ -52,8 +52,8 @@ public class RoundChangeCertificateValidatorTest {
   private final NodeKey proposerKey = NodeKeyUtils.generate();
   private final NodeKey validatorKey = NodeKeyUtils.generate();
   private final NodeKey otherValidatorKey = NodeKeyUtils.generate();
-  private final MessageFactory proposerMessageFactory = new MessageFactory(proposerKey);
-  private final MessageFactory validatorMessageFactory = new MessageFactory(validatorKey);
+  private final MessageFactory proposerMessageFactory = new MessageFactory(proposerKey, false);
+  private final MessageFactory validatorMessageFactory = new MessageFactory(validatorKey, false);
   private final List<Address> validators = Lists.newArrayList();
   private final long chainHeight = 2;
   private final ConsensusRoundIdentifier roundIdentifier =
@@ -242,7 +242,7 @@ public class RoundChangeCertificateValidatorTest {
     // contains the newest
     // NOTE: This capability is tested as part of the NewRoundMessageValidationTests.
     final NodeKey proposerKey = NodeKeyUtils.generate();
-    final MessageFactory proposerMessageFactory = new MessageFactory(proposerKey);
+    final MessageFactory proposerMessageFactory = new MessageFactory(proposerKey, false);
     final Block proposedBlock = mock(Block.class);
     when(proposedBlock.getHash()).thenReturn(Hash.fromHexStringLenient("1"));
     final ConsensusRoundIdentifier roundIdentifier = new ConsensusRoundIdentifier(1, 4);
@@ -295,7 +295,7 @@ public class RoundChangeCertificateValidatorTest {
   @Test
   public void allRoundChangeHaveNoPreparedReturnsEmptyOptional() {
     final NodeKey proposerKey = NodeKeyUtils.generate();
-    final MessageFactory proposerMessageFactory = new MessageFactory(proposerKey);
+    final MessageFactory proposerMessageFactory = new MessageFactory(proposerKey, false);
     final ConsensusRoundIdentifier roundIdentifier = new ConsensusRoundIdentifier(1, 4);
 
     final Optional<PreparedCertificate> newestCert =

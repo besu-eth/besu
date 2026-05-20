@@ -104,7 +104,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 public class IbftBlockHeightManagerTest {
 
   private final NodeKey nodeKey = NodeKeyUtils.generate();
-  private final MessageFactory messageFactory = new MessageFactory(nodeKey);
+  private final MessageFactory messageFactory = new MessageFactory(nodeKey, false);
   private final BlockHeaderTestFixture headerTestFixture = new BlockHeaderTestFixture();
 
   @Mock private BftFinalState finalState;
@@ -146,7 +146,7 @@ public class IbftBlockHeightManagerTest {
     for (int i = 0; i < 3; i++) {
       final NodeKey nodeKey = NodeKeyUtils.generate();
       validators.add(Util.publicKeyToAddress(nodeKey.getPublicKey()));
-      validatorMessageFactory.add(new MessageFactory(nodeKey));
+      validatorMessageFactory.add(new MessageFactory(nodeKey, false));
     }
 
     buildCreatedBlock();

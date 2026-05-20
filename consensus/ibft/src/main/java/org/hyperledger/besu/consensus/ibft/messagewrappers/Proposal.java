@@ -44,31 +44,15 @@ public class Proposal extends BftMessage<ProposalPayload> {
   private final boolean useLegacyEncoding;
 
   /**
-   * Instantiates a new Proposal.
-   *
-   * @param payload the payload
-   * @param proposedBlock the proposed block
-   * @param blockAccessList the block access list
-   * @param certificate the certificate
-   */
-  public Proposal(
-      final SignedData<ProposalPayload> payload,
-      final Block proposedBlock,
-      final Optional<BlockAccessList> blockAccessList,
-      final Optional<RoundChangeCertificate> certificate) {
-    this(payload, proposedBlock, blockAccessList, certificate, false);
-  }
-
-  /**
    * Instantiates a new Proposal with explicit encoding mode.
    *
    * @param payload the payload
    * @param proposedBlock the proposed block
    * @param blockAccessList the block access list
    * @param certificate the certificate
-   * @param useLegacyEncoding when true and blockAccessList is absent, omit the blockAccessList slot
-   *     entirely (25.x wire format). When blockAccessList is present, the current format is emitted
-   *     regardless.
+   * @param useLegacyEncoding when true, omit the blockAccessList slot entirely (pre-26.1.0 3-item
+   *     wire format). Pre-26.1.0 peers cannot decode BAL regardless, so BAL is always omitted in
+   *     legacy mode. Use false for the current 26.1.0+ format.
    */
   public Proposal(
       final SignedData<ProposalPayload> payload,
@@ -130,13 +114,11 @@ public class Proposal extends BftMessage<ProposalPayload> {
     } else {
       rlpOut.writeNull();
     }
-    if (useLegacyEncoding) {
-      // Flag is a no-op when blockAccessList is present: BAL is still written to preserve
-      // semantics on chains where it is active.
-      blockAccessList.ifPresent(bal -> bal.writeTo(rlpOut));
-    } else {
+    if (!useLegacyEncoding) {
+      // Current 26.1.0+ format: write BAL or null slot
       blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOut), rlpOut::writeNull);
     }
+    // else: legacy mode — omit BAL entirely (pre-26.1.0 wire format, 3 items)
     rlpOut.endList();
     return rlpOut.encoded();
   }
@@ -160,7 +142,7 @@ public class Proposal extends BftMessage<ProposalPayload> {
     final Optional<BlockAccessList> blockAccessList = readBlockAccessList(rlpIn);
 
     rlpIn.leaveList();
-    return new Proposal(payload, proposedBlock, blockAccessList, roundChangeCertificate);
+    return new Proposal(payload, proposedBlock, blockAccessList, roundChangeCertificate, false);
   }
 
   private static Optional<RoundChangeCertificate> readRoundChangeCertificate(final RLPInput rlpIn) {

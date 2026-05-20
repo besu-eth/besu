@@ -103,8 +103,8 @@ public class QbftRoundIntegrationTest {
 
   @BeforeEach
   public void setup() {
-    peerMessageFactory = new MessageFactory(NodeKeyUtils.generate(), blockEncoder);
-    peerMessageFactory2 = new MessageFactory(NodeKeyUtils.generate(), blockEncoder);
+    peerMessageFactory = new MessageFactory(NodeKeyUtils.generate(), blockEncoder, false);
+    peerMessageFactory2 = new MessageFactory(NodeKeyUtils.generate(), blockEncoder, false);
 
     when(messageValidator.validateProposal(any())).thenReturn(true);
     when(messageValidator.validatePrepare(any())).thenReturn(true);
@@ -113,7 +113,7 @@ public class QbftRoundIntegrationTest {
     when(nodeKey.sign(any())).thenThrow(new SecurityModuleException("Hsm Is Down"));
 
     final QbftExtraDataCodec qbftExtraDataEncoder = new QbftExtraDataCodec();
-    throwingMessageFactory = new MessageFactory(nodeKey, blockEncoder);
+    throwingMessageFactory = new MessageFactory(nodeKey, blockEncoder, false);
     transmitter = new QbftMessageTransmitter(throwingMessageFactory, multicaster);
 
     final BftExtraData proposedExtraData =

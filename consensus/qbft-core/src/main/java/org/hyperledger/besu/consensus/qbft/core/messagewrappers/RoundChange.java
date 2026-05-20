@@ -48,24 +48,6 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
   private final boolean useLegacyEncoding;
 
   /**
-   * Instantiates a new Round change.
-   *
-   * @param payload the payload
-   * @param proposedBlock the proposed block
-   * @param blockAccessList the block access list
-   * @param blockEncoder the qbft block encoder
-   * @param prepares the prepares
-   */
-  public RoundChange(
-      final SignedData<RoundChangePayload> payload,
-      final Optional<QbftBlock> proposedBlock,
-      final Optional<BlockAccessList> blockAccessList,
-      final QbftBlockCodec blockEncoder,
-      final List<SignedData<PreparePayload>> prepares) {
-    this(payload, proposedBlock, blockAccessList, blockEncoder, prepares, false);
-  }
-
-  /**
    * Instantiates a new Round change with explicit encoding mode.
    *
    * @param payload the payload
@@ -73,11 +55,9 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
    * @param blockAccessList the block access list
    * @param blockEncoder the qbft block encoder
    * @param prepares the prepares
-   * @param useLegacyEncoding when true and blockAccessList is absent, omit the blockAccessList slot
-   *     entirely, emitting the pre-26.1.0 3-item wire format that Besu 25.x peers can decode. When
-   *     blockAccessList is present the current 4-item format is emitted regardless and 25.x peers
-   *     cannot decode it; the flag therefore only enables 25.x interop on chains where BAL is not
-   *     active.
+   * @param useLegacyEncoding when true, omit the blockAccessList slot entirely (pre-26.1.0 3-item
+   *     wire format). Pre-26.1.0 peers cannot decode BAL regardless, so BAL is always omitted in
+   *     legacy mode. Use false for the current 26.1.0+ format.
    */
   public RoundChange(
       final SignedData<RoundChangePayload> payload,
@@ -145,13 +125,11 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
     rlpOut.startList();
     getSignedPayload().writeTo(rlpOut);
     proposedBlock.ifPresentOrElse(pb -> blockEncoder.writeTo(pb, rlpOut), rlpOut::writeEmptyList);
-    if (useLegacyEncoding) {
-      // Flag is a no-op when blockAccessList is present: BAL is still written to preserve
-      // consensus semantics on chains where it is active.
-      blockAccessList.ifPresent(bal -> bal.writeTo(rlpOut));
-    } else {
+    if (!useLegacyEncoding) {
+      // Current 26.1.0+ format: write BAL or null slot
       blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOut), rlpOut::writeNull);
     }
+    // else: legacy mode — omit BAL entirely (pre-26.1.0 wire format, 3 items)
     rlpOut.writeList(prepares, SignedData::writeTo);
     rlpOut.endList();
     return rlpOut.encoded();
@@ -190,7 +168,7 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
         rlpIn.readList(r -> readPayload(r, PreparePayload::readFrom));
     rlpIn.leaveList();
 
-    return new RoundChange(payload, block, blockAccessList, blockEncoder, prepares);
+    return new RoundChange(payload, block, blockAccessList, blockEncoder, prepares, false);
   }
 
   private static Optional<BlockAccessList> readBlockAccessList(final RLPInput rlpIn) {

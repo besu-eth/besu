@@ -111,7 +111,7 @@ public class SpuriousBehaviourTest {
     final ValidatorPeer nonvalidator =
         new ValidatorPeer(
             nonValidatorParams,
-            new MessageFactory(nonValidatorParams.getNodeKey(), context.getBlockEncoder()),
+            new MessageFactory(nonValidatorParams.getNodeKey(), context.getBlockEncoder(), false),
             context.getEventMultiplexer());
 
     nonvalidator.injectProposal(new ConsensusRoundIdentifier(1, 0), proposedBlock);
