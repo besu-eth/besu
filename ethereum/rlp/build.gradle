@@ -48,6 +48,12 @@ tasks.named('compileTestSupportJava', JavaCompile).configure {
   }
 }
 
+tasks.named('compileJmhJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+  }
+}
+
 dependencies {
   annotationProcessor 'org.openjdk.jmh:jmh-generator-annprocess'
 
