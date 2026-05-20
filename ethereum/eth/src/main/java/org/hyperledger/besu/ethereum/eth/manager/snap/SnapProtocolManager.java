@@ -25,7 +25,6 @@ import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV1;
 import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV2;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.p2p.network.ProtocolManager;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.framing.FramingException;
@@ -62,21 +61,20 @@ public class SnapProtocolManager implements ProtocolManager {
       final EthPeers ethPeers,
       final EthMessages snapMessages,
       final EthScheduler ethScheduler,
-      final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final Synchronizer synchronizer) {
     this.ethPeers = ethPeers;
     this.snapMessages = snapMessages;
     this.ethScheduler = ethScheduler;
-    this.supportedCapabilities = calculateCapabilities(protocolSchedule);
+    this.supportedCapabilities = calculateCapabilities(snapConfig);
     new SnapServer(
         snapConfig, snapMessages, worldStateStorageCoordinator, protocolContext, synchronizer);
   }
 
-  private List<Capability> calculateCapabilities(final ProtocolSchedule protocolSchedule) {
+  private List<Capability> calculateCapabilities(final SnapSyncConfiguration snapConfig) {
     final ImmutableList.Builder<Capability> capabilities = ImmutableList.builder();
     capabilities.add(SnapProtocol.SNAP1);
-    if (protocolSchedule.anyMatch(spec -> spec.spec().isBlockAccessListEnabled())) {
+    if (Boolean.TRUE.equals(snapConfig.isSnap2Enabled())) {
       capabilities.add(SnapProtocol.SNAP2);
     }
 

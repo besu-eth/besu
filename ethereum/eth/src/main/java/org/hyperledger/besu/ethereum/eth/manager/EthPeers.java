@@ -649,7 +649,8 @@ public class EthPeers implements PeerSelector {
   }
 
   private void checkIsSnapServer(final EthPeer peer, final BlockHeader peersHeadBlockHeader) {
-    if (peer.getAgreedCapabilities().contains(SnapProtocol.SNAP1)) {
+    if (peer.getAgreedCapabilities().contains(SnapProtocol.SNAP1)
+        || peer.getAgreedCapabilities().contains(SnapProtocol.SNAP2)) {
       if (snapServerChecker != null) {
         // set that peer is a snap server for doing the test
         peer.setIsServingSnap(true);
