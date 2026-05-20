@@ -331,10 +331,6 @@ public class NodeRecordManager {
       }
       final int tcpPort = ipv6AutoDiscoveryTcpPort.get();
       ipv6Endpoint = Optional.of(new HostEndpoint(host, udpPort, tcpPort));
-      // Clear the hint so the consumed state is explicit; fire-once is already enforced by the
-      // ipv6Endpoint.isPresent() guard above, but this defends against future refactors that
-      // might separate the two pieces of state.
-      ipv6AutoDiscoveryTcpPort = Optional.empty();
       doUpdateNodeRecord();
       LOG.info(
           "Auto-discovered IPv6 endpoint via DiscV5 peer consensus: ip6={}, udp6={}, tcp6={}"
