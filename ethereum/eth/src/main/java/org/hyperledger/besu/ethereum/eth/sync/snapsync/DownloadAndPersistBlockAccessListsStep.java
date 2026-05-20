@@ -120,6 +120,9 @@ public class DownloadAndPersistBlockAccessListsStep
     for (int i = 0; i < persistedCount; i++) {
       final BlockHeader header = balEnabledHeaders.get(i);
       final SyncBlockAccessList syncBlockAccessList = syncBlockAccessLists.get(i);
+      if (syncBlockAccessList.isUnavailable()) {
+        continue;
+      }
       try {
         updater.putSyncBlockAccessList(header.getHash(), syncBlockAccessList);
       } catch (final Exception exception) {

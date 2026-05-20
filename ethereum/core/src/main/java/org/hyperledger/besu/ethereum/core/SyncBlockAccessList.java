@@ -32,8 +32,8 @@ public class SyncBlockAccessList {
     return rlp;
   }
 
-  public boolean isEmpty() {
-    return rlp.equals(RLP.EMPTY_LIST);
+  public boolean isUnavailable() {
+    return rlp.equals(RLP.NULL);
   }
 
   @Override
