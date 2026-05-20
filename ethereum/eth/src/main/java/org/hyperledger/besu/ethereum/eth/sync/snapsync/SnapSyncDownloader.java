@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import static org.hyperledger.besu.util.FutureUtils.exceptionallyCompose;
 
-import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.MaxRetriesReachedException;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.NoAvailablePeersException;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
@@ -182,12 +181,8 @@ public class SnapSyncDownloader {
   }
 
   private PivotSyncState storeState(final PivotSyncState fastSyncState) {
-    final Optional<BlockHeader> firstPivotBlockHeader =
-        initialPivotSyncState instanceof SnapSyncProcessState snapSyncState
-            ? snapSyncState.getFirstPivotBlockHeader().or(fastSyncState::getPivotBlockHeader)
-            : fastSyncState.getPivotBlockHeader();
     initialPivotSyncState = fastSyncState;
-    return new SnapSyncProcessState(fastSyncState, firstPivotBlockHeader);
+    return new SnapSyncProcessState(fastSyncState);
   }
 
   private CompletableFuture<PivotSyncState> downloadChainAndWorldState(
