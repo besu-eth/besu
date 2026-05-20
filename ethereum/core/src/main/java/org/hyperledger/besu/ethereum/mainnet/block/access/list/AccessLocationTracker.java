@@ -94,15 +94,14 @@ public class AccessLocationTracker implements Eip7928AccessList {
     final PartialBlockAccessViewBuilder builder = new PartialBlockAccessViewBuilder();
     builder.withTxIndex(this.blockAccessIndex);
 
-
     final Collection<Address> deletedAddressesCol = stackedUpdater.getDeletedAccountAddresses();
     final Set<Address> deletedAddresses =
-            deletedAddressesCol.isEmpty()
-                    ? Collections.emptySet()
-                    : newSizedHashSet(deletedAddressesCol);
+        deletedAddressesCol.isEmpty()
+            ? Collections.emptySet()
+            : newSizedHashSet(deletedAddressesCol);
 
     final Collection<? extends UpdateTrackingAccount<?>> updatedAccountsCol =
-            stackedUpdater.getUpdatedAccounts();
+        stackedUpdater.getUpdatedAccounts();
     final Set<Address> updatedAddresses;
     if (updatedAccountsCol.isEmpty()) {
       updatedAddresses = Collections.emptySet();
@@ -134,7 +133,7 @@ public class AccessLocationTracker implements Eip7928AccessList {
       }
 
       final UpdateTrackingAccount<?> account =
-              (UpdateTrackingAccount<?>) stackedUpdater.get(address);
+          (UpdateTrackingAccount<?>) stackedUpdater.get(address);
       if (account == null) {
         for (final UInt256 slot : touchedSlots) {
           accountBuilder.addStorageRead(new StorageSlotKey(slot));

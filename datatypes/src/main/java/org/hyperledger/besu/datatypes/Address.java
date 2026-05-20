@@ -17,19 +17,14 @@ package org.hyperledger.besu.datatypes;
 import static com.google.common.base.Preconditions.checkArgument;
 import static org.hyperledger.besu.crypto.Hash.keccak256;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import org.hyperledger.besu.crypto.SECPPublicKey;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
-import java.util.concurrent.ExecutionException;
-
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.CacheLoader;
-import com.google.common.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
@@ -96,7 +91,8 @@ public class Address extends BytesHolder {
   /** The constant ZERO. */
   public static final Address ZERO = Address.fromHexString("0x0");
 
-  static final Cache<Address, Hash> hashCache =   Caffeine.newBuilder().executor(Runnable::run).maximumSize(20_000).build();
+  static final Cache<Address, Hash> hashCache =
+      Caffeine.newBuilder().executor(Runnable::run).maximumSize(20_000).build();
 
   /**
    * Instantiates a new Address.

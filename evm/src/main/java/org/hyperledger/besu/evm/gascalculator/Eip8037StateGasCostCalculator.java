@@ -218,9 +218,9 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
 
   /**
    * Credits {@code amount} back to the reservoir and decrements stateGasUsed by the same amount.
-   * Both counters are UndoScalar-tracked, so the credit is rolled back if the enclosing frame
-   * fails — the frame-failure handler then restores the spill via a reservoir credit, so
-   * same-frame charge/refund pairs net to zero for the sender.
+   * Both counters are UndoScalar-tracked, so the credit is rolled back if the enclosing frame fails
+   * — the frame-failure handler then restores the spill via a reservoir credit, so same-frame
+   * charge/refund pairs net to zero for the sender.
    */
   private static void creditReservoir(final MessageFrame frame, final long amount) {
     frame.incrementStateGasReservoir(amount);

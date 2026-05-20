@@ -131,36 +131,36 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
   }
 
   public record AccountChanges(
-          Address address,
-          List<SlotChanges> storageChanges,
-          List<SlotRead> storageReads,
-          List<BalanceChange> balanceChanges,
-          List<NonceChange> nonceChanges,
-          List<CodeChange> codeChanges) {
+      Address address,
+      List<SlotChanges> storageChanges,
+      List<SlotRead> storageReads,
+      List<BalanceChange> balanceChanges,
+      List<NonceChange> nonceChanges,
+      List<CodeChange> codeChanges) {
 
     public boolean hasAnyChange() {
       return !balanceChanges.isEmpty()
-              || !nonceChanges.isEmpty()
-              || !codeChanges.isEmpty()
-              || !storageChanges.isEmpty();
+          || !nonceChanges.isEmpty()
+          || !codeChanges.isEmpty()
+          || !storageChanges.isEmpty();
     }
 
     @Override
     public String toString() {
       return "AccountChanges{"
-              + "address="
-              + address
-              + ", storageChanges="
-              + storageChanges
-              + ", storageReads="
-              + storageReads
-              + ", balanceChanges="
-              + balanceChanges
-              + ", nonceChanges="
-              + nonceChanges
-              + ", codeChanges="
-              + codeChanges
-              + '}';
+          + "address="
+          + address
+          + ", storageChanges="
+          + storageChanges
+          + ", storageReads="
+          + storageReads
+          + ", balanceChanges="
+          + balanceChanges
+          + ", nonceChanges="
+          + nonceChanges
+          + ", codeChanges="
+          + codeChanges
+          + '}';
     }
   }
 
@@ -176,12 +176,12 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
     }
 
     public static AccessLocationTracker createPostExecutionAccessLocationTracker(
-            final int numberOfTransactions) {
+        final int numberOfTransactions) {
       return new AccessLocationTracker((long) numberOfTransactions + 1L);
     }
 
     public static AccessLocationTracker createTransactionAccessLocationTracker(
-            final int transactionLocation) {
+        final int transactionLocation) {
       return new AccessLocationTracker((long) transactionLocation + 1L);
     }
 
@@ -190,48 +190,48 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
     }
 
     public void apply(
-            final AccessLocationTracker accessLocationTracker, final WorldUpdater updater) {
+        final AccessLocationTracker accessLocationTracker, final WorldUpdater updater) {
       apply(accessLocationTracker.createPartialBlockAccessView(updater));
     }
 
     public void apply(final PartialBlockAccessView partialBlockAccessView) {
       partialBlockAccessView
-              .accountChanges()
-              .forEach(
-                      account -> {
-                        final AccountBuilder builder = getOrCreateAccountBuilder(account.getAddress());
-                        account
-                                .getStorageChanges()
-                                .forEach(
-                                        slotChange -> {
-                                          builder.addStorageWrite(
-                                                  slotChange.slot(),
-                                                  partialBlockAccessView.getTxIndex(),
-                                                  slotChange.newValue());
-                                        });
+          .accountChanges()
+          .forEach(
+              account -> {
+                final AccountBuilder builder = getOrCreateAccountBuilder(account.getAddress());
+                account
+                    .getStorageChanges()
+                    .forEach(
+                        slotChange -> {
+                          builder.addStorageWrite(
+                              slotChange.slot(),
+                              partialBlockAccessView.getTxIndex(),
+                              slotChange.newValue());
+                        });
 
-                        account.getStorageReads().forEach(builder::addStorageRead);
+                account.getStorageReads().forEach(builder::addStorageRead);
 
-                        account
-                                .getPostBalance()
-                                .ifPresent(
-                                        change -> {
-                                          builder.addBalanceChange(partialBlockAccessView.getTxIndex(), change);
-                                        });
+                account
+                    .getPostBalance()
+                    .ifPresent(
+                        change -> {
+                          builder.addBalanceChange(partialBlockAccessView.getTxIndex(), change);
+                        });
 
-                        account
-                                .getNonceChange()
-                                .ifPresent(
-                                        change -> {
-                                          builder.addNonceChange(partialBlockAccessView.getTxIndex(), change);
-                                        });
-                        account
-                                .getNewCode()
-                                .ifPresent(
-                                        change -> {
-                                          builder.addCodeChange(partialBlockAccessView.getTxIndex(), change);
-                                        });
-                      });
+                account
+                    .getNonceChange()
+                    .ifPresent(
+                        change -> {
+                          builder.addNonceChange(partialBlockAccessView.getTxIndex(), change);
+                        });
+                account
+                    .getNewCode()
+                    .ifPresent(
+                        change -> {
+                          builder.addCodeChange(partialBlockAccessView.getTxIndex(), change);
+                        });
+              });
     }
 
     /**
@@ -267,10 +267,10 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
         accountChanges.add(accountBuilder.build());
       }
       accountChanges.sort(
-              (left, right) ->
-                      Arrays.compareUnsigned(
-                              left.address().getBytes().toArrayUnsafe(),
-                              right.address().getBytes().toArrayUnsafe()));
+          (left, right) ->
+              Arrays.compareUnsigned(
+                  left.address().getBytes().toArrayUnsafe(),
+                  right.address().getBytes().toArrayUnsafe()));
       return new BlockAccessList(accountChanges);
     }
 
@@ -342,7 +342,7 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
 
       void addStorageWrite(final StorageSlotKey slot, final long txIndex, final UInt256 value) {
         final List<StorageChange> changes =
-                slotWrites.computeIfAbsent(slot, __ -> new ArrayList<>());
+            slotWrites.computeIfAbsent(slot, __ -> new ArrayList<>());
         slotReads.remove(slot);
         changes.add(new StorageChange(txIndex, value));
       }
@@ -376,12 +376,12 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
         sortedCodes.sort(Comparator.comparingLong(CodeChange::txIndex));
 
         return new AccountChanges(
-                address,
-                sortedSlotChanges(),
-                sortedSlotReads(),
-                sortedBalances,
-                sortedNonces,
-                sortedCodes);
+            address,
+            sortedSlotChanges(),
+            sortedSlotReads(),
+            sortedBalances,
+            sortedNonces,
+            sortedCodes);
       }
 
       private List<SlotChanges> sortedSlotChanges() {
@@ -395,9 +395,9 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
           final List<StorageChange> changes = new ArrayList<>(e.getValue());
           changes.sort(Comparator.comparingLong(StorageChange::txIndex));
           entries[i++] =
-                  new SortableSlotChanges(
-                          e.getKey().getSlotKey().orElseThrow().toArray(),
-                          new SlotChanges(e.getKey(), changes));
+              new SortableSlotChanges(
+                  e.getKey().getSlotKey().orElseThrow().toArray(),
+                  new SlotChanges(e.getKey(), changes));
         }
         Arrays.sort(entries, (a, b) -> Arrays.compareUnsigned(a.sortKey(), b.sortKey()));
         final List<SlotChanges> result = new ArrayList<>(n);
