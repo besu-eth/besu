@@ -48,6 +48,24 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
   private final boolean useLegacyEncoding;
 
   /**
+   * Instantiates a new Round change using current (26.1.0+) encoding.
+   *
+   * @param payload the payload
+   * @param proposedBlock the proposed block
+   * @param blockAccessList the block access list
+   * @param blockEncoder the qbft block encoder
+   * @param prepares the prepares
+   */
+  public RoundChange(
+      final SignedData<RoundChangePayload> payload,
+      final Optional<QbftBlock> proposedBlock,
+      final Optional<BlockAccessList> blockAccessList,
+      final QbftBlockCodec blockEncoder,
+      final List<SignedData<PreparePayload>> prepares) {
+    this(payload, proposedBlock, blockAccessList, blockEncoder, prepares, false);
+  }
+
+  /**
    * Instantiates a new Round change with explicit encoding mode.
    *
    * @param payload the payload

@@ -32,7 +32,7 @@ public class RoundChangeMessageValidatorTest {
 
   private final RoundChangePayloadValidator payloadValidator =
       mock(RoundChangePayloadValidator.class);
-  private final MessageFactory messageFactory = new MessageFactory(NodeKeyUtils.generate(), false);
+  private final MessageFactory messageFactory = new MessageFactory(NodeKeyUtils.generate());
   private final ConsensusRoundIdentifier roundIdentifier = new ConsensusRoundIdentifier(1, 1);
 
   private final ProposalBlockConsistencyValidator proposalBlockConsistencyValidator =

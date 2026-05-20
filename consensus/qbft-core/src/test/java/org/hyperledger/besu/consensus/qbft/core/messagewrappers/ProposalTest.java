@@ -102,8 +102,11 @@ public class ProposalTest {
   }
 
   private ProposalPayload createProposalPayload(final Optional<BlockAccessList> blockAccessList) {
-    return new ProposalPayload(
-        new ConsensusRoundIdentifier(1, 1), BLOCK, blockEncoder, blockAccessList, false);
+    if (blockAccessList.isPresent()) {
+      return new ProposalPayload(
+          new ConsensusRoundIdentifier(1, 1), BLOCK, blockEncoder, blockAccessList);
+    }
+    return new ProposalPayload(new ConsensusRoundIdentifier(1, 1), BLOCK, blockEncoder);
   }
 
   private SignedData<PreparePayload> createPrepare(final NodeKey nodeKey) {
@@ -145,7 +148,7 @@ public class ProposalTest {
     // ProposalPayload subclass that overrides writeTo() to omit the blockAccessList field,
     // reproducing the pre-26.1.0 wire format
     final ProposalPayload oldFormatPayload =
-        new ProposalPayload(roundIdentifier, BLOCK, blockEncoder, Optional.empty(), false) {
+        new ProposalPayload(roundIdentifier, BLOCK, blockEncoder) {
           @Override
           public void writeTo(final RLPOutput output) {
             output.startList();
@@ -203,8 +206,7 @@ public class ProposalTest {
     // [roundIdentifier, block, BAL-or-null] - required for interop with Besu 26.1.0 - 26.5.0
     // peers whose decoder expects the BAL slot.
     final ProposalPayload payload =
-        new ProposalPayload(
-            new ConsensusRoundIdentifier(1, 1), BLOCK, blockEncoder, Optional.empty(), false);
+        new ProposalPayload(new ConsensusRoundIdentifier(1, 1), BLOCK, blockEncoder);
 
     final BytesValueRLPOutput out = new BytesValueRLPOutput();
     payload.writeTo(out);

@@ -344,7 +344,7 @@ public class TestContextBuilder {
                     nodeParams ->
                         new ValidatorPeer(
                             nodeParams,
-                            new MessageFactory(nodeParams.getNodeKey(), blockEncoder, false),
+                            new MessageFactory(nodeParams.getNodeKey(), blockEncoder),
                             controllerAndState.eventMultiplexer()),
                     (u, v) -> {
                       throw new IllegalStateException(String.format("Duplicate key %s", u));
@@ -558,7 +558,7 @@ public class TestContextBuilder {
             new QbftBlockCreatorFactoryAdaptor(blockCreatorFactory, BFT_EXTRA_DATA_ENCODER),
             clock);
 
-    final MessageFactory messageFactory = new MessageFactory(nodeKey, blockEncoder, false);
+    final MessageFactory messageFactory = new MessageFactory(nodeKey, blockEncoder);
 
     final QbftProtocolScheduleAdaptor qbftProtocolSchedule =
         new QbftProtocolScheduleAdaptor(protocolSchedule, bftProtocolContext);

@@ -39,7 +39,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 public class FutureRoundProposalMessageValidatorTest {
 
-  private final MessageFactory messageFactoy = new MessageFactory(NodeKeyUtils.generate(), false);
+  private final MessageFactory messageFactoy = new MessageFactory(NodeKeyUtils.generate());
   private final ConsensusRoundIdentifier roundIdentifier = new ConsensusRoundIdentifier(1, 1);
   private final Block proposedBlock =
       ProposedBlockHelpers.createProposalBlock(emptyList(), roundIdentifier);

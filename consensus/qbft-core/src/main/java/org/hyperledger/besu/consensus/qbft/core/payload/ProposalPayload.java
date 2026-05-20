@@ -46,6 +46,37 @@ public class ProposalPayload extends QbftPayload {
   private final boolean useLegacyEncoding;
 
   /**
+   * Instantiates a new Proposal payload using current (26.1.0+) encoding without a block access
+   * list.
+   *
+   * @param roundIdentifier the round identifier
+   * @param proposedBlock the proposed block
+   * @param blockEncoder the qbft block encoder
+   */
+  public ProposalPayload(
+      final ConsensusRoundIdentifier roundIdentifier,
+      final QbftBlock proposedBlock,
+      final QbftBlockCodec blockEncoder) {
+    this(roundIdentifier, proposedBlock, blockEncoder, Optional.empty(), false);
+  }
+
+  /**
+   * Instantiates a new Proposal payload using current (26.1.0+) encoding.
+   *
+   * @param roundIdentifier the round identifier
+   * @param proposedBlock the proposed block
+   * @param blockEncoder the qbft block encoder
+   * @param blockAccessList the block access list
+   */
+  public ProposalPayload(
+      final ConsensusRoundIdentifier roundIdentifier,
+      final QbftBlock proposedBlock,
+      final QbftBlockCodec blockEncoder,
+      final Optional<BlockAccessList> blockAccessList) {
+    this(roundIdentifier, proposedBlock, blockEncoder, blockAccessList, false);
+  }
+
+  /**
    * Instantiates a new Proposal payload with explicit encoding mode.
    *
    * @param roundIdentifier the round identifier

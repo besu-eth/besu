@@ -60,7 +60,7 @@ public class ProposalPayloadValidatorTest {
 
   @BeforeEach
   public void setup() {
-    messageFactory = new MessageFactory(nodeKey, blockEncoder, false);
+    messageFactory = new MessageFactory(nodeKey, blockEncoder);
   }
 
   @Test

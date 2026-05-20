@@ -254,7 +254,7 @@ public class TestContextBuilder {
                     nodeParams ->
                         new ValidatorPeer(
                             nodeParams,
-                            new MessageFactory(nodeParams.getNodeKey(), false),
+                            new MessageFactory(nodeParams.getNodeKey()),
                             controllerAndState.getEventMultiplexer()),
                     (u, v) -> {
                       throw new IllegalStateException(String.format("Duplicate key %s", u));
@@ -417,7 +417,7 @@ public class TestContextBuilder {
             blockCreatorFactory,
             clock);
 
-    final MessageFactory messageFactory = new MessageFactory(nodeKey, false);
+    final MessageFactory messageFactory = new MessageFactory(nodeKey);
 
     final MessageValidatorFactory messageValidatorFactory =
         new MessageValidatorFactory(

@@ -98,8 +98,7 @@ public class RoundChangeTest {
             Optional.of(BLOCK),
             Optional.empty(),
             blockEncoder,
-            List.of(signedPreparePayload),
-            false);
+            List.of(signedPreparePayload));
 
     final RoundChange decodedRoundChange = RoundChange.decode(roundChange.encode(), blockEncoder);
 
@@ -132,8 +131,7 @@ public class RoundChangeTest {
             Optional.empty(),
             Optional.empty(),
             blockEncoder,
-            Collections.emptyList(),
-            false);
+            Collections.emptyList());
 
     final RoundChange decodedRoundChange = RoundChange.decode(roundChange.encode(), blockEncoder);
 
@@ -240,8 +238,7 @@ public class RoundChangeTest {
             Optional.empty(),
             Optional.empty(),
             blockEncoder,
-            Collections.emptyList(),
-            false);
+            Collections.emptyList());
 
     final org.hyperledger.besu.ethereum.rlp.RLPInput rlpIn =
         org.hyperledger.besu.ethereum.rlp.RLP.input(roundChange.encode());

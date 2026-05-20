@@ -61,7 +61,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 public class MessageValidatorTest {
 
   private final NodeKey nodeKey = NodeKeyUtils.generate();
-  private final MessageFactory messageFactory = new MessageFactory(nodeKey, false);
+  private final MessageFactory messageFactory = new MessageFactory(nodeKey);
   private final ConsensusRoundIdentifier roundIdentifier = new ConsensusRoundIdentifier(1, 0);
 
   private final SignedDataValidator signedDataValidator = mock(SignedDataValidator.class);

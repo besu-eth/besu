@@ -111,7 +111,7 @@ public class RoundChangeManagerTest {
 
   private RoundChange makeRoundChangeMessage(
       final NodeKey key, final ConsensusRoundIdentifier round) {
-    final MessageFactory messageFactory = new MessageFactory(key, false);
+    final MessageFactory messageFactory = new MessageFactory(key);
     return messageFactory.createRoundChange(round, Optional.empty());
   }
 
@@ -121,7 +121,7 @@ public class RoundChangeManagerTest {
       final List<NodeKey> prepareProviders) {
     Preconditions.checkArgument(!prepareProviders.contains(key));
 
-    final MessageFactory messageFactory = new MessageFactory(key, false);
+    final MessageFactory messageFactory = new MessageFactory(key);
 
     final ConsensusRoundIdentifier proposalRound = ConsensusRoundHelpers.createFrom(round, 0, -1);
     final Block block = ProposedBlockHelpers.createProposalBlock(validators, proposalRound);
@@ -132,7 +132,7 @@ public class RoundChangeManagerTest {
         prepareProviders.stream()
             .map(
                 k -> {
-                  final MessageFactory prepareFactory = new MessageFactory(k, false);
+                  final MessageFactory prepareFactory = new MessageFactory(k);
                   return prepareFactory.createPrepare(proposalRound, block.getHash());
                 })
             .collect(Collectors.toList());

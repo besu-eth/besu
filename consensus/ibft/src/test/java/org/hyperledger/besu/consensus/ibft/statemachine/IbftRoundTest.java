@@ -84,8 +84,8 @@ public class IbftRoundTest {
   private final NodeKey nodeKey = NodeKeyUtils.generate();
   private final NodeKey nodeKey2 = NodeKeyUtils.generate();
   private final ConsensusRoundIdentifier roundIdentifier = new ConsensusRoundIdentifier(1, 0);
-  private final MessageFactory messageFactory = new MessageFactory(nodeKey, false);
-  private final MessageFactory messageFactory2 = new MessageFactory(nodeKey2, false);
+  private final MessageFactory messageFactory = new MessageFactory(nodeKey);
+  private final MessageFactory messageFactory2 = new MessageFactory(nodeKey2);
   private final Subscribers<MinedBlockObserver> subscribers = Subscribers.create();
   private final BftExtraDataCodec bftExtraDataCodec = new IbftExtraDataCodec();
   private ProtocolContext protocolContext;
@@ -523,7 +523,7 @@ public class IbftRoundTest {
     final int QUORUM_SIZE = 1;
     final RoundState roundState = new RoundState(roundIdentifier, QUORUM_SIZE, messageValidator);
     final NodeKey throwingNodeKey = mock(NodeKey.class);
-    final MessageFactory throwingMessageFactory = new MessageFactory(throwingNodeKey, false);
+    final MessageFactory throwingMessageFactory = new MessageFactory(throwingNodeKey);
     when(throwingNodeKey.sign(any())).thenThrow(new SecurityModuleException("Hsm is Offline"));
 
     final IbftRound round =

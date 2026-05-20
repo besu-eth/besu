@@ -44,6 +44,22 @@ public class Proposal extends BftMessage<ProposalPayload> {
   private final boolean useLegacyEncoding;
 
   /**
+   * Instantiates a new Proposal using current (26.1.0+) encoding.
+   *
+   * @param payload the payload
+   * @param proposedBlock the proposed block
+   * @param blockAccessList the block access list
+   * @param certificate the certificate
+   */
+  public Proposal(
+      final SignedData<ProposalPayload> payload,
+      final Block proposedBlock,
+      final Optional<BlockAccessList> blockAccessList,
+      final Optional<RoundChangeCertificate> certificate) {
+    this(payload, proposedBlock, blockAccessList, certificate, false);
+  }
+
+  /**
    * Instantiates a new Proposal with explicit encoding mode.
    *
    * @param payload the payload

@@ -120,7 +120,7 @@ public class GossipTest {
   @Test
   public void messageWithUnknownValidatorIsNotGossiped() {
     final MessageFactory unknownMsgFactory =
-        new MessageFactory(NodeKeyUtils.generate(), context.getBlockEncoder(), false);
+        new MessageFactory(NodeKeyUtils.generate(), context.getBlockEncoder());
     final Proposal unknownProposal =
         unknownMsgFactory.createProposal(roundId, block, emptyList(), emptyList());
 

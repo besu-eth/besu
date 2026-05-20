@@ -42,7 +42,7 @@ public class IntegrationTestHelpers {
         createCommitBlockFromProposalBlock(block, roundId.getRoundNumber());
     final SECPSignature commitSeal = nodeKey.sign(Bytes32.wrap(commitBlock.getHash().getBytes()));
 
-    final MessageFactory messageFactory = new MessageFactory(nodeKey, blockEncoder, false);
+    final MessageFactory messageFactory = new MessageFactory(nodeKey, blockEncoder);
 
     return messageFactory.createCommit(roundId, block.getHash(), commitSeal).getSignedPayload();
   }
