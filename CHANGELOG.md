@@ -26,6 +26,8 @@
 - Fix `engine_forkchoiceUpdatedV1` now returns `-38003 INVALID_PAYLOAD_ATTRIBUTES` for invalid payload attribute timestamps (zero or not greater than head). [#10353](https://github.com/besu-eth/besu/pull/10353)
 - Fix `engine_newPayloadV4`/`V5` now returns `-32602 INVALID_PARAMS` instead of `INVALID` payload status when execution requests contain an unknown request type. [#10484](https://github.com/besu-eth/besu/pull/10484)
 - Fix `debug_trace*` `storage` field to emit only for SLOAD/SSTORE opcodes showing the single slot touched, matching the execution-apis spec and geth behaviour [#10176](https://github.com/besu-eth/besu/pull/10176)
+- Fix blob transaction sidecar validation: detect missing sidecars, KZG commitment/versioned-hash mismatches, and type/size mismatches against eth/68 announcements; disconnect offending peers immediately [#10510](https://github.com/hyperledger/besu/pull/10510)
+- Fix `PeerTransactionTracker` incorrectly evicting peers that are connected but awaiting `ChainHeadTracker` validation, causing Besu to silently drop announced transactions from those peers [#10511](https://github.com/hyperledger/besu/pull/10511)
 
 ### Additions and Improvements
 - Add `eth_getStorageValues` JSON-RPC method for batched reads of multiple storage slots across multiple accounts in a single call [#10259](https://github.com/besu-eth/besu/pull/10259)
