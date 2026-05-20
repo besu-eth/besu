@@ -30,11 +30,14 @@ import org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2;
 
 import org.junit.jupiter.api.Test;
 
-class SelfBalanceOperationV2Test {
+class SelfBalanceOperationV2Test extends NullaryOperationV2Test {
 
   private static final Address RECIPIENT = Address.fromHexString("0xdeadbeef");
   private final GasCalculator gasCalculator = new BerlinGasCalculator();
-  private final SelfBalanceOperationV2 operation = new SelfBalanceOperationV2(gasCalculator);
+
+  public SelfBalanceOperationV2Test() {
+    super(new SelfBalanceOperationV2(new BerlinGasCalculator()));
+  }
 
   @Test
   void shouldPushSelfBalanceToStack() {
@@ -84,30 +87,5 @@ class SelfBalanceOperationV2Test {
         new TestMessageFrameBuilderV2().worldUpdater(world).address(RECIPIENT).build();
     final OperationResult result = operation.execute(frame, null);
     assertThat(result.getGasCost()).isEqualTo(gasCalculator.getLowTierGasCost());
-  }
-
-  @Test
-  void shouldHaltOnInsufficientGas() {
-    final ToyWorld world = new ToyWorld();
-    world.createAccount(RECIPIENT, 0, Wei.of(1L));
-    final MessageFrame frame =
-        new TestMessageFrameBuilderV2()
-            .initialGas(4)
-            .worldUpdater(world)
-            .address(RECIPIENT)
-            .build();
-    final OperationResult result = operation.execute(frame, null);
-    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
-  }
-
-  @Test
-  void shouldHaltOnStackOverflow() {
-    final ToyWorld world = new ToyWorld();
-    world.createAccount(RECIPIENT, 0, Wei.of(1L));
-    final MessageFrame frame =
-        new TestMessageFrameBuilderV2().worldUpdater(world).address(RECIPIENT).build();
-    frame.setTopV2(MessageFrame.DEFAULT_MAX_STACK_SIZE);
-    final OperationResult result = operation.execute(frame, null);
-    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.TOO_MANY_STACK_ITEMS);
   }
 }

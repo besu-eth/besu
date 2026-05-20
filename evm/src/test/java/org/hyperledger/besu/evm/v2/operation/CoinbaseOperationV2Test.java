@@ -29,10 +29,13 @@ import org.hyperledger.besu.evm.v2.testutils.TestMessageFrameBuilderV2;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 
-class CoinbaseOperationV2Test {
+class CoinbaseOperationV2Test extends NullaryOperationV2Test {
 
   private final GasCalculator gasCalculator = new BerlinGasCalculator();
-  private final CoinbaseOperationV2 operation = new CoinbaseOperationV2(gasCalculator);
+
+  public CoinbaseOperationV2Test() {
+    super(new CoinbaseOperationV2(new BerlinGasCalculator()));
+  }
 
   @Test
   void shouldPushCoinbaseToStack() {
@@ -78,31 +81,5 @@ class CoinbaseOperationV2Test {
         new TestMessageFrameBuilderV2().miningBeneficiary(Address.ZERO).build();
     final OperationResult result = operation.execute(frame, null);
     assertThat(result.getGasCost()).isEqualTo(gasCalculator.getBaseTierGasCost());
-  }
-
-  @Test
-  void shouldHaltOnInsufficientGas() {
-    final MessageFrame frame =
-        new TestMessageFrameBuilderV2().initialGas(1L).miningBeneficiary(Address.ZERO).build();
-    final OperationResult result = operation.execute(frame, null);
-    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
-  }
-
-  @Test
-  void shouldHaltOnStackOverflow() {
-    final MessageFrame frame =
-        new TestMessageFrameBuilderV2().miningBeneficiary(Address.ZERO).build();
-    frame.setTopV2(MessageFrame.DEFAULT_MAX_STACK_SIZE);
-    final OperationResult result = operation.execute(frame, null);
-    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.TOO_MANY_STACK_ITEMS);
-  }
-
-  @Test
-  void shouldHaltOnInsufficientGasEvenStackOverflow() {
-    final MessageFrame frame =
-        new TestMessageFrameBuilderV2().miningBeneficiary(Address.ZERO).initialGas(1L).build();
-    frame.setTopV2(MessageFrame.DEFAULT_MAX_STACK_SIZE);
-    final OperationResult result = operation.execute(frame, null);
-    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
   }
 }
