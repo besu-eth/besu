@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Besu.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -12,24 +12,18 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.eth.manager.peertask;
+package org.hyperledger.besu.ethereum.eth.sync.snapsync.request;
+
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncMetricsManager;
 
 import org.apache.tuweni.bytes.Bytes;
 
-public class MalformedRlpFromPeerException extends Exception {
-  private final Bytes messageData;
+/** Context needed by snap requests to enqueue follow-up work and report progress. */
+public interface SnapRequestContext {
 
-  public MalformedRlpFromPeerException(final Throwable cause, final Bytes messageData) {
-    super(cause);
-    this.messageData = messageData;
-  }
+  void enqueueRequest(SnapDataRequest request);
 
-  public MalformedRlpFromPeerException(final String message, final Bytes messageData) {
-    super(message);
-    this.messageData = messageData;
-  }
+  SnapSyncMetricsManager getMetricsManager();
 
-  public Bytes getMessageData() {
-    return messageData;
-  }
+  void addAccountToHealingList(Bytes account);
 }
