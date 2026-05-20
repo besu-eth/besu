@@ -16,26 +16,27 @@ package org.hyperledger.besu.cli.options.unstable;
 
 import picocli.CommandLine;
 
-/** Handles configuration options shared by QBFT and IBFT2 consensus engines. */
-public class BftOptions {
+/** Handles unstable configuration options shared by QBFT and IBFT2 consensus engines. */
+public class UnstableBftOptions {
 
   /** Default constructor */
-  private BftOptions() {}
+  private UnstableBftOptions() {}
 
   /**
-   * Create a new instance of BftOptions
+   * Create a new instance of UnstableBftOptions
    *
-   * @return a new instance of BftOptions
+   * @return a new instance of UnstableBftOptions
    */
-  public static BftOptions create() {
-    return new BftOptions();
+  public static UnstableBftOptions create() {
+    return new UnstableBftOptions();
   }
 
   @CommandLine.Option(
       names = {"--Xbft-legacy-protocol-encoding"},
       description =
           "Enable for rolling upgrade from Besu 25.x to 26.5.0+. (default: ${DEFAULT-VALUE})",
-      arity = "1",
+      arity = "0..1",
+      fallbackValue = "true",
       hidden = true)
   private boolean legacyProtocolEncoding = false;
 
