@@ -226,6 +226,13 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   /** When enabled, round changes on f+1 RC messages from higher rounds */
   protected boolean isEarlyRoundChangeEnabled = false;
 
+  /**
+   * When enabled, BFT (QBFT and IBFT2) encoders emit the 25.x wire format when blockAccessList is
+   * absent. Required only for rolling upgrades from Besu 25.x peers; no effect when blockAccessList
+   * is active on the chain.
+   */
+  protected boolean isLegacyBftProtocolEncodingEnabled = false;
+
   /** The global code cache */
   protected CodeCache codeCache;
 
@@ -573,6 +580,18 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
    */
   public BesuControllerBuilder isEarlyRoundChangeEnabled(final boolean isEarlyRoundChangeEnabled) {
     this.isEarlyRoundChangeEnabled = isEarlyRoundChangeEnabled;
+    return this;
+  }
+
+  /**
+   * Configure the BFT (QBFT/IBFT2) encoders to emit the 25.x wire format.
+   *
+   * @param isLegacyBftProtocolEncodingEnabled whether to emit legacy encoding
+   * @return the besu controller builder
+   */
+  public BesuControllerBuilder isLegacyBftProtocolEncodingEnabled(
+      final boolean isLegacyBftProtocolEncodingEnabled) {
+    this.isLegacyBftProtocolEncodingEnabled = isLegacyBftProtocolEncodingEnabled;
     return this;
   }
 

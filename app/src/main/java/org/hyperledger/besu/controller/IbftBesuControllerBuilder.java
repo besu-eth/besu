@@ -208,7 +208,10 @@ public class IbftBesuControllerBuilder extends BesuControllerBuilder {
     final MessageTracker duplicateMessageTracker =
         new MessageTracker(bftConfig.getDuplicateMessageLimit());
 
-    final MessageFactory messageFactory = new MessageFactory(nodeKey);
+    final MessageFactory messageFactory =
+        isLegacyBftProtocolEncodingEnabled
+            ? MessageFactory.withLegacyEncoding(nodeKey)
+            : new MessageFactory(nodeKey);
 
     final BftEventHandler ibftController =
         new IbftController(

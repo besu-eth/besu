@@ -31,14 +31,37 @@ import com.google.common.base.MoreObjects;
 /** The Proposal payload. */
 public class ProposalPayload extends QbftPayload {
 
+  /**
+   * Pre-26.1.0 ProposalPayload wire format: [sequence, round, block] (3 items, BAL omitted). The
+   * current format adds a BAL slot (4 items). ConsensusRound is encoded as two scalars (sequence +
+   * round), not as a sub-list - so the legacy item count is 3, not 2.
+   */
+  private static final int LEGACY_PROPOSAL_PAYLOAD_ITEM_COUNT = 3;
+
   private static final int TYPE = QbftV1.PROPOSAL;
   private final ConsensusRoundIdentifier roundIdentifier;
   private final QbftBlock proposedBlock;
   private final QbftBlockCodec blockEncoder;
   private final Optional<BlockAccessList> blockAccessList;
+  private final boolean useLegacyEncoding;
 
   /**
-   * Instantiates a new Proposal payload.
+   * Instantiates a new Proposal payload using current (26.1.0+) encoding without a block access
+   * list.
+   *
+   * @param roundIdentifier the round identifier
+   * @param proposedBlock the proposed block
+   * @param blockEncoder the qbft block encoder
+   */
+  public ProposalPayload(
+      final ConsensusRoundIdentifier roundIdentifier,
+      final QbftBlock proposedBlock,
+      final QbftBlockCodec blockEncoder) {
+    this(roundIdentifier, proposedBlock, blockEncoder, Optional.empty(), false);
+  }
+
+  /**
+   * Instantiates a new Proposal payload using current (26.1.0+) encoding.
    *
    * @param roundIdentifier the round identifier
    * @param proposedBlock the proposed block
@@ -50,24 +73,37 @@ public class ProposalPayload extends QbftPayload {
       final QbftBlock proposedBlock,
       final QbftBlockCodec blockEncoder,
       final Optional<BlockAccessList> blockAccessList) {
-    this.roundIdentifier = roundIdentifier;
-    this.proposedBlock = proposedBlock;
-    this.blockEncoder = blockEncoder;
-    this.blockAccessList = blockAccessList;
+    this(roundIdentifier, proposedBlock, blockEncoder, blockAccessList, false);
   }
 
   /**
-   * Instantiates a new Proposal payload.
+   * Creates a ProposalPayload that encodes in pre-26.1.0 wire format (BAL slot omitted).
    *
    * @param roundIdentifier the round identifier
    * @param proposedBlock the proposed block
    * @param blockEncoder the qbft block encoder
+   * @param blockAccessList the block access list
+   * @return a legacy-encoding ProposalPayload
    */
-  public ProposalPayload(
+  public static ProposalPayload withLegacyEncoding(
       final ConsensusRoundIdentifier roundIdentifier,
       final QbftBlock proposedBlock,
-      final QbftBlockCodec blockEncoder) {
-    this(roundIdentifier, proposedBlock, blockEncoder, Optional.empty());
+      final QbftBlockCodec blockEncoder,
+      final Optional<BlockAccessList> blockAccessList) {
+    return new ProposalPayload(roundIdentifier, proposedBlock, blockEncoder, blockAccessList, true);
+  }
+
+  private ProposalPayload(
+      final ConsensusRoundIdentifier roundIdentifier,
+      final QbftBlock proposedBlock,
+      final QbftBlockCodec blockEncoder,
+      final Optional<BlockAccessList> blockAccessList,
+      final boolean useLegacyEncoding) {
+    this.roundIdentifier = roundIdentifier;
+    this.proposedBlock = proposedBlock;
+    this.blockEncoder = blockEncoder;
+    this.blockAccessList = blockAccessList;
+    this.useLegacyEncoding = useLegacyEncoding;
   }
 
   /**
@@ -79,13 +115,20 @@ public class ProposalPayload extends QbftPayload {
    */
   public static ProposalPayload readFrom(
       final RLPInput rlpInput, final QbftBlockCodec blockEncoder) {
-    rlpInput.enterList();
+    final int items = rlpInput.enterList();
     final ConsensusRoundIdentifier roundIdentifier = readConsensusRound(rlpInput);
     final QbftBlock proposedBlock = blockEncoder.readFrom(rlpInput);
-    final Optional<BlockAccessList> blockAccessList = readBlockAccessList(rlpInput);
+    // Backward compatibility: pre-26.1.0 ProposalPayload is 3 items [sequence, round, block].
+    // Current format is 4 items: [sequence, round, block, BAL-or-null]. The decoded payload's
+    // encoding mode must match the wire format so that signature verification (which re-encodes
+    // via writeTo to compute hashForSignature) produces the same bytes the sender signed.
+    final boolean wasLegacyEncoded = (items == LEGACY_PROPOSAL_PAYLOAD_ITEM_COUNT);
+    final Optional<BlockAccessList> blockAccessList =
+        wasLegacyEncoded ? Optional.empty() : readBlockAccessList(rlpInput);
     rlpInput.leaveList();
 
-    return new ProposalPayload(roundIdentifier, proposedBlock, blockEncoder, blockAccessList);
+    return new ProposalPayload(
+        roundIdentifier, proposedBlock, blockEncoder, blockAccessList, wasLegacyEncoded);
   }
 
   @Override
@@ -93,7 +136,11 @@ public class ProposalPayload extends QbftPayload {
     rlpOutput.startList();
     writeConsensusRound(rlpOutput);
     blockEncoder.writeTo(proposedBlock, rlpOutput);
-    blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOutput), rlpOutput::writeNull);
+    if (!useLegacyEncoding) {
+      // Current 26.1.0+ format: write BAL or null slot
+      blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOutput), rlpOutput::writeNull);
+    }
+    // else: legacy mode — omit BAL entirely (pre-26.1.0 wire format, 2 fields)
     rlpOutput.endList();
   }
 
