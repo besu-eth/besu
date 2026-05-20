@@ -220,8 +220,8 @@ public class ProposalTest {
     // useLegacyEncoding=true: ProposalPayload.writeTo emits 2 fields - the BAL slot is omitted
     // when absent. Required for interop with Besu 25.x peers during rolling upgrade.
     final ProposalPayload payload =
-        new ProposalPayload(
-            new ConsensusRoundIdentifier(1, 1), BLOCK, blockEncoder, Optional.empty(), true);
+        ProposalPayload.withLegacyEncoding(
+            new ConsensusRoundIdentifier(1, 1), BLOCK, blockEncoder, Optional.empty());
 
     final BytesValueRLPOutput out = new BytesValueRLPOutput();
     payload.writeTo(out);

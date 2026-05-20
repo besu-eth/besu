@@ -54,7 +54,7 @@ public class MessageFactory {
    * @param useLegacyEncoding when true, the encoder omits the BAL slot entirely (pre-26.1.0 wire
    *     format). Use false for the current 26.1.0+ format.
    */
-  public MessageFactory(final NodeKey nodeKey, final boolean useLegacyEncoding) {
+  private MessageFactory(final NodeKey nodeKey, final boolean useLegacyEncoding) {
     this.nodeKey = nodeKey;
     this.useLegacyEncoding = useLegacyEncoding;
   }
@@ -86,12 +86,10 @@ public class MessageFactory {
 
     final ProposalPayload payload = new ProposalPayload(roundIdentifier, block.getHash());
 
-    return new Proposal(
-        createSignedMessage(payload),
-        block,
-        blockAccessList,
-        roundChangeCertificate,
-        useLegacyEncoding);
+    final SignedData<ProposalPayload> signedPayload = createSignedMessage(payload);
+    return useLegacyEncoding
+        ? Proposal.withLegacyEncoding(signedPayload, block, blockAccessList, roundChangeCertificate)
+        : new Proposal(signedPayload, block, blockAccessList, roundChangeCertificate);
   }
 
   /**
@@ -156,11 +154,13 @@ public class MessageFactory {
         new RoundChangePayload(
             roundIdentifier,
             preparedRoundArtifacts.map(PreparedRoundArtifacts::getPreparedCertificate));
-    return new RoundChange(
-        createSignedMessage(payload),
-        preparedRoundArtifacts.map(PreparedRoundArtifacts::getBlock),
-        preparedRoundArtifacts.flatMap(PreparedRoundArtifacts::getBlockAccessList),
-        useLegacyEncoding);
+    final SignedData<RoundChangePayload> signedPayload = createSignedMessage(payload);
+    final Optional<Block> block = preparedRoundArtifacts.map(PreparedRoundArtifacts::getBlock);
+    final Optional<BlockAccessList> bal =
+        preparedRoundArtifacts.flatMap(PreparedRoundArtifacts::getBlockAccessList);
+    return useLegacyEncoding
+        ? RoundChange.withLegacyEncoding(signedPayload, block, bal)
+        : new RoundChange(signedPayload, block, bal);
   }
 
   private <M extends Payload> SignedData<M> createSignedMessage(final M payload) {

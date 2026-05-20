@@ -66,18 +66,25 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
   }
 
   /**
-   * Instantiates a new Round change with explicit encoding mode.
+   * Creates a RoundChange that encodes in pre-26.1.0 wire format (BAL slot omitted).
    *
    * @param payload the payload
    * @param proposedBlock the proposed block
    * @param blockAccessList the block access list
    * @param blockEncoder the qbft block encoder
    * @param prepares the prepares
-   * @param useLegacyEncoding when true, omit the blockAccessList slot entirely (pre-26.1.0 3-item
-   *     wire format). Pre-26.1.0 peers cannot decode BAL regardless, so BAL is always omitted in
-   *     legacy mode. Use false for the current 26.1.0+ format.
+   * @return a legacy-encoding RoundChange
    */
-  public RoundChange(
+  public static RoundChange withLegacyEncoding(
+      final SignedData<RoundChangePayload> payload,
+      final Optional<QbftBlock> proposedBlock,
+      final Optional<BlockAccessList> blockAccessList,
+      final QbftBlockCodec blockEncoder,
+      final List<SignedData<PreparePayload>> prepares) {
+    return new RoundChange(payload, proposedBlock, blockAccessList, blockEncoder, prepares, true);
+  }
+
+  private RoundChange(
       final SignedData<RoundChangePayload> payload,
       final Optional<QbftBlock> proposedBlock,
       final Optional<BlockAccessList> blockAccessList,
@@ -186,7 +193,7 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
         rlpIn.readList(r -> readPayload(r, PreparePayload::readFrom));
     rlpIn.leaveList();
 
-    return new RoundChange(payload, block, blockAccessList, blockEncoder, prepares, false);
+    return new RoundChange(payload, block, blockAccessList, blockEncoder, prepares);
   }
 
   private static Optional<BlockAccessList> readBlockAccessList(final RLPInput rlpIn) {

@@ -142,11 +142,10 @@ public class RoundChangeMessageTest {
     final RoundChange reference = TestHelpers.createSignedRoundChangePayload(nodeKey);
 
     final RoundChange legacy =
-        new RoundChange(
+        RoundChange.withLegacyEncoding(
             reference.getSignedPayload(),
             reference.getProposedBlock(),
-            reference.getBlockAccessList(),
-            true);
+            reference.getBlockAccessList());
 
     final RLPInput rlpIn = RLP.input(legacy.encode());
     assertThat(rlpIn.enterList()).isEqualTo(2);
@@ -158,11 +157,10 @@ public class RoundChangeMessageTest {
     final RoundChange reference = TestHelpers.createSignedRoundChangePayload(nodeKey);
 
     final RoundChange legacy =
-        new RoundChange(
+        RoundChange.withLegacyEncoding(
             reference.getSignedPayload(),
             reference.getProposedBlock(),
-            Optional.of(BlockAccessList.builder().build()),
-            true);
+            Optional.of(BlockAccessList.builder().build()));
 
     final RLPInput rlpIn = RLP.input(legacy.encode());
     assertThat(rlpIn.enterList()).isEqualTo(2);

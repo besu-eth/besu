@@ -127,12 +127,11 @@ public class ProposalMessageTest {
     final Proposal reference = TestHelpers.createSignedProposalPayload(nodeKey);
 
     final Proposal legacy =
-        new Proposal(
+        Proposal.withLegacyEncoding(
             reference.getSignedPayload(),
             reference.getBlock(),
             reference.getBlockAccessList(),
-            reference.getRoundChangeCertificate(),
-            true);
+            reference.getRoundChangeCertificate());
 
     final RLPInput rlpIn = RLP.input(legacy.encode());
     assertThat(rlpIn.enterList()).isEqualTo(3);
@@ -144,12 +143,11 @@ public class ProposalMessageTest {
     final Proposal reference = TestHelpers.createSignedProposalPayload(nodeKey);
 
     final Proposal legacy =
-        new Proposal(
+        Proposal.withLegacyEncoding(
             reference.getSignedPayload(),
             reference.getBlock(),
             Optional.of(BlockAccessList.builder().build()),
-            reference.getRoundChangeCertificate(),
-            true);
+            reference.getRoundChangeCertificate());
 
     final RLPInput rlpIn = RLP.input(legacy.encode());
     assertThat(rlpIn.enterList()).isEqualTo(3);

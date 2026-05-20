@@ -77,17 +77,23 @@ public class ProposalPayload extends QbftPayload {
   }
 
   /**
-   * Instantiates a new Proposal payload with explicit encoding mode.
+   * Creates a ProposalPayload that encodes in pre-26.1.0 wire format (BAL slot omitted).
    *
    * @param roundIdentifier the round identifier
    * @param proposedBlock the proposed block
    * @param blockEncoder the qbft block encoder
    * @param blockAccessList the block access list
-   * @param useLegacyEncoding when true, omit the blockAccessList slot entirely (pre-26.1.0 2-field
-   *     wire format). Pre-26.1.0 peers cannot decode BAL regardless, so BAL is always omitted in
-   *     legacy mode. Use false for the current 26.1.0+ format.
+   * @return a legacy-encoding ProposalPayload
    */
-  public ProposalPayload(
+  public static ProposalPayload withLegacyEncoding(
+      final ConsensusRoundIdentifier roundIdentifier,
+      final QbftBlock proposedBlock,
+      final QbftBlockCodec blockEncoder,
+      final Optional<BlockAccessList> blockAccessList) {
+    return new ProposalPayload(roundIdentifier, proposedBlock, blockEncoder, blockAccessList, true);
+  }
+
+  private ProposalPayload(
       final ConsensusRoundIdentifier roundIdentifier,
       final QbftBlock proposedBlock,
       final QbftBlockCodec blockEncoder,

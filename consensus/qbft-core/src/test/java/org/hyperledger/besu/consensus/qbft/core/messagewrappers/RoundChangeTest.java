@@ -258,13 +258,12 @@ public class RoundChangeTest {
             payload, nodeKey.sign(Bytes32.wrap(payload.hashForSignature().getBytes())));
 
     final RoundChange roundChange =
-        new RoundChange(
+        RoundChange.withLegacyEncoding(
             signedRoundChangePayload,
             Optional.empty(),
             Optional.empty(),
             blockEncoder,
-            Collections.emptyList(),
-            true);
+            Collections.emptyList());
 
     final org.hyperledger.besu.ethereum.rlp.RLPInput rlpIn =
         org.hyperledger.besu.ethereum.rlp.RLP.input(roundChange.encode());

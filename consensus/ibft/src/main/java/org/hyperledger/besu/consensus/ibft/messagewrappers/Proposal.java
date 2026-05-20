@@ -60,17 +60,23 @@ public class Proposal extends BftMessage<ProposalPayload> {
   }
 
   /**
-   * Instantiates a new Proposal with explicit encoding mode.
+   * Creates a Proposal that encodes in pre-26.1.0 wire format (BAL slot omitted).
    *
    * @param payload the payload
    * @param proposedBlock the proposed block
    * @param blockAccessList the block access list
    * @param certificate the certificate
-   * @param useLegacyEncoding when true, omit the blockAccessList slot entirely (pre-26.1.0 3-item
-   *     wire format). Pre-26.1.0 peers cannot decode BAL regardless, so BAL is always omitted in
-   *     legacy mode. Use false for the current 26.1.0+ format.
+   * @return a legacy-encoding Proposal
    */
-  public Proposal(
+  public static Proposal withLegacyEncoding(
+      final SignedData<ProposalPayload> payload,
+      final Block proposedBlock,
+      final Optional<BlockAccessList> blockAccessList,
+      final Optional<RoundChangeCertificate> certificate) {
+    return new Proposal(payload, proposedBlock, blockAccessList, certificate, true);
+  }
+
+  private Proposal(
       final SignedData<ProposalPayload> payload,
       final Block proposedBlock,
       final Optional<BlockAccessList> blockAccessList,
@@ -158,7 +164,7 @@ public class Proposal extends BftMessage<ProposalPayload> {
     final Optional<BlockAccessList> blockAccessList = readBlockAccessList(rlpIn);
 
     rlpIn.leaveList();
-    return new Proposal(payload, proposedBlock, blockAccessList, roundChangeCertificate, false);
+    return new Proposal(payload, proposedBlock, blockAccessList, roundChangeCertificate);
   }
 
   private static Optional<RoundChangeCertificate> readRoundChangeCertificate(final RLPInput rlpIn) {
