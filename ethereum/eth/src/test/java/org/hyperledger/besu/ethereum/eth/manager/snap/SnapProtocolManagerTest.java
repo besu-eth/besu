@@ -27,7 +27,6 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.manager.MockPeerConnection;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.DefaultMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
@@ -52,7 +51,6 @@ class SnapProtocolManagerTest {
   @Mock private SnapSyncConfiguration snapConfig;
   @Mock private EthPeers ethPeers;
   @Mock private EthMessages snapMessages;
-  @Mock private ProtocolSchedule protocolSchedule;
   @Mock private ProtocolContext protocolContext;
   @Mock private Synchronizer synchronizer;
   @Mock private EthScheduler ethScheduler;
@@ -67,9 +65,8 @@ class SnapProtocolManagerTest {
   }
 
   @Test
-  void advertisesOnlySnap1WhenSnap2IsDisabledAndBalForkIsScheduled() {
+  void advertisesOnlySnap1WhenSnap2IsDisabled() {
     when(snapConfig.isSnap2Enabled()).thenReturn(false);
-    when(protocolSchedule.anyMatch(any())).thenReturn(true);
 
     snapProtocolManager = createSnapProtocolManager();
 
@@ -77,19 +74,8 @@ class SnapProtocolManagerTest {
   }
 
   @Test
-  void advertisesOnlySnap1WhenSnap2IsEnabledButBalForkIsNotScheduled() {
+  void advertisesSnap2WhenSnap2IsEnabled() {
     when(snapConfig.isSnap2Enabled()).thenReturn(true);
-    when(protocolSchedule.anyMatch(any())).thenReturn(false);
-
-    snapProtocolManager = createSnapProtocolManager();
-
-    assertThat(snapProtocolManager.getSupportedCapabilities()).containsExactly(SnapProtocol.SNAP1);
-  }
-
-  @Test
-  void advertisesSnap2WhenSnap2IsEnabledAndBalForkIsScheduled() {
-    when(snapConfig.isSnap2Enabled()).thenReturn(true);
-    when(protocolSchedule.anyMatch(any())).thenReturn(true);
 
     snapProtocolManager = createSnapProtocolManager();
 
@@ -123,7 +109,6 @@ class SnapProtocolManagerTest {
         ethPeers,
         snapMessages,
         ethScheduler,
-        protocolSchedule,
         protocolContext,
         synchronizer);
   }
