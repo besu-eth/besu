@@ -75,6 +75,10 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
   public static final byte[] DELETED_ACCOUNT_VALUE = new byte[0];
   public static final byte[] DELETED_STORAGE_VALUE = new byte[0];
 
+  public Long getTrieNodeCheckpointInterval() {
+    return trieNodeCheckpointInterval;
+  }
+
   private Optional<BonsaiContext> getStateArchiveContextForWrite(
       final SegmentedKeyValueStorage storage) {
     // For Bonsai archive get the flat DB context to use for writing archive entries.

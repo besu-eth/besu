@@ -135,7 +135,7 @@ public class PathBasedExtraStorageOptions
         names = {STATE_PROOFS_ENABLED},
         arity = "1",
         description =
-            "Enables Bonsai-archive state proofs over the X_BONSAI_ARCHIVE format. Captures suffixed trie-node entries into a dedicated archive segment so eth_getProof can be answered for historical blocks. (default: ${DEFAULT-VALUE})")
+            "Enables Bonsai-archive state proofs when using X_BONSAI_ARCHIVE storage format. (default: ${DEFAULT-VALUE})")
     private Boolean stateProofsEnabled = DEFAULT_STATE_PROOFS_ENABLED;
 
     @Option(
@@ -143,7 +143,7 @@ public class PathBasedExtraStorageOptions
         names = {ARCHIVE_TRIE_NODE_CHECKPOINT_INTERVAL},
         arity = "1",
         description =
-            "Window size for Bonsai-archive state-proof trie-node checkpoints. Every block in a window shares the same archive-segment suffix, so unique-key growth in the archive segment is proportional to the number of windows rather than blocks. Larger intervals reduce archive growth but slow historical proof reconstruction. (default: ${DEFAULT-VALUE})")
+            "The frequency of recording state trie nodes for Bonsai archive mode. Intermediate nodes are generated from trie logs. Larger intervals require less storage space but historic proof generation may take longer. (default: ${DEFAULT-VALUE})")
     private Long archiveTrieNodeCheckpointInterval = DEFAULT_ARCHIVE_CHECKPOINT_INTERVAL;
 
     /** Default Constructor. */

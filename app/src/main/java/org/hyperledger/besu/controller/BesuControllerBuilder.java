@@ -1021,8 +1021,22 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         ((BonsaiWorldStateProvider) worldStateArchive).getTrieLogManager();
     final ScheduledExecutorService migrationExecutor =
         MonitoredExecutors.newScheduledThreadPool("archive-migrator", 1, metricsSystem);
+    final boolean stateProofsEnabled =
+        dataStorageConfiguration
+            .getPathBasedExtraStorageConfiguration()
+            .getUnstable()
+            .getStateProofsEnabled();
     final BonsaiArchiveFlatDbStrategy archiveStrategy =
-        new BonsaiArchiveFlatDbStrategy(metricsSystem, new CodeHashCodeStorageStrategy());
+        stateProofsEnabled
+            ? new BonsaiArchiveFlatDbStrategy(
+                metricsSystem,
+                new CodeHashCodeStorageStrategy(),
+                dataStorageConfiguration
+                    .getPathBasedExtraStorageConfiguration()
+                    .getUnstable()
+                    .getArchiveTrieNodeCheckpointInterval(),
+                false)
+            : new BonsaiArchiveFlatDbStrategy(metricsSystem, new CodeHashCodeStorageStrategy());
     return new BonsaiFlatDbToArchiveMigrator(
         worldStateKeyValueStorage,
         trieLogManager,

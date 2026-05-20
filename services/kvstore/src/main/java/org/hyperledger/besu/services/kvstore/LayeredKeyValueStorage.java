@@ -334,6 +334,31 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
         this::isClosed);
   }
 
+  /** Clears all entries from the in-memory layer without affecting the parent storage. */
+  public void clearInMemory() {
+    hashValueStore.clear();
+  }
+
+  /**
+   * Reads a key from the in-memory layer only, without falling back to the parent storage.
+   *
+   * @param segmentId the segment identifier
+   * @param key the key to look up
+   * @return the value if present in the in-memory layer, empty otherwise
+   */
+  protected Optional<byte[]> getFromLayerOnly(final SegmentIdentifier segmentId, final byte[] key) {
+    throwIfClosed();
+    final Lock lock = rwLock.readLock();
+    lock.lock();
+    try {
+      final Optional<byte[]> value =
+          hashValueStore.computeIfAbsent(segmentId, __ -> newSegmentMap()).get(Bytes.wrap(key));
+      return value == null ? Optional.empty() : value;
+    } finally {
+      lock.unlock();
+    }
+  }
+
   @Override
   public boolean isClosed() {
     return parent.isClosed();

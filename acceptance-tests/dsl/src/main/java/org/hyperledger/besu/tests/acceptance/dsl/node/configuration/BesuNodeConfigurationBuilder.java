@@ -459,24 +459,6 @@ public class BesuNodeConfigurationBuilder {
     return this;
   }
 
-  public BesuNodeConfigurationBuilder withStateProofsEnabled(final boolean enabled) {
-    final PathBasedUnstable updatedUnstable =
-        ImmutablePathBasedExtraStorageConfiguration.PathBasedUnstable.builder()
-            .from(dataStorageConfiguration.getPathBasedExtraStorageConfiguration().getUnstable())
-            .stateProofsEnabled(enabled)
-            .build();
-    this.dataStorageConfiguration =
-        ImmutableDataStorageConfiguration.builder()
-            .from(dataStorageConfiguration)
-            .pathBasedExtraStorageConfiguration(
-                ImmutablePathBasedExtraStorageConfiguration.builder()
-                    .from(dataStorageConfiguration.getPathBasedExtraStorageConfiguration())
-                    .unstable(updatedUnstable)
-                    .build())
-            .build();
-    return this;
-  }
-
   public BesuNodeConfigurationBuilder storageImplementation(
       final KeyValueStorageFactory storageFactory) {
     this.storageImplementation = Optional.of(storageFactory);
