@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.metrics.prometheus;
 
+import static java.util.Objects.requireNonNull;
 import static org.hyperledger.besu.metrics.prometheus.PrometheusCollector.addLabelValues;
 import static org.hyperledger.besu.metrics.prometheus.PrometheusCollector.getLabelValues;
 
@@ -26,6 +27,7 @@ import java.util.stream.Stream;
 import io.prometheus.metrics.model.registry.Collector;
 import io.prometheus.metrics.model.registry.PrometheusRegistry;
 import io.prometheus.metrics.model.snapshots.SummarySnapshot;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Abstract base class for Prometheus summary collectors. A summary provides a total count of
@@ -34,7 +36,7 @@ import io.prometheus.metrics.model.snapshots.SummarySnapshot;
  */
 abstract class AbstractPrometheusSummary extends CategorizedPrometheusCollector {
   /** The Prometheus collector */
-  protected Collector collector;
+  protected @Nullable Collector collector;
 
   /**
    * Constructs a new AbstractPrometheusSummary.
@@ -53,7 +55,7 @@ abstract class AbstractPrometheusSummary extends CategorizedPrometheusCollector 
    */
   @Override
   public String getIdentifier() {
-    return collector.getPrometheusName();
+    return collector().getPrometheusName();
   }
 
   /**
@@ -63,7 +65,7 @@ abstract class AbstractPrometheusSummary extends CategorizedPrometheusCollector 
    */
   @Override
   public void register(final PrometheusRegistry registry) {
-    registry.register(collector);
+    registry.register(collector());
   }
 
   /**
@@ -73,7 +75,7 @@ abstract class AbstractPrometheusSummary extends CategorizedPrometheusCollector 
    */
   @Override
   public void unregister(final PrometheusRegistry registry) {
-    registry.unregister(collector);
+    registry.unregister(collector());
   }
 
   /**
@@ -82,7 +84,11 @@ abstract class AbstractPrometheusSummary extends CategorizedPrometheusCollector 
    * @return The collected summary snapshot
    */
   private SummarySnapshot collect() {
-    return (SummarySnapshot) collector.collect();
+    return (SummarySnapshot) collector().collect();
+  }
+
+  protected Collector collector() {
+    return requireNonNull(collector);
   }
 
   /**
