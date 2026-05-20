@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.metrics;
 
+import org.jspecify.annotations.Nullable;
+
 /** Enumeration of metrics protocols supported by Besu. */
 public enum MetricsProtocol {
   /** Prometheus metrics protocol. */
@@ -29,7 +31,7 @@ public enum MetricsProtocol {
    * @param str the string representation of message protocol
    * @return the metrics protocol
    */
-  public static MetricsProtocol fromString(final String str) {
+  public static @Nullable MetricsProtocol fromString(final String str) {
     for (final MetricsProtocol mode : MetricsProtocol.values()) {
       if (mode.name().equalsIgnoreCase(str)) {
         return mode;
