@@ -4,7 +4,8 @@
 
 ### Breaking Changes
 - RPC changes to enhance compatibility with other ELs
-  - Block number parameter in RPCs will only support hex values. Non-hex (decimal) block number parameters are now rejected. This affects `debug_getRawBlock`, `debug_getRawHeader`, `debug_getRawReceipts`, and `eth_getProof`. [#10240](https://github.com/besu-eth/besu/pull/10240)
+  - Block number parameter in RPCs now only supports hex values. Non-hex (decimal) block number parameters are now rejected. Affected RPCs including but not limited to: `debug_getRawBlock`, `debug_getRawHeader`, `debug_getRawReceipts`, and `eth_getProof`. [#10240](https://github.com/besu-eth/besu/pull/10240)
+  - Hash parameter in RPCs now only supports hex values. Hash values without a `0x` prefix are now rejected with `-32602 INVALID_PARAMS`. Affected RPCs including but not limited to: `debug_getRawTransaction`, `eth_getTransactionByHash`, `eth_getTransactionReceipt` [#10505](https://github.com/besu-eth/besu/pull/10505)
 
 ### Upcoming Breaking Changes
 - Sunsetting features - for more context on the reasoning behind the deprecation of these features, including alternative options, read [this blog post](https://www.lfdecentralizedtrust.org/blog/sunsetting-tessera-and-simplifying-hyperledger-besu)
