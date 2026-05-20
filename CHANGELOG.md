@@ -26,6 +26,7 @@
 - Fix `engine_forkchoiceUpdatedV1` now returns `-38003 INVALID_PAYLOAD_ATTRIBUTES` for invalid payload attribute timestamps (zero or not greater than head). [#10353](https://github.com/besu-eth/besu/pull/10353)
 - Fix `engine_newPayloadV4`/`V5` now returns `-32602 INVALID_PARAMS` instead of `INVALID` payload status when execution requests contain an unknown request type. [#10484](https://github.com/besu-eth/besu/pull/10484)
 - Fix `debug_trace*` `storage` field to emit only for SLOAD/SSTORE opcodes showing the single slot touched, matching the execution-apis spec and geth behaviour [#10176](https://github.com/besu-eth/besu/pull/10176)
+- Fix `PeerTransactionTracker` incorrectly evicting peers that are connected but awaiting `ChainHeadTracker` validation, causing Besu to silently drop announced transactions from those peers [#10511](https://github.com/hyperledger/besu/pull/10511)
 - Fix `RLPException` observed during BFT (QBFT/IBFT2) rolling upgrades from Besu 25.x. Use the flag `--Xbft-legacy-protocol-encoding` on each upgrading Besu node to remain compatible with existing Besu 25.x nodes on the BFT network. [#10499](https://github.com/besu-eth/besu/pull/10499)
 
 ### Additions and Improvements
