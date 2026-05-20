@@ -181,7 +181,7 @@ public class EthGetLogsTest {
     final long fromBlock = 50L;
     final long toBlock = 100L;
     final JsonRpcRequestContext request =
-        buildRequest(String.valueOf(fromBlock), String.valueOf(toBlock));
+        buildRequest("0x" + Long.toHexString(fromBlock), "0x" + Long.toHexString(toBlock));
 
     when(blockchainQueries.headBlockNumber()).thenReturn(150L);
     when(blockchainQueries.matchingLogs(anyLong(), anyLong(), any(), any()))
@@ -200,7 +200,7 @@ public class EthGetLogsTest {
   public void shouldQueryWrappedNumericToNumeric() {
     final long fromBlock = 50L;
     final long toBlock = 100L;
-    final JsonRpcRequestContext request = buildRequest(String.valueOf(fromBlock), toBlock);
+    final JsonRpcRequestContext request = buildRequest("0x" + Long.toHexString(fromBlock), toBlock);
 
     when(blockchainQueries.headBlockNumber()).thenReturn(150L);
     when(blockchainQueries.matchingLogs(anyLong(), anyLong(), any(), any()))

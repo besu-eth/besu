@@ -36,7 +36,6 @@
         "excessBlobGas": "0x0",
         "blobGasUsed": "0x0",
         "blockAccessList": "0xf8a4de9400000961ef480eb55e80d19ad83579a64c007002c0c480010203c0c0c0de940000bbddc7ce488642fb579f8b00f3a590007251c0c480010203c0c0c0f840940000f90827f1c53a10cb7a02335b175320002935e6e580e3e280a0937c8f382f4945fc6122652239426484d97b400d66c122aea45f2dd4a8afeab6c0c0c0c0e394000f3df6d732807ef1319fb7b8bb8522d0beac02c6c501c3c28001c3822000c0c0c0",
-        "slotNumber": null,
         "transactions": [],
         "withdrawals": [],
         "blockNumber": "0x1",
