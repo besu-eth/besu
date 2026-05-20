@@ -31,6 +31,9 @@ import java.util.function.Function;
  */
 public class ForksSchedule<C> {
 
+  // Earliest permitted timestamp for TIME-based forks (1st January 2023 00:00:00 UTC)
+  private static final long MIN_TIMESTAMP_FORK_EPOCH_SECONDS = 1_672_531_200L;
+
   private final NavigableSet<ForkSpec<C>> forks =
       new TreeSet<>(
           Comparator.comparing((Function<ForkSpec<C>, Long>) ForkSpec::getBlock).reversed());
@@ -49,11 +52,21 @@ public class ForksSchedule<C> {
    *
    * @param protocolSchedule the protocol schedule
    */
+
   public void applyMilestoneTypes(final BftProtocolSchedule protocolSchedule) {
     forks.forEach(
-        f ->
-            f.setForkType(
-                protocolSchedule.getSpecTypeByBlockNumberOrTimestamp(f.getBlock(), f.getBlock())));
+        f -> {
+          f.setForkType(
+              protocolSchedule.getSpecTypeByBlockNumberOrTimestamp(f.getBlock(), f.getBlock()));
+          if (f.getForkType() == ForkSpec.ForkScheduleType.TIME
+              && f.getBlock() < MIN_TIMESTAMP_FORK_EPOCH_SECONDS) {
+            throw new IllegalArgumentException(
+                String.format(
+                    "Fork of type TIMESTAMP has block value %d which is before 1st January 2023"
+                        + " (epoch seconds %d); timestamp-based forks earlier than this are not supported.",
+                    f.getBlock(), MIN_TIMESTAMP_FORK_EPOCH_SECONDS));
+          }
+        });
   }
 
   /**
