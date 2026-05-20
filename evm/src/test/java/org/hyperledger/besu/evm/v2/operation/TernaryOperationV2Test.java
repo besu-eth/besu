@@ -31,11 +31,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
-abstract class BinaryOperationV2Test {
+abstract class TernaryOperationV2Test {
 
   protected final Operation operation;
 
-  public BinaryOperationV2Test(final Operation operation) {
+  public TernaryOperationV2Test(final Operation operation) {
     this.operation = operation;
   }
 
@@ -45,16 +45,17 @@ abstract class BinaryOperationV2Test {
         new TestMessageFrameBuilderV2()
             .pushStackItem(Bytes32.ZERO)
             .pushStackItem(Bytes32.ZERO)
+            .pushStackItem(Bytes32.ZERO)
             .initialGas(1)
             .build();
-    assertThat(frame.stackTopV2()).isEqualTo(2);
+    assertThat(frame.stackTopV2()).isEqualTo(3);
     final Operation.OperationResult result = operation.execute(frame, null);
-    assertThat(frame.stackTopV2()).isEqualTo(2);
+    assertThat(frame.stackTopV2()).isEqualTo(3);
     assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
   }
 
   private static Stream<List<String>> operandStacks() {
-    return Stream.of(List.of(), List.of("0x01"));
+    return Stream.of(List.of(), List.of("0x01"), List.of("0x02"));
   }
 
   @ParameterizedTest(name = "stack {0}")
@@ -79,15 +80,16 @@ abstract class BinaryOperationV2Test {
         Bytes32.fromHexString("0xdeadbeefdeadbeefcafebabecafebabe0123456789abcdeff1e2d3c4b5a69788");
     final MessageFrame frame =
         new TestMessageFrameBuilderV2()
-            .pushStackItem(untouched) // top-3 (untouched by operation)
+            .pushStackItem(untouched) // top-4 (untouched by operation)
+            .pushStackItem(Bytes32.fromHexString("0x09")) // top-3 (c)
             .pushStackItem(Bytes32.fromHexString("0x07")) // top-2 (b)
             .pushStackItem(Bytes32.fromHexString("0x05")) // top-1 (a)
             .build();
-    assertThat(frame.stackTopV2()).isEqualTo(3);
+    assertThat(frame.stackTopV2()).isEqualTo(4);
 
     operation.execute(frame, null);
 
-    assertThat(frame.stackTopV2()).isEqualTo(2);
+    assertThat(frame.stackTopV2()).isEqualTo(2); // consumes 3 produces 1
     assertThat(getV2StackItem(frame, 1)).isEqualTo(UInt256.fromBytesBE(untouched.toArrayUnsafe()));
   }
 }
