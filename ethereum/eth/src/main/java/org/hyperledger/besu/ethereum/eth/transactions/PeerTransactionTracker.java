@@ -23,7 +23,6 @@ import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
 import org.hyperledger.besu.ethereum.chain.BlockAddedObserver;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
-import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.plugin.data.AddedBlockContext;
@@ -351,10 +350,7 @@ public class PeerTransactionTracker
         .log();
 
     final Set<EthPeer> connectedPeers =
-        ethPeers
-            .streamAllPeers()
-            .map(EthPeerImmutableAttributes::ethPeer)
-            .collect(Collectors.toUnmodifiableSet());
+        ethPeers.streamAllConnectedPeers().collect(Collectors.toUnmodifiableSet());
 
     final Set<EthPeer> disconnectedPeers = trackedPeers;
     disconnectedPeers.removeAll(connectedPeers);
