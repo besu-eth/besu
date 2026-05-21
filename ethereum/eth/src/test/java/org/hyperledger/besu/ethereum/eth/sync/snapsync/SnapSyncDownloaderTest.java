@@ -39,7 +39,6 @@ import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloader;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
 
 import java.nio.file.Path;
-import java.util.Optional;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
@@ -571,8 +570,7 @@ public class SnapSyncDownloaderTest {
   }
 
   private SnapSyncProcessState snapSyncState(final BlockHeader pivotBlockHeader) {
-    return new SnapSyncProcessState(
-        new PivotSyncState(pivotBlockHeader, false), Optional.of(pivotBlockHeader));
+    return new SnapSyncProcessState(new PivotSyncState(pivotBlockHeader, false));
   }
 
   private <T> void assertCompletedExceptionally(

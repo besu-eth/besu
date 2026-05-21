@@ -28,7 +28,6 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePers
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.AccountRangeDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloader;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -68,7 +67,6 @@ public class SnapWorldStateDownloader implements WorldStateDownloader {
   private final int maxNodeRequestsWithoutProgress;
   private final ProtocolContext protocolContext;
   private final WorldStateStorageCoordinator worldStateStorageCoordinator;
-  private final ProtocolSchedule protocolSchedule;
 
   private final AtomicReference<SnapWorldDownloadState> downloadState = new AtomicReference<>();
   private final SyncDurationMetrics syncDurationMetrics;
@@ -79,7 +77,6 @@ public class SnapWorldStateDownloader implements WorldStateDownloader {
       final EthContext ethContext,
       final SnapSyncStatePersistenceManager snapContext,
       final ProtocolContext protocolContext,
-      final ProtocolSchedule protocolSchedule,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final InMemoryTasksPriorityQueues<SnapDataRequest> snapTaskCollection,
       final SnapSyncConfiguration snapSyncConfiguration,
@@ -91,7 +88,6 @@ public class SnapWorldStateDownloader implements WorldStateDownloader {
       final SyncDurationMetrics syncDurationMetrics) {
     this.ethContext = ethContext;
     this.protocolContext = protocolContext;
-    this.protocolSchedule = protocolSchedule;
     this.worldStateStorageCoordinator = worldStateStorageCoordinator;
     this.snapContext = snapContext;
     this.snapTaskCollection = snapTaskCollection;
@@ -168,7 +164,6 @@ public class SnapWorldStateDownloader implements WorldStateDownloader {
               snapContext,
               protocolContext.getBlockchain(),
               snapSyncState,
-              protocolSchedule,
               snapTaskCollection,
               maxNodeRequestsWithoutProgress,
               minMillisBeforeStalling,
