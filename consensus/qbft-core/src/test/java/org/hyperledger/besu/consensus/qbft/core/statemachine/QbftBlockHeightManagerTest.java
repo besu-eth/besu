@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -65,6 +66,8 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Util;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
+import org.hyperledger.besu.ethereum.rlp.RLPInput;
+import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.math.BigInteger;
@@ -623,7 +626,23 @@ public class QbftBlockHeightManagerTest {
     when(blockTimer.checkEmptyBlockExpired(any(), eq(0L))).thenReturn(true);
     when(blockInterface.replaceRoundForCommitBlock(eq(createdBlock), eq(0)))
         .thenReturn(createdBlock);
-    when(blockEncoder.readFrom(any())).thenReturn(createdBlock);
+    // Stub the codec to round-trip a placeholder byte for the block. Without writing actual
+    // bytes, the RoundChange message would encode without a block-position element, producing
+    // a malformed RLP that the decoder can't parse.
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.getArgument(0, RLPInput.class).readBytes();
+              return createdBlock;
+            });
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class)
+                  .writeBytes(org.apache.tuweni.bytes.Bytes.of(0xAB));
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
 
     final QbftBlockHeightManager manager =
         new QbftBlockHeightManager(
