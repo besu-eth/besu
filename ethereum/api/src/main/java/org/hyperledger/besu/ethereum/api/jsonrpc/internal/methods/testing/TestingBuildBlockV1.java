@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadAttributesParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -37,6 +38,8 @@ import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationRes
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockValueCalculator;
+import org.hyperledger.besu.ethereum.core.BlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -49,11 +52,13 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import org.hyperledger.besu.util.HexUtils;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -230,6 +235,21 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
               Optional.ofNullable(slotNumber),
               parentHeader);
 
+      // When transactions are explicitly provided, return an error if any were not applied.
+      // Iterate in original transaction order for deterministic error reporting.
+      if (transactionsProvided) {
+        final Map<Transaction, TransactionSelectionResult> notSelected =
+            result.getTransactionSelectionResults().getNotSelectedTransactions();
+        for (final Transaction tx : transactions) {
+          final TransactionSelectionResult selectionResult = notSelected.get(tx);
+          if (selectionResult != null) {
+            final String reason =
+                selectionResult.maybeInvalidReason().orElse("transaction not applicable");
+            return new JsonRpcErrorResponse(requestId, new JsonRpcError(-32000, reason, null));
+          }
+        }
+      }
+
       final Block block = result.getBlock();
 
       final List<String> txsAsHex =
@@ -247,13 +267,17 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
       final String slotNumberHex =
           block.getHeader().getOptionalSlotNumber().map(Quantity::create).orElse(null);
 
+      final Wei blockValue =
+          BlockValueCalculator.calculateBlockValue(
+              new BlockWithReceipts(block, result.getTransactionSelectionResults().getReceipts()));
+
       final EngineGetPayloadResultV6 responsePayload =
           new EngineGetPayloadResultV6(
               block.getHeader(),
               txsAsHex,
               block.getBody().getWithdrawals(),
               executionRequests,
-              Quantity.create(Wei.ZERO),
+              Quantity.create(blockValue),
               blobsBundle,
               blockAccessListHex,
               slotNumberHex);

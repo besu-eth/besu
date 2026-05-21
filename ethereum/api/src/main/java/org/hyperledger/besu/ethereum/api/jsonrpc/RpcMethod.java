@@ -85,6 +85,7 @@ public enum RpcMethod {
   ETH_CREATE_ACCESS_LIST("eth_createAccessList"),
   ETH_FEE_HISTORY("eth_feeHistory"),
   ETH_GAS_PRICE("eth_gasPrice"),
+  ETH_BASE_FEE("eth_baseFee"),
   ETH_BLOB_BASE_FEE("eth_blobBaseFee"),
   ETH_GET_BALANCE("eth_getBalance"),
   ETH_GET_BLOCK_ACCESS_LIST("eth_getBlockAccessList"),

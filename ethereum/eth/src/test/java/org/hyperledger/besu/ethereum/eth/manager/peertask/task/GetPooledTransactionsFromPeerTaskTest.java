@@ -19,6 +19,7 @@ import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.EthProtocol;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.InvalidPeerTaskResponseException;
+import org.hyperledger.besu.ethereum.eth.manager.peertask.MalformedRlpFromPeerException;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskValidationResponse;
 import org.hyperledger.besu.ethereum.eth.messages.PooledTransactionsMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
@@ -48,7 +49,8 @@ public class GetPooledTransactionsFromPeerTaskTest {
   }
 
   @Test
-  public void testProcessResponse() throws InvalidPeerTaskResponseException {
+  public void testProcessResponse()
+      throws InvalidPeerTaskResponseException, MalformedRlpFromPeerException {
     List<Hash> hashes = List.of(Hash.EMPTY);
     GetPooledTransactionsFromPeerTask task = new GetPooledTransactionsFromPeerTask(hashes);
 

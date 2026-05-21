@@ -207,7 +207,7 @@ public class PeerTaskExecutor {
         peer.disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
         executorResult =
             new PeerTaskExecutorResult<>(
-                Optional.empty(), PeerTaskExecutorResponseCode.INVALID_RESPONSE, List.of(peer));
+                Optional.empty(), PeerTaskExecutorResponseCode.PEER_DISCONNECTED, List.of(peer));
 
       } catch (Exception e) {
         internalExceptionCounter.labels(taskClassName).inc();
