@@ -50,7 +50,6 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
-import org.hyperledger.besu.ethereum.mainnet.WithdrawalsValidator;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import java.util.Optional;
@@ -95,10 +94,7 @@ public class EngineForkchoiceUpdatedV1Test {
   public void before() {
     when(protocolContext.safeConsensusContext(Mockito.any())).thenReturn(Optional.of(mergeContext));
     when(protocolContext.getBlockchain()).thenReturn(blockchain);
-    when(protocolSpec.getWithdrawalsValidator())
-        .thenReturn(new WithdrawalsValidator.ProhibitedWithdrawals());
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(protocolSpec);
-    createMethod();
   }
 
   /** Returns the method factory for the version under test. Overridden by each subclass. */

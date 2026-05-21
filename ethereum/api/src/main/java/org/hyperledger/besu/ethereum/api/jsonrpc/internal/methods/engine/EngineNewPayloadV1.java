@@ -148,17 +148,18 @@ public sealed class EngineNewPayloadV1<
         .setMessage("blockparam: {}")
         .addArgument(() -> Json.encodePrettily(blockParam))
         .log();
-    final ValidationResult<RpcErrorType> parameterValidationResult =
-        validateParameters(requestParameters);
-
-    if (!parameterValidationResult.isValid()) {
-      return new JsonRpcErrorResponse(reqId, parameterValidationResult);
-    }
 
     final ValidationResult<RpcErrorType> forkValidationResult =
         validateForkSupported(blockParam.getTimestamp());
     if (!forkValidationResult.isValid()) {
       return new JsonRpcErrorResponse(reqId, forkValidationResult);
+    }
+
+    final ValidationResult<RpcErrorType> parameterValidationResult =
+        validateParameters(requestParameters);
+
+    if (!parameterValidationResult.isValid()) {
+      return new JsonRpcErrorResponse(reqId, parameterValidationResult);
     }
 
     // 2. Client software MUST validate blockHash value as being equivalent to
@@ -241,12 +242,7 @@ public sealed class EngineNewPayloadV1<
     final ValidationResult<RpcErrorType> versionSpecificBlockValidationResult =
         validateNewBlock(unvalidatedBlock, protocolSpec, parentHeader, requestParameters);
     if (!versionSpecificBlockValidationResult.isValid()) {
-      return respondWithInvalid(
-          reqId,
-          blockParam,
-          maybeLatestValidAncestor.orElse(null),
-          getInvalidBlockHashStatus(),
-          versionSpecificBlockValidationResult.getErrorMessage());
+      return new JsonRpcErrorResponse(reqId, versionSpecificBlockValidationResult);
     }
 
     // block is now valid and can be processed
@@ -294,8 +290,7 @@ public sealed class EngineNewPayloadV1<
     }
   }
 
-  @SuppressWarnings("unchecked")
-  protected NPRP readRequestParameters(final JsonRpcRequestContext requestContext) {
+  protected ExecutionPayloadV1 readPayloadParameter(final JsonRpcRequestContext requestContext) {
     final ExecutionPayloadV1 blockParam;
     try {
       blockParam =
@@ -307,7 +302,12 @@ public sealed class EngineNewPayloadV1<
           RpcErrorType.INVALID_ENGINE_NEW_PAYLOAD_PARAMS,
           e);
     }
-    return (NPRP) new NewPayloadRequestParametersV1<>(blockParam);
+    return blockParam;
+  }
+
+  @SuppressWarnings("unchecked")
+  protected NPRP readRequestParameters(final JsonRpcRequestContext requestContext) {
+    return (NPRP) new NewPayloadRequestParametersV1<>(readPayloadParameter(requestContext));
   }
 
   protected Class<? extends ExecutionPayloadV1> getPayloadParameterClass() {
@@ -378,6 +378,10 @@ public sealed class EngineNewPayloadV1<
         .log();
     return new JsonRpcSuccessResponse(
         requestId, new PayloadStatusV1(status, latestValidHash, Optional.empty()));
+  }
+
+  JsonRpcResponse respondWithInvalid(final Object requestId, final String validationError) {
+    return respondWithInvalid(requestId, null, null, INVALID, validationError);
   }
 
   JsonRpcResponse respondWithInvalid(
@@ -468,10 +472,6 @@ public sealed class EngineNewPayloadV1<
     return mergeCoordinator.rememberBlock(block, Optional.empty());
   }
 
-  protected MergeMiningCoordinator getMergeCoordinator() {
-    return mergeCoordinator;
-  }
-
   private void logImportedBlockInfo(
       final Block block, final long timeInNs, final Optional<Integer> nbParallelizedTransactions) {
     final StringBuilder message = new StringBuilder();
@@ -531,20 +531,20 @@ public sealed class EngineNewPayloadV1<
     if (maybeFieldEx.isPresent()) {
       final FieldDeserializationException fieldEx = maybeFieldEx.get();
       if (fieldEx.getInvalidField().equals(InvalidField.TRANSACTIONS)) {
-        customMessage =
-            "Failed to decode transactions from block parameter (" + fieldEx.getMessage() + ")";
+        return respondWithInvalid(
+            reqId,
+            "Failed to decode transactions from block parameter (" + fieldEx.getMessage() + ")");
       } else if (fieldEx.getInvalidField().equals(InvalidField.EXTRA_DATA)) {
         customMessage =
             "Failed to decode extraData from block parameter (" + fieldEx.getMessage() + ")";
       }
     }
 
-    return respondWithInvalid(
+    return new JsonRpcErrorResponse(
         reqId,
-        null,
-        null,
-        INVALID,
-        Objects.requireNonNullElse(
-            customMessage, "Failed to decode block parameter (" + e.getMessage() + ")"));
+        ValidationResult.invalid(
+            RpcErrorType.INVALID_ENGINE_NEW_PAYLOAD_PARAMS,
+            Objects.requireNonNullElse(
+                customMessage, "Failed to decode block parameter (" + e.getMessage() + ")")));
   }
 }

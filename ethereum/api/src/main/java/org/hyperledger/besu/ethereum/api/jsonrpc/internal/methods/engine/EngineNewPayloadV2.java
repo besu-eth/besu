@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.WithdrawalsValidatorProvider.getWithdrawalsValidator;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.datatypes.HardforkId;
@@ -94,10 +93,11 @@ public sealed class EngineNewPayloadV2<
       final NPRP requestParameters) {
     final ValidationResult<RpcErrorType> result =
         super.validateNewBlock(newBlock, protocolSpec, parentHeader, requestParameters);
-    return result.isValid() ? validateExecutionPayloadV2(newBlock) : result;
+    return result.isValid() ? validateExecutionPayloadV2(newBlock, protocolSpec) : result;
   }
 
-  private ValidationResult<RpcErrorType> validateExecutionPayloadV2(final Block newBlock) {
+  private ValidationResult<RpcErrorType> validateExecutionPayloadV2(
+      final Block newBlock, final ProtocolSpec protocolSpec) {
     // engine_newPayloadV2 is peculiar since it allows 2 different versions of execution payload,
     // so we need to check the timestamp for withdrawal validation.
 
@@ -120,10 +120,8 @@ public sealed class EngineNewPayloadV2<
       }
     }
 
-    return getWithdrawalsValidator(
-                protocolSchedule.get(),
-                newBlock.getHeader().getTimestamp(),
-                newBlock.getHeader().getNumber())
+    return protocolSpec
+            .getWithdrawalsValidator()
             .validateWithdrawals(newBlock.getBody().getWithdrawals())
         ? ValidationResult.valid()
         : ValidationResult.invalid(RpcErrorType.INVALID_WITHDRAWALS_PARAMS);
@@ -145,7 +143,7 @@ public sealed class EngineNewPayloadV2<
     return new BlockBody(
         executionPayload.getTransactions(),
         Collections.emptyList(),
-        Optional.of(executionPayload.getWithdrawals()));
+        Optional.ofNullable(executionPayload.getWithdrawals()));
   }
 
   @Override

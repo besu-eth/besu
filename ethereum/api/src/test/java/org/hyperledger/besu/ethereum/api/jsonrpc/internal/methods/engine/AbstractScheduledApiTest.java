@@ -25,7 +25,7 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGH
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 
-import org.hyperledger.besu.ethereum.mainnet.DefaultProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ScheduledProtocolSpec;
 import org.hyperledger.besu.ethereum.util.TrustedSetupClassLoaderExtension;
 
@@ -33,9 +33,12 @@ import java.util.Optional;
 import java.util.function.Predicate;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentMatcher;
 import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
+@ExtendWith(MockitoExtension.class)
 public class AbstractScheduledApiTest extends TrustedSetupClassLoaderExtension {
 
   protected final ScheduledProtocolSpec.Hardfork londonHardfork =
@@ -55,7 +58,7 @@ public class AbstractScheduledApiTest extends TrustedSetupClassLoaderExtension {
   protected final ScheduledProtocolSpec.Hardfork experimentalHardfork =
       new ScheduledProtocolSpec.Hardfork("ExperimentalEips", 80);
 
-  @Mock protected DefaultProtocolSchedule protocolSchedule;
+  @Mock protected ProtocolSchedule protocolSchedule;
 
   static class HardforkMatcher implements ArgumentMatcher<Predicate<ScheduledProtocolSpec>> {
     private final ScheduledProtocolSpec.Hardfork fork;

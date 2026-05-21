@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -87,7 +88,8 @@ public sealed class EngineNewPayloadV3<
   @Override
   @SuppressWarnings("unchecked")
   protected NPRP readRequestParameters(final JsonRpcRequestContext requestContext) {
-    final NPRP requestParameters = super.readRequestParameters(requestContext);
+    final NewPayloadRequestParametersV1<EP> requestParameters =
+        new NewPayloadRequestParametersV1<>((EP) readPayloadParameter(requestContext));
     final List<VersionedHash> expectedBlobVersionedHashes;
     try {
       expectedBlobVersionedHashes =
