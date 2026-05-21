@@ -224,6 +224,13 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
       return;
     }
     final int toEvict = cachedWorldStatesByHash.size() - maxLayers;
+    LOG.atInfo()
+        .setMessage(
+            "Evicting {} oldest cached world state layers (current count: {}, target: {})")
+        .addArgument(toEvict)
+        .addArgument(cachedWorldStatesByHash.size())
+        .addArgument(maxLayers)
+        .log();
     cachedWorldStatesByHash.values().stream()
         .sorted(Comparator.comparingLong(PathBasedCachedWorldView::getBlockNumber))
         .limit(toEvict)
