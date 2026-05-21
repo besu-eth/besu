@@ -372,7 +372,8 @@ public abstract class AbstractEngineNewPayloadTest extends AbstractScheduledApiT
     // Second call: recovered — cachedLayerCount() called once, returns low value → VALID.
     when(cacheManager.cachedLayerCount())
         .thenReturn(AbstractEngineNewPayload.MAX_CACHED_WORLD_STATE_LAYERS + 1) // call #1 pre-evict
-        .thenReturn(AbstractEngineNewPayload.MAX_CACHED_WORLD_STATE_LAYERS + 1) // call #1 post-evict
+        .thenReturn(
+            AbstractEngineNewPayload.MAX_CACHED_WORLD_STATE_LAYERS + 1) // call #1 post-evict
         .thenReturn(1); // call #2
 
     EnginePayloadStatusResult stalledResult =
