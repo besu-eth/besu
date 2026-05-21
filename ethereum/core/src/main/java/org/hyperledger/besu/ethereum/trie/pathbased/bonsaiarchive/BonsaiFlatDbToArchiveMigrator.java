@@ -25,9 +25,10 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoOpBonsaiCachedWorldStorageManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.NoOpBonsaiCachedWorldStorageManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoopBonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.CacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
@@ -439,7 +440,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
     provider.loadFlatDbStrategy(migrationTrieStorage);
     final BonsaiWorldStateKeyValueStorage migrationKvStorage =
         new BonsaiWorldStateKeyValueStorage(
-            provider, migrationTrieStorage, new InMemoryKeyValueStorage());
+            provider, migrationTrieStorage, new InMemoryKeyValueStorage(), CacheManager.NO_OP_CACHE, 0L);
     final WorldStateConfig trieDisabledConfig =
         WorldStateConfig.newBuilder(WorldStateConfig.createStatefulConfigWithTrie())
             .trieDisabled(true)
