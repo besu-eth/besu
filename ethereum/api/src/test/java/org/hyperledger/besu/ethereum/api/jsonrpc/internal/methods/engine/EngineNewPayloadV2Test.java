@@ -91,7 +91,9 @@ public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
             getMinSupportedTimestamp(),
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             withdrawals);
-    var resp = resp(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals));
+    var resp =
+        resp(
+            getVersionSpecificParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
 
     assertValidResponse(mockHeader, resp);
   }
@@ -104,7 +106,9 @@ public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
             getMinSupportedTimestamp() / 2,
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             withdrawals);
-    var resp = resp(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals));
+    var resp =
+        resp(
+            getVersionSpecificParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
 
     assertValidResponse(mockHeader, resp);
   }
@@ -117,7 +121,9 @@ public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
             getMinSupportedTimestamp() / 2,
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             withdrawals);
-    var resp = resp(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals));
+    var resp =
+        resp(
+            getVersionSpecificParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
 
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
     assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
@@ -132,7 +138,9 @@ public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
             getMinSupportedTimestamp(),
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             withdrawals);
-    var resp = resp(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals));
+    var resp =
+        resp(
+            getVersionSpecificParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
 
     assertThat(fromErrorResp(resp).getCode()).isEqualTo(INVALID_PARAMS.getCode());
     verify(engineCallListener, times(1)).executionEngineCalled();

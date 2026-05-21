@@ -29,6 +29,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPa
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV2;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -309,5 +312,28 @@ public sealed class EngineNewPayloadV3<
             .sum();
     message.append("| %2d blobs");
     messageArgs.add(blobCount);
+  }
+
+  @Override
+  protected JsonRpcResponse processParametersParsingException(
+      final Object reqId, final InvalidJsonRpcRequestException e) {
+
+    if (e.getRpcErrorType() == RpcErrorType.INVALID_VERSIONED_HASH_PARAMS) {
+      return new JsonRpcErrorResponse(
+          reqId,
+          new JsonRpcError(
+              RpcErrorType.INVALID_VERSIONED_HASH_PARAMS.getCode(),
+              "Failed to decode blob versioned hashes parameter",
+              e.getMessage()));
+    }
+    if (e.getRpcErrorType() == RpcErrorType.INVALID_PARENT_BEACON_BLOCK_ROOT_PARAMS) {
+      return new JsonRpcErrorResponse(
+          reqId,
+          new JsonRpcError(
+              RpcErrorType.INVALID_PARENT_BEACON_BLOCK_ROOT_PARAMS.getCode(),
+              "Failed to decode parent beacon block root parameter",
+              e.getMessage()));
+    }
+    return super.processParametersParsingException(reqId, e);
   }
 }
