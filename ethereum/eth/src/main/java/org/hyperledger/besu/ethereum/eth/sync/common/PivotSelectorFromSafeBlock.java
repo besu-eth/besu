@@ -57,14 +57,14 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
   private final SingleBlockHeaderDownloader headerDownloader;
   private final Clock clock;
 
-  private volatile long lastNoFcuInfoLog = System.currentTimeMillis();
-  private volatile long lastClStuckWarnLog = System.currentTimeMillis();
+  private volatile long lastNoFcuInfoLog;
+  private volatile long lastClStuckWarnLog;
   private volatile Optional<BlockHeader> maybeCachedHeadBlockHeader = Optional.empty();
 
   private volatile Hash lastSafeBlockHash = Hash.ZERO;
-  private volatile long lastSafeBlockChange = System.currentTimeMillis();
+  private volatile long lastSafeBlockChange;
   private volatile Hash lastHeadBlockHash = Hash.ZERO;
-  private volatile long lastHeadBlockChange = System.currentTimeMillis();
+  private volatile long lastHeadBlockChange;
   private volatile Hash lastFallbackPivotHash = Hash.ZERO;
   private volatile long lastFallbackPivotChange = 0L;
 
@@ -84,6 +84,11 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
     this.cleanupAction = cleanupAction;
     this.headerDownloader = headerDownloader;
     this.clock = clock;
+    final long now = clock.millis();
+    this.lastNoFcuInfoLog = now;
+    this.lastClStuckWarnLog = now;
+    this.lastSafeBlockChange = now;
+    this.lastHeadBlockChange = now;
   }
 
   @Override
