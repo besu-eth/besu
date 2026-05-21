@@ -61,6 +61,7 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
 
   private volatile Hash lastSafeBlockHash = Hash.ZERO;
   private volatile long lastSafeBlockChange;
+  private volatile BlockHeader lastSafeBlockHeader = null;
   private volatile Hash lastHeadBlockHash = Hash.ZERO;
   private volatile long lastHeadBlockChange;
   private volatile long lastFallbackWarnLog = 0L;
@@ -110,6 +111,7 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
       if (!safeHash.equals(lastSafeBlockHash)) {
         lastSafeBlockHash = safeHash;
         lastSafeBlockChange = now;
+        lastSafeBlockHeader = null;
         lastFallbackWarnLog = 0L;
       }
       if (now - lastSafeBlockChange < SAFE_PIVOT_FRESHNESS_LIMIT) {
@@ -126,8 +128,18 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
   }
 
   private CompletableFuture<PivotSyncState> selectSafeBlockAsPivot(final Hash safeHash) {
-    LOG.debug("Returning safe block hash {} as pivot", safeHash);
-    return headerDownloader.downloadBlockHeader(safeHash).thenApply(PivotSyncState::new);
+    if (lastSafeBlockHeader != null) {
+      LOG.debug("Returning cached safe block header {} as pivot", safeHash);
+      return CompletableFuture.completedFuture(new PivotSyncState(lastSafeBlockHeader));
+    }
+    LOG.debug("Downloading safe block header {} as pivot", safeHash);
+    return headerDownloader
+        .downloadBlockHeader(safeHash)
+        .thenApply(
+            header -> {
+              lastSafeBlockHeader = header;
+              return new PivotSyncState(header);
+            });
   }
 
   private CompletableFuture<PivotSyncState> selectHeadAsFallbackPivot(
