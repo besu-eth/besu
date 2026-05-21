@@ -35,10 +35,17 @@ import org.apache.tuweni.bytes.Bytes;
 /** The Round change payload message. */
 public class RoundChange extends BftMessage<RoundChangePayload> {
 
+  /**
+   * Pre-26.1.0 RoundChange wire format: [SignedPayload, Block, Prepares]. The current 4-item format
+   * adds a BAL slot before Prepares.
+   */
+  private static final int LEGACY_ROUND_CHANGE_ITEM_COUNT = 3;
+
   private final Optional<QbftBlock> proposedBlock;
   private final Optional<BlockAccessList> blockAccessList;
   private final QbftBlockCodec blockEncoder;
   private final List<SignedData<PreparePayload>> prepares;
+  private final boolean useLegacyEncoding;
 
   /**
    * Instantiates a new Round change.
@@ -55,11 +62,41 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
       final Optional<BlockAccessList> blockAccessList,
       final QbftBlockCodec blockEncoder,
       final List<SignedData<PreparePayload>> prepares) {
+    this(payload, proposedBlock, blockAccessList, blockEncoder, prepares, false);
+  }
+
+  /**
+   * Creates a RoundChange that encodes in pre-26.1.0 wire format (BAL slot omitted).
+   *
+   * @param payload the payload
+   * @param proposedBlock the proposed block
+   * @param blockAccessList the block access list
+   * @param blockEncoder the qbft block encoder
+   * @param prepares the prepares
+   * @return a legacy-encoding RoundChange
+   */
+  public static RoundChange withLegacyEncoding(
+      final SignedData<RoundChangePayload> payload,
+      final Optional<QbftBlock> proposedBlock,
+      final Optional<BlockAccessList> blockAccessList,
+      final QbftBlockCodec blockEncoder,
+      final List<SignedData<PreparePayload>> prepares) {
+    return new RoundChange(payload, proposedBlock, blockAccessList, blockEncoder, prepares, true);
+  }
+
+  private RoundChange(
+      final SignedData<RoundChangePayload> payload,
+      final Optional<QbftBlock> proposedBlock,
+      final Optional<BlockAccessList> blockAccessList,
+      final QbftBlockCodec blockEncoder,
+      final List<SignedData<PreparePayload>> prepares,
+      final boolean useLegacyEncoding) {
     super(payload);
     this.proposedBlock = proposedBlock;
     this.blockAccessList = blockAccessList;
     this.blockEncoder = blockEncoder;
     this.prepares = prepares;
+    this.useLegacyEncoding = useLegacyEncoding;
   }
 
   /**
@@ -113,7 +150,11 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
     rlpOut.startList();
     getSignedPayload().writeTo(rlpOut);
     proposedBlock.ifPresentOrElse(pb -> blockEncoder.writeTo(pb, rlpOut), rlpOut::writeEmptyList);
-    blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOut), rlpOut::writeNull);
+    if (!useLegacyEncoding) {
+      // Current 26.1.0+ format: write BAL or null slot
+      blockAccessList.ifPresentOrElse((bal) -> bal.writeTo(rlpOut), rlpOut::writeNull);
+    }
+    // else: legacy mode — omit BAL entirely (pre-26.1.0 wire format, 3 items)
     rlpOut.writeList(prepares, SignedData::writeTo);
     rlpOut.endList();
     return rlpOut.encoded();
@@ -129,7 +170,7 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
   public static RoundChange decode(final Bytes data, final QbftBlockCodec blockEncoder) {
 
     final RLPInput rlpIn = RLP.input(data);
-    rlpIn.enterList();
+    final int items = rlpIn.enterList();
     final SignedData<RoundChangePayload> payload = readPayload(rlpIn, RoundChangePayload::readFrom);
 
     final Optional<QbftBlock> block;
@@ -140,7 +181,13 @@ public class RoundChange extends BftMessage<RoundChangePayload> {
       block = Optional.of(blockEncoder.readFrom(rlpIn));
     }
 
-    final Optional<BlockAccessList> blockAccessList = readBlockAccessList(rlpIn);
+    // Backward compatibility: pre-26.1.0 RoundChange has 3 items, [SignedPayload, Block, Prepares].
+    // Current format has 4 items: [SignedPayload, Block, BAL-or-null, Prepares]. Because BAL sits
+    // BEFORE Prepares, isEndOfCurrentList() inside readBlockAccessList alone cannot detect the
+    // legacy shape (Prepares is still pending). Use the item count from enterList() to
+    // disambiguate.
+    final Optional<BlockAccessList> blockAccessList =
+        (items == LEGACY_ROUND_CHANGE_ITEM_COUNT) ? Optional.empty() : readBlockAccessList(rlpIn);
 
     final List<SignedData<PreparePayload>> prepares =
         rlpIn.readList(r -> readPayload(r, PreparePayload::readFrom));
