@@ -77,6 +77,7 @@ public class SnapSyncChainDownloader
   private final SynchronizerConfiguration syncConfig;
   private final ProtocolSchedule protocolSchedule;
   private final ProtocolContext protocolContext;
+  private final MutableBlockchain blockchain;
   private final EthContext ethContext;
   private final SyncState syncState;
   private final SyncDurationMetrics syncDurationMetrics;
@@ -155,6 +156,7 @@ public class SnapSyncChainDownloader
     this.syncConfig = syncConfig;
     this.protocolSchedule = protocolSchedule;
     this.protocolContext = protocolContext;
+    this.blockchain = protocolContext.getBlockchain();
     this.ethContext = ethContext;
     this.syncState = syncState;
     this.syncDurationMetrics = syncDurationMetrics;
@@ -353,7 +355,6 @@ public class SnapSyncChainDownloader
     // No existing state - create initial state
     LOG.debug("No existing chain sync state found, creating initial state");
 
-    final MutableBlockchain blockchain = protocolContext.getBlockchain();
     final Optional<Checkpoint> maybeCheckpoint = syncState.getCheckpoint();
 
     if (maybeCheckpoint.isEmpty()) {
@@ -413,7 +414,7 @@ public class SnapSyncChainDownloader
   }
 
   private boolean isOnOurChain(final BlockHeader header) {
-    return protocolContext.getBlockchain().blockIsOnCanonicalChain(header.getHash());
+    return blockchain.blockIsOnCanonicalChain(header.getHash());
   }
 
   // Returns true if a body is stored under the canonical hash for blockNumber.
@@ -421,7 +422,7 @@ public class SnapSyncChainDownloader
     return protocolContext
         .getBlockchain()
         .getBlockHashByNumber(blockNumber)
-        .flatMap(protocolContext.getBlockchain()::getBlockBody)
+        .flatMap(blockchain::getBlockBody)
         .isPresent();
   }
 
@@ -433,7 +434,7 @@ public class SnapSyncChainDownloader
   private Optional<BlockHeader> findBodyDownloadFrontier(
       final long anchorNumber, final long upperBound) {
     if (hasBodyForCanonicalBlock(upperBound)) {
-      return protocolContext.getBlockchain().getBlockHeader(upperBound);
+      return blockchain.getBlockHeader(upperBound);
     }
 
     long low = anchorNumber;
@@ -451,7 +452,7 @@ public class SnapSyncChainDownloader
     if (low <= anchorNumber) {
       return Optional.empty();
     }
-    return protocolContext.getBlockchain().getBlockHeader(low);
+    return blockchain.getBlockHeader(low);
   }
 
   /**
@@ -463,7 +464,7 @@ public class SnapSyncChainDownloader
     final ChainSyncState state = chainSyncState.get();
     final long anchorNumber = state.blockDownloadAnchor().getNumber();
     final long pivotNumber = state.pivotBlockHeader().getNumber();
-    final long chainHeadNumber = protocolContext.getBlockchain().getChainHeadBlockNumber();
+    final long chainHeadNumber = blockchain.getChainHeadBlockNumber();
     final long upperBound = Math.min(chainHeadNumber, pivotNumber);
 
     if (upperBound <= anchorNumber) {
@@ -765,8 +766,7 @@ public class SnapSyncChainDownloader
     saveHeaderProgress();
 
     // Update chain state to current blockchain head
-    chainSyncState.updateAndGet(
-        state -> state.fromHead(protocolContext.getBlockchain().getChainHeadHeader()));
+    chainSyncState.updateAndGet(state -> state.fromHead(blockchain.getChainHeadHeader()));
     chainSyncStateStorage.storeState(chainSyncState.get());
 
     final Optional<Throwable> failWith = shouldRetry(error);
