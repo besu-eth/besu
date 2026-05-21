@@ -22,7 +22,6 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.Executi
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
@@ -431,11 +430,11 @@ public abstract class AbstractEngineNewPayloadTest extends AbstractScheduledApiT
    * Regression test for the FCU-deadlock scenario: stale layers accumulated during a CL outage are
    * never evicted by forkchoiceUpdated (because the CL stops sending FCU when it receives SYNCING),
    * so the layer count stays above the threshold indefinitely. The fix is to call
-   * scrubStaleLayers() proactively on every engine_newPayload, so that once backward sync has
-   * caught the node up to chain head, the next call clears the stale layers and returns VALID.
+   * evictOldestLayersToSize() when the count exceeds the threshold, so that once the layers are
+   * cleared the next newPayload call sees a low count and returns VALID instead of SYNCING.
    */
   @Test
-  public void shouldScrubStaleLayersOnEachCallAndRecoverWhenNodeCatchesUp() {
+  public void shouldEvictOldestLayersWhenOverThresholdAndRecoverWhenNodeCatchesUp() {
     // Set up full valid-payload mocks for the recovery call.
     BlockHeader mockHeader =
         setupValidPayload(
@@ -451,11 +450,14 @@ public abstract class AbstractEngineNewPayloadTest extends AbstractScheduledApiT
     when(protocolContext.getWorldStateArchive()).thenReturn(worldStateProvider);
     when(worldStateProvider.getCachedWorldStorageManager()).thenReturn(cacheManager);
 
-    // First call: stale layers still present (scrub hasn't helped yet)
+    // Call #1: over threshold (triggers eviction), but eviction is mocked so count stays high
+    //   → cachedLayerCount() called twice: once for the threshold check, once after eviction
+    // Call #2: count is low (eviction has worked in reality) → no eviction, returns VALID
+    //   → cachedLayerCount() called once: threshold check returns low
     when(cacheManager.cachedLayerCount())
-        .thenReturn(AbstractEngineNewPayload.MAX_CACHED_WORLD_STATE_LAYERS + 1)
-        // Second call: scrub cleared the stale layers, count is now below threshold
-        .thenReturn(1);
+        .thenReturn(AbstractEngineNewPayload.MAX_CACHED_WORLD_STATE_LAYERS + 1) // call #1 pre-evict
+        .thenReturn(AbstractEngineNewPayload.MAX_CACHED_WORLD_STATE_LAYERS + 1) // call #1 post-evict
+        .thenReturn(1); // call #2
 
     EnginePayloadStatusResult stalledResult =
         fromSuccessResp(resp(mockEnginePayload(mockHeader, emptyList())));
@@ -465,8 +467,9 @@ public abstract class AbstractEngineNewPayloadTest extends AbstractScheduledApiT
         fromSuccessResp(resp(mockEnginePayload(mockHeader, emptyList())));
     assertThat(recoveredResult.getStatusAsString()).isEqualTo(VALID.name());
 
-    // scrubStaleLayers must be called on every engine_newPayload invocation
-    verify(cacheManager, times(2)).scrubStaleLayers(anyLong());
+    // evictOldestLayersToSize called once (call #1 was over threshold; call #2 was not)
+    verify(cacheManager, times(1))
+        .evictOldestLayersToSize(AbstractEngineNewPayload.MAX_CACHED_WORLD_STATE_LAYERS);
   }
 
   @Test

@@ -211,15 +211,28 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
   }
 
   /**
-   * Evicts cached layers older than {@code currentChainHeadBlockNumber - RETAINED_LAYERS}. Exposed
-   * for the engine_newPayload layer-accumulation guard, which must scrub stale layers proactively
-   * because forkchoiceUpdated (the normal scrub trigger) is not sent by the CL while the EL is
-   * returning SYNCING.
+   * Evicts the oldest cached layers until at most {@code maxLayers} remain. Used by the
+   * engine_newPayload layer-accumulation guard to break the FCU deadlock: the CL stops sending
+   * forkchoiceUpdated while the EL returns SYNCING, so the normal waterline-based scrub never
+   * runs. When the accumulated-layer count drops below the threshold, SYNCING is no longer
+   * returned and the CL resumes normal operation.
    *
-   * @param currentChainHeadBlockNumber the current canonical chain-head block number
+   * @param maxLayers maximum number of cached layers to retain
    */
-  public void scrubStaleLayers(final long currentChainHeadBlockNumber) {
-    scrubCachedLayers(currentChainHeadBlockNumber);
+  public synchronized void evictOldestLayersToSize(final int maxLayers) {
+    if (cachedWorldStatesByHash.size() <= maxLayers) {
+      return;
+    }
+    final int toEvict = cachedWorldStatesByHash.size() - maxLayers;
+    cachedWorldStatesByHash.values().stream()
+        .sorted(Comparator.comparingLong(PathBasedCachedWorldView::getBlockNumber))
+        .limit(toEvict)
+        .toList()
+        .forEach(
+            layer -> {
+              cachedWorldStatesByHash.remove(layer.getBlockHash());
+              layer.close();
+            });
   }
 
   public void reset() {

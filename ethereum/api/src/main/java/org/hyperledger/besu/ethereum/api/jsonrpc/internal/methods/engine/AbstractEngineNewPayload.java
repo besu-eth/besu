@@ -248,14 +248,16 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     }
 
     if (protocolContext.getWorldStateArchive() instanceof PathBasedWorldStateProvider provider) {
-      // Proactively scrub stale layers before checking the count. Under normal operation
-      // scrubCachedLayers() is triggered by forkchoiceUpdated, but the CL stops sending FCU
-      // while the EL returns SYNCING — creating a deadlock where stale layers from a prior
-      // head-stall are never evicted. Scrubbing here breaks the cycle: once backward sync
-      // catches the node up to chain head, the next newPayload call will clear the stale
-      // layers and allow the count to drop below the threshold.
       final var cacheManager = provider.getCachedWorldStorageManager();
-      cacheManager.scrubStaleLayers(protocolContext.getBlockchain().getChainHeadBlockNumber());
+      if (cacheManager.cachedLayerCount() > MAX_CACHED_WORLD_STATE_LAYERS) {
+        // Too many cached layers: the CL may have paused and resumed, accumulating layers that
+        // forkchoiceUpdated never evicted (the CL stops sending FCU while the EL returns SYNCING).
+        // The waterline-based scrub does not help because accumulated layers are recent (all within
+        // RETAINED_LAYERS blocks). Evict oldest layers by count to break the cycle: once the count
+        // drops below the threshold, SYNCING is no longer returned and normal operation resumes.
+        // Only triggered when already over threshold — no effect on normal steady-state operation.
+        cacheManager.evictOldestLayersToSize(MAX_CACHED_WORLD_STATE_LAYERS);
+      }
       final int layerCount = cacheManager.cachedLayerCount();
       if (layerCount > MAX_CACHED_WORLD_STATE_LAYERS) {
         LOG.warn(
