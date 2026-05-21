@@ -26,6 +26,7 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
@@ -33,9 +34,11 @@ import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.TransactionType;
+import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
+import org.hyperledger.besu.ethereum.GasLimitCalculator;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.PayloadStatusV1;
 import org.hyperledger.besu.ethereum.core.BlobTestFixture;
@@ -224,6 +227,142 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
   }
 
   @Test
+  public void shouldReturnEmptyWhenExcessBlobGasMatchesCalculatedValue() {
+    final BlobGas expected = BlobGas.of(1000);
+    final BlockHeader header = mock(BlockHeader.class);
+    final BlockHeader parentHeader = mockParentHeaderForExcessBlobGas();
+    final GasLimitCalculator gasLimitCalculator = mock(GasLimitCalculator.class);
+
+    when(protocolSpec.getGasLimitCalculator()).thenReturn(gasLimitCalculator);
+    when(gasLimitCalculator.computeExcessBlobGas(0L, 0L, 0L)).thenReturn(expected.toLong());
+    when(header.getExcessBlobGas()).thenReturn(Optional.of(expected));
+
+    assertThat(engineNewPayloadV3().validateExcessBlobGas(header, parentHeader, protocolSpec))
+        .isEmpty();
+  }
+
+  @Test
+  public void shouldReturnCalculatedExcessBlobGasWhenPayloadValueMismatches() {
+    final BlobGas calculated = BlobGas.of(1000);
+    final BlockHeader header = mock(BlockHeader.class);
+    final BlockHeader parentHeader = mockParentHeaderForExcessBlobGas();
+    final GasLimitCalculator gasLimitCalculator = mock(GasLimitCalculator.class);
+
+    when(protocolSpec.getGasLimitCalculator()).thenReturn(gasLimitCalculator);
+    when(gasLimitCalculator.computeExcessBlobGas(0L, 0L, 0L)).thenReturn(calculated.toLong());
+    when(header.getExcessBlobGas()).thenReturn(Optional.of(BlobGas.of(800)));
+
+    assertThat(engineNewPayloadV3().validateExcessBlobGas(header, parentHeader, protocolSpec))
+        .contains(calculated);
+  }
+
+  @Test
+  public void shouldReturnEmptyWhenBlobGasUsedMatchesVersionedHashes() {
+    final BlockHeader header = mock(BlockHeader.class);
+    final List<VersionedHash> versionedHashes = List.of(createValidVersionedHash());
+    final long blobGasUsed = cancunBlobGasCost(versionedHashes.size());
+
+    when(header.getBlobGasUsed()).thenReturn(Optional.of(blobGasUsed));
+
+    assertThat(engineNewPayloadV3().validateBlobGasUsed(header, versionedHashes, protocolSpec))
+        .isEmpty();
+  }
+
+  @Test
+  public void shouldReturnCalculatedBlobGasUsedWhenPayloadValueMismatches() {
+    final BlockHeader header = mock(BlockHeader.class);
+    final List<VersionedHash> versionedHashes = List.of(createValidVersionedHash());
+    final long calculated = cancunBlobGasCost(versionedHashes.size());
+
+    when(header.getBlobGasUsed()).thenReturn(Optional.of(100000L));
+
+    assertThat(engineNewPayloadV3().validateBlobGasUsed(header, versionedHashes, protocolSpec))
+        .contains(calculated);
+  }
+
+  @Test
+  public void shouldReturnCalculatedBlobGasUsedForMultipleBlobsWhenPayloadValueMismatches() {
+    final BlockHeader header = mock(BlockHeader.class);
+    final List<VersionedHash> versionedHashes =
+        List.of(createValidVersionedHash(), createValidVersionedHash(), createValidVersionedHash());
+    final long calculated = cancunBlobGasCost(versionedHashes.size());
+
+    when(header.getBlobGasUsed()).thenReturn(Optional.of(200000L));
+
+    assertThat(engineNewPayloadV3().validateBlobGasUsed(header, versionedHashes, protocolSpec))
+        .contains(calculated);
+  }
+
+  @Test
+  public void shouldReportExpectedAndActualExcessBlobGasOnMismatch() {
+    final BlockHeader header = mock(BlockHeader.class);
+    final BlockHeader parentHeader = mockParentHeaderForExcessBlobGas();
+    final GasLimitCalculator gasLimitCalculator = mockBlobGasLimitCalculator();
+
+    when(gasLimitCalculator.computeExcessBlobGas(0L, 0L, 0L)).thenReturn(1000L);
+    when(header.getExcessBlobGas()).thenReturn(Optional.of(BlobGas.of(800)));
+
+    var result =
+        engineNewPayloadV3()
+            .validateBlobTransactions(emptyList(), header, parentHeader, emptyList(), protocolSpec);
+
+    assertThat(result.isValid()).isFalse();
+    assertThat(result.getErrorMessage()).contains("Expected", "1000");
+    assertThat(result.getErrorMessage()).contains("got", "800");
+  }
+
+  @Test
+  public void shouldReportExpectedAndActualBlobGasUsedOnMismatch() {
+    final BlockHeader header = mock(BlockHeader.class);
+    final BlockHeader parentHeader = mockParentHeaderForExcessBlobGas();
+    mockBlobGasLimitCalculator();
+
+    final List<VersionedHash> versionedHashes =
+        List.of(createValidVersionedHash(1), createValidVersionedHash(2));
+
+    final Transaction blobTx1 = mock(Transaction.class);
+    final Transaction blobTx2 = mock(Transaction.class);
+    when(blobTx1.getVersionedHashes()).thenReturn(Optional.of(List.of(versionedHashes.get(0))));
+    when(blobTx2.getVersionedHashes()).thenReturn(Optional.of(List.of(versionedHashes.get(1))));
+
+    when(header.getExcessBlobGas()).thenReturn(Optional.of(BlobGas.ZERO));
+    when(header.getBlobGasUsed()).thenReturn(Optional.of(100000L));
+
+    var result =
+        engineNewPayloadV3()
+            .validateBlobTransactions(
+                List.of(blobTx1, blobTx2), header, parentHeader, versionedHashes, protocolSpec);
+
+    assertThat(result.isValid()).isFalse();
+    assertThat(result.getErrorMessage()).contains("Expected", "262144");
+    assertThat(result.getErrorMessage()).contains("got", "100000");
+  }
+
+  @Test
+  public void shouldRejectMismatchedVersionedHashes() {
+    mockBlobGasLimitCalculator();
+
+    final Transaction blobTx = mock(Transaction.class);
+    final List<VersionedHash> txHashes = List.of(createValidVersionedHash(1));
+    when(blobTx.getVersionedHashes()).thenReturn(Optional.of(txHashes));
+
+    final List<VersionedHash> provided = List.of(createValidVersionedHash(2));
+
+    var result =
+        engineNewPayloadV3()
+            .validateBlobTransactions(
+                List.of(blobTx),
+                mock(BlockHeader.class),
+                mock(BlockHeader.class),
+                provided,
+                protocolSpec);
+
+    assertThat(result.isValid()).isFalse();
+    assertThat(result.getErrorMessage())
+        .isEqualTo("Versioned hashes from blob transactions do not match expected values");
+  }
+
+  @Test
   @Override
   public void shouldReturnInvalidIfWithdrawalsIsNotNull_WhenWithdrawalsProhibited() {
     // not applicable for V3 and later
@@ -313,6 +452,43 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
 
   protected List<String> emptyVersionedHashesParam() {
     return emptyList();
+  }
+
+  private EngineNewPayloadV3<?, ?> engineNewPayloadV3() {
+    return (EngineNewPayloadV3<?, ?>) method;
+  }
+
+  private GasLimitCalculator mockBlobGasLimitCalculator() {
+    final GasLimitCalculator gasLimitCalculator = mock(GasLimitCalculator.class);
+    when(protocolSpec.getGasLimitCalculator()).thenReturn(gasLimitCalculator);
+    when(gasLimitCalculator.transactionBlobGasLimitCap()).thenReturn(1000000L);
+    when(gasLimitCalculator.currentBlobGasLimit()).thenReturn(1000000L);
+    return gasLimitCalculator;
+  }
+
+  private BlockHeader mockParentHeaderForExcessBlobGas() {
+    final BlockHeader parentHeader = mock(BlockHeader.class);
+    when(parentHeader.getExcessBlobGas()).thenReturn(Optional.empty());
+    when(parentHeader.getBlobGasUsed()).thenReturn(Optional.empty());
+    when(parentHeader.getBaseFee()).thenReturn(Optional.of(Wei.ZERO));
+    return parentHeader;
+  }
+
+  private long cancunBlobGasCost(final long blobCount) {
+    return new CancunGasCalculator().blobGasCost(blobCount);
+  }
+
+  private VersionedHash createValidVersionedHash() {
+    return createValidVersionedHash(0);
+  }
+
+  private VersionedHash createValidVersionedHash(final int seed) {
+    byte[] validHash = new byte[32];
+    validHash[0] = 0x01;
+    for (int i = 1; i < 32; i++) {
+      validHash[i] = (byte) ((i + seed) % 256);
+    }
+    return new VersionedHash(Bytes32.wrap(validHash));
   }
 
   private Transaction createTransactionWithBlobs() {
