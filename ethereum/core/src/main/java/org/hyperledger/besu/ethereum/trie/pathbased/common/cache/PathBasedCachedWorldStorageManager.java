@@ -225,8 +225,7 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
     }
     final int toEvict = cachedWorldStatesByHash.size() - maxLayers;
     LOG.atInfo()
-        .setMessage(
-            "Evicting {} oldest cached world state layers (current count: {}, target: {})")
+        .setMessage("Evicting {} oldest cached world state layers (current count: {}, target: {})")
         .addArgument(toEvict)
         .addArgument(cachedWorldStatesByHash.size())
         .addArgument(maxLayers)
