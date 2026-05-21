@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -26,24 +27,28 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.common.BackwardHeaderDriver;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncStateStorage;
 import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader;
+import org.hyperledger.besu.ethereum.eth.sync.common.WrongChainException;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
 import org.hyperledger.besu.services.pipeline.Pipeline;
 
@@ -82,12 +87,14 @@ public class SnapSyncChainDownloaderTest {
   private ChainSyncStateStorage chainSyncStateStorage;
   private BlockHeader pivotBlockHeader;
   private BlockHeader checkpointBlockHeader;
+  private SynchronizerConfiguration syncConfig;
 
   @BeforeEach
   public void setUp() {
     pivotBlockHeader = new BlockHeaderTestFixture().number(1000).buildHeader();
     checkpointBlockHeader = new BlockHeaderTestFixture().number(500).buildHeader();
     chainSyncStateStorage = new ChainSyncStateStorage(tempDir);
+    syncConfig = SynchronizerConfiguration.builder().build();
 
     lenient().when(protocolContext.getBlockchain()).thenReturn(blockchain);
     lenient().when(blockchain.getChainHeadBlockNumber()).thenReturn(500L);
@@ -107,6 +114,7 @@ public class SnapSyncChainDownloaderTest {
             () ->
                 new SnapSyncChainDownloader(
                     pipelineFactory,
+                    syncConfig,
                     protocolSchedule,
                     protocolContext,
                     ethContext,
@@ -115,8 +123,7 @@ public class SnapSyncChainDownloaderTest {
                     pivotBlockHeader,
                     true,
                     chainSyncStateStorage,
-                    headerDownloader,
-                    SnapSyncChainDownloaderTest::finalizationStatusForTests))
+                    headerDownloader))
         .doesNotThrowAnyException();
   }
 
@@ -125,6 +132,7 @@ public class SnapSyncChainDownloaderTest {
     SnapSyncChainDownloader downloader =
         new SnapSyncChainDownloader(
             pipelineFactory,
+            syncConfig,
             protocolSchedule,
             protocolContext,
             ethContext,
@@ -133,8 +141,7 @@ public class SnapSyncChainDownloaderTest {
             pivotBlockHeader,
             true,
             chainSyncStateStorage,
-            headerDownloader,
-            SnapSyncChainDownloaderTest::finalizationStatusForTests);
+            headerDownloader);
 
     // Verify cancel completes successfully even when no pipeline is running
     assertThatCode(downloader::cancel).doesNotThrowAnyException();
@@ -145,6 +152,7 @@ public class SnapSyncChainDownloaderTest {
     SnapSyncChainDownloader downloader =
         new SnapSyncChainDownloader(
             pipelineFactory,
+            syncConfig,
             protocolSchedule,
             protocolContext,
             ethContext,
@@ -153,8 +161,7 @@ public class SnapSyncChainDownloaderTest {
             pivotBlockHeader,
             true,
             chainSyncStateStorage,
-            headerDownloader,
-            SnapSyncChainDownloaderTest::finalizationStatusForTests);
+            headerDownloader);
 
     BlockHeader newPivot = new BlockHeaderTestFixture().number(2000).buildHeader();
 
@@ -167,6 +174,7 @@ public class SnapSyncChainDownloaderTest {
     SnapSyncChainDownloader downloader =
         new SnapSyncChainDownloader(
             pipelineFactory,
+            syncConfig,
             protocolSchedule,
             protocolContext,
             ethContext,
@@ -175,8 +183,7 @@ public class SnapSyncChainDownloaderTest {
             pivotBlockHeader,
             true,
             chainSyncStateStorage,
-            headerDownloader,
-            SnapSyncChainDownloaderTest::finalizationStatusForTests);
+            headerDownloader);
 
     // Verify world state heal signal is accepted without error
     assertThatCode(downloader::onWorldStateHealFinished).doesNotThrowAnyException();
@@ -191,6 +198,7 @@ public class SnapSyncChainDownloaderTest {
     SnapSyncChainDownloader downloader =
         new SnapSyncChainDownloader(
             pipelineFactory,
+            syncConfig,
             protocolSchedule,
             protocolContext,
             ethContext,
@@ -199,14 +207,12 @@ public class SnapSyncChainDownloaderTest {
             pivotBlockHeader,
             true,
             chainSyncStateStorage,
-            headerDownloader,
-            SnapSyncChainDownloaderTest::finalizationStatusForTests);
+            headerDownloader);
 
     downloader.start();
 
     // No pipeline should be created when there are no peers
-    verify(pipelineFactory, never())
-        .createBackwardHeaderDownloadPipeline(any(), anyBoolean(), any());
+    verify(pipelineFactory, never()).createBackwardHeaderDownloadPipeline(any(), anyBoolean());
 
     // A retry should be scheduled with the no-peer delay, not the fast retry delay
     verify(scheduler)
@@ -229,6 +235,7 @@ public class SnapSyncChainDownloaderTest {
     SnapSyncChainDownloader downloader =
         new SnapSyncChainDownloader(
             pipelineFactory,
+            syncConfig,
             protocolSchedule,
             protocolContext,
             ethContext,
@@ -237,8 +244,7 @@ public class SnapSyncChainDownloaderTest {
             pivotBlockHeader,
             true,
             chainSyncStateStorage,
-            headerDownloader,
-            SnapSyncChainDownloaderTest::finalizationStatusForTests);
+            headerDownloader);
 
     assertThat(downloader).isNotNull();
 
@@ -282,7 +288,7 @@ public class SnapSyncChainDownloaderTest {
     final Pipeline<Long> backwardPipeline = mock(Pipeline.class);
     final BackwardHeaderDriver driver = mock(BackwardHeaderDriver.class);
     when(driver.getMatchedAncestor()).thenReturn(Optional.of(matchedAncestor));
-    when(pipelineFactory.createBackwardHeaderDownloadPipeline(any(), anyBoolean(), any()))
+    when(pipelineFactory.createBackwardHeaderDownloadPipeline(any(), anyBoolean()))
         .thenReturn(
             new SnapSyncChainDownloadPipelineFactory.BackwardHeaderPipelineResult(
                 backwardPipeline, driver));
@@ -294,15 +300,11 @@ public class SnapSyncChainDownloaderTest {
 
     when(scheduler.startPipeline(any())).thenReturn(CompletableFuture.completedFuture(null));
     when(ethPeers.peerCount()).thenReturn(1);
-    // initializeChainSyncState() loads stored headers using ScheduleBasedBlockHeaderFunctions; we
-    // route that through MainnetBlockHeaderFunctions via a stubbed ProtocolSpec.
-    final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
-    when(protocolSpec.getBlockHeaderFunctions()).thenReturn(new MainnetBlockHeaderFunctions());
-    when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
 
     final SnapSyncChainDownloader downloader =
         new SnapSyncChainDownloader(
             pipelineFactory,
+            syncConfig,
             protocolSchedule,
             protocolContext,
             ethContext,
@@ -311,8 +313,7 @@ public class SnapSyncChainDownloaderTest {
             pivotBlockHeader,
             true,
             spiedStorage,
-            headerDownloader,
-            SnapSyncChainDownloaderTest::finalizationStatusForTests);
+            headerDownloader);
 
     downloader.onWorldStateHealFinished();
     downloader.start().get(5, TimeUnit.SECONDS);
@@ -326,15 +327,17 @@ public class SnapSyncChainDownloaderTest {
 
     final List<ChainSyncState> states = new ArrayList<>(stateCaptor.getAllValues());
 
-    // First captured store is the seed initial state.
-    assertThat(states).hasSizeGreaterThanOrEqualTo(3);
+    // First captured store is the seed initial state. Second is the Case B re-pivot
+    // (headersComplete
+    // reset to false so Stage 1 re-runs from the same pivot). Both have anchor=500.
+    assertThat(states).hasSizeGreaterThanOrEqualTo(4);
     assertThat(states.get(0).blockDownloadAnchor().getNumber()).isEqualTo(500L);
     assertThat(states.get(0).headersDownloadComplete()).isFalse();
 
     // After Stage 1 recovery: anchors collapsed to the matched ancestor at #400. This is the
     // state immediately after the withRecoveryMatch updateAndGet/storeState pair, before
-    // withHeadersDownloadComplete runs.
-    final ChainSyncState afterRecovery = states.get(1);
+    // withHeadersDownloadComplete runs. Index 1 is the Case B re-pivot store, so recovery is at 2.
+    final ChainSyncState afterRecovery = states.get(2);
     assertThat(afterRecovery.blockDownloadAnchor().getNumber()).isEqualTo(400L);
     assertThat(afterRecovery.headerDownloadAnchor()).isNotNull();
     assertThat(afterRecovery.headerDownloadAnchor().getNumber()).isEqualTo(400L);
@@ -343,7 +346,7 @@ public class SnapSyncChainDownloaderTest {
     // After withHeadersDownloadComplete: still anchored at #400 (blockDownloadAnchor preserved),
     // but now marked complete. Note: withHeadersDownloadComplete nulls headerDownloadAnchor
     // because, once headers are fully downloaded, the lower bound has been reached.
-    final ChainSyncState afterComplete = states.get(2);
+    final ChainSyncState afterComplete = states.get(3);
     assertThat(afterComplete.blockDownloadAnchor().getNumber()).isEqualTo(400L);
     assertThat(afterComplete.headersDownloadComplete()).isTrue();
 
@@ -373,7 +376,7 @@ public class SnapSyncChainDownloaderTest {
     final Pipeline<Long> backwardPipeline = mock(Pipeline.class);
     final BackwardHeaderDriver driver = mock(BackwardHeaderDriver.class);
     when(driver.getMatchedAncestor()).thenReturn(Optional.empty());
-    when(pipelineFactory.createBackwardHeaderDownloadPipeline(any(), anyBoolean(), any()))
+    when(pipelineFactory.createBackwardHeaderDownloadPipeline(any(), anyBoolean()))
         .thenReturn(
             new SnapSyncChainDownloadPipelineFactory.BackwardHeaderPipelineResult(
                 backwardPipeline, driver));
@@ -385,15 +388,11 @@ public class SnapSyncChainDownloaderTest {
 
     when(scheduler.startPipeline(any())).thenReturn(CompletableFuture.completedFuture(null));
     when(ethPeers.peerCount()).thenReturn(1);
-    // initializeChainSyncState() loads stored headers using ScheduleBasedBlockHeaderFunctions; we
-    // route that through MainnetBlockHeaderFunctions via a stubbed ProtocolSpec.
-    final ProtocolSpec protocolSpec = mock(ProtocolSpec.class);
-    when(protocolSpec.getBlockHeaderFunctions()).thenReturn(new MainnetBlockHeaderFunctions());
-    when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
 
     final SnapSyncChainDownloader downloader =
         new SnapSyncChainDownloader(
             pipelineFactory,
+            syncConfig,
             protocolSchedule,
             protocolContext,
             ethContext,
@@ -402,8 +401,7 @@ public class SnapSyncChainDownloaderTest {
             pivotBlockHeader,
             true,
             spiedStorage,
-            headerDownloader,
-            SnapSyncChainDownloaderTest::finalizationStatusForTests);
+            headerDownloader);
 
     downloader.onWorldStateHealFinished();
     downloader.start().get(5, TimeUnit.SECONDS);
@@ -413,14 +411,15 @@ public class SnapSyncChainDownloaderTest {
     verify(spiedStorage, atLeastOnce()).storeState(stateCaptor.capture());
     final List<ChainSyncState> states = stateCaptor.getAllValues();
 
-    // First store is the seed (1x). Stage 1 should produce exactly one further store:
-    // withHeadersDownloadComplete. There is no withRecoveryMatch store since the driver
-    // reported no match.
-    assertThat(states).hasSizeGreaterThanOrEqualTo(2);
+    // Seed store + Case B re-pivot store + withHeadersDownloadComplete store = at least 3. There is
+    // no withRecoveryMatch store since the driver reported no match.
+    assertThat(states).hasSizeGreaterThanOrEqualTo(3);
     assertThat(states.get(0).blockDownloadAnchor().getNumber()).isEqualTo(500L);
     assertThat(states.get(0).headersDownloadComplete()).isFalse();
 
-    final ChainSyncState afterStage1 = states.get(1);
+    // Case B re-pivot is at index 1 (anchor unchanged, headersComplete reset to false).
+    // withHeadersDownloadComplete is at index 2.
+    final ChainSyncState afterStage1 = states.get(2);
     assertThat(afterStage1.blockDownloadAnchor().getNumber()).isEqualTo(500L);
     assertThat(afterStage1.headersDownloadComplete()).isTrue();
 
@@ -429,7 +428,196 @@ public class SnapSyncChainDownloaderTest {
     verify(pipelineFactory).createForwardBodiesAndReceiptsDownloadPipeline(eq(500L), any(), any());
   }
 
-  private static String finalizationStatusForTests() {
-    return "test-finalization-status";
+  @Test
+  public void shouldAdvanceBodyDownloadAnchorToChainHeadWhenBodyMatchesCanonical()
+      throws Exception {
+    final BlockHeader genesisHeader = new BlockHeaderTestFixture().number(0).buildHeader();
+    final BlockHeader header700 = new BlockHeaderTestFixture().number(700).buildHeader();
+    final Hash hash700 = header700.getHash();
+
+    final ChainSyncState initialState =
+        ChainSyncState.initialSync(pivotBlockHeader, checkpointBlockHeader, genesisHeader)
+            .withHeadersDownloadComplete();
+    chainSyncStateStorage.storeState(initialState);
+
+    @SuppressWarnings("unchecked")
+    final Pipeline<List<BlockHeader>> forwardPipeline = mock(Pipeline.class);
+    when(pipelineFactory.createForwardBodiesAndReceiptsDownloadPipeline(anyLong(), any(), any()))
+        .thenReturn(forwardPipeline);
+    when(scheduler.startPipeline(any())).thenReturn(CompletableFuture.completedFuture(null));
+    when(ethPeers.peerCount()).thenReturn(1);
+
+    when(blockchain.blockIsOnCanonicalChain(pivotBlockHeader.getHash())).thenReturn(true);
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(700L);
+    when(blockchain.getBlockHashByNumber(700L)).thenReturn(Optional.of(hash700));
+    when(blockchain.getBlockBody(hash700)).thenReturn(Optional.of(mock(BlockBody.class)));
+    when(blockchain.getBlockHeader(700L)).thenReturn(Optional.of(header700));
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            pivotBlockHeader,
+            true,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    downloader.onWorldStateHealFinished();
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    final ArgumentCaptor<Long> anchorCaptor = ArgumentCaptor.forClass(Long.class);
+    verify(pipelineFactory)
+        .createForwardBodiesAndReceiptsDownloadPipeline(anchorCaptor.capture(), any(), any());
+    assertThat(anchorCaptor.getValue()).isEqualTo(700L);
+  }
+
+  @Test
+  public void shouldFindBodyFrontierViaBinarySearchWhenChainHeadBodyMissing() throws Exception {
+    final BlockHeader genesisHeader = new BlockHeaderTestFixture().number(0).buildHeader();
+    final BlockHeader header127 = new BlockHeaderTestFixture().number(127).buildHeader();
+    final Hash hash127 = header127.getHash();
+
+    // Anchor=genesis(0), chainHead=256, no body at 256.
+    // Binary search: low=0, high=255, mid=127 → hit → low=127; high-low=128 not >128 → stop.
+    final ChainSyncState initialState =
+        ChainSyncState.initialSync(pivotBlockHeader, genesisHeader, genesisHeader)
+            .withHeadersDownloadComplete();
+    chainSyncStateStorage.storeState(initialState);
+
+    @SuppressWarnings("unchecked")
+    final Pipeline<List<BlockHeader>> forwardPipeline = mock(Pipeline.class);
+    when(pipelineFactory.createForwardBodiesAndReceiptsDownloadPipeline(anyLong(), any(), any()))
+        .thenReturn(forwardPipeline);
+    when(scheduler.startPipeline(any())).thenReturn(CompletableFuture.completedFuture(null));
+    when(ethPeers.peerCount()).thenReturn(1);
+
+    when(blockchain.blockIsOnCanonicalChain(pivotBlockHeader.getHash())).thenReturn(true);
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(256L);
+    lenient().when(blockchain.getBlockHashByNumber(anyLong())).thenReturn(Optional.empty());
+    when(blockchain.getBlockHashByNumber(127L)).thenReturn(Optional.of(hash127));
+    when(blockchain.getBlockBody(hash127)).thenReturn(Optional.of(mock(BlockBody.class)));
+    when(blockchain.getBlockHeader(127L)).thenReturn(Optional.of(header127));
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            pivotBlockHeader,
+            true,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    downloader.onWorldStateHealFinished();
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    final ArgumentCaptor<Long> anchorCaptor = ArgumentCaptor.forClass(Long.class);
+    verify(pipelineFactory)
+        .createForwardBodiesAndReceiptsDownloadPipeline(anchorCaptor.capture(), any(), any());
+    assertThat(anchorCaptor.getValue()).isEqualTo(127L);
+  }
+
+  @Test
+  public void shouldNotAdvanceAnchorWhenNoBodiesExistAboveAnchor() throws Exception {
+    final BlockHeader genesisHeader = new BlockHeaderTestFixture().number(0).buildHeader();
+
+    final ChainSyncState initialState =
+        ChainSyncState.initialSync(pivotBlockHeader, checkpointBlockHeader, genesisHeader)
+            .withHeadersDownloadComplete();
+    chainSyncStateStorage.storeState(initialState);
+
+    @SuppressWarnings("unchecked")
+    final Pipeline<List<BlockHeader>> forwardPipeline = mock(Pipeline.class);
+    when(pipelineFactory.createForwardBodiesAndReceiptsDownloadPipeline(anyLong(), any(), any()))
+        .thenReturn(forwardPipeline);
+    when(scheduler.startPipeline(any())).thenReturn(CompletableFuture.completedFuture(null));
+    when(ethPeers.peerCount()).thenReturn(1);
+
+    when(blockchain.blockIsOnCanonicalChain(pivotBlockHeader.getHash())).thenReturn(true);
+    when(blockchain.getChainHeadBlockNumber()).thenReturn(700L);
+    lenient().when(blockchain.getBlockHashByNumber(anyLong())).thenReturn(Optional.empty());
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            pivotBlockHeader,
+            true,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    downloader.onWorldStateHealFinished();
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    final ArgumentCaptor<Long> anchorCaptor = ArgumentCaptor.forClass(Long.class);
+    verify(pipelineFactory)
+        .createForwardBodiesAndReceiptsDownloadPipeline(anchorCaptor.capture(), any(), any());
+    assertThat(anchorCaptor.getValue()).isEqualTo(500L);
+  }
+
+  @Test
+  public void shouldFailWithoutRetryWhenWrongChainExceptionPropagates() throws Exception {
+    // The Stage 1 pipeline future fails with WrongChainException. SnapSyncChainDownloader's
+    // shouldRetry must treat this as non-retryable: the overall future completes exceptionally
+    // and the downloader does not re-invoke createBackwardHeaderDownloadPipeline.
+    final BlockHeader genesisHeader = new BlockHeaderTestFixture().number(0).buildHeader();
+    final BlockHeader originalAnchor = new BlockHeaderTestFixture().number(500).buildHeader();
+
+    final ChainSyncState initialState =
+        ChainSyncState.initialSync(pivotBlockHeader, originalAnchor, genesisHeader);
+    chainSyncStateStorage.storeState(initialState);
+
+    @SuppressWarnings("unchecked")
+    final Pipeline<Long> backwardPipeline = mock(Pipeline.class);
+    final BackwardHeaderDriver driver = mock(BackwardHeaderDriver.class);
+    lenient().when(driver.getLowestImportedHeader()).thenReturn(pivotBlockHeader);
+    when(pipelineFactory.createBackwardHeaderDownloadPipeline(any(), anyBoolean()))
+        .thenReturn(
+            new SnapSyncChainDownloadPipelineFactory.BackwardHeaderPipelineResult(
+                backwardPipeline, driver));
+
+    final WrongChainException wrongChain = new WrongChainException("test wrong chain");
+    when(scheduler.startPipeline(backwardPipeline))
+        .thenReturn(CompletableFuture.failedFuture(wrongChain));
+
+    when(ethPeers.peerCount()).thenReturn(1);
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            pivotBlockHeader,
+            true,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    downloader.onWorldStateHealFinished();
+
+    assertThatThrownBy(() -> downloader.start().get(5, TimeUnit.SECONDS))
+        .hasRootCauseInstanceOf(WrongChainException.class);
+
+    // Non-retryable: the pipeline factory must have been invoked exactly once. If shouldRetry
+    // had returned true for WrongChainException, the downloader would have re-attempted via
+    // scheduler.scheduleFutureTask and the factory would have been called again.
+    verify(pipelineFactory, times(1)).createBackwardHeaderDownloadPipeline(any(), anyBoolean());
   }
 }
