@@ -213,9 +213,9 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
   /**
    * Evicts the oldest cached layers until at most {@code maxLayers} remain. Used by the
    * engine_newPayload layer-accumulation guard to break the FCU deadlock: the CL stops sending
-   * forkchoiceUpdated while the EL returns SYNCING, so the normal waterline-based scrub never
-   * runs. When the accumulated-layer count drops below the threshold, SYNCING is no longer
-   * returned and the CL resumes normal operation.
+   * forkchoiceUpdated while the EL returns SYNCING, so the normal waterline-based scrub never runs.
+   * When the accumulated-layer count drops below the threshold, SYNCING is no longer returned and
+   * the CL resumes normal operation.
    *
    * @param maxLayers maximum number of cached layers to retain
    */

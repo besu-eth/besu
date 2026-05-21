@@ -456,7 +456,8 @@ public abstract class AbstractEngineNewPayloadTest extends AbstractScheduledApiT
     //   → cachedLayerCount() called once: threshold check returns low
     when(cacheManager.cachedLayerCount())
         .thenReturn(AbstractEngineNewPayload.MAX_CACHED_WORLD_STATE_LAYERS + 1) // call #1 pre-evict
-        .thenReturn(AbstractEngineNewPayload.MAX_CACHED_WORLD_STATE_LAYERS + 1) // call #1 post-evict
+        .thenReturn(
+            AbstractEngineNewPayload.MAX_CACHED_WORLD_STATE_LAYERS + 1) // call #1 post-evict
         .thenReturn(1); // call #2
 
     EnginePayloadStatusResult stalledResult =
