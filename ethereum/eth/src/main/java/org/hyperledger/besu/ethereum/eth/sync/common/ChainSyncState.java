@@ -71,39 +71,6 @@ public record ChainSyncState(
   }
 
   /**
-   * Adapts this state to a higher pivot after an interrupted sync cycle (e.g. a world-state stall
-   * that triggered re-pivoting). All previously downloaded data is preserved:
-   *
-   * <ul>
-   *   <li>If headers were already complete for the old pivot, the old pivot becomes the new {@code
-   *       blockDownloadAnchor} so Stage 1 only downloads the gap [oldPivot → newPivot].
-   *   <li>If headers were not yet complete, Stage 1 restarts from {@code newPivotHeader} down to
-   *       the same floor as before. The old {@code headerDownloadProgress} cannot be reused because
-   *       the [oldPivot → newPivot] range has not been downloaded yet.
-   * </ul>
-   *
-   * @param newPivotHeader the new (higher) pivot block header
-   * @return adapted ChainSyncState targeting the new pivot while preserving existing progress
-   */
-  public ChainSyncState withNewPivot(final BlockHeader newPivotHeader) {
-    if (headersDownloadComplete) {
-      // Case 1: all headers for the old pivot are already stored — the old pivot becomes the
-      // new block-download anchor; Stage 1 only needs to fill the gap up to newPivotHeader.
-      return continueToNewPivot(newPivotHeader, this.pivotBlockHeader);
-    } else {
-      // Case 2: header download was still in progress — restart Stage 1 from the new pivot
-      // toward the same floor. The old progress cannot be reused (it only covers below oldPivot).
-      return new ChainSyncState(
-          firstPivotBlockHeader,
-          newPivotHeader,
-          blockDownloadAnchor,
-          headerDownloadAnchor,
-          false,
-          null);
-    }
-  }
-
-  /**
    * Creates a new state for the case where Stage 1 anchor recovery walked below the original anchor
    * and matched a canonical stored ancestor. Both anchors are replaced with the matched ancestor so
    * Stage 2 (bodies and receipts) starts from there, not from the now-side-chain chain head.
@@ -133,8 +100,7 @@ public record ChainSyncState(
 
   /**
    * Replaces the pivot, preserves the existing block-download anchor, and resets header-download
-   * progress. Unlike {@link #withNewPivot} this never takes the incremental shortcut — caller has
-   * explicit control over {@code headersDownloadComplete}.
+   * progress. Caller has explicit control over {@code headersDownloadComplete}.
    *
    * @param newPivotHeader the new pivot block header
    * @param headersDownloadComplete whether Stage 1 should be considered already done
