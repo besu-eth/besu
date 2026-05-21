@@ -39,8 +39,6 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
   private static final long DIAGNOSTIC_LOG_RATE_LIMIT = Duration.ofMinutes(1).toMillis();
 
   private static final long ONE_EPOCH_MILLIS = Duration.ofSeconds(32 * 12).toMillis();
-
-  /** Four epochs = 128 blocks × 12 s = Ethereum snap-serving window. */
   private static final long FOUR_EPOCHS_MILLIS = ONE_EPOCH_MILLIS * 4;
 
   /**
@@ -65,8 +63,7 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
   private volatile long lastSafeBlockChange;
   private volatile Hash lastHeadBlockHash = Hash.ZERO;
   private volatile long lastHeadBlockChange;
-  private volatile Hash lastFallbackPivotHash = Hash.ZERO;
-  private volatile long lastFallbackPivotChange = 0L;
+  private volatile long lastFallbackWarnLog = 0L;
 
   public PivotSelectorFromSafeBlock(
       final ProtocolContext protocolContext,
@@ -113,8 +110,7 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
       if (!safeHash.equals(lastSafeBlockHash)) {
         lastSafeBlockHash = safeHash;
         lastSafeBlockChange = now;
-        lastFallbackPivotHash = Hash.ZERO;
-        lastFallbackPivotChange = 0L;
+        lastFallbackWarnLog = 0L;
       }
       if (now - lastSafeBlockChange < SAFE_PIVOT_FRESHNESS_LIMIT) {
         return selectSafeBlockAsPivot(safeHash);
@@ -136,21 +132,16 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
 
   private CompletableFuture<PivotSyncState> selectHeadAsFallbackPivot(
       final Hash headHash, final long now) {
-    if (lastFallbackPivotHash.equals(Hash.ZERO)
-        || !headHash.equals(lastFallbackPivotHash)
-        || now - lastFallbackPivotChange >= ONE_EPOCH_MILLIS) {
-      lastFallbackPivotHash = headHash;
-      lastFallbackPivotChange = now;
+    if (now - lastFallbackWarnLog >= ONE_EPOCH_MILLIS) {
+      lastFallbackWarnLog = now;
       LOG.warn(
-          "Safe block has not changed in over {} min but head is still advancing — falling back to head {} as untrusted pivot.",
+          "Safe block has not changed in over {} min but head is still advancing — using head {} as untrusted pivot.",
           SAFE_PIVOT_FRESHNESS_LIMIT / 60_000,
           headHash);
     } else {
-      LOG.debug("Returning previous fallback head {} as pivot", lastFallbackPivotHash);
+      LOG.debug("Using head {} as fallback pivot", headHash);
     }
-    return headerDownloader
-        .downloadBlockHeader(lastFallbackPivotHash)
-        .thenApply(PivotSyncState::new);
+    return headerDownloader.downloadBlockHeader(headHash).thenApply(PivotSyncState::new);
   }
 
   private CompletableFuture<PivotSyncState> logAndFailNoFcu(final long now) {
