@@ -271,14 +271,14 @@ public class DebugGetModifiedAccountsTest {
   }
 
   @Test
-  public void shouldReturnInternalErrorForNonPathBasedWorldState() {
+  public void shouldReturnMethodNotFoundForNonPathBasedWorldState() {
     final WorldStateArchive forestWorldStateArchive = mock(WorldStateArchive.class);
     when(blockchainQueries.getWorldStateArchive()).thenReturn(forestWorldStateArchive);
 
     final JsonRpcResponse response = getModifiedAccountsByNumber.response(request("0x0", "0x1"));
 
     assertThat(((JsonRpcErrorResponse) response).getErrorType())
-        .isEqualTo(RpcErrorType.INTERNAL_ERROR);
+        .isEqualTo(RpcErrorType.METHOD_NOT_FOUND);
   }
 
   private JsonRpcRequestContext request(final Object... params) {

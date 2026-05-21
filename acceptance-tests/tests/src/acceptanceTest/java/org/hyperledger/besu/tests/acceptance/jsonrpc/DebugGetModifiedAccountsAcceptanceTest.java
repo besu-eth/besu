@@ -28,6 +28,7 @@ import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.genesis.Gene
 import java.io.IOException;
 import java.math.BigInteger;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -112,8 +113,12 @@ public class DebugGetModifiedAccountsAcceptanceTest extends AcceptanceTestBase {
 
   private void assertModifiedAccounts(final JsonNode result) {
     assertThat(result.isArray()).isTrue();
-    assertThat(result).anyMatch(address -> address.asText().equalsIgnoreCase(recipientAddress()));
-    assertThat(result).anyMatch(address -> address.asText().equalsIgnoreCase(senderAddress()));
+    assertThat(result)
+        .extracting(address -> address.asText().toLowerCase(Locale.ROOT))
+        .containsExactlyInAnyOrder(
+            recipientAddress().toLowerCase(Locale.ROOT),
+            senderAddress().toLowerCase(Locale.ROOT),
+            node.getAddress().toHexString().toLowerCase(Locale.ROOT));
   }
 
   private JsonNode callDebug(final String method, final List<String> params) throws IOException {

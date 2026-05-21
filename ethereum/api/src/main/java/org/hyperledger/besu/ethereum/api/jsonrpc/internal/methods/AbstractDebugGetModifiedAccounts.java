@@ -80,7 +80,7 @@ abstract class AbstractDebugGetModifiedAccounts implements JsonRpcMethod {
     if (!(worldStateArchive instanceof PathBasedWorldStateProvider pathBasedWorldStateProvider)) {
       return new JsonRpcErrorResponse(
           requestContext.getRequest().getId(),
-          new JsonRpcError(RpcErrorType.INTERNAL_ERROR, METHOD_ONLY_SUPPORTED_WITH_BONSAI));
+          new JsonRpcError(RpcErrorType.METHOD_NOT_FOUND, METHOD_ONLY_SUPPORTED_WITH_BONSAI));
     }
 
     final TrieLogManager trieLogManager = pathBasedWorldStateProvider.getTrieLogManager();

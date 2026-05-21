@@ -55,11 +55,6 @@ public class DebugGetModifiedAccountsByNumber extends AbstractDebugGetModifiedAc
   private Optional<Long> getBlockNumber(
       final JsonRpcRequestContext requestContext, final int index) {
     try {
-      final Optional<Object> rawParameter =
-          requestContext.getOptionalParameter(index, Object.class);
-      if (rawParameter.isPresent() && rawParameter.get() instanceof Number number) {
-        return Optional.of(number.longValue());
-      }
       return requestContext
           .getOptionalParameter(index, BlockParameter.class)
           .flatMap(blockParameter -> blockParameter.getBlockNumber(blockchainQueries()));
