@@ -260,9 +260,9 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
               worldState,
               protocolSpec,
               blockHashLookup,
-              blockTracer == BlockAwareOperationTracer.NO_TRACING ?
-                OperationTracer.NO_TRACING :
-                blockTracer,
+              blockTracer == BlockAwareOperationTracer.NO_TRACING
+                  ? OperationTracer.NO_TRACING
+                  : blockTracer,
               blockAccessListBuilder);
       protocolSpec
           .getPreExecutionProcessor()
