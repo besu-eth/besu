@@ -367,10 +367,13 @@ public abstract class AbstractEngineNewPayloadTest extends AbstractScheduledApiT
         mock(PathBasedCachedWorldStorageManager.class);
     when(protocolContext.getWorldStateArchive()).thenReturn(worldStateProvider);
     when(worldStateProvider.getCachedWorldStorageManager()).thenReturn(cacheManager);
-    // First call: stalled (above threshold). Second call: recovered (below threshold).
+    // First call: stalled (above threshold) — cachedLayerCount() called twice (pre- and
+    // post-eviction). Eviction is mocked so count stays high, returning SYNCING.
+    // Second call: recovered — cachedLayerCount() called once, returns low value → VALID.
     when(cacheManager.cachedLayerCount())
-        .thenReturn(AbstractEngineNewPayload.MAX_CACHED_WORLD_STATE_LAYERS + 1)
-        .thenReturn(1);
+        .thenReturn(AbstractEngineNewPayload.MAX_CACHED_WORLD_STATE_LAYERS + 1) // call #1 pre-evict
+        .thenReturn(AbstractEngineNewPayload.MAX_CACHED_WORLD_STATE_LAYERS + 1) // call #1 post-evict
+        .thenReturn(1); // call #2
 
     EnginePayloadStatusResult stalledResult =
         fromSuccessResp(resp(mockEnginePayload(mockHeader, emptyList())));
