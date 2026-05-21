@@ -22,6 +22,9 @@ import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConf
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.DEFAULT_STATE_PROOFS_ENABLED;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.DEFAULT_TRIE_LOG_PRUNING_WINDOW_SIZE;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.MINIMUM_TRIE_LOG_RETENTION_LIMIT;
+import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.PathBasedUnstable.DEFAULT_BONSAI_CROSS_BLOCK_CACHE_ACCOUNT_SIZE;
+import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.PathBasedUnstable.DEFAULT_BONSAI_CROSS_BLOCK_CACHE_ENABLED;
+import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.PathBasedUnstable.DEFAULT_BONSAI_CROSS_BLOCK_CACHE_STORAGE_SIZE;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.PathBasedUnstable.DEFAULT_CODE_USING_CODE_HASH_ENABLED;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.PathBasedUnstable.DEFAULT_FULL_FLAT_DB_ENABLED;
 
@@ -146,6 +149,29 @@ public class PathBasedExtraStorageOptions
             "The frequency of recording state trie nodes for Bonsai archive mode. Intermediate nodes are generated from trie logs. Larger intervals require less storage space but historic proof generation may take longer. (default: ${DEFAULT-VALUE})")
     private Long archiveTrieNodeCheckpointInterval = DEFAULT_ARCHIVE_CHECKPOINT_INTERVAL;
 
+    @Option(
+        hidden = true,
+        names = "--Xbonsai-cross-block-cache-enabled",
+        description = "Enables the Bonsai cross-block cache (default: ${DEFAULT-VALUE}).",
+        fallbackValue = "false")
+    private Boolean bonsaiCrossBlockCacheEnabled = DEFAULT_BONSAI_CROSS_BLOCK_CACHE_ENABLED;
+
+    @Option(
+        hidden = true,
+        names = "--Xbonsai-cross-block-cache-account-max-size",
+        paramLabel = "<LONG>",
+        description =
+            "Maximum account-segment entries when the cross-block cache is enabled (default: ${DEFAULT-VALUE}).")
+    private Long bonsaiCrossBlockCacheAccountSize = DEFAULT_BONSAI_CROSS_BLOCK_CACHE_ACCOUNT_SIZE;
+
+    @Option(
+        hidden = true,
+        names = "--Xbonsai-cross-block-cache-storage-max-size",
+        paramLabel = "<LONG>",
+        description =
+            "Maximum storage-segment entries when the cross-block cache is enabled (default: ${DEFAULT-VALUE}).")
+    private Long bonsaiCrossBlockCacheStorageSize = DEFAULT_BONSAI_CROSS_BLOCK_CACHE_STORAGE_SIZE;
+
     /** Default Constructor. */
     Unstable() {}
   }
@@ -237,6 +263,12 @@ public class PathBasedExtraStorageOptions
         domainObject.getUnstable().getFullFlatDbEnabled();
     dataStorageOptions.unstableOptions.codeUsingCodeHashEnabled =
         domainObject.getUnstable().getCodeStoredByCodeHashEnabled();
+    dataStorageOptions.unstableOptions.bonsaiCrossBlockCacheEnabled =
+        domainObject.getUnstable().getBonsaiCrossBlockCacheEnabled();
+    dataStorageOptions.unstableOptions.bonsaiCrossBlockCacheAccountSize =
+        domainObject.getUnstable().getBonsaiCrossBlockCacheAccountSize();
+    dataStorageOptions.unstableOptions.bonsaiCrossBlockCacheStorageSize =
+        domainObject.getUnstable().getBonsaiCrossBlockCacheStorageSize();
     dataStorageOptions.isParallelTxProcessingEnabled =
         domainObject.getParallelTxProcessingEnabled();
     dataStorageOptions.isParallelStateRootComputationEnabled =
@@ -264,6 +296,9 @@ public class PathBasedExtraStorageOptions
                 .stateProofsEnabled(unstableOptions.stateProofsEnabled)
                 .archiveTrieNodeCheckpointInterval(
                     unstableOptions.archiveTrieNodeCheckpointInterval)
+                .bonsaiCrossBlockCacheEnabled(unstableOptions.bonsaiCrossBlockCacheEnabled)
+                .bonsaiCrossBlockCacheAccountSize(unstableOptions.bonsaiCrossBlockCacheAccountSize)
+                .bonsaiCrossBlockCacheStorageSize(unstableOptions.bonsaiCrossBlockCacheStorageSize)
                 .build())
         .build();
   }

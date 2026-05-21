@@ -14,12 +14,15 @@
  */
 package org.hyperledger.besu.ethereum.core.encoding;
 
+import org.hyperledger.besu.crypto.Hash;
 import org.hyperledger.besu.datatypes.BlobType;
+import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.kzg.Blob;
 import org.hyperledger.besu.ethereum.core.kzg.KZGCommitment;
 import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.util.List;
@@ -60,9 +63,29 @@ public class BlobPooledTransactionDecoder {
     List<KZGProof> proofs = txRlp.readList(KZGProof::readFrom);
     txRlp.leaveList();
 
-    return builder
-        .kzgBlobs(BlobType.of(versionId), commitments, blobs, proofs)
-        .sizeForAnnouncement(input.size())
-        .build();
+    final Transaction transaction =
+        builder
+            .kzgBlobs(BlobType.of(versionId), commitments, blobs, proofs)
+            .sizeForAnnouncement(input.size())
+            .build();
+
+    // Validate that each commitment hashes to the versioned hash declared in the tx body.
+    // A mismatch means the peer sent a sidecar that does not correspond to the transaction.
+    final List<VersionedHash> versionedHashes =
+        transaction
+            .getVersionedHashes()
+            .orElseThrow(() -> new RLPException("Blob transaction is missing versioned hashes"));
+    for (int i = 0; i < commitments.size(); i++) {
+      final VersionedHash expected =
+          new VersionedHash(
+              VersionedHash.SHA256_VERSION_ID,
+              org.hyperledger.besu.datatypes.Hash.wrap(Hash.sha256(commitments.get(i).getData())));
+      if (!expected.equals(versionedHashes.get(i))) {
+        throw new RLPException(
+            "Commitment at index " + i + " does not match versioned hash in transaction body");
+      }
+    }
+
+    return transaction;
   }
 }

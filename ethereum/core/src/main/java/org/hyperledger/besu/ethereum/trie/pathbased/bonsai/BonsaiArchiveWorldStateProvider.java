@@ -99,7 +99,9 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         new BonsaiWorldStateKeyValueStorage(
             archiveProvider,
             worldStateKeyValueStorage.getComposedWorldStateStorage(),
-            worldStateKeyValueStorage.getTrieLogStorage());
+            worldStateKeyValueStorage.getTrieLogStorage(),
+            worldStateKeyValueStorage.getCacheManager(),
+            worldStateKeyValueStorage.getCurrentVersion());
   }
 
   @Override

@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePers
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.AccountRangeDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.BytecodeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.StorageRangeDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.AccountFlatDatabaseHealingRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.StorageFlatDatabaseHealingRangeRequest;
@@ -63,7 +64,8 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> {
+public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
+    implements SnapRequestContext {
 
   private static final Logger LOG = LoggerFactory.getLogger(SnapWorldDownloadState.class);
 
@@ -372,6 +374,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
    *
    * @param account The account to be added for repair.
    */
+  @Override
   public synchronized void addAccountToHealingList(final Bytes account) {
     if (!accountsHealingList.contains(account)) {
       snapContext.addAccountToHealingList(account);
@@ -475,6 +478,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
         __ -> {});
   }
 
+  @Override
   public SnapSyncMetricsManager getMetricsManager() {
     return metricsManager;
   }

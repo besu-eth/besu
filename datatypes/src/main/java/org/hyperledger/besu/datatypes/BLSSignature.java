@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 
 /** A BLS Signature * */
 public class BLSSignature extends BytesHolder {
@@ -74,7 +75,7 @@ public class BLSSignature extends BytesHolder {
    *     representation of a bls signature.
    */
   @JsonCreator
-  public static BLSSignature fromHexString(final String str) {
+  public static @Nullable BLSSignature fromHexString(final String str) {
     if (str == null) return null;
     return wrap(Bytes.fromHexStringLenient(str, SIZE));
   }
