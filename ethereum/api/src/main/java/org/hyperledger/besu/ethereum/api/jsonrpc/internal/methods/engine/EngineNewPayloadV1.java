@@ -33,8 +33,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcRequestException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1.InvalidField;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.FieldDeserializationException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
@@ -65,6 +63,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+import com.fasterxml.jackson.databind.JsonMappingException;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.Json;
 import org.slf4j.Logger;
@@ -307,7 +306,18 @@ public sealed class EngineNewPayloadV1<
 
   @SuppressWarnings("unchecked")
   protected NPRP readRequestParameters(final JsonRpcRequestContext requestContext) {
+    final int requestNumOfParams = requestContext.getRequest().getParamLength();
+    if (requestNumOfParams != getNumberOfParameters()) {
+      throw new InvalidJsonRpcRequestException(
+          "Expected %d parameters but got %d"
+              .formatted(requestNumOfParams, getNumberOfParameters()),
+          RpcErrorType.INVALID_PARAM_COUNT);
+    }
     return (NPRP) new NewPayloadRequestParametersV1<>(readPayloadParameter(requestContext));
+  }
+
+  protected int getNumberOfParameters() {
+    return 1;
   }
 
   protected Class<? extends ExecutionPayloadV1> getPayloadParameterClass() {
@@ -523,18 +533,17 @@ public sealed class EngineNewPayloadV1<
 
   protected JsonRpcResponse processParametersParsingException(
       final Object reqId, final InvalidJsonRpcRequestException e) {
-    final Optional<FieldDeserializationException> maybeFieldEx =
-        extractFieldDeserializationException(e);
+    final Optional<JsonMappingException> maybeFieldEx = extractFieldDeserializationException(e);
 
     // specific invalid field with custom error response
     String customMessage = null;
     if (maybeFieldEx.isPresent()) {
-      final FieldDeserializationException fieldEx = maybeFieldEx.get();
-      if (fieldEx.getInvalidField().equals(InvalidField.TRANSACTIONS)) {
+      final JsonMappingException fieldEx = maybeFieldEx.get();
+      if (fieldEx.getPath().getFirst().getFieldName().equals("transactions")) {
         return respondWithInvalid(
             reqId,
             "Failed to decode transactions from block parameter (" + fieldEx.getMessage() + ")");
-      } else if (fieldEx.getInvalidField().equals(InvalidField.EXTRA_DATA)) {
+      } else if (fieldEx.getPath().getFirst().getFieldName().equals("extraData")) {
         customMessage =
             "Failed to decode extraData from block parameter (" + fieldEx.getMessage() + ")";
       }

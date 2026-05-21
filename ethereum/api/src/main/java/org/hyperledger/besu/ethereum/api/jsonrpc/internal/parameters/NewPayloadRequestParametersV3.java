@@ -14,12 +14,9 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
-import org.hyperledger.besu.datatypes.RequestType;
 import org.hyperledger.besu.ethereum.core.Request;
 
 import java.util.List;
-
-import org.apache.tuweni.bytes.Bytes;
 
 public final class NewPayloadRequestParametersV3<EP extends ExecutionPayloadV3>
     extends NewPayloadRequestParametersV2<EP> {
@@ -27,20 +24,9 @@ public final class NewPayloadRequestParametersV3<EP extends ExecutionPayloadV3>
 
   public NewPayloadRequestParametersV3(
       final NewPayloadRequestParametersV2<? extends EP> requestParameters,
-      final List<String> hexExecutionRequests) {
+      final List<Request> executionRequests) {
     super(requestParameters);
-    this.executionRequests =
-        hexExecutionRequests.stream()
-            .map(
-                s -> {
-                  final Bytes request = Bytes.fromHexString(s);
-                  final Bytes requestData = request.slice(1);
-                  if (requestData.isEmpty()) {
-                    throw new IllegalArgumentException("Request data cannot be empty");
-                  }
-                  return new Request(RequestType.of(request.get(0)), requestData);
-                })
-            .toList();
+    this.executionRequests = executionRequests;
   }
 
   public NewPayloadRequestParametersV3(

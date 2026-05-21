@@ -14,10 +14,12 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.json.HashDeserializer;
 import org.hyperledger.besu.ethereum.core.json.Bytes32Deserializer;
+import org.hyperledger.besu.ethereum.core.json.BytesDeserializer;
 import org.hyperledger.besu.ethereum.core.json.UInt64Deserializer;
 
 import java.util.List;
@@ -32,6 +34,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt64;
 
@@ -41,6 +44,7 @@ public class JsonRpcParameter {
       new SimpleModule("eth")
               .addDeserializer(Hash.class, new HashDeserializer())
               .addDeserializer(UInt64.class, new UInt64Deserializer())
+              .addDeserializer(Bytes.class, new BytesDeserializer())
               .addDeserializer(Bytes32.class, new Bytes32Deserializer());
 
   /**

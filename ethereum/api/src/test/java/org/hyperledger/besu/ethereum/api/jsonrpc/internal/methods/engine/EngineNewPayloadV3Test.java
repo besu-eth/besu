@@ -59,6 +59,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.UnaryOperator;
 
+import org.apache.commons.lang3.ArrayUtils;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
@@ -118,17 +119,13 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
   @Test
   public void shouldReturnUnsupportedForkIfBlockTimestampIsBeforeForkWindow() {
     BlockHeader blockHeader =
-        setupValidPayload(
+        setupValidPayloadV3(
             getMinSupportedTimestamp() - 1,
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             BlobGas.ZERO,
             0L);
 
-    var resp =
-        resp(
-            mockEnginePayloadParam(blockHeader, emptyList()),
-            emptyVersionedHashesParam(),
-            zeroParentBeaconBlockRootParam());
+    var resp = resp(requestParams(mockEnginePayloadParam(blockHeader, emptyList())));
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
     assertThat(jsonRpcError.getCode()).isEqualTo(UNSUPPORTED_FORK.getCode());
     verify(engineCallListener, times(1)).executionEngineCalled();
@@ -139,7 +136,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     final Bytes shortHash = Bytes.fromHexString("0x" + "69".repeat(31));
 
     BlockHeader blockHeader =
-        setupValidPayload(
+        setupValidPayloadV3(
             getMinSupportedTimestamp(),
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             BlobGas.ZERO,
@@ -152,8 +149,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
             zeroParentBeaconBlockRootParam());
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
     assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
-    assertThat(jsonRpcError.getMessage())
-        .isEqualTo("Failed to decode blob versioned hashes parameter");
+    assertThat(jsonRpcError.getMessage()).isEqualTo("Invalid versioned hash params");
   }
 
   @Test
@@ -163,7 +159,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     Long blobGasUsed = null;
 
     BlockHeader blockHeader =
-        setupValidPayload(
+        setupValidPayloadV3(
             getMinSupportedTimestamp(),
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             excessBlobGas,
@@ -171,9 +167,8 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
 
     var resp =
         resp(
-            mockEnginePayloadParam(blockHeader, emptyList(), excessBlobGas, blobGasUsed),
-            emptyVersionedHashesParam(),
-            zeroParentBeaconBlockRootParam());
+            requestParams(
+                mockEnginePayloadParam(blockHeader, emptyList(), excessBlobGas, blobGasUsed)));
 
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
     assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
@@ -188,7 +183,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     Long blobGasUsed = 100L;
 
     BlockHeader blockHeader =
-        setupValidPayload(
+        setupValidPayloadV3(
             getMinSupportedTimestamp(),
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             excessBlobGas,
@@ -196,9 +191,8 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
 
     var resp =
         resp(
-            mockEnginePayloadParam(blockHeader, emptyList(), excessBlobGas, blobGasUsed),
-            emptyVersionedHashesParam(),
-            zeroParentBeaconBlockRootParam());
+            requestParams(
+                mockEnginePayloadParam(blockHeader, emptyList(), excessBlobGas, blobGasUsed)));
 
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
     assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
@@ -215,7 +209,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     List<String> transactions = List.of(transactionWithBlobsBytes.toString());
 
     BlockHeader mockHeader =
-        setupValidPayload(
+        setupValidPayloadV1(
             getMinSupportedTimestamp(),
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))));
     var resp = resp(mockEnginePayloadParam(mockHeader, transactions));
@@ -375,28 +369,29 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
   }
 
   @Override
-  protected Object[] getVersionSpecificParams(final Map<String, Object> payloadParams) {
-    return new Object[] {
-      payloadParams, emptyVersionedHashesParam(), zeroParentBeaconBlockRootParam()
-    };
+  protected Object[] getVersionSpecificDefaultParams() {
+    return ArrayUtils.addAll(
+        super.getVersionSpecificDefaultParams(),
+        emptyVersionedHashesParam(),
+        zeroParentBeaconBlockRootParam());
   }
 
-  protected BlockHeader setupValidPayload(
+  protected BlockHeader setupValidPayloadV3(
       final long timestamp,
       final BlockProcessingResult value,
       final BlobGas excessBlobGas,
       final Long blobGasUsed) {
-    return setupValidPayload(
+    return setupValidPayloadV3(
         timestamp, value, excessBlobGas, blobGasUsed, UnaryOperator.identity());
   }
 
-  protected BlockHeader setupValidPayload(
+  protected BlockHeader setupValidPayloadV3(
       final long timestamp,
       final BlockProcessingResult value,
       final BlobGas excessBlobGas,
       final Long blobGasUsed,
       final UnaryOperator<BlockHeaderTestFixture> nextVersionSpecificModifier) {
-    return super.setupValidPayload(
+    return super.setupValidPayloadV2(
         timestamp,
         value,
         List.of(),
@@ -433,10 +428,8 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
   protected void setDefaultExecutionPayloadFields(
       final Map<String, Object> payload, final BlockHeader header, final List<String> txs) {
     super.setDefaultExecutionPayloadFields(payload, header, txs);
-    if (header.getTimestamp() >= cancunHardfork.milestone()) {
-      payload.put("blobGasUsed", header.getBlobGasUsed().orElse(0L));
-      payload.put("excessBlobGas", header.getExcessBlobGas().orElse(BlobGas.ZERO));
-    }
+    payload.put("blobGasUsed", header.getBlobGasUsed().orElse(0L));
+    payload.put("excessBlobGas", header.getExcessBlobGas().orElse(BlobGas.ZERO));
   }
 
   @Override

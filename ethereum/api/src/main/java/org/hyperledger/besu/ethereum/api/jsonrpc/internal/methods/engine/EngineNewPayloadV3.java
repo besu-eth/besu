@@ -29,7 +29,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPa
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV2;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -91,8 +90,8 @@ public sealed class EngineNewPayloadV3<
   @Override
   @SuppressWarnings("unchecked")
   protected NPRP readRequestParameters(final JsonRpcRequestContext requestContext) {
-    final NewPayloadRequestParametersV1<EP> requestParameters =
-        new NewPayloadRequestParametersV1<>((EP) readPayloadParameter(requestContext));
+    final NewPayloadRequestParametersV1<? extends EP> requestParameters =
+        super.readRequestParameters(requestContext);
     final List<VersionedHash> expectedBlobVersionedHashes;
     try {
       expectedBlobVersionedHashes =
@@ -118,6 +117,11 @@ public sealed class EngineNewPayloadV3<
     return (NPRP)
         new NewPayloadRequestParametersV2<>(
             requestParameters, expectedBlobVersionedHashes, parentBeaconBlockRootParameter);
+  }
+
+  @Override
+  protected int getNumberOfParameters() {
+    return 3;
   }
 
   @Override
@@ -321,18 +325,16 @@ public sealed class EngineNewPayloadV3<
     if (e.getRpcErrorType() == RpcErrorType.INVALID_VERSIONED_HASH_PARAMS) {
       return new JsonRpcErrorResponse(
           reqId,
-          new JsonRpcError(
-              RpcErrorType.INVALID_VERSIONED_HASH_PARAMS.getCode(),
-              "Failed to decode blob versioned hashes parameter",
-              e.getMessage()));
+          ValidationResult.invalid(
+              RpcErrorType.INVALID_VERSIONED_HASH_PARAMS,
+              "Failed to decode blob versioned hashes parameter (" + e.getMessage() + ")"));
     }
     if (e.getRpcErrorType() == RpcErrorType.INVALID_PARENT_BEACON_BLOCK_ROOT_PARAMS) {
       return new JsonRpcErrorResponse(
           reqId,
-          new JsonRpcError(
-              RpcErrorType.INVALID_PARENT_BEACON_BLOCK_ROOT_PARAMS.getCode(),
-              "Failed to decode parent beacon block root parameter",
-              e.getMessage()));
+          ValidationResult.invalid(
+              RpcErrorType.INVALID_VERSIONED_HASH_PARAMS,
+              "Failed to decode parent beacon block root parameter (" + e.getMessage() + ")"));
     }
     return super.processParametersParsingException(reqId, e);
   }

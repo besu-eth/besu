@@ -93,7 +93,7 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
   @JsonSetter("extraData")
   public void setExtraData(final String extraData) {
     if (extraData == null) {
-      throw new FieldDeserializationException(InvalidField.EXTRA_DATA, "extraData must be present");
+      throw new IllegalArgumentException("extraData must be present");
     }
     this.extraData = Bytes.fromHexString(extraData);
   }
@@ -122,7 +122,7 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
               .map(in -> TransactionDecoder.decodeOpaqueBytes(in, EncodingContext.BLOCK_BODY))
               .toList();
     } catch (final Exception e) {
-      throw new FieldDeserializationException(InvalidField.TRANSACTIONS, e.getMessage());
+      throw new IllegalArgumentException(e);
     }
   }
 
@@ -180,10 +180,5 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
 
   public List<Transaction> getTransactions() {
     return transactions;
-  }
-
-  public enum InvalidField implements FieldDeserializationException.InvalidField {
-    TRANSACTIONS,
-    EXTRA_DATA
   }
 }

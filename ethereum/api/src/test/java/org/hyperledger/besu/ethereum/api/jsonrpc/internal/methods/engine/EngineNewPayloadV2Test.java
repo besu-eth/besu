@@ -87,13 +87,11 @@ public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
   public void shouldReturnValidIfWithdrawalsIsNotNull_WhenWithdrawalsAllowed() {
     final List<Withdrawal> withdrawals = List.of(WITHDRAWAL_PARAM_1.toWithdrawal());
     BlockHeader mockHeader =
-        setupValidPayload(
+        setupValidPayloadV2(
             getMinSupportedTimestamp(),
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             withdrawals);
-    var resp =
-        resp(
-            getVersionSpecificParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
+    var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
 
     assertValidResponse(mockHeader, resp);
   }
@@ -102,13 +100,11 @@ public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
   public void shouldReturnValidIfWithdrawalsIsNull_WhenWithdrawalsProhibited() {
     final List<Withdrawal> withdrawals = null;
     BlockHeader mockHeader =
-        setupValidPayload(
+        setupValidPayloadV2(
             getMinSupportedTimestamp() / 2,
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             withdrawals);
-    var resp =
-        resp(
-            getVersionSpecificParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
+    var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
 
     assertValidResponse(mockHeader, resp);
   }
@@ -117,13 +113,11 @@ public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
   public void shouldReturnInvalidIfWithdrawalsIsNotNull_WhenWithdrawalsProhibited() {
     final List<Withdrawal> withdrawals = List.of();
     BlockHeader mockHeader =
-        setupValidPayload(
+        setupValidPayloadV2(
             getMinSupportedTimestamp() / 2,
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             withdrawals);
-    var resp =
-        resp(
-            getVersionSpecificParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
+    var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
 
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
     assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
@@ -134,13 +128,11 @@ public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
   public void shouldReturnInvalidIfWithdrawalsIsNull_WhenWithdrawalsAllowed() {
     final List<Withdrawal> withdrawals = null;
     BlockHeader mockHeader =
-        setupValidPayload(
+        setupValidPayloadV2(
             getMinSupportedTimestamp(),
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             withdrawals);
-    var resp =
-        resp(
-            getVersionSpecificParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
+    var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
 
     assertThat(fromErrorResp(resp).getCode()).isEqualTo(INVALID_PARAMS.getCode());
     verify(engineCallListener, times(1)).executionEngineCalled();
@@ -177,19 +169,19 @@ public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
     return INVALID;
   }
 
-  protected BlockHeader setupValidPayload(
+  protected BlockHeader setupValidPayloadV2(
       final long timestamp, final BlockProcessingResult value, final List<Withdrawal> withdrawals) {
 
-    return setupValidPayload(timestamp, value, withdrawals, UnaryOperator.identity());
+    return setupValidPayloadV2(timestamp, value, withdrawals, UnaryOperator.identity());
   }
 
-  protected BlockHeader setupValidPayload(
+  protected BlockHeader setupValidPayloadV2(
       final long timestamp,
       final BlockProcessingResult value,
       final List<Withdrawal> withdrawals,
       final UnaryOperator<BlockHeaderTestFixture> versionSpecificModifier) {
 
-    return super.setupValidPayload(
+    return super.setupValidPayloadV1(
         timestamp,
         value,
         fixture -> versionSpecificModifier.apply(setWithdrawalsRoot(fixture, withdrawals)));

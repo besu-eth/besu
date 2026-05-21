@@ -19,7 +19,6 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcRequestException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.FieldDeserializationException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -33,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 
+import com.fasterxml.jackson.databind.JsonMappingException;
 import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -145,12 +145,12 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     return ValidationResult.valid();
   }
 
-  protected Optional<FieldDeserializationException> extractFieldDeserializationException(
+  protected Optional<JsonMappingException> extractFieldDeserializationException(
       final InvalidJsonRpcRequestException paramException) {
     Throwable cause = paramException.getCause();
     while (cause != null) {
-      if (cause instanceof FieldDeserializationException) {
-        return Optional.of((FieldDeserializationException) cause);
+      if (cause instanceof JsonMappingException) {
+        return Optional.of((JsonMappingException) cause);
       }
       cause = cause.getCause();
     }

@@ -16,10 +16,24 @@ package org.hyperledger.besu.ethereum.core;
 
 import org.hyperledger.besu.datatypes.RequestType;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import org.apache.tuweni.bytes.Bytes;
 
 public record Request(RequestType type, Bytes data)
     implements org.hyperledger.besu.plugin.data.Request {
+
+  @JsonCreator
+  public static Request fromBytes(final Bytes bytes) {
+    if (bytes.isEmpty()) {
+      throw new IllegalArgumentException("Request cannot be empty");
+    }
+
+    if (bytes.size() == 1) {
+      throw new IllegalArgumentException("Request must be at least 1 byte");
+    }
+
+    return new Request(RequestType.of(bytes.get(0)), bytes.slice(1));
+  }
 
   @Override
   public RequestType getType() {

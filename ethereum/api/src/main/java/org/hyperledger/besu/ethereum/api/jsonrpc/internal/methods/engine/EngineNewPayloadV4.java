@@ -27,10 +27,13 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPa
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV3;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
+import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -79,9 +82,10 @@ public sealed class EngineNewPayloadV4<
   protected NPRP readRequestParameters(final JsonRpcRequestContext requestContext) {
     final NewPayloadRequestParametersV2<? extends EP> requestParameters =
         super.readRequestParameters(requestContext);
-    final List<String> executionRequests;
+    final List<Request> executionRequests;
     try {
-      executionRequests = requestContext.getRequiredList(3, String.class, FAIL_ON_UNKNOWN_BUT_NULL);
+      executionRequests =
+          requestContext.getRequiredList(3, Request.class, FAIL_ON_UNKNOWN_BUT_NULL);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcRequestException(
           "Invalid execution request parameters (index 3)",
@@ -89,6 +93,11 @@ public sealed class EngineNewPayloadV4<
           e);
     }
     return (NPRP) new NewPayloadRequestParametersV3<>(requestParameters, executionRequests);
+  }
+
+  @Override
+  protected int getNumberOfParameters() {
+    return 4;
   }
 
   @Override
@@ -120,5 +129,19 @@ public sealed class EngineNewPayloadV4<
       return ValidationResult.invalid(RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS);
     }
     return ValidationResult.valid();
+  }
+
+  @Override
+  protected JsonRpcResponse processParametersParsingException(
+      final Object reqId, final InvalidJsonRpcRequestException e) {
+
+    if (e.getRpcErrorType() == RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS) {
+      return new JsonRpcErrorResponse(
+          reqId,
+          ValidationResult.invalid(
+              RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS,
+              "Failed to decode execution requests parameter (" + e.getMessage() + ")"));
+    }
+    return super.processParametersParsingException(reqId, e);
   }
 }
