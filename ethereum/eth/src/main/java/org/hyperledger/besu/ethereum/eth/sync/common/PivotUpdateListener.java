@@ -27,10 +27,6 @@ public interface PivotUpdateListener {
    * Called when the pivot block has been updated to a newer block.
    *
    * @param newPivotBlockHeader the new pivot block header
-   * @param sourceIsSafe whether the pivot source is considered safe (i.e. came from a trusted
-   *     source such as a CL-finalized head). This becomes the trust value of this pivot once it is
-   *     adopted, and on the next pivot transition will be carried forward as the trust of the
-   *     anchor (the "previous pivot was safe" signal for backward header recovery).
    */
-  void onPivotUpdated(BlockHeader newPivotBlockHeader, boolean sourceIsSafe);
+  void onPivotUpdated(BlockHeader newPivotBlockHeader);
 }

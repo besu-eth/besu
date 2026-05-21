@@ -99,16 +99,6 @@ public class SnapSyncChainDownloader
 
   private volatile Pipeline<?> currentPipeline;
   private volatile BackwardHeaderDriver currentDriver;
-  // Trust of the current pivot (set from PivotSyncState.isSourceSafe at the time the pivot was
-  // selected). Updated when a new pivot becomes current via continueToNewPivot.
-  private volatile boolean currentPivotTrust;
-  // Trust of the current anchor (= trust of the previous pivot). This is what Stage 1 passes to
-  // BackwardHeaderDriver as previousPivotWasSafe. Initially defaults to true because the first
-  // cycle's anchor is genesis/checkpoint, which is effectively safe.
-  private volatile boolean previousAnchorTrust = true;
-  // Pending trust of the new pivot, captured from onPivotUpdated and applied during the next
-  // continueToNewPivot.
-  private final AtomicReference<Boolean> pendingPivotTrust = new AtomicReference<>();
   private Instant overallStartTime;
 
   /**
@@ -134,9 +124,6 @@ public class SnapSyncChainDownloader
    * @param syncState the sync state tracker
    * @param syncDurationMetrics the sync duration metrics tracker
    * @param initialPivotHeader the initial pivot block header
-   * @param initialPivotIsSafe whether the initial pivot was selected from a safe source (typically
-   *     {@code PivotSyncState.isSourceSafe()}). Stored as the trust of the current pivot; on the
-   *     first pivot transition it becomes the anchor trust passed to the backward-header driver.
    * @param chainStateStorage the storage for chain sync state
    * @param headerDownloader the downloader for fetching checkpoint headers
    */
@@ -149,7 +136,6 @@ public class SnapSyncChainDownloader
       final SyncState syncState,
       final SyncDurationMetrics syncDurationMetrics,
       final BlockHeader initialPivotHeader,
-      final boolean initialPivotIsSafe,
       final ChainSyncStateStorage chainStateStorage,
       final SingleBlockHeaderDownloader headerDownloader) {
     this.pipelineFactory = pipelineFactory;
@@ -161,7 +147,6 @@ public class SnapSyncChainDownloader
     this.syncState = syncState;
     this.syncDurationMetrics = syncDurationMetrics;
     this.initialPivotHeader = initialPivotHeader;
-    this.currentPivotTrust = initialPivotIsSafe;
     this.chainSyncStateStorage = chainStateStorage;
     this.headerDownloader = headerDownloader;
   }
@@ -207,16 +192,14 @@ public class SnapSyncChainDownloader
         syncState,
         syncDurationMetrics,
         pivotBlockHeader,
-        fastSyncState.isSourceSafe(),
         chainSyncStateStorage,
         headerDownloader);
   }
 
   @Override
-  public void onPivotUpdated(final BlockHeader newPivotBlockHeader, final boolean sourceIsSafe) {
+  public void onPivotUpdated(final BlockHeader newPivotBlockHeader) {
     synchronized (this) {
       pendingPivotUpdate.getAndSet(newPivotBlockHeader);
-      pendingPivotTrust.set(sourceIsSafe);
       pivotUpdateFuture.complete(null);
     }
     LOG.info("Received pivot update to block no {}", newPivotBlockHeader.getNumber());
@@ -345,7 +328,7 @@ public class SnapSyncChainDownloader
             "Initial pivot {} is more than continuation threshold ahead of persisted pivot {}; finishing current cycle then continuing to new pivot",
             initialPivotHeader.getNumber(),
             loadedState.pivotBlockHeader().getNumber());
-        onPivotUpdated(initialPivotHeader, currentPivotTrust);
+        onPivotUpdated(initialPivotHeader);
       }
 
       chainSyncState.set(stateToUse);
@@ -553,7 +536,7 @@ public class SnapSyncChainDownloader
     final Instant stage1StartTime = Instant.now();
 
     final SnapSyncChainDownloadPipelineFactory.BackwardHeaderPipelineResult pipelineResult =
-        pipelineFactory.createBackwardHeaderDownloadPipeline(state, previousAnchorTrust);
+        pipelineFactory.createBackwardHeaderDownloadPipeline(state);
     currentPipeline = pipelineResult.pipeline();
     currentDriver = pipelineResult.driver();
 
@@ -838,14 +821,6 @@ public class SnapSyncChainDownloader
         // Update chain state to new pivot
         chainSyncState.updateAndGet(state -> state.continueToNewPivot(updatedPivot, previousPivot));
         chainSyncStateStorage.storeState(chainSyncState.get());
-
-        // Trust transition: the previous pivot (now the anchor) carries the trust value that was
-        // current up to this point. Capture it BEFORE updating currentPivotTrust to the new value.
-        previousAnchorTrust = currentPivotTrust;
-        final Boolean queuedTrust = pendingPivotTrust.getAndSet(null);
-        if (queuedTrust != null) {
-          currentPivotTrust = queuedTrust;
-        }
 
         return CompletableFuture.completedFuture(true); // Need to continue
       } else {

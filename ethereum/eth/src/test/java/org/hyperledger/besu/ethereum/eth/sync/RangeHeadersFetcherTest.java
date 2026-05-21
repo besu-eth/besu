@@ -265,7 +265,7 @@ public class RangeHeadersFetcherTest {
             .build(),
         protocolSchedule,
         ethContext,
-        new PivotSyncState(targetHeader, false));
+        new PivotSyncState(targetHeader));
   }
 
   private BlockHeader header(final long blockNumber) {

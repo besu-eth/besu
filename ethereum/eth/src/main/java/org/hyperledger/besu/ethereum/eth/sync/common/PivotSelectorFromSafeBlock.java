@@ -38,33 +38,16 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
   private static final Logger LOG = LoggerFactory.getLogger(PivotSelectorFromSafeBlock.class);
   private static final long DIAGNOSTIC_LOG_RATE_LIMIT = Duration.ofMinutes(1).toMillis();
 
-  /**
-   * How long the safe block may go unchanged before we consider falling back to the head. 15 min =
-   * 2+ missed epochs (epoch ≈ 6.4 min on mainnet). A single missed epoch is normal-ish and does not
-   * warrant pivot churn; two missed epochs means the chain is not justifying and we need a
-   * different pivot strategy.
-   */
-  private static final long SAFE_BLOCK_STALENESS_THRESHOLD = Duration.ofMinutes(15).toMillis();
+  private static final long ONE_EPOCH_MILLIS = Duration.ofSeconds(32 * 12).toMillis();
+
+  /** Four epochs = 128 blocks × 12 s = Ethereum snap-serving window. */
+  private static final long FOUR_EPOCHS_MILLIS = ONE_EPOCH_MILLIS * 4;
 
   /**
-   * How long the head block may go unchanged before we treat the CL as stuck. 3 min ≈ 15
-   * consecutive missed slots — well outside healthy range (legitimate proposer gaps are usually one
-   * or two slots) and indicates a CL-side problem.
+   * Freshness limit for the safe block as pivot: 4 epochs minus 1 min safety margin (≈ 123 blocks).
    */
-  private static final long HEAD_BLOCK_STALENESS_THRESHOLD = Duration.ofMinutes(3).toMillis();
-
-  /**
-   * How long to hold the same fallback-head pivot before allowing it to rotate. Not a freshness
-   * threshold — this just bounds pivot churn while in head-fallback mode.
-   */
-  private static final long FALLBACK_PIVOT_REFRESH_INTERVAL = Duration.ofMinutes(7).toMillis();
-
-  /**
-   * Boundary between "chain has finalized recently" and "chain has not finalized in a while" for
-   * the finalization-status log tag. Aligned with SAFE_BLOCK_STALENESS_THRESHOLD so the log triage
-   * signal matches the pivot-fallback decision.
-   */
-  private static final long FINALIZATION_FRESH_THRESHOLD = Duration.ofMinutes(15).toMillis();
+  private static final long SAFE_PIVOT_FRESHNESS_LIMIT =
+      FOUR_EPOCHS_MILLIS - Duration.ofMinutes(1).toMillis();
 
   private final ProtocolContext protocolContext;
   private final EthContext ethContext;
@@ -82,8 +65,6 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
   private volatile long lastSafeBlockChange = System.currentTimeMillis();
   private volatile Hash lastHeadBlockHash = Hash.ZERO;
   private volatile long lastHeadBlockChange = System.currentTimeMillis();
-  private volatile Hash lastFinalizedBlockHash = Hash.ZERO;
-  private volatile long lastFinalizedBlockChange = System.currentTimeMillis();
   private volatile Hash lastFallbackPivotHash = Hash.ZERO;
   private volatile long lastFallbackPivotChange = 0L;
 
@@ -116,23 +97,12 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
 
     final ForkchoiceEvent fcu = maybeForkchoice.get();
 
-    // Track head freshness regardless of whether we use it.
     final Hash headHash = fcu.getHeadBlockHash();
     if (!headHash.equals(lastHeadBlockHash)) {
       lastHeadBlockHash = headHash;
       lastHeadBlockChange = now;
     }
 
-    // Track finalization freshness for the log triage tag.
-    if (fcu.hasValidFinalizedBlockHash()) {
-      final Hash finalizedHash = fcu.getFinalizedBlockHash();
-      if (!finalizedHash.equals(lastFinalizedBlockHash)) {
-        lastFinalizedBlockHash = finalizedHash;
-        lastFinalizedBlockChange = now;
-      }
-    }
-
-    // Track and prefer the safe block.
     if (fcu.hasValidSafeBlockHash()) {
       final Hash safeHash = fcu.getSafeBlockHash();
       if (!safeHash.equals(lastSafeBlockHash)) {
@@ -141,13 +111,13 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
         lastFallbackPivotHash = Hash.ZERO;
         lastFallbackPivotChange = 0L;
       }
-      if (now - lastSafeBlockChange < SAFE_BLOCK_STALENESS_THRESHOLD) {
+      if (now - lastSafeBlockChange < SAFE_PIVOT_FRESHNESS_LIMIT) {
         return selectSafeBlockAsPivot(safeHash);
       }
     }
 
     // Safe is stale (or absent). Decide between non-finality and CL stuck.
-    if (now - lastHeadBlockChange < HEAD_BLOCK_STALENESS_THRESHOLD) {
+    if (now - lastHeadBlockChange < ONE_EPOCH_MILLIS) {
       return selectHeadAsFallbackPivot(headHash, now);
     }
 
@@ -156,29 +126,26 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
 
   private CompletableFuture<PivotSyncState> selectSafeBlockAsPivot(final Hash safeHash) {
     LOG.debug("Returning safe block hash {} as pivot", safeHash);
-    return headerDownloader
-        .downloadBlockHeader(safeHash)
-        .thenApply(blockHeader -> new PivotSyncState(blockHeader, true));
+    return headerDownloader.downloadBlockHeader(safeHash).thenApply(PivotSyncState::new);
   }
 
   private CompletableFuture<PivotSyncState> selectHeadAsFallbackPivot(
       final Hash headHash, final long now) {
     if (lastFallbackPivotHash.equals(Hash.ZERO)
         || !headHash.equals(lastFallbackPivotHash)
-        || now - lastFallbackPivotChange >= FALLBACK_PIVOT_REFRESH_INTERVAL) {
+        || now - lastFallbackPivotChange >= ONE_EPOCH_MILLIS) {
       lastFallbackPivotHash = headHash;
       lastFallbackPivotChange = now;
       LOG.warn(
-          "Safe block has not changed in over {} min but head is still advancing — falling back to head {} as untrusted pivot. CL finalization status: {}",
-          SAFE_BLOCK_STALENESS_THRESHOLD / 60_000,
-          headHash,
-          finalizationStatus(now));
+          "Safe block has not changed in over {} min but head is still advancing — falling back to head {} as untrusted pivot.",
+          SAFE_PIVOT_FRESHNESS_LIMIT / 60_000,
+          headHash);
     } else {
       LOG.debug("Returning previous fallback head {} as pivot", lastFallbackPivotHash);
     }
     return headerDownloader
         .downloadBlockHeader(lastFallbackPivotHash)
-        .thenApply(blockHeader -> new PivotSyncState(blockHeader, false));
+        .thenApply(PivotSyncState::new);
   }
 
   private CompletableFuture<PivotSyncState> logAndFailNoFcu(final long now) {
@@ -196,46 +163,12 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
     if (lastClStuckWarnLog + DIAGNOSTIC_LOG_RATE_LIMIT < now) {
       lastClStuckWarnLog = now;
       LOG.warn(
-          "Consensus client appears stuck — head block has not advanced in over {} min and safe block has not advanced in over {} min. Sync will retry. CL finalization status: {}",
-          HEAD_BLOCK_STALENESS_THRESHOLD / 60_000,
-          SAFE_BLOCK_STALENESS_THRESHOLD / 60_000,
-          finalizationStatus(now));
+          "Consensus client appears stuck — head block has not advanced in over {} min and safe block has not advanced in over {} min. Sync will retry.",
+          ONE_EPOCH_MILLIS / 60_000,
+          SAFE_PIVOT_FRESHNESS_LIMIT / 60_000);
     }
     return CompletableFuture.failedFuture(
         new RuntimeException("Consensus client appears stuck (no head/safe progress)"));
-  }
-
-  /**
-   * Builds the "CL finalization status" log triage tag used by both this class's own fallback /
-   * stuck log lines and by downstream code (e.g. {@code BackwardHeaderDriver} recovery logs) via a
-   * {@code Supplier<String>}.
-   *
-   * @param now the current time in millis (typically {@code clock.millis()})
-   * @return one of "no finalized block seen yet", "finalized {N} min ago at {hash}", or "no
-   *     finalization in {N} min, last finalized at {hash}"
-   */
-  String finalizationStatus(final long now) {
-    if (lastFinalizedBlockHash.equals(Hash.ZERO)) {
-      return "no finalized block seen yet";
-    }
-    final long minSinceFinalized = (now - lastFinalizedBlockChange) / 60_000;
-    if (now - lastFinalizedBlockChange < FINALIZATION_FRESH_THRESHOLD) {
-      return String.format("finalized %d min ago at %s", minSinceFinalized, lastFinalizedBlockHash);
-    }
-    return String.format(
-        "no finalization in %d min, last finalized at %s",
-        minSinceFinalized, lastFinalizedBlockHash);
-  }
-
-  /**
-   * Convenience overload using the selector's own injected clock. Prefer this in production wiring
-   * (e.g. {@code BackwardHeaderDriver}'s finalization-status supplier) so the timestamp source
-   * matches the selector's other log outputs for the same conceptual "now".
-   *
-   * @return current finalization status string
-   */
-  String finalizationStatus() {
-    return finalizationStatus(clock.millis());
   }
 
   @Override

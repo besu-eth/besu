@@ -28,7 +28,6 @@ public class PivotSyncState {
   private OptionalLong pivotBlockNumber;
   private Optional<Hash> pivotBlockHash;
   private Optional<BlockHeader> pivotBlockHeader;
-  private boolean sourceIsSafe = false;
 
   public PivotSyncState() {
     pivotBlockNumber = OptionalLong.empty();
@@ -36,31 +35,28 @@ public class PivotSyncState {
     pivotBlockHeader = Optional.empty();
   }
 
-  public PivotSyncState(final long pivotBlockNumber, final boolean sourceIsSafe) {
-    this(OptionalLong.of(pivotBlockNumber), Optional.empty(), Optional.empty(), sourceIsSafe);
+  public PivotSyncState(final long pivotBlockNumber) {
+    this(OptionalLong.of(pivotBlockNumber), Optional.empty(), Optional.empty());
   }
 
-  public PivotSyncState(final Hash pivotBlockHash, final boolean sourceIsSafe) {
-    this(OptionalLong.empty(), Optional.of(pivotBlockHash), Optional.empty(), sourceIsSafe);
+  public PivotSyncState(final Hash pivotBlockHash) {
+    this(OptionalLong.empty(), Optional.of(pivotBlockHash), Optional.empty());
   }
 
-  public PivotSyncState(final BlockHeader pivotBlockHeader, final boolean sourceIsSafe) {
+  public PivotSyncState(final BlockHeader pivotBlockHeader) {
     this(
         OptionalLong.of(pivotBlockHeader.getNumber()),
         Optional.of(pivotBlockHeader.getHash()),
-        Optional.of(pivotBlockHeader),
-        sourceIsSafe);
+        Optional.of(pivotBlockHeader));
   }
 
   protected PivotSyncState(
       final OptionalLong pivotBlockNumber,
       final Optional<Hash> pivotBlockHash,
-      final Optional<BlockHeader> pivotBlockHeader,
-      final boolean sourceIsSafe) {
+      final Optional<BlockHeader> pivotBlockHeader) {
     this.pivotBlockNumber = pivotBlockNumber;
     this.pivotBlockHash = pivotBlockHash;
     this.pivotBlockHeader = pivotBlockHeader;
-    this.sourceIsSafe = sourceIsSafe;
   }
 
   public OptionalLong getPivotBlockNumber() {
@@ -83,18 +79,6 @@ public class PivotSyncState {
     return pivotBlockHash.isPresent();
   }
 
-  /**
-   * Returns true if the pivot came from a Consensus Layer safe block, false if it came from a
-   * head-fallback path (used when the chain is not finalizing). The flag is used as a log/metric
-   * tag — for example, a safe-anchor reorg during recovery logs at ERROR severity while a
-   * head-fallback reorg logs at WARN.
-   *
-   * @return true if the pivot's source was a safe block, false if it was a head fallback
-   */
-  public boolean isSourceSafe() {
-    return sourceIsSafe;
-  }
-
   public void setCurrentHeader(final BlockHeader header) {
     pivotBlockNumber = OptionalLong.of(header.getNumber());
     pivotBlockHash = Optional.of(header.getHash());
@@ -106,15 +90,14 @@ public class PivotSyncState {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
     PivotSyncState that = (PivotSyncState) o;
-    return sourceIsSafe == that.sourceIsSafe
-        && Objects.equals(pivotBlockNumber, that.pivotBlockNumber)
+    return Objects.equals(pivotBlockNumber, that.pivotBlockNumber)
         && Objects.equals(pivotBlockHash, that.pivotBlockHash)
         && Objects.equals(pivotBlockHeader, that.pivotBlockHeader);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(pivotBlockNumber, pivotBlockHash, pivotBlockHeader, sourceIsSafe);
+    return Objects.hash(pivotBlockNumber, pivotBlockHash, pivotBlockHeader);
   }
 
   @Override
@@ -126,8 +109,6 @@ public class PivotSyncState {
         + pivotBlockHash
         + ", pivotBlockHeader="
         + pivotBlockHeader
-        + ", sourceIsSafe="
-        + sourceIsSafe
         + '}';
   }
 }

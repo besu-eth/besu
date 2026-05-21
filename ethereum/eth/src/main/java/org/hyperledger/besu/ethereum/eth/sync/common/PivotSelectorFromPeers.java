@@ -89,7 +89,7 @@ public class PivotSelectorFromPeers implements PivotBlockSelector {
           new RuntimeException("No peers with sufficient height"));
     }
     LOG.info("Selecting block number {} as fast sync pivot block.", pivotBlockNumber);
-    return CompletableFuture.completedFuture(new PivotSyncState(pivotBlockNumber, false));
+    return CompletableFuture.completedFuture(new PivotSyncState(pivotBlockNumber));
   }
 
   protected Optional<EthPeer> selectBestPeer() {

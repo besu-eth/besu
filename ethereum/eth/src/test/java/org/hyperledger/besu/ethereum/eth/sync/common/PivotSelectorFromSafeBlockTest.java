@@ -83,7 +83,6 @@ class PivotSelectorFromSafeBlockTest {
     final PivotSyncState state = selector.selectNewPivotBlock().get();
 
     assertThat(state.getPivotBlockHash()).contains(SAFE_HASH_1);
-    assertThat(state.isSourceSafe()).isTrue();
   }
 
   @Test
@@ -99,14 +98,14 @@ class PivotSelectorFromSafeBlockTest {
     currentForkchoice = Optional.of(new ForkchoiceEvent(HEAD_HASH_1, SAFE_HASH_1, Hash.ZERO));
     selector.selectNewPivotBlock().get(); // initial call selects safe
 
-    // 16 minutes pass with no new safe block, but head advances to H2
-    clock.stepMillis(Duration.ofMinutes(16).toMillis());
+    // 25 minutes pass with no new safe block (> SAFE_PIVOT_FRESHNESS_LIMIT), but head advances to
+    // H2
+    clock.stepMillis(Duration.ofMinutes(25).toMillis());
     currentForkchoice = Optional.of(new ForkchoiceEvent(HEAD_HASH_2, SAFE_HASH_1, Hash.ZERO));
 
     final PivotSyncState state = selector.selectNewPivotBlock().get();
 
     assertThat(state.getPivotBlockHash()).contains(HEAD_HASH_2);
-    assertThat(state.isSourceSafe()).isFalse();
   }
 
   @Test
@@ -117,8 +116,8 @@ class PivotSelectorFromSafeBlockTest {
     currentForkchoice = Optional.of(new ForkchoiceEvent(HEAD_HASH_1, SAFE_HASH_1, Hash.ZERO));
     selector.selectNewPivotBlock().get(); // priming
 
-    // 16 minutes pass with no FCU change at all
-    clock.stepMillis(Duration.ofMinutes(16).toMillis());
+    // 25 minutes pass with no FCU change at all (> both SAFE_PIVOT_FRESHNESS_LIMIT and ONE_EPOCH)
+    clock.stepMillis(Duration.ofMinutes(25).toMillis());
 
     final CompletableFuture<PivotSyncState> result = selector.selectNewPivotBlock();
     assertThat(result).isCompletedExceptionally();
@@ -137,8 +136,8 @@ class PivotSelectorFromSafeBlockTest {
     currentForkchoice = Optional.of(new ForkchoiceEvent(HEAD_HASH_1, SAFE_HASH_1, Hash.ZERO));
     selector.selectNewPivotBlock().get();
 
-    // safe stale, head advances → fallback fires, returns H2
-    clock.stepMillis(Duration.ofMinutes(16).toMillis());
+    // safe stale (> SAFE_PIVOT_FRESHNESS_LIMIT), head advances → fallback fires, returns H2
+    clock.stepMillis(Duration.ofMinutes(25).toMillis());
     currentForkchoice = Optional.of(new ForkchoiceEvent(HEAD_HASH_2, SAFE_HASH_1, Hash.ZERO));
     PivotSyncState first = selector.selectNewPivotBlock().get();
     assertThat(first.getPivotBlockHash()).contains(HEAD_HASH_2);
@@ -147,7 +146,6 @@ class PivotSelectorFromSafeBlockTest {
     clock.stepMillis(Duration.ofSeconds(30).toMillis());
     PivotSyncState second = selector.selectNewPivotBlock().get();
     assertThat(second.getPivotBlockHash()).contains(HEAD_HASH_2);
-    assertThat(second.isSourceSafe()).isFalse();
   }
 
   @Test
@@ -164,16 +162,17 @@ class PivotSelectorFromSafeBlockTest {
 
     currentForkchoice = Optional.of(new ForkchoiceEvent(HEAD_HASH_1, SAFE_HASH_1, Hash.ZERO));
     selector.selectNewPivotBlock().get();
-    clock.stepMillis(Duration.ofMinutes(16).toMillis());
+    clock.stepMillis(Duration.ofMinutes(25).toMillis());
     currentForkchoice = Optional.of(new ForkchoiceEvent(HEAD_HASH_2, SAFE_HASH_1, Hash.ZERO));
-    selector.selectNewPivotBlock().get(); // enters fallback
+    selector
+        .selectNewPivotBlock()
+        .get(); // enters fallback (safe stale > SAFE_PIVOT_FRESHNESS_LIMIT)
 
     // A new safe block S2 arrives
     currentForkchoice = Optional.of(new ForkchoiceEvent(HEAD_HASH_2, SAFE_HASH_2, Hash.ZERO));
     PivotSyncState state = selector.selectNewPivotBlock().get();
 
     assertThat(state.getPivotBlockHash()).contains(SAFE_HASH_2);
-    assertThat(state.isSourceSafe()).isTrue();
   }
 
   private static BlockHeader headerWithHash(final Hash hash, final long number) {

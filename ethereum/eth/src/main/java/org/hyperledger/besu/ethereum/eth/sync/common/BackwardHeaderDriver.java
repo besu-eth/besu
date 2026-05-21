@@ -32,7 +32,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.LongConsumer;
-import java.util.function.Supplier;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,51 +57,27 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   private final Hash anchorHash;
   private final long totalHeaders;
   private final AtomicBoolean isTimeToLog = new AtomicBoolean(true);
-  private final boolean previousPivotWasSafe;
-  private final Supplier<String> finalizationStatusSupplier;
   private final LabelledMetric<Counter> recoveryEventCounter;
   private final LongConsumer recoveryDepthSetter;
-  // Tracks the lowest header that has been imported so far. Doubles as the chain-link reference
-  // for the next batch (the next batch's top must chain to this header).
   private volatile BlockHeader lowestImportedHeader;
 
-  // Anchor-reorg recovery coordination. The import side puts one decision onto the queue per
-  // boundary batch: {@code true} = walk one more batch (EXTEND); {@code false} = finished
-  // (STOP). The source side blocks on {@code decisions.take()} in hasNext() once it reaches
-  // the original anchor and caches the result in {@code held} until next() emits the
-  // corresponding batch.
   private final BlockingQueue<Boolean> decisions = new LinkedBlockingQueue<>();
-  // Cached decision; accessed only on the source thread (set in hasNext, cleared in next).
   private Boolean held;
-  // Number of extra batches stored below the original anchor; written by accept(), read by
-  // emit*Log helpers on the same thread.
   private int extraBatchesRequested = 0;
-  // Written by accept() on the recovery-match path, read by getMatchedAncestor() on the
-  // downloader thread after the pipeline future completes.
   private volatile BlockHeader matchedAncestor;
-  // Set on the first recovery extension and never reset (recovery is monotonic).
   private boolean recoveryMode = false;
-  // Short-circuits Phase 1 in hasNext() once accept() has decided STOP. In production this is
-  // redundant with currentBlock having dropped below lowestHeaderToImport (because next() runs
-  // before accept() for the boundary batch); for callers that bypass the iterator and feed a
-  // multi-batch range straight into accept(), this flag is what makes hasNext() return false.
   private volatile boolean stopped = false;
 
   /**
    * Creates a new BackwardHeaderDriver. Stores the pivot header synchronously as the first imported
    * header.
    *
-   * @param batchSize the number of blocks per batch (also the stride of the descending iterator)
-   * @param anchorHeader the anchor (checkpoint) header; the lowest header to import is {@code
-   *     anchorHeader.getNumber() + 1}, and its parent hash must equal the anchor's hash
+   * @param batchSize the number of blocks per batch
+   * @param anchorHeader the anchor (checkpoint) header
    * @param pivotHeader the pivot header at the top of the range to import
    * @param blockchain the blockchain to which headers will be stored
-   * @param previousPivotWasSafe whether the previous pivot selection used a safe/finalized source;
-   *     surfaced via {@link #previousPivotWasSafe()} for downstream recovery logic
-   * @param finalizationStatusSupplier supplies the "CL finalization status" log triage tag emitted
-   *     alongside the recovery-start, milestone, and recovery-success log lines
-   * @param recoveryEventCounter labeled counter for anchor-mismatch recovery events (labels: {@code
-   *     result} ∈ {started, succeeded}, {@code previous_pivot_trust} ∈ {safe, head_fallback})
+   * @param recoveryEventCounter labeled counter for anchor-mismatch recovery events (label: {@code
+   *     result} ∈ {started, succeeded})
    * @param recoveryDepthSetter setter for the "last recovery depth" gauge value; receives the
    *     number of extra batches walked below the original anchor when recovery succeeds
    */
@@ -111,14 +86,10 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
       final BlockHeader anchorHeader,
       final BlockHeader pivotHeader,
       final MutableBlockchain blockchain,
-      final boolean previousPivotWasSafe,
-      final Supplier<String> finalizationStatusSupplier,
       final LabelledMetric<Counter> recoveryEventCounter,
       final LongConsumer recoveryDepthSetter) {
     this.batchSize = batchSize;
     this.blockchainStorage = blockchain;
-    this.previousPivotWasSafe = previousPivotWasSafe;
-    this.finalizationStatusSupplier = finalizationStatusSupplier;
     this.recoveryEventCounter = recoveryEventCounter;
     this.recoveryDepthSetter = recoveryDepthSetter;
 
@@ -133,13 +104,13 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
 
     this.lowestImportedHeader = pivotHeader;
 
+    this.blockchainStorage.storeBlockHeaders(List.of(pivotHeader));
+
     LOG.debug(
         "BackwardHeaderDriver: pivot={}, anchor={}, batchSize={}",
         pivotNumber,
         anchorNumber,
         batchSize);
-
-    this.blockchainStorage.storeBlockHeaders(List.of(pivotHeader));
   }
 
   @Override
@@ -147,14 +118,10 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
     if (stopped) {
       return false;
     }
-    // Phase 1: normal walk down to the original anchor — no coordination needed, the iterator
-    // emits descending block numbers as long as we are still above the boundary.
     if (currentBlock.get() >= lowestHeaderToImport) {
       return true;
     }
-    // Phase 2: at or past the boundary. Wait for the import side to hand us a Decision via the
-    // queue (EXTEND = walk one more batch; STOP = finished). Cache the decision in `held` so
-    // this call stays idempotent; next() consumes it.
+    // After downloading to the anchor we finish or go into recovery mode, see accept()
     if (held == null) {
       try {
         held = decisions.take();
@@ -170,7 +137,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   public Long next() {
     final long block = currentBlock.getAndUpdate(current -> current - batchSize);
     if (block >= lowestHeaderToImport) {
-      // Phase 1 emit, still above the original boundary.
+      // Phase 1 emit, still above the original anchor.
       return block;
     }
     // Phase 2 emit — must have a live extend permission cached by hasNext(). Consume it so the
@@ -185,9 +152,6 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
 
   @Override
   public void accept(final List<BlockHeader> blockHeaders) {
-    // Chain-link check: the incoming batch's top must chain to the previously-stored low
-    // header (lowestImportedHeader's parent). lowestImportedHeader is the pivot before the
-    // first call, and the last batch's bottom thereafter.
     if (!blockHeaders.getFirst().getHash().equals(lowestImportedHeader.getParentHash())) {
       final String message =
           "Received invalid header list: expected hash "
@@ -203,60 +167,55 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
     }
 
     blockchainStorage.storeBlockHeaders(blockHeaders);
+
     lowestImportedHeader = blockHeaders.getLast();
+    long lowestImportedHeaderNumber = lowestImportedHeader.getNumber();
 
     if (recoveryMode) {
-      // Recovery walk: every batch is below the original anchor. Look up the canonical block
-      // at the parent's expected height; if its hash matches the parent hash we just stored,
-      // the parent is on the canonical chain and we have our matched ancestor. Otherwise
-      // extend further. (A happy-path match against anchorHash can't fire here — we are
-      // already past the anchor.)
-      // Reaching block 0's parent always lands in the match branch — genesis is canonically
-      // stored — so the genesis floor is implicit; no explicit clamp is needed.
-      final Optional<BlockHeader> canonicalParent =
-          blockchainStorage.getBlockHeader(lowestImportedHeader.getNumber() - 1);
-      if (canonicalParent.isPresent()
-          && canonicalParent.get().getHash().equals(lowestImportedHeader.getParentHash())) {
-        matchedAncestor = canonicalParent.get();
+      // Original anchor hash did not match. Look up the block at the parent's expected height; if
+      // its hash matches the parent hash the downloaded headers connect to the existing chain.
+      final long parentNumber = lowestImportedHeaderNumber - 1;
+      final Optional<BlockHeader> potentialParent = blockchainStorage.getBlockHeader(parentNumber);
+      if (potentialParent.isPresent()
+          && potentialParent.get().getHash().equals(lowestImportedHeader.getParentHash())) {
+        matchedAncestor = potentialParent.get();
         stopped = true;
         decisions.add(false);
         emitRecoverySuccessLog(matchedAncestor);
         return;
       }
-      startOrExtendRecovery();
-      return;
-    }
-
-    // Boundary detection: does this batch span lowestHeaderToImport? Because the download step
-    // uses trustAnchorBlockNumber=0 (so it doesn't refuse below-anchor batches needed by the
-    // recovery extension), the boundary batch may include headers BELOW lowestHeaderToImport.
-    // We detect the span and pick out the header at exactly the boundary for the parent check.
-    final long batchTop = blockHeaders.getFirst().getNumber();
-    final long batchBottom = blockHeaders.getLast().getNumber();
-    if (batchTop >= lowestHeaderToImport && batchBottom <= lowestHeaderToImport) {
-      // Index of the header at lowestHeaderToImport in the descending batch.
-      final BlockHeader headerAtBoundary =
-          blockHeaders.get((int) (batchTop - lowestHeaderToImport));
-      if (headerAtBoundary.getParentHash().equals(anchorHash)) {
-        // Happy-path match: parent links to the original anchor. No recovery occurred. Do not
-        // populate matchedAncestor — the existing blockDownloadAnchor is already correct.
+      if (parentNumber == 0) {
+        // Genesis floor reached without a canonical match: The chain from the CL provided pivot
+        // down to the genesis did not connect. Fail with a non-retryable exception.
+        LOG.error(
+            "Backward header download reached block number 1 with hash {}, but it's parent hash {} is not matching the genesis hash {}.",
+            lowestImportedHeader.getBlockHash(),
+            lowestImportedHeader.getParentHash(),
+            potentialParent.orElseThrow().getBlockHash());
         stopped = true;
         decisions.add(false);
-        return;
+        throw new WrongChainException(
+            "Backward header download reached genesis without matching parent hash.");
       }
-      // Anchor mismatch — start recovery. The start log fires once, before recoveryMode is
-      // set, so subsequent batches (which arrive entirely below the boundary) route through
-      // the recovery branch above.
-      emitRecoveryStartLog(headerAtBoundary);
-      recoveryMode = true;
       startOrExtendRecovery();
       return;
     }
 
-    // Normal mid-walk store — throttled progress log.
-    if (isTimeToLog.get()) {
-      final long downloadedHeaders =
-          totalHeaders - (blockHeaders.getFirst().getNumber() - lowestHeaderToImport);
+    final long batchTop = blockHeaders.getFirst().getNumber();
+    if (lowestImportedHeaderNumber == lowestHeaderToImport) {
+      if (lowestImportedHeader.getParentHash().equals(anchorHash)) {
+        stopped = true;
+        decisions.add(false);
+      } else {
+        emitRecoveryStartLog(lowestImportedHeader);
+        recoveryMode = true;
+        startOrExtendRecovery();
+      }
+      return;
+    }
+
+    if (!recoveryMode && isTimeToLog.get()) {
+      final long downloadedHeaders = totalHeaders - (batchTop - lowestHeaderToImport);
       final double headersPercent = (double) (downloadedHeaders) / totalHeaders * 100;
       LogUtil.throttledLog(
           LOG::info,
@@ -266,10 +225,6 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
     }
   }
 
-  /**
-   * Increments the recovery-extension counter, pushes an extend decision onto the queue, and fires
-   * the milestone WARN every {@link #RECOVERY_WARN_EVERY_N_BATCHES} extensions.
-   */
   private void startOrExtendRecovery() {
     extraBatchesRequested++;
     decisions.add(true);
@@ -281,82 +236,38 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
     }
   }
 
-  /**
-   * Emits the one-time recovery-start log. Severity is ERROR if the previous pivot was safe (the
-   * rare CL-level event we want to surface) and WARN otherwise (head-fallback recovery is more
-   * routine).
-   *
-   * @param boundaryHeader the header at exactly {@code lowestHeaderToImport} — its parent is what
-   *     we expected to be the original anchor but isn't.
-   */
   private void emitRecoveryStartLog(final BlockHeader boundaryHeader) {
-    final String msg =
-        String.format(
-            "Anchor mismatch at #%d: previous pivot was %s. Entering recovery. previousAnchor=%s, "
-                + "rejectedParentFromBatch=%s. CL finalization status: %s",
-            boundaryHeader.getNumber(),
-            previousPivotWasSafe ? "safe block" : "head-fallback",
-            anchorHash,
-            boundaryHeader.getParentHash(),
-            finalizationStatusSupplier.get());
-    if (previousPivotWasSafe) {
-      LOG.error(msg);
-    } else {
-      LOG.warn(msg);
-    }
-    recoveryEventCounter.labels("started", trustLabel()).inc();
+    LOG.warn(
+        "Anchor mismatch at #{}. Entering recovery. previousAnchor={}, rejectedParentFromBatch={}.",
+        boundaryHeader.getNumber(),
+        anchorHash,
+        boundaryHeader.getParentHash());
+    recoveryEventCounter.labels("started").inc();
   }
 
-  /** Emits the periodic recovery-progress WARN every {@link #RECOVERY_WARN_EVERY_N_BATCHES}. */
   private void emitRecoveryMilestoneLog(final int extras) {
     final int extraHeaders = extras * batchSize;
     final long hoursOfHistory = extraHeaders / 300; // mainnet: ~300 blocks/hour at 12 s slot
     LOG.warn(
         "Anchor recovery still walking after {} extra batches (~{} hr of mainnet history below previous anchor). "
-            + "currentLowestHeader=#{} ({}). CL finalization status: {}",
+            + "currentLowestHeader=#{} ({}).",
         extras,
         hoursOfHistory,
         lowestImportedHeader.getNumber(),
-        lowestImportedHeader.getHash(),
-        finalizationStatusSupplier.get());
+        lowestImportedHeader.getHash());
   }
 
-  /**
-   * Emits the recovery-success log. Severity is ERROR if the previous pivot was safe (rare CL-level
-   * event) and INFO otherwise. Only called on the recovery-match path; the happy-path match (parent
-   * == anchorHash) does not emit a recovery log.
-   */
   private void emitRecoverySuccessLog(final BlockHeader ancestor) {
     final long delta = (lowestHeaderToImport - 1) - ancestor.getNumber();
-    final String successMsg =
-        String.format(
-            "Anchor recovery succeeded after %d extra batch(es). previousAnchor=%s (was-safe=%s), "
-                + "matchedAncestor=%s (#%d), depthBelowPreviousAnchor=%d. "
-                + "CL finalization status: %s",
-            extraBatchesRequested,
-            anchorHash,
-            previousPivotWasSafe,
-            ancestor.getHash(),
-            ancestor.getNumber(),
-            delta,
-            finalizationStatusSupplier.get());
-    if (previousPivotWasSafe) {
-      LOG.error(successMsg);
-    } else {
-      LOG.info(successMsg);
-    }
-    recoveryEventCounter.labels("succeeded", trustLabel()).inc();
+    LOG.info(
+        "Anchor recovery succeeded after {} extra batch(es). previousAnchor={}, matchedAncestor={} (#{}), depthBelowPreviousAnchor={}.",
+        extraBatchesRequested,
+        anchorHash,
+        ancestor.getHash(),
+        ancestor.getNumber(),
+        delta);
+    recoveryEventCounter.labels("succeeded").inc();
     recoveryDepthSetter.accept(extraBatchesRequested);
-  }
-
-  /**
-   * Returns the metric label for the previous pivot's trust level.
-   *
-   * @return {@code "safe"} if the previous pivot was selected from a safe/finalized source,
-   *     otherwise {@code "head_fallback"}
-   */
-  private String trustLabel() {
-    return previousPivotWasSafe ? "safe" : "head_fallback";
   }
 
   /**
@@ -371,22 +282,11 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
 
   /**
    * Returns the canonical ancestor found by recovery, if recovery fired. Empty on the happy path
-   * (parent links to the original anchor as expected) — in that case the existing {@code
-   * ChainSyncState.blockDownloadAnchor} is already correct and no recovery-driven update is needed.
-   * Presence of a value is therefore equivalent to "recovery fired and succeeded."
+   * (parent links to the original anchor as expected)
    *
    * @return the matched ancestor header, or empty if recovery did not fire
    */
   public Optional<BlockHeader> getMatchedAncestor() {
     return Optional.ofNullable(matchedAncestor);
-  }
-
-  /**
-   * Returns whether the previous pivot selection used a safe/finalized source.
-   *
-   * @return {@code true} if the previous pivot was selected from a safe source
-   */
-  public boolean previousPivotWasSafe() {
-    return previousPivotWasSafe;
   }
 }

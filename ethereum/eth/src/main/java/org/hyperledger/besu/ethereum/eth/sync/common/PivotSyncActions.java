@@ -146,7 +146,7 @@ public class PivotSyncActions {
             unused ->
                 currentState
                     .getPivotBlockHash()
-                    .map(hash -> downloadPivotBlockHeader(hash, currentState.isSourceSafe()))
+                    .map(this::downloadPivotBlockHeader)
                     .orElseGet(
                         () ->
                             new PivotBlockRetriever(
@@ -168,16 +168,6 @@ public class PivotSyncActions {
 
   public ChainDownloader createChainDownloader(
       final PivotSyncState currentState, final SyncDurationMetrics syncDurationMetrics) {
-    // Build the "CL finalization status" supplier for downstream recovery log lines. When the
-    // active selector is the safe-block selector we can ask it directly; otherwise fall back to
-    // an "n/a" tag. Done here because this is the only site with a typed reference to the
-    // selector.
-    final Supplier<String> finalizationStatusSupplier;
-    if (pivotBlockSelector instanceof PivotSelectorFromSafeBlock safeSelector) {
-      finalizationStatusSupplier = safeSelector::finalizationStatus;
-    } else {
-      finalizationStatusSupplier = () -> "n/a";
-    }
     return SnapSyncChainDownloader.create(
         syncConfig,
         worldStateStorageCoordinator,
@@ -188,12 +178,10 @@ public class PivotSyncActions {
         metricsSystem,
         currentState,
         syncDurationMetrics,
-        fastSyncDataDirectory,
-        finalizationStatusSupplier);
+        fastSyncDataDirectory);
   }
 
-  private CompletableFuture<PivotSyncState> downloadPivotBlockHeader(
-      final Hash hash, final boolean sourceIsSafe) {
+  private CompletableFuture<PivotSyncState> downloadPivotBlockHeader(final Hash hash) {
     LOG.debug("Downloading pivot block header by hash {}", hash);
     return ethContext
         .getScheduler()
@@ -240,7 +228,7 @@ public class PivotSyncActions {
                     .log();
               }
             })
-        .thenApply(blockHeader -> new PivotSyncState(blockHeader, sourceIsSafe));
+        .thenApply(PivotSyncState::new);
   }
 
   public boolean isBlockchainBehind(final long blockNumber) {

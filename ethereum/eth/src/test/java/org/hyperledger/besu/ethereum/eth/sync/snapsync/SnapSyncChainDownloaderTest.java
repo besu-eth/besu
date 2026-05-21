@@ -19,7 +19,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
@@ -121,7 +120,6 @@ public class SnapSyncChainDownloaderTest {
                     syncState,
                     syncDurationMetrics,
                     pivotBlockHeader,
-                    true,
                     chainSyncStateStorage,
                     headerDownloader))
         .doesNotThrowAnyException();
@@ -139,7 +137,6 @@ public class SnapSyncChainDownloaderTest {
             syncState,
             syncDurationMetrics,
             pivotBlockHeader,
-            true,
             chainSyncStateStorage,
             headerDownloader);
 
@@ -159,14 +156,13 @@ public class SnapSyncChainDownloaderTest {
             syncState,
             syncDurationMetrics,
             pivotBlockHeader,
-            true,
             chainSyncStateStorage,
             headerDownloader);
 
     BlockHeader newPivot = new BlockHeaderTestFixture().number(2000).buildHeader();
 
     // Verify pivot update completes successfully
-    assertThatCode(() -> downloader.onPivotUpdated(newPivot, true)).doesNotThrowAnyException();
+    assertThatCode(() -> downloader.onPivotUpdated(newPivot)).doesNotThrowAnyException();
   }
 
   @Test
@@ -181,7 +177,6 @@ public class SnapSyncChainDownloaderTest {
             syncState,
             syncDurationMetrics,
             pivotBlockHeader,
-            true,
             chainSyncStateStorage,
             headerDownloader);
 
@@ -205,14 +200,13 @@ public class SnapSyncChainDownloaderTest {
             syncState,
             syncDurationMetrics,
             pivotBlockHeader,
-            true,
             chainSyncStateStorage,
             headerDownloader);
 
     downloader.start();
 
     // No pipeline should be created when there are no peers
-    verify(pipelineFactory, never()).createBackwardHeaderDownloadPipeline(any(), anyBoolean());
+    verify(pipelineFactory, never()).createBackwardHeaderDownloadPipeline(any());
 
     // A retry should be scheduled with the no-peer delay, not the fast retry delay
     verify(scheduler)
@@ -242,7 +236,6 @@ public class SnapSyncChainDownloaderTest {
             syncState,
             syncDurationMetrics,
             pivotBlockHeader,
-            true,
             chainSyncStateStorage,
             headerDownloader);
 
@@ -288,7 +281,7 @@ public class SnapSyncChainDownloaderTest {
     final Pipeline<Long> backwardPipeline = mock(Pipeline.class);
     final BackwardHeaderDriver driver = mock(BackwardHeaderDriver.class);
     when(driver.getMatchedAncestor()).thenReturn(Optional.of(matchedAncestor));
-    when(pipelineFactory.createBackwardHeaderDownloadPipeline(any(), anyBoolean()))
+    when(pipelineFactory.createBackwardHeaderDownloadPipeline(any()))
         .thenReturn(
             new SnapSyncChainDownloadPipelineFactory.BackwardHeaderPipelineResult(
                 backwardPipeline, driver));
@@ -311,7 +304,6 @@ public class SnapSyncChainDownloaderTest {
             syncState,
             syncDurationMetrics,
             pivotBlockHeader,
-            true,
             spiedStorage,
             headerDownloader);
 
@@ -376,7 +368,7 @@ public class SnapSyncChainDownloaderTest {
     final Pipeline<Long> backwardPipeline = mock(Pipeline.class);
     final BackwardHeaderDriver driver = mock(BackwardHeaderDriver.class);
     when(driver.getMatchedAncestor()).thenReturn(Optional.empty());
-    when(pipelineFactory.createBackwardHeaderDownloadPipeline(any(), anyBoolean()))
+    when(pipelineFactory.createBackwardHeaderDownloadPipeline(any()))
         .thenReturn(
             new SnapSyncChainDownloadPipelineFactory.BackwardHeaderPipelineResult(
                 backwardPipeline, driver));
@@ -399,7 +391,6 @@ public class SnapSyncChainDownloaderTest {
             syncState,
             syncDurationMetrics,
             pivotBlockHeader,
-            true,
             spiedStorage,
             headerDownloader);
 
@@ -463,7 +454,6 @@ public class SnapSyncChainDownloaderTest {
             syncState,
             syncDurationMetrics,
             pivotBlockHeader,
-            true,
             chainSyncStateStorage,
             headerDownloader);
 
@@ -513,7 +503,6 @@ public class SnapSyncChainDownloaderTest {
             syncState,
             syncDurationMetrics,
             pivotBlockHeader,
-            true,
             chainSyncStateStorage,
             headerDownloader);
 
@@ -556,7 +545,6 @@ public class SnapSyncChainDownloaderTest {
             syncState,
             syncDurationMetrics,
             pivotBlockHeader,
-            true,
             chainSyncStateStorage,
             headerDownloader);
 
@@ -585,7 +573,7 @@ public class SnapSyncChainDownloaderTest {
     final Pipeline<Long> backwardPipeline = mock(Pipeline.class);
     final BackwardHeaderDriver driver = mock(BackwardHeaderDriver.class);
     lenient().when(driver.getLowestImportedHeader()).thenReturn(pivotBlockHeader);
-    when(pipelineFactory.createBackwardHeaderDownloadPipeline(any(), anyBoolean()))
+    when(pipelineFactory.createBackwardHeaderDownloadPipeline(any()))
         .thenReturn(
             new SnapSyncChainDownloadPipelineFactory.BackwardHeaderPipelineResult(
                 backwardPipeline, driver));
@@ -606,7 +594,6 @@ public class SnapSyncChainDownloaderTest {
             syncState,
             syncDurationMetrics,
             pivotBlockHeader,
-            true,
             chainSyncStateStorage,
             headerDownloader);
 
@@ -618,6 +605,6 @@ public class SnapSyncChainDownloaderTest {
     // Non-retryable: the pipeline factory must have been invoked exactly once. If shouldRetry
     // had returned true for WrongChainException, the downloader would have re-attempted via
     // scheduler.scheduleFutureTask and the factory would have been called again.
-    verify(pipelineFactory, times(1)).createBackwardHeaderDownloadPipeline(any(), anyBoolean());
+    verify(pipelineFactory, times(1)).createBackwardHeaderDownloadPipeline(any());
   }
 }

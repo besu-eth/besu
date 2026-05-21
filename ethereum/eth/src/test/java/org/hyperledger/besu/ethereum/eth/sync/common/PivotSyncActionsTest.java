@@ -67,20 +67,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.ArgumentsProvider;
 import org.junit.jupiter.params.provider.ArgumentsSource;
 
-/**
- * Tests for {@link PivotSyncActions}.
- *
- * <p>This class also pins the {@code sourceIsSafe} propagation contract that {@link
- * PivotSelectorFromSafeBlock} (and any other selector that hands back a pivot identified by hash)
- * relies on: when {@link PivotSyncActions#downloadPivotBlockHeader} is called with a {@link
- * PivotSyncState} carrying only a hash plus a trust flag, the resolved {@link PivotSyncState} (with
- * the downloaded {@link BlockHeader} attached) must carry the <em>same</em> trust flag. See {@code
- * PivotSyncActions.java:149} (where the flag is forwarded into the private hash-based download) and
- * {@code PivotSyncActions.java:232} (where the flag is woven back into the resulting {@code
- * PivotSyncState}). Without these two sites preserving the value, a {@code false} flag emitted by
- * the head-fallback path in {@link PivotSelectorFromSafeBlock} would silently flip back to {@code
- * true} once the header is downloaded, defeating the head-fallback safety guarantee.
- */
+/** Tests for {@link PivotSyncActions}. */
 public class PivotSyncActionsTest {
   private final WorldStateStorageCoordinator worldStateStorageCoordinator =
       mock(WorldStateStorageCoordinator.class);
@@ -99,22 +86,6 @@ public class PivotSyncActionsTest {
     public Stream<? extends Arguments> provideArguments(final ExtensionContext context) {
       return Stream.of(
           Arguments.of(DataStorageFormat.BONSAI), Arguments.of(DataStorageFormat.FOREST));
-    }
-  }
-
-  /**
-   * Cartesian product of {@link DataStorageFormat} and {@code sourceIsSafe}. Used by the
-   * propagation-contract tests below to assert that the trust flag survives a round-trip through
-   * {@link PivotSyncActions#downloadPivotBlockHeader} for both values.
-   */
-  static class PivotSyncActionsSourceTrustArguments implements ArgumentsProvider {
-    @Override
-    public Stream<? extends Arguments> provideArguments(final ExtensionContext context) {
-      return Stream.of(
-          Arguments.of(DataStorageFormat.BONSAI, true),
-          Arguments.of(DataStorageFormat.BONSAI, false),
-          Arguments.of(DataStorageFormat.FOREST, true),
-          Arguments.of(DataStorageFormat.FOREST, false));
     }
   }
 
@@ -161,7 +132,7 @@ public class PivotSyncActionsTest {
     }
     final CompletableFuture<PivotSyncState> result =
         pivotSyncActions.selectPivotBlock(PivotSyncState.EMPTY_SYNC_STATE);
-    assertThat(result).isCompletedWithValue(new PivotSyncState(5, false));
+    assertThat(result).isCompletedWithValue(new PivotSyncState(5));
   }
 
   @ParameterizedTest
@@ -169,7 +140,7 @@ public class PivotSyncActionsTest {
   public void returnTheSamePivotBlockIfAlreadySelected(final DataStorageFormat storageFormat) {
     setUp(storageFormat);
     final BlockHeader pivotHeader = new BlockHeaderTestFixture().number(1024).buildHeader();
-    final PivotSyncState fastSyncState = new PivotSyncState(pivotHeader, false);
+    final PivotSyncState fastSyncState = new PivotSyncState(pivotHeader);
     final CompletableFuture<PivotSyncState> result =
         pivotSyncActions.selectPivotBlock(fastSyncState);
     assertThat(result).isDone();
@@ -185,8 +156,8 @@ public class PivotSyncActionsTest {
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 5000);
 
     final CompletableFuture<PivotSyncState> result =
-        pivotSyncActions.selectPivotBlock(new PivotSyncState(pivotHeader, false));
-    final PivotSyncState expected = new PivotSyncState(pivotHeader, false);
+        pivotSyncActions.selectPivotBlock(new PivotSyncState(pivotHeader));
+    final PivotSyncState expected = new PivotSyncState(pivotHeader);
     assertThat(result).isCompletedWithValue(expected);
   }
 
@@ -204,7 +175,7 @@ public class PivotSyncActionsTest {
 
     final CompletableFuture<PivotSyncState> result =
         pivotSyncActions.selectPivotBlock(PivotSyncState.EMPTY_SYNC_STATE);
-    final PivotSyncState expected = new PivotSyncState(4000, false);
+    final PivotSyncState expected = new PivotSyncState(4000);
     assertThat(result).isCompletedWithValue(expected);
   }
 
@@ -222,7 +193,7 @@ public class PivotSyncActionsTest {
 
     final CompletableFuture<PivotSyncState> result =
         pivotSyncActions.selectPivotBlock(PivotSyncState.EMPTY_SYNC_STATE);
-    final PivotSyncState expected = new PivotSyncState(3000, false);
+    final PivotSyncState expected = new PivotSyncState(3000);
     assertThat(result).isCompletedWithValue(expected);
   }
 
@@ -248,7 +219,7 @@ public class PivotSyncActionsTest {
 
     // Second peer meets min peer threshold, we should select the pivot
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 5000);
-    final PivotSyncState expected = new PivotSyncState(4000, false);
+    final PivotSyncState expected = new PivotSyncState(4000);
     EthProtocolManagerTestUtil.runPendingFutures(ethProtocolManager);
     assertThat(result).isCompletedWithValue(expected);
   }
@@ -262,7 +233,7 @@ public class PivotSyncActionsTest {
     PivotBlockSelector pivotBlockSelector = mock(PivotBlockSelector.class);
     pivotSyncActions = createPivotSyncActions(syncConfig, pivotBlockSelector);
 
-    PivotSyncState expectedResult = new PivotSyncState(123, false);
+    PivotSyncState expectedResult = new PivotSyncState(123);
 
     when(pivotBlockSelector.selectNewPivotBlock())
         .thenReturn(
@@ -343,7 +314,7 @@ public class PivotSyncActionsTest {
     final long expectedBestChainHeight =
         peers.get(1).getEthPeer().chainState().getEstimatedHeight();
     final PivotSyncState expected =
-        new PivotSyncState(expectedBestChainHeight - syncConfig.getSyncPivotDistance(), false);
+        new PivotSyncState(expectedBestChainHeight - syncConfig.getSyncPivotDistance());
     EthProtocolManagerTestUtil.runPendingFutures(ethProtocolManager);
     assertThat(result).isCompletedWithValue(expected);
   }
@@ -369,7 +340,7 @@ public class PivotSyncActionsTest {
 
     final long validHeight = pivotDistance + 1;
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager, validHeight);
-    final PivotSyncState expected = new PivotSyncState(1, false);
+    final PivotSyncState expected = new PivotSyncState(1);
     EthProtocolManagerTestUtil.runPendingFutures(ethProtocolManager);
     assertThat(result).isCompletedWithValue(expected);
   }
@@ -394,7 +365,7 @@ public class PivotSyncActionsTest {
 
     final long validHeight = pivotDistance + 1;
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager, validHeight);
-    final PivotSyncState expected = new PivotSyncState(1, false);
+    final PivotSyncState expected = new PivotSyncState(1);
     EthProtocolManagerTestUtil.runPendingFutures(ethProtocolManager);
     assertThat(result).isCompletedWithValue(expected);
   }
@@ -405,7 +376,7 @@ public class PivotSyncActionsTest {
       final DataStorageFormat storageFormat) {
     setUp(storageFormat);
     final BlockHeader pivotHeader = new BlockHeaderTestFixture().number(1024).buildHeader();
-    final PivotSyncState expected = new PivotSyncState(pivotHeader, false);
+    final PivotSyncState expected = new PivotSyncState(pivotHeader);
     assertThat(pivotSyncActions.downloadPivotBlockHeader(expected)).isCompletedWithValue(expected);
   }
 
@@ -429,9 +400,9 @@ public class PivotSyncActionsTest {
 
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 1001);
     final CompletableFuture<PivotSyncState> result =
-        pivotSyncActions.downloadPivotBlockHeader(new PivotSyncState(1, false));
+        pivotSyncActions.downloadPivotBlockHeader(new PivotSyncState(1));
 
-    assertThat(result).isCompletedWithValue(new PivotSyncState(expectedHeader, false));
+    assertThat(result).isCompletedWithValue(new PivotSyncState(expectedHeader));
   }
 
   @ParameterizedTest
@@ -477,49 +448,9 @@ public class PivotSyncActionsTest {
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 1001);
     final CompletableFuture<PivotSyncState> result =
         pivotSyncActions.downloadPivotBlockHeader(
-            new PivotSyncState(finalizedEvent.get().getSafeBlockHash(), false));
+            new PivotSyncState(finalizedEvent.get().getSafeBlockHash()));
 
-    assertThat(result).isCompletedWithValue(new PivotSyncState(expectedHeader, false));
-  }
-
-  /**
-   * Regression test for the {@code sourceIsSafe} propagation contract documented in this class's
-   * javadoc.
-   *
-   * <p>Constructs a hash-only {@link PivotSyncState} with an explicit trust flag, runs it through
-   * {@link PivotSyncActions#downloadPivotBlockHeader} (which uses {@code PivotSyncActions.java:149}
-   * to forward the flag into the private hash-based download and {@code PivotSyncActions.java:232}
-   * to weave it back into the resulting state), and asserts that the trust flag on the resolved
-   * state is identical to the input. Without this guarantee, the head-fallback path of {@link
-   * PivotSelectorFromSafeBlock} (which intentionally emits {@code sourceIsSafe=false}) would
-   * silently be promoted to {@code true} once the header was fetched.
-   */
-  @ParameterizedTest(name = "storageFormat={0}, sourceIsSafe={1}")
-  @ArgumentsSource(PivotSyncActionsSourceTrustArguments.class)
-  public void downloadPivotBlockHeaderShouldPreserveSourceIsSafeFlag(
-      final DataStorageFormat storageFormat, final boolean sourceIsSafe) {
-    setUp(storageFormat, Optional.of(1));
-    pivotSyncActions =
-        createPivotSyncActions(
-            syncConfig, new PivotSelectorFromPeers(ethContext, syncConfig, syncState));
-
-    final BlockHeader expectedHeader = blockchain.getBlockHeader(3).get();
-    final PeerTaskExecutor peerTaskExecutor = ethContext.getPeerTaskExecutor();
-    when(peerTaskExecutor.execute(any()))
-        .thenReturn(
-            new PeerTaskExecutorResult<>(
-                Optional.of(List.of(expectedHeader)),
-                PeerTaskExecutorResponseCode.SUCCESS,
-                List.of()));
-
-    EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 1001);
-
-    final CompletableFuture<PivotSyncState> result =
-        pivotSyncActions.downloadPivotBlockHeader(
-            new PivotSyncState(expectedHeader.getHash(), sourceIsSafe));
-
-    assertThat(result).isCompletedWithValue(new PivotSyncState(expectedHeader, sourceIsSafe));
-    assertThat(result.join().isSourceSafe()).isEqualTo(sourceIsSafe);
+    assertThat(result).isCompletedWithValue(new PivotSyncState(expectedHeader));
   }
 
   private PivotSyncActions createPivotSyncActions(

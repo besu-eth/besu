@@ -90,7 +90,7 @@ public class SnapDownloaderFactory {
 
     final PivotSyncState pivotSyncState =
         chainSyncState != null
-            ? new PivotSyncState(chainSyncState.pivotBlockHeader(), false)
+            ? new PivotSyncState(chainSyncState.pivotBlockHeader())
             : PivotSyncState.EMPTY_SYNC_STATE;
     final Optional<BlockHeader> firstPivotHeader =
         chainSyncState != null
