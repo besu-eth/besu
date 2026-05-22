@@ -157,7 +157,7 @@ public class PeerTaskExecutorTest {
 
     assertNotNull(result);
     assertFalse(result.result().isPresent());
-    assertEquals(PeerTaskExecutorResponseCode.INVALID_RESPONSE, result.responseCode());
+    assertEquals(PeerTaskExecutorResponseCode.PEER_DISCONNECTED, result.responseCode());
   }
 
   @Test

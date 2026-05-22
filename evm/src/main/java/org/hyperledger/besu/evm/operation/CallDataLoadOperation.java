@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.evm.operation;
 
-import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
@@ -35,8 +34,7 @@ public class CallDataLoadOperation extends AbstractFixedCostOperation {
   }
 
   @Override
-  public Operation.OperationResult executeFixedCostOperation(
-      final MessageFrame frame, final EVM evm) {
+  public Operation.OperationResult executeFixedCostOperation(final MessageFrame frame) {
     final Bytes startWord = frame.popStackItem().trimLeadingZeros();
 
     // If the start index doesn't fit in an int, it comes after anything in data, and so the
