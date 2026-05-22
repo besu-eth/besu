@@ -39,13 +39,9 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
   private static final long DIAGNOSTIC_LOG_RATE_LIMIT = Duration.ofMinutes(1).toMillis();
 
   private static final long ONE_EPOCH_MILLIS = Duration.ofSeconds(32 * 12).toMillis();
-  private static final long FOUR_EPOCHS_MILLIS = ONE_EPOCH_MILLIS * 4;
 
-  /**
-   * Freshness limit for the safe block as pivot: 4 epochs minus 1 min safety margin (≈ 123 blocks).
-   */
-  private static final long SAFE_PIVOT_FRESHNESS_LIMIT =
-      FOUR_EPOCHS_MILLIS - Duration.ofMinutes(1).toMillis();
+  /** 4 epochs (128 slots × 12 s) minus 1 min safety margin = 1476 s ≈ 123 blocks. */
+  private static final long SAFE_PIVOT_FRESHNESS_LIMIT_SECONDS = 4 * 32 * 12 - 60;
 
   private final ProtocolContext protocolContext;
   private final EthContext ethContext;
@@ -60,7 +56,6 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
   private volatile Optional<BlockHeader> maybeCachedHeadBlockHeader = Optional.empty();
 
   private volatile Hash lastSafeBlockHash = Hash.ZERO;
-  private volatile long lastSafeBlockChange;
   private volatile BlockHeader lastSafeBlockHeader = null;
   private volatile Hash lastHeadBlockHash = Hash.ZERO;
   private volatile long lastHeadBlockChange;
@@ -85,7 +80,6 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
     final long now = clock.millis();
     this.lastNoFcuInfoLog = now;
     this.lastClStuckWarnLog = now;
-    this.lastSafeBlockChange = now;
     this.lastHeadBlockChange = now;
   }
 
@@ -110,11 +104,10 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
       final Hash safeHash = fcu.getSafeBlockHash();
       if (!safeHash.equals(lastSafeBlockHash)) {
         lastSafeBlockHash = safeHash;
-        lastSafeBlockChange = now;
         lastSafeBlockHeader = null;
         lastFallbackWarnLog = 0L;
       }
-      if (now - lastSafeBlockChange < SAFE_PIVOT_FRESHNESS_LIMIT) {
+      if (lastSafeBlockHeader == null || isSafeBlockFresh(now)) {
         return selectSafeBlockAsPivot(safeHash);
       }
     }
@@ -127,9 +120,13 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
     return logAndFailClStuck(now);
   }
 
+  private boolean isSafeBlockFresh(final long nowMillis) {
+    final long blockAgeSeconds = nowMillis / 1000 - lastSafeBlockHeader.getTimestamp();
+    return blockAgeSeconds < SAFE_PIVOT_FRESHNESS_LIMIT_SECONDS;
+  }
+
   private CompletableFuture<PivotSyncState> selectSafeBlockAsPivot(final Hash safeHash) {
     if (lastSafeBlockHeader != null) {
-      LOG.debug("Returning cached safe block header {} as pivot", safeHash);
       return CompletableFuture.completedFuture(new PivotSyncState(lastSafeBlockHeader));
     }
     LOG.debug("Downloading safe block header {} as pivot", safeHash);
@@ -148,7 +145,7 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
       lastFallbackWarnLog = now;
       LOG.warn(
           "Safe block has not changed in over {} min but head is still advancing — using head {} as untrusted pivot.",
-          SAFE_PIVOT_FRESHNESS_LIMIT / 60_000,
+          SAFE_PIVOT_FRESHNESS_LIMIT_SECONDS / 60,
           headHash);
     } else {
       LOG.debug("Using head {} as fallback pivot", headHash);
@@ -173,7 +170,7 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
       LOG.warn(
           "Consensus client appears stuck — head block has not advanced in over {} min and safe block has not advanced in over {} min. Sync will retry.",
           ONE_EPOCH_MILLIS / 60_000,
-          SAFE_PIVOT_FRESHNESS_LIMIT / 60_000);
+          SAFE_PIVOT_FRESHNESS_LIMIT_SECONDS / 60);
     }
     return CompletableFuture.failedFuture(
         new RuntimeException("Consensus client appears stuck (no head/safe progress)"));

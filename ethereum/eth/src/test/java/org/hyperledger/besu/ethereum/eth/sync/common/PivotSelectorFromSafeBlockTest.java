@@ -44,6 +44,11 @@ class PivotSelectorFromSafeBlockTest {
   private static final Hash HEAD_HASH_1 = Hash.fromHexStringLenient("0xaaaa");
   private static final Hash HEAD_HASH_2 = Hash.fromHexStringLenient("0xbbbb");
 
+  // Epoch second matching the TestClock start — used as block timestamps so isSafeBlockFresh
+  // measures age from a realistic baseline rather than the Mockito default of 0.
+  private static final long CLOCK_START_SECONDS =
+      Instant.parse("2026-01-01T00:00:00Z").getEpochSecond();
+
   private final ProtocolContext protocolContext = mock(ProtocolContext.class);
   private final ProtocolSchedule protocolSchedule = mock(ProtocolSchedule.class);
   private final EthContext ethContext = mock(EthContext.class);
@@ -75,7 +80,7 @@ class PivotSelectorFromSafeBlockTest {
 
   @Test
   void returnsSafeBlockAsPivotWhenSafeIsFresh() throws Exception {
-    final BlockHeader safeHeader = headerWithHash(SAFE_HASH_1, 100L);
+    final BlockHeader safeHeader = headerWithHash(SAFE_HASH_1, 100L, CLOCK_START_SECONDS);
     when(headerDownloader.downloadBlockHeader(eq(SAFE_HASH_1)))
         .thenReturn(CompletableFuture.completedFuture(safeHeader));
     currentForkchoice = Optional.of(new ForkchoiceEvent(HEAD_HASH_1, SAFE_HASH_1, Hash.ZERO));
@@ -88,8 +93,8 @@ class PivotSelectorFromSafeBlockTest {
   @Test
   void returnsHeadBlockAsUntrustedPivotWhenSafeIsStaleButHeadIsFresh() throws Exception {
     // Prime with a fresh forkchoice (safe S1, head H1)
-    final BlockHeader safeHeader = headerWithHash(SAFE_HASH_1, 100L);
-    final BlockHeader head2Header = headerWithHash(HEAD_HASH_2, 150L);
+    final BlockHeader safeHeader = headerWithHash(SAFE_HASH_1, 100L, CLOCK_START_SECONDS);
+    final BlockHeader head2Header = headerWithHash(HEAD_HASH_2, 150L, CLOCK_START_SECONDS);
     when(headerDownloader.downloadBlockHeader(eq(SAFE_HASH_1)))
         .thenReturn(CompletableFuture.completedFuture(safeHeader));
     when(headerDownloader.downloadBlockHeader(eq(HEAD_HASH_2)))
@@ -110,7 +115,7 @@ class PivotSelectorFromSafeBlockTest {
 
   @Test
   void failsWhenBothSafeAndHeadAreStale() throws Exception {
-    final BlockHeader safeHeader = headerWithHash(SAFE_HASH_1, 100L);
+    final BlockHeader safeHeader = headerWithHash(SAFE_HASH_1, 100L, CLOCK_START_SECONDS);
     when(headerDownloader.downloadBlockHeader(eq(SAFE_HASH_1)))
         .thenReturn(CompletableFuture.completedFuture(safeHeader));
     currentForkchoice = Optional.of(new ForkchoiceEvent(HEAD_HASH_1, SAFE_HASH_1, Hash.ZERO));
@@ -125,8 +130,8 @@ class PivotSelectorFromSafeBlockTest {
 
   @Test
   void returnsCachedHeadInFallbackUntilHeadAdvances() throws Exception {
-    final BlockHeader safeHeader = headerWithHash(SAFE_HASH_1, 100L);
-    final BlockHeader head2Header = headerWithHash(HEAD_HASH_2, 150L);
+    final BlockHeader safeHeader = headerWithHash(SAFE_HASH_1, 100L, CLOCK_START_SECONDS);
+    final BlockHeader head2Header = headerWithHash(HEAD_HASH_2, 150L, CLOCK_START_SECONDS);
     when(headerDownloader.downloadBlockHeader(eq(SAFE_HASH_1)))
         .thenReturn(CompletableFuture.completedFuture(safeHeader));
     when(headerDownloader.downloadBlockHeader(eq(HEAD_HASH_2)))
@@ -150,9 +155,10 @@ class PivotSelectorFromSafeBlockTest {
 
   @Test
   void returnsToSafeWhenSafeBlockResumes() throws Exception {
-    final BlockHeader safe1Header = headerWithHash(SAFE_HASH_1, 100L);
-    final BlockHeader safe2Header = headerWithHash(SAFE_HASH_2, 200L);
-    final BlockHeader head2Header = headerWithHash(HEAD_HASH_2, 150L);
+    final BlockHeader safe1Header = headerWithHash(SAFE_HASH_1, 100L, CLOCK_START_SECONDS);
+    final BlockHeader safe2Header =
+        headerWithHash(SAFE_HASH_2, 200L, CLOCK_START_SECONDS + 25 * 60);
+    final BlockHeader head2Header = headerWithHash(HEAD_HASH_2, 150L, CLOCK_START_SECONDS);
     when(headerDownloader.downloadBlockHeader(eq(SAFE_HASH_1)))
         .thenReturn(CompletableFuture.completedFuture(safe1Header));
     when(headerDownloader.downloadBlockHeader(eq(SAFE_HASH_2)))
@@ -175,13 +181,15 @@ class PivotSelectorFromSafeBlockTest {
     assertThat(state.getPivotBlockHash()).contains(SAFE_HASH_2);
   }
 
-  private static BlockHeader headerWithHash(final Hash hash, final long number) {
+  private static BlockHeader headerWithHash(
+      final Hash hash, final long number, final long timestamp) {
     // Mock the BlockHeader so getHash() returns the requested hash. The selector wraps the
     // downloaded header in a PivotSyncState, whose pivotBlockHash is derived from the header's
     // own hash — so the header must report SAFE_HASH_1 for the assertion to hold.
     final BlockHeader header = mock(BlockHeader.class);
     when(header.getHash()).thenReturn(hash);
     when(header.getNumber()).thenReturn(number);
+    when(header.getTimestamp()).thenReturn(timestamp);
     return header;
   }
 }
