@@ -1149,8 +1149,15 @@ public class Transaction
         sb.append("], ");
       }
     }
-    if (transactionType.supportsBlob() && this.blobsWithCommitments.isPresent()) {
-      sb.append("numberOfBlobs=").append(blobsWithCommitments.get().getBlobs().size()).append(", ");
+    if (transactionType.supportsBlob()) {
+      sb.append("numberOfBlobs=")
+          .append(blobsWithCommitments.map(bwc -> bwc.getBlobs().size()).orElse(-1))
+          .append(", ");
+    }
+    if (transactionType.supportsDelegateCode()) {
+      sb.append("numberOfCodeDelegations=")
+          .append(maybeCodeDelegationList.map(List::size).orElse(-1))
+          .append(", ");
     }
     sb.append("payload=").append(getPayload());
     return sb.append("}").toString();
@@ -1178,6 +1185,14 @@ public class Transaction
           .append(", ");
       getMaxFeePerBlobGas()
           .ifPresent(wei -> sb.append("df: ").append(wei.toHumanReadableString()).append(", "));
+    }
+    if (transactionType.supportsBlob()) {
+      sb.append("b: ")
+          .append(blobsWithCommitments.map(bwc -> bwc.getBlobs().size()).orElse(-1))
+          .append(", ");
+    }
+    if (transactionType.supportsDelegateCode()) {
+      sb.append("cd: ").append(maybeCodeDelegationList.map(List::size).orElse(-1)).append(", ");
     }
     sb.append("gl: ").append(getGasLimit()).append(", ");
     sb.append("v: ").append(getValue().toHumanReadableString()).append(", ");

@@ -1100,6 +1100,7 @@ public abstract class AbstractBlockTransactionSelectorTest {
     final var results = selector.buildTransactionListForBlock();
     selectionResults.set(results);
     assertThat(results.getSelectedTransactions()).isEmpty();
+    assertThat(results.getSelectedTxsEvaluationTimeNanos()).isZero();
   }
 
   @Test

@@ -39,6 +39,7 @@ import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
@@ -134,6 +135,9 @@ public abstract class AbstractBftBesuControllerBuilderTest {
     lenient().when(synchronizerConfiguration.getTransactionsParallelism()).thenReturn(1);
     lenient().when(synchronizerConfiguration.getComputationParallelism()).thenReturn(1);
     lenient().when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.FULL);
+    lenient()
+        .when(synchronizerConfiguration.getSnapSyncConfiguration())
+        .thenReturn(SnapSyncConfiguration.getDefault());
 
     lenient()
         .when(synchronizerConfiguration.getBlockPropagationRange())
