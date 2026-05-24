@@ -92,6 +92,8 @@ public class SnapDownloaderFactory {
       final SyncState syncState,
       final Clock clock,
       final SyncDurationMetrics syncDurationMetrics) {
+    final boolean snap2Enabled =
+        Boolean.TRUE.equals(syncConfig.getSnapSyncConfiguration().isSnap2Enabled());
 
     final Path syncDataDirectory = dataDirectory.resolve(SYNC_FOLDER);
 
@@ -105,12 +107,14 @@ public class SnapDownloaderFactory {
                         rlpInput, ScheduleBasedBlockHeaderFunctions.create(protocolSchedule)));
     if (syncState.isResyncNeeded()) {
       snapContext.clear();
-      syncState
-          .getAccountToRepair()
-          .ifPresent(
-              address ->
-                  snapContext.addAccountToHealingList(
-                      CompactEncoding.bytesToPath(address.addressHash().getBytes())));
+      if (!snap2Enabled) {
+        syncState
+            .getAccountToRepair()
+            .ifPresent(
+                address ->
+                    snapContext.addAccountToHealingList(
+                        CompactEncoding.bytesToPath(address.addressHash().getBytes())));
+      }
     } else if (chainSyncState == null
         && protocolContext.getBlockchain().getChainHeadBlockNumber()
             != BlockHeader.GENESIS_BLOCK_NUMBER) {
@@ -127,20 +131,37 @@ public class SnapDownloaderFactory {
 
     final InMemoryTasksPriorityQueues<SnapDataRequest> snapTaskCollection =
         createSnapWorldStateDownloaderTaskCollection();
-    final WorldStateDownloader snapWorldStateDownloader =
-        new SnapWorldStateDownloader(
-            ethContext,
-            snapContext,
-            protocolContext,
-            worldStateStorageCoordinator,
-            snapTaskCollection,
-            syncConfig.getSnapSyncConfiguration(),
-            syncConfig.getWorldStateRequestParallelism(),
-            syncConfig.getWorldStateMaxRequestsWithoutProgress(),
-            syncConfig.getWorldStateMinMillisBeforeStalling(),
-            clock,
-            metricsSystem,
-            syncDurationMetrics);
+    final WorldStateDownloader snapWorldStateDownloader;
+    if (snap2Enabled) {
+      snapWorldStateDownloader =
+          new SnapV2WorldStateDownloader(
+              ethContext,
+              snapContext,
+              worldStateStorageCoordinator,
+              snapTaskCollection,
+              syncConfig.getSnapSyncConfiguration(),
+              syncConfig.getWorldStateRequestParallelism(),
+              syncConfig.getWorldStateMaxRequestsWithoutProgress(),
+              syncConfig.getWorldStateMinMillisBeforeStalling(),
+              clock,
+              metricsSystem,
+              syncDurationMetrics);
+    } else {
+      snapWorldStateDownloader =
+          new SnapWorldStateDownloader(
+              ethContext,
+              snapContext,
+              protocolContext,
+              worldStateStorageCoordinator,
+              snapTaskCollection,
+              syncConfig.getSnapSyncConfiguration(),
+              syncConfig.getWorldStateRequestParallelism(),
+              syncConfig.getWorldStateMaxRequestsWithoutProgress(),
+              syncConfig.getWorldStateMinMillisBeforeStalling(),
+              clock,
+              metricsSystem,
+              syncDurationMetrics);
+    }
     final SnapSyncDownloader fastSyncDownloader =
         new SnapSyncDownloader(
             new PivotSyncActions(
