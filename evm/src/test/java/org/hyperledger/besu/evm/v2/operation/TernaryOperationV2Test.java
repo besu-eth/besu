@@ -55,7 +55,7 @@ abstract class TernaryOperationV2Test {
   }
 
   private static Stream<List<String>> operandStacks() {
-    return Stream.of(List.of(), List.of("0x01"), List.of("0x02"));
+    return Stream.of(List.of(), List.of("0x01"), List.of("0x01", "0x02"));
   }
 
   @ParameterizedTest(name = "stack {0}")
