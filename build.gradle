@@ -158,8 +158,9 @@ configure(allprojects - project(':platform')) {
   }
 
   java {
-    sourceCompatibility = 21
-    targetCompatibility = 21
+    toolchain {
+      languageVersion = JavaLanguageVersion.of(25)
+    }
 
     consistentResolution {
       useCompileClasspathVersions()
