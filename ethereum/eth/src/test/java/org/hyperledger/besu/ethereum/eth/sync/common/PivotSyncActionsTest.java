@@ -426,12 +426,11 @@ public class PivotSyncActionsTest {
             syncConfig,
             new PivotSelectorFromSafeBlock(
                 blockchainSetupUtil.getProtocolContext(),
-                blockchainSetupUtil.getProtocolSchedule(),
-                ethContext,
                 genesisConfig,
                 () -> finalizedEvent,
-                () -> {},
-                headerDownloader));
+                headerDownloader,
+                new NewPayloadHeaderCache(),
+                () -> {}));
 
     final BlockHeader expectedHeader = blockchain.getBlockHeader(3).get();
     final PeerTaskExecutor peerTaskExecutor = ethContext.getPeerTaskExecutor();

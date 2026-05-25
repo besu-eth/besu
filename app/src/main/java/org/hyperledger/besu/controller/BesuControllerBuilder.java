@@ -65,6 +65,7 @@ import org.hyperledger.besu.ethereum.eth.sync.DefaultSynchronizer;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.common.NewPayloadHeaderCache;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSelectorFromPeers;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSelectorFromSafeBlock;
 import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader;
@@ -1114,26 +1115,40 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
       final MergeContext mergeContext = protocolContext.getConsensusContext(MergeContext.class);
       final UnverifiedForkchoiceSupplier unverifiedForkchoiceSupplier =
           new UnverifiedForkchoiceSupplier();
-      final long subscriptionId =
+      final long supplierSubscriptionId =
           mergeContext.addNewUnverifiedForkchoiceListener(unverifiedForkchoiceSupplier);
 
-      final Runnable unsubscribeForkchoiceListener =
-          () -> {
-            mergeContext.removeNewUnverifiedForkchoiceListener(subscriptionId);
-            LOG.info("Initial sync done, unsubscribe forkchoice supplier");
-          };
+      final NewPayloadHeaderCache newPayloadHeaderCache = new NewPayloadHeaderCache();
+      final long newPayloadSubscriptionId =
+          mergeContext.addNewPayloadListener(newPayloadHeaderCache);
 
       final SingleBlockHeaderDownloader headerDownloader =
           new SingleBlockHeaderDownloader(ethContext, protocolSchedule);
 
-      return new PivotSelectorFromSafeBlock(
-          protocolContext,
-          protocolSchedule,
-          ethContext,
-          genesisConfigOptions,
-          unverifiedForkchoiceSupplier,
-          unsubscribeForkchoiceListener,
-          headerDownloader);
+      // Cleanup chain is built up over the next few statements so we can also include the
+      // selector's own forkchoice subscription, registered after the selector is constructed.
+      final List<Runnable> cleanups = new ArrayList<>();
+      cleanups.add(
+          () -> mergeContext.removeNewUnverifiedForkchoiceListener(supplierSubscriptionId));
+      cleanups.add(() -> mergeContext.removeNewPayloadListener(newPayloadSubscriptionId));
+
+      final PivotSelectorFromSafeBlock selector =
+          new PivotSelectorFromSafeBlock(
+              protocolContext,
+              genesisConfigOptions,
+              unverifiedForkchoiceSupplier,
+              headerDownloader,
+              newPayloadHeaderCache,
+              () -> {
+                cleanups.forEach(Runnable::run);
+                LOG.info("Initial sync done, unsubscribe forkchoice + newPayload listeners");
+              });
+
+      final long selectorSubscriptionId = mergeContext.addNewUnverifiedForkchoiceListener(selector);
+      cleanups.add(
+          () -> mergeContext.removeNewUnverifiedForkchoiceListener(selectorSubscriptionId));
+
+      return selector;
     } else {
       LOG.info("TTD difficulty is not present, creating initial sync phase for PoW");
       return new PivotSelectorFromPeers(ethContext, syncConfig, syncState);
