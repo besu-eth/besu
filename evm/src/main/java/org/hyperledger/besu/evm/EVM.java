@@ -229,6 +229,8 @@ public class EVM {
   //
   // Please benchmark before refactoring.
   public void runToHalt(final MessageFrame frame, final OperationTracer operationTracer) {
+    assert operationTracer.isEnabled() || operationTracer == OperationTracer.NO_TRACING;
+
     if (evmConfiguration.enableEvmV2()) {
       runToHaltV2(frame, operationTracer);
       return;

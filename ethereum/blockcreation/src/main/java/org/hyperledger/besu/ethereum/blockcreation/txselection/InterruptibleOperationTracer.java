@@ -35,7 +35,7 @@ import org.apache.tuweni.bytes.Bytes;
 public class InterruptibleOperationTracer implements OperationTracer {
   private final OperationTracer delegate;
 
-  public InterruptibleOperationTracer(final BlockAwareOperationTracer delegate) {
+  public InterruptibleOperationTracer(final OperationTracer delegate) {
     this.delegate = delegate;
   }
 

@@ -260,6 +260,8 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
               worldState,
               protocolSpec,
               blockHashLookup,
+              // only monomorphic types allowed in EVM when tracing is disabled so
+              // that tracing is folded away
               blockTracer == BlockAwareOperationTracer.NO_TRACING
                   ? OperationTracer.NO_TRACING
                   : blockTracer,
