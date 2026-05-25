@@ -14,11 +14,10 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameterOrBlockHash;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
@@ -31,7 +30,7 @@ import java.util.List;
 
 import com.google.common.base.Suppliers;
 
-public class DebugGetRawReceipts extends AbstractBlockParameterOrBlockHashMethod {
+public class DebugGetRawReceipts extends AbstractBlockParameterMethod {
 
   public DebugGetRawReceipts(final BlockchainQueries blockchain) {
     super(Suppliers.ofInstance(blockchain));
@@ -43,22 +42,21 @@ public class DebugGetRawReceipts extends AbstractBlockParameterOrBlockHashMethod
   }
 
   @Override
-  protected BlockParameterOrBlockHash blockParameterOrBlockHash(
-      final JsonRpcRequestContext request) {
+  protected BlockParameter blockParameter(final JsonRpcRequestContext request) {
     try {
-      return request.getRequiredParameter(0, BlockParameterOrBlockHash.class);
+      return request.getRequiredParameter(0, BlockParameter.class);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcParameters(
-          "Invalid block or block hash parameter (index 0)", RpcErrorType.INVALID_BLOCK_PARAMS, e);
+          "Invalid block parameter (index 0)", RpcErrorType.INVALID_BLOCK_PARAMS, e);
     }
   }
 
   @Override
-  protected Object resultByBlockHash(final JsonRpcRequestContext request, final Hash blockHash) {
-    return blockchainQueries
-        .get()
-        .getBlockchain()
-        .getTxReceipts(blockHash)
+  protected Object resultByBlockNumber(
+      final JsonRpcRequestContext request, final long blockNumber) {
+    return getBlockchainQueries()
+        .getBlockHashByNumber(blockNumber)
+        .flatMap(blockHash -> getBlockchainQueries().getBlockchain().getTxReceipts(blockHash))
         .map(this::toRLP)
         .orElseGet(() -> new String[0]);
   }
