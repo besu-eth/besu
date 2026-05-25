@@ -34,8 +34,6 @@ import org.slf4j.LoggerFactory;
 public class SnapSyncProcessState {
   private static final Logger LOG = LoggerFactory.getLogger(SnapSyncProcessState.class);
 
-  public static final SnapSyncProcessState EMPTY_SYNC_STATE = new SnapSyncProcessState();
-
   private OptionalLong pivotBlockNumber;
   private Optional<Hash> pivotBlockHash;
   private Optional<BlockHeader> pivotBlockHeader;
@@ -108,7 +106,7 @@ public class SnapSyncProcessState {
     return sourceIsTrusted;
   }
 
-  public void setCurrentHeader(final BlockHeader header) {
+  void setCurrentHeader(final BlockHeader header) {
     pivotBlockNumber = OptionalLong.of(header.getNumber());
     pivotBlockHash = Optional.of(header.getHash());
     pivotBlockHeader = Optional.of(header);

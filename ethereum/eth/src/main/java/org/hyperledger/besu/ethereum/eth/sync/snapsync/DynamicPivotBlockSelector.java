@@ -99,7 +99,7 @@ public class DynamicPivotBlockSelector {
                       .log();
 
                   searchForNewPivot =
-                      CompletableFuture.completedFuture(SnapSyncProcessState.EMPTY_SYNC_STATE)
+                      CompletableFuture.completedFuture(new SnapSyncProcessState())
                           .thenCompose(syncActions::selectPivotBlock)
                           .thenCompose(
                               fss -> {

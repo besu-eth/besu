@@ -121,7 +121,7 @@ public class SnapDownloaderFactory {
     final SnapSyncProcessState snapSyncState =
         chainSyncState != null
             ? new SnapSyncProcessState(chainSyncState.pivotBlockHeader(), false)
-            : SnapSyncProcessState.EMPTY_SYNC_STATE;
+            : new SnapSyncProcessState();
 
     final InMemoryTasksPriorityQueues<SnapDataRequest> snapTaskCollection =
         createSnapWorldStateDownloaderTaskCollection();

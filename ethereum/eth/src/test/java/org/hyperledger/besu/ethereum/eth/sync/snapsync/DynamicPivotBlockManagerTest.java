@@ -70,7 +70,7 @@ public class DynamicPivotBlockManagerTest {
     final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(1090).buildHeader();
     final SnapSyncProcessState downloadPivotBlockHeaderState =
         new SnapSyncProcessState(pivotBlockHeader, false);
-    when(fastSyncActions.selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE))
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(completedFuture(selectPivotBlockState));
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
@@ -88,7 +88,7 @@ public class DynamicPivotBlockManagerTest {
     final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(1060).buildHeader();
     final SnapSyncProcessState downloadPivotBlockHeaderState =
         new SnapSyncProcessState(pivotBlockHeader, false);
-    when(fastSyncActions.selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE))
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(completedFuture(selectPivotBlockState));
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
@@ -118,7 +118,7 @@ public class DynamicPivotBlockManagerTest {
     final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(1060).buildHeader();
     final SnapSyncProcessState downloadPivotBlockHeaderState =
         new SnapSyncProcessState(pivotBlockHeader, false);
-    when(fastSyncActions.selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE))
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(completedFuture(selectPivotBlockState));
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));

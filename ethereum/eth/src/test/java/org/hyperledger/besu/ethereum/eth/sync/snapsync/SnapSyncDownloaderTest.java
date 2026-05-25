@@ -65,7 +65,7 @@ public class SnapSyncDownloaderTest {
             fastSyncActions,
             worldStateDownloader,
             fastSyncDataDirectory,
-            SnapSyncProcessState.EMPTY_SYNC_STATE,
+            new SnapSyncProcessState(),
             SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS);
   }
 
@@ -76,7 +76,7 @@ public class SnapSyncDownloaderTest {
     final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
     final SnapSyncProcessState downloadPivotBlockHeaderState =
         new SnapSyncProcessState(pivotBlockHeader, false);
-    when(fastSyncActions.selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE))
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(completedFuture(selectPivotBlockState));
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
@@ -89,7 +89,7 @@ public class SnapSyncDownloaderTest {
 
     final CompletableFuture<SnapSyncProcessState> result = downloader.start();
 
-    verify(fastSyncActions).selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE);
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
     verify(fastSyncActions).downloadPivotBlockHeader(selectPivotBlockState);
     verify(fastSyncActions)
         .createChainDownloader(
@@ -143,14 +143,14 @@ public class SnapSyncDownloaderTest {
   @Test
   public void shouldAbortIfSelectPivotBlockFails() {
     setup();
-    when(fastSyncActions.selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE))
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenThrow(new SyncException(SyncError.UNEXPECTED_ERROR));
 
     final CompletableFuture<SnapSyncProcessState> result = downloader.start();
 
     assertCompletedExceptionally(result, SyncError.UNEXPECTED_ERROR);
 
-    verify(fastSyncActions).selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE);
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
     verifyNoMoreInteractions(fastSyncActions);
   }
 
@@ -164,7 +164,7 @@ public class SnapSyncDownloaderTest {
     final SnapSyncProcessState downloadPivotBlockHeaderState =
         new SnapSyncProcessState(pivotBlockHeader, false);
 
-    when(fastSyncActions.selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE))
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(completedFuture(selectPivotBlockState));
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
@@ -177,7 +177,7 @@ public class SnapSyncDownloaderTest {
 
     final CompletableFuture<SnapSyncProcessState> result = downloader.start();
 
-    verify(fastSyncActions).selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE);
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
     verify(fastSyncActions).downloadPivotBlockHeader(selectPivotBlockState);
     verify(fastSyncActions)
         .createChainDownloader(
@@ -206,7 +206,7 @@ public class SnapSyncDownloaderTest {
     final SnapSyncProcessState downloadPivotBlockHeaderState =
         new SnapSyncProcessState(pivotBlockHeader, false);
 
-    when(fastSyncActions.selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE))
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(completedFuture(selectPivotBlockState));
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
@@ -219,7 +219,7 @@ public class SnapSyncDownloaderTest {
 
     final CompletableFuture<SnapSyncProcessState> result = downloader.start();
 
-    verify(fastSyncActions).selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE);
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
     verify(fastSyncActions).downloadPivotBlockHeader(selectPivotBlockState);
     verify(fastSyncActions)
         .createChainDownloader(
@@ -245,7 +245,7 @@ public class SnapSyncDownloaderTest {
     final SnapSyncProcessState downloadPivotBlockHeaderState =
         new SnapSyncProcessState(pivotBlockHeader, false);
 
-    when(fastSyncActions.selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE))
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(completedFuture(selectPivotBlockState));
     doAnswer(
             invocation -> {
@@ -266,7 +266,7 @@ public class SnapSyncDownloaderTest {
     Throwable thrown = catchThrowable(() -> result.get());
     assertThat(thrown).hasCauseExactlyInstanceOf(CancellationException.class);
 
-    verify(fastSyncActions).selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE);
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
     verify(fastSyncActions).downloadPivotBlockHeader(selectPivotBlockState);
     verify(worldStateDownloader).cancel();
     verifyNoMoreInteractions(fastSyncActions, worldStateDownloader);
@@ -282,7 +282,7 @@ public class SnapSyncDownloaderTest {
     final SnapSyncProcessState downloadPivotBlockHeaderState =
         new SnapSyncProcessState(pivotBlockHeader, false);
 
-    when(fastSyncActions.selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE))
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(completedFuture(selectPivotBlockState));
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
@@ -295,7 +295,7 @@ public class SnapSyncDownloaderTest {
 
     final CompletableFuture<SnapSyncProcessState> result = downloader.start();
 
-    verify(fastSyncActions).selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE);
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
     verify(fastSyncActions).downloadPivotBlockHeader(selectPivotBlockState);
     verify(fastSyncActions)
         .createChainDownloader(
@@ -322,7 +322,7 @@ public class SnapSyncDownloaderTest {
     final SnapSyncProcessState downloadPivotBlockHeaderState =
         new SnapSyncProcessState(pivotBlockHeader, false);
 
-    when(fastSyncActions.selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE))
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(completedFuture(selectPivotBlockState));
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
@@ -335,7 +335,7 @@ public class SnapSyncDownloaderTest {
 
     final CompletableFuture<SnapSyncProcessState> result = downloader.start();
 
-    verify(fastSyncActions).selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE);
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
     verify(fastSyncActions).downloadPivotBlockHeader(selectPivotBlockState);
     verify(fastSyncActions)
         .createChainDownloader(
@@ -371,7 +371,7 @@ public class SnapSyncDownloaderTest {
         new SnapSyncProcessState(secondPivotBlockHeader, false);
 
     // First attempt
-    when(fastSyncActions.selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE))
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(
             completedFuture(selectPivotBlockState), completedFuture(secondSelectPivotBlockState));
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
@@ -397,7 +397,7 @@ public class SnapSyncDownloaderTest {
 
     final CompletableFuture<SnapSyncProcessState> result = downloader.start();
 
-    verify(fastSyncActions).selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE);
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
     verify(fastSyncActions).downloadPivotBlockHeader(selectPivotBlockState);
     verify(fastSyncActions)
         .createChainDownloader(
@@ -415,7 +415,7 @@ public class SnapSyncDownloaderTest {
     // A real chain downloader would cause the chainFuture to complete when cancel is called.
     chainFuture.completeExceptionally(new CancellationException());
 
-    verify(fastSyncActions, times(2)).selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE);
+    verify(fastSyncActions, times(2)).selectPivotBlock(new SnapSyncProcessState());
     verify(fastSyncActions).downloadPivotBlockHeader(secondSelectPivotBlockState);
     verify(fastSyncActions)
         .createChainDownloader(
@@ -449,7 +449,7 @@ public class SnapSyncDownloaderTest {
         new SnapSyncProcessState(secondPivotBlockHeader, false);
 
     // First attempt
-    when(fastSyncActions.selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE))
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(
             completedFuture(selectPivotBlockState), completedFuture(secondSelectPivotBlockState));
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
@@ -477,7 +477,7 @@ public class SnapSyncDownloaderTest {
 
     final CompletableFuture<SnapSyncProcessState> result = downloader.start();
 
-    verify(fastSyncActions).selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE);
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
     verify(fastSyncActions).downloadPivotBlockHeader(selectPivotBlockState);
     verify(fastSyncActions)
         .createChainDownloader(
@@ -497,7 +497,7 @@ public class SnapSyncDownloaderTest {
     chainFuture.completeExceptionally(new CancellationException());
 
     verify(fastSyncActions).scheduleFutureTask(any(), any());
-    verify(fastSyncActions, times(2)).selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE);
+    verify(fastSyncActions, times(2)).selectPivotBlock(new SnapSyncProcessState());
     verify(fastSyncActions).downloadPivotBlockHeader(secondSelectPivotBlockState);
     verify(fastSyncActions)
         .createChainDownloader(
@@ -527,7 +527,7 @@ public class SnapSyncDownloaderTest {
     final SnapSyncProcessState downloadPivotBlockHeaderState =
         new SnapSyncProcessState(pivotBlockHeader, false);
 
-    when(fastSyncActions.selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE))
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(completedFuture(selectPivotBlockState));
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
@@ -551,7 +551,7 @@ public class SnapSyncDownloaderTest {
     final SnapSyncProcessState downloadPivotBlockHeaderState =
         new SnapSyncProcessState(pivotBlockHeader, false);
 
-    when(fastSyncActions.selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE))
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(completedFuture(selectPivotBlockState));
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));

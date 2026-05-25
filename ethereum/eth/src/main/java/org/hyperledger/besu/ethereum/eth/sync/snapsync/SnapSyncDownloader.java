@@ -108,19 +108,19 @@ public class SnapSyncDownloader implements SnapSyncController {
       return CompletableFuture.failedFuture(error);
     } else if (rootCause instanceof StalledDownloadException) {
       LOG.debug("Stalled sync re-pivoting to newer block.");
-      return start(SnapSyncProcessState.EMPTY_SYNC_STATE);
+      return start(new SnapSyncProcessState());
     } else if (rootCause instanceof CancellationException) {
       return CompletableFuture.failedFuture(error);
     } else if (rootCause instanceof MaxRetriesReachedException) {
       LOG.debug(
           "A download operation reached the max number of retries, re-pivoting to newer block");
-      return start(SnapSyncProcessState.EMPTY_SYNC_STATE);
+      return start(new SnapSyncProcessState());
     } else if (rootCause instanceof NoAvailablePeersException) {
       LOG.debug(
           "No peers available for sync. Restarting sync in {} seconds",
           FAST_SYNC_RETRY_DELAY.toSeconds());
       return fastSyncActions.scheduleFutureTask(
-          () -> start(SnapSyncProcessState.EMPTY_SYNC_STATE), FAST_SYNC_RETRY_DELAY);
+          () -> start(new SnapSyncProcessState()), FAST_SYNC_RETRY_DELAY);
     } else {
       LOG.error(
           "Encountered an unexpected error during sync. Restarting sync in "
@@ -128,7 +128,7 @@ public class SnapSyncDownloader implements SnapSyncController {
               + " seconds.",
           error);
       return fastSyncActions.scheduleFutureTask(
-          () -> start(SnapSyncProcessState.EMPTY_SYNC_STATE), FAST_SYNC_RETRY_DELAY);
+          () -> start(new SnapSyncProcessState()), FAST_SYNC_RETRY_DELAY);
     }
   }
 
