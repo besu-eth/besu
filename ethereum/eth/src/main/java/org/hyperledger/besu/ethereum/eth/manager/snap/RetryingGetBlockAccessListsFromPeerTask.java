@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.eth.SnapProtocol;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
+import org.hyperledger.besu.ethereum.eth.manager.exceptions.IncompleteResultsException;
 import org.hyperledger.besu.ethereum.eth.manager.task.AbstractRetryingSwitchingPeerTask;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
@@ -76,7 +77,7 @@ public class RetryingGetBlockAccessListsFromPeerTask
               if (pendingIndexes.isEmpty()) {
                 return completedBlockAccessLists();
               }
-              throw new IncompleteBlockAccessListsException(pendingIndexes.size());
+              throw new IncompleteResultsException();
             });
   }
 
@@ -107,19 +108,8 @@ public class RetryingGetBlockAccessListsFromPeerTask
   }
 
   @Override
-  protected boolean isRetryableError(final Throwable error) {
-    return super.isRetryableError(error) || error instanceof IncompleteBlockAccessListsException;
-  }
-
-  @Override
   protected boolean isSuitablePeer(final EthPeerImmutableAttributes peer) {
     return peer.isServingSnap()
         && peer.ethPeer().getAgreedCapabilities().contains(SnapProtocol.SNAP2);
-  }
-
-  private static class IncompleteBlockAccessListsException extends RuntimeException {
-    private IncompleteBlockAccessListsException(final int pendingBlockAccessLists) {
-      super("Still waiting for " + pendingBlockAccessLists + " block access lists");
-    }
   }
 }
