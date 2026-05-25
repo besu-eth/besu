@@ -37,6 +37,7 @@ import org.hyperledger.besu.services.tasks.Task;
 import org.hyperledger.besu.services.tasks.TaskCollection;
 
 import java.time.Clock;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 import java.util.stream.Stream;
@@ -65,6 +66,8 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   private final SnapSyncMetricsManager metricsManager;
   private final AtomicBoolean worldStateFinishedNotified = new AtomicBoolean(false);
   private final WorldStateHealFinishedListener worldStateHealFinishedListener;
+  private final ConcurrentSkipListMap<Bytes32, Bytes32> completedRanges =
+      new ConcurrentSkipListMap<>();
 
   public SnapV2WorldDownloadState(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
@@ -115,6 +118,13 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
             "snap_v2_world_state_pending_code_requests_current",
             "Number of code pending requests for snap/2 world state download",
             pendingCodeRequests::size);
+    metricsManager
+        .getMetricsSystem()
+        .createLongGauge(
+            BesuMetricCategory.SYNCHRONIZER,
+            "snap_v2_world_state_completed_ranges_current",
+            "Number of completed account ranges for snap/2 world state download",
+            completedRanges::size);
     syncDurationMetrics.startTimer(
         SyncDurationMetrics.Labels.SNAP_INITIAL_WORLD_STATE_DOWNLOAD_DURATION);
   }
@@ -173,12 +183,13 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   }
 
   @Override
-  protected synchronized void cleanupQueues() {
+  public synchronized void cleanupQueues() {
     super.cleanupQueues();
     pendingAccountRequests.clear();
     pendingStorageRequests.clear();
     pendingLargeStorageRequests.clear();
     pendingCodeRequests.clear();
+    completedRanges.clear();
   }
 
   @Override
@@ -273,5 +284,15 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   @Override
   public void addAccountToHealingList(final Bytes account) {
     LOG.debug("Ignoring snap/2 healing marker for account {}", account);
+  }
+
+  @Override
+  public void markAccountRangeComplete(final Bytes32 startKeyHash, final Bytes32 endKeyHash) {
+    completedRanges.put(startKeyHash, endKeyHash);
+    LOG.atDebug()
+        .setMessage("Marked account range complete: {} -> {}")
+        .addArgument(startKeyHash)
+        .addArgument(endKeyHash)
+        .log();
   }
 }

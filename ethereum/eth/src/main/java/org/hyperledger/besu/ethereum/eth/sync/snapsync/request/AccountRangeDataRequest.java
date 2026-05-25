@@ -218,10 +218,15 @@ public class AccountRangeDataRequest extends SnapDataRequest {
                   createAccountRangeDataRequest(
                       getRootHash(), missingRightElement, endKeyHash, persistIncompleteTrieNodes));
             },
-            () ->
-                downloadState
-                    .getMetricsManager()
-                    .notifyRangeProgress(DOWNLOAD, endKeyHash, endKeyHash));
+            () -> {
+              downloadState
+                  .getMetricsManager()
+                  .notifyRangeProgress(DOWNLOAD, endKeyHash, endKeyHash);
+              // TODO: A range is not truly complete until all child storage and code requests
+              // spawned from this account range have finished downloading.
+              // Defer markAccountRangeComplete until all children are finished.
+              downloadState.markAccountRangeComplete(startKeyHash, endKeyHash);
+            });
 
     // find missing storages and code
     for (Map.Entry<Bytes32, Bytes> account : taskElement.keys().entrySet()) {
