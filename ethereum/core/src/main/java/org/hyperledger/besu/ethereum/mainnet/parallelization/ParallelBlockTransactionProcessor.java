@@ -36,6 +36,12 @@ public abstract class ParallelBlockTransactionProcessor {
 
   protected CompletableFuture<ParallelizedTransactionContext>[] futures;
 
+  protected CompletableFuture<ParallelizedTransactionContext> removeFuture(final int txIndex) {
+    final CompletableFuture<ParallelizedTransactionContext> future = futures[txIndex];
+    futures[txIndex] = null;
+    return future;
+  }
+
   @SuppressWarnings({"unchecked", "rawtypes"})
   public void runAsyncBlock(
       final ProtocolContext protocolContext,

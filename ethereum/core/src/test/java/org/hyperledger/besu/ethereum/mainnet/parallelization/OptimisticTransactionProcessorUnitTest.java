@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -84,13 +85,13 @@ class OptimisticTransactionProcessorUnitTest {
   @Mock private MainnetTransactionProcessor transactionProcessor;
   @Mock private TransactionCollisionDetector collisionDetector;
 
-  private ParallelizedConcurrentTransactionProcessor processor;
+  private OptimisticConcurrentTransactionProcessor processor;
   private TestEnvironment env;
 
   @BeforeEach
   void setUp() {
     processor =
-        new ParallelizedConcurrentTransactionProcessor(transactionProcessor, collisionDetector);
+        new OptimisticConcurrentTransactionProcessor(transactionProcessor, collisionDetector);
     env = createTestEnvironment();
   }
 
@@ -495,6 +496,7 @@ class OptimisticTransactionProcessorUnitTest {
 
       assertTrue(result.isPresent(), "Expected result when no collision");
       assertTrue(result.get().isSuccessful(), "Expected successful result");
+      assertNull(processor.futures[0], "Expected consumed future reference to be cleared");
     }
 
     @Test
