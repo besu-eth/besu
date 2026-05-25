@@ -48,6 +48,8 @@ public class PostMergeContext implements MergeContext {
       Subscribers.create();
   private final Subscribers<UnverifiedForkchoiceListener>
       newUnverifiedForkchoiceCallbackSubscribers = Subscribers.create();
+  private final Subscribers<NewPayloadListener> newPayloadCallbackSubscribers =
+      Subscribers.create();
 
   private final EvictingQueue<PayloadWrapper> blocksInProgress =
       EvictingQueue.create(MAX_BLOCKS_IN_PROGRESS);
@@ -154,6 +156,21 @@ public class PostMergeContext implements MergeContext {
     final ForkchoiceEvent event =
         new ForkchoiceEvent(headBlockHash, safeBlockHash, finalizedBlockHash);
     newUnverifiedForkchoiceCallbackSubscribers.forEach(cb -> cb.onNewUnverifiedForkchoice(event));
+  }
+
+  @Override
+  public long addNewPayloadListener(final NewPayloadListener newPayloadListener) {
+    return newPayloadCallbackSubscribers.subscribe(newPayloadListener);
+  }
+
+  @Override
+  public void removeNewPayloadListener(final long subscriberId) {
+    newPayloadCallbackSubscribers.unsubscribe(subscriberId);
+  }
+
+  @Override
+  public void fireNewPayloadEvent(final BlockHeader header) {
+    newPayloadCallbackSubscribers.forEach(cb -> cb.onNewPayload(header));
   }
 
   @Override

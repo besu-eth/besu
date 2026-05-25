@@ -231,11 +231,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
           e.getMessage());
     }
 
-    if (mergeContext.get().isSyncing()) {
-      LOG.debug("We are syncing");
-      return respondWith(reqId, blockParam, null, SYNCING);
-    }
-
     final List<Transaction> transactions;
     try {
       transactions =
@@ -300,6 +295,15 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
               newBlockHeader.getBlockHash(), blockParam.getBlockHash());
       LOG.debug(errorMessage);
       return respondWithInvalid(reqId, blockParam, null, getInvalidBlockHashStatus(), errorMessage);
+    }
+
+    // Notify listeners that a new payload arrived. The header has had its block hash verified
+    // against the payload contents but has not been validated against the local chain.
+    mergeContext.get().fireNewPayloadEvent(newBlockHeader);
+
+    if (mergeContext.get().isSyncing()) {
+      LOG.debug("We are syncing");
+      return respondWith(reqId, blockParam, null, SYNCING);
     }
 
     final var blobTransactions =
