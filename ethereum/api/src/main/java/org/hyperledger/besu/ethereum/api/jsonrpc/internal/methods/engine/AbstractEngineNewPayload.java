@@ -238,7 +238,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
               .map(Bytes::fromHexString)
               .map(in -> TransactionDecoder.decodeOpaqueBytes(in, EncodingContext.BLOCK_BODY))
               .toList();
-      precomputeSenders(transactions);
     } catch (final RLPException | IllegalArgumentException e) {
       return respondWithInvalid(
           reqId,
@@ -305,6 +304,8 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
       LOG.debug("We are syncing");
       return respondWith(reqId, blockParam, null, SYNCING);
     }
+
+    precomputeSenders(transactions);
 
     final var blobTransactions =
         transactions.stream().filter(transaction -> transaction.getType().supportsBlob()).toList();
