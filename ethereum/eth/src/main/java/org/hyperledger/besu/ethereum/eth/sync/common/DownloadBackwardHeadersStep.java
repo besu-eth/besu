@@ -126,7 +126,11 @@ public class DownloadBackwardHeadersStep
    */
   @Override
   public CompletableFuture<List<BlockHeader>> apply(final Long startBlockNumber) {
-    final long remainingHeaders = startBlockNumber - trustAnchorBlockNumber;
+    final long remainingHeaders =
+        startBlockNumber <= trustAnchorBlockNumber
+            // this can happen when we are in recovery mode, see {@code BackwardHeaderDriver}
+            ? startBlockNumber
+            : startBlockNumber - trustAnchorBlockNumber;
     final int headersToRequest = (int) Math.min(headerRequestSize, remainingHeaders);
     if (headersToRequest < 1) {
       throw new IllegalStateException(

@@ -113,6 +113,23 @@ public interface MutableBlockchain extends Blockchain {
    */
   void storeBlockHeaders(List<BlockHeader> blockHeaders);
 
+  /**
+   * Removes canonical blockNumber→blockHash index entries for every block number in the range
+   * {@code (lowerExclusive, upperInclusive]}. Block headers, bodies, and receipts stored by hash
+   * are not affected. After this call {@link #blockIsOnCanonicalChain(Hash)} returns {@code false}
+   * for blocks whose index entry was removed.
+   *
+   * <p>Intended for sync initialisation: when restarting with a lower pivot the backward header
+   * download only re-writes entries up to the new pivot, leaving any entries above it stale. This
+   * method removes those stale entries so that {@link #blockIsOnCanonicalChain(Hash)} cannot return
+   * a false positive for them.
+   *
+   * @param lowerExclusive blocks at or below this number are not touched
+   * @param upperInclusive blocks up to and including this number have their canonical index entry
+   *     removed
+   */
+  void unsafeStripCanonicalIndexRange(long lowerExclusive, long upperInclusive);
+
   Difficulty calculateTotalDifficulty(final BlockHeader blockHeader);
 
   /**

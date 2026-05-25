@@ -113,6 +113,11 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         batchSize);
   }
 
+  /* In the pipeline, hasNext() and next() are only ever called by the single source thread.
+   * accept() runs on the completer thread but never touches {@code held}; it communicates
+   * back via {@link #decisions}.
+   */
+
   @Override
   public boolean hasNext() {
     if (stopped) {
@@ -259,7 +264,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
 
   private void emitRecoverySuccessLog(final BlockHeader ancestor) {
     final long delta = (lowestHeaderToImport - 1) - ancestor.getNumber();
-    LOG.info(
+    LOG.debug(
         "Anchor recovery succeeded after {} extra batch(es). previousAnchor={}, matchedAncestor={} (#{}), depthBelowPreviousAnchor={}.",
         extraBatchesRequested,
         anchorHash,

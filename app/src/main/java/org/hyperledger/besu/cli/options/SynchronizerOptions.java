@@ -66,6 +66,8 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
       "--Xsynchronizer-world-state-max-requests-without-progress";
   private static final String WORLD_STATE_MIN_MILLIS_BEFORE_STALLING_FLAG =
       "--Xsynchronizer-world-state-min-millis-before-stalling";
+  private static final String CHAIN_SYNC_CONTINUATION_THRESHOLD_BLOCKS_FLAG =
+      "--Xsynchronizer-chain-sync-continuation-threshold-blocks";
   private static final String WORLD_STATE_TASK_CACHE_SIZE_FLAG =
       "--Xsynchronizer-world-state-task-cache-size";
   private static final String RECEIPTS_DOWNLOAD_STEP_TIMEOUT_MILLIS_FLAG =
@@ -254,6 +256,15 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
           "Minimum time in ms without progress before considering a world state download as stalled (default: ${DEFAULT-VALUE})")
   private long worldStateMinMillisBeforeStalling =
       SynchronizerConfiguration.DEFAULT_WORLD_STATE_MIN_MILLIS_BEFORE_STALLING;
+
+  @CommandLine.Option(
+      names = CHAIN_SYNC_CONTINUATION_THRESHOLD_BLOCKS_FLAG,
+      hidden = true,
+      paramLabel = "<LONG>",
+      description =
+          "Block-count gap above which a re-pivot on restart preserves the in-flight header download and queues the new pivot for the next cycle, instead of restarting Stage 1 from the new pivot (default: ${DEFAULT-VALUE})")
+  private long chainSyncContinuationThresholdBlocks =
+      SynchronizerConfiguration.DEFAULT_CHAIN_SYNC_CONTINUATION_THRESHOLD_BLOCKS;
 
   @CommandLine.Option(
       names = WORLD_STATE_TASK_CACHE_SIZE_FLAG,
@@ -464,6 +475,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     options.worldStateRequestParallelism = config.getWorldStateRequestParallelism();
     options.worldStateMaxRequestsWithoutProgress = config.getWorldStateMaxRequestsWithoutProgress();
     options.worldStateMinMillisBeforeStalling = config.getWorldStateMinMillisBeforeStalling();
+    options.chainSyncContinuationThresholdBlocks = config.getChainSyncContinuationThresholdBlocks();
     options.worldStateTaskCacheSize = config.getWorldStateTaskCacheSize();
     options.snapsyncPivotBlockWindowValidity =
         config.getSnapSyncConfiguration().getPivotBlockWindowValidity();
@@ -514,6 +526,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     builder.worldStateRequestParallelism(worldStateRequestParallelism);
     builder.worldStateMaxRequestsWithoutProgress(worldStateMaxRequestsWithoutProgress);
     builder.worldStateMinMillisBeforeStalling(worldStateMinMillisBeforeStalling);
+    builder.chainSyncContinuationThresholdBlocks(chainSyncContinuationThresholdBlocks);
     builder.worldStateTaskCacheSize(worldStateTaskCacheSize);
     builder.snapSyncConfiguration(
         ImmutableSnapSyncConfiguration.builder()
@@ -574,6 +587,8 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             OptionParser.format(worldStateMaxRequestsWithoutProgress),
             WORLD_STATE_MIN_MILLIS_BEFORE_STALLING_FLAG,
             OptionParser.format(worldStateMinMillisBeforeStalling),
+            CHAIN_SYNC_CONTINUATION_THRESHOLD_BLOCKS_FLAG,
+            OptionParser.format(chainSyncContinuationThresholdBlocks),
             WORLD_STATE_TASK_CACHE_SIZE_FLAG,
             OptionParser.format(worldStateTaskCacheSize),
             RECEIPTS_DOWNLOAD_STEP_TIMEOUT_MILLIS_FLAG,

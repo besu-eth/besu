@@ -549,6 +549,15 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   @Override
+  public void unsafeStripCanonicalIndexRange(final long lowerExclusive, final long upperInclusive) {
+    final BlockchainStorage.Updater updater = blockchainStorage.updater();
+    for (long i = lowerExclusive + 1; i <= upperInclusive; i++) {
+      updater.removeBlockHash(i);
+    }
+    updater.commit();
+  }
+
+  @Override
   public void unsafeStoreHeader(final BlockHeader blockHeader, final Difficulty totalDifficulty) {
     // as this is used only to store premerge block headers, we don't cache the header in this case
     final BlockchainStorage.Updater updater = blockchainStorage.updater();

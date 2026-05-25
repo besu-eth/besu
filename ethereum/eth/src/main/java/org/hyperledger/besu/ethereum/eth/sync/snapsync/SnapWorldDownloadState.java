@@ -517,6 +517,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
                   pivotBlockSelector.check(
                       (____, isNewPivotBlock) -> {
                         if (isNewPivotBlock) {
+                          notePivotSwitch();
                           foundNewPivotBlock.set(true);
                         }
                       });
