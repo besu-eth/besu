@@ -15,6 +15,7 @@
 package org.hyperledger.besu.metrics;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static java.util.Objects.requireNonNull;
 
 import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.plugin.services.metrics.MetricCategory;
@@ -25,10 +26,12 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
+import org.jspecify.annotations.Nullable;
+
 /** The Metric category registry implementation. */
 public class MetricCategoryRegistryImpl implements MetricCategoryRegistry {
   private final Map<String, MetricCategory> metricCategories = new HashMap<>();
-  private MetricsConfiguration metricsConfiguration;
+  private @Nullable MetricsConfiguration metricsConfiguration;
 
   /** Default constructor */
   public MetricCategoryRegistryImpl() {}
@@ -58,8 +61,9 @@ public class MetricCategoryRegistryImpl implements MetricCategoryRegistry {
   public boolean isMetricCategoryEnabled(final MetricCategory metricCategory) {
     checkNotNull(
         metricsConfiguration, "Metrics configuration must be set before calling this method");
-    return (metricsConfiguration.isEnabled() || metricsConfiguration.isPushEnabled())
-        && metricsConfiguration.getMetricCategories().contains(metricCategory);
+    final MetricsConfiguration configuredMetrics = requireNonNull(metricsConfiguration);
+    return (configuredMetrics.isEnabled() || configuredMetrics.isPushEnabled())
+        && configuredMetrics.getMetricCategories().contains(metricCategory);
   }
 
   /**
@@ -78,7 +82,7 @@ public class MetricCategoryRegistryImpl implements MetricCategoryRegistry {
    * @param name the category name
    * @return the metric category or null if not registered
    */
-  public MetricCategory getMetricCategory(final String name) {
+  public @Nullable MetricCategory getMetricCategory(final String name) {
     return metricCategories.get(name.toUpperCase(Locale.ROOT));
   }
 
