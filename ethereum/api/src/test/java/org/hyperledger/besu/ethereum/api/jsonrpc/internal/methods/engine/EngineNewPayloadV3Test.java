@@ -54,9 +54,11 @@ import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
 import java.math.BigInteger;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.function.UnaryOperator;
 
 import org.apache.commons.lang3.ArrayUtils;
@@ -112,14 +114,14 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
   }
 
   @Override
-  protected long getMaxSupportedTimestamp() {
-    return pragueHardfork.milestone() - 1;
+  protected OptionalLong getMaxSupportedTimestamp() {
+    return OptionalLong.of(pragueHardfork.milestone() - 1);
   }
 
   @Test
   public void shouldReturnUnsupportedForkIfBlockTimestampIsBeforeForkWindow() {
     BlockHeader blockHeader =
-        setupValidPayloadV3(
+        setupPayloadV3(
             getMinSupportedTimestamp() - 1,
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             BlobGas.ZERO,
@@ -136,7 +138,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     final Bytes shortHash = Bytes.fromHexString("0x" + "69".repeat(31));
 
     BlockHeader blockHeader =
-        setupValidPayloadV3(
+        setupPayloadV3(
             getMinSupportedTimestamp(),
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             BlobGas.ZERO,
@@ -144,9 +146,10 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
 
     var resp =
         resp(
-            mockEnginePayloadParam(blockHeader, emptyList()),
-            List.of(shortHash.toHexString()),
-            zeroParentBeaconBlockRootParam());
+            requestParams(
+                mockEnginePayloadParam(blockHeader, emptyList()),
+                List.of(shortHash.toHexString()),
+                zeroParentBeaconBlockRootParam()));
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
     assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
     assertThat(jsonRpcError.getMessage()).isEqualTo("Invalid versioned hash params");
@@ -159,7 +162,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     Long blobGasUsed = null;
 
     BlockHeader blockHeader =
-        setupValidPayloadV3(
+        setupPayloadV3(
             getMinSupportedTimestamp(),
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             excessBlobGas,
@@ -183,7 +186,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     Long blobGasUsed = 100L;
 
     BlockHeader blockHeader =
-        setupValidPayloadV3(
+        setupPayloadV3(
             getMinSupportedTimestamp(),
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             excessBlobGas,
@@ -202,17 +205,28 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
 
   @Test
   public void shouldRejectTransactionsWithFullBlobs() {
+    BlobGas excessBlobGas = BlobGas.ONE;
+    Long blobGasUsed = 100L;
+
     Bytes transactionWithBlobsBytes =
         TransactionEncoder.encodeOpaqueBytes(
             createTransactionWithBlobs(), EncodingContext.POOLED_TRANSACTION);
 
     List<String> transactions = List.of(transactionWithBlobsBytes.toString());
 
-    BlockHeader mockHeader =
-        setupValidPayloadV1(
+    BlockHeader blockHeader =
+        setupPayloadV3(
             getMinSupportedTimestamp(),
-            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))));
-    var resp = resp(mockEnginePayloadParam(mockHeader, transactions));
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            excessBlobGas,
+            blobGasUsed);
+
+    var resp =
+        resp(
+            requestParams(
+                mockEnginePayloadParam(blockHeader, transactions),
+                emptyVersionedHashesParam(),
+                zeroParentBeaconBlockRootParam()));
 
     PayloadStatusV1 res = fromSuccessResp(resp);
     assertThat(res.getStatusAsString()).isEqualTo(INVALID.name());
@@ -368,6 +382,16 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     // not applicable for V3 and later
   }
 
+  private Object[] requestParams(
+      final Map<String, Object> payloadParams,
+      final List<String> versionedHashesParam,
+      final String parentBeaconBlockRootParam) {
+    Object[] tailParams = Arrays.stream(getVersionSpecificDefaultParams()).skip(2).toArray();
+
+    return ArrayUtils.addAll(
+        new Object[] {payloadParams, versionedHashesParam, parentBeaconBlockRootParam}, tailParams);
+  }
+
   @Override
   protected Object[] getVersionSpecificDefaultParams() {
     return ArrayUtils.addAll(
@@ -376,22 +400,21 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
         zeroParentBeaconBlockRootParam());
   }
 
-  protected BlockHeader setupValidPayloadV3(
+  protected BlockHeader setupPayloadV3(
       final long timestamp,
       final BlockProcessingResult value,
       final BlobGas excessBlobGas,
       final Long blobGasUsed) {
-    return setupValidPayloadV3(
-        timestamp, value, excessBlobGas, blobGasUsed, UnaryOperator.identity());
+    return setupPayloadV3(timestamp, value, excessBlobGas, blobGasUsed, UnaryOperator.identity());
   }
 
-  protected BlockHeader setupValidPayloadV3(
+  protected BlockHeader setupPayloadV3(
       final long timestamp,
       final BlockProcessingResult value,
       final BlobGas excessBlobGas,
       final Long blobGasUsed,
       final UnaryOperator<BlockHeaderTestFixture> nextVersionSpecificModifier) {
-    return super.setupValidPayloadV2(
+    return super.setupPayloadV2(
         timestamp,
         value,
         List.of(),

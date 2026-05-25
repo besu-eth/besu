@@ -52,6 +52,7 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.function.UnaryOperator;
 
 import org.apache.commons.lang3.ArrayUtils;
@@ -106,15 +107,15 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
   }
 
   @Override
-  protected long getMaxSupportedTimestamp() {
-    return amsterdamHardfork.milestone() - 1;
+  protected OptionalLong getMaxSupportedTimestamp() {
+    return OptionalLong.of(amsterdamHardfork.milestone() - 1);
   }
 
   @Test
   public void shouldReturnInvalidIfRequestsIsNull_WhenRequestsAllowed() {
     List<Request> requests = null;
     BlockHeader blockHeader =
-        setupValidPayloadV4(
+        setupPayloadV4(
             getMinSupportedTimestamp(),
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             requests);
@@ -130,7 +131,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
   @Test
   public void shouldReturnValidIfRequestsIsNotNull_WhenRequestsAllowed() {
     BlockHeader blockHeader =
-        setupValidPayloadV4(
+        setupPayloadV4(
             getMinSupportedTimestamp(),
             new BlockProcessingResult(
                 Optional.of(
@@ -157,7 +158,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
     List<Request> unknownTypeRequests = List.of(unknownTypeRequest);
 
     BlockHeader blockHeader =
-        setupValidPayloadV4(
+        setupPayloadV4(
             getMinSupportedTimestamp(),
             new BlockProcessingResult(
                 Optional.of(
@@ -183,7 +184,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
             new Request(RequestType.DEPOSIT, Bytes.of(1)));
 
     BlockHeader blockHeader =
-        setupValidPayloadV4(
+        setupPayloadV4(
             getMinSupportedTimestamp(),
             new BlockProcessingResult(
                 Optional.of(
@@ -203,7 +204,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
   @Test
   public void shouldReturnInvalidIfRequestsIsNotNull_WhenRequestsProhibited() {
     BlockHeader blockHeader =
-        setupValidPayloadV3(
+        setupPayloadV3(
             getMinSupportedTimestamp() - 1,
             new BlockProcessingResult(
                 Optional.of(
@@ -234,7 +235,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
   @Test
   public void validateVersionedHash_whenListIsPresentAndEmpty() {
     BlockHeader blockHeader =
-        setupValidPayloadV4(
+        setupPayloadV4(
             getMinSupportedTimestamp(),
             new BlockProcessingResult(
                 Optional.of(new BlockProcessingOutputs(null, List.of(), Optional.of(emptyList())))),
@@ -251,17 +252,17 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
     return ArrayUtils.addAll(super.getVersionSpecificDefaultParams(), emptyList());
   }
 
-  protected BlockHeader setupValidPayloadV4(
+  protected BlockHeader setupPayloadV4(
       final long timestamp, final BlockProcessingResult value, final List<Request> requests) {
-    return setupValidPayloadV4(timestamp, value, requests, UnaryOperator.identity());
+    return setupPayloadV4(timestamp, value, requests, UnaryOperator.identity());
   }
 
-  protected BlockHeader setupValidPayloadV4(
+  protected BlockHeader setupPayloadV4(
       final long timestamp,
       final BlockProcessingResult value,
       final List<Request> requests,
       final UnaryOperator<BlockHeaderTestFixture> nextVersionSpecificModifier) {
-    return setupValidPayloadV3(
+    return setupPayloadV3(
         timestamp,
         value,
         BlobGas.ZERO,
@@ -297,5 +298,9 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
 
   protected List<String> requestsAsParam(final List<Request> requests) {
     return requests.stream().map(Request::getEncodedRequest).map(Bytes::toHexString).toList();
+  }
+
+  protected List<Request> emptyRequestsParam() {
+    return emptyList();
   }
 }

@@ -55,8 +55,10 @@ public class AbstractScheduledApiTest extends TrustedSetupClassLoaderExtension {
       new ScheduledProtocolSpec.Hardfork("Osaka", 60);
   protected final ScheduledProtocolSpec.Hardfork amsterdamHardfork =
       new ScheduledProtocolSpec.Hardfork("Amsterdam", 70);
+  protected final ScheduledProtocolSpec.Hardfork bogotaHardfork =
+      new ScheduledProtocolSpec.Hardfork("Bogota", 80);
   protected final ScheduledProtocolSpec.Hardfork experimentalHardfork =
-      new ScheduledProtocolSpec.Hardfork("ExperimentalEips", 80);
+      new ScheduledProtocolSpec.Hardfork("ExperimentalEips", 90);
 
   @Mock protected ProtocolSchedule protocolSchedule;
 

@@ -310,7 +310,7 @@ public sealed class EngineNewPayloadV1<
     if (requestNumOfParams != getNumberOfParameters()) {
       throw new InvalidJsonRpcRequestException(
           "Expected %d parameters but got %d"
-              .formatted(requestNumOfParams, getNumberOfParameters()),
+              .formatted(getNumberOfParameters(), requestNumOfParams),
           RpcErrorType.INVALID_PARAM_COUNT);
     }
     return (NPRP) new NewPayloadRequestParametersV1<>(readPayloadParameter(requestContext));
@@ -539,13 +539,21 @@ public sealed class EngineNewPayloadV1<
     String customMessage = null;
     if (maybeFieldEx.isPresent()) {
       final JsonMappingException fieldEx = maybeFieldEx.get();
-      if (fieldEx.getPath().getFirst().getFieldName().equals("transactions")) {
-        return respondWithInvalid(
-            reqId,
-            "Failed to decode transactions from block parameter (" + fieldEx.getMessage() + ")");
-      } else if (fieldEx.getPath().getFirst().getFieldName().equals("extraData")) {
-        customMessage =
-            "Failed to decode extraData from block parameter (" + fieldEx.getMessage() + ")";
+      final Optional<String> maybeJsonPath = extractJsonPath(fieldEx);
+      if (maybeJsonPath.isPresent()) {
+        final String jsonPath = maybeJsonPath.get();
+        if (jsonPath.equals("transactions")) {
+          return respondWithInvalid(
+              reqId,
+              "Failed to decode transactions from block parameter ("
+                  + fieldEx.getOriginalMessage()
+                  + ")");
+        } else if (jsonPath.equals("extraData")) {
+          customMessage =
+              "Failed to decode extraData from block parameter ("
+                  + fieldEx.getOriginalMessage()
+                  + ")";
+        }
       }
     }
 
@@ -555,5 +563,13 @@ public sealed class EngineNewPayloadV1<
             RpcErrorType.INVALID_ENGINE_NEW_PAYLOAD_PARAMS,
             Objects.requireNonNullElse(
                 customMessage, "Failed to decode block parameter (" + e.getMessage() + ")")));
+  }
+
+  protected static Optional<String> extractJsonPath(final JsonMappingException fieldEx) {
+
+    if (fieldEx.getPath().isEmpty()) {
+      return Optional.empty();
+    }
+    return Optional.ofNullable(fieldEx.getPath().getFirst().getFieldName());
   }
 }

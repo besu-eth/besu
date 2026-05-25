@@ -140,14 +140,6 @@ public sealed class EngineNewPayloadV3<
       return ValidationResult.invalid(
           RpcErrorType.INVALID_EXCESS_BLOB_GAS_PARAMS, "Missing excess blob gas field");
     }
-    //    } else if (requestParameters.expectedBlobVersionedHashes()  == null) {
-    //      return ValidationResult.invalid(
-    //          RpcErrorType.INVALID_VERSIONED_HASH_PARAMS, "Missing versioned hashes field");
-    //    } else if (requestParameters.parentBeaconBlockRoot() == null) {
-    //      return ValidationResult.invalid(
-    //          RpcErrorType.INVALID_PARENT_BEACON_BLOCK_ROOT_PARAMS,
-    //          "Missing parent beacon block root field");
-    //    } else {
     return ValidationResult.valid();
   }
 
