@@ -406,11 +406,10 @@ public class ChainSyncStateTest {
     final BlockHeader matchedAncestor = new BlockHeaderTestFixture().number(1400).buildHeader();
 
     final ChainSyncState before =
-        new ChainSyncState(pivotBlockHeader, newPivot, originalAnchor, null, false, null);
+        new ChainSyncState(newPivot, originalAnchor, null, false, null);
 
     final ChainSyncState after = before.withRecoveryMatch(matchedAncestor);
 
-    assertThat(after.firstPivotBlockHeader()).isEqualTo(pivotBlockHeader);
     assertThat(after.pivotBlockHeader()).isEqualTo(newPivot);
     assertThat(after.blockDownloadAnchor()).isEqualTo(matchedAncestor);
     assertThat(after.headerDownloadAnchor()).isEqualTo(matchedAncestor);

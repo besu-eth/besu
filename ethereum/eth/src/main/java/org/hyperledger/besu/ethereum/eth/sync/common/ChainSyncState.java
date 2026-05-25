@@ -88,12 +88,7 @@ public record ChainSyncState(
   public ChainSyncState withPivot(
       final BlockHeader newPivotHeader, final boolean headersDownloadComplete) {
     return new ChainSyncState(
-        firstPivotBlockHeader,
-        newPivotHeader,
-        blockDownloadAnchor,
-        headerDownloadAnchor,
-        headersDownloadComplete,
-        null);
+        newPivotHeader, blockDownloadAnchor, headerDownloadAnchor, headersDownloadComplete, null);
   }
 
   /**
@@ -137,7 +132,6 @@ public record ChainSyncState(
    */
   public ChainSyncState withAdvancedBodyAnchor(final BlockHeader newAnchor) {
     return new ChainSyncState(
-        firstPivotBlockHeader,
         pivotBlockHeader,
         newAnchor,
         headerDownloadAnchor,
@@ -155,7 +149,6 @@ public record ChainSyncState(
    */
   public ChainSyncState withRecoveryMatch(final BlockHeader matchedAncestor) {
     return new ChainSyncState(
-        firstPivotBlockHeader,
         pivotBlockHeader,
         matchedAncestor,
         matchedAncestor,
@@ -191,14 +184,12 @@ public record ChainSyncState(
         && Objects.equals(pivotBlockHeader, that.pivotBlockHeader)
         && Objects.equals(blockDownloadAnchor, that.blockDownloadAnchor)
         && Objects.equals(headerDownloadAnchor, that.headerDownloadAnchor)
-        && Objects.equals(firstPivotBlockHeader, that.firstPivotBlockHeader)
         && Objects.equals(headerDownloadProgress, that.headerDownloadProgress);
   }
 
   @Override
   public int hashCode() {
     return Objects.hash(
-        firstPivotBlockHeader,
         pivotBlockHeader,
         blockDownloadAnchor,
         headerDownloadAnchor,
