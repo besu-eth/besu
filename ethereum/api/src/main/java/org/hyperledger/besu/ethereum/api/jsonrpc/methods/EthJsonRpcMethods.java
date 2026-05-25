@@ -42,6 +42,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetFilterCh
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetFilterLogs;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetLogs;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetProof;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetRawTransactionByHash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetStorageAt;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetStorageValues;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.EthGetTransactionByBlockHashAndIndex;
@@ -159,6 +160,7 @@ public class EthJsonRpcMethods extends ApiGroupJsonRpcMethods {
             new EthNewPendingTransactionFilter(filterManager),
             new EthNewFilter(filterManager),
             new EthGetTransactionByHash(blockchainQueries, transactionPool),
+            new EthGetRawTransactionByHash(blockchainQueries),
             new EthGetTransactionByBlockHashAndIndex(blockchainQueries),
             new EthGetTransactionByBlockNumberAndIndex(blockchainQueries),
             new EthGetTransactionCount(blockchainQueries, transactionPool),
