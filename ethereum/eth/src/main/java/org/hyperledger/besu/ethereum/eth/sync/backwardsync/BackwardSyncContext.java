@@ -35,7 +35,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -49,7 +48,6 @@ public class BackwardSyncContext {
   private static final int DEFAULT_MAX_RETRIES = 2;
   private static final long MILLIS_DELAY_BETWEEN_PROGRESS_LOG = 10_000L;
   private static final long DEFAULT_MILLIS_BETWEEN_RETRIES = 5000;
-  private static final long MILLIS_STALL_WARNING = 5 * 60_000L;
   private static final int DEFAULT_MAX_CHAIN_EVENT_ENTRIES = BadBlockManager.MAX_BAD_BLOCKS_SIZE;
 
   protected final ProtocolContext protocolContext;
@@ -60,6 +58,7 @@ public class BackwardSyncContext {
   private final SyncState syncState;
   private final AtomicReference<Status> currentBackwardSyncStatus = new AtomicReference<>();
   private final BackwardChain backwardChain;
+  private final BackwardSyncAlgorithmFactory backwardSyncAlgorithmFactory;
   private int batchSize = BATCH_SIZE;
   private final int maxRetries;
   private final int maxBadChainEventEntries;
@@ -73,7 +72,8 @@ public class BackwardSyncContext {
       final MetricsSystem metricsSystem,
       final EthContext ethContext,
       final SyncState syncState,
-      final BackwardChain backwardChain) {
+      final BackwardChain backwardChain,
+      final BackwardSyncAlgorithmFactory backwardSyncAlgorithmFactory) {
     this(
         protocolContext,
         protocolSchedule,
@@ -82,6 +82,7 @@ public class BackwardSyncContext {
         ethContext,
         syncState,
         backwardChain,
+        backwardSyncAlgorithmFactory,
         DEFAULT_MAX_RETRIES,
         DEFAULT_MAX_CHAIN_EVENT_ENTRIES);
   }
@@ -94,6 +95,7 @@ public class BackwardSyncContext {
       final EthContext ethContext,
       final SyncState syncState,
       final BackwardChain backwardChain,
+      final BackwardSyncAlgorithmFactory backwardSyncAlgorithmFactory,
       final int maxRetries,
       final int maxBadChainEventEntries) {
 
@@ -104,6 +106,7 @@ public class BackwardSyncContext {
     this.metricsSystem = metricsSystem;
     this.syncState = syncState;
     this.backwardChain = backwardChain;
+    this.backwardSyncAlgorithmFactory = backwardSyncAlgorithmFactory;
     this.maxRetries = maxRetries;
     this.maxBadChainEventEntries = maxBadChainEventEntries;
   }
@@ -168,34 +171,14 @@ public class BackwardSyncContext {
   }
 
   private Status getOrStartSyncSession() {
-    final Status existing = this.currentBackwardSyncStatus.get();
-    if (existing != null) {
-      final long ageMs = existing.getSessionAgeMs();
-      final long sinceProgressMs = existing.getMillisSinceLastProgress();
-      LOG.atDebug()
-          .setMessage(
-              "Reusing existing backward sync session (age {}ms, last progress {}ms ago, target height {})")
-          .addArgument(ageMs)
-          .addArgument(sinceProgressMs)
-          .addArgument(existing::getTargetChainHeight)
-          .log();
-      if (sinceProgressMs <= MILLIS_STALL_WARNING) {
-        return existing;
-      }
-      LOG.atWarn()
-          .setMessage(
-              "Backward sync session stalled: no progress for {}ms (session age {}ms). Cancelling and starting a new session.")
-          .addArgument(sinceProgressMs)
-          .addArgument(ageMs)
-          .log();
-      existing.currentFuture.cancel(true);
-      // fall through to start a new session
-    }
-
-    LOG.info("Starting a new backward sync session");
-    final Status newStatus = new Status(prepareBackwardSyncFutureWithRetry());
-    this.currentBackwardSyncStatus.set(newStatus);
-    return newStatus;
+    Optional<Status> maybeCurrentStatus = Optional.ofNullable(this.currentBackwardSyncStatus.get());
+    return maybeCurrentStatus.orElseGet(
+        () -> {
+          LOG.info("Starting a new backward sync session");
+          Status newStatus = new Status(prepareBackwardSyncFutureWithRetry());
+          this.currentBackwardSyncStatus.set(newStatus);
+          return newStatus;
+        });
   }
 
   private boolean isTrusted(final Hash hash) {
@@ -211,31 +194,17 @@ public class BackwardSyncContext {
   }
 
   private CompletableFuture<Void> prepareBackwardSyncFutureWithRetry() {
-    // futureRef lets the handle compare against its own future, so a stall-restart
-    // that creates a new session won't be accidentally cleared by the old session's handle.
-    // Set after handle() returns; the lambda only runs on async completion, which is always
-    // after futureRef.set(), so futureRef.get() in the lambda is always non-null.
-    final AtomicReference<CompletableFuture<Void>> futureRef = new AtomicReference<>();
-    final CompletableFuture<Void> future =
-        prepareBackwardSyncFutureWithRetry(maxRetries)
-            .handle(
-                (unused, throwable) -> {
-                  currentBackwardSyncStatus.updateAndGet(
-                      s -> s != null && s.currentFuture == futureRef.get() ? null : s);
-                  if (throwable != null) {
-                    if (throwable instanceof CancellationException
-                        || throwable.getCause() instanceof CancellationException) {
-                      LOG.debug("Backward sync session cancelled for stall recovery");
-                    } else {
-                      LOG.info("Current backward sync session failed, it will be restarted");
-                      throw extractBackwardSyncException(throwable)
-                          .orElse(new BackwardSyncException(throwable));
-                    }
-                  }
-                  return null;
-                });
-    futureRef.set(future);
-    return future;
+    return prepareBackwardSyncFutureWithRetry(maxRetries)
+        .handle(
+            (unused, throwable) -> {
+              this.currentBackwardSyncStatus.set(null);
+              if (throwable != null) {
+                LOG.info("Current backward sync session failed, it will be restarted");
+                throw extractBackwardSyncException(throwable)
+                    .orElse(new BackwardSyncException(throwable));
+              }
+              return null;
+            });
   }
 
   private CompletableFuture<Void> prepareBackwardSyncFutureWithRetry(final int retries) {
@@ -244,14 +213,8 @@ public class BackwardSyncContext {
           new BackwardSyncException("Max number of retries " + maxRetries + " reached"));
     }
 
-    LOG.atDebug()
-        .setMessage("Backward sync attempt {} of {}")
-        .addArgument(maxRetries - retries + 1)
-        .addArgument(maxRetries)
-        .log();
-
     return exceptionallyCompose(
-        prepareBackwardSyncFuture(),
+        backwardSyncAlgorithmFactory.createBackwardSyncAlgorithm(this).executeBackwardsSync(null),
         throwable -> {
           processException(throwable);
           return ethContext
@@ -301,17 +264,6 @@ public class BackwardSyncContext {
       currentCause = currentCause.getCause();
     }
     return Optional.empty();
-  }
-
-  @VisibleForTesting
-  CompletableFuture<Void> prepareBackwardSyncFuture() {
-    final MutableBlockchain blockchain = getProtocolContext().getBlockchain();
-    return new BackwardSyncAlgorithm(
-            this,
-            FinalBlockConfirmation.confirmationChain(
-                FinalBlockConfirmation.genesisConfirmation(blockchain),
-                FinalBlockConfirmation.ancestorConfirmation(blockchain)))
-        .executeBackwardsSync(null);
   }
 
   public ProtocolSchedule getProtocolSchedule() {
@@ -392,6 +344,18 @@ public class BackwardSyncContext {
       possiblyMoveHead(block);
       logBlockImportProgress(block.getHeader().getNumber());
     } else {
+      if (optResult.isWorldStateUnavailable()) {
+        LOG.warn(
+            "Backward sync halted: parent world state is unavailable while validating block {}. "
+                + "This may indicate snap sync completed with an incomplete world state. "
+                + "Call debug_resyncWorldState to repair the world state and resume syncing.",
+            block.toLogString());
+        throw new BackwardSyncException(
+            "Parent world state unavailable for block "
+                + block.toLogString()
+                + " backward sync halted. Run debug_resyncWorldState to recover.",
+            false);
+      }
       emitBadChainEvent(block);
       throw new BackwardSyncException(
           "Cannot save block "
@@ -459,7 +423,6 @@ public class BackwardSyncContext {
 
   private void logBlockImportProgress(final long currImportedHeight) {
     final Status currentStatus = getStatus();
-    currentStatus.recordProgress();
     final long targetHeight = currentStatus.getTargetChainHeight();
     final long initialHeight = currentStatus.getInitialChainHeight();
     final long estimatedTotal = targetHeight - initialHeight;
@@ -497,8 +460,6 @@ public class BackwardSyncContext {
     private long targetChainHeight;
 
     private long lastLogAt = 0;
-    private final long sessionStartMs = System.currentTimeMillis();
-    private volatile long lastProgressMs = sessionStartMs;
 
     public Status(final CompletableFuture<Void> currentFuture) {
       this.currentFuture = currentFuture;
@@ -507,18 +468,6 @@ public class BackwardSyncContext {
 
     public void updateTargetHeight(final long newTargetHeight) {
       targetChainHeight = newTargetHeight;
-    }
-
-    public void recordProgress() {
-      lastProgressMs = System.currentTimeMillis();
-    }
-
-    public long getSessionAgeMs() {
-      return System.currentTimeMillis() - sessionStartMs;
-    }
-
-    public long getMillisSinceLastProgress() {
-      return System.currentTimeMillis() - lastProgressMs;
     }
 
     public boolean progressLogDue() {

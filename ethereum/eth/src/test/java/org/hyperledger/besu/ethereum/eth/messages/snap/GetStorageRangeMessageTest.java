@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 
+import java.math.BigInteger;
 import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes32;
@@ -47,6 +48,28 @@ public final class GetStorageRangeMessageTest {
     Assertions.assertThat(range.worldStateRootHash()).isEqualTo(rootHash);
     Assertions.assertThat(range.hashes()).isEqualTo(accountKeys);
     Assertions.assertThat(range.startKeyHash().getBytes()).isEqualTo(startKeyHash);
+    Assertions.assertThat(range.responseBytes()).isEqualTo(AbstractSnapMessageData.SIZE_REQUEST);
+  }
+
+  @Test
+  public void wrapRoundTripTest() {
+    final Hash rootHash = Hash.wrap(Bytes32.random());
+    final List<Bytes32> accountKeys = List.of(Bytes32.random());
+    final Bytes32 startKeyHash = RangeManager.MIN_RANGE;
+    final Bytes32 endKeyHash = RangeManager.MAX_RANGE;
+
+    final GetStorageRangeMessage initialMessage =
+        GetStorageRangeMessage.create(rootHash, accountKeys, startKeyHash, endKeyHash);
+    final MessageData wrapped = initialMessage.wrapMessageData(BigInteger.valueOf(42));
+    final MessageData raw = new RawMessage(SnapV1.GET_STORAGE_RANGE, wrapped.getData());
+
+    final GetStorageRangeMessage message = GetStorageRangeMessage.readFrom(raw);
+
+    final GetStorageRangeMessage.StorageRange range = message.range(true);
+    Assertions.assertThat(range.worldStateRootHash()).isEqualTo(rootHash);
+    Assertions.assertThat(range.hashes()).isEqualTo(accountKeys);
+    Assertions.assertThat(range.startKeyHash().getBytes()).isEqualTo(startKeyHash);
+    Assertions.assertThat(range.endKeyHash().getBytes()).isEqualTo(endKeyHash);
     Assertions.assertThat(range.responseBytes()).isEqualTo(AbstractSnapMessageData.SIZE_REQUEST);
   }
 }

@@ -77,6 +77,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
 
   // Regular (stable) flag
   private static final String SNAP_SERVER_ENABLED_FLAG = "--snapsync-server-enabled";
+  private static final String SNAP2_ENABLED_FLAG = "--Xsnap2-enabled";
 
   private static final String SNAP_PIVOT_BLOCK_WINDOW_VALIDITY_FLAG =
       "--Xsnapsync-synchronizer-pivot-block-window-validity";
@@ -359,6 +360,16 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
       description = "Enable snap sync server capability. (default: ${DEFAULT-VALUE})")
   private Boolean snapsyncServerEnabled = SnapSyncConfiguration.DEFAULT_SNAP_SERVER_ENABLED;
 
+  @CommandLine.Option(
+      names = {SNAP2_ENABLED_FLAG},
+      hidden = true,
+      paramLabel = "<Boolean>",
+      arity = "0..1",
+      fallbackValue = "true",
+      description =
+          "Enable advertising the snap/2 protocol capability. (default: ${DEFAULT-VALUE})")
+  private Boolean snap2Enabled = SnapSyncConfiguration.DEFAULT_SNAP2_ENABLED;
+
   @SuppressWarnings("unused")
   @CommandLine.Option(
       names = {CHECKPOINT_POST_MERGE_FLAG},
@@ -373,13 +384,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
         "{} is deprecated and has no effect. CHECKPOINT sync mode has been replaced by SNAP.",
         CHECKPOINT_POST_MERGE_FLAG);
   }
-
-  @CommandLine.Option(
-      names = {"--Xpeertask-system-enabled"},
-      hidden = true,
-      description =
-          "Temporary feature toggle to enable using the new peertask system (default: ${DEFAULT-VALUE})")
-  private final Boolean isPeerTaskSystemEnabled = false;
 
   @CommandLine.Option(
       names = SNAP_TRANSACTION_INDEXING_ENABLED_FLAG,
@@ -437,15 +441,6 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
   }
 
   /**
-   * Flag to indicate whether the peer task system should be used where available
-   *
-   * @return true if the peer task system should be used where available
-   */
-  public boolean isPeerTaskSystemEnabled() {
-    return isPeerTaskSystemEnabled;
-  }
-
-  /**
    * Create synchronizer options.
    *
    * @return the synchronizer options
@@ -496,6 +491,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     options.snapsyncFlatStorageHealedCountPerRequest =
         config.getSnapSyncConfiguration().getLocalFlatStorageCountToHealPerRequest();
     options.snapsyncServerEnabled = config.getSnapSyncConfiguration().isSnapServerEnabled();
+    options.snap2Enabled = config.getSnapSyncConfiguration().isSnap2Enabled();
     options.snapTransactionIndexingEnabled =
         config.getSnapSyncConfiguration().isSnapSyncTransactionIndexingEnabled();
     options.snapSyncSavePreCheckpointHeadersOnlyEnabled =
@@ -503,7 +499,7 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
     options.era1ImportPrepipelineEnabled = config.era1ImportPrepipelineEnabled();
     options.era1DataUri = config.era1DataUri();
     options.era1ImportPrepipelineConcurrency = config.era1ImportPrepipelineConcurrency();
-    options.receiptsDownloadStepTimeoutMillis = config.getReceiptsDownloadStepTimeoutMillis();
+    options.receiptsDownloadStepTimeoutMillis = config.getForwardDownloadStepTimeoutMillis();
     options.backwardHeadersDownloadStepTimeoutMillis =
         config.getBackwardHeadersDownloadStepTimeoutMillis();
     options.bodiesDownloadStepTimeoutMillis = config.getBodiesDownloadStepTimeoutMillis();
@@ -541,9 +537,9 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             .localFlatAccountCountToHealPerRequest(snapsyncFlatAccountHealedCountPerRequest)
             .localFlatStorageCountToHealPerRequest(snapsyncFlatStorageHealedCountPerRequest)
             .isSnapServerEnabled(snapsyncServerEnabled)
+            .isSnap2Enabled(snap2Enabled)
             .isSnapSyncTransactionIndexingEnabled(snapTransactionIndexingEnabled)
             .build());
-    builder.isPeerTaskSystemEnabled(isPeerTaskSystemEnabled);
     builder.snapSyncSavePreCheckpointHeadersOnlyEnabled(
         snapSyncSavePreCheckpointHeadersOnlyEnabled);
     builder.receiptsDownloadStepTimeoutMillis(receiptsDownloadStepTimeoutMillis);
@@ -615,6 +611,8 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
             OptionParser.format(snapsyncFlatStorageHealedCountPerRequest),
             SNAP_SERVER_ENABLED_FLAG,
             OptionParser.format(snapsyncServerEnabled),
+            SNAP2_ENABLED_FLAG,
+            OptionParser.format(snap2Enabled),
             SNAP_TRANSACTION_INDEXING_ENABLED_FLAG,
             OptionParser.format(snapTransactionIndexingEnabled),
             SNAP_SYNC_SAVE_PRE_CHECKPOINT_HEADERS_ONLY_FLAG,

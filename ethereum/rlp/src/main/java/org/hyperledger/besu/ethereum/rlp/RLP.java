@@ -179,6 +179,35 @@ public abstract class RLP {
   }
 
   /**
+   * Returns the header size (in bytes) of an already-encoded RLP list. The first byte of {@code
+   * encoded} must be a list prefix ({@code >= 0xc0}).
+   *
+   * @param encoded The RLP-encoded list bytes (only the first byte is inspected).
+   * @return The number of bytes occupied by the list header.
+   */
+  public static int listHeaderSize(final Bytes encoded) {
+    final int prefix = encoded.get(0) & 0xFF;
+    if (prefix < 0xc0) {
+      throw new RLPException(
+          String.format("Expected an RLP list prefix (>= 0xc0) but got 0x%02x", prefix));
+    }
+    return prefix <= 0xf7 ? 1 : 1 + (prefix - 0xf7);
+  }
+
+  /**
+   * Returns the RLP list header bytes for a list whose encoded content has the given length.
+   *
+   * @param payloadSize The total size (in bytes) of the already-encoded list content.
+   * @return The RLP list header as a {@link Bytes} value.
+   */
+  public static Bytes listHeader(final int payloadSize) {
+    final MutableBytes dest =
+        MutableBytes.create(RLPEncodingHelpers.listSize(payloadSize) - payloadSize);
+    RLPEncodingHelpers.writeListHeader(payloadSize, dest, 0);
+    return dest;
+  }
+
+  /**
    * Validates that the provided value is a valid RLP encoding.
    *
    * @param encodedValue The value to check.

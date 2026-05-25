@@ -21,7 +21,6 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
-import java.math.BigInteger;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -31,22 +30,93 @@ import org.apache.tuweni.bytes.Bytes;
 public final class BlockAccessListsMessageData {
   private BlockAccessListsMessageData() {}
 
-  public static Bytes encode(
-      final Optional<BigInteger> requestId, final Iterable<BlockAccessList> blockAccessLists) {
+  public static Bytes encodeEthResponse(
+      final Iterable<Optional<BlockAccessList>> blockAccessLists) {
     final BytesValueRLPOutput output = new BytesValueRLPOutput();
     output.startList();
-    requestId.ifPresent(output::writeBigIntegerScalar);
     blockAccessLists.forEach(
-        blockAccessList -> BlockAccessListEncoder.encode(blockAccessList, output));
+        maybeBlockAccessList -> writeBlockAccessList(output, maybeBlockAccessList));
     output.endList();
     return output.encoded();
   }
 
-  public static Iterable<BlockAccessList> decode(final Bytes data, final boolean withRequestId) {
+  public static Bytes encodeSnapResponse(
+      final Iterable<Optional<BlockAccessList>> blockAccessLists) {
+    final BytesValueRLPOutput output = new BytesValueRLPOutput();
+    output.startList();
+    // Snap splices request-id into this body: [[access-lists]].
+    output.writeRaw(encodeEthResponse(blockAccessLists));
+    output.endList();
+    return output.encoded();
+  }
+
+  public static Iterable<Optional<BlockAccessList>> decodeEthResponse(final Bytes data) {
+    return decodeEntries(
+        data,
+        false,
+        false,
+        input -> {
+          if (input.nextIsNull()) {
+            input.skipNext();
+            return Optional.empty();
+          }
+          return Optional.of(BlockAccessListDecoder.decode(input.readAsRlp()));
+        });
+  }
+
+  // snap outbound bodies before wrapMessageData: [[access-lists]]
+  // snap wire payloads after wrapMessageData: [request-id, [access-lists]]
+  // AbstractSnapMessageData.unwrapMessageData extracts the id but preserves the wire payload.
+  // Decode withRequestId=true for inbound snap responses; false only for pre-wrap message bodies.
+  public static Iterable<Optional<BlockAccessList>> decodeSnapResponse(
+      final Bytes data, final boolean withRequestId) {
+    return decodeEntries(
+        data,
+        withRequestId,
+        true,
+        input -> {
+          if (input.nextIsNull()) {
+            input.skipNext();
+            return Optional.empty();
+          }
+          return Optional.of(BlockAccessListDecoder.decode(input.readAsRlp()));
+        });
+  }
+
+  public static Iterable<Bytes> decodeEthResponseRaw(final Bytes data) {
+    return decodeEntries(data, false, false, input -> input.readAsRlp().raw());
+  }
+
+  public static Iterable<Bytes> decodeSnapResponseRaw(
+      final Bytes data, final boolean withRequestId) {
+    return decodeEntries(data, withRequestId, true, input -> input.readAsRlp().raw());
+  }
+
+  private static void writeBlockAccessList(
+      final BytesValueRLPOutput output, final Optional<BlockAccessList> maybeBlockAccessList) {
+    if (maybeBlockAccessList.isPresent()) {
+      final BlockAccessList blockAccessList = maybeBlockAccessList.get();
+      if (blockAccessList.rawRlp().isPresent()) {
+        output.writeRaw(blockAccessList.rawRlp().get());
+      } else {
+        BlockAccessListEncoder.encode(blockAccessList, output);
+      }
+    } else {
+      output.writeBytes(Bytes.EMPTY);
+    }
+  }
+
+  private static <T> Iterable<T> decodeEntries(
+      final Bytes data,
+      final boolean withRequestId,
+      final boolean nested,
+      final EntryReader<T> entryReader) {
+    // eth body: [access-lists]; snap body: [request-id?, [access-lists]].
     return () ->
         new Iterator<>() {
           private final RLPInput input = new BytesValueRLPInput(data, false);
           private boolean initialized = false;
+          private boolean complete = false;
 
           private void ensureInitialized() {
             if (!initialized) {
@@ -54,24 +124,43 @@ public final class BlockAccessListsMessageData {
               if (withRequestId) {
                 input.skipNext();
               }
+              // Snap has an extra list level around access-lists; eth is already there.
+              if (nested) {
+                input.enterList();
+              }
               initialized = true;
             }
           }
 
           @Override
           public boolean hasNext() {
+            if (complete) {
+              return false;
+            }
             ensureInitialized();
-            return !input.isEndOfCurrentList();
+            if (!input.isEndOfCurrentList()) {
+              return true;
+            }
+            if (nested) {
+              input.leaveListLenient();
+            }
+            input.leaveListLenient();
+            complete = true;
+            return false;
           }
 
           @Override
-          public BlockAccessList next() {
-            ensureInitialized();
+          public T next() {
             if (!hasNext()) {
               throw new NoSuchElementException();
             }
-            return BlockAccessListDecoder.decode(input.readAsRlp());
+            return entryReader.read(input);
           }
         };
+  }
+
+  @FunctionalInterface
+  private interface EntryReader<T> {
+    T read(RLPInput input);
   }
 }

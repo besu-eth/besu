@@ -23,18 +23,18 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
  *
  * <p>Updates create new instances.
  *
- * @param firstPivotBlockHeader header of the first pivot block
  * @param pivotBlockHeader header of the pivot block
  * @param blockDownloadAnchor header of the checkpoint block
  * @param headerDownloadAnchor set if the anchor is different from the checkpoint block header
  * @param headersDownloadComplete true if the header download has finished
+ * @param headerDownloadProgress lowest header successfully imported so far (resume point)
  */
 public record ChainSyncState(
-    BlockHeader firstPivotBlockHeader,
     BlockHeader pivotBlockHeader,
     BlockHeader blockDownloadAnchor,
     BlockHeader headerDownloadAnchor,
-    boolean headersDownloadComplete) {
+    boolean headersDownloadComplete,
+    BlockHeader headerDownloadProgress) {
 
   /**
    * Creates a new state with an initial pivot block.
@@ -49,7 +49,7 @@ public record ChainSyncState(
       final BlockHeader blockDownloadAnchor,
       final BlockHeader headerDownloadAnchor) {
     return new ChainSyncState(
-        pivotBlockHeader, pivotBlockHeader, blockDownloadAnchor, headerDownloadAnchor, false);
+        pivotBlockHeader, blockDownloadAnchor, headerDownloadAnchor, false, null);
   }
 
   /**
@@ -62,8 +62,7 @@ public record ChainSyncState(
    */
   public ChainSyncState continueToNewPivot(
       final BlockHeader newPivotHeader, final BlockHeader previousPivotHeader) {
-    return new ChainSyncState(
-        firstPivotBlockHeader, newPivotHeader, previousPivotHeader, null, false);
+    return new ChainSyncState(newPivotHeader, previousPivotHeader, null, false, null);
   }
 
   /**
@@ -72,8 +71,7 @@ public record ChainSyncState(
    * @return new ChainSyncState instance
    */
   public ChainSyncState withHeadersDownloadComplete() {
-    return new ChainSyncState(
-        firstPivotBlockHeader, this.pivotBlockHeader, this.blockDownloadAnchor, null, true);
+    return new ChainSyncState(this.pivotBlockHeader, this.blockDownloadAnchor, null, true, null);
   }
 
   /**
@@ -84,21 +82,33 @@ public record ChainSyncState(
    */
   public ChainSyncState fromHead(final BlockHeader chainHeadHeader) {
     return new ChainSyncState(
-        firstPivotBlockHeader,
         this.pivotBlockHeader,
         chainHeadHeader,
         this.headerDownloadAnchor,
-        this.headersDownloadComplete);
+        this.headersDownloadComplete,
+        this.headerDownloadProgress);
+  }
+
+  /**
+   * Creates a new state with updated header download progress. The given header becomes the new
+   * anchor for the backward header download so that a pipeline restart resumes from this point.
+   *
+   * @param lowestImportedHeader the lowest header that was successfully imported
+   * @return new ChainSyncState instance with updated header download anchor
+   */
+  public ChainSyncState withHeaderProgress(final BlockHeader lowestImportedHeader) {
+    return new ChainSyncState(
+        this.pivotBlockHeader,
+        this.blockDownloadAnchor,
+        this.headerDownloadAnchor,
+        this.headersDownloadComplete,
+        lowestImportedHeader);
   }
 
   @Override
   public String toString() {
     return "ChainSyncState{"
-        + "firstPivotBlockNumber="
-        + firstPivotBlockHeader.getNumber()
-        + ", firstPivotBlockHash="
-        + firstPivotBlockHeader.getHash()
-        + ", pivotBlockNumber="
+        + "pivotBlockNumber="
         + pivotBlockHeader.getNumber()
         + ", pivotBlockHash="
         + pivotBlockHeader.getHash()
@@ -106,6 +116,8 @@ public record ChainSyncState(
         + blockDownloadAnchor.getNumber()
         + ", headerDownloadAnchorNumber="
         + (headerDownloadAnchor != null ? headerDownloadAnchor.getNumber() : "null")
+        + ", headerDownloadProgressNumber="
+        + (headerDownloadProgress != null ? headerDownloadProgress.getNumber() : "null")
         + ", headersDownloadComplete="
         + headersDownloadComplete
         + '}';

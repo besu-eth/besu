@@ -33,9 +33,12 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 
 public class AccessListTransactionEncoderTest {
+
+  private static final long UINT32_MAX = 0xFFFF_FFFFL;
 
   @Test
   void shouldEncodeAndDecodeAccessListWithAllFields() {
@@ -68,6 +71,7 @@ public class AccessListTransactionEncoderTest {
     final BytesValueRLPInput input = new BytesValueRLPInput(encoded, false);
     final BlockAccessList decodedAccessList = BlockAccessListDecoder.decode(input);
 
+    assertThat(decodedAccessList.rawRlp()).isPresent();
     assertThat(decodedAccessList.accountChanges()).hasSize(1);
     final AccountChanges decoded = decodedAccessList.accountChanges().get(0);
 
@@ -98,6 +102,38 @@ public class AccessListTransactionEncoderTest {
     final BytesValueRLPInput input = new BytesValueRLPInput(encoded, false);
     final BlockAccessList decoded = BlockAccessListDecoder.decode(input);
 
+    assertThat(decoded.rawRlp()).isPresent();
     assertThat(decoded.accountChanges()).isEmpty();
+  }
+
+  @Test
+  void shouldRoundTripMaxUint32BlockAccessIndex() {
+    final Address address = Address.fromHexString("0x00000000219ab540356cbb839cbe05303d7705fa");
+    final StorageSlotKey slotKey = new StorageSlotKey(Wei.ONE.toUInt256());
+    final AccountChanges accountChanges =
+        new AccountChanges(
+            address,
+            List.of(
+                new SlotChanges(
+                    slotKey, List.of(new StorageChange(UINT32_MAX, UInt256.valueOf(1))))),
+            List.of(),
+            List.of(new BalanceChange(UINT32_MAX, Wei.ONE)),
+            List.of(new NonceChange(UINT32_MAX, 1L)),
+            List.of(new CodeChange(UINT32_MAX, Bytes.EMPTY)));
+
+    final BlockAccessList original = new BlockAccessList(List.of(accountChanges));
+    final BytesValueRLPOutput output = new BytesValueRLPOutput();
+    BlockAccessListEncoder.encode(original, output);
+    final BlockAccessList decoded =
+        BlockAccessListDecoder.decode(new BytesValueRLPInput(output.encoded(), false));
+
+    assertThat(decoded.rawRlp()).isPresent();
+
+    final AccountChanges decodedAcct = decoded.accountChanges().get(0);
+    assertThat(decodedAcct.storageChanges().getFirst().changes().getFirst().txIndex())
+        .isEqualTo(UINT32_MAX);
+    assertThat(decodedAcct.balanceChanges().getFirst().txIndex()).isEqualTo(UINT32_MAX);
+    assertThat(decodedAcct.nonceChanges().getFirst().txIndex()).isEqualTo(UINT32_MAX);
+    assertThat(decodedAcct.codeChanges().getFirst().txIndex()).isEqualTo(UINT32_MAX);
   }
 }

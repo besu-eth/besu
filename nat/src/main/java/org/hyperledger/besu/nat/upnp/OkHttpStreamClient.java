@@ -23,6 +23,7 @@ import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import okhttp3.ResponseBody;
 import org.jupnp.model.message.StreamRequestMessage;
 import org.jupnp.model.message.StreamResponseMessage;
 import org.jupnp.model.message.UpnpHeaders;
@@ -85,7 +86,11 @@ public class OkHttpStreamClient extends AbstractStreamClient<StreamClientConfigu
           new UpnpResponse(httpResponse.code(), httpResponse.message());
       final StreamResponseMessage streamResponseMessage = new StreamResponseMessage(upnpResponse);
       streamResponseMessage.setHeaders(new UpnpHeaders(httpResponse.headers().toMultimap()));
-      streamResponseMessage.setBodyCharacters(httpResponse.body().bytes());
+      final ResponseBody responseBody = httpResponse.body();
+      if (responseBody != null) {
+        streamResponseMessage.setBodyCharacters(responseBody.bytes());
+      }
+
       return streamResponseMessage;
     };
   }

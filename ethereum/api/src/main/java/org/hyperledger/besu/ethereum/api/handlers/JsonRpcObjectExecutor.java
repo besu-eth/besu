@@ -126,6 +126,11 @@ public class JsonRpcObjectExecutor extends AbstractJsonRpcExecutor {
       final JsonRpcResponse jsonRpcResponse,
       final RoutingContext ctx)
       throws IOException {
+    if (response.ended()) {
+      // The HTTP-level timeout already fired and sent a response; skip writing to avoid
+      // a ClosedChannelException from writing to an ended response.
+      return;
+    }
     response.setStatusCode(status(jsonRpcResponse).code());
     if (jsonRpcResponse.getType() == RpcResponseType.NONE) {
       response.end();

@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.eth.SnapProtocol;
 import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetBlockHeadersMessage;
-import org.hyperledger.besu.ethereum.eth.messages.GetNodeDataMessage;
 import org.hyperledger.besu.ethereum.eth.messages.GetPooledTransactionsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.StatusMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.GetAccountRangeMessage;
@@ -108,7 +107,6 @@ public class EthPeer implements Comparable<EthPeer> {
     roundMessages.put(EthProtocolMessages.BLOCK_HEADERS, EthProtocolMessages.GET_BLOCK_HEADERS);
     roundMessages.put(EthProtocolMessages.BLOCK_BODIES, EthProtocolMessages.GET_BLOCK_BODIES);
     roundMessages.put(EthProtocolMessages.RECEIPTS, EthProtocolMessages.GET_RECEIPTS);
-    roundMessages.put(EthProtocolMessages.NODE_DATA, EthProtocolMessages.GET_NODE_DATA);
     roundMessages.put(
         EthProtocolMessages.POOLED_TRANSACTIONS, EthProtocolMessages.GET_POOLED_TRANSACTIONS);
     roundMessages.put(
@@ -155,8 +153,6 @@ public class EthPeer implements Comparable<EthPeer> {
             Map.entry(
                 EthProtocolMessages.GET_BLOCK_BODIES, new RequestManager(this, EthProtocol.NAME)),
             Map.entry(EthProtocolMessages.GET_RECEIPTS, new RequestManager(this, EthProtocol.NAME)),
-            Map.entry(
-                EthProtocolMessages.GET_NODE_DATA, new RequestManager(this, EthProtocol.NAME)),
             Map.entry(
                 EthProtocolMessages.GET_POOLED_TRANSACTIONS,
                 new RequestManager(this, EthProtocol.NAME)),
@@ -331,13 +327,6 @@ public class EthPeer implements Comparable<EthPeer> {
     final GetBlockBodiesMessage message = GetBlockBodiesMessage.create(blockHashes);
     return sendRequest(
         requestManagers.get(EthProtocol.NAME).get(EthProtocolMessages.GET_BLOCK_BODIES), message);
-  }
-
-  public RequestManager.ResponseStream getNodeData(final Iterable<Hash> nodeHashes)
-      throws PeerNotConnected {
-    final GetNodeDataMessage message = GetNodeDataMessage.create(nodeHashes);
-    return sendRequest(
-        requestManagers.get(EthProtocol.NAME).get(EthProtocolMessages.GET_NODE_DATA), message);
   }
 
   public RequestManager.ResponseStream getPooledTransactions(final List<Hash> hashes)

@@ -28,7 +28,6 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.ExecutionContextTestFixture;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -43,6 +42,7 @@ import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder.OpCodeTracerConfig;
 import org.hyperledger.besu.evm.tracing.TraceFrame;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
 import java.util.Map;
@@ -158,21 +158,21 @@ public class TraceTransactionIntegrationTest {
 
     assertThat(result.isSuccessful()).isTrue();
 
-    // No storage changes before the SSTORE call.
+    // Non-storage opcodes produce no storage entry (per execution-apis spec).
     TraceFrame frame = tracer.getTraceFrames().get(170);
     assertThat(frame.getOpcode()).isEqualTo("DUP6");
+    assertThat(frame.getStorage()).isEmpty();
 
-    // Storage changes show up in the SSTORE frame.
+    // Storage is emitted only for the SSTORE frame, showing the single slot touched.
     frame = tracer.getTraceFrames().get(171);
     assertThat(frame.getOpcode()).isEqualTo("SSTORE");
     assertStorageContainsExactly(
         frame, entry("0x01", "0x6261720000000000000000000000000000000000000000000000000000000006"));
 
-    // And storage changes are still present in future frames.
+    // After SSTORE, non-storage opcodes produce no storage entry (per execution-apis spec).
     frame = tracer.getTraceFrames().get(172);
     assertThat(frame.getOpcode()).isEqualTo("PUSH2");
-    assertStorageContainsExactly(
-        frame, entry("0x01", "0x6261720000000000000000000000000000000000000000000000000000000006"));
+    assertThat(frame.getStorage()).isEmpty();
   }
 
   @Test

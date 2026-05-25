@@ -22,15 +22,20 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.Lists;
 import org.apache.tuweni.bytes.Bytes;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** The Bft fork. */
 public class BftFork implements Fork {
+
+  private static final Logger LOG = LoggerFactory.getLogger(BftFork.class);
 
   /** The constant FORK_BLOCK_KEY. */
   public static final String FORK_BLOCK_KEY = "block";
@@ -41,8 +46,15 @@ public class BftFork implements Fork {
   /** The constant BLOCK_PERIOD_SECONDS_KEY. */
   public static final String BLOCK_PERIOD_SECONDS_KEY = "blockperiodseconds";
 
+  /**
+   * The deprecated config key for the empty block period (replaced by {@link
+   * #EMPTY_BLOCK_PERIOD_SECONDS_KEY}).
+   */
+  @Deprecated
+  public static final String X_EMPTY_BLOCK_PERIOD_SECONDS_KEY = "xemptyblockperiodseconds";
+
   /** The constant EMPTY_BLOCK_PERIOD_SECONDS_KEY. */
-  public static final String EMPTY_BLOCK_PERIOD_SECONDS_KEY = "xemptyblockperiodseconds";
+  public static final String EMPTY_BLOCK_PERIOD_SECONDS_KEY = "emptyblockperiodseconds";
 
   /** The constant BLOCK_PERIOD_MILLISECONDS_KEY. */
   public static final String BLOCK_PERIOD_MILLISECONDS_KEY = "xblockperiodmilliseconds";
@@ -55,6 +67,10 @@ public class BftFork implements Fork {
 
   /** The Fork config root. */
   protected final ObjectNode forkConfigRoot;
+
+  // Ensures the deprecation warning for xemptyblockperiodseconds is emitted at most once
+  // per BftFork instance.
+  private final AtomicBoolean emptyBlockPeriodDeprecationWarned = new AtomicBoolean(false);
 
   /**
    * Instantiates a new Bft fork.
@@ -92,11 +108,44 @@ public class BftFork implements Fork {
   /**
    * Gets empty block period seconds.
    *
+   * <p>If both the new and deprecated keys are set in this fork config, the new key wins and a
+   * deprecation warning is emitted. If only the deprecated key is set, it is used and a deprecation
+   * warning is emitted.
+   *
    * @return the empty block period seconds
    */
   public OptionalInt getEmptyBlockPeriodSeconds() {
     // It can be 0 to disable custom empty block periods
-    return JsonUtil.getInt(forkConfigRoot, EMPTY_BLOCK_PERIOD_SECONDS_KEY);
+    final OptionalInt newValue = JsonUtil.getInt(forkConfigRoot, EMPTY_BLOCK_PERIOD_SECONDS_KEY);
+    final OptionalInt deprecatedValue =
+        JsonUtil.getInt(forkConfigRoot, X_EMPTY_BLOCK_PERIOD_SECONDS_KEY);
+    if (deprecatedValue.isPresent()) {
+      maybeLogEmptyBlockPeriodDeprecationWarning(newValue.isPresent());
+    }
+    return newValue.isPresent() ? newValue : deprecatedValue;
+  }
+
+  private void maybeLogEmptyBlockPeriodDeprecationWarning(final boolean newKeyAlsoSet) {
+    if (!emptyBlockPeriodDeprecationWarned.compareAndSet(false, true)) {
+      return;
+    }
+    final long forkBlock = JsonUtil.getLong(forkConfigRoot, FORK_BLOCK_KEY).orElse(-1L);
+    if (newKeyAlsoSet) {
+      LOG.warn(
+          "Transition fork at block {} specifies both '{}' (deprecated) and '{}'. "
+              + "The deprecated '{}' is being ignored; please remove it from the transition config.",
+          forkBlock,
+          X_EMPTY_BLOCK_PERIOD_SECONDS_KEY,
+          EMPTY_BLOCK_PERIOD_SECONDS_KEY,
+          X_EMPTY_BLOCK_PERIOD_SECONDS_KEY);
+    } else {
+      LOG.warn(
+          "Transition fork at block {} uses deprecated option '{}'. "
+              + "Please rename it to '{}'. The deprecated name will be removed in a future release.",
+          forkBlock,
+          X_EMPTY_BLOCK_PERIOD_SECONDS_KEY,
+          EMPTY_BLOCK_PERIOD_SECONDS_KEY);
+    }
   }
 
   /**

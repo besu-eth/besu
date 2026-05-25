@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.p2p.permissions;
 
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
+import org.hyperledger.besu.ethereum.p2p.peers.PeerId;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.net.InetSocketAddress;
@@ -65,6 +66,22 @@ public abstract class PeerPermissions implements AutoCloseable {
    */
   public abstract boolean isPermitted(
       final Peer localNode, final Peer remotePeer, final Action action);
+
+  /**
+   * Checks whether the local node is permitted to engage in some action with a peer identified only
+   * by its node ID, without a full enode URL. Used when a peer's ENR contains no address
+   * information. Implementations that only require a node ID (e.g. denylists) should override this;
+   * all others default to {@code true} since they cannot make a meaningful decision without an
+   * address.
+   *
+   * @param localNode The local node that is querying for permissions.
+   * @param remotePeerId The remote peer's identity (node ID only)
+   * @param action The action for which the local node is checking permissions
+   * @return {@code true} if the given action is allowed (default: always true)
+   */
+  public boolean isPermitted(final Peer localNode, final PeerId remotePeerId, final Action action) {
+    return true;
+  }
 
   /**
    * Checks whether a connection to/from the given address is permitted. This is a pre-identity
@@ -139,6 +156,17 @@ public abstract class PeerPermissions implements AutoCloseable {
     public boolean isPermitted(final Peer localNode, final Peer remotePeer, final Action action) {
       for (final PeerPermissions permission : permissions) {
         if (!permission.isPermitted(localNode, remotePeer, action)) {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    @Override
+    public boolean isPermitted(
+        final Peer localNode, final PeerId remotePeerId, final Action action) {
+      for (final PeerPermissions permission : permissions) {
+        if (!permission.isPermitted(localNode, remotePeerId, action)) {
           return false;
         }
       }

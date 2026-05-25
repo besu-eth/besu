@@ -27,9 +27,14 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.messages.TransactionsMessage;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
+
+import java.util.ArrayList;
+import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -58,7 +63,10 @@ public class TransactionsMessageProcessorTest {
 
     messageHandler =
         new TransactionsMessageProcessor(
-            transactionTracker, transactionPool, new TransactionPoolMetrics(metricsSystem));
+            transactionTracker,
+            transactionPool,
+            new TransactionPoolMetrics(metricsSystem),
+            EthProtocolConfiguration.DEFAULT_MAX_TRANSACTIONS_PER_MESSAGE);
   }
 
   @Test
@@ -123,5 +131,28 @@ public class TransactionsMessageProcessorTest {
 
     verify(transactionPool).addRemoteTransactions(singletonList(transaction1));
     verifyNoMoreInteractions(transactionPool);
+  }
+
+  @Test
+  public void shouldDisconnectPeerWhenTooManyTransactionsInMessage() {
+    final int maxPerMessage = 2;
+    final TransactionsMessageProcessor strictHandler =
+        new TransactionsMessageProcessor(
+            transactionTracker,
+            transactionPool,
+            new TransactionPoolMetrics(metricsSystem),
+            maxPerMessage);
+
+    final List<Transaction> tooMany = new ArrayList<>();
+    for (int i = 0; i < maxPerMessage + 1; i++) {
+      tooMany.add(generator.transaction());
+    }
+
+    strictHandler.processTransactionsMessage(
+        peer1, TransactionsMessage.create(tooMany), now(), ofMinutes(1));
+
+    verify(peer1).disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+    verifyNoInteractions(transactionPool);
+    verifyNoInteractions(transactionTracker);
   }
 }

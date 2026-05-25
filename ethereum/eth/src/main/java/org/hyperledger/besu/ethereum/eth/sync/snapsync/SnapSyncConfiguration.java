@@ -29,8 +29,6 @@ public class SnapSyncConfiguration {
       84; // The default number of code entries to download from peers per request.
   public static final int DEFAULT_TRIENODE_COUNT_PER_REQUEST =
       384; // The default number of trienode entries to download from peers per request.
-  public static final int DEFAULT_BLOCK_ACCESS_LIST_COUNT_PER_REQUEST =
-      84; // The default number of block access lists to download from peers per request.
 
   public static final int DEFAULT_LOCAL_FLAT_ACCOUNT_COUNT_TO_HEAL_PER_REQUEST =
       128; // The default number of flat accounts entries to verify and heal per request.
@@ -39,6 +37,7 @@ public class SnapSyncConfiguration {
       1024; // The default number of flat slots entries to verify and heal per request.
 
   public static final Boolean DEFAULT_SNAP_SERVER_ENABLED = Boolean.FALSE;
+  public static final Boolean DEFAULT_SNAP2_ENABLED = Boolean.FALSE;
 
   public static final Boolean DEFAULT_SNAP_SYNC_TRANSACTION_INDEXING_ENABLED = Boolean.FALSE;
   public static final Boolean DEFAULT_SNAP_SYNC_SAVE_PRE_MERGE_HEADERS_ONLY_ENABLED = Boolean.TRUE;
@@ -73,11 +72,6 @@ public class SnapSyncConfiguration {
   }
 
   @Value.Default
-  public int getBlockAccessListCountPerRequest() {
-    return DEFAULT_BLOCK_ACCESS_LIST_COUNT_PER_REQUEST;
-  }
-
-  @Value.Default
   public int getLocalFlatAccountCountToHealPerRequest() {
     return DEFAULT_LOCAL_FLAT_ACCOUNT_COUNT_TO_HEAL_PER_REQUEST;
   }
@@ -90,6 +84,11 @@ public class SnapSyncConfiguration {
   @Value.Default
   public Boolean isSnapServerEnabled() {
     return DEFAULT_SNAP_SERVER_ENABLED;
+  }
+
+  @Value.Default
+  public Boolean isSnap2Enabled() {
+    return DEFAULT_SNAP2_ENABLED;
   }
 
   @Value.Default

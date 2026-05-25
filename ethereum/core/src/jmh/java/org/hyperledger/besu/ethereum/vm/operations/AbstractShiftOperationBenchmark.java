@@ -48,23 +48,13 @@ public abstract class AbstractShiftOperationBenchmark extends BinaryOperationBen
     FULL_RANDOM
   }
 
-  @Param({
-    "SHIFT_0",
-    "SHIFT_1",
-    "SHIFT_128",
-    "SHIFT_255",
-    "OVERFLOW_SHIFT_256",
-    "OVERFLOW_LARGE_SHIFT",
-    "FULL_RANDOM"
-  })
-  protected String caseName;
+  @Param protected Case scenario;
 
   @Setup(Level.Iteration)
   @Override
   public void setUp() {
     frame = BenchmarkHelper.createMessageCallFrame();
 
-    final Case scenario = Case.valueOf(caseName);
     aPool = new Bytes[SAMPLE_SIZE]; // shift amount (pushed second, popped first)
     bPool = new Bytes[SAMPLE_SIZE]; // value (pushed first, popped second)
 

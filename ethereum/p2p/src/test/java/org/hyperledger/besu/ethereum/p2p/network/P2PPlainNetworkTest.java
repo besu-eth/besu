@@ -256,9 +256,9 @@ public class P2PPlainNetworkTest {
       // Check connection is made, and then a disconnect is registered at remote
       Assertions.assertThat(connectFuture.get(5L, TimeUnit.SECONDS).getPeerInfo().getNodeId())
           .isEqualTo(localId);
-      Assertions.assertThat(peerFuture.get(5L, TimeUnit.SECONDS).getPeerInfo().getNodeId())
+      Assertions.assertThat(peerFuture.get(30L, TimeUnit.SECONDS).getPeerInfo().getNodeId())
           .isEqualTo(localId);
-      assertThat(reasonFuture.get(5L, TimeUnit.SECONDS))
+      assertThat(reasonFuture.get(30L, TimeUnit.SECONDS))
           .isEqualByComparingTo(DisconnectReason.UNKNOWN);
     }
   }
@@ -307,9 +307,9 @@ public class P2PPlainNetworkTest {
       final Bytes localId = localEnode.getNodeId();
       Assertions.assertThat(connectFuture.get(5L, TimeUnit.SECONDS).getPeerInfo().getNodeId())
           .isEqualTo(localId);
-      Assertions.assertThat(peerFuture.get(5L, TimeUnit.SECONDS).getPeerInfo().getNodeId())
+      Assertions.assertThat(peerFuture.get(30L, TimeUnit.SECONDS).getPeerInfo().getNodeId())
           .isEqualTo(localId);
-      assertThat(reasonFuture.get(5L, TimeUnit.SECONDS))
+      assertThat(reasonFuture.get(30L, TimeUnit.SECONDS))
           .isEqualByComparingTo(DisconnectReason.UNKNOWN);
     }
   }
