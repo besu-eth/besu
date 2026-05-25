@@ -39,7 +39,8 @@ public final class BlockAccessListsMessage extends AbstractMessageData {
 
   public static BlockAccessListsMessage create(
       final Iterable<Optional<BlockAccessList>> blockAccessLists) {
-    return new BlockAccessListsMessage(BlockAccessListsMessageData.encode(blockAccessLists));
+    return new BlockAccessListsMessage(
+        BlockAccessListsMessageData.encodeEthResponse(blockAccessLists));
   }
 
   public static BlockAccessListsMessage createFromBlockAccessLists(
@@ -72,10 +73,10 @@ public final class BlockAccessListsMessage extends AbstractMessageData {
   }
 
   public Iterable<Optional<BlockAccessList>> blockAccessLists() {
-    return BlockAccessListsMessageData.decode(data, false);
+    return BlockAccessListsMessageData.decodeEthResponse(data);
   }
 
   public Iterable<Bytes> blockAccessListsRaw() {
-    return BlockAccessListsMessageData.decodeRaw(data, false);
+    return BlockAccessListsMessageData.decodeEthResponseRaw(data);
   }
 }

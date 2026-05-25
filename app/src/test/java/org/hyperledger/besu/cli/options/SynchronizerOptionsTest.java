@@ -80,6 +80,7 @@ public class SynchronizerOptionsTest
                 .bytecodeCountPerRequest(
                     SnapSyncConfiguration.DEFAULT_BYTECODE_COUNT_PER_REQUEST + 2)
                 .isSnapServerEnabled(Boolean.TRUE)
+                .isSnap2Enabled(Boolean.TRUE)
                 .isSnapSyncTransactionIndexingEnabled(Boolean.TRUE)
                 .build())
         .snapSyncSavePreCheckpointHeadersOnlyEnabled(

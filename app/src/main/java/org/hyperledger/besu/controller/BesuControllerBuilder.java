@@ -226,6 +226,13 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   /** When enabled, round changes on f+1 RC messages from higher rounds */
   protected boolean isEarlyRoundChangeEnabled = false;
 
+  /**
+   * When enabled, BFT (QBFT and IBFT2) encoders emit the 25.x wire format when blockAccessList is
+   * absent. Required only for rolling upgrades from Besu 25.x peers; no effect when blockAccessList
+   * is active on the chain.
+   */
+  protected boolean isLegacyBftProtocolEncodingEnabled = false;
+
   /** The global code cache */
   protected CodeCache codeCache;
 
@@ -577,6 +584,18 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   }
 
   /**
+   * Configure the BFT (QBFT/IBFT2) encoders to emit the 25.x wire format.
+   *
+   * @param isLegacyBftProtocolEncodingEnabled whether to emit legacy encoding
+   * @return the besu controller builder
+   */
+  public BesuControllerBuilder isLegacyBftProtocolEncodingEnabled(
+      final boolean isLegacyBftProtocolEncodingEnabled) {
+    this.isLegacyBftProtocolEncodingEnabled = isLegacyBftProtocolEncodingEnabled;
+    return this;
+  }
+
+  /**
    * Build besu controller.
    *
    * @return the besu controller
@@ -835,7 +854,6 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
 
     final Optional<SnapProtocolManager> maybeSnapProtocolManager =
         createSnapProtocolManager(
-            protocolSchedule,
             protocolContext,
             worldStateStorageCoordinator,
             ethPeers,
@@ -1286,7 +1304,6 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   }
 
   private Optional<SnapProtocolManager> createSnapProtocolManager(
-      final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final EthPeers ethPeers,
@@ -1300,7 +1317,6 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             ethPeers,
             snapMessages,
             ethScheduler,
-            protocolSchedule,
             protocolContext,
             synchronizer));
   }

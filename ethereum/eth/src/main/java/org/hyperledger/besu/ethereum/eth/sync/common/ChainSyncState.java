@@ -25,7 +25,6 @@ import java.util.Objects;
  *
  * <p>Updates create new instances.
  *
- * @param firstPivotBlockHeader header of the first pivot block
  * @param pivotBlockHeader header of the pivot block
  * @param blockDownloadAnchor header of the checkpoint block
  * @param headerDownloadAnchor set if the anchor is different from the checkpoint block header
@@ -33,7 +32,6 @@ import java.util.Objects;
  * @param headerDownloadProgress lowest header successfully imported so far (resume point)
  */
 public record ChainSyncState(
-    BlockHeader firstPivotBlockHeader,
     BlockHeader pivotBlockHeader,
     BlockHeader blockDownloadAnchor,
     BlockHeader headerDownloadAnchor,
@@ -53,7 +51,7 @@ public record ChainSyncState(
       final BlockHeader blockDownloadAnchor,
       final BlockHeader headerDownloadAnchor) {
     return new ChainSyncState(
-        pivotBlockHeader, pivotBlockHeader, blockDownloadAnchor, headerDownloadAnchor, false, null);
+        pivotBlockHeader, blockDownloadAnchor, headerDownloadAnchor, false, null);
   }
 
   /**
@@ -66,8 +64,7 @@ public record ChainSyncState(
    */
   public ChainSyncState continueToNewPivot(
       final BlockHeader newPivotHeader, final BlockHeader previousPivotHeader) {
-    return new ChainSyncState(
-        firstPivotBlockHeader, newPivotHeader, previousPivotHeader, null, false, null);
+    return new ChainSyncState(newPivotHeader, previousPivotHeader, null, false, null);
   }
 
   /**
@@ -76,8 +73,7 @@ public record ChainSyncState(
    * @return new ChainSyncState instance
    */
   public ChainSyncState withHeadersDownloadComplete() {
-    return new ChainSyncState(
-        firstPivotBlockHeader, this.pivotBlockHeader, this.blockDownloadAnchor, null, true, null);
+    return new ChainSyncState(this.pivotBlockHeader, this.blockDownloadAnchor, null, true, null);
   }
 
   /**
@@ -108,7 +104,6 @@ public record ChainSyncState(
    */
   public ChainSyncState fromHead(final BlockHeader chainHeadHeader) {
     return new ChainSyncState(
-        firstPivotBlockHeader,
         this.pivotBlockHeader,
         chainHeadHeader,
         this.headerDownloadAnchor,
@@ -125,7 +120,6 @@ public record ChainSyncState(
    */
   public ChainSyncState withHeaderProgress(final BlockHeader lowestImportedHeader) {
     return new ChainSyncState(
-        firstPivotBlockHeader,
         this.pivotBlockHeader,
         this.blockDownloadAnchor,
         this.headerDownloadAnchor,
@@ -172,11 +166,7 @@ public record ChainSyncState(
   @Override
   public String toString() {
     return "ChainSyncState{"
-        + "firstPivotBlockNumber="
-        + firstPivotBlockHeader.getNumber()
-        + ", firstPivotBlockHash="
-        + firstPivotBlockHeader.getHash()
-        + ", pivotBlockNumber="
+        + "pivotBlockNumber="
         + pivotBlockHeader.getNumber()
         + ", pivotBlockHash="
         + pivotBlockHeader.getHash()

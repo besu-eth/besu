@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.referencetests.BlockchainReferenceTestCaseS
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
+import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.EvmSpecVersion;
 import org.hyperledger.besu.evm.account.AccountState;
@@ -287,7 +288,8 @@ public class BlockchainTestSubCommand implements Runnable {
       parentCommand.out.println("Running " + test);
     }
     final MutableBlockchain blockchain = spec.buildBlockchain();
-    final ProtocolContext context = spec.buildProtocolContext(blockchain);
+    final ProtocolContext context =
+        spec.buildProtocolContext(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG, blockchain);
 
     final BlockHeader genesisBlockHeader = spec.getGenesisBlockHeader();
     final MutableWorldState worldState =

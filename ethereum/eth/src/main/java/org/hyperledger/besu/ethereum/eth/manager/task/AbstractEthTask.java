@@ -35,6 +35,21 @@ import com.google.common.base.Stopwatch;
 
 public abstract class AbstractEthTask<T> implements EthTask<T> {
 
+  /**
+   * Stackless singleton used when a sub-task is rejected because this task has already been
+   * cancelled. Capturing a full stack trace on every cancellation adds unnecessary allocation and
+   * CPU overhead (native stack-walk) in the common case where the trace is never inspected. Safe to
+   * share: CancellationException carries no mutable state.
+   */
+  @SuppressWarnings("StaticAssignmentOfThrowable")
+  private static final CancellationException TASK_CANCELLED_EXCEPTION =
+      new CancellationException("Task already cancelled") {
+        @Override
+        public synchronized Throwable fillInStackTrace() {
+          return this;
+        }
+      };
+
   private double taskTimeInSec = -1.0D;
   private final OperationTimer taskTimer;
   protected final CompletableFuture<T> result = new CompletableFuture<>();
@@ -122,7 +137,7 @@ public abstract class AbstractEthTask<T> implements EthTask<T> {
         subTaskFuture.whenComplete((r, t) -> subTaskFutures.remove(subTaskFuture));
         return subTaskFuture;
       } else {
-        return CompletableFuture.failedFuture(new CancellationException());
+        return CompletableFuture.failedFuture(TASK_CANCELLED_EXCEPTION);
       }
     }
   }

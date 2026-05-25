@@ -115,7 +115,7 @@ public class PivotSyncActions {
         .exceptionallyCompose(throwable -> retrySelectPivotBlockAfterDelay());
   }
 
-  <T> CompletableFuture<T> scheduleFutureTask(
+  public <T> CompletableFuture<T> scheduleFutureTask(
       final Supplier<CompletableFuture<T>> future, final Duration duration) {
     return ethContext.getScheduler().scheduleFutureTask(future, duration);
   }
@@ -203,7 +203,7 @@ public class PivotSyncActions {
                 LOG.error(
                     "Failed to download pivot block header. Response Code was {}",
                     taskResult.responseCode());
-                return CompletableFuture.failedFuture(new NoAvailablePeersException());
+                return CompletableFuture.failedFuture(NoAvailablePeersException.WITHOUT_STACKTRACE);
               } else if (taskResult.responseCode() != PeerTaskExecutorResponseCode.SUCCESS
                   || taskResult.result().isEmpty()) {
                 LOG.error(

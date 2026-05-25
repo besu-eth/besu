@@ -16,6 +16,20 @@ package org.hyperledger.besu.ethereum.eth.manager.exceptions;
 
 public class NoAvailablePeersException extends EthTaskException {
 
+  /**
+   * Stackless singleton. This exception is thrown as a flow-control signal in peer-selection retry
+   * loops; the stack trace is never inspected. Reusing a single instance avoids allocating a new
+   * object and capturing a JVM stack trace on every retry attempt.
+   */
+  @SuppressWarnings("StaticAssignmentOfThrowable")
+  public static final NoAvailablePeersException WITHOUT_STACKTRACE =
+      new NoAvailablePeersException() {
+        @Override
+        public synchronized Throwable fillInStackTrace() {
+          return this;
+        }
+      };
+
   public NoAvailablePeersException() {
     super(FailureReason.NO_AVAILABLE_PEERS);
   }
