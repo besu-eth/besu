@@ -29,6 +29,8 @@ import org.hyperledger.besu.plugin.data.BlockHeader;
 
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
 
 @SuppressWarnings("rawtypes")
 public class BalStateRootCalculator {
@@ -39,13 +41,22 @@ public class BalStateRootCalculator {
       final ProtocolContext protocolContext,
       final BlockHeader blockHeader,
       final BlockAccessList bal) {
+    return computeAsync(protocolContext, blockHeader, bal, ForkJoinPool.commonPool());
+  }
+
+  public static CompletableFuture<BalRootComputation> computeAsync(
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final BlockAccessList bal,
+      final Executor executor) {
     return CompletableFuture.supplyAsync(
         () -> {
           try (BonsaiWorldState ws = openParentWorldState(protocolContext, blockHeader)) {
             applyBalChanges(ws.getAccumulator(), bal);
             return computeRoot(ws);
           }
-        });
+        },
+        executor);
   }
 
   private static BonsaiWorldState openParentWorldState(

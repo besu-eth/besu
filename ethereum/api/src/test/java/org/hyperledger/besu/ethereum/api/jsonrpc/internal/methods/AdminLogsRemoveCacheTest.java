@@ -137,7 +137,7 @@ public class AdminLogsRemoveCacheTest {
   public void requestBlockNumberNotFoundTest() {
     final JsonRpcRequestContext request =
         new JsonRpcRequestContext(
-            new JsonRpcRequest("2.0", "admin_logsRemoveCache", new String[] {"123456789"}));
+            new JsonRpcRequest("2.0", "admin_logsRemoveCache", new String[] {"0x75bcd15"}));
 
     when(blockchainQueries.getBlockchain()).thenReturn(blockchain);
     when(blockchain.getBlockByNumber(anyLong())).thenReturn(Optional.empty());

@@ -41,6 +41,7 @@ import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedCacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
 import org.hyperledger.besu.ethereum.trie.patricia.SimpleMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
@@ -120,26 +121,33 @@ public class SnapServerTest {
     storage = new SegmentedInMemoryKeyValueStorage();
 
     // force a full flat db with code stored by code hash:
+    final BonsaiFlatDbStrategyProvider bonsaiFlatDbStrategyProvider =
+        new BonsaiFlatDbStrategyProvider(
+            noopMetrics,
+            dbMode == FlatDbMode.FULL
+                ? DataStorageConfiguration.DEFAULT_BONSAI_CONFIG
+                : DataStorageConfiguration.DEFAULT_BONSAI_ARCHIVE_CONFIG) {
+          @Override
+          public FlatDbMode getFlatDbMode() {
+            return dbMode;
+          }
+
+          @Override
+          protected boolean deriveUseCodeStorageByHash(
+              final SegmentedKeyValueStorage composedWorldStateStorage) {
+            return true;
+          }
+        };
     inMemoryStorage =
         new BonsaiWorldStateKeyValueStorage(
-            new BonsaiFlatDbStrategyProvider(
-                noopMetrics,
-                dbMode == FlatDbMode.FULL
-                    ? DataStorageConfiguration.DEFAULT_BONSAI_CONFIG
-                    : DataStorageConfiguration.DEFAULT_BONSAI_ARCHIVE_CONFIG) {
-              @Override
-              public FlatDbMode getFlatDbMode() {
-                return dbMode;
-              }
-
-              @Override
-              protected boolean deriveUseCodeStorageByHash(
-                  final SegmentedKeyValueStorage composedWorldStateStorage) {
-                return true;
-              }
-            },
+            bonsaiFlatDbStrategyProvider,
             storage,
-            new InMemoryKeyValueStorage());
+            new InMemoryKeyValueStorage(),
+            new VersionedCacheManager(
+                100, // accountCacheSize
+                100, // storageCacheSize
+                noopMetrics),
+            0);
 
     storageCoordinator = new WorldStateStorageCoordinator(inMemoryStorage);
     storageTrie =

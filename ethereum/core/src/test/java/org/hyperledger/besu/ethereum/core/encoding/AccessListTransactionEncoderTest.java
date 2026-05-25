@@ -71,6 +71,7 @@ public class AccessListTransactionEncoderTest {
     final BytesValueRLPInput input = new BytesValueRLPInput(encoded, false);
     final BlockAccessList decodedAccessList = BlockAccessListDecoder.decode(input);
 
+    assertThat(decodedAccessList.rawRlp()).isPresent();
     assertThat(decodedAccessList.accountChanges()).hasSize(1);
     final AccountChanges decoded = decodedAccessList.accountChanges().get(0);
 
@@ -101,6 +102,7 @@ public class AccessListTransactionEncoderTest {
     final BytesValueRLPInput input = new BytesValueRLPInput(encoded, false);
     final BlockAccessList decoded = BlockAccessListDecoder.decode(input);
 
+    assertThat(decoded.rawRlp()).isPresent();
     assertThat(decoded.accountChanges()).isEmpty();
   }
 
@@ -124,6 +126,8 @@ public class AccessListTransactionEncoderTest {
     BlockAccessListEncoder.encode(original, output);
     final BlockAccessList decoded =
         BlockAccessListDecoder.decode(new BytesValueRLPInput(output.encoded(), false));
+
+    assertThat(decoded.rawRlp()).isPresent();
 
     final AccountChanges decodedAcct = decoded.accountChanges().get(0);
     assertThat(decodedAcct.storageChanges().getFirst().changes().getFirst().txIndex())

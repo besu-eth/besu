@@ -373,9 +373,13 @@ public class TraceFrame {
     }
 
     /**
-     * Sets the storage for this operation.
+     * Sets the storage entry touched by this operation.
      *
-     * @param storage the storage as an optional map of UInt256 keys and values
+     * <p>Per the execution-apis spec, this field is only populated for SLOAD and SSTORE opcodes and
+     * contains solely the single slot accessed or written by that operation.
+     *
+     * @param storage the storage slot touched, as an optional single-entry map of slot key to
+     *     value; empty for all opcodes other than SLOAD and SSTORE
      * @return this builder instance for method chaining
      */
     public Builder setStorage(final Optional<Map<UInt256, UInt256>> storage) {
@@ -727,9 +731,13 @@ public class TraceFrame {
   }
 
   /**
-   * data storage slots and values
+   * Returns the storage slot touched by this operation.
    *
-   * @return data storage slots and values
+   * <p>Per the execution-apis spec, this field is only populated for SLOAD and SSTORE opcodes and
+   * contains solely the single slot accessed or written by that operation. Empty for all other
+   * opcodes.
+   *
+   * @return an optional single-entry map of slot key to value, present only for SLOAD/SSTORE
    */
   public Optional<Map<UInt256, UInt256>> getStorage() {
     return storage;

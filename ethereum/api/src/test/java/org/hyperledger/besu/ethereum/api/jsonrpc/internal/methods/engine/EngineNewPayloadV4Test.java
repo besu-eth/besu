@@ -167,6 +167,53 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
   }
 
   @Test
+  public void shouldReturnInvalidParamsIfRequestsContainUnknownRequestType() {
+    // 0xff is not a known request type — should return -32602, not INVALID status
+    final List<String> unknownTypeRequests = List.of("0xff01");
+    final Object[] params =
+        new Object[] {
+          mockEnginePayload(createValidBlockHeader(Optional.empty()), emptyList()),
+          emptyList(),
+          Bytes32.ZERO.toHexString(),
+          unknownTypeRequests
+        };
+    var resp =
+        method.response(
+            new JsonRpcRequestContext(new JsonRpcRequest("2.0", method.getName(), params)));
+
+    assertThat(fromErrorResp(resp).getCode()).isEqualTo(INVALID_PARAMS.getCode());
+    assertThat(fromErrorResp(resp).getMessage())
+        .isEqualTo(INVALID_EXECUTION_REQUESTS_PARAMS.getMessage());
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
+  public void shouldReturnInvalidParamsIfRequestsAreOutOfOrder() {
+    // Requests must be in strictly ascending order by type; reverse order is invalid
+    final List<String> outOfOrderRequests =
+        List.of(
+            Bytes.concatenate(Bytes.of(RequestType.CONSOLIDATION.getSerializedType()), Bytes.of(1))
+                .toHexString(),
+            Bytes.concatenate(Bytes.of(RequestType.DEPOSIT.getSerializedType()), Bytes.of(1))
+                .toHexString());
+    final Object[] params =
+        new Object[] {
+          mockEnginePayload(createValidBlockHeader(Optional.empty()), emptyList()),
+          emptyList(),
+          Bytes32.ZERO.toHexString(),
+          outOfOrderRequests
+        };
+    var resp =
+        method.response(
+            new JsonRpcRequestContext(new JsonRpcRequest("2.0", method.getName(), params)));
+
+    assertThat(fromErrorResp(resp).getCode()).isEqualTo(INVALID_PARAMS.getCode());
+    assertThat(fromErrorResp(resp).getMessage())
+        .isEqualTo(INVALID_EXECUTION_REQUESTS_PARAMS.getMessage());
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
   public void shouldReturnInvalidIfRequestsIsNotNull_WhenRequestsProhibited() {
     mockProhibitedRequestsValidator();
 
