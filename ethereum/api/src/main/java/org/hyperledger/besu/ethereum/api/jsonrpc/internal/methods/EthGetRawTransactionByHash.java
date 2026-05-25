@@ -14,17 +14,74 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
+import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
-public class EthGetRawTransactionByHash extends DebugGetRawTransaction {
+public class EthGetRawTransactionByHash implements JsonRpcMethod {
 
-  public EthGetRawTransactionByHash(final BlockchainQueries blockchainQueries) {
-    super(blockchainQueries);
+  private final BlockchainQueries blockchainQueries;
+  private final TransactionPool transactionPool;
+
+  public EthGetRawTransactionByHash(
+      final BlockchainQueries blockchainQueries, final TransactionPool transactionPool) {
+    this.blockchainQueries = blockchainQueries;
+    this.transactionPool = transactionPool;
   }
 
   @Override
   public String getName() {
     return RpcMethod.ETH_GET_RAW_TRANSACTION_BY_HASH.getMethodName();
+  }
+
+  @Override
+  public JsonRpcResponse response(final JsonRpcRequestContext requestContext) {
+    if (requestContext.getRequest().getParamLength() != 1) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), RpcErrorType.INVALID_PARAM_COUNT);
+    }
+
+    final Hash txHash;
+    try {
+      txHash = requestContext.getRequiredParameter(0, Hash.class);
+    } catch (JsonRpcParameterException e) {
+      throw new InvalidJsonRpcParameters(
+          "Invalid transaction hash parameter (index 0)",
+          RpcErrorType.INVALID_TRANSACTION_HASH_PARAMS,
+          e);
+    }
+
+    return transactionPool
+        .getTransactionByHash(txHash)
+        .map(
+            transaction ->
+                new JsonRpcSuccessResponse(
+                    requestContext.getRequest().getId(), toRawString(transaction)))
+        .orElseGet(
+            () ->
+                blockchainQueries
+                    .transactionByHash(txHash)
+                    .map(
+                        tx ->
+                            new JsonRpcSuccessResponse(
+                                requestContext.getRequest().getId(),
+                                toRawString(tx.getTransaction())))
+                    .orElse(new JsonRpcSuccessResponse(requestContext.getRequest().getId(), null)));
+  }
+
+  private String toRawString(final Transaction transaction) {
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    transaction.writeTo(out);
+    return out.encoded().toHexString();
   }
 }
