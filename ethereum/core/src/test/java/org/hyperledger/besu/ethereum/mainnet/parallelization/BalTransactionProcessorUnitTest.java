@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -254,6 +255,7 @@ class BalTransactionProcessorUnitTest {
 
       assertTrue(result.isPresent(), "Expected processing result to be present");
       assertTrue(result.get().isSuccessful(), "Expected successful result");
+      assertNull(processor.futures[0], "Expected consumed future reference to be cleared");
     }
   }
 

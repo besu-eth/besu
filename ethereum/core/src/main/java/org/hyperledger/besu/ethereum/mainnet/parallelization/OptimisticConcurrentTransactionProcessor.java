@@ -47,7 +47,7 @@ import com.google.common.annotations.VisibleForTesting;
  * results to the world state.
  */
 @SuppressWarnings({"unchecked", "rawtypes"})
-public class ParallelizedConcurrentTransactionProcessor extends ParallelBlockTransactionProcessor {
+public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTransactionProcessor {
 
   private final MainnetTransactionProcessor transactionProcessor;
 
@@ -59,14 +59,14 @@ public class ParallelizedConcurrentTransactionProcessor extends ParallelBlockTra
    *
    * @param transactionProcessor The transaction processor for processing individual transactions.
    */
-  public ParallelizedConcurrentTransactionProcessor(
+  public OptimisticConcurrentTransactionProcessor(
       final MainnetTransactionProcessor transactionProcessor) {
     this.transactionProcessor = transactionProcessor;
     this.transactionCollisionDetector = new TransactionCollisionDetector();
   }
 
   @VisibleForTesting
-  public ParallelizedConcurrentTransactionProcessor(
+  public OptimisticConcurrentTransactionProcessor(
       final MainnetTransactionProcessor transactionProcessor,
       final TransactionCollisionDetector transactionCollisionDetector) {
     this.transactionProcessor = transactionProcessor;
@@ -193,7 +193,8 @@ public class ParallelizedConcurrentTransactionProcessor extends ParallelBlockTra
       final Optional<Counter> confirmedParallelizedTransactionCounter,
       final Optional<Counter> conflictingButCachedTransactionCounter) {
 
-    final CompletableFuture<ParallelizedTransactionContext> future = futures[transactionLocation];
+    final CompletableFuture<ParallelizedTransactionContext> future =
+        removeFuture(transactionLocation);
 
     if (future != null && future.isDone()) {
       final ParallelizedTransactionContext parallelizedTransactionContext = future.resultNow();

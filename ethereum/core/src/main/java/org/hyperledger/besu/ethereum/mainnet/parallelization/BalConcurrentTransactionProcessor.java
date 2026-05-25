@@ -187,7 +187,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final Optional<Counter> confirmedParallelizedTransactionCounter,
       final Optional<Counter> conflictingButCachedTransactionCounter) {
 
-    final CompletableFuture<ParallelizedTransactionContext> future = futures[txIndex];
+    final CompletableFuture<ParallelizedTransactionContext> future = removeFuture(txIndex);
     if (future != null) {
       try {
         final ParallelizedTransactionContext ctx =
@@ -215,10 +215,17 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
         return Optional.of(result);
       } catch (final TimeoutException e) {
+        future.cancel(true);
         LOG.error(
             "Timed out waiting {}ms for transaction {} processing result.",
             balProcessingTimeout.toMillis(),
             txIndex);
+        return Optional.empty();
+      } catch (final InterruptedException e) {
+        future.cancel(true);
+        Thread.currentThread().interrupt();
+        LOG.error(
+            "Interrupted while waiting for transaction {} processing result.", txIndex, e);
         return Optional.empty();
       } catch (final Exception e) {
         LOG.error(
