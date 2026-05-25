@@ -47,7 +47,39 @@ public class SnapDownloaderFactory {
   private static final Logger LOG = LoggerFactory.getLogger(SnapDownloaderFactory.class);
   protected static final String SYNC_FOLDER = "syncFolder";
 
-  public static Optional<SnapSyncDownloader> createSnapDownloader(
+  public static Optional<SnapSyncController> createSnapDownloader(
+      final SnapSyncStatePersistenceManager snapContext,
+      final PivotBlockSelector pivotBlockSelector,
+      final SynchronizerConfiguration syncConfig,
+      final Path dataDirectory,
+      final ProtocolSchedule protocolSchedule,
+      final ProtocolContext protocolContext,
+      final MetricsSystem metricsSystem,
+      final EthContext ethContext,
+      final WorldStateStorageCoordinator worldStateStorageCoordinator,
+      final SyncState syncState,
+      final Clock clock,
+      final SyncDurationMetrics syncDurationMetrics) {
+    if (Boolean.TRUE.equals(syncConfig.getSnapSyncConfiguration().isSnap2Enabled())) {
+      // The snap/2 controller will be created here; until then v2 uses v1 behavior.
+    }
+
+    return createSnapDownloaderV1(
+        snapContext,
+        pivotBlockSelector,
+        syncConfig,
+        dataDirectory,
+        protocolSchedule,
+        protocolContext,
+        metricsSystem,
+        ethContext,
+        worldStateStorageCoordinator,
+        syncState,
+        clock,
+        syncDurationMetrics);
+  }
+
+  public static Optional<SnapSyncController> createSnapDownloaderV1(
       final SnapSyncStatePersistenceManager snapContext,
       final PivotBlockSelector pivotBlockSelector,
       final SynchronizerConfiguration syncConfig,
@@ -91,12 +123,7 @@ public class SnapDownloaderFactory {
         chainSyncState != null
             ? new PivotSyncState(chainSyncState.pivotBlockHeader(), false)
             : PivotSyncState.EMPTY_SYNC_STATE;
-    final Optional<BlockHeader> firstPivotHeader =
-        chainSyncState != null
-            ? Optional.of(chainSyncState.firstPivotBlockHeader())
-            : Optional.empty();
-    final SnapSyncProcessState snapSyncState =
-        new SnapSyncProcessState(pivotSyncState, firstPivotHeader);
+    final SnapSyncProcessState snapSyncState = new SnapSyncProcessState(pivotSyncState);
 
     final InMemoryTasksPriorityQueues<SnapDataRequest> snapTaskCollection =
         createSnapWorldStateDownloaderTaskCollection();
@@ -105,7 +132,6 @@ public class SnapDownloaderFactory {
             ethContext,
             snapContext,
             protocolContext,
-            protocolSchedule,
             worldStateStorageCoordinator,
             snapTaskCollection,
             syncConfig.getSnapSyncConfiguration(),

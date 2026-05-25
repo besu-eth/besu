@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import static org.hyperledger.besu.util.FutureUtils.exceptionallyCompose;
 
-import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.MaxRetriesReachedException;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.NoAvailablePeersException;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
@@ -46,7 +45,7 @@ import com.google.common.io.RecursiveDeleteOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class SnapSyncDownloader {
+public class SnapSyncDownloader implements SnapSyncController {
 
   private static final Duration FAST_SYNC_RETRY_DELAY = Duration.ofSeconds(5);
   private static final Logger LOG = LoggerFactory.getLogger(SnapSyncDownloader.class);
@@ -72,6 +71,7 @@ public class SnapSyncDownloader {
     this.syncDurationMetrics = syncDurationMetrics;
   }
 
+  @Override
   public CompletableFuture<PivotSyncState> start() {
     if (!running.compareAndSet(false, true)) {
       throw new IllegalStateException("SyncDownloader already running");
@@ -132,6 +132,7 @@ public class SnapSyncDownloader {
     }
   }
 
+  @Override
   public void stop() {
     synchronized (this) {
       if (running.compareAndSet(true, false)) {
@@ -142,6 +143,7 @@ public class SnapSyncDownloader {
     }
   }
 
+  @Override
   public void deletePivotSyncState() {
     // Make sure downloader is stopped before we start cleaning up its dependencies
     worldStateDownloader.cancel();
@@ -182,12 +184,8 @@ public class SnapSyncDownloader {
   }
 
   private PivotSyncState storeState(final PivotSyncState fastSyncState) {
-    final Optional<BlockHeader> firstPivotBlockHeader =
-        initialPivotSyncState instanceof SnapSyncProcessState snapSyncState
-            ? snapSyncState.getFirstPivotBlockHeader().or(fastSyncState::getPivotBlockHeader)
-            : fastSyncState.getPivotBlockHeader();
     initialPivotSyncState = fastSyncState;
-    return new SnapSyncProcessState(fastSyncState, firstPivotBlockHeader);
+    return new SnapSyncProcessState(fastSyncState);
   }
 
   private CompletableFuture<PivotSyncState> downloadChainAndWorldState(
@@ -232,6 +230,7 @@ public class SnapSyncDownloader {
     }
   }
 
+  @Override
   public Optional<TrailingPeerRequirements> calculateTrailingPeerRequirements() {
     return trailingPeerRequirements;
   }
