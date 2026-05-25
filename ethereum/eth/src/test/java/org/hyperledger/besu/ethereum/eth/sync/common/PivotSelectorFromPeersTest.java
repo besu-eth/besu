@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.PeerReputation;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 
@@ -67,7 +68,7 @@ public class PivotSelectorFromPeersTest {
         .thenReturn((p1, ignored) -> p1 == peer1 ? 1 : -1);
 
     try {
-      PivotSyncState result = selector.selectNewPivotBlock().get();
+      SnapSyncProcessState result = selector.selectNewPivotBlock().get();
       Assertions.assertEquals(9, result.getPivotBlockNumber().getAsLong());
     } catch (Exception e) {
       Assertions.fail("Unexpected exception thrown", e);

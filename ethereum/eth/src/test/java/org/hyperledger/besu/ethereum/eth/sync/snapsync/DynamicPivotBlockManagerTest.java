@@ -24,7 +24,6 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 
@@ -67,11 +66,11 @@ public class DynamicPivotBlockManagerTest {
 
   @Test
   public void shouldSearchNewPivotBlockWhenNotCloseToTheHead() {
-    final PivotSyncState selectPivotBlockState = new PivotSyncState(1090, false);
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(1090, false);
     final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(1090).buildHeader();
-    final PivotSyncState downloadPivotBlockHeaderState =
-        new PivotSyncState(pivotBlockHeader, false);
-    when(fastSyncActions.selectPivotBlock(PivotSyncState.EMPTY_SYNC_STATE))
+    final SnapSyncProcessState downloadPivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader, false);
+    when(fastSyncActions.selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE))
         .thenReturn(completedFuture(selectPivotBlockState));
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
@@ -85,11 +84,11 @@ public class DynamicPivotBlockManagerTest {
 
   @Test
   public void shouldSwitchToNewPivotBlockWhenNeeded() {
-    final PivotSyncState selectPivotBlockState = new PivotSyncState(1060, false);
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(1060, false);
     final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(1060).buildHeader();
-    final PivotSyncState downloadPivotBlockHeaderState =
-        new PivotSyncState(pivotBlockHeader, false);
-    when(fastSyncActions.selectPivotBlock(PivotSyncState.EMPTY_SYNC_STATE))
+    final SnapSyncProcessState downloadPivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader, false);
+    when(fastSyncActions.selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE))
         .thenReturn(completedFuture(selectPivotBlockState));
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));
@@ -115,11 +114,11 @@ public class DynamicPivotBlockManagerTest {
 
   @Test
   public void shouldSwitchToNewPivotOnlyOnce() {
-    final PivotSyncState selectPivotBlockState = new PivotSyncState(1060, false);
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(1060, false);
     final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(1060).buildHeader();
-    final PivotSyncState downloadPivotBlockHeaderState =
-        new PivotSyncState(pivotBlockHeader, false);
-    when(fastSyncActions.selectPivotBlock(PivotSyncState.EMPTY_SYNC_STATE))
+    final SnapSyncProcessState downloadPivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader, false);
+    when(fastSyncActions.selectPivotBlock(SnapSyncProcessState.EMPTY_SYNC_STATE))
         .thenReturn(completedFuture(selectPivotBlockState));
     when(fastSyncActions.downloadPivotBlockHeader(selectPivotBlockState))
         .thenReturn(completedFuture(downloadPivotBlockHeaderState));

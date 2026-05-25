@@ -28,7 +28,6 @@ import org.hyperledger.besu.ethereum.eth.sync.common.DownloadBackwardHeadersStep
 import org.hyperledger.besu.ethereum.eth.sync.common.DownloadSyncReceiptsStep;
 import org.hyperledger.besu.ethereum.eth.sync.common.ImportHeadersStep;
 import org.hyperledger.besu.ethereum.eth.sync.common.ImportSyncBlocksStep;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.rlp.SimpleNoCopyRlpEncoder;
@@ -55,7 +54,7 @@ public class SnapSyncChainDownloadPipelineFactory {
   protected final ProtocolSchedule protocolSchedule;
   protected final ProtocolContext protocolContext;
   protected final EthContext ethContext;
-  protected final PivotSyncState fastSyncState;
+  protected final SnapSyncProcessState fastSyncState;
   protected final MetricsSystem metricsSystem;
 
   public SnapSyncChainDownloadPipelineFactory(
@@ -63,7 +62,7 @@ public class SnapSyncChainDownloadPipelineFactory {
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final EthContext ethContext,
-      final PivotSyncState fastSyncState,
+      final SnapSyncProcessState fastSyncState,
       final MetricsSystem metricsSystem) {
     this.syncConfig = syncConfig;
     this.protocolSchedule = protocolSchedule;

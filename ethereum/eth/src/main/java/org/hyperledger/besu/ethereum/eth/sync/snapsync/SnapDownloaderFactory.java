@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncStateStorage;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePersistenceManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
@@ -119,11 +118,10 @@ public class SnapDownloaderFactory {
       return Optional.empty();
     }
 
-    final PivotSyncState pivotSyncState =
+    final SnapSyncProcessState snapSyncState =
         chainSyncState != null
-            ? new PivotSyncState(chainSyncState.pivotBlockHeader(), false)
-            : PivotSyncState.EMPTY_SYNC_STATE;
-    final SnapSyncProcessState snapSyncState = new SnapSyncProcessState(pivotSyncState);
+            ? new SnapSyncProcessState(chainSyncState.pivotBlockHeader(), false)
+            : SnapSyncProcessState.EMPTY_SYNC_STATE;
 
     final InMemoryTasksPriorityQueues<SnapDataRequest> snapTaskCollection =
         createSnapWorldStateDownloaderTaskCollection();
