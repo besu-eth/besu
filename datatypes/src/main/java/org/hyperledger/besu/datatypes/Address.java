@@ -23,8 +23,6 @@ import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.jspecify.annotations.Nullable;
@@ -92,8 +90,12 @@ public class Address extends BytesHolder {
   /** The constant ZERO. */
   public static final Address ZERO = Address.wrap(Bytes.fromHexStringLenient("0x0", SIZE));
 
-  static final Cache<Address, Hash> hashCache =
-      Caffeine.newBuilder().executor(Runnable::run).maximumSize(4_000).build();
+  // Lazily computed and cached per-instance. volatile ensures visibility across threads without
+  // holding a lock. Two threads may compute the hash simultaneously on first access, but both
+  // produce the same value (keccak256 is deterministic), so the race is benign. This avoids the
+  // shared-cache lock contention that caused ForkJoin worker starvation during parallel state root
+  // computation (BonsaiWorldState.applyUpdatesAndComputeRoot).
+  @Nullable private volatile Hash cachedHash;
 
   /**
    * Instantiates a new Address.
@@ -228,11 +230,15 @@ public class Address extends BytesHolder {
   }
 
   /**
-   * Returns the hash of the address. Backed by a cache for performance reasons.
+   * Returns the keccak256 hash of this address. The result is lazily computed and cached on the
+   * instance; concurrent first-access by multiple threads is safe (both compute the same value).
    *
    * @return the hash of the address.
    */
   public Hash addressHash() {
-    return hashCache.get(this, k -> Hash.hash(k.getBytes()));
+    if (cachedHash == null) {
+      cachedHash = Hash.hash(getBytes());
+    }
+    return cachedHash;
   }
 }
