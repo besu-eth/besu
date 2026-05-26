@@ -80,8 +80,7 @@ public class NodeRecordManager {
 
   // TCP port to use if/when an IPv6 host is auto-discovered via DiscV5 peer consensus.
   // Holds only the port — never a host — so it cannot leak into a broadcast/signed ENR.
-  // Lifecycle: assigned during initializeLocalNode (single-threaded startup), then cleared
-  // under `lock` by applyAutoDiscoveredIpv6Host on successful consumption.
+  // Lifecycle: assigned during initializeLocalNode (single-threaded startup).
   private Optional<Integer> ipv6AutoDiscoveryTcpPort = Optional.empty();
 
   /**
