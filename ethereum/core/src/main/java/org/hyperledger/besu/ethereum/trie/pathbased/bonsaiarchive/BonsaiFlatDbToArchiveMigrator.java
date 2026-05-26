@@ -179,7 +179,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
       return CompletableFuture.runAsync(
           () -> {
             try {
-              recoverTrieCheckpointState(startBlock);
+              // recoverTrieCheckpointState(startBlock);
               migrateBlocks(startBlock, target, true);
               worldStateStorage.upgradeToArchiveFlatDbMode();
               logCompletion(startBlock, target.get(), migrationStartTime);
@@ -462,25 +462,27 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
             codeCache);
   }
 
-  private void recoverTrieCheckpointState(final long startBlock) {
-    if (migrationWorldState == null) {
-      return;
-    }
-    final long lastTrieCheckpoint = getTrieCheckpointProgress().orElse(-1L);
-    if (lastTrieCheckpoint >= 0) {
-      blockchain.getBlockHeader(lastTrieCheckpoint).ifPresent(migrationTrieStorage::seedCheckpoint);
-    }
-    // Re-roll current incomplete window to rebuild in-memory trie state for the next checkpoint.
-    // Trie logs for these blocks should be within the trie-log retention window.
-    final long windowStart = Math.max(0L, lastTrieCheckpoint + 1);
-    for (long b = windowStart; b < startBlock; b++) {
-      final long blockNum = b;
-      blockchain
-          .getBlockHeader(blockNum)
-          .flatMap(h -> trieLogManager.getTrieLogLayer(h.getHash()))
-          .ifPresent(tl -> migrateTrieCheckpointBlock(tl, blockNum));
-    }
-  }
+  //  private void recoverTrieCheckpointState(final long startBlock) {
+  //    if (migrationWorldState == null) {
+  //      return;
+  //    }
+  //    final long lastTrieCheckpoint = getTrieCheckpointProgress().orElse(-1L);
+  //    if (lastTrieCheckpoint >= 0) {
+  //
+  // blockchain.getBlockHeader(lastTrieCheckpoint).ifPresent(migrationTrieStorage::seedCheckpoint);
+  //    }
+  //    // Re-roll current incomplete window to rebuild in-memory trie state for the next
+  // checkpoint.
+  //    // Trie logs for these blocks should be within the trie-log retention window.
+  //    final long windowStart = Math.max(0L, lastTrieCheckpoint + 1);
+  //    for (long b = windowStart; b < startBlock; b++) {
+  //      final long blockNum = b;
+  //      blockchain
+  //          .getBlockHeader(blockNum)
+  //          .flatMap(h -> trieLogManager.getTrieLogLayer(h.getHash()))
+  //          .ifPresent(tl -> migrateTrieCheckpointBlock(tl, blockNum));
+  //    }
+  //  }
 
   private void migrateTrieCheckpointBlock(final TrieLog trieLog, final long blockNumber) {
     ((PathBasedWorldStateUpdateAccumulator<?>) migrationWorldState.updater()).rollForward(trieLog);
