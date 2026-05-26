@@ -106,37 +106,38 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
 
   @Override
   public Optional<MutableWorldState> getWorldState(final WorldStateQueryParams queryParams) {
-    if (stateProofsEnabled && !queryParams.shouldWorldStateUpdateHead()) {
-      final Optional<BlockHeader> checkpointBlock =
-          getCheckpointStateStartBlock(queryParams.getBlockHeader().getBlockHash());
-      if (checkpointBlock.isPresent()) {
-        LOG.debug(
-            "Returning archive proof state for block {} via checkpoint {}",
-            queryParams.getBlockHeader().getNumber(),
-            checkpointBlock.get().getNumber());
-        final BonsaiWorldState proofWorldState =
-            new BonsaiWorldState(
-                this, archiveReadStorage, evmConfiguration, worldStateConfig, codeCache);
-        proofWorldState.freezeStorage();
-        return rollArchiveProofWorldStateToBlockHash(
-                proofWorldState, checkpointBlock.get(), queryParams.getBlockHeader().getBlockHash())
-            .map(MutableWorldState::freezeStorage);
-      }
-    }
     if (isHistoricalQuery(queryParams)) {
+      if (stateProofsEnabled) {
+        final Optional<BlockHeader> checkpointBlock =
+            getCheckpointStateStartBlock(queryParams.getBlockHeader().getBlockHash());
+        if (checkpointBlock.isPresent()) {
+          LOG.debug(
+              "Returning archive proof state for block {} via checkpoint {}",
+              queryParams.getBlockHeader().getNumber(),
+              checkpointBlock.get().getNumber());
+          return rollArchiveProofWorldStateToBlockHash(
+                  newFrozenArchiveWorldState(worldStateConfig),
+                  checkpointBlock.get(),
+                  queryParams.getBlockHeader().getBlockHash())
+              .map(MutableWorldState::freezeStorage);
+        }
+      }
       LOG.debug(
           "Returning archive state without verifying state root for block {}",
           queryParams.getBlockHeader().getNumber());
-      final BonsaiWorldState archiveWorldState =
-          new BonsaiWorldState(
-              this, archiveReadStorage, evmConfiguration, archiveWorldStateConfig, codeCache);
-      // Freeze before the persisting to ensure that the historical block number which is needed for
-      // Bonsai archive does not affect the database
-      archiveWorldState.freezeStorage();
       return rollMutableArchiveStateToBlockHash(
-          archiveWorldState, queryParams.getBlockHeader().getBlockHash());
+          newFrozenArchiveWorldState(archiveWorldStateConfig),
+          queryParams.getBlockHeader().getBlockHash());
     }
     return super.getWorldState(queryParams);
+  }
+
+  private BonsaiWorldState newFrozenArchiveWorldState(final WorldStateConfig config) {
+    final BonsaiWorldState worldState =
+        new BonsaiWorldState(this, archiveReadStorage, evmConfiguration, config, codeCache);
+    // Freeze before persisting to ensure the historical block number does not affect the database
+    worldState.freezeStorage();
+    return worldState;
   }
 
   private Optional<BlockHeader> getCheckpointStateStartBlock(final Hash targetHash) {

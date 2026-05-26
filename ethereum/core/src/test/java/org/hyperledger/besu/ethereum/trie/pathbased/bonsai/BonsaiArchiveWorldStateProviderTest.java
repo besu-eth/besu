@@ -200,10 +200,10 @@ public class BonsaiArchiveWorldStateProviderTest {
   void proofsEnabled_targetIsCheckpointBlock_returnsProofWorldState() {
     // With interval=100, targetNumber=99 → nearestCheckpoint = ((99+100)/100)*100 - 1 = 99
     // so target IS the checkpoint. No trie-log rollback needed; returns immediately.
-    // Archive flat-db mode is NOT required for the proofs path.
     final long interval = 100L;
     final BonsaiArchiveWorldStateProvider proofsProvider =
-        createProviderWithProofs(false, true, interval);
+        createProviderWithProofs(true, true, interval);
+    proofsProvider.setArchiveMigrationProgressSupplier(() -> CHAIN_HEAD);
 
     final long targetNumber = interval - 1; // 99
     final BlockHeader targetHeader =
@@ -223,10 +223,10 @@ public class BonsaiArchiveWorldStateProviderTest {
 
   @Test
   void proofsEnabled_headUpdateQuery_bypassesProofPath() {
-    // shouldWorldStateUpdateHead=true skips the proofs branch; falls through to
+    // shouldWorldStateUpdateHead=true means isHistoricalQuery returns false; falls through to
     // super.getWorldState() which returns the cached head state normally.
     final BonsaiArchiveWorldStateProvider proofsProvider =
-        createProviderWithProofs(false, true, 100L);
+        createProviderWithProofs(true, true, 100L);
 
     final var result =
         proofsProvider.getWorldState(
@@ -234,20 +234,19 @@ public class BonsaiArchiveWorldStateProviderTest {
 
     assertThat(result).isPresent();
     final BonsaiWorldState worldState = (BonsaiWorldState) result.get();
-    // Non-proofs path → main storage → BonsaiFullFlatDbStrategy (not archive)
     assertThat(worldState.getWorldStateStorage().getFlatDbStrategy())
         .isInstanceOf(BonsaiFullFlatDbStrategy.class);
   }
 
   @Test
   void proofsEnabled_blockHashNotInChain_fallsThroughToSuper() {
-    // If blockchain.getBlockHeader(targetHash) returns empty, getCheckpointStateStartBlock
-    // returns empty → proofs branch is not taken → falls through to super (returns empty).
+    // Block 50 is far behind the head but isHistoricalQuery requires archiveMigrationProgress
+    // to cover the target block. With default progress=-1 the gate fails and super is called,
+    // which cannot serve this block → empty result.
     final BonsaiArchiveWorldStateProvider proofsProvider =
-        createProviderWithProofs(false, true, 100L);
+        createProviderWithProofs(true, true, 100L);
 
     final BlockHeader unknownHeader = new BlockHeaderTestFixture().number(50L).buildHeader();
-    // No blockchain mock for unknownHeader.getHash() → getBlockHeader returns empty by default
 
     final var result =
         proofsProvider.getWorldState(
