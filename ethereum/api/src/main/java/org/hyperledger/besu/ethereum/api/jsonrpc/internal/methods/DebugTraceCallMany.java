@@ -160,7 +160,7 @@ public class DebugTraceCallMany extends AbstractBlockParameterMethod {
       final WorldUpdater worldUpdater) {
 
     final DebugOperationTracer tracer =
-        new DebugOperationTracer(traceOptions.opCodeTracerConfig(), false);
+        new DebugOperationTracer(traceOptions.opCodeTracerConfig(), true);
 
     final Optional<TransactionSimulatorResult> maybeResult =
         transactionSimulator.processWithWorldUpdater(
