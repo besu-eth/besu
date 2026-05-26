@@ -30,7 +30,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.DebugTraceTransactionResult;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.OpCodeLoggerTracerResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -129,10 +129,12 @@ public class DebugTraceCallManyTest {
 
   @Test
   public void shouldChainStateAcrossCallsAndReturnPerCallResults() {
+    final Optional<TransactionSimulatorResult> first = Optional.of(successfulSimulatorResult());
+    final Optional<TransactionSimulatorResult> second = Optional.of(successfulSimulatorResult());
     when(transactionSimulator.processWithWorldUpdater(
             any(), any(), any(), any(), any(), any(), any(), any()))
-        .thenReturn(Optional.of(successfulSimulatorResult()))
-        .thenReturn(Optional.of(successfulSimulatorResult()));
+        .thenReturn(first)
+        .thenReturn(second);
 
     final JsonRpcRequestContext request =
         requestWithRawParams(new Object[] {arrayOfTwoSimpleCalls()});
@@ -143,8 +145,8 @@ public class DebugTraceCallManyTest {
     @SuppressWarnings("unchecked")
     final List<Object> results = (List<Object>) ((JsonRpcSuccessResponse) response).getResult();
     assertThat(results).hasSize(2);
-    assertThat(results.get(0)).isInstanceOf(DebugTraceTransactionResult.class);
-    assertThat(results.get(1)).isInstanceOf(DebugTraceTransactionResult.class);
+    assertThat(results.get(0)).isInstanceOf(OpCodeLoggerTracerResult.class);
+    assertThat(results.get(1)).isInstanceOf(OpCodeLoggerTracerResult.class);
 
     verify(transactionSimulator, times(2))
         .processWithWorldUpdater(any(), any(), any(), any(), any(), any(), any(), any());
@@ -154,10 +156,13 @@ public class DebugTraceCallManyTest {
 
   @Test
   public void shouldInlineErrorForInvalidCallAndContinueBatch() {
+    final Optional<TransactionSimulatorResult> invalid =
+        Optional.of(invalidSimulatorResult("nonce too low"));
+    final Optional<TransactionSimulatorResult> ok = Optional.of(successfulSimulatorResult());
     when(transactionSimulator.processWithWorldUpdater(
             any(), any(), any(), any(), any(), any(), any(), any()))
-        .thenReturn(Optional.of(invalidSimulatorResult("nonce too low")))
-        .thenReturn(Optional.of(successfulSimulatorResult()));
+        .thenReturn(invalid)
+        .thenReturn(ok);
 
     final JsonRpcRequestContext request =
         requestWithRawParams(new Object[] {arrayOfTwoSimpleCalls()});
@@ -169,7 +174,7 @@ public class DebugTraceCallManyTest {
     final List<Object> results = (List<Object>) ((JsonRpcSuccessResponse) response).getResult();
     assertThat(results).hasSize(2);
     assertThat(results.get(0)).isInstanceOf(JsonRpcError.class);
-    assertThat(results.get(1)).isInstanceOf(DebugTraceTransactionResult.class);
+    assertThat(results.get(1)).isInstanceOf(OpCodeLoggerTracerResult.class);
 
     verify(childUpdater, times(2)).commit();
   }
@@ -195,8 +200,7 @@ public class DebugTraceCallManyTest {
     final Transaction tx = mock(Transaction.class);
     when(tx.getHash())
         .thenReturn(
-            Hash.fromHexString(
-                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
+            Hash.fromHexString("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
     when(tx.getGasLimit()).thenReturn(21000L);
 
     final TransactionProcessingResult procResult = mock(TransactionProcessingResult.class);
