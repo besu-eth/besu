@@ -336,7 +336,7 @@ public class EthFeeHistoryTest {
   @Test
   public void cantGetBlockHigherThanChainHead() {
     assertThat(
-            ((JsonRpcErrorResponse) feeHistoryRequest("0x2", "11", new double[] {100.0}))
+            ((JsonRpcErrorResponse) feeHistoryRequest("0x2", "0xb", new double[] {100.0}))
                 .getErrorType())
         .isEqualTo(RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS);
   }
@@ -371,11 +371,11 @@ public class EthFeeHistoryTest {
     double[] percentile = new double[] {100.0};
 
     final Object ninth =
-        ((JsonRpcSuccessResponse) feeHistoryRequest(2, "9", percentile)).getResult();
+        ((JsonRpcSuccessResponse) feeHistoryRequest(2, "0x9", percentile)).getResult();
     assertFeeMetadataSize(ninth, 2);
 
     final Object eighth =
-        ((JsonRpcSuccessResponse) feeHistoryRequest(4, "8", percentile)).getResult();
+        ((JsonRpcSuccessResponse) feeHistoryRequest(4, "0x8", percentile)).getResult();
     assertFeeMetadataSize(eighth, 4);
   }
 
@@ -384,11 +384,11 @@ public class EthFeeHistoryTest {
     double[] percentile = new double[] {100.0};
 
     final Object second =
-        ((JsonRpcSuccessResponse) feeHistoryRequest(4, "2", percentile)).getResult();
+        ((JsonRpcSuccessResponse) feeHistoryRequest(4, "0x2", percentile)).getResult();
     assertFeeMetadataSize(second, 3);
 
     final Object third =
-        ((JsonRpcSuccessResponse) feeHistoryRequest(11, "3", percentile)).getResult();
+        ((JsonRpcSuccessResponse) feeHistoryRequest(11, "0x3", percentile)).getResult();
     assertFeeMetadataSize(third, 4);
   }
 

@@ -26,7 +26,6 @@ import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.manager.ChainState;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
-import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.manager.PeerReputation;
@@ -176,8 +175,7 @@ public class PeerTransactionTrackerTest {
     tracker.addToPeerSendQueue(ethPeer1, List.of(transaction2));
     tracker.addToPeerSendQueue(ethPeer2, List.of(transaction3));
 
-    when(ethPeers.streamAllPeers())
-        .thenReturn(Stream.of(ethPeer2).map(EthPeerImmutableAttributes::from));
+    when(ethPeers.streamAllConnectedPeers()).thenReturn(Stream.of(ethPeer2));
     tracker.onDisconnect(ethPeer1);
 
     // peer1's send queue cleared after disconnect
@@ -196,8 +194,7 @@ public class PeerTransactionTrackerTest {
     tracker.markTransactionsAsSeen(ethPeer1, List.of(transaction1.getHash()));
     tracker.markTransactionsAsSeen(ethPeer2, List.of(transaction2.getHash()));
 
-    when(ethPeers.streamAllPeers())
-        .thenReturn(Stream.of(ethPeer2).map(EthPeerImmutableAttributes::from));
+    when(ethPeers.streamAllConnectedPeers()).thenReturn(Stream.of(ethPeer2));
     tracker.onDisconnect(ethPeer1);
 
     // false because tracker removed for ethPeer1
@@ -213,7 +210,7 @@ public class PeerTransactionTrackerTest {
 
     // disconnection of ethPeers2 will reconcile the tracker, removing also all the other
     // disconnected peers
-    when(ethPeers.streamAllPeers()).thenReturn(Stream.of());
+    when(ethPeers.streamAllConnectedPeers()).thenReturn(Stream.of());
     tracker.onDisconnect(ethPeer2);
 
     // since no peers are connected, all the transaction trackers have been removed
