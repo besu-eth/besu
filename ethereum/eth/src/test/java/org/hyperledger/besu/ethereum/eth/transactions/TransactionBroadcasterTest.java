@@ -130,14 +130,14 @@ public class TransactionBroadcasterTest {
    * Regression test for the race condition that caused an IndexOutOfBoundsException in
    * TransactionBroadcaster.onTransactionsAdded.
    *
-   * <p>The race: {@code peerCount()} is called first to calculate
-   * {@code numPeersToSendFullTransactions = sqrt(peerCount)}. Then {@code streamAvailablePeers()}
-   * is called to get the actual peer list. Between these two calls, peers can disconnect, so
-   * {@code streamAvailablePeers()} may return fewer peers than {@code peerCount()} indicated.
+   * <p>The race: {@code peerCount()} is called first to calculate {@code
+   * numPeersToSendFullTransactions = sqrt(peerCount)}. Then {@code streamAvailablePeers()} is
+   * called to get the actual peer list. Between these two calls, peers can disconnect, so {@code
+   * streamAvailablePeers()} may return fewer peers than {@code peerCount()} indicated.
    *
-   * <p>Before the fix, {@code peers.subList(0, numPeersToSendFullTransactions)} would throw
-   * {@link IndexOutOfBoundsException} when {@code numPeersToSendFullTransactions > peers.size()}.
-   * The fix clamps the index with {@code Math.min(numPeersToSendFullTransactions, peers.size())}.
+   * <p>Before the fix, {@code peers.subList(0, numPeersToSendFullTransactions)} would throw {@link
+   * IndexOutOfBoundsException} when {@code numPeersToSendFullTransactions > peers.size()}. The fix
+   * clamps the index with {@code Math.min(numPeersToSendFullTransactions, peers.size())}.
    */
   @Test
   public void onTransactionsAddedDoesNotThrowWhenPeersDisconnectBetweenCountAndStream() {
