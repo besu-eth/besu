@@ -92,7 +92,7 @@ public class JsonRpcParameter {
     return optional(params, index, paramClass, configuration)
         .orElseThrow(
             () ->
-                new JsonRpcParameterException(
+                new JsonRpcMissingParameterException(
                     "Missing required json rpc parameter at index " + index));
   }
 
@@ -165,7 +165,7 @@ public class JsonRpcParameter {
     return optionalList(params, index, listClass, configuration)
         .orElseThrow(
             () ->
-                new JsonRpcParameterException(
+                new JsonRpcMissingParameterException(
                     "Missing required json rpc parameter at index " + index));
   }
 
@@ -229,6 +229,12 @@ public class JsonRpcParameter {
 
     public JsonRpcParameterException(final String message, final Throwable cause) {
       super(message, cause);
+    }
+  }
+
+  public static class JsonRpcMissingParameterException extends JsonRpcParameterException {
+    public JsonRpcMissingParameterException(final String message) {
+      super(message);
     }
   }
 

@@ -64,8 +64,10 @@ import java.util.Objects;
 import java.util.Optional;
 
 import com.fasterxml.jackson.databind.JsonMappingException;
+import com.google.common.base.Preconditions;
 import io.vertx.core.Vertx;
-import io.vertx.core.json.Json;
+import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -135,7 +137,7 @@ public sealed class EngineNewPayloadV1<
       // other branches of the block tree are in an active sync process.
       // the validation is done during the deserialization process
       requestParameters = readRequestParameters(requestContext);
-    } catch (final InvalidJsonRpcRequestException e) {
+    } catch (final InvalidRequestParametersException e) {
       // 6. Client software MUST respond to this method call in the following way:
       // {status: INVALID, latestValidHash: null, validationError: errorMessage | null} if
       // transactions contain zero length or invalid entries
@@ -155,6 +157,11 @@ public sealed class EngineNewPayloadV1<
 
     if (!parameterValidationResult.isValid()) {
       return new JsonRpcErrorResponse(reqId, parameterValidationResult);
+    }
+
+    if (mergeContext.get().isSyncing()) {
+      LOG.debug("We are syncing");
+      return respondWith(reqId, blockParam, null, SYNCING);
     }
 
     // 2. Client software MUST validate blockHash value as being equivalent to
@@ -182,14 +189,6 @@ public sealed class EngineNewPayloadV1<
       return respondWithInvalid(reqId, blockParam, null, getInvalidBlockHashStatus(), errorMessage);
     }
 
-    // do we already have this payload?
-    if (protocolContext.getBlockchain().getBlockByHash(newBlockHeader.getBlockHash()).isPresent()) {
-      LOG.atDebug()
-          .setMessage("block {} already present")
-          .addArgument(newBlockHeader::toLogString)
-          .log();
-      return respondWith(reqId, blockParam, blockParam.getBlockHash(), VALID);
-    }
     if (mergeCoordinator.isBadBlock(blockParam.getBlockHash())) {
       return respondWithInvalid(
           reqId,
@@ -201,11 +200,6 @@ public sealed class EngineNewPayloadV1<
           "Block already present in bad block manager.");
     }
 
-    if (mergeContext.get().isSyncing()) {
-      LOG.debug("We are syncing");
-      return respondWith(reqId, blockParam, null, SYNCING);
-    }
-
     final Optional<BlockHeader> maybeParentHeader =
         protocolContext.getBlockchain().getBlockHeader(blockParam.getParentHash());
 
@@ -213,20 +207,16 @@ public sealed class EngineNewPayloadV1<
 
     // 3. Client software MAY initiate a sync process if requisite data for payload validation is
     // missing. Sync process is specified in the Sync section.
-    if (maybeParentHeader.isEmpty()) {
+    final boolean needsSync = maybeParentHeader.isEmpty();
+    if (needsSync) {
       LOG.atDebug()
           .setMessage("Parent of block {} is not present, append it to backward sync")
           .addArgument(unvalidatedBlock::toLogString)
           .log();
       mergeCoordinator.appendNewPayloadToSync(unvalidatedBlock);
-      // 6. Client software MUST respond to this method call in the following way:
-      // {status: SYNCING, latestValidHash: null, validationError: null} if requisite data for the
-      // payload's acceptance or validation is missing
-      return respondWith(reqId, blockParam, null, SYNCING);
     }
 
     final ProtocolSpec protocolSpec = protocolSchedule.get().getByBlockHeader(newBlockHeader);
-    final BlockHeader parentHeader = maybeParentHeader.get();
     final var maybeLatestValidAncestor = mergeCoordinator.getLatestValidAncestor(newBlockHeader);
 
     // 4. Client software MUST validate the payload if it extends the canonical chain, and requisite
@@ -235,13 +225,34 @@ public sealed class EngineNewPayloadV1<
     // 5. Client software MAY NOT validate the payload if the payload doesn't belong to the
     // canonical chain.
     final ValidationResult<RpcErrorType> versionSpecificBlockValidationResult =
-        validateNewBlock(unvalidatedBlock, protocolSpec, parentHeader, requestParameters);
+        validateNewBlock(unvalidatedBlock, protocolSpec, maybeParentHeader, requestParameters);
     if (!versionSpecificBlockValidationResult.isValid()) {
-      return new JsonRpcErrorResponse(reqId, versionSpecificBlockValidationResult);
+      return respondWithInvalid(
+          reqId,
+          blockParam,
+          mergeCoordinator.getLatestValidAncestor(blockParam.getParentHash()).orElse(null),
+          INVALID,
+          versionSpecificBlockValidationResult.getErrorMessage());
     }
 
     // block is now valid and can be processed
     final Block block = unvalidatedBlock;
+
+    if (needsSync) {
+      // 6. Client software MUST respond to this method call in the following way:
+      // {status: SYNCING, latestValidHash: null, validationError: null} if requisite data for the
+      // payload's acceptance or validation is missing
+      return respondWith(reqId, blockParam, null, SYNCING);
+    }
+
+    // do we already have this payload?
+    if (protocolContext.getBlockchain().getBlockByHash(block.getHash()).isPresent()) {
+      LOG.atDebug()
+          .setMessage("block {} already present")
+          .addArgument(newBlockHeader::toLogString)
+          .log();
+      return respondWith(reqId, blockParam, block.getHash(), VALID);
+    }
 
     // 6. Client software MUST respond to this method call in the following way:
     // {status: ACCEPTED, latestValidHash: null, validationError: null} if the following conditions
@@ -292,7 +303,7 @@ public sealed class EngineNewPayloadV1<
           requestContext.getRequiredParameter(
               0, getPayloadParameterClass(), FAIL_ON_UNKNOWN_BUT_NULL);
     } catch (JsonRpcParameterException e) {
-      throw new InvalidJsonRpcRequestException(
+      throw new InvalidRequestParametersException(
           "Invalid engine payload parameter (index 0)",
           RpcErrorType.INVALID_ENGINE_NEW_PAYLOAD_PARAMS,
           e);
@@ -304,7 +315,7 @@ public sealed class EngineNewPayloadV1<
   protected NPRP readRequestParameters(final JsonRpcRequestContext requestContext) {
     final int requestNumOfParams = requestContext.getRequest().getParamLength();
     if (requestNumOfParams != getNumberOfParameters()) {
-      throw new InvalidJsonRpcRequestException(
+      throw new InvalidRequestParametersException(
           "Expected %d parameters but got %d"
               .formatted(getNumberOfParameters(), requestNumOfParams),
           RpcErrorType.INVALID_PARAM_COUNT);
@@ -432,15 +443,17 @@ public sealed class EngineNewPayloadV1<
   protected ValidationResult<RpcErrorType> validateNewBlock(
       final Block newBlock,
       final ProtocolSpec protocolSpec,
-      final BlockHeader parentHeader,
+      final Optional<BlockHeader> maybeParentHeader,
       final NPRP requestParameters) {
     final BlockHeader newBlockHeader = newBlock.getHeader();
     if (newBlockHeader.getExtraData().size() > 32) {
       return ValidationResult.invalid(
           RpcErrorType.INVALID_EXTRA_DATA_PARAMS, "extra data field larger than 32 bytes");
     }
-    if (Long.compareUnsigned(parentHeader.getTimestamp(), newBlock.getHeader().getTimestamp())
-        >= 0) {
+    if (maybeParentHeader.isPresent()
+        && Long.compareUnsigned(
+                maybeParentHeader.get().getTimestamp(), newBlock.getHeader().getTimestamp())
+            >= 0) {
       return ValidationResult.invalid(
           RpcErrorType.INVALID_TIMESTAMP_PARAMS, "block timestamp not greater than parent");
     }
@@ -528,8 +541,9 @@ public sealed class EngineNewPayloadV1<
   }
 
   protected JsonRpcResponse processParametersParsingException(
-      final Object reqId, final InvalidJsonRpcRequestException e) {
-    final Optional<JsonMappingException> maybeFieldEx = extractFieldDeserializationException(e);
+      final Object reqId, final InvalidRequestParametersException e) {
+    final Optional<JsonMappingException> maybeFieldEx =
+        extractCauseByType(e, JsonMappingException.class);
 
     // specific invalid field with custom error response
     String customMessage = null;
@@ -561,11 +575,42 @@ public sealed class EngineNewPayloadV1<
                 customMessage, "Failed to decode block parameter (" + e.getMessage() + ")")));
   }
 
-  protected static Optional<String> extractJsonPath(final JsonMappingException fieldEx) {
+  protected static class InvalidRequestParametersException extends InvalidJsonRpcRequestException {
+    private final ExecutionPayloadV1 payloadParameter;
 
-    if (fieldEx.getPath().isEmpty()) {
-      return Optional.empty();
+    InvalidRequestParametersException(final String message, final RpcErrorType rpcErrorType) {
+      super(message, rpcErrorType);
+      this.payloadParameter = null;
     }
-    return Optional.ofNullable(fieldEx.getPath().getFirst().getFieldName());
+
+    InvalidRequestParametersException(
+        final String message, final RpcErrorType rpcErrorType, final Throwable cause) {
+      this(null, message, rpcErrorType, cause);
+    }
+
+    InvalidRequestParametersException(
+        final @Nullable ExecutionPayloadV1 payloadParameter,
+        final String message,
+        final RpcErrorType rpcErrorType,
+        final Throwable cause) {
+      super(message, rpcErrorType, cause);
+      this.payloadParameter = payloadParameter;
+    }
+
+    boolean hasPayloadParameter() {
+      return payloadParameter != null;
+    }
+
+    @NonNull ExecutionPayloadV1 getPayloadParameter() {
+      Preconditions.checkNotNull(payloadParameter, "Payload parameter not present");
+      return payloadParameter;
+    }
+
+    @Override
+    public String getMessage() {
+      return super.getMessage()
+          + " (payloadParameter "
+          + (payloadParameter != null ? " present)" : " absent)");
+    }
   }
 }

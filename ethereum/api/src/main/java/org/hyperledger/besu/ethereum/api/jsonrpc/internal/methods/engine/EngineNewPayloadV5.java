@@ -19,7 +19,6 @@ import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcRequestException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV3;
@@ -112,8 +111,9 @@ public final class EngineNewPayloadV5<
 
   @Override
   protected JsonRpcResponse processParametersParsingException(
-      final Object reqId, final InvalidJsonRpcRequestException e) {
-    final Optional<JsonMappingException> maybeFieldEx = extractFieldDeserializationException(e);
+      final Object reqId, final InvalidRequestParametersException e) {
+    final Optional<JsonMappingException> maybeFieldEx =
+        extractCauseByType(e, JsonMappingException.class);
 
     // specific invalid field with custom error response
     if (maybeFieldEx.isPresent()) {

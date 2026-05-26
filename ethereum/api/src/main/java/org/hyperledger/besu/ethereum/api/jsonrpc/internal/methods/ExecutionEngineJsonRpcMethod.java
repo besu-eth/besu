@@ -17,7 +17,6 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcRequestException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
@@ -38,6 +37,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
+  protected static Optional<String> extractJsonPath(final JsonMappingException fieldEx) {
+
+    if (fieldEx.getPath().isEmpty()) {
+      return Optional.empty();
+    }
+    return Optional.ofNullable(fieldEx.getPath().getFirst().getFieldName());
+  }
+
   public enum EngineStatus {
     VALID,
     INVALID,
@@ -145,12 +152,12 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     return ValidationResult.valid();
   }
 
-  protected Optional<JsonMappingException> extractFieldDeserializationException(
-      final InvalidJsonRpcRequestException paramException) {
-    Throwable cause = paramException.getCause();
+  protected static <T> Optional<T> extractCauseByType(
+      final Throwable throwable, final Class<T> type) {
+    Throwable cause = throwable;
     while (cause != null) {
-      if (cause instanceof JsonMappingException) {
-        return Optional.of((JsonMappingException) cause);
+      if (type.isAssignableFrom(cause.getClass())) {
+        return Optional.of(type.cast(cause));
       }
       cause = cause.getCause();
     }

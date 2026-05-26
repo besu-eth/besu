@@ -134,6 +134,28 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
   }
 
   @Test
+  public void shouldReturnInvalidIfVersionedHashesIsNull_WhenBlobsAllowed() {
+    BlockHeader blockHeader =
+        setupPayloadV3(
+            getMinSupportedTimestamp(),
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            BlobGas.ZERO,
+            0L);
+
+    var resp =
+        resp(
+            requestParams(
+                mockEnginePayloadParam(blockHeader, emptyList()),
+                null,
+                zeroParentBeaconBlockRootParam()));
+
+    final JsonRpcError jsonRpcError = fromErrorResp(resp);
+    assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
+    assertThat(jsonRpcError.getMessage()).isEqualTo("Invalid versioned hash params");
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
   public void shouldInvalidVersionedHash_whenShortVersionedHash() {
     final Bytes shortHash = Bytes.fromHexString("0x" + "69".repeat(31));
 
@@ -150,9 +172,11 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
                 mockEnginePayloadParam(blockHeader, emptyList()),
                 List.of(shortHash.toHexString()),
                 zeroParentBeaconBlockRootParam()));
-    final JsonRpcError jsonRpcError = fromErrorResp(resp);
-    assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
-    assertThat(jsonRpcError.getMessage()).isEqualTo("Invalid versioned hash params");
+
+    PayloadStatusV1 res = fromSuccessResp(resp);
+    assertThat(res.getStatusAsString()).isEqualTo(INVALID.name());
+    assertThat(res.getError()).startsWith("Invalid versioned hash params");
+    verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
   @Test
@@ -312,7 +336,8 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
 
     var result =
         engineNewPayloadV3()
-            .validateBlobTransactions(emptyList(), header, parentHeader, emptyList(), protocolSpec);
+            .validateBlobTransactions(
+                emptyList(), header, Optional.of(parentHeader), emptyList(), protocolSpec);
 
     assertThat(result.isValid()).isFalse();
     assertThat(result.getErrorMessage()).contains("Expected", "1000");
@@ -339,7 +364,11 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     var result =
         engineNewPayloadV3()
             .validateBlobTransactions(
-                List.of(blobTx1, blobTx2), header, parentHeader, versionedHashes, protocolSpec);
+                List.of(blobTx1, blobTx2),
+                header,
+                Optional.of(parentHeader),
+                versionedHashes,
+                protocolSpec);
 
     assertThat(result.isValid()).isFalse();
     assertThat(result.getErrorMessage()).contains("Expected", "262144");
@@ -359,11 +388,7 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
     var result =
         engineNewPayloadV3()
             .validateBlobTransactions(
-                List.of(blobTx),
-                mock(BlockHeader.class),
-                mock(BlockHeader.class),
-                provided,
-                protocolSpec);
+                List.of(blobTx), mock(BlockHeader.class), Optional.empty(), provided, protocolSpec);
 
     assertThat(result.isValid()).isFalse();
     assertThat(result.getErrorMessage())

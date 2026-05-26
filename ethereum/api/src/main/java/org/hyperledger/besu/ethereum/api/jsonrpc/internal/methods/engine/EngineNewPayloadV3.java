@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.Configuration.FAIL_ON_UNKNOWN_BUT_NULL;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
@@ -23,9 +24,9 @@ import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcRequestException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV3;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV2;
@@ -92,12 +93,14 @@ public sealed class EngineNewPayloadV3<
   protected NPRP readRequestParameters(final JsonRpcRequestContext requestContext) {
     final NewPayloadRequestParametersV1<? extends EP> requestParameters =
         super.readRequestParameters(requestContext);
+
     final List<VersionedHash> expectedBlobVersionedHashes;
     try {
       expectedBlobVersionedHashes =
           requestContext.getRequiredList(1, VersionedHash.class, FAIL_ON_UNKNOWN_BUT_NULL);
     } catch (JsonRpcParameterException e) {
-      throw new InvalidJsonRpcRequestException(
+      throw new InvalidRequestParametersException(
+          requestParameters.payloadParameter(),
           "Invalid versioned hash parameters (index 1)",
           RpcErrorType.INVALID_VERSIONED_HASH_PARAMS,
           e);
@@ -108,7 +111,8 @@ public sealed class EngineNewPayloadV3<
       parentBeaconBlockRootParameter =
           requestContext.getRequiredParameter(2, Bytes32.class, FAIL_ON_UNKNOWN_BUT_NULL);
     } catch (JsonRpcParameterException e) {
-      throw new InvalidJsonRpcRequestException(
+      throw new InvalidRequestParametersException(
+          requestParameters.payloadParameter(),
           "Invalid parent beacon block root parameters (index 2)",
           RpcErrorType.INVALID_PARENT_BEACON_BLOCK_ROOT_PARAMS,
           e);
@@ -127,10 +131,10 @@ public sealed class EngineNewPayloadV3<
   @Override
   protected ValidationResult<RpcErrorType> validateParameters(final NPRP requestParameters) {
     final ValidationResult<RpcErrorType> result = super.validateParameters(requestParameters);
-    return result.isValid() ? validateParametersV2(requestParameters) : result;
+    return result.isValid() ? validateParametersV3(requestParameters) : result;
   }
 
-  private ValidationResult<RpcErrorType> validateParametersV2(
+  private ValidationResult<RpcErrorType> validateParametersV3(
       final NewPayloadRequestParametersV2<? extends EP> requestParameters) {
     final ExecutionPayloadV3 executionPayload = requestParameters.payloadParameter();
     if (executionPayload.getBlobGasUsed() == null) {
@@ -158,19 +162,19 @@ public sealed class EngineNewPayloadV3<
   protected ValidationResult<RpcErrorType> validateNewBlock(
       final Block newBlock,
       final ProtocolSpec protocolSpec,
-      final BlockHeader parentHeader,
+      final Optional<BlockHeader> maybeParentHeader,
       final NPRP requestParameters) {
     final ValidationResult<RpcErrorType> result =
-        super.validateNewBlock(newBlock, protocolSpec, parentHeader, requestParameters);
+        super.validateNewBlock(newBlock, protocolSpec, maybeParentHeader, requestParameters);
     return result.isValid()
-        ? validateExecutionPayloadV3(newBlock, protocolSpec, parentHeader, requestParameters)
+        ? validateExecutionPayloadV3(newBlock, protocolSpec, maybeParentHeader, requestParameters)
         : result;
   }
 
   private ValidationResult<RpcErrorType> validateExecutionPayloadV3(
       final Block newBlock,
       final ProtocolSpec protocolSpec,
-      final BlockHeader parentHeader,
+      final Optional<BlockHeader> maybeParentHeader,
       final NewPayloadRequestParametersV2<? extends EP> requestParameters) {
     final List<Transaction> blobTransactions =
         newBlock.getBody().getTransactions().stream()
@@ -179,7 +183,7 @@ public sealed class EngineNewPayloadV3<
     return validateBlobTransactions(
         blobTransactions,
         newBlock.getHeader(),
-        parentHeader,
+        maybeParentHeader,
         requestParameters.expectedBlobVersionedHashes(),
         protocolSpec);
   }
@@ -187,7 +191,7 @@ public sealed class EngineNewPayloadV3<
   protected ValidationResult<RpcErrorType> validateBlobTransactions(
       final List<Transaction> blobTransactions,
       final BlockHeader header,
-      final BlockHeader parentHeader,
+      final Optional<BlockHeader> maybeParentHeader,
       final List<VersionedHash> versionedHashesParam,
       final ProtocolSpec protocolSpec) {
 
@@ -231,16 +235,18 @@ public sealed class EngineNewPayloadV3<
     }
 
     // Validate excessBlobGas
-    final Optional<BlobGas> maybeCalculatedExcess =
-        validateExcessBlobGas(header, parentHeader, protocolSpec);
-    if (maybeCalculatedExcess.isPresent()) {
-      final BlobGas calculated = maybeCalculatedExcess.get();
-      final BlobGas actual = header.getExcessBlobGas().orElse(BlobGas.ZERO);
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_EXCESS_BLOB_GAS_PARAMS,
-          String.format(
-              "Payload excessBlobGas does not match calculated excessBlobGas. Expected %s, got %s",
-              calculated, actual));
+    if (maybeParentHeader.isPresent()) {
+      final Optional<BlobGas> maybeCalculatedExcess =
+          validateExcessBlobGas(header, maybeParentHeader.get(), protocolSpec);
+      if (maybeCalculatedExcess.isPresent()) {
+        final BlobGas calculated = maybeCalculatedExcess.get();
+        final BlobGas actual = header.getExcessBlobGas().orElse(BlobGas.ZERO);
+        return ValidationResult.invalid(
+            RpcErrorType.INVALID_EXCESS_BLOB_GAS_PARAMS,
+            String.format(
+                "Payload excessBlobGas does not match calculated excessBlobGas. Expected %s, got %s",
+                calculated, actual));
+      }
     }
 
     // Validate blobGasUsed
@@ -312,20 +318,29 @@ public sealed class EngineNewPayloadV3<
 
   @Override
   protected JsonRpcResponse processParametersParsingException(
-      final Object reqId, final InvalidJsonRpcRequestException e) {
+      final Object reqId, final InvalidRequestParametersException e) {
 
     if (e.getRpcErrorType() == RpcErrorType.INVALID_VERSIONED_HASH_PARAMS) {
-      return new JsonRpcErrorResponse(
-          reqId,
-          ValidationResult.invalid(
-              RpcErrorType.INVALID_VERSIONED_HASH_PARAMS,
-              "Failed to decode blob versioned hashes parameter (" + e.getMessage() + ")"));
+      // here we need to distinguish between null and invalid parameters and return different
+      // responses
+      final Optional<JsonRpcParameter.JsonRpcMissingParameterException> maybeMissingEx =
+          extractCauseByType(e, JsonRpcParameter.JsonRpcMissingParameterException.class);
+      if (maybeMissingEx.isPresent()) {
+        return new JsonRpcErrorResponse(
+            reqId,
+            ValidationResult.invalid(
+                RpcErrorType.INVALID_VERSIONED_HASH_PARAMS,
+                "Missing versioned hashes parameter (" + maybeMissingEx.get().getMessage() + ")"));
+      }
+      return respondWithInvalid(
+          reqId, null, null, INVALID, RpcErrorType.INVALID_VERSIONED_HASH_PARAMS.getMessage());
     }
+
     if (e.getRpcErrorType() == RpcErrorType.INVALID_PARENT_BEACON_BLOCK_ROOT_PARAMS) {
       return new JsonRpcErrorResponse(
           reqId,
           ValidationResult.invalid(
-              RpcErrorType.INVALID_VERSIONED_HASH_PARAMS,
+              RpcErrorType.INVALID_PARENT_BEACON_BLOCK_ROOT_PARAMS,
               "Failed to decode parent beacon block root parameter (" + e.getMessage() + ")"));
     }
     return super.processParametersParsingException(reqId, e);

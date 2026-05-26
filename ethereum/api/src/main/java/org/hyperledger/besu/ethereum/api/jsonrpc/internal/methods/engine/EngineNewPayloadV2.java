@@ -86,18 +86,14 @@ public sealed class EngineNewPayloadV2<
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateNewBlock(
-      final Block newBlock,
-      final ProtocolSpec protocolSpec,
-      final BlockHeader parentHeader,
-      final NPRP requestParameters) {
-    final ValidationResult<RpcErrorType> result =
-        super.validateNewBlock(newBlock, protocolSpec, parentHeader, requestParameters);
-    return result.isValid() ? validateExecutionPayloadV2(newBlock, protocolSpec) : result;
+  protected ValidationResult<RpcErrorType> validateParameters(final NPRP requestParameters) {
+    final ValidationResult<RpcErrorType> result = super.validateParameters(requestParameters);
+    return result.isValid() ? validateParametersV2(requestParameters) : result;
   }
 
-  private ValidationResult<RpcErrorType> validateExecutionPayloadV2(
-      final Block newBlock, final ProtocolSpec protocolSpec) {
+  private ValidationResult<RpcErrorType> validateParametersV2(
+      final NewPayloadRequestParametersV1<? extends EP> requestParameters) {
+    final ExecutionPayloadV2 executionPayload = requestParameters.payloadParameter();
     // engine_newPayloadV2 is peculiar since it allows 2 different versions of execution payload,
     // so we need to check the timestamp for withdrawal validation.
 
@@ -107,19 +103,34 @@ public sealed class EngineNewPayloadV2<
     // Shanghai timestamp,
     // Client software MUST return -32602: Invalid params error if the wrong version of the
     // structure is used in the method call.
-    if (newBlock.getHeader().getTimestamp() < shanghaiTimestamp.orElse(0L)) {
-      if (newBlock.getBody().getWithdrawals().isPresent()) {
+    if (executionPayload.getTimestamp() < shanghaiTimestamp.orElse(0L)) {
+      if (executionPayload.getWithdrawals() != null) {
         return ValidationResult.invalid(
             RpcErrorType.INVALID_PARAMS,
             "Withdrawals must not be present before Shanghai hardfork");
       }
     } else {
-      if (newBlock.getBody().getWithdrawals().isEmpty()) {
+      if (executionPayload.getWithdrawals() == null) {
         return ValidationResult.invalid(
             RpcErrorType.INVALID_PARAMS, "Withdrawals must be present after Shanghai hardfork");
       }
     }
+    return ValidationResult.valid();
+  }
 
+  @Override
+  protected ValidationResult<RpcErrorType> validateNewBlock(
+      final Block newBlock,
+      final ProtocolSpec protocolSpec,
+      final Optional<BlockHeader> maybeParentHeader,
+      final NPRP requestParameters) {
+    final ValidationResult<RpcErrorType> result =
+        super.validateNewBlock(newBlock, protocolSpec, maybeParentHeader, requestParameters);
+    return result.isValid() ? validateExecutionPayloadV2(newBlock, protocolSpec) : result;
+  }
+
+  private ValidationResult<RpcErrorType> validateExecutionPayloadV2(
+      final Block newBlock, final ProtocolSpec protocolSpec) {
     return protocolSpec
             .getWithdrawalsValidator()
             .validateWithdrawals(newBlock.getBody().getWithdrawals())

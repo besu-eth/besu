@@ -18,12 +18,11 @@ import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
-import static org.hyperledger.besu.ethereum.api.graphql.internal.response.GraphQLError.INVALID_PARAMS;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_PARAMS;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -39,8 +38,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePayloadStatusResult;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Request;
@@ -146,9 +143,12 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
 
   @Test
   public void shouldReturnInvalidStatusIfRequestsContainUnknownRequestType() {
-      // An unknown request type byte is a block validity error, not an RPC parameter error.
-      // The spec (execution-apis prague.md) only mandates -32602 for out-of-order, empty data,
-      // duplicate type, or null. Unknown types must return INVALID payload status per EELS tests.
+    // An unknown request type byte is a block validity error, not an RPC parameter error.
+    // The spec (execution-apis prague.md) only mandates -32602 for out-of-order, empty data,
+    // duplicate type, or null. Unknown types must return INVALID payload status per EELS tests.
+
+    when(mergeCoordinator.getLatestValidAncestor(any(Hash.class)))
+        .thenReturn(Optional.of(mockHash));
     RequestType unknowType = mock(RequestType.class);
     when(unknowType.getSerializedType()).thenReturn((byte) 0xff);
     Request unknownTypeRequest = mock(Request.class);
@@ -170,9 +170,9 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
             mockEnginePayloadParam(blockHeader, emptyList()), requestsAsParam(unknownTypeRequests));
 
     var result = fromSuccessResp(resp);
-      assertThat(result.getStatusAsString()).isEqualTo(INVALID.name());
-      assertThat(result.getLatestValidHash().get()).isEqualTo(mockHash);
-      verify(engineCallListener, times(1)).executionEngineCalled();
+    assertThat(result.getStatusAsString()).isEqualTo(INVALID.name());
+    assertThat(result.getLatestValidHash().get()).isEqualTo(mockHash);
+    verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
   @Test
