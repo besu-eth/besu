@@ -230,6 +230,9 @@ public class EVM {
   //
   // Please benchmark before refactoring.
   public void runToHalt(final MessageFrame frame, @NonNull final OperationTracer operationTracer) {
+    // do not remove assert! A single, monomorphic tracer, is allowed in the EVM execution if
+    // tracing is disabled for
+    // optimization purposes
     assert operationTracer.isEnabled() || operationTracer == OperationTracer.NO_TRACING;
 
     if (evmConfiguration.enableEvmV2()) {

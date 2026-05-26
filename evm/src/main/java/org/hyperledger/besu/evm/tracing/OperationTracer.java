@@ -164,6 +164,11 @@ public interface OperationTracer {
     return java.util.Collections.emptyList();
   }
 
+  /**
+   * Check to tell whether tracing enabled/disabled.
+   *
+   * @return true if tracing is enabled and false otherwise
+   */
   default boolean isEnabled() {
     return true;
   }
