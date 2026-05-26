@@ -33,12 +33,13 @@ import org.apache.tuweni.bytes.Bytes;
 public interface OperationTracer {
 
   /** The constant NO_TRACING. */
-  OperationTracer NO_TRACING = new OperationTracer() {
-    @Override
-    public boolean isEnabled() {
-      return false;
-    }
-  };
+  OperationTracer NO_TRACING =
+      new OperationTracer() {
+        @Override
+        public boolean isEnabled() {
+          return false;
+        }
+      };
 
   /**
    * Trace pre execution.

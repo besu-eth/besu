@@ -103,6 +103,7 @@ import java.util.Optional;
 import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -228,7 +229,7 @@ public class EVM {
   // name of performance. This is one of the hottest sections of code.
   //
   // Please benchmark before refactoring.
-  public void runToHalt(final MessageFrame frame, final OperationTracer operationTracer) {
+  public void runToHalt(final MessageFrame frame, @NonNull final OperationTracer operationTracer) {
     assert operationTracer.isEnabled() || operationTracer == OperationTracer.NO_TRACING;
 
     if (evmConfiguration.enableEvmV2()) {
