@@ -12,18 +12,19 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.eth.sync.snapsync;
+package org.hyperledger.besu.ethereum.eth.sync.snapsync.v2;
 
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator.applyForStrategy;
 
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.common.WorldStateHealFinishedListener;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncMetricsManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePersistenceManager;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.AccountRangeDataRequest;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.BytecodeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.StorageRangeDataRequest;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2AccountRangeRequest;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2BytecodeRequest;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2StorageRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldDownloadState;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloaderException;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
@@ -195,15 +196,15 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   @Override
   public synchronized void enqueueRequest(final SnapDataRequest request) {
     if (!internalFuture.isDone()) {
-      if (request instanceof BytecodeRequest) {
+      if (request instanceof SnapV2BytecodeRequest) {
         pendingCodeRequests.add(request);
-      } else if (request instanceof StorageRangeDataRequest storageRangeDataRequest) {
+      } else if (request instanceof SnapV2StorageRangeRequest storageRangeDataRequest) {
         if (!storageRangeDataRequest.getStartKeyHash().equals(RangeManager.MIN_RANGE)) {
           pendingLargeStorageRequests.add(request);
         } else {
           pendingStorageRequests.add(request);
         }
-      } else if (request instanceof AccountRangeDataRequest) {
+      } else if (request instanceof SnapV2AccountRangeRequest) {
         pendingAccountRequests.add(request);
       } else {
         throw new IllegalArgumentException(

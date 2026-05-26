@@ -12,11 +12,10 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.eth.sync.snapsync.request;
+package org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2;
 
 import static org.hyperledger.besu.ethereum.eth.sync.snapsync.RequestType.STORAGE_RANGE;
 import static org.hyperledger.besu.ethereum.eth.sync.snapsync.StackTrie.FlatDatabaseUpdater.noop;
-import static org.hyperledger.besu.ethereum.trie.RangeManager.MIN_RANGE;
 import static org.hyperledger.besu.ethereum.trie.RangeManager.findNewBeginElementInRange;
 import static org.hyperledger.besu.ethereum.trie.RangeManager.getRangeCount;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator.applyForStrategy;
@@ -25,8 +24,9 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.StackTrie;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
-import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -42,46 +42,40 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
-import com.google.common.annotations.VisibleForTesting;
 import kotlin.collections.ArrayDeque;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.apache.tuweni.rlp.RLP;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-/** Returns a list of storages and the merkle proofs of an entire range */
-public class StorageRangeDataRequest extends SnapDataRequest {
-
-  private static final Logger LOG = LoggerFactory.getLogger(StorageRangeDataRequest.class);
+/** Snap/2 storage range data request. Commits all trie nodes including incomplete ones. */
+public class SnapV2StorageRangeRequest extends SnapDataRequest {
 
   private final Hash accountHash;
   private final Bytes32 storageRoot;
   private final Bytes32 startKeyHash;
   private final Bytes32 endKeyHash;
-
+  private final Bytes32 rangeStart;
   private final StackTrie stackTrie;
   private Optional<Boolean> isProofValid;
 
-  protected StorageRangeDataRequest(
+  public SnapV2StorageRangeRequest(
       final Hash rootHash,
       final Bytes32 accountHash,
       final Bytes32 storageRoot,
       final Bytes32 startKeyHash,
-      final Bytes32 endKeyHash) {
+      final Bytes32 endKeyHash,
+      final Bytes32 rangeStart) {
     super(STORAGE_RANGE, rootHash);
     this.accountHash = Hash.wrap(accountHash);
     this.storageRoot = storageRoot;
     this.startKeyHash = startKeyHash;
     this.endKeyHash = endKeyHash;
+    this.rangeStart = rangeStart;
     this.isProofValid = Optional.empty();
     this.stackTrie = new StackTrie(Hash.wrap(getStorageRoot()), startKeyHash);
-    LOG.trace(
-        "create get storage range data request for account {} with root hash={} from {} to {}",
-        accountHash,
-        rootHash,
-        startKeyHash,
-        endKeyHash);
+  }
+
+  public Bytes32 getRangeStart() {
+    return rangeStart;
   }
 
   @Override
@@ -92,7 +86,6 @@ public class StorageRangeDataRequest extends SnapDataRequest {
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
 
-    // search incomplete nodes in the range
     final AtomicInteger nbNodesSaved = new AtomicInteger();
     final NodeUpdater nodeUpdater =
         (location, hash, value) -> {
@@ -113,13 +106,13 @@ public class StorageRangeDataRequest extends SnapDataRequest {
               (key, value) ->
                   ((BonsaiWorldStateKeyValueStorage.Updater) updater)
                       .putStorageValueBySlotHash(
-                          accountHash, Hash.wrap(key), Bytes32.leftPad(RLP.decodeValue(value))));
+                          accountHash,
+                          Hash.wrap(key),
+                          Bytes32.leftPad(org.apache.tuweni.rlp.RLP.decodeValue(value))));
         });
 
-    stackTrie.commit(flatDatabaseUpdater.get(), nodeUpdater, false);
-
+    stackTrie.commit(flatDatabaseUpdater.get(), nodeUpdater, true);
     downloadState.getMetricsManager().notifySlotsDownloaded(stackTrie.getElementsCount().get());
-
     return nbNodesSaved.get();
   }
 
@@ -131,20 +124,6 @@ public class StorageRangeDataRequest extends SnapDataRequest {
     if (!slots.isEmpty() || !proofs.isEmpty()) {
       if (!worldStateProofProvider.isValidRangeProof(
           startKeyHash, endKeyHash, storageRoot, proofs, slots)) {
-        // If the proof is invalid, it means that the storage will be a mix of several blocks.
-        // Therefore, it will be necessary to heal the account's storage subsequently
-        LOG.atDebug()
-            .setMessage("invalid storage range proof received for account hash {} range {} {}")
-            .addArgument(() -> accountHash)
-            .addArgument(() -> slots.isEmpty() ? "none" : slots.firstKey())
-            .addArgument(() -> slots.isEmpty() ? "none" : slots.lastKey())
-            .log();
-
-        downloadState.addAccountToHealingList(CompactEncoding.bytesToPath(accountHash.getBytes()));
-        // We will request the new storage root of the account because it is apparently no longer
-        // valid with the new pivot block.
-        downloadState.enqueueRequest(
-            createAccountDataRequest(getRootHash(), accountHash, startKeyHash, endKeyHash));
         isProofValid = Optional.of(false);
       } else {
         stackTrie.addElement(startKeyHash, proofs, slots);
@@ -155,14 +134,7 @@ public class StorageRangeDataRequest extends SnapDataRequest {
 
   @Override
   public boolean isResponseReceived() {
-    // TODO: If isResponseReceived() == true, the task is marked completed, but
-    // not enqueued for healing in v2
     return isProofValid.isPresent();
-  }
-
-  @Override
-  public boolean isExpired(final SnapSyncProcessState snapSyncState) {
-    return snapSyncState.isExpired(this);
   }
 
   @Override
@@ -171,14 +143,9 @@ public class StorageRangeDataRequest extends SnapDataRequest {
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncProcessState snapSyncState) {
     final List<SnapDataRequest> childRequests = new ArrayList<>();
-
-    if (!isProofValid.orElse(false)) {
-      return Stream.empty();
-    }
-
     final StackTrie.TaskElement taskElement = stackTrie.getElement(startKeyHash);
 
-    if (null == taskElement) {
+    if (taskElement == null) {
       return Stream.empty();
     }
 
@@ -189,21 +156,16 @@ public class StorageRangeDataRequest extends SnapDataRequest {
               RangeManager.generateRanges(missingRightElement, endKeyHash, nbRanges)
                   .forEach(
                       (key, value) -> {
-                        final StorageRangeDataRequest storageRangeDataRequest =
-                            createStorageRangeDataRequest(
+                        childRequests.add(
+                            new SnapV2StorageRangeRequest(
                                 getRootHash(),
                                 Bytes32.wrap(accountHash.getBytes()),
                                 storageRoot,
                                 key,
-                                value);
-                        childRequests.add(storageRangeDataRequest);
+                                value,
+                                rangeStart));
                       });
             });
-
-    if (startKeyHash.equals(MIN_RANGE) && !taskElement.proofs().isEmpty()) {
-      // need to heal this account storage
-      downloadState.addAccountToHealingList(CompactEncoding.bytesToPath(accountHash.getBytes()));
-    }
 
     return childRequests.stream();
   }
@@ -232,10 +194,5 @@ public class StorageRangeDataRequest extends SnapDataRequest {
   public void clear() {
     this.isProofValid = Optional.of(false);
     this.stackTrie.removeElement(startKeyHash);
-  }
-
-  @VisibleForTesting
-  public void setProofValid(final boolean isProofValid) {
-    this.isProofValid = Optional.of(isProofValid);
   }
 }

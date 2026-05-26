@@ -12,10 +12,9 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.eth.sync.snapsync.request;
+package org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2;
 
 import static org.hyperledger.besu.ethereum.eth.sync.snapsync.RequestType.ACCOUNT_RANGE;
-import static org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncMetricsManager.Step.DOWNLOAD;
 import static org.hyperledger.besu.ethereum.eth.sync.snapsync.StackTrie.FlatDatabaseUpdater.noop;
 import static org.hyperledger.besu.ethereum.trie.RangeManager.MAX_RANGE;
 import static org.hyperledger.besu.ethereum.trie.RangeManager.MIN_RANGE;
@@ -24,11 +23,13 @@ import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordina
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncMetricsManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.StackTrie;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
-import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -45,62 +46,37 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
-import com.google.common.annotations.VisibleForTesting;
-import kotlin.collections.ArrayDeque;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Returns a list of accounts and the merkle proofs of an entire range */
-public class AccountRangeDataRequest extends SnapDataRequest {
+/** Snap/2 account range data request. Commits all trie nodes including incomplete ones. */
+public class SnapV2AccountRangeRequest extends SnapDataRequest {
 
-  private static final Logger LOG = LoggerFactory.getLogger(AccountRangeDataRequest.class);
+  private static final Logger LOG = LoggerFactory.getLogger(SnapV2AccountRangeRequest.class);
 
-  protected final Bytes32 startKeyHash;
-  protected final Bytes32 endKeyHash;
-  protected final Optional<Bytes32> startStorageRange;
-  protected final Optional<Bytes32> endStorageRange;
-
-  protected final StackTrie stackTrie;
+  private final Bytes32 startKeyHash;
+  private final Bytes32 endKeyHash;
+  private final Bytes32 rangeStart;
+  private final StackTrie stackTrie;
   private Optional<Boolean> isProofValid;
 
-  protected AccountRangeDataRequest(
+  public SnapV2AccountRangeRequest(
       final Hash rootHash,
       final Bytes32 startKeyHash,
       final Bytes32 endKeyHash,
-      final Optional<Bytes32> startStorageRange,
-      final Optional<Bytes32> endStorageRange) {
+      final Bytes32 rangeStart) {
     super(ACCOUNT_RANGE, rootHash);
     this.startKeyHash = startKeyHash;
     this.endKeyHash = endKeyHash;
-    this.startStorageRange = startStorageRange;
-    this.endStorageRange = endStorageRange;
+    this.rangeStart = rangeStart;
     this.isProofValid = Optional.empty();
     this.stackTrie = new StackTrie(rootHash, startKeyHash);
-    LOG.trace(
-        "create get account range data request with root hash={} from {} to {}",
-        rootHash,
-        startKeyHash,
-        endKeyHash);
   }
 
-  protected AccountRangeDataRequest(
-      final Hash rootHash, final Bytes32 startKeyHash, final Bytes32 endKeyHash) {
-    this(rootHash, startKeyHash, endKeyHash, Optional.empty(), Optional.empty());
-  }
-
-  protected AccountRangeDataRequest(
-      final Hash rootHash,
-      final Hash accountHash,
-      final Bytes32 startStorageRange,
-      final Bytes32 endStorageRange) {
-    this(
-        rootHash,
-        Bytes32.wrap(accountHash.getBytes()),
-        Bytes32.wrap(accountHash.getBytes()),
-        Optional.of(startStorageRange),
-        Optional.of(endStorageRange));
+  public Bytes32 getRangeStart() {
+    return rangeStart;
   }
 
   @Override
@@ -111,13 +87,6 @@ public class AccountRangeDataRequest extends SnapDataRequest {
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
 
-    if (startStorageRange.isPresent() && endStorageRange.isPresent()) {
-      // not store the new account if we just want to complete the account thanks to another
-      // rootHash
-      return 0;
-    }
-
-    // search incomplete nodes in the range
     final AtomicInteger nbNodesSaved = new AtomicInteger();
     final NodeUpdater nodeUpdater =
         (location, hash, value) -> {
@@ -126,19 +95,14 @@ public class AccountRangeDataRequest extends SnapDataRequest {
           }
           applyForStrategy(
               updater,
-              onBonsai -> {
-                onBonsai.putAccountStateTrieNode(location, hash, value);
-              },
-              onForest -> {
-                onForest.putAccountStateTrieNode(hash, value);
-              });
+              onBonsai -> onBonsai.putAccountStateTrieNode(location, hash, value),
+              onForest -> onForest.putAccountStateTrieNode(hash, value));
           nbNodesSaved.getAndIncrement();
         };
 
     final AtomicReference<StackTrie.FlatDatabaseUpdater> flatDatabaseUpdater =
         new AtomicReference<>(noop());
 
-    // we have a flat DB only with Bonsai
     worldStateStorageCoordinator.applyOnMatchingFlatModes(
         List.of(FlatDbMode.FULL, FlatDbMode.ARCHIVE),
         bonsaiWorldStateStorageStrategy -> {
@@ -148,26 +112,18 @@ public class AccountRangeDataRequest extends SnapDataRequest {
                       .putAccountInfoState(Hash.wrap(key), value));
         });
 
-    stackTrie.commit(flatDatabaseUpdater.get(), nodeUpdater, false);
-
+    stackTrie.commit(flatDatabaseUpdater.get(), nodeUpdater, true);
     downloadState.getMetricsManager().notifyAccountsDownloaded(stackTrie.getElementsCount().get());
-
     return nbNodesSaved.get();
   }
 
   public void addResponse(
       final WorldStateProofProvider worldStateProofProvider,
       final NavigableMap<Bytes32, Bytes> accounts,
-      final ArrayDeque<Bytes> proofs) {
+      final List<Bytes> proofs) {
     if (!accounts.isEmpty() || !proofs.isEmpty()) {
       if (!worldStateProofProvider.isValidRangeProof(
           startKeyHash, endKeyHash, Bytes32.wrap(getRootHash().getBytes()), proofs, accounts)) {
-        // this happens on repivot and on bad proofs
-        LOG.atTrace()
-            .setMessage("invalid range proof received for account range {} {}")
-            .addArgument(accounts.firstKey())
-            .addArgument(accounts.lastKey())
-            .log();
         isProofValid = Optional.of(false);
       } else {
         stackTrie.addElement(startKeyHash, proofs, accounts);
@@ -193,9 +149,8 @@ public class AccountRangeDataRequest extends SnapDataRequest {
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncProcessState snapSyncState) {
     final List<SnapDataRequest> childRequests = new ArrayList<>();
-
     final StackTrie.TaskElement taskElement = stackTrie.getElement(startKeyHash);
-    // new request is added if the response does not match all the requested range
+
     findNewBeginElementInRange(
             Bytes32.wrap(getRootHash().getBytes()),
             taskElement.proofs(),
@@ -205,34 +160,38 @@ public class AccountRangeDataRequest extends SnapDataRequest {
             missingRightElement -> {
               downloadState
                   .getMetricsManager()
-                  .notifyRangeProgress(DOWNLOAD, missingRightElement, endKeyHash);
+                  .notifyRangeProgress(
+                      SnapSyncMetricsManager.Step.DOWNLOAD, missingRightElement, endKeyHash);
               childRequests.add(
-                  createAccountRangeDataRequest(getRootHash(), missingRightElement, endKeyHash));
+                  new SnapV2AccountRangeRequest(
+                      getRootHash(), missingRightElement, endKeyHash, rangeStart));
             },
             () ->
                 downloadState
                     .getMetricsManager()
-                    .notifyRangeProgress(DOWNLOAD, endKeyHash, endKeyHash));
+                    .notifyRangeProgress(
+                        SnapSyncMetricsManager.Step.DOWNLOAD, endKeyHash, endKeyHash));
 
-    // find missing storages and code
     for (Map.Entry<Bytes32, Bytes> account : taskElement.keys().entrySet()) {
       final PmtStateTrieAccountValue accountValue =
           PmtStateTrieAccountValue.readFrom(RLP.input(account.getValue()));
       if (!accountValue.getStorageRoot().equals(Hash.EMPTY_TRIE_HASH)) {
         childRequests.add(
-            createStorageRangeDataRequest(
+            new SnapV2StorageRangeRequest(
                 getRootHash(),
                 account.getKey(),
                 Bytes32.wrap(accountValue.getStorageRoot().getBytes()),
-                startStorageRange.orElse(MIN_RANGE),
-                endStorageRange.orElse(MAX_RANGE)));
+                MIN_RANGE,
+                MAX_RANGE,
+                rangeStart));
       }
       if (!accountValue.getCodeHash().equals(Hash.EMPTY)) {
         childRequests.add(
-            createBytecodeRequest(
-                account.getKey(),
+            new SnapV2BytecodeRequest(
                 getRootHash(),
-                Bytes32.wrap(accountValue.getCodeHash().getBytes())));
+                account.getKey(),
+                Bytes32.wrap(accountValue.getCodeHash().getBytes()),
+                rangeStart));
       }
     }
     return childRequests.stream();
@@ -246,7 +205,6 @@ public class AccountRangeDataRequest extends SnapDataRequest {
     return endKeyHash;
   }
 
-  @VisibleForTesting
   public NavigableMap<Bytes32, Bytes> getAccounts() {
     return stackTrie.getElement(startKeyHash).keys();
   }
@@ -255,27 +213,5 @@ public class AccountRangeDataRequest extends SnapDataRequest {
   public void clear() {
     stackTrie.clear();
     isProofValid = Optional.of(false);
-  }
-
-  public Bytes serialize() {
-    return RLP.encode(
-        out -> {
-          out.startList();
-          out.writeByte(getRequestType().getValue());
-          out.writeBytes(getRootHash().getBytes());
-          out.writeBytes(getStartKeyHash());
-          out.writeBytes(getEndKeyHash());
-          out.endList();
-        });
-  }
-
-  public static AccountRangeDataRequest deserialize(final RLPInput in) {
-    in.enterList();
-    in.skipNext(); // skip request type
-    final Hash rootHash = Hash.wrap(in.readBytes32());
-    final Bytes32 startKeyHash = in.readBytes32();
-    final Bytes32 endKeyHash = in.readBytes32();
-    in.leaveList();
-    return createAccountRangeDataRequest(rootHash, startKeyHash, endKeyHash);
   }
 }
