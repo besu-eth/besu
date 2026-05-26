@@ -143,10 +143,6 @@ public sealed class EngineNewPayloadV1<
     }
 
     final EP blockParam = requestParameters.payloadParameter();
-    LOG.atTrace()
-        .setMessage("blockparam: {}")
-        .addArgument(() -> Json.encodePrettily(blockParam))
-        .log();
 
     final ValidationResult<RpcErrorType> forkValidationResult =
         validateForkSupported(blockParam.getTimestamp());
