@@ -50,6 +50,7 @@ public class DebugGetRawBlock extends AbstractBlockParameterMethod {
   @Override
   protected Object resultByBlockNumber(
       final JsonRpcRequestContext request, final long blockNumber) {
+
     return getBlockchainQueries()
         .getBlockchain()
         .getBlockByNumber(blockNumber)

@@ -50,9 +50,10 @@ public class DebugGetRawHeader extends AbstractBlockParameterMethod {
   @Override
   protected Object resultByBlockNumber(
       final JsonRpcRequestContext request, final long blockNumber) {
+
     return getBlockchainQueries()
-        .getBlockHeaderByNumber(blockNumber)
-        .<Object>map(header -> RLP.encode(header::writeTo).toString())
+        .blockByNumber(blockNumber)
+        .<Object>map(block -> RLP.encode(block.getHeader()::writeTo).toString())
         .orElseGet(
             () ->
                 new JsonRpcErrorResponse(
