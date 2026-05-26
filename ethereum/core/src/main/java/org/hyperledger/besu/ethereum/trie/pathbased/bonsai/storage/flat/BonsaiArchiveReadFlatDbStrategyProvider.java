@@ -38,6 +38,21 @@ public class BonsaiArchiveReadFlatDbStrategyProvider extends BonsaiFlatDbStrateg
       final FlatDbMode flatDbMode,
       final MetricsSystem metricsSystem,
       final CodeStorageStrategy codeStorageStrategy) {
+    final boolean proofsEnabled =
+        dataStorageConfiguration
+            .getPathBasedExtraStorageConfiguration()
+            .getUnstable()
+            .getStateProofsEnabled();
+    if (proofsEnabled) {
+      return new BonsaiArchiveFlatDbStrategy(
+          metricsSystem,
+          codeStorageStrategy,
+          dataStorageConfiguration
+              .getPathBasedExtraStorageConfiguration()
+              .getUnstable()
+              .getArchiveTrieNodeCheckpointInterval(),
+          true);
+    }
     return new BonsaiArchiveFlatDbStrategy(metricsSystem, codeStorageStrategy);
   }
 }

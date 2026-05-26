@@ -15,17 +15,42 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsaiarchive;
 
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
+import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_HASH_KEY;
+import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
+import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_ROOT_HASH_KEY;
 
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.NoOpBonsaiCachedWorldStorageManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoopBonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.CacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.BonsaiContext;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.CodeHashCodeStorageStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.CodeStorageStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.NoOpTrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
+import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
+import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
+import org.hyperledger.besu.services.kvstore.LayeredKeyValueStorage;
 import org.hyperledger.besu.util.log.LogUtil;
 
 import java.io.Closeable;
@@ -67,6 +92,9 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   private static final byte[] MIGRATION_PROGRESS_KEY =
       "ARCHIVE_MIGRATION_PROGRESS".getBytes(StandardCharsets.UTF_8);
 
+  private static final byte[] TRIE_CHECKPOINT_PROGRESS_KEY =
+      "TRIE_CHECKPOINT_PROGRESS".getBytes(StandardCharsets.UTF_8);
+
   private final BonsaiWorldStateKeyValueStorage worldStateStorage;
   private final TrieLogManager trieLogManager;
   private final Blockchain blockchain;
@@ -79,6 +107,9 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   protected final AtomicBoolean catchUpRunning = new AtomicBoolean(false);
   protected volatile OptionalLong blockObserverId = OptionalLong.empty();
   private boolean closed = false;
+
+  private BonsaiWorldState migrationWorldState;
+  private MigrationTrieStorage migrationTrieStorage;
 
   /**
    * Creates a new BonsaiFlatDbToArchiveMigrator.
@@ -107,6 +138,9 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
         "bonsai_archive_migration_block",
         "The current block the Bonsai archive migration has reached",
         migratedBlockNumber::get);
+    if (archiveStrategy.getTrieNodeCheckpointInterval() != null) {
+      initMigrationWorldState(metricsSystem);
+    }
   }
 
   /**
@@ -145,6 +179,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
       return CompletableFuture.runAsync(
           () -> {
             try {
+              recoverTrieCheckpointState(startBlock);
               migrateBlocks(startBlock, target, true);
               worldStateStorage.upgradeToArchiveFlatDbMode();
               logCompletion(startBlock, target.get(), migrationStartTime);
@@ -187,6 +222,9 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
         processBlock(maybeTrieLog.get(), blockNumber, tx);
         saveProgress(blockNumber, tx);
         tx.commit();
+        if (migrationWorldState != null) {
+          migrateTrieCheckpointBlock(maybeTrieLog.get(), blockNumber);
+        }
         migratedBlockNumber.set(blockNumber);
         if (shouldLog) {
           logProgress(blockNumber, target.get());
@@ -388,5 +426,203 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
         ACCOUNT_INFO_STATE_ARCHIVE,
         MIGRATION_PROGRESS_KEY,
         Bytes.ofUnsignedLong(blockNumber).toArrayUnsafe());
+  }
+
+  private void initMigrationWorldState(final MetricsSystem metricsSystem) {
+    final long interval = archiveStrategy.getTrieNodeCheckpointInterval();
+    final BonsaiArchiveFlatDbStrategy readStrategy =
+        new BonsaiArchiveFlatDbStrategy(
+            metricsSystem, new CodeHashCodeStorageStrategy(), interval, true);
+    migrationTrieStorage =
+        new MigrationTrieStorage(worldStateStorage.getComposedWorldStateStorage());
+    final StaticArchiveFlatDbStrategyProvider provider =
+        new StaticArchiveFlatDbStrategyProvider(metricsSystem, readStrategy);
+    provider.loadFlatDbStrategy(migrationTrieStorage);
+    final BonsaiWorldStateKeyValueStorage migrationKvStorage =
+        new BonsaiWorldStateKeyValueStorage(
+            provider,
+            migrationTrieStorage,
+            new InMemoryKeyValueStorage(),
+            CacheManager.NO_OP_CACHE,
+            0L);
+    final WorldStateConfig trieDisabledConfig =
+        WorldStateConfig.newBuilder(WorldStateConfig.createStatefulConfigWithTrie())
+            .trieDisabled(true)
+            .build();
+    final CodeCache codeCache = new CodeCache();
+    migrationWorldState =
+        new BonsaiWorldState(
+            migrationKvStorage,
+            new NoopBonsaiCachedMerkleTrieLoader(),
+            new NoOpBonsaiCachedWorldStorageManager(
+                migrationKvStorage, EvmConfiguration.DEFAULT, codeCache),
+            new NoOpTrieLogManager(),
+            EvmConfiguration.DEFAULT,
+            trieDisabledConfig,
+            codeCache);
+  }
+
+  private void recoverTrieCheckpointState(final long startBlock) {
+    if (migrationWorldState == null) {
+      return;
+    }
+    final long lastTrieCheckpoint = getTrieCheckpointProgress().orElse(-1L);
+    if (lastTrieCheckpoint >= 0) {
+      blockchain.getBlockHeader(lastTrieCheckpoint).ifPresent(migrationTrieStorage::seedCheckpoint);
+    }
+    // Re-roll current incomplete window to rebuild in-memory trie state for the next checkpoint.
+    // Trie logs for these blocks should be within the trie-log retention window.
+    final long windowStart = Math.max(0L, lastTrieCheckpoint + 1);
+    for (long b = windowStart; b < startBlock; b++) {
+      final long blockNum = b;
+      blockchain
+          .getBlockHeader(blockNum)
+          .flatMap(h -> trieLogManager.getTrieLogLayer(h.getHash()))
+          .ifPresent(tl -> migrateTrieCheckpointBlock(tl, blockNum));
+    }
+  }
+
+  private void migrateTrieCheckpointBlock(final TrieLog trieLog, final long blockNumber) {
+    ((PathBasedWorldStateUpdateAccumulator<?>) migrationWorldState.updater()).rollForward(trieLog);
+    if (!isTrieCheckpointBlock(blockNumber)) {
+      return;
+    }
+    blockchain
+        .getBlockHeader(blockNumber)
+        .ifPresent(
+            header -> {
+              migrationWorldState.persist(header);
+              migrationTrieStorage.clearInMemory();
+              migrationTrieStorage.seedCheckpoint(header);
+              final SegmentedKeyValueStorageTransaction progressTx =
+                  worldStateStorage.getComposedWorldStateStorage().startLowPriorityTransaction();
+              progressTx.put(
+                  TRIE_BRANCH_STORAGE_ARCHIVE,
+                  TRIE_CHECKPOINT_PROGRESS_KEY,
+                  Bytes.ofUnsignedLong(blockNumber).toArrayUnsafe());
+              progressTx.commit();
+            });
+  }
+
+  private boolean isTrieCheckpointBlock(final long blockNumber) {
+    return blockNumber > 0
+        && (blockNumber + 1) % archiveStrategy.getTrieNodeCheckpointInterval() == 0;
+  }
+
+  @VisibleForTesting
+  protected Optional<Long> getTrieCheckpointProgress() {
+    return worldStateStorage
+        .getComposedWorldStateStorage()
+        .get(TRIE_BRANCH_STORAGE_ARCHIVE, TRIE_CHECKPOINT_PROGRESS_KEY)
+        .map(Bytes::wrap)
+        .map(Bytes::toLong);
+  }
+
+  private static final class MigrationTrieStorage extends LayeredKeyValueStorage {
+    private final SegmentedKeyValueStorage real;
+
+    MigrationTrieStorage(final SegmentedKeyValueStorage real) {
+      super(real);
+      this.real = real;
+    }
+
+    @Override
+    public Optional<byte[]> get(final SegmentIdentifier segmentId, final byte[] key) {
+      if (segmentId == TRIE_BRANCH_STORAGE) {
+        // Never fall through to live storage — the in-memory layer is the sole trie source
+        return getFromLayerOnly(segmentId, key);
+      }
+      return real.get(segmentId, key);
+    }
+
+    @Override
+    public SegmentedKeyValueStorageTransaction startTransaction() {
+      return new MigrationTransaction(super.startTransaction(), real.startLowPriorityTransaction());
+    }
+
+    void seedCheckpoint(final BlockHeader header) {
+      // Write metadata keys to in-memory layer so trie archive context reads are correct
+      final SegmentedKeyValueStorageTransaction tx = super.startTransaction();
+      tx.put(
+          TRIE_BRANCH_STORAGE,
+          WORLD_ROOT_HASH_KEY,
+          header.getStateRoot().getBytes().toArrayUnsafe());
+      tx.put(
+          TRIE_BRANCH_STORAGE,
+          WORLD_BLOCK_HASH_KEY,
+          header.getBlockHash().getBytes().toArrayUnsafe());
+      tx.put(
+          TRIE_BRANCH_STORAGE,
+          WORLD_BLOCK_NUMBER_KEY,
+          Bytes.ofUnsignedLong(header.getNumber()).toArrayUnsafe());
+      tx.commit();
+    }
+  }
+
+  private static final class MigrationTransaction implements SegmentedKeyValueStorageTransaction {
+    private final SegmentedKeyValueStorageTransaction inMemoryTx;
+    private final SegmentedKeyValueStorageTransaction realTx;
+
+    MigrationTransaction(
+        final SegmentedKeyValueStorageTransaction inMemoryTx,
+        final SegmentedKeyValueStorageTransaction realTx) {
+      this.inMemoryTx = inMemoryTx;
+      this.realTx = realTx;
+    }
+
+    @Override
+    public void put(final SegmentIdentifier segmentId, final byte[] key, final byte[] value) {
+      if (segmentId == TRIE_BRANCH_STORAGE) {
+        inMemoryTx.put(segmentId, key, value);
+      } else if (segmentId == TRIE_BRANCH_STORAGE_ARCHIVE) {
+        realTx.put(segmentId, key, value);
+      }
+      // flat account/storage writes dropped — processBlock() handles those separately
+    }
+
+    @Override
+    public void remove(final SegmentIdentifier segmentId, final byte[] key) {
+      if (segmentId == TRIE_BRANCH_STORAGE) {
+        inMemoryTx.remove(segmentId, key);
+      }
+      // archive removes dropped
+    }
+
+    @Override
+    public void commit() {
+      inMemoryTx.commit();
+      realTx.commit();
+    }
+
+    @Override
+    public void rollback() {
+      inMemoryTx.rollback();
+      realTx.rollback();
+    }
+
+    @Override
+    public void close() {
+      inMemoryTx.close();
+      realTx.close();
+    }
+  }
+
+  private static final class StaticArchiveFlatDbStrategyProvider
+      extends BonsaiFlatDbStrategyProvider {
+    private final BonsaiArchiveFlatDbStrategy strategy;
+
+    StaticArchiveFlatDbStrategyProvider(
+        final MetricsSystem metricsSystem, final BonsaiArchiveFlatDbStrategy strategy) {
+      super(metricsSystem, DataStorageConfiguration.DEFAULT_BONSAI_ARCHIVE_CONFIG);
+      this.strategy = strategy;
+    }
+
+    @Override
+    protected FlatDbStrategy createFlatDbStrategy(
+        final FlatDbMode flatDbMode,
+        final MetricsSystem metricsSystem,
+        final CodeStorageStrategy codeStorageStrategy) {
+      return strategy;
+    }
   }
 }

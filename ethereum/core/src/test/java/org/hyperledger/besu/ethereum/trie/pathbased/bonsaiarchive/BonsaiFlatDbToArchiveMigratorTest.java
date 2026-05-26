@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy.calculateArchiveKeyWithMinSuffix;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy.calculateNaturalSlotKey;
 import static org.mockito.ArgumentMatchers.any;
@@ -539,6 +540,66 @@ public class BonsaiFlatDbToArchiveMigratorTest {
     secondMigrator.close();
   }
 
+  // --- trie checkpoint tests ---
+
+  @Test
+  public void trieCheckpointWritesToArchiveAtCheckpointBoundary() throws Exception {
+    // interval=3 → checkpoints at blocks where (n+1) % 3 == 0: blocks 2, 5
+    final int interval = 3;
+    appendBlocks(6);
+
+    final BonsaiFlatDbToArchiveMigrator migrator = createMigratorWithTrieCheckpoints(interval);
+    migrator.migrate().get(MIGRATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+    // TRIE_BRANCH_STORAGE_ARCHIVE must have entries: at minimum the checkpoint interval key
+    // and the progress key, written during checkpoint processing
+    assertThat(storage.streamKeys(TRIE_BRANCH_STORAGE_ARCHIVE).count()).isGreaterThan(0);
+    // Two checkpoints written: at blocks 2 and 5
+    assertThat(migrator.getTrieCheckpointProgress()).hasValue(5L);
+  }
+
+  @Test
+  public void trieCheckpointProgressAdvancesWithEachCheckpoint() throws Exception {
+    // interval=2 → checkpoints at blocks where (n+1) % 2 == 0: blocks 1, 3
+    final int interval = 2;
+    appendBlocks(4);
+
+    final BonsaiFlatDbToArchiveMigrator migrator = createMigratorWithTrieCheckpoints(interval);
+    migrator.migrate().get(MIGRATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+    assertThat(migrator.getTrieCheckpointProgress()).hasValue(3L);
+  }
+
+  @Test
+  public void trieCheckpointRestartRecoveryAdvancesProgress() throws Exception {
+    final int interval = 3;
+    // First migration: process 6 blocks, writing checkpoints at blocks 2 and 5
+    appendBlocks(6);
+    final BonsaiFlatDbToArchiveMigrator firstMigrator = createMigratorWithTrieCheckpoints(interval);
+    firstMigrator.migrate().get(MIGRATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    assertThat(firstMigrator.getTrieCheckpointProgress()).hasValue(5L);
+    firstMigrator.close();
+
+    // Simulate restart: append more blocks, create a new migrator that resumes
+    appendBlocks(3);
+    final BonsaiFlatDbToArchiveMigrator secondMigrator =
+        createMigratorWithTrieCheckpoints(interval);
+    secondMigrator.migrate().get(MIGRATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+    // After processing block 8 (8+1=9, 9%3=0), trie checkpoint advances to block 8
+    assertThat(secondMigrator.getTrieCheckpointProgress()).hasValue(8L);
+  }
+
+  @Test
+  public void noTrieCheckpointsWithoutInterval() throws Exception {
+    appendBlocks(3);
+    final BonsaiFlatDbToArchiveMigrator migrator = createMigrator();
+    migrator.migrate().get(MIGRATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+    assertThat(migrator.getTrieCheckpointProgress()).isEmpty();
+    assertThat(storage.streamKeys(TRIE_BRANCH_STORAGE_ARCHIVE).count()).isEqualTo(0);
+  }
+
   // --- test helpers ---
 
   private MutableBlockchain createInMemoryBlockchain(final Block genesisBlock) {
@@ -567,6 +628,26 @@ public class BonsaiFlatDbToArchiveMigratorTest {
 
   private BonsaiFlatDbToArchiveMigrator createMigrator() {
     return createMigrator(BOUNDARY_DISABLED);
+  }
+
+  private BonsaiFlatDbToArchiveMigrator createMigratorWithTrieCheckpoints(final long interval) {
+    when(trieLogManager.getMaxLayersToLoad()).thenReturn(BOUNDARY_DISABLED);
+    // Use an empty trie log so rollForward never conflicts on repeated account creations
+    when(trieLogManager.getTrieLogLayer(any())).thenReturn(Optional.of(new TrieLogLayer()));
+    final NoOpMetricsSystem metricsSystem = new NoOpMetricsSystem();
+    final BonsaiArchiveFlatDbStrategy archiveStrategy =
+        new BonsaiArchiveFlatDbStrategy(
+            metricsSystem, new CodeHashCodeStorageStrategy(), interval, false);
+    final BonsaiFlatDbToArchiveMigrator migrator =
+        new BonsaiFlatDbToArchiveMigrator(
+            worldStateStorage,
+            trieLogManager,
+            blockchain,
+            Executors.newScheduledThreadPool(1),
+            metricsSystem,
+            archiveStrategy);
+    migrators.add(migrator);
+    return migrator;
   }
 
   private BonsaiFlatDbToArchiveMigrator createMigrator(final long boundaryDistance) {

@@ -37,6 +37,8 @@ public interface PathBasedExtraStorageConfiguration {
   int DEFAULT_TRIE_LOG_PRUNING_WINDOW_SIZE = 5_000;
   boolean DEFAULT_PARALLEL_TX_PROCESSING = true;
   boolean DEFAULT_PARALLEL_STATE_ROOT_COMPUTATION = true;
+  long DEFAULT_ARCHIVE_CHECKPOINT_INTERVAL = 1024L;
+  boolean DEFAULT_STATE_PROOFS_ENABLED = false;
 
   @Value.Default
   default Long getMaxLayersToLoad() {
@@ -99,6 +101,16 @@ public interface PathBasedExtraStorageConfiguration {
     @Value.Default
     default boolean getCodeStoredByCodeHashEnabled() {
       return DEFAULT_CODE_USING_CODE_HASH_ENABLED;
+    }
+
+    @Value.Default
+    default boolean getStateProofsEnabled() {
+      return DEFAULT_STATE_PROOFS_ENABLED;
+    }
+
+    @Value.Default
+    default Long getArchiveTrieNodeCheckpointInterval() {
+      return DEFAULT_ARCHIVE_CHECKPOINT_INTERVAL;
     }
 
     @Value.Default

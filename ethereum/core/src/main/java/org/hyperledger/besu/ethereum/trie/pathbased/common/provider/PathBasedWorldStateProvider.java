@@ -377,7 +377,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
     try (PathBasedWorldState ws =
         (PathBasedWorldState)
             getWorldState(withBlockHeaderAndNoUpdateNodeHead(blockHeader)).orElse(null)) {
-      if (ws != null) {
+      if (ws != null && !ws.isTrieDisabled()) {
         final WorldStateProofProvider worldStateProofProvider =
             new WorldStateProofProvider(
                 new WorldStateStorageCoordinator(ws.getWorldStateStorage()));

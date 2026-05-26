@@ -14,10 +14,12 @@
  */
 package org.hyperledger.besu.cli.options.storage;
 
+import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.DEFAULT_ARCHIVE_CHECKPOINT_INTERVAL;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.DEFAULT_LIMIT_TRIE_LOGS_ENABLED;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.DEFAULT_MAX_LAYERS_TO_LOAD;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.DEFAULT_PARALLEL_STATE_ROOT_COMPUTATION;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.DEFAULT_PARALLEL_TX_PROCESSING;
+import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.DEFAULT_STATE_PROOFS_ENABLED;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.DEFAULT_TRIE_LOG_PRUNING_WINDOW_SIZE;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.MINIMUM_TRIE_LOG_RETENTION_LIMIT;
 import static org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration.PathBasedUnstable.DEFAULT_BONSAI_CROSS_BLOCK_CACHE_ACCOUNT_SIZE;
@@ -34,12 +36,16 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 import picocli.CommandLine.Option;
 
 /** The Data storage CLI options. */
 public class PathBasedExtraStorageOptions
     implements CLIOptions<PathBasedExtraStorageConfiguration> {
+
+  private static final Logger LOG = LoggerFactory.getLogger(PathBasedExtraStorageOptions.class);
 
   /** The maximum number of historical layers to load. */
   public static final String MAX_LAYERS_TO_LOAD = "--bonsai-historical-block-limit";
@@ -67,6 +73,13 @@ public class PathBasedExtraStorageOptions
   /** The bonsai parallel state root computation enabled option name. */
   public static final String PARALLEL_STATE_ROOT_COMPUTATION_ENABLED =
       "--bonsai-parallel-state-root-computation-enabled";
+
+  /** The bonsai archive state proofs enabled option name. */
+  public static final String STATE_PROOFS_ENABLED = "--Xbonsai-archive-state-proofs-enabled";
+
+  /** The bonsai archive trie-node checkpoint interval option name. */
+  public static final String ARCHIVE_TRIE_NODE_CHECKPOINT_INTERVAL =
+      "--Xbonsai-archive-trie-node-checkpoint-interval";
 
   @Option(
       names = {LIMIT_TRIE_LOGS_ENABLED},
@@ -119,6 +132,22 @@ public class PathBasedExtraStorageOptions
         description =
             "Enables code storage using code hash instead of by account hash. (default: ${DEFAULT-VALUE})")
     private boolean codeUsingCodeHashEnabled = DEFAULT_CODE_USING_CODE_HASH_ENABLED;
+
+    @Option(
+        hidden = true,
+        names = {STATE_PROOFS_ENABLED},
+        arity = "1",
+        description =
+            "Enables Bonsai-archive state proofs when using X_BONSAI_ARCHIVE storage format. (default: ${DEFAULT-VALUE})")
+    private Boolean stateProofsEnabled = DEFAULT_STATE_PROOFS_ENABLED;
+
+    @Option(
+        hidden = true,
+        names = {ARCHIVE_TRIE_NODE_CHECKPOINT_INTERVAL},
+        arity = "1",
+        description =
+            "The frequency of recording state trie nodes for Bonsai archive mode. Intermediate nodes are generated from trie logs. Larger intervals require less storage space but historic proof generation may take longer. (default: ${DEFAULT-VALUE})")
+    private Long archiveTrieNodeCheckpointInterval = DEFAULT_ARCHIVE_CHECKPOINT_INTERVAL;
 
     @Option(
         hidden = true,
@@ -192,6 +221,30 @@ public class PathBasedExtraStorageOptions
         }
       }
     }
+
+    if (unstableOptions.stateProofsEnabled
+        && DataStorageFormat.X_BONSAI_ARCHIVE != dataStorageFormat) {
+      throw new CommandLine.ParameterException(
+          commandLine, STATE_PROOFS_ENABLED + " requires --data-storage-format=X_BONSAI_ARCHIVE");
+    }
+
+    if (unstableOptions.archiveTrieNodeCheckpointInterval <= 0) {
+      throw new CommandLine.ParameterException(
+          commandLine,
+          String.format(
+              ARCHIVE_TRIE_NODE_CHECKPOINT_INTERVAL + "=%d must be greater than 0",
+              unstableOptions.archiveTrieNodeCheckpointInterval));
+    }
+
+    if (!unstableOptions.stateProofsEnabled
+        && unstableOptions.archiveTrieNodeCheckpointInterval
+            != DEFAULT_ARCHIVE_CHECKPOINT_INTERVAL) {
+      LOG.warn(
+          "{}={} has no effect unless {}=true is also set.",
+          ARCHIVE_TRIE_NODE_CHECKPOINT_INTERVAL,
+          unstableOptions.archiveTrieNodeCheckpointInterval,
+          STATE_PROOFS_ENABLED);
+    }
   }
 
   /**
@@ -220,6 +273,10 @@ public class PathBasedExtraStorageOptions
         domainObject.getParallelTxProcessingEnabled();
     dataStorageOptions.isParallelStateRootComputationEnabled =
         domainObject.getParallelStateRootComputationEnabled();
+    dataStorageOptions.unstableOptions.stateProofsEnabled =
+        domainObject.getUnstable().getStateProofsEnabled();
+    dataStorageOptions.unstableOptions.archiveTrieNodeCheckpointInterval =
+        domainObject.getUnstable().getArchiveTrieNodeCheckpointInterval();
 
     return dataStorageOptions;
   }
@@ -236,6 +293,9 @@ public class PathBasedExtraStorageOptions
             ImmutablePathBasedExtraStorageConfiguration.PathBasedUnstable.builder()
                 .fullFlatDbEnabled(unstableOptions.fullFlatDbEnabled)
                 .codeStoredByCodeHashEnabled(unstableOptions.codeUsingCodeHashEnabled)
+                .stateProofsEnabled(unstableOptions.stateProofsEnabled)
+                .archiveTrieNodeCheckpointInterval(
+                    unstableOptions.archiveTrieNodeCheckpointInterval)
                 .bonsaiCrossBlockCacheEnabled(unstableOptions.bonsaiCrossBlockCacheEnabled)
                 .bonsaiCrossBlockCacheAccountSize(unstableOptions.bonsaiCrossBlockCacheAccountSize)
                 .bonsaiCrossBlockCacheStorageSize(unstableOptions.bonsaiCrossBlockCacheStorageSize)

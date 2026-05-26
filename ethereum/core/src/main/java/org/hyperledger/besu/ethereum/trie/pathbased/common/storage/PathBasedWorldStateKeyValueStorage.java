@@ -60,6 +60,11 @@ public abstract class PathBasedWorldStateKeyValueStorage
   // 0x776f726c64426c6f636b4e756d626572
   public static final byte[] WORLD_BLOCK_NUMBER_KEY =
       "worldBlockNumber".getBytes(StandardCharsets.UTF_8);
+  public static final byte[] ARCHIVE_PROOF_CHECKPOINT_INTERVAL_KEY =
+      "archiveProofCheckpointInterval".getBytes(StandardCharsets.UTF_8);
+
+  public static final byte[] ARCHIVE_PROOF_BLOCK_NUMBER_KEY =
+      "archiveProofBlockNumber".getBytes(StandardCharsets.UTF_8);
 
   private final AtomicBoolean shouldClose = new AtomicBoolean(false);
 

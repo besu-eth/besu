@@ -194,13 +194,109 @@ public class BonsaiArchiveWorldStateProviderTest {
         .isInstanceOf(BonsaiFullFlatDbStrategy.class);
   }
 
+  // --- Proofs path tests ---
+
+  @Test
+  void proofsEnabled_targetIsCheckpointBlock_returnsProofWorldState() {
+    // With interval=100, targetNumber=99 → nearestCheckpoint = ((99+100)/100)*100 - 1 = 99
+    // so target IS the checkpoint. No trie-log rollback needed; returns immediately.
+    final long interval = 100L;
+    final BonsaiArchiveWorldStateProvider proofsProvider =
+        createProviderWithProofs(true, true, interval);
+    proofsProvider.setArchiveMigrationProgressSupplier(() -> CHAIN_HEAD);
+
+    final long targetNumber = interval - 1; // 99
+    final BlockHeader targetHeader =
+        new BlockHeaderTestFixture().number(targetNumber).buildHeader();
+    when(blockchain.getBlockHeader(targetHeader.getHash())).thenReturn(Optional.of(targetHeader));
+    when(blockchain.getBlockHeaderSafe(targetNumber)).thenReturn(Optional.of(targetHeader));
+
+    final var result =
+        proofsProvider.getWorldState(
+            WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(targetHeader));
+
+    assertThat(result).isPresent();
+    final BonsaiWorldState worldState = (BonsaiWorldState) result.get();
+    assertThat(worldState.getWorldStateStorage().getFlatDbStrategy())
+        .isInstanceOf(BonsaiArchiveFlatDbStrategy.class);
+  }
+
+  @Test
+  void proofsEnabled_headUpdateQuery_bypassesProofPath() {
+    // shouldWorldStateUpdateHead=true means isHistoricalQuery returns false; falls through to
+    // super.getWorldState() which returns the cached head state normally.
+    final BonsaiArchiveWorldStateProvider proofsProvider =
+        createProviderWithProofs(true, true, 100L);
+
+    final var result =
+        proofsProvider.getWorldState(
+            WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead(chainHeadHeader));
+
+    assertThat(result).isPresent();
+    final BonsaiWorldState worldState = (BonsaiWorldState) result.get();
+    assertThat(worldState.getWorldStateStorage().getFlatDbStrategy())
+        .isInstanceOf(BonsaiFullFlatDbStrategy.class);
+  }
+
+  @Test
+  void proofsEnabled_blockHashNotInChain_fallsThroughToSuper() {
+    // Block 50 is far behind the head but isHistoricalQuery requires archiveMigrationProgress
+    // to cover the target block. With default progress=-1 the gate fails and super is called,
+    // which cannot serve this block → empty result.
+    final BonsaiArchiveWorldStateProvider proofsProvider =
+        createProviderWithProofs(true, true, 100L);
+
+    final BlockHeader unknownHeader = new BlockHeaderTestFixture().number(50L).buildHeader();
+
+    final var result =
+        proofsProvider.getWorldState(
+            WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(unknownHeader));
+
+    assertThat(result).isEmpty();
+  }
+
+  @Test
+  void proofsDisabled_historicalBlock_usesArchiveFlatDbPath() {
+    // When stateProofsEnabled=false the proofs branch is skipped; historical queries
+    // use the archive flat-db path as before.
+    final BonsaiArchiveWorldStateProvider archiveProvider =
+        createProviderWithProofs(true, false, 100L);
+
+    final BlockHeader historicalHeader =
+        new BlockHeaderTestFixture().number(CHAIN_HEAD - MAX_LAYERS - 1).buildHeader();
+    when(blockchain.getBlockHeader(historicalHeader.getHash()))
+        .thenReturn(Optional.of(historicalHeader));
+    archiveProvider.setArchiveMigrationProgressSupplier(() -> CHAIN_HEAD);
+
+    final var result =
+        archiveProvider.getWorldState(
+            WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(historicalHeader));
+
+    assertThat(result).isPresent();
+    final BonsaiWorldState worldState = (BonsaiWorldState) result.get();
+    assertThat(worldState.getWorldStateStorage().getFlatDbStrategy())
+        .isInstanceOf(BonsaiArchiveFlatDbStrategy.class);
+  }
+
   private BonsaiArchiveWorldStateProvider createProvider(final boolean archiveModeReady) {
+    return createProviderWithProofs(archiveModeReady, false, 100L);
+  }
+
+  private BonsaiArchiveWorldStateProvider createProviderWithProofs(
+      final boolean archiveModeReady,
+      final boolean stateProofsEnabled,
+      final long checkpointInterval) {
     final var config =
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(DataStorageFormat.X_BONSAI_ARCHIVE)
             .pathBasedExtraStorageConfiguration(
                 ImmutablePathBasedExtraStorageConfiguration.builder()
                     .maxLayersToLoad(MAX_LAYERS)
+                    .unstable(
+                        ImmutablePathBasedExtraStorageConfiguration.PathBasedUnstable.builder()
+                            .stateProofsEnabled(stateProofsEnabled)
+                            .archiveTrieNodeCheckpointInterval(checkpointInterval)
+                            .build())
                     .build())
             .build();
     final BonsaiWorldStateKeyValueStorage worldStateStorage =

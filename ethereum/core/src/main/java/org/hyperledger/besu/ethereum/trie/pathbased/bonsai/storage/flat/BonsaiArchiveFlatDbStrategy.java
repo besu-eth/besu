@@ -17,6 +17,9 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
+import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.ARCHIVE_PROOF_BLOCK_NUMBER_KEY;
+import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.ARCHIVE_PROOF_CHECKPOINT_INTERVAL_KEY;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
 
 import org.hyperledger.besu.datatypes.Hash;
@@ -44,15 +47,37 @@ import org.slf4j.LoggerFactory;
 public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
   private static final Logger LOG = LoggerFactory.getLogger(BonsaiArchiveFlatDbStrategy.class);
 
+  static final byte[] MAX_BLOCK_SUFFIX = Bytes.ofUnsignedLong(Long.MAX_VALUE).toArrayUnsafe();
+  static final byte[] MIN_BLOCK_SUFFIX = Bytes.ofUnsignedLong(0L).toArrayUnsafe();
+  private static final int KEY_SUFFIX_LENGTH = 8;
+
+  private final Long trieNodeCheckpointInterval;
+  private volatile boolean intervalSeeded = false;
+  private final boolean archiveReadsEnabled;
+
   public BonsaiArchiveFlatDbStrategy(
       final MetricsSystem metricsSystem, final CodeStorageStrategy codeStorageStrategy) {
     super(metricsSystem, codeStorageStrategy);
+    this.trieNodeCheckpointInterval = null;
+    this.archiveReadsEnabled = false;
   }
 
-  static final byte[] MAX_BLOCK_SUFFIX = Bytes.ofUnsignedLong(Long.MAX_VALUE).toArrayUnsafe();
-  static final byte[] MIN_BLOCK_SUFFIX = Bytes.ofUnsignedLong(0L).toArrayUnsafe();
+  public BonsaiArchiveFlatDbStrategy(
+      final MetricsSystem metricsSystem,
+      final CodeStorageStrategy codeStorageStrategy,
+      final long trieNodeCheckpointInterval,
+      final boolean archiveReadsEnabled) {
+    super(metricsSystem, codeStorageStrategy);
+    this.trieNodeCheckpointInterval = trieNodeCheckpointInterval;
+    this.archiveReadsEnabled = archiveReadsEnabled;
+  }
+
   public static final byte[] DELETED_ACCOUNT_VALUE = new byte[0];
   public static final byte[] DELETED_STORAGE_VALUE = new byte[0];
+
+  public Long getTrieNodeCheckpointInterval() {
+    return trieNodeCheckpointInterval;
+  }
 
   private Optional<BonsaiContext> getStateArchiveContextForWrite(
       final SegmentedKeyValueStorage storage) {
@@ -94,6 +119,135 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
       }
     }
     return Optional.empty();
+  }
+
+  private void ensureIntervalSeeded(final SegmentedKeyValueStorage storage) {
+    if (intervalSeeded) return;
+    synchronized (this) {
+      if (intervalSeeded) return;
+      storage
+          .get(TRIE_BRANCH_STORAGE_ARCHIVE, ARCHIVE_PROOF_CHECKPOINT_INTERVAL_KEY)
+          .ifPresentOrElse(
+              persistedBytes -> {
+                long persisted = Bytes.wrap(persistedBytes).toLong();
+                if (persisted != trieNodeCheckpointInterval) {
+                  throw new RuntimeException(
+                      "Checkpoint interval mismatch (DB="
+                          + persisted
+                          + ", config="
+                          + trieNodeCheckpointInterval
+                          + ")");
+                }
+              },
+              () -> {
+                SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
+                tx.put(
+                    TRIE_BRANCH_STORAGE_ARCHIVE,
+                    ARCHIVE_PROOF_CHECKPOINT_INTERVAL_KEY,
+                    Bytes.ofUnsignedLong(trieNodeCheckpointInterval).toArrayUnsafe());
+                tx.commit();
+              });
+      intervalSeeded = true;
+    }
+  }
+
+  private BonsaiContext getStateTrieArchiveContextForWrite(final SegmentedKeyValueStorage storage) {
+    // If ARCHIVE_PROOF_BLOCK_NUMBER_KEY is set (proof reconstruction path), use it directly as the
+    // suffix so reconstructed nodes are indexed by target block and readable during eth_getProof.
+    Optional<byte[]> proofBlockNumber =
+        storage.get(TRIE_BRANCH_STORAGE, ARCHIVE_PROOF_BLOCK_NUMBER_KEY);
+    if (proofBlockNumber.isPresent()) {
+      return new BonsaiContext(Bytes.wrap(proofBlockNumber.get()).toLong());
+    }
+    // Suffix = floor((blockNumber + 1) / interval) * interval — the window's start block.
+    // Genesis has no WORLD_BLOCK_NUMBER_KEY yet; use suffix 0.
+    return storage
+        .get(TRIE_BRANCH_STORAGE, WORLD_BLOCK_NUMBER_KEY)
+        .map(
+            bytes -> {
+              long blockNumber = Bytes.wrap(bytes).toLong();
+              long windowStart =
+                  ((blockNumber + 1) / trieNodeCheckpointInterval) * trieNodeCheckpointInterval;
+              return new BonsaiContext(windowStart);
+            })
+        .orElse(new BonsaiContext(0L));
+  }
+
+  @Override
+  public void putFlatAccountTrieNode(
+      final SegmentedKeyValueStorage storage,
+      final SegmentedKeyValueStorageTransaction transaction,
+      final Bytes location,
+      final Bytes32 nodeHash,
+      final Bytes node) {
+    super.putFlatAccountTrieNode(storage, transaction, location, nodeHash, node);
+    if (trieNodeCheckpointInterval != null) {
+      ensureIntervalSeeded(storage);
+      byte[] keySuffixed =
+          calculateArchiveKeyWithMinSuffix(
+              getStateTrieArchiveContextForWrite(storage), location.toArrayUnsafe());
+      transaction.put(TRIE_BRANCH_STORAGE_ARCHIVE, keySuffixed, node.toArrayUnsafe());
+    }
+  }
+
+  @Override
+  public void putFlatStorageTrieNode(
+      final SegmentedKeyValueStorage storage,
+      final SegmentedKeyValueStorageTransaction transaction,
+      final Hash accountHash,
+      final Bytes location,
+      final Bytes32 nodeHash,
+      final Bytes node) {
+    super.putFlatStorageTrieNode(storage, transaction, accountHash, location, nodeHash, node);
+    if (trieNodeCheckpointInterval != null) {
+      ensureIntervalSeeded(storage);
+      byte[] keySuffixed =
+          calculateArchiveKeyWithMinSuffix(
+              getStateTrieArchiveContextForWrite(storage),
+              Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe());
+      transaction.put(TRIE_BRANCH_STORAGE_ARCHIVE, keySuffixed, node.toArrayUnsafe());
+    }
+  }
+
+  @Override
+  public Optional<Bytes> getFlatAccountTrieNode(
+      final Bytes location, final Bytes32 nodeHash, final SegmentedKeyValueStorage storage) {
+    if (!archiveReadsEnabled) {
+      return Optional.empty();
+    }
+    Bytes keyNearest =
+        calculateArchiveKeyWithMaxSuffix(
+            getStateArchiveContextForRead(storage), location.toArrayUnsafe());
+    return storage
+        .getNearestBeforeMatchLength(TRIE_BRANCH_STORAGE_ARCHIVE, keyNearest)
+        .filter(found -> found.key().size() == location.size() + KEY_SUFFIX_LENGTH)
+        .filter(found -> location.commonPrefixLength(found.key()) >= location.size())
+        .flatMap(SegmentedKeyValueStorage.NearestKeyValue::wrapBytes);
+  }
+
+  @Override
+  public Optional<Bytes> getFlatStorageTrieNode(
+      final Hash accountHash,
+      final Bytes location,
+      final Bytes32 nodeHash,
+      final SegmentedKeyValueStorage storage) {
+    if (!archiveReadsEnabled) {
+      return Optional.empty();
+    }
+    Bytes accountHashLocation = Bytes.concatenate(accountHash.getBytes(), location);
+    Bytes keyNearest =
+        calculateArchiveKeyWithMaxSuffix(
+            getStateArchiveContextForRead(storage), accountHashLocation.toArrayUnsafe());
+    return storage
+        .getNearestBeforeMatchLength(TRIE_BRANCH_STORAGE_ARCHIVE, keyNearest)
+        .filter(
+            found ->
+                found.key().size()
+                    == accountHash.getBytes().size() + location.size() + KEY_SUFFIX_LENGTH)
+        .filter(
+            found ->
+                accountHashLocation.commonPrefixLength(found.key()) >= accountHashLocation.size())
+        .flatMap(SegmentedKeyValueStorage.NearestKeyValue::wrapBytes);
   }
 
   @Override
@@ -441,6 +595,9 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
 
   @Override
   public void clearAll(final SegmentedKeyValueStorage storage) {
+    if (trieNodeCheckpointInterval != null) {
+      storage.clear(TRIE_BRANCH_STORAGE_ARCHIVE);
+    }
     clearArchiveSegments(storage);
     // Then call parent to clear other segments
     super.clearAll(storage);
@@ -448,6 +605,9 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
 
   @Override
   public void resetOnResync(final SegmentedKeyValueStorage storage) {
+    if (trieNodeCheckpointInterval != null) {
+      storage.clear(TRIE_BRANCH_STORAGE_ARCHIVE);
+    }
     clearArchiveSegments(storage);
     // Then call parent to reset other segments
     super.resetOnResync(storage);

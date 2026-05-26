@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbSt
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
@@ -89,6 +90,20 @@ public class BonsaiFlatDbStrategyProvider extends FlatDbStrategyProvider {
       final FlatDbMode flatDbMode,
       final MetricsSystem metricsSystem,
       final CodeStorageStrategy codeStorageStrategy) {
+    if (dataStorageConfiguration.getDataStorageFormat() == DataStorageFormat.X_BONSAI_ARCHIVE
+        && dataStorageConfiguration
+            .getPathBasedExtraStorageConfiguration()
+            .getUnstable()
+            .getStateProofsEnabled()) {
+      return new BonsaiArchiveFlatDbStrategy(
+          metricsSystem,
+          codeStorageStrategy,
+          dataStorageConfiguration
+              .getPathBasedExtraStorageConfiguration()
+              .getUnstable()
+              .getArchiveTrieNodeCheckpointInterval(),
+          false);
+    }
     if (flatDbMode == FlatDbMode.FULL || flatDbMode == FlatDbMode.ARCHIVE) {
       return new BonsaiFullFlatDbStrategy(metricsSystem, codeStorageStrategy);
     } else {
