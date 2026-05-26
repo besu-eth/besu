@@ -64,14 +64,6 @@ Benchmarks sequential vs parallel block body DB lookups for `engine_getPayloadBo
 ./gradlew :ethereum:api:jmh -Pincludes=EngineGetPayloadBodiesParallel --rerun-tasks --no-daemon
 ```
 
-### Address hash caching (`ethereum:core`)
-
-Benchmarks per-instance volatile cache vs global Caffeine cache for `Address.addressHash()`. Key scenario: cross-instance deduplication cost when the same address bytes appear across many distinct `Address` objects.
-
-```bash
-./gradlew :ethereum:core:jmh -Pincludes=AddressHashBenchmark --rerun-tasks --no-daemon
-```
-
 ---
 
 ## 🔥 Async Profiler Integration (Optional)
