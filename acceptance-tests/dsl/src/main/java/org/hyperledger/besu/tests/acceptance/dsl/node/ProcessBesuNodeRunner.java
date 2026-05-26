@@ -465,12 +465,13 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
             () -> {
               final Process process = besuProcesses.get(node.getName());
               if (!process.isAlive()) {
-                LOG.warn(
-                    "Besu process for node {} exited with code {} before writing {}",
-                    node.getName(),
-                    process.exitValue(),
-                    fileName);
-                return true;
+                throw new IllegalStateException(
+                    String.format(
+                        "Besu process for node '%s' exited with code %d before writing %s."
+                            + " This usually means the node failed to start — check the"
+                            + " SubProcessLog output above for the startup error"
+                            + " (e.g. UnsupportedClassVersionError, port conflict, bad config).",
+                        node.getName(), process.exitValue(), fileName));
               }
 
               try (final Stream<String> s = Files.lines(file.toPath())) {
