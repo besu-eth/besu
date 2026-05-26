@@ -14,12 +14,10 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
-import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.Bytes32;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.core.json.HashDeserializer;
 import org.hyperledger.besu.ethereum.core.json.Bytes32Deserializer;
 import org.hyperledger.besu.ethereum.core.json.BytesDeserializer;
+import org.hyperledger.besu.ethereum.core.json.HashDeserializer;
 import org.hyperledger.besu.ethereum.core.json.UInt64Deserializer;
 
 import java.util.List;
@@ -42,10 +40,10 @@ public class JsonRpcParameter {
 
   private static final SimpleModule ETH_MODULE =
       new SimpleModule("eth")
-              .addDeserializer(Hash.class, new HashDeserializer())
-              .addDeserializer(UInt64.class, new UInt64Deserializer())
-              .addDeserializer(Bytes.class, new BytesDeserializer())
-              .addDeserializer(Bytes32.class, new Bytes32Deserializer());
+          .addDeserializer(Hash.class, new HashDeserializer())
+          .addDeserializer(UInt64.class, new UInt64Deserializer())
+          .addDeserializer(Bytes.class, new BytesDeserializer())
+          .addDeserializer(Bytes32.class, new Bytes32Deserializer());
 
   /**
    * Jackson's default {@link ObjectMapper}. Classes that need to tolerate unknown JSON properties
