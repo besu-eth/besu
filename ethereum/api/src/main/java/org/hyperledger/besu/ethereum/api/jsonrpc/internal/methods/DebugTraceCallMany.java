@@ -124,15 +124,18 @@ public class DebugTraceCallMany extends AbstractBlockParameterMethod {
                 final DebugTraceCallParameterTuple tuple = param.getTuple();
                 final TraceOptions traceOptions = resolveTraceOptions(tuple.getTraceParams());
                 final WorldUpdater localUpdater = updater.updater();
-                results.add(
+                final Object callResult =
                     traceSingleCall(
                         tuple.getCallParameter(),
                         traceOptions,
                         blockHeader,
                         protocolSpec,
                         miningBeneficiary,
-                        localUpdater));
-                localUpdater.commit();
+                        localUpdater);
+                results.add(callResult);
+                if (!(callResult instanceof JsonRpcError)) {
+                  localUpdater.commit();
+                }
               }
               return Optional.<Object>of(results);
             })

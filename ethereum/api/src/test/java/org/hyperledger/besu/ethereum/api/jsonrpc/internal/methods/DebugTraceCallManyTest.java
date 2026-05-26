@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -176,7 +177,7 @@ public class DebugTraceCallManyTest {
     assertThat(results.get(0)).isInstanceOf(JsonRpcError.class);
     assertThat(results.get(1)).isInstanceOf(OpCodeLoggerTracerResult.class);
 
-    verify(childUpdater, times(2)).commit();
+    verify(childUpdater, times(1)).commit();
   }
 
   @Test
@@ -194,6 +195,8 @@ public class DebugTraceCallManyTest {
     final List<Object> results = (List<Object>) ((JsonRpcSuccessResponse) response).getResult();
     assertThat(results).hasSize(1);
     assertThat(results.get(0)).isInstanceOf(JsonRpcError.class);
+
+    verify(childUpdater, never()).commit();
   }
 
   private TransactionSimulatorResult successfulSimulatorResult() {
