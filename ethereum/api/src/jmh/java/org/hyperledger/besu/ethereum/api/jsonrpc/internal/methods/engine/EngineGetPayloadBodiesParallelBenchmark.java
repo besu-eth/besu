@@ -24,7 +24,6 @@ import java.util.stream.LongStream;
 
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
-import org.openjdk.jmh.annotations.Fork;
 import org.openjdk.jmh.annotations.Measurement;
 import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.OutputTimeUnit;
@@ -50,7 +49,7 @@ import org.openjdk.jmh.infra.Blackhole;
  * <p>Run with:
  *
  * <pre>
- *   ./gradlew :ethereum:api:jmh
+ *   ./gradlew :ethereum:api:jmh -Pincludes=EngineGetPayloadBodiesParallel
  * </pre>
  */
 @State(Scope.Thread)
@@ -58,7 +57,6 @@ import org.openjdk.jmh.infra.Blackhole;
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
 @Warmup(iterations = 3, time = 2, timeUnit = TimeUnit.SECONDS)
 @Measurement(iterations = 5, time = 2, timeUnit = TimeUnit.SECONDS)
-@Fork(1)
 public class EngineGetPayloadBodiesParallelBenchmark {
 
   /** Number of blocks in the request — mirrors the range callers actually use. */
