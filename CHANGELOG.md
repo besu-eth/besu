@@ -41,6 +41,7 @@
 - Updated `Bouncycastle` to 1.84 and `maven-artifact` to 3.9.15 to resolve CVEs reported in those libraries. Besu's usage patterns are not affected by these vulnerabilities. [#10420](https://github.com/besu-eth/besu/pull/10420)
 - Improve native memory handling in RocksDB storage: `LRUCache`, `ColumnFamilyOptions`, and temporary options-file loading objects are now explicitly closed [#10456](https://github.com/besu-eth/besu/pull/10456)
 - `eth_capabilities`: `state` and `stateproofs` now report `disabled: true` when genesis world state is unavailable (e.g. SNAP sync nodes) [#10377](https://github.com/besu-eth/besu/pull/10377)
+- Add `debug_traceCallMany` JSON-RPC method to execute a batch of calls sequentially against a shared world state and return one trace per call; failed calls produce an inline error entry so the batch continues, matching geth's behaviour. [#10479](https://github.com/besu-eth/besu/issues/10479)
 
 ## 26.5.0
 
