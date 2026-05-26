@@ -77,6 +77,7 @@ public class EngineGetPayloadBodiesByRangeV2Test extends AbstractEngineGetPayloa
     when(blockchain.getBlockBody(blockHash1)).thenReturn(Optional.of(blockBody1));
     when(blockchain.getBlockBody(blockHash2)).thenReturn(Optional.of(blockBody2));
     when(blockchain.getBlockAccessList(blockHash1)).thenReturn(Optional.of(blockAccessList));
+    when(blockchain.getBlockAccessList(blockHash2)).thenReturn(Optional.empty());
 
     final var resp = resp("0x1", "0x2");
     final EngineGetPayloadBodiesResultV2 result = fromSuccessResp(resp);
