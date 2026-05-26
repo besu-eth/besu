@@ -121,4 +121,23 @@ public class DebugTraceCallManyParameterTest {
     assertThatExceptionOfType(MismatchedInputException.class)
         .isThrownBy(() -> mapper.readValue(INVALID_JSON, DebugTraceCallManyParameter[].class));
   }
+
+  @Test
+  public void emptyTupleFailsToParse() {
+    assertThatExceptionOfType(MismatchedInputException.class)
+        .isThrownBy(() -> mapper.readValue("[[]]", DebugTraceCallManyParameter[].class));
+  }
+
+  @Test
+  public void nullCallParamsSlotFailsToParse() {
+    assertThatExceptionOfType(MismatchedInputException.class)
+        .isThrownBy(() -> mapper.readValue("[[null]]", DebugTraceCallManyParameter[].class));
+  }
+
+  @Test
+  public void nullCallParamsWithTraceConfigFailsToParse() {
+    assertThatExceptionOfType(MismatchedInputException.class)
+        .isThrownBy(
+            () -> mapper.readValue("[[null, {}]]", DebugTraceCallManyParameter[].class));
+  }
 }

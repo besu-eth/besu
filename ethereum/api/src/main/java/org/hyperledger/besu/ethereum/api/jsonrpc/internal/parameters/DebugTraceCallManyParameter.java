@@ -25,6 +25,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
+import com.fasterxml.jackson.databind.exc.MismatchedInputException;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 
 /**
@@ -64,6 +65,12 @@ class DebugTraceCallParameterDeserializer extends StdDeserializer<DebugTraceCall
   public DebugTraceCallParameterTuple deserialize(
       final JsonParser p, final DeserializationContext ctxt) throws IOException {
     final JsonNode tupleNode = p.getCodec().readTree(p);
+    if (!tupleNode.isArray() || tupleNode.isEmpty() || tupleNode.get(0).isNull()) {
+      throw MismatchedInputException.from(
+          p,
+          DebugTraceCallParameterTuple.class,
+          "debug_traceCallMany entry must be a non-empty array whose first element is the call params object");
+    }
     final CallParameter callParameter =
         mapper.readValue(tupleNode.get(0).toString(), CallParameter.class);
     final TransactionTraceParams traceParams =
