@@ -49,7 +49,7 @@ import org.openjdk.jmh.infra.Blackhole;
  * <p>Run with:
  *
  * <pre>
- *   ./gradlew :ethereum:api:jmh -Pincludes=EngineGetPayloadBodiesParallel
+ *   ./gradlew :ethereum:api:jmh -Pincludes=EngineGetPayloadBodiesParallel --rerun-tasks --no-daemon
  * </pre>
  */
 @State(Scope.Thread)
