@@ -134,10 +134,12 @@ public class DebugTraceCallMany extends AbstractBlockParameterMethod {
                         localUpdater));
                 localUpdater.commit();
               }
-              return Optional.of(results);
+              return Optional.<Object>of(results);
             })
         .orElseGet(
-            () -> new JsonRpcErrorResponse(requestContext.getRequest().getId(), INTERNAL_ERROR));
+            () ->
+                (Object)
+                    new JsonRpcErrorResponse(requestContext.getRequest().getId(), INTERNAL_ERROR));
   }
 
   private TraceOptions resolveTraceOptions(final TransactionTraceParams traceParams) {
