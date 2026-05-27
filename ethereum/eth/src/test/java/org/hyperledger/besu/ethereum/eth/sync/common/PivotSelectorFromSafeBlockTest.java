@@ -214,6 +214,57 @@ public class PivotSelectorFromSafeBlockTest {
     verify(headerDownloader, never()).downloadBlockHeader(block60.getHash());
   }
 
+  // --- pivot stability (lastReturnedPivot) ---
+
+  @Test
+  void selectNewPivotBlockReusesExistingPivotWhenStillFresh() {
+    final List<BlockHeader> chain = chain(100, 1); // blocks 1–100
+    chain.forEach(selector::onNewPayload);
+
+    final BlockHeader head = chain.get(99); // block 100
+    final BlockHeader safe = chain.get(49); // block 50
+    selector.onNewUnverifiedForkchoice(fcu(head.getHash(), safe.getHash(), Hash.ZERO));
+
+    // First call — selects and stores safe block (50) as lastReturnedPivot
+    final PivotSyncState first = selector.selectNewPivotBlock().join();
+    assertThat(first.getPivotBlockHeader()).contains(safe);
+
+    // Advance head by only 10 blocks — well within threshold (93)
+    final List<BlockHeader> extension = chain(10, 101); // blocks 101–110
+    extension.forEach(selector::onNewPayload);
+    final BlockHeader newHead = extension.get(9); // block 110
+    selector.onNewUnverifiedForkchoice(fcu(newHead.getHash(), safe.getHash(), Hash.ZERO));
+
+    // Second call — head(110) - pivot(50) = 60 < 93 → must reuse
+    final PivotSyncState second = selector.selectNewPivotBlock().join();
+    assertThat(second.getPivotBlockHeader()).contains(safe);
+    verify(headerDownloader, never()).downloadBlockHeader(any());
+  }
+
+  @Test
+  void selectNewPivotBlockRefreshesPivotWhenHeadAdvancedBeyondThreshold() {
+    final List<BlockHeader> chain = chain(200, 1); // blocks 1–200
+    chain.forEach(selector::onNewPayload);
+
+    final BlockHeader head100 = chain.get(99); // block 100
+    final BlockHeader safe50 = chain.get(49); // block 50
+    selector.onNewUnverifiedForkchoice(fcu(head100.getHash(), safe50.getHash(), Hash.ZERO));
+
+    // First call — stores block 50 as lastReturnedPivot
+    final PivotSyncState first = selector.selectNewPivotBlock().join();
+    assertThat(first.getPivotBlockHeader()).contains(safe50);
+
+    // Advance head to block 200; safe also advances to block 160
+    final BlockHeader head200 = chain.get(199); // block 200
+    final BlockHeader safe160 = chain.get(159); // block 160
+    selector.onNewUnverifiedForkchoice(fcu(head200.getHash(), safe160.getHash(), Hash.ZERO));
+
+    // head(200) - lastReturnedPivot(50) = 150 >= 93 → must refresh
+    // new pivot: safe160, since head(200) - safe(160) = 40 < 93
+    final PivotSyncState second = selector.selectNewPivotBlock().join();
+    assertThat(second.getPivotBlockHeader()).contains(safe160);
+  }
+
   // --- getBestChainHeight ---
 
   @Test

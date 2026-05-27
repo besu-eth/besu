@@ -78,6 +78,7 @@ public class PivotSelectorFromSafeBlock
   private volatile long lastFcuTimeMillis = 0;
   private final Map<Hash, BlockHeader> headHeaders = new ConcurrentHashMap<>();
   private volatile long lastNoFcuInfoLog;
+  private volatile BlockHeader lastReturnedPivot = null;
 
   /**
    * Construct a pivot selector. The caller is responsible for registering this selector as both a
@@ -160,9 +161,13 @@ public class PivotSelectorFromSafeBlock
     }
 
     final BlockHeader cachedHead = headHeaders.get(headHash);
+    final BlockHeader headerForSlotDuration =
+        Optional.ofNullable(headHeaders.get(latestSafeHash))
+            .or(() -> Optional.ofNullable(cachedHead))
+            .orElse(null);
     final Duration slotDuration =
-        cachedHead != null
-            ? protocolSchedule.getByBlockHeader(cachedHead).getSlotDuration()
+        headerForSlotDuration != null
+            ? protocolSchedule.getByBlockHeader(headerForSlotDuration).getSlotDuration()
             : DEFAULT_SLOT_DURATION;
     final long nowMillis = clock.millis();
     final long millisSinceLastFcu = lastFcuTimeMillis > 0 ? nowMillis - lastFcuTimeMillis : 0;
@@ -175,6 +180,19 @@ public class PivotSelectorFromSafeBlock
               "Consensus client appears offline: last FCU was "
                   + (millisSinceLastFcu / 1000)
                   + "s ago; pivot block would be outside the snap-serving window"));
+    }
+
+    final BlockHeader currentPivot = lastReturnedPivot;
+    if (currentPivot != null && cachedHead != null) {
+      final long distanceFromHead = cachedHead.getNumber() - currentPivot.getNumber();
+      if (distanceFromHead < effectiveThreshold) {
+        LOG.debug(
+            "Reusing existing pivot block {} — head has only advanced {} blocks (threshold {})",
+            currentPivot.getNumber(),
+            distanceFromHead,
+            effectiveThreshold);
+        return CompletableFuture.completedFuture(new PivotSyncState(currentPivot, true));
+      }
     }
 
     final CompletableFuture<BlockHeader> headFuture = getOrDownload(headHash);
@@ -206,7 +224,12 @@ public class PivotSelectorFromSafeBlock
               return walkBackParents(head, blocksToWalk)
                   .thenApply(anchored -> new PivotSyncState(anchored, true));
             })
-        .thenCompose(cf -> cf);
+        .thenCompose(cf -> cf)
+        .thenApply(
+            state -> {
+              state.getPivotBlockHeader().ifPresent(h -> lastReturnedPivot = h);
+              return state;
+            });
   }
 
   private CompletableFuture<PivotSyncState> logAndFailNoFcu() {
