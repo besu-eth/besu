@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.parameters.UnsignedLongParameter;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
@@ -107,21 +106,23 @@ public class EngineGetPayloadBodiesByRangeV2 extends AbstractEngineGetPayloadBod
     final long endExclusiveBlockNumber =
         chainHeadBlockNumber < upperBound ? chainHeadBlockNumber + 1 : upperBound;
 
-    final List<Optional<Hash>> blockHashes =
+    final List<Optional<BlockBodyWithAccessList>> results =
         LongStream.range(startBlockNumber, endExclusiveBlockNumber)
-            .mapToObj(blockchain::getBlockHashByNumber)
-            .collect(Collectors.toList());
-
-    final List<Optional<String>> blockAccessLists =
-        blockHashes.stream()
-            .map(
-                maybeHash ->
-                    maybeHash.flatMap(blockHash -> getBlockAccessList(blockchain, blockHash)))
+            .parallel()
+            .mapToObj(
+                blockNumber ->
+                    blockchain
+                        .getBlockHashByNumber(blockNumber)
+                        .map(hash -> getBlockBodyWithAccessList(blockchain, hash)))
             .collect(Collectors.toList());
 
     final List<Optional<BlockBody>> blockBodies =
-        blockHashes.stream()
-            .map(maybeHash -> maybeHash.flatMap(blockchain::getBlockBody))
+        results.stream()
+            .map(r -> r.flatMap(BlockBodyWithAccessList::body))
+            .collect(Collectors.toList());
+    final List<Optional<String>> blockAccessLists =
+        results.stream()
+            .map(r -> r.flatMap(BlockBodyWithAccessList::accessList))
             .collect(Collectors.toList());
 
     EngineGetPayloadBodiesResultV2 engineGetPayloadBodiesResultV2 =
