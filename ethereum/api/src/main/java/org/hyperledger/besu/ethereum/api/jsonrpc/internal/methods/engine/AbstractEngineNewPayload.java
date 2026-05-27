@@ -296,8 +296,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
       return respondWithInvalid(reqId, blockParam, null, getInvalidBlockHashStatus(), errorMessage);
     }
 
-    // Notify listeners that a new payload arrived. The header has had its block hash verified
-    // against the payload contents but has not been validated against the local chain.
     mergeContext.get().fireNewPayloadEvent(newBlockHeader);
 
     if (mergeContext.get().isSyncing()) {

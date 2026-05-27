@@ -16,160 +16,201 @@ package org.hyperledger.besu.ethereum.eth.sync.common;
 
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.consensus.merge.ForkchoiceEvent;
+import org.hyperledger.besu.consensus.merge.NewPayloadListener;
 import org.hyperledger.besu.consensus.merge.UnverifiedForkchoiceListener;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
+import java.time.Clock;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Supplier;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Selects the pivot block for snap sync from the {@link NewPayloadHeaderCache}.
+ * Selects the pivot block for snap sync using FCU head and safe block headers.
  *
- * <p>The cache is populated by {@code engine_newPayload} events; on every {@code
- * engine_forkchoiceUpdated} the selector additionally ensures the head and safe block headers are
- * cached (downloading from a peer if necessary). {@link #selectNewPivotBlock()} then picks a pivot
- * purely from the cache, in this order:
+ * <p>On every {@code engine_forkchoiceUpdated} the latest head and safe block hashes are recorded.
+ * {@link #selectNewPivotBlock()} downloads missing headers on demand and picks a pivot:
  *
  * <ol>
- *   <li>the FCU's safe block, if it is fewer than {@value #SAFE_BLOCK_FRESHNESS_THRESHOLD} blocks
- *       behind the head;
- *   <li>the cached header at {@code head - }{@value #PIVOT_OFFSET_FROM_HEAD};
- *   <li>the oldest cached header if fewer than {@value #PIVOT_OFFSET_FROM_HEAD} are cached;
- *   <li>a failed future if none of the above is available.
+ *   <li>the safe block, if it is within the effective freshness threshold of the head;
+ *   <li>otherwise the head block.
  * </ol>
+ *
+ * <p>The effective freshness threshold shrinks by one per estimated missed slot since the last FCU,
+ * because the real chain tip has advanced by that many blocks. When the threshold reaches zero the
+ * method fails with an exception so the caller knows the consensus client appears offline.
  */
 public class PivotSelectorFromSafeBlock
-    implements PivotBlockSelector, UnverifiedForkchoiceListener {
+    implements PivotBlockSelector, NewPayloadListener, UnverifiedForkchoiceListener {
 
   private static final Logger LOG = LoggerFactory.getLogger(PivotSelectorFromSafeBlock.class);
   private static final long DIAGNOSTIC_LOG_RATE_LIMIT = Duration.ofMinutes(1).toMillis();
+  private static final Duration DEFAULT_SLOT_DURATION = Duration.ofSeconds(12);
 
-  /** Offset from head to use as pivot when the safe block is too far behind (1 epoch of slots). */
-  public static final int PIVOT_OFFSET_FROM_HEAD = 32;
+  /**
+   * Maximum distance (in blocks) the safe block can be behind head (7 minutes) and still be used as
+   * pivot.
+   */
+  public static final int SAFE_BLOCK_FRESHNESS_THRESHOLD = 93;
 
-  /** Maximum distance (in blocks) the safe block can be behind head and still be used as pivot. */
-  public static final int SAFE_BLOCK_FRESHNESS_THRESHOLD =
-      NewPayloadHeaderCache.MAX_SIZE - PIVOT_OFFSET_FROM_HEAD;
+  /** Number of blocks behind the FCU head to use as pivot anchor, for reorg safety. */
+  private static final int REORG_SAFETY_DISTANCE = 32;
 
   private final ProtocolContext protocolContext;
   private final GenesisConfigOptions genesisConfig;
-  private final Supplier<Optional<ForkchoiceEvent>> forkchoiceStateSupplier;
   private final SingleBlockHeaderDownloader headerDownloader;
-  private final NewPayloadHeaderCache headerCache;
+  private final ProtocolSchedule protocolSchedule;
+  private final Clock clock;
   private final Runnable cleanupAction;
 
-  private volatile long lastNoFcuInfoLog = System.currentTimeMillis();
+  private volatile Hash latestHeadHash = Hash.ZERO;
+  private volatile Hash latestSafeHash = Hash.ZERO;
+  private volatile Hash latestFinalizedHash = Hash.ZERO;
+  private volatile long lastFcuTimeMillis = 0;
+  private final Map<Hash, BlockHeader> headHeaders = new ConcurrentHashMap<>();
+  private volatile long lastNoFcuInfoLog;
 
   /**
-   * Construct a pivot selector. The caller is responsible for registering {@code headerCache} as a
-   * {@code NewPayloadListener} and this selector as an {@code UnverifiedForkchoiceListener} on the
-   * merge context, and for unsubscribing both via {@code cleanupAction}.
+   * Construct a pivot selector. The caller is responsible for registering this selector as both a
+   * {@code NewPayloadListener} and an {@code UnverifiedForkchoiceListener} on the merge context,
+   * and for unsubscribing both via {@code cleanupAction}.
    */
   public PivotSelectorFromSafeBlock(
       final ProtocolContext protocolContext,
       final GenesisConfigOptions genesisConfig,
-      final Supplier<Optional<ForkchoiceEvent>> forkchoiceStateSupplier,
       final SingleBlockHeaderDownloader headerDownloader,
-      final NewPayloadHeaderCache headerCache,
+      final ProtocolSchedule protocolSchedule,
+      final Clock clock,
       final Runnable cleanupAction) {
     this.protocolContext = protocolContext;
     this.genesisConfig = genesisConfig;
-    this.forkchoiceStateSupplier = forkchoiceStateSupplier;
     this.headerDownloader = headerDownloader;
-    this.headerCache = headerCache;
+    this.protocolSchedule = protocolSchedule;
+    this.clock = clock;
     this.cleanupAction = cleanupAction;
+    this.lastNoFcuInfoLog = clock.millis();
   }
 
-  /**
-   * On every FCU, make sure the safe and head block headers are cached. If either is missing we
-   * fire off a peer download and feed the result into the cache.
-   */
+  @Override
+  public void onNewPayload(final BlockHeader header) {
+    headHeaders.put(header.getHash(), header);
+  }
+
   @Override
   public void onNewUnverifiedForkchoice(final ForkchoiceEvent event) {
-    if (event.hasValidSafeBlockHash()) {
-      ensureCached(event.getSafeBlockHash());
+    lastFcuTimeMillis = clock.millis();
+    latestHeadHash = event.getHeadBlockHash();
+    latestSafeHash = event.hasValidSafeBlockHash() ? event.getSafeBlockHash() : Hash.ZERO;
+
+    if (event.hasValidFinalizedBlockHash()) {
+      final Hash newFinalizedHash = event.getFinalizedBlockHash();
+      if (!newFinalizedHash.equals(latestFinalizedHash)) {
+        latestFinalizedHash = newFinalizedHash;
+        pruneHeadersBelowFinalized(newFinalizedHash);
+      }
     }
-    ensureCached(event.getHeadBlockHash());
   }
 
-  private void ensureCached(final Hash hash) {
-    if (Hash.ZERO.equals(hash) || headerCache.getByHash(hash).isPresent()) {
+  private void pruneHeadersBelowFinalized(final Hash finalizedHash) {
+    final BlockHeader finalizedHeader = headHeaders.get(finalizedHash);
+    if (finalizedHeader == null) {
       return;
     }
-    headerDownloader
+    final long finalizedNumber = finalizedHeader.getNumber();
+    headHeaders.values().removeIf(h -> h.getNumber() < finalizedNumber);
+  }
+
+  private CompletableFuture<BlockHeader> walkBackParents(
+      final BlockHeader header, final int steps) {
+    if (steps == 0) {
+      return CompletableFuture.completedFuture(header);
+    }
+    return getOrDownload(header.getParentHash())
+        .thenCompose(parent -> walkBackParents(parent, steps - 1));
+  }
+
+  private CompletableFuture<BlockHeader> getOrDownload(final Hash hash) {
+    final BlockHeader cached = headHeaders.get(hash);
+    if (cached != null) {
+      return CompletableFuture.completedFuture(cached);
+    }
+    return headerDownloader
         .downloadBlockHeader(hash)
-        .thenAccept(headerCache::put)
-        .exceptionally(
-            t -> {
-              LOG.debug("Failed to download header {} for pivot cache: {}", hash, t.toString());
-              return null;
+        .thenApply(
+            h -> {
+              headHeaders.put(hash, h);
+              return h;
             });
   }
 
   @Override
   public CompletableFuture<PivotSyncState> selectNewPivotBlock() {
-    final Optional<ForkchoiceEvent> maybeForkchoice = forkchoiceStateSupplier.get();
-    if (maybeForkchoice.isEmpty()) {
+    final Hash headHash = latestHeadHash;
+    if (Hash.ZERO.equals(headHash)) {
       return logAndFailNoFcu();
     }
-    final ForkchoiceEvent fcu = maybeForkchoice.get();
 
-    final Optional<BlockHeader> maybeHead = headerCache.getByHash(fcu.getHeadBlockHash());
-    if (maybeHead.isEmpty()) {
-      // The FCU listener will start a download asynchronously; nothing to do this cycle.
+    final BlockHeader cachedHead = headHeaders.get(headHash);
+    final Duration slotDuration =
+        cachedHead != null
+            ? protocolSchedule.getByBlockHeader(cachedHead).getSlotDuration()
+            : DEFAULT_SLOT_DURATION;
+    final long nowMillis = clock.millis();
+    final long millisSinceLastFcu = lastFcuTimeMillis > 0 ? nowMillis - lastFcuTimeMillis : 0;
+    final long estimatedMissedBlocks = millisSinceLastFcu / slotDuration.toMillis();
+    final long effectiveThreshold = SAFE_BLOCK_FRESHNESS_THRESHOLD - estimatedMissedBlocks;
+
+    if (effectiveThreshold <= 0) {
       return CompletableFuture.failedFuture(
-          new RuntimeException("Head block header not yet cached"));
-    }
-    final BlockHeader head = maybeHead.get();
-
-    if (fcu.hasValidSafeBlockHash()) {
-      final Optional<BlockHeader> maybeSafe = headerCache.getByHash(fcu.getSafeBlockHash());
-      if (maybeSafe.isPresent()
-          && head.getNumber() - maybeSafe.get().getNumber() < SAFE_BLOCK_FRESHNESS_THRESHOLD) {
-        LOG.debug("Returning safe block {} as pivot", maybeSafe.get().getNumber());
-        return CompletableFuture.completedFuture(new PivotSyncState(maybeSafe.get(), true));
-      }
+          new RuntimeException(
+              "Consensus client appears offline: last FCU was "
+                  + (millisSinceLastFcu / 1000)
+                  + "s ago; pivot block would be outside the snap-serving window"));
     }
 
-    // Safe block is missing or too far behind head. Use a cached header `PIVOT_OFFSET_FROM_HEAD`
-    // behind head (≈ one epoch — far enough to be settled, close enough to be served).
-    final Optional<BlockHeader> maybeOffset =
-        headerCache.getByNumber(head.getNumber() - PIVOT_OFFSET_FROM_HEAD);
-    if (maybeOffset.isPresent()) {
-      LOG.warn(
-          "Safe block too far from head — using head-{} ({}) from newPayload cache as pivot.",
-          PIVOT_OFFSET_FROM_HEAD,
-          maybeOffset.get().getNumber());
-      return CompletableFuture.completedFuture(new PivotSyncState(maybeOffset.get(), true));
-    }
+    final CompletableFuture<BlockHeader> headFuture = getOrDownload(headHash);
 
-    // Cache is too small to offer a head-N entry. If the cache is "young" (<32 entries) return
-    // its oldest header as a best-effort pivot; otherwise treat as unable to select.
-    if (headerCache.size() < PIVOT_OFFSET_FROM_HEAD) {
-      final Optional<BlockHeader> oldest = headerCache.oldest();
-      if (oldest.isPresent()) {
-        LOG.warn(
-            "newPayload cache too small ({} entries) — falling back to oldest cached header ({}) as pivot.",
-            headerCache.size(),
-            oldest.get().getNumber());
-        return CompletableFuture.completedFuture(new PivotSyncState(oldest.get(), true));
-      }
-    }
+    final Hash safeHash = latestSafeHash;
+    final CompletableFuture<Optional<BlockHeader>> safeFuture =
+        Hash.ZERO.equals(safeHash)
+            ? CompletableFuture.completedFuture(Optional.empty())
+            : getOrDownload(safeHash)
+                .thenApply(Optional::of)
+                .exceptionally(ignored -> Optional.empty());
 
-    return CompletableFuture.failedFuture(
-        new RuntimeException("No suitable pivot block available"));
+    return headFuture
+        .thenCombine(
+            safeFuture,
+            (head, maybeSafe) -> {
+              if (maybeSafe.isPresent()) {
+                final BlockHeader safe = maybeSafe.get();
+                if (head.getNumber() - safe.getNumber() < effectiveThreshold) {
+                  LOG.debug("Returning safe block {} as pivot", safe.getNumber());
+                  return CompletableFuture.completedFuture(new PivotSyncState(safe, true));
+                }
+              }
+              int blocksToWalk = (int) Math.min(REORG_SAFETY_DISTANCE, head.getNumber());
+              LOG.debug(
+                  "Safe block not available or too far from head, walking back {} blocks from {} for reorg safety",
+                  blocksToWalk,
+                  head.getNumber());
+              return walkBackParents(head, blocksToWalk)
+                  .thenApply(anchored -> new PivotSyncState(anchored, true));
+            })
+        .thenCompose(cf -> cf);
   }
 
   private CompletableFuture<PivotSyncState> logAndFailNoFcu() {
-    final long now = System.currentTimeMillis();
+    final long now = clock.millis();
     if (lastNoFcuInfoLog + DIAGNOSTIC_LOG_RATE_LIMIT < now) {
       lastNoFcuInfoLog = now;
       LOG.info(
@@ -198,13 +239,8 @@ public class PivotSelectorFromSafeBlock
   @Override
   public long getBestChainHeight() {
     final long localChainHeight = protocolContext.getBlockchain().getChainHeadBlockNumber();
-    final long cachedHeadNumber =
-        forkchoiceStateSupplier
-            .get()
-            .map(ForkchoiceEvent::getHeadBlockHash)
-            .flatMap(headerCache::getByHash)
-            .map(BlockHeader::getNumber)
-            .orElse(0L);
+    final BlockHeader headHeader = headHeaders.get(latestHeadHash);
+    final long cachedHeadNumber = headHeader != null ? headHeader.getNumber() : 0L;
     return Math.max(cachedHeadNumber, localChainHeight);
   }
 }

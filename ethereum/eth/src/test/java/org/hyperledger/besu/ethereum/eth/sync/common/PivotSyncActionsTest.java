@@ -52,6 +52,7 @@ import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 
 import java.io.IOException;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -427,9 +428,9 @@ public class PivotSyncActionsTest {
             new PivotSelectorFromSafeBlock(
                 blockchainSetupUtil.getProtocolContext(),
                 genesisConfig,
-                () -> finalizedEvent,
                 headerDownloader,
-                new NewPayloadHeaderCache(),
+                blockchainSetupUtil.getProtocolSchedule(),
+                Clock.systemUTC(),
                 () -> {}));
 
     final BlockHeader expectedHeader = blockchain.getBlockHeader(3).get();
