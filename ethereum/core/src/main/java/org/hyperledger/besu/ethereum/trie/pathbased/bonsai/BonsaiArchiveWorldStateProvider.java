@@ -25,6 +25,8 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMer
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveReadFlatDbStrategyProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveTrieNodeStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
@@ -101,7 +103,10 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
             worldStateKeyValueStorage.getComposedWorldStateStorage(),
             worldStateKeyValueStorage.getTrieLogStorage(),
             worldStateKeyValueStorage.getCacheManager(),
-            worldStateKeyValueStorage.getCurrentVersion());
+            worldStateKeyValueStorage.getCurrentVersion(),
+            stateProofsEnabled
+                ? new BonsaiArchiveTrieNodeStrategy(trieNodeCheckpointInterval)
+                : new BonsaiTrieNodeStrategy());
   }
 
   @Override

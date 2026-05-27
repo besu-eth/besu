@@ -18,8 +18,6 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.ARCHIVE_PROOF_BLOCK_NUMBER_KEY;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.ARCHIVE_PROOF_CHECKPOINT_INTERVAL_KEY;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
 
 import org.hyperledger.besu.datatypes.Hash;
@@ -41,35 +39,23 @@ import kotlin.Pair;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.bouncycastle.util.Arrays;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
-  private static final Logger LOG = LoggerFactory.getLogger(BonsaiArchiveFlatDbStrategy.class);
-
-  static final byte[] MAX_BLOCK_SUFFIX = Bytes.ofUnsignedLong(Long.MAX_VALUE).toArrayUnsafe();
-  static final byte[] MIN_BLOCK_SUFFIX = Bytes.ofUnsignedLong(0L).toArrayUnsafe();
-  private static final int KEY_SUFFIX_LENGTH = 8;
 
   private final Long trieNodeCheckpointInterval;
-  private volatile boolean intervalSeeded = false;
-  private final boolean archiveReadsEnabled;
 
   public BonsaiArchiveFlatDbStrategy(
       final MetricsSystem metricsSystem, final CodeStorageStrategy codeStorageStrategy) {
     super(metricsSystem, codeStorageStrategy);
     this.trieNodeCheckpointInterval = null;
-    this.archiveReadsEnabled = false;
   }
 
   public BonsaiArchiveFlatDbStrategy(
       final MetricsSystem metricsSystem,
       final CodeStorageStrategy codeStorageStrategy,
-      final long trieNodeCheckpointInterval,
-      final boolean archiveReadsEnabled) {
+      final long trieNodeCheckpointInterval) {
     super(metricsSystem, codeStorageStrategy);
     this.trieNodeCheckpointInterval = trieNodeCheckpointInterval;
-    this.archiveReadsEnabled = archiveReadsEnabled;
   }
 
   public static final byte[] DELETED_ACCOUNT_VALUE = new byte[0];
@@ -102,154 +88,6 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
     }
   }
 
-  private Optional<BonsaiContext> getStateArchiveContextForRead(
-      final SegmentedKeyValueStorage storage) {
-    // For Bonsai archive get the flat DB context to use for reading archive entries
-    Optional<byte[]> archiveContext = storage.get(TRIE_BRANCH_STORAGE, WORLD_BLOCK_NUMBER_KEY);
-    if (archiveContext.isPresent()) {
-      try {
-        return Optional.of(
-            // The context for flat-DB PUTs is the block number recorded in the specified world
-            // state
-            new BonsaiContext(Bytes.wrap(archiveContext.get()).toLong()));
-      } catch (NumberFormatException e) {
-        throw new IllegalStateException(
-            "World state archive context invalid format: "
-                + new String(archiveContext.get(), StandardCharsets.UTF_8));
-      }
-    }
-    return Optional.empty();
-  }
-
-  private void ensureIntervalSeeded(final SegmentedKeyValueStorage storage) {
-    if (intervalSeeded) return;
-    synchronized (this) {
-      if (intervalSeeded) return;
-      storage
-          .get(TRIE_BRANCH_STORAGE_ARCHIVE, ARCHIVE_PROOF_CHECKPOINT_INTERVAL_KEY)
-          .ifPresentOrElse(
-              persistedBytes -> {
-                long persisted = Bytes.wrap(persistedBytes).toLong();
-                if (persisted != trieNodeCheckpointInterval) {
-                  throw new RuntimeException(
-                      "Checkpoint interval mismatch (DB="
-                          + persisted
-                          + ", config="
-                          + trieNodeCheckpointInterval
-                          + ")");
-                }
-              },
-              () -> {
-                SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-                tx.put(
-                    TRIE_BRANCH_STORAGE_ARCHIVE,
-                    ARCHIVE_PROOF_CHECKPOINT_INTERVAL_KEY,
-                    Bytes.ofUnsignedLong(trieNodeCheckpointInterval).toArrayUnsafe());
-                tx.commit();
-              });
-      intervalSeeded = true;
-    }
-  }
-
-  private BonsaiContext getStateTrieArchiveContextForWrite(final SegmentedKeyValueStorage storage) {
-    // If ARCHIVE_PROOF_BLOCK_NUMBER_KEY is set (proof reconstruction path), use it directly as the
-    // suffix so reconstructed nodes are indexed by target block and readable during eth_getProof.
-    Optional<byte[]> proofBlockNumber =
-        storage.get(TRIE_BRANCH_STORAGE, ARCHIVE_PROOF_BLOCK_NUMBER_KEY);
-    if (proofBlockNumber.isPresent()) {
-      return new BonsaiContext(Bytes.wrap(proofBlockNumber.get()).toLong());
-    }
-    // Suffix = floor((blockNumber + 1) / interval) * interval — the window's start block.
-    // Genesis has no WORLD_BLOCK_NUMBER_KEY yet; use suffix 0.
-    return storage
-        .get(TRIE_BRANCH_STORAGE, WORLD_BLOCK_NUMBER_KEY)
-        .map(
-            bytes -> {
-              long blockNumber = Bytes.wrap(bytes).toLong();
-              long windowStart =
-                  ((blockNumber + 1) / trieNodeCheckpointInterval) * trieNodeCheckpointInterval;
-              return new BonsaiContext(windowStart);
-            })
-        .orElse(new BonsaiContext(0L));
-  }
-
-  @Override
-  public void putFlatAccountTrieNode(
-      final SegmentedKeyValueStorage storage,
-      final SegmentedKeyValueStorageTransaction transaction,
-      final Bytes location,
-      final Bytes32 nodeHash,
-      final Bytes node) {
-    super.putFlatAccountTrieNode(storage, transaction, location, nodeHash, node);
-    if (trieNodeCheckpointInterval != null) {
-      ensureIntervalSeeded(storage);
-      byte[] keySuffixed =
-          calculateArchiveKeyWithMinSuffix(
-              getStateTrieArchiveContextForWrite(storage), location.toArrayUnsafe());
-      transaction.put(TRIE_BRANCH_STORAGE_ARCHIVE, keySuffixed, node.toArrayUnsafe());
-    }
-  }
-
-  @Override
-  public void putFlatStorageTrieNode(
-      final SegmentedKeyValueStorage storage,
-      final SegmentedKeyValueStorageTransaction transaction,
-      final Hash accountHash,
-      final Bytes location,
-      final Bytes32 nodeHash,
-      final Bytes node) {
-    super.putFlatStorageTrieNode(storage, transaction, accountHash, location, nodeHash, node);
-    if (trieNodeCheckpointInterval != null) {
-      ensureIntervalSeeded(storage);
-      byte[] keySuffixed =
-          calculateArchiveKeyWithMinSuffix(
-              getStateTrieArchiveContextForWrite(storage),
-              Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe());
-      transaction.put(TRIE_BRANCH_STORAGE_ARCHIVE, keySuffixed, node.toArrayUnsafe());
-    }
-  }
-
-  @Override
-  public Optional<Bytes> getFlatAccountTrieNode(
-      final Bytes location, final Bytes32 nodeHash, final SegmentedKeyValueStorage storage) {
-    if (!archiveReadsEnabled) {
-      return Optional.empty();
-    }
-    Bytes keyNearest =
-        calculateArchiveKeyWithMaxSuffix(
-            getStateArchiveContextForRead(storage), location.toArrayUnsafe());
-    return storage
-        .getNearestBeforeMatchLength(TRIE_BRANCH_STORAGE_ARCHIVE, keyNearest)
-        .filter(found -> found.key().size() == location.size() + KEY_SUFFIX_LENGTH)
-        .filter(found -> location.commonPrefixLength(found.key()) >= location.size())
-        .flatMap(SegmentedKeyValueStorage.NearestKeyValue::wrapBytes);
-  }
-
-  @Override
-  public Optional<Bytes> getFlatStorageTrieNode(
-      final Hash accountHash,
-      final Bytes location,
-      final Bytes32 nodeHash,
-      final SegmentedKeyValueStorage storage) {
-    if (!archiveReadsEnabled) {
-      return Optional.empty();
-    }
-    Bytes accountHashLocation = Bytes.concatenate(accountHash.getBytes(), location);
-    Bytes keyNearest =
-        calculateArchiveKeyWithMaxSuffix(
-            getStateArchiveContextForRead(storage), accountHashLocation.toArrayUnsafe());
-    return storage
-        .getNearestBeforeMatchLength(TRIE_BRANCH_STORAGE_ARCHIVE, keyNearest)
-        .filter(
-            found ->
-                found.key().size()
-                    == accountHash.getBytes().size() + location.size() + KEY_SUFFIX_LENGTH)
-        .filter(
-            found ->
-                accountHashLocation.commonPrefixLength(found.key()) >= accountHashLocation.size())
-        .flatMap(SegmentedKeyValueStorage.NearestKeyValue::wrapBytes);
-  }
-
   @Override
   public Optional<Bytes> getFlatAccount(
       final Supplier<Optional<Bytes>> worldStateRootHashSupplier,
@@ -261,8 +99,9 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
 
     // keyNearest, use MAX_BLOCK_SUFFIX in the absence of a block context:
     Bytes keyNearest =
-        calculateArchiveKeyWithMaxSuffix(
-            getStateArchiveContextForRead(storage), accountHash.getBytes().toArrayUnsafe());
+        BonsaiArchiveKeyUtil.calculateArchiveKeyWithMaxSuffix(
+            BonsaiArchiveKeyUtil.getStateArchiveContextForRead(storage),
+            accountHash.getBytes().toArrayUnsafe());
 
     // Find the nearest account state for this address and block context
     Optional<SegmentedKeyValueStorage.NearestKeyValue> accountFound =
@@ -292,48 +131,54 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
   @Override
   protected Stream<Pair<Bytes32, Bytes>> accountsToPairStream(
       final SegmentedKeyValueStorage storage, final Bytes startKeyHash, final Bytes32 endKeyHash) {
-    final Stream<Pair<Bytes32, Bytes>> stream =
-        storage
-            .streamFromKey(
-                ACCOUNT_INFO_STATE_ARCHIVE,
-                calculateArchiveKeyNoContextMinSuffix(startKeyHash.toArrayUnsafe()),
-                calculateArchiveKeyNoContextMaxSuffix(endKeyHash.toArrayUnsafe()))
-            .map(e -> Bytes.of(calculateArchiveKeyNoContextMaxSuffix(trimSuffix(e.getKey()))))
-            .distinct()
-            .map(
-                e ->
-                    new Pair<>(
-                        Bytes32.wrap(trimSuffix(e.toArrayUnsafe())),
-                        Bytes.of(
-                            storage
-                                .getNearestBefore(ACCOUNT_INFO_STATE_ARCHIVE, e)
-                                .get()
-                                .value()
-                                .get())));
-    return stream;
+    return storage
+        .streamFromKey(
+            ACCOUNT_INFO_STATE_ARCHIVE,
+            BonsaiArchiveKeyUtil.calculateArchiveKeyNoContextMinSuffix(
+                startKeyHash.toArrayUnsafe()),
+            BonsaiArchiveKeyUtil.calculateArchiveKeyNoContextMaxSuffix(endKeyHash.toArrayUnsafe()))
+        .map(
+            e ->
+                Bytes.of(
+                    BonsaiArchiveKeyUtil.calculateArchiveKeyNoContextMaxSuffix(
+                        trimSuffix(e.getKey()))))
+        .distinct()
+        .map(
+            e ->
+                new Pair<>(
+                    Bytes32.wrap(trimSuffix(e.toArrayUnsafe())),
+                    Bytes.of(
+                        storage
+                            .getNearestBefore(ACCOUNT_INFO_STATE_ARCHIVE, e)
+                            .get()
+                            .value()
+                            .get())));
   }
 
   @Override
   protected Stream<Pair<Bytes32, Bytes>> accountsToPairStream(
       final SegmentedKeyValueStorage storage, final Bytes startKeyHash) {
-    final Stream<Pair<Bytes32, Bytes>> stream =
-        storage
-            .streamFromKey(
-                ACCOUNT_INFO_STATE_ARCHIVE,
-                calculateArchiveKeyNoContextMinSuffix(startKeyHash.toArrayUnsafe()))
-            .map(e -> Bytes.of(calculateArchiveKeyNoContextMaxSuffix(trimSuffix(e.getKey()))))
-            .distinct()
-            .map(
-                e ->
-                    new Pair<Bytes32, Bytes>(
-                        Bytes32.wrap(trimSuffix(e.toArrayUnsafe())),
-                        Bytes.of(
-                            storage
-                                .getNearestBefore(ACCOUNT_INFO_STATE_ARCHIVE, e)
-                                .get()
-                                .value()
-                                .get())));
-    return stream;
+    return storage
+        .streamFromKey(
+            ACCOUNT_INFO_STATE_ARCHIVE,
+            BonsaiArchiveKeyUtil.calculateArchiveKeyNoContextMinSuffix(
+                startKeyHash.toArrayUnsafe()))
+        .map(
+            e ->
+                Bytes.of(
+                    BonsaiArchiveKeyUtil.calculateArchiveKeyNoContextMaxSuffix(
+                        trimSuffix(e.getKey()))))
+        .distinct()
+        .map(
+            e ->
+                new Pair<Bytes32, Bytes>(
+                    Bytes32.wrap(trimSuffix(e.toArrayUnsafe())),
+                    Bytes.of(
+                        storage
+                            .getNearestBefore(ACCOUNT_INFO_STATE_ARCHIVE, e)
+                            .get()
+                            .value()
+                            .get())));
   }
 
   @Override
@@ -345,9 +190,13 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
     return storage
         .streamFromKey(
             ACCOUNT_STORAGE_ARCHIVE,
-            calculateArchiveKeyNoContextMinSuffix(
+            BonsaiArchiveKeyUtil.calculateArchiveKeyNoContextMinSuffix(
                 calculateNaturalSlotKey(accountHash, Hash.wrap(Bytes32.wrap(startKeyHash)))))
-        .map(e -> Bytes.of(calculateArchiveKeyNoContextMaxSuffix(trimSuffix(e.getKey()))))
+        .map(
+            e ->
+                Bytes.of(
+                    BonsaiArchiveKeyUtil.calculateArchiveKeyNoContextMaxSuffix(
+                        trimSuffix(e.getKey()))))
         .takeWhile(pair -> pair.slice(0, Bytes32.SIZE).equals(accountHash.getBytes()))
         .distinct()
         .map(
@@ -374,11 +223,15 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
     return storage
         .streamFromKey(
             ACCOUNT_STORAGE_ARCHIVE,
-            calculateArchiveKeyNoContextMinSuffix(
+            BonsaiArchiveKeyUtil.calculateArchiveKeyNoContextMinSuffix(
                 calculateNaturalSlotKey(accountHash, Hash.wrap(Bytes32.wrap(startKeyHash)))),
-            calculateArchiveKeyNoContextMaxSuffix(
+            BonsaiArchiveKeyUtil.calculateArchiveKeyNoContextMaxSuffix(
                 calculateNaturalSlotKey(accountHash, Hash.wrap(endKeyHash))))
-        .map(e -> Bytes.of(calculateArchiveKeyNoContextMaxSuffix(trimSuffix(e.getKey()))))
+        .map(
+            e ->
+                Bytes.of(
+                    BonsaiArchiveKeyUtil.calculateArchiveKeyNoContextMaxSuffix(
+                        trimSuffix(e.getKey()))))
         .takeWhile(pair -> pair.slice(0, Bytes32.SIZE).equals(accountHash.getBytes()))
         .distinct()
         .map(
@@ -422,7 +275,8 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
       final Hash accountHash,
       final Bytes accountValue) {
     byte[] keySuffixed =
-        calculateArchiveKeyWithMinSuffix(context, accountHash.getBytes().toArrayUnsafe());
+        BonsaiArchiveKeyUtil.calculateArchiveKeyWithMinSuffix(
+            context, accountHash.getBytes().toArrayUnsafe());
     transaction.put(ACCOUNT_INFO_STATE_ARCHIVE, keySuffixed, accountValue.toArrayUnsafe());
   }
 
@@ -446,7 +300,8 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
       final SegmentedKeyValueStorageTransaction transaction,
       final Hash accountHash) {
     byte[] keySuffixed =
-        calculateArchiveKeyWithMinSuffix(context, accountHash.getBytes().toArrayUnsafe());
+        BonsaiArchiveKeyUtil.calculateArchiveKeyWithMinSuffix(
+            context, accountHash.getBytes().toArrayUnsafe());
     transaction.put(ACCOUNT_INFO_STATE_ARCHIVE, keySuffixed, DELETED_ACCOUNT_VALUE);
   }
 
@@ -472,7 +327,8 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
     byte[] naturalKey = calculateNaturalSlotKey(accountHash, storageSlotKey.getSlotHash());
     // keyNearest, use MAX_BLOCK_SUFFIX in the absence of a block context:
     Bytes keyNearest =
-        calculateArchiveKeyWithMaxSuffix(getStateArchiveContextForRead(storage), naturalKey);
+        BonsaiArchiveKeyUtil.calculateArchiveKeyWithMaxSuffix(
+            BonsaiArchiveKeyUtil.getStateArchiveContextForRead(storage), naturalKey);
 
     // Find the nearest storage for this address, slot key hash, and block context
     Optional<SegmentedKeyValueStorage.NearestKeyValue> storageFound =
@@ -534,7 +390,7 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
     // get natural key from account hash and slot key
     byte[] naturalKey = calculateNaturalSlotKey(accountHash, slotHash);
     // keyNearest, use MIN_BLOCK_SUFFIX in the absence of a block context:
-    byte[] keyNearest = calculateArchiveKeyWithMinSuffix(context, naturalKey);
+    byte[] keyNearest = BonsaiArchiveKeyUtil.calculateArchiveKeyWithMinSuffix(context, naturalKey);
     transaction.put(ACCOUNT_STORAGE_ARCHIVE, keyNearest, storageValue.toArrayUnsafe());
   }
 
@@ -567,7 +423,7 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
     // get natural key from account hash and slot key
     byte[] naturalKey = calculateNaturalSlotKey(accountHash, slotHash);
     // insert a key suffixed with block context, with 'deleted account' value
-    byte[] keySuffixed = calculateArchiveKeyWithMinSuffix(context, naturalKey);
+    byte[] keySuffixed = BonsaiArchiveKeyUtil.calculateArchiveKeyWithMinSuffix(context, naturalKey);
     transaction.put(ACCOUNT_STORAGE_ARCHIVE, keySuffixed, DELETED_STORAGE_VALUE);
   }
 
@@ -575,29 +431,8 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
     return Bytes.concatenate(accountHash.getBytes(), slotHash.getBytes()).toArrayUnsafe();
   }
 
-  public static byte[] calculateArchiveKeyWithMinSuffix(
-      final BonsaiContext context, final byte[] naturalKey) {
-    return calculateArchiveKeyWithSuffix(Optional.of(context), naturalKey, MIN_BLOCK_SUFFIX);
-  }
-
-  public static byte[] calculateArchiveKeyNoContextMinSuffix(final byte[] naturalKey) {
-    return Arrays.concatenate(naturalKey, MIN_BLOCK_SUFFIX);
-  }
-
-  public static byte[] calculateArchiveKeyNoContextMaxSuffix(final byte[] naturalKey) {
-    return Arrays.concatenate(naturalKey, MAX_BLOCK_SUFFIX);
-  }
-
-  public static Bytes calculateArchiveKeyWithMaxSuffix(
-      final Optional<BonsaiContext> context, final byte[] naturalKey) {
-    return Bytes.of(calculateArchiveKeyWithSuffix(context, naturalKey, MAX_BLOCK_SUFFIX));
-  }
-
   @Override
   public void clearAll(final SegmentedKeyValueStorage storage) {
-    if (trieNodeCheckpointInterval != null) {
-      storage.clear(TRIE_BRANCH_STORAGE_ARCHIVE);
-    }
     clearArchiveSegments(storage);
     // Then call parent to clear other segments
     super.clearAll(storage);
@@ -605,35 +440,16 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
 
   @Override
   public void resetOnResync(final SegmentedKeyValueStorage storage) {
-    if (trieNodeCheckpointInterval != null) {
-      storage.clear(TRIE_BRANCH_STORAGE_ARCHIVE);
-    }
     clearArchiveSegments(storage);
     // Then call parent to reset other segments
     super.resetOnResync(storage);
   }
 
-  private static void clearArchiveSegments(final SegmentedKeyValueStorage storage) {
+  private void clearArchiveSegments(final SegmentedKeyValueStorage storage) {
     storage.clear(ACCOUNT_INFO_STATE_ARCHIVE);
     storage.clear(ACCOUNT_STORAGE_ARCHIVE);
-  }
-
-  // TODO JF: move this out of this class so can be used with ArchiveCodeStorageStrategy without
-  // being static
-  public static byte[] calculateArchiveKeyWithSuffix(
-      final Optional<BonsaiContext> context, final byte[] naturalKey, final byte[] orElseSuffix) {
-    // TODO: this can be optimized, just for PoC now
-    return Arrays.concatenate(
-        naturalKey,
-        context
-            .flatMap(BonsaiContext::getBlockNumber)
-            .map(Bytes::ofUnsignedLong)
-            .map(Bytes::toArrayUnsafe)
-            .orElseGet(
-                () -> {
-                  // TODO: remove or rate limit these warnings
-                  LOG.atWarn().setMessage("Block context not present, using default suffix").log();
-                  return orElseSuffix;
-                }));
+    if (trieNodeCheckpointInterval != null) {
+      storage.clear(TRIE_BRANCH_STORAGE_ARCHIVE);
+    }
   }
 }

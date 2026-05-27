@@ -1052,8 +1052,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
                 dataStorageConfiguration
                     .getPathBasedExtraStorageConfiguration()
                     .getUnstable()
-                    .getArchiveTrieNodeCheckpointInterval(),
-                false)
+                    .getArchiveTrieNodeCheckpointInterval())
             : new BonsaiArchiveFlatDbStrategy(metricsSystem, new CodeHashCodeStorageStrategy());
     return new BonsaiFlatDbToArchiveMigrator(
         worldStateKeyValueStorage,

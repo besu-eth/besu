@@ -50,8 +50,7 @@ public class BonsaiArchiveReadFlatDbStrategyProvider extends BonsaiFlatDbStrateg
           dataStorageConfiguration
               .getPathBasedExtraStorageConfiguration()
               .getUnstable()
-              .getArchiveTrieNodeCheckpointInterval(),
-          true);
+              .getArchiveTrieNodeCheckpointInterval());
     }
     return new BonsaiArchiveFlatDbStrategy(metricsSystem, codeStorageStrategy);
   }

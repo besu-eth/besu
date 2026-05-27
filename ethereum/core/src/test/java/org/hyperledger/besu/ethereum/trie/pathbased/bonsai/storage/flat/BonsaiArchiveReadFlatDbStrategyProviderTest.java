@@ -91,26 +91,15 @@ public class BonsaiArchiveReadFlatDbStrategyProviderTest {
     assertThat(provider.getFlatDbStrategy(storage)).isInstanceOf(BonsaiArchiveFlatDbStrategy.class);
   }
 
-  // --- Toggle behavior tests ---
+  // --- Trie-node strategy toggle tests ---
+  // Trie-node reads were moved out of FlatDbStrategy into TrieNodeStrategy.
+  // BonsaiArchiveTrieNodeStrategy handles reads from TRIE_BRANCH_STORAGE_ARCHIVE (proofs enabled).
+  // BonsaiTrieNodeStrategy returns empty (proofs disabled / default).
 
   @Test
   void proofsEnabled_getFlatAccountTrieNode_returnsArchivedNode() {
-    // Toggle: flag on → read provider enables archive trie reads; a node written at suffix 0
-    // (block 0 window) is found via nearest-before lookup at block 0.
+    // BonsaiArchiveTrieNodeStrategy reads from TRIE_BRANCH_STORAGE_ARCHIVE.
     final long interval = 100L;
-    final DataStorageConfiguration proofsConfig =
-        ImmutableDataStorageConfiguration.builder()
-            .dataStorageFormat(DataStorageFormat.X_BONSAI_ARCHIVE)
-            .pathBasedExtraStorageConfiguration(
-                ImmutablePathBasedExtraStorageConfiguration.builder()
-                    .unstable(
-                        ImmutablePathBasedExtraStorageConfiguration.PathBasedUnstable.builder()
-                            .stateProofsEnabled(true)
-                            .archiveTrieNodeCheckpointInterval(interval)
-                            .build())
-                    .build())
-            .build();
-
     final SegmentedKeyValueStorage storage =
         new InMemoryKeyValueStorageProvider()
             .getStorageBySegmentIdentifiers(
@@ -118,11 +107,12 @@ public class BonsaiArchiveReadFlatDbStrategyProviderTest {
                     TRIE_BRANCH_STORAGE,
                     ACCOUNT_INFO_STATE,
                     CODE_STORAGE,
-                    ACCOUNT_STORAGE_STORAGE));
+                    ACCOUNT_STORAGE_STORAGE,
+                    TRIE_BRANCH_STORAGE_ARCHIVE));
 
     final Bytes location = Bytes.of(1, 2, 3);
     final Bytes nodeData = Bytes.of(0xAA, 0xBB, 0xCC);
-    final Bytes32 nodeHash = Bytes32.ZERO; // not validated by getFlatAccountTrieNode
+    final Bytes32 nodeHash = Bytes32.ZERO;
 
     // Set WORLD_BLOCK_NUMBER_KEY=0 so getStateArchiveContextForRead returns block 0.
     // Write node to TRIE_BRANCH_STORAGE_ARCHIVE with key = location + suffix(0).
@@ -134,13 +124,10 @@ public class BonsaiArchiveReadFlatDbStrategyProviderTest {
     setup.put(TRIE_BRANCH_STORAGE_ARCHIVE, archiveKey, nodeData.toArrayUnsafe());
     setup.commit();
 
-    final BonsaiArchiveReadFlatDbStrategyProvider readProvider =
-        new BonsaiArchiveReadFlatDbStrategyProvider(new NoOpMetricsSystem(), proofsConfig);
-    readProvider.loadFlatDbStrategy(storage);
-    final BonsaiArchiveFlatDbStrategy readStrategy =
-        (BonsaiArchiveFlatDbStrategy) readProvider.getFlatDbStrategy(storage);
-
-    final Optional<Bytes> result = readStrategy.getFlatAccountTrieNode(location, nodeHash, storage);
+    final BonsaiArchiveTrieNodeStrategy trieNodeStrategy =
+        new BonsaiArchiveTrieNodeStrategy(interval);
+    final Optional<Bytes> result =
+        trieNodeStrategy.getFlatAccountTrieNode(location, nodeHash, storage);
 
     assertThat(result).isPresent();
     assertThat(result.get()).isEqualTo(nodeData);
@@ -148,8 +135,7 @@ public class BonsaiArchiveReadFlatDbStrategyProviderTest {
 
   @Test
   void proofsDisabled_getFlatAccountTrieNode_returnsEmpty() {
-    // Toggle: flag off → read provider returns archive strategy WITHOUT reads enabled;
-    // trie nodes in TRIE_BRANCH_STORAGE_ARCHIVE are not accessible via this strategy.
+    // BonsaiTrieNodeStrategy (default) always returns empty for trie node reads.
     final SegmentedKeyValueStorage storage =
         new InMemoryKeyValueStorageProvider()
             .getStorageBySegmentIdentifiers(
@@ -160,16 +146,11 @@ public class BonsaiArchiveReadFlatDbStrategyProviderTest {
                     ACCOUNT_STORAGE_STORAGE));
 
     final Bytes location = Bytes.of(1, 2, 3);
-    final Bytes32 nodeHash = Bytes32.ZERO; // not validated by getFlatAccountTrieNode
+    final Bytes32 nodeHash = Bytes32.ZERO;
 
-    // Even if data exists in archive, proofs-disabled read strategy ignores it
-    final BonsaiArchiveReadFlatDbStrategyProvider readProvider =
-        new BonsaiArchiveReadFlatDbStrategyProvider(new NoOpMetricsSystem(), CONFIG);
-    readProvider.loadFlatDbStrategy(storage);
-    final BonsaiArchiveFlatDbStrategy readStrategy =
-        (BonsaiArchiveFlatDbStrategy) readProvider.getFlatDbStrategy(storage);
-
-    final Optional<Bytes> result = readStrategy.getFlatAccountTrieNode(location, nodeHash, storage);
+    final BonsaiTrieNodeStrategy trieNodeStrategy = new BonsaiTrieNodeStrategy();
+    final Optional<Bytes> result =
+        trieNodeStrategy.getFlatAccountTrieNode(location, nodeHash, storage);
 
     assertThat(result).isEmpty();
   }

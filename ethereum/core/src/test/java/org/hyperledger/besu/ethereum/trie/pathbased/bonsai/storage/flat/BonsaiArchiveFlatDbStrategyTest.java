@@ -203,14 +203,12 @@ public class BonsaiArchiveFlatDbStrategyTest {
       Bytes32.fromHexString("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
   private static final Bytes NODE_VALUE = Bytes.fromHexString("0xdeadbeef");
 
-  private BonsaiArchiveFlatDbStrategy newProofsStrategy() {
-    return new BonsaiArchiveFlatDbStrategy(
-        new NoOpMetricsSystem(), new CodeHashCodeStorageStrategy(), INTERVAL, false);
+  private BonsaiArchiveTrieNodeStrategy newProofsStrategy() {
+    return new BonsaiArchiveTrieNodeStrategy(INTERVAL);
   }
 
-  private BonsaiArchiveFlatDbStrategy newProofsReadStrategy() {
-    return new BonsaiArchiveFlatDbStrategy(
-        new NoOpMetricsSystem(), new CodeHashCodeStorageStrategy(), INTERVAL, true);
+  private BonsaiArchiveTrieNodeStrategy newProofsReadStrategy() {
+    return new BonsaiArchiveTrieNodeStrategy(INTERVAL);
   }
 
   /** window = ((blockNumber + 1) / interval) * interval */
@@ -220,9 +218,10 @@ public class BonsaiArchiveFlatDbStrategyTest {
 
   @Test
   public void putFlatAccountTrieNode_proofsDisabled_doesNotWriteToArchive() {
-    // archiveFlatDbStrategy is the no-proofs instance from @BeforeEach
+    // BonsaiTrieNodeStrategy is the default (non-archive) strategy
+    final BonsaiTrieNodeStrategy defaultStrategy = new BonsaiTrieNodeStrategy();
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    archiveFlatDbStrategy.putFlatAccountTrieNode(storage, tx, TRIE_LOCATION, NODE_HASH, NODE_VALUE);
+    defaultStrategy.putFlatAccountTrieNode(storage, tx, TRIE_LOCATION, NODE_HASH, NODE_VALUE);
     tx.commit();
 
     assertThat(storage.get(TRIE_BRANCH_STORAGE, TRIE_LOCATION.toArrayUnsafe())).isPresent();
@@ -231,7 +230,7 @@ public class BonsaiArchiveFlatDbStrategyTest {
 
   @Test
   public void putFlatAccountTrieNode_proofsEnabled_writesToBothStorages() {
-    final BonsaiArchiveFlatDbStrategy s = newProofsStrategy();
+    final BonsaiArchiveTrieNodeStrategy s = newProofsStrategy();
     setWorldBlockNumber(0);
 
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
@@ -251,7 +250,7 @@ public class BonsaiArchiveFlatDbStrategyTest {
 
   @Test
   public void putFlatStorageTrieNode_proofsEnabled_writesToBothStorages() {
-    final BonsaiArchiveFlatDbStrategy s = newProofsStrategy();
+    final BonsaiArchiveTrieNodeStrategy s = newProofsStrategy();
     final Hash accountHash =
         Address.fromHexString("0x0000000000000000000000000000000000000010").addressHash();
     setWorldBlockNumber(0);
@@ -275,7 +274,7 @@ public class BonsaiArchiveFlatDbStrategyTest {
 
   @Test
   public void putFlatAccountTrieNode_withinSameWindow_archiveKeyIsOverwritten() {
-    final BonsaiArchiveFlatDbStrategy s = newProofsStrategy();
+    final BonsaiArchiveTrieNodeStrategy s = newProofsStrategy();
     final Bytes firstValue = Bytes.fromHexString("0x1111");
     final Bytes secondValue = Bytes.fromHexString("0x2222");
 
@@ -310,7 +309,7 @@ public class BonsaiArchiveFlatDbStrategyTest {
 
   @Test
   public void putFlatAccountTrieNode_crossWindow_createsSeparateArchiveKeys() {
-    final BonsaiArchiveFlatDbStrategy s = newProofsStrategy();
+    final BonsaiArchiveTrieNodeStrategy s = newProofsStrategy();
     final Bytes val0 = Bytes.fromHexString("0xAAAA");
     final Bytes val10 = Bytes.fromHexString("0xBBBB");
 
@@ -338,7 +337,7 @@ public class BonsaiArchiveFlatDbStrategyTest {
 
   @Test
   public void getFlatAccountTrieNode_readsLatestBefore() {
-    final BonsaiArchiveFlatDbStrategy s = newProofsReadStrategy();
+    final BonsaiArchiveTrieNodeStrategy s = newProofsReadStrategy();
 
     // write at block 0 → window 0
     setWorldBlockNumber(0);
@@ -355,7 +354,7 @@ public class BonsaiArchiveFlatDbStrategyTest {
 
   @Test
   public void getFlatAccountTrieNode_differentLocation_returnsEmpty() {
-    final BonsaiArchiveFlatDbStrategy s = newProofsReadStrategy();
+    final BonsaiArchiveTrieNodeStrategy s = newProofsReadStrategy();
     final Bytes otherLocation = Bytes.fromHexString("0x0FFFFFFF00");
 
     setWorldBlockNumber(0);
@@ -370,7 +369,7 @@ public class BonsaiArchiveFlatDbStrategyTest {
 
   @Test
   public void getFlatStorageTrieNode_readsLatestBefore() {
-    final BonsaiArchiveFlatDbStrategy s = newProofsReadStrategy();
+    final BonsaiArchiveTrieNodeStrategy s = newProofsReadStrategy();
     final Hash accountHash =
         Address.fromHexString("0x0000000000000000000000000000000000000020").addressHash();
 
@@ -388,7 +387,7 @@ public class BonsaiArchiveFlatDbStrategyTest {
 
   @Test
   public void ensureIntervalSeeded_persistsIntervalOnFirstWrite() {
-    final BonsaiArchiveFlatDbStrategy s = newProofsStrategy();
+    final BonsaiArchiveTrieNodeStrategy s = newProofsStrategy();
     setWorldBlockNumber(0);
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
     s.putFlatAccountTrieNode(storage, tx, TRIE_LOCATION, NODE_HASH, NODE_VALUE);
@@ -410,7 +409,7 @@ public class BonsaiArchiveFlatDbStrategyTest {
         Bytes.ofUnsignedLong(5).toArrayUnsafe());
     setup.commit();
 
-    final BonsaiArchiveFlatDbStrategy s = newProofsStrategy(); // interval=10
+    final BonsaiArchiveTrieNodeStrategy s = newProofsStrategy(); // interval=10
     setWorldBlockNumber(0);
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
 
@@ -422,15 +421,18 @@ public class BonsaiArchiveFlatDbStrategyTest {
 
   @Test
   public void clearAll_withProofsEnabled_clearsTrieBranchArchive() {
-    final BonsaiArchiveFlatDbStrategy s = newProofsStrategy();
+    final BonsaiArchiveTrieNodeStrategy trieStrategy = new BonsaiArchiveTrieNodeStrategy(INTERVAL);
+    final BonsaiArchiveFlatDbStrategy proofsStrategy =
+        new BonsaiArchiveFlatDbStrategy(
+            new NoOpMetricsSystem(), new CodeHashCodeStorageStrategy(), INTERVAL);
     setWorldBlockNumber(0);
     final SegmentedKeyValueStorageTransaction tx = storage.startTransaction();
-    s.putFlatAccountTrieNode(storage, tx, TRIE_LOCATION, NODE_HASH, NODE_VALUE);
+    trieStrategy.putFlatAccountTrieNode(storage, tx, TRIE_LOCATION, NODE_HASH, NODE_VALUE);
     tx.commit();
 
     assertThat(storage.stream(TRIE_BRANCH_STORAGE_ARCHIVE)).isNotEmpty();
 
-    s.clearAll(storage);
+    proofsStrategy.clearAll(storage);
 
     assertThat(storage.stream(TRIE_BRANCH_STORAGE_ARCHIVE)).isEmpty();
   }

@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoopBonsaiCache
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.CacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.BonsaiContext;
@@ -431,8 +432,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   private void initMigrationWorldState(final MetricsSystem metricsSystem) {
     final long interval = archiveStrategy.getTrieNodeCheckpointInterval();
     final BonsaiArchiveFlatDbStrategy readStrategy =
-        new BonsaiArchiveFlatDbStrategy(
-            metricsSystem, new CodeHashCodeStorageStrategy(), interval, true);
+        new BonsaiArchiveFlatDbStrategy(metricsSystem, new CodeHashCodeStorageStrategy(), interval);
     migrationTrieStorage =
         new MigrationTrieStorage(worldStateStorage.getComposedWorldStateStorage());
     final StaticArchiveFlatDbStrategyProvider provider =
@@ -444,7 +444,8 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
             migrationTrieStorage,
             new InMemoryKeyValueStorage(),
             CacheManager.NO_OP_CACHE,
-            0L);
+            0L,
+            new BonsaiArchiveTrieNodeStrategy(interval));
     final WorldStateConfig trieDisabledConfig =
         WorldStateConfig.newBuilder(WorldStateConfig.createStatefulConfigWithTrie())
             .trieDisabled(true)
