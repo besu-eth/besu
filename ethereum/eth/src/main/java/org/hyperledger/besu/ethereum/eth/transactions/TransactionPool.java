@@ -80,7 +80,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -611,11 +610,6 @@ public class TransactionPool implements BlockAddedObserver {
     return pendingTransactions.getClass();
   }
 
-  @VisibleForTesting
-  SaveRestoreManager getSaveRestoreManager() {
-    return saveRestoreManager;
-  }
-
   public interface TransactionBatchAddedListener {
 
     void onTransactionsAdded(Collection<Transaction> transactions);
@@ -659,10 +653,11 @@ public class TransactionPool implements BlockAddedObserver {
           OptionalLong.of(ethContext.getEthPeers().subscribeConnect(this::handleConnect));
       return saveRestoreManager
           .loadFromDisk()
-          .exceptionally(
-              t -> {
-                LOG.error("Error while restoring transaction pool from disk", t);
-                return null;
+          .whenComplete(
+              (_, t) -> {
+                if (t != null) {
+                  LOG.error("Error while restoring transaction pool from disk", t);
+                }
               });
     }
     return CompletableFuture.completedFuture(null);
@@ -786,32 +781,30 @@ public class TransactionPool implements BlockAddedObserver {
   class SaveRestoreManager {
     private final Semaphore diskAccessLock = new Semaphore(1, true);
     private final AtomicReference<CompletableFuture<Void>> writeInProgress =
-        new AtomicReference<>(CompletableFuture.completedFuture(null));
+        new AtomicReference<>(null);
     private final AtomicReference<CompletableFuture<Void>> readInProgress =
-        new AtomicReference<>(CompletableFuture.completedFuture(null));
+        new AtomicReference<>(null);
     private final AtomicBoolean isCancelled = new AtomicBoolean(false);
 
-    @VisibleForTesting
-    Semaphore getDiskAccessLock() {
-      return diskAccessLock;
-    }
-
-    CompletableFuture<Void> saveToDisk(final PendingTransactions pendingTransactionsToSave) {
+    synchronized CompletableFuture<Void> saveToDisk(
+        final PendingTransactions pendingTransactionsToSave) {
       cancelInProgressReadOperation();
       return serializeAndDedupOperation(
           () -> executeSaveToDisk(pendingTransactionsToSave), writeInProgress);
     }
 
-    CompletableFuture<Void> loadFromDisk() {
+    synchronized CompletableFuture<Void> loadFromDisk() {
       return serializeAndDedupOperation(this::executeLoadFromDisk, readInProgress);
     }
 
     private void cancelInProgressReadOperation() {
-      if (!readInProgress.get().isDone()) {
+      final CompletableFuture<Void> maybeReadInProgress = readInProgress.get();
+      if (maybeReadInProgress != null && !maybeReadInProgress.isDone()) {
         LOG.debug("Cancelling in progress read operation");
         isCancelled.set(true);
         try {
-          waitUntilReadOperationIsCancelled();
+          // wait until read operation is canceled
+          maybeReadInProgress.get();
           LOG.debug("In progress read operation cancelled");
         } catch (InterruptedException | ExecutionException e) {
           LOG.warn("Error while cancelling in progress read operation", e);
@@ -820,32 +813,41 @@ public class TransactionPool implements BlockAddedObserver {
       }
     }
 
-    private void waitUntilReadOperationIsCancelled()
-        throws InterruptedException, ExecutionException {
-      readInProgress.get().get();
-    }
-
     private CompletableFuture<Void> serializeAndDedupOperation(
         final Runnable operation,
         final AtomicReference<CompletableFuture<Void>> operationInProgress) {
       if (configuration.getEnableSaveRestore()) {
-        try {
-          if (diskAccessLock.tryAcquire(
-              configuration.getUnstable().getSaveRestoreTimeout().toMillis(),
-              TimeUnit.MILLISECONDS)) {
-
-            isCancelled.set(false);
-            operationInProgress.set(
-                CompletableFuture.runAsync(operation)
-                    .whenComplete((res, err) -> diskAccessLock.release()));
-            return operationInProgress.get();
-          } else {
-            return CompletableFuture.failedFuture(
-                new TimeoutException("Timeout waiting for disk access lock"));
-          }
-        } catch (InterruptedException ie) {
-          return CompletableFuture.failedFuture(ie);
+        // only if there is not already an in-progress operation of its kind,
+        // create and run the new one. This ensures that there is only one read or write operation
+        // at a time.
+        CompletableFuture<Void> newOperation = new CompletableFuture<>();
+        if (operationInProgress.compareAndSet(null, newOperation)) {
+          newOperation
+              .completeAsync(
+                  () -> {
+                    try {
+                      if (diskAccessLock.tryAcquire(
+                          configuration.getUnstable().getSaveRestoreTimeout().toMillis(),
+                          TimeUnit.MILLISECONDS)) {
+                        try {
+                          isCancelled.set(false);
+                          operation.run();
+                        } finally {
+                          // reset everything so that the next operation can be started
+                          diskAccessLock.release();
+                        }
+                      } else {
+                        throw new RuntimeException("Timeout waiting for disk access lock");
+                      }
+                    } catch (InterruptedException e) {
+                      throw new RuntimeException(e);
+                    }
+                    return null;
+                  })
+              .whenComplete((_, _) -> operationInProgress.set(null));
+          return newOperation;
         }
+        return operationInProgress.get();
       }
       return CompletableFuture.completedFuture(null);
     }

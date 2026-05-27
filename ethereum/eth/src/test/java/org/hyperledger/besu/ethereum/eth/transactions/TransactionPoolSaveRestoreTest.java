@@ -17,6 +17,8 @@ package org.hyperledger.besu.ethereum.eth.transactions;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.spy;
 
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -37,6 +39,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.layered.TransactionsLayer;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -44,6 +47,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
@@ -275,39 +279,56 @@ public class TransactionPoolSaveRestoreTest extends AbstractTransactionPoolTestB
   }
 
   @Test
-  public void diskLockTimeoutIsPropagatedNotSwallowed() throws InterruptedException {
+  public void diskLockTimeoutIsPropagatedNotSwallowed()
+      throws InterruptedException, ExecutionException, TimeoutException {
+    final Duration saveRestoreTimeoutSeconds = Duration.ofMillis(100);
     // Create a txpool with save and restore enabled and a short lock timeout
     // so the test does not block for 60 seconds
+    final File spySaveFile = spy(saveFilePath.toFile());
+
+    // making the writing to disk take longer than the lock timeout, pretending the exists method is
+    // very slow
+    final CountDownLatch saveStarted = new CountDownLatch(1);
+    final CountDownLatch releaseSave = new CountDownLatch(1);
+
+    doAnswer(
+            invocation -> {
+              saveStarted.countDown();
+              releaseSave.await(2, TimeUnit.SECONDS);
+              invocation.callRealMethod();
+              return null;
+            })
+        .when(spySaveFile)
+        .exists();
+
     this.transactionPool =
         createTransactionPool(
             b ->
                 b.enableSaveRestore(true)
-                    .saveFile(saveFilePath.toFile())
+                    .saveFile(spySaveFile)
                     .unstable(
                         ImmutableTransactionPoolConfiguration.Unstable.builder()
-                            .saveRestoreTimeout(Duration.ofMillis(100))
+                            .saveRestoreTimeout(saveRestoreTimeoutSeconds)
                             .build()));
 
-    // Acquire the lock to simulate another operation holding it. Using acquire()
-    // instead of drainPermits() ensures we wait for any in-progress async operation
-    // (e.g. loadFromDisk triggered by pool creation) to release the permit first.
-    final var lock = transactionPool.getSaveRestoreManager().getDiskAccessLock();
-    lock.acquire();
+    givenAllTransactionsAreValid();
+
+    addAndAssertTransactionViaApiValid(createTransaction(1), false);
+
+    final CompletableFuture<Void> saveOperation = transactionPool.setDisabled();
 
     try {
-      // Call loadFromDisk() directly on the SaveRestoreManager to test
-      // serializeAndDedupOperation() in isolation, since setDisabled() wraps the
-      // future with .exceptionally() which swallows the error for logging.
-      // Before the fix, the failedFuture was not returned and the caller silently got
-      // completedFuture(null). After the fix, the failed future must be propagated.
-      final CompletableFuture<Void> result = transactionPool.getSaveRestoreManager().loadFromDisk();
+      assertThat(saveStarted.await(2, TimeUnit.SECONDS)).isTrue();
+
+      final CompletableFuture<Void> result = transactionPool.setEnabled();
 
       assertThatThrownBy(result::get)
           .isInstanceOf(ExecutionException.class)
-          .hasCauseInstanceOf(TimeoutException.class);
+          .hasCauseInstanceOf(RuntimeException.class)
+          .hasMessageContaining("Timeout waiting for disk access lock");
     } finally {
-      // Always restore the permit so cleanup does not hang
-      lock.release();
+      releaseSave.countDown();
+      saveOperation.get(2, TimeUnit.SECONDS);
     }
   }
 }
