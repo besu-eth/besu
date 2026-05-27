@@ -833,7 +833,6 @@ public class TransactionPool implements BlockAddedObserver {
                           isCancelled.set(false);
                           operation.run();
                         } finally {
-                          // reset everything so that the next operation can be started
                           diskAccessLock.release();
                         }
                       } else {
@@ -844,7 +843,10 @@ public class TransactionPool implements BlockAddedObserver {
                     }
                     return null;
                   })
-              .whenComplete((_, _) -> operationInProgress.set(null));
+              .whenComplete(
+                  (_, _) ->
+                      // remove in progress operation, so that the next one can start
+                      operationInProgress.set(null));
           return newOperation;
         }
         return operationInProgress.get();

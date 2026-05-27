@@ -17,7 +17,9 @@ package org.hyperledger.besu.ethereum.eth.transactions;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.spy;
 
 import org.hyperledger.besu.datatypes.Wei;
@@ -39,7 +41,6 @@ import org.hyperledger.besu.ethereum.eth.transactions.layered.TransactionsLayer;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -281,45 +282,19 @@ public class TransactionPoolSaveRestoreTest extends AbstractTransactionPoolTestB
   @Test
   public void diskLockTimeoutIsPropagatedNotSwallowed()
       throws InterruptedException, ExecutionException, TimeoutException {
-    final Duration saveRestoreTimeoutSeconds = Duration.ofMillis(100);
-    // Create a txpool with save and restore enabled and a short lock timeout
-    // so the test does not block for 60 seconds
-    final File spySaveFile = spy(saveFilePath.toFile());
-
-    // making the writing to disk take longer than the lock timeout, pretending the exists method is
-    // very slow
+    final Duration saveRestoreTimeout = Duration.ofMillis(100);
     final CountDownLatch saveStarted = new CountDownLatch(1);
     final CountDownLatch releaseSave = new CountDownLatch(1);
-
-    doAnswer(
-            invocation -> {
-              saveStarted.countDown();
-              releaseSave.await(2, TimeUnit.SECONDS);
-              invocation.callRealMethod();
-              return null;
-            })
-        .when(spySaveFile)
-        .exists();
-
-    this.transactionPool =
-        createTransactionPool(
-            b ->
-                b.enableSaveRestore(true)
-                    .saveFile(spySaveFile)
-                    .unstable(
-                        ImmutableTransactionPoolConfiguration.Unstable.builder()
-                            .saveRestoreTimeout(saveRestoreTimeoutSeconds)
-                            .build()));
-
-    givenAllTransactionsAreValid();
-
-    addAndAssertTransactionViaApiValid(createTransaction(1), false);
-
-    final CompletableFuture<Void> saveOperation = transactionPool.setDisabled();
+    // Start a save that blocks while serializing a transaction, after it has acquired the disk
+    // lock. The restore below must fail fast instead of waiting for this save to finish.
+    final CompletableFuture<Void> saveOperation =
+        startSaveWithBlockedTransactionWrite(saveRestoreTimeout, saveStarted, releaseSave);
 
     try {
-      assertThat(saveStarted.await(2, TimeUnit.SECONDS)).isTrue();
+      assertThat(saveStarted.await(10, TimeUnit.SECONDS)).isTrue();
 
+      // setEnabled delegates to loadFromDisk; the returned future must surface the disk-lock
+      // timeout so callers can observe that restore did not run.
       final CompletableFuture<Void> result = transactionPool.setEnabled();
 
       assertThatThrownBy(result::get)
@@ -328,7 +303,74 @@ public class TransactionPoolSaveRestoreTest extends AbstractTransactionPoolTestB
           .hasMessageContaining("Timeout waiting for disk access lock");
     } finally {
       releaseSave.countDown();
-      saveOperation.get(2, TimeUnit.SECONDS);
+      saveOperation.get(10, TimeUnit.SECONDS);
     }
+  }
+
+  @Test
+  public void diskLockTimeoutDoesNotBlockLaterRestore()
+      throws InterruptedException, ExecutionException, TimeoutException {
+    final Duration saveRestoreTimeout = Duration.ofMillis(100);
+    final CountDownLatch saveStarted = new CountDownLatch(1);
+    final CountDownLatch releaseSave = new CountDownLatch(1);
+    // Hold the disk lock with a save long enough for the first restore attempt to time out.
+    final CompletableFuture<Void> saveOperation =
+        startSaveWithBlockedTransactionWrite(saveRestoreTimeout, saveStarted, releaseSave);
+
+    try {
+      assertThat(saveStarted.await(10, TimeUnit.SECONDS)).isTrue();
+
+      final CompletableFuture<Void> timedOutRestore = transactionPool.setEnabled();
+
+      assertThatThrownBy(timedOutRestore::get)
+          .isInstanceOf(ExecutionException.class)
+          .hasCauseInstanceOf(RuntimeException.class)
+          .hasMessageContaining("Timeout waiting for disk access lock");
+
+      // Once the save releases the disk lock, a later restore must be allowed to create and run a
+      // fresh operation instead of reusing the previous failed future.
+      releaseSave.countDown();
+      saveOperation.get(10, TimeUnit.SECONDS);
+
+      transactionPool.setDisabled().get(10, TimeUnit.SECONDS);
+      transactionPool.setEnabled().get(10, TimeUnit.SECONDS);
+    } finally {
+      releaseSave.countDown();
+    }
+  }
+
+  private CompletableFuture<Void> startSaveWithBlockedTransactionWrite(
+      final Duration saveRestoreTimeout,
+      final CountDownLatch saveStarted,
+      final CountDownLatch releaseSave) {
+    this.transactionPool =
+        createTransactionPool(
+            b ->
+                b.enableSaveRestore(true)
+                    .saveFile(saveFilePath.toFile())
+                    .unstable(
+                        ImmutableTransactionPoolConfiguration.Unstable.builder()
+                            .saveRestoreTimeout(saveRestoreTimeout)
+                            .build()));
+    givenAllTransactionsAreValid();
+
+    final Transaction slowWriteTx = spy(createTransaction(1));
+    // The layered pool stores a detached copy for new transactions. Return the spy from
+    // detachedCopy so the save path still hits the writeTo stub below.
+    doReturn(slowWriteTx).when(slowWriteTx).detachedCopy();
+    doAnswer(
+            invocation -> {
+              // Signal only after save serialization has started; at this point the save operation
+              // has already acquired the disk lock.
+              saveStarted.countDown();
+              releaseSave.await(10, TimeUnit.SECONDS);
+              invocation.callRealMethod();
+              return null;
+            })
+        .when(slowWriteTx)
+        .writeTo(any(), any());
+    addAndAssertTransactionViaApiValid(slowWriteTx, false);
+
+    return transactionPool.setDisabled();
   }
 }
