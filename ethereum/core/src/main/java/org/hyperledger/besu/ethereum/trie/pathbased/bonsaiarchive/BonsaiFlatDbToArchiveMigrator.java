@@ -138,6 +138,9 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
         migratedBlockNumber::get);
     if (archiveStrategy.getTrieNodeCheckpointInterval() != null) {
       initMigrationWorldState(metricsSystem);
+      getMigrationProgress()
+          .flatMap(blockchain::getBlockHeader)
+          .ifPresent(migrationTrieStorage::seedCheckpoint);
     }
   }
 

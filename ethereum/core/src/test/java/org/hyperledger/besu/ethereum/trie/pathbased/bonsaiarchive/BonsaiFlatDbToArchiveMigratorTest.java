@@ -577,6 +577,30 @@ public class BonsaiFlatDbToArchiveMigratorTest {
         .isEmpty();
   }
 
+  @Test
+  public void trieBlockRestartResumesCorrectlyWithIntervalConfigured() throws Exception {
+    // First migration: process blocks 1-3, progress saved as 3.
+    appendBlocks(3);
+    final BonsaiFlatDbToArchiveMigrator firstMigrator = createMigratorWithTrieCheckpoints(100);
+    firstMigrator.migrate().get(MIGRATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    assertThat(firstMigrator.getMigrationProgress()).hasValue(3L);
+    firstMigrator.close();
+
+    // Simulate restart: append more blocks, create a new migrator.
+    appendBlocks(3);
+    final BonsaiFlatDbToArchiveMigrator secondMigrator = createMigratorWithTrieCheckpoints(100);
+    secondMigrator.migrate().get(MIGRATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+    // Blocks 1-3 must NOT be re-processed by the second migrator.
+    verify(trieLogManager, times(1)).getTrieLogLayer(hashAt(1L));
+    verify(trieLogManager, times(1)).getTrieLogLayer(hashAt(2L));
+    verify(trieLogManager, times(1)).getTrieLogLayer(hashAt(3L));
+    // Blocks 4-6 must be processed by the second migrator.
+    verify(trieLogManager, times(1)).getTrieLogLayer(hashAt(4L));
+    verify(trieLogManager, times(1)).getTrieLogLayer(hashAt(5L));
+    verify(trieLogManager, times(1)).getTrieLogLayer(hashAt(6L));
+  }
+
   // --- test helpers ---
 
   private MutableBlockchain createInMemoryBlockchain(final Block genesisBlock) {
