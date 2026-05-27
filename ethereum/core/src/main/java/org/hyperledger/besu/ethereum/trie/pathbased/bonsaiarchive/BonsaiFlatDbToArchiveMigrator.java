@@ -93,9 +93,6 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   private static final byte[] MIGRATION_PROGRESS_KEY =
       "ARCHIVE_MIGRATION_PROGRESS".getBytes(StandardCharsets.UTF_8);
 
-  private static final byte[] TRIE_CHECKPOINT_PROGRESS_KEY =
-      "TRIE_CHECKPOINT_PROGRESS".getBytes(StandardCharsets.UTF_8);
-
   private final BonsaiWorldStateKeyValueStorage worldStateStorage;
   private final TrieLogManager trieLogManager;
   private final Blockchain blockchain;
@@ -180,7 +177,6 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
       return CompletableFuture.runAsync(
           () -> {
             try {
-              // recoverTrieCheckpointState(startBlock);
               migrateBlocks(startBlock, target, true);
               worldStateStorage.upgradeToArchiveFlatDbMode();
               logCompletion(startBlock, target.get(), migrationStartTime);
@@ -224,7 +220,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
         saveProgress(blockNumber, tx);
         tx.commit();
         if (migrationWorldState != null) {
-          migrateTrieCheckpointBlock(maybeTrieLog.get(), blockNumber);
+          migrateTrieBlock(maybeTrieLog.get(), blockNumber);
         }
         migratedBlockNumber.set(blockNumber);
         if (shouldLog) {
@@ -463,33 +459,8 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
             codeCache);
   }
 
-  //  private void recoverTrieCheckpointState(final long startBlock) {
-  //    if (migrationWorldState == null) {
-  //      return;
-  //    }
-  //    final long lastTrieCheckpoint = getTrieCheckpointProgress().orElse(-1L);
-  //    if (lastTrieCheckpoint >= 0) {
-  //
-  // blockchain.getBlockHeader(lastTrieCheckpoint).ifPresent(migrationTrieStorage::seedCheckpoint);
-  //    }
-  //    // Re-roll current incomplete window to rebuild in-memory trie state for the next
-  // checkpoint.
-  //    // Trie logs for these blocks should be within the trie-log retention window.
-  //    final long windowStart = Math.max(0L, lastTrieCheckpoint + 1);
-  //    for (long b = windowStart; b < startBlock; b++) {
-  //      final long blockNum = b;
-  //      blockchain
-  //          .getBlockHeader(blockNum)
-  //          .flatMap(h -> trieLogManager.getTrieLogLayer(h.getHash()))
-  //          .ifPresent(tl -> migrateTrieCheckpointBlock(tl, blockNum));
-  //    }
-  //  }
-
-  private void migrateTrieCheckpointBlock(final TrieLog trieLog, final long blockNumber) {
+  private void migrateTrieBlock(final TrieLog trieLog, final long blockNumber) {
     ((PathBasedWorldStateUpdateAccumulator<?>) migrationWorldState.updater()).rollForward(trieLog);
-    if (!isTrieCheckpointBlock(blockNumber)) {
-      return;
-    }
     blockchain
         .getBlockHeader(blockNumber)
         .ifPresent(
@@ -497,28 +468,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
               migrationWorldState.persist(header);
               migrationTrieStorage.clearInMemory();
               migrationTrieStorage.seedCheckpoint(header);
-              final SegmentedKeyValueStorageTransaction progressTx =
-                  worldStateStorage.getComposedWorldStateStorage().startLowPriorityTransaction();
-              progressTx.put(
-                  TRIE_BRANCH_STORAGE_ARCHIVE,
-                  TRIE_CHECKPOINT_PROGRESS_KEY,
-                  Bytes.ofUnsignedLong(blockNumber).toArrayUnsafe());
-              progressTx.commit();
             });
-  }
-
-  private boolean isTrieCheckpointBlock(final long blockNumber) {
-    return blockNumber > 0
-        && (blockNumber + 1) % archiveStrategy.getTrieNodeCheckpointInterval() == 0;
-  }
-
-  @VisibleForTesting
-  protected Optional<Long> getTrieCheckpointProgress() {
-    return worldStateStorage
-        .getComposedWorldStateStorage()
-        .get(TRIE_BRANCH_STORAGE_ARCHIVE, TRIE_CHECKPOINT_PROGRESS_KEY)
-        .map(Bytes::wrap)
-        .map(Bytes::toLong);
   }
 
   private static final class MigrationTrieStorage extends LayeredKeyValueStorage {
