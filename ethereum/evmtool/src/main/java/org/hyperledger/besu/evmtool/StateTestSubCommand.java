@@ -53,6 +53,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
@@ -63,6 +64,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.base.Stopwatch;
 import org.apache.tuweni.bytes.Bytes;
 import picocli.CommandLine.Command;
+import picocli.CommandLine.IExitCodeGenerator;
 import picocli.CommandLine.Option;
 import picocli.CommandLine.Parameters;
 import picocli.CommandLine.ParentCommand;
@@ -84,13 +86,17 @@ import picocli.CommandLine.ParentCommand;
     description = "Execute an Ethereum State Test.",
     mixinStandardHelpOptions = true,
     versionProvider = VersionProvider.class)
-public class StateTestSubCommand implements Runnable {
+public class StateTestSubCommand implements Runnable, IExitCodeGenerator {
   /**
    * The name of the command for the StateTestSubCommand. This constant is used as the name
    * parameter in the @CommandLine.Command annotation. It defines the command name that users should
    * enter on the command line to invoke this command.
    */
   public static final String COMMAND_NAME = "state-test";
+
+  /** Set when any executed test fails, so the process exits non-zero (for CI/gradle). */
+  private final java.util.concurrent.atomic.AtomicBoolean anyFailure =
+      new java.util.concurrent.atomic.AtomicBoolean(false);
 
   @SuppressWarnings({"FieldCanBeFinal"})
   @Option(
@@ -130,23 +136,34 @@ public class StateTestSubCommand implements Runnable {
   private String forkIndex = null;
 
   @Option(
-      names = {"--json-array"},
-      description =
-          "Output results as a JSON array with standard schema: name, pass, fork, stateRoot, error.")
-  private boolean jsonArray = false;
-
-  @Option(
       names = {"--cache-precompiles"},
       description =
           "Enable precompile result caching, matching the runtime behavior of `--cache-precompiles` in besu.",
       negatable = true)
   private Boolean enablePrecompileCache = false;
 
+  @Option(
+      names = {"--json-array"},
+      description =
+          "Output results as a JSON array with standard schema: name, pass, fork, stateRoot, error.")
+  private boolean jsonArray = false;
+
+  @Option(
+      names = {"--verbose"},
+      description =
+          "Print per-test result output. By default only failing tests and the final summary are"
+              + " printed.")
+  private boolean verbose = false;
+
+  private final java.util.concurrent.atomic.AtomicInteger passCount =
+      new java.util.concurrent.atomic.AtomicInteger(0);
+  private final java.util.concurrent.atomic.AtomicInteger failCount =
+      new java.util.concurrent.atomic.AtomicInteger(0);
+
   @ParentCommand private final EvmToolCommand parentCommand;
 
   // Collected results for --json-array mode
-  private final List<ObjectNode> jsonArrayResults =
-      Collections.synchronizedList(new ArrayList<>());
+  private final List<ObjectNode> jsonArrayResults = Collections.synchronizedList(new ArrayList<>());
 
   // Cache protocol schedules across all tests — creating all 30+ schedules is very expensive
   private volatile ReferenceTestProtocolSchedules cachedSchedules;
@@ -209,15 +226,17 @@ public class StateTestSubCommand implements Runnable {
         final var executor = java.util.concurrent.Executors.newFixedThreadPool(workers);
         final var futures = new ArrayList<java.util.concurrent.Future<?>>();
         for (final Path file : collectedFiles) {
-          futures.add(executor.submit(() -> {
-            try {
-              final Map<String, GeneralStateTestCaseSpec> generalStateTests =
-                  stateTestMapper.readValue(file.toFile(), javaType);
-              executeStateTest(generalStateTests);
-            } catch (final Exception e) {
-              // Skip files that fail to parse
-            }
-          }));
+          futures.add(
+              executor.submit(
+                  () -> {
+                    try {
+                      final Map<String, GeneralStateTestCaseSpec> generalStateTests =
+                          stateTestMapper.readValue(file.toFile(), javaType);
+                      executeStateTest(generalStateTests);
+                    } catch (final Exception e) {
+                      // Skip files that fail to parse
+                    }
+                  }));
         }
         for (final var future : futures) {
           future.get();
@@ -256,7 +275,15 @@ public class StateTestSubCommand implements Runnable {
       } catch (final JsonProcessingException e) {
         parentCommand.out.println("[]");
       }
+    } else if (passCount.get() + failCount.get() > 0) {
+      parentCommand.out.printf(
+          "%nState test summary: %d passed, %d failed%n", passCount.get(), failCount.get());
     }
+  }
+
+  @Override
+  public int getExitCode() {
+    return anyFailure.get() ? 1 : 0;
   }
 
   private void executeStateTest(final Map<String, GeneralStateTestCaseSpec> generalStateTests) {
@@ -265,16 +292,45 @@ public class StateTestSubCommand implements Runnable {
       boolean isLastIteration = (i == repeatCount - 1);
       for (final Map.Entry<String, GeneralStateTestCaseSpec> generalStateTestEntry :
           generalStateTests.entrySet()) {
-        if (testName == null || testName.equals(generalStateTestEntry.getKey())) {
+        if (testName == null || matchesTestName(generalStateTestEntry.getKey())) {
           generalStateTestEntry
               .getValue()
               .finalStateSpecs()
               .forEach(
-                  (__, specs) ->
-                      traceTestSpecs(generalStateTestEntry.getKey(), specs, isLastIteration));
+                  (__, specs) -> {
+                    try {
+                      traceTestSpecs(generalStateTestEntry.getKey(), specs, isLastIteration);
+                    } catch (final RuntimeException e) {
+                      // Record execution errors (e.g. UnsupportedForkException) as failures rather
+                      // than letting them bubble to the per-file "skip" catch and vanish.
+                      if (isLastIteration) {
+                        failCount.incrementAndGet();
+                        anyFailure.set(true);
+                        parentCommand.out.printf(
+                            "FAIL: %s - execution error: %s%n",
+                            generalStateTestEntry.getKey(), e);
+                      }
+                    }
+                  });
         }
       }
     }
+  }
+
+  /**
+   * Returns true if the given test name matches the {@code --run}/{@code --test-name} filter: a
+   * case-insensitive substring, or a {@code *}/{@code ?} glob.
+   *
+   * @param test the test name
+   * @return whether it matches
+   */
+  private boolean matchesTestName(final String test) {
+    if (testName.contains("*") || testName.contains("?")) {
+      final String regex =
+          "(?i)" + testName.replace(".", "\\.").replace("*", ".*").replace("?", ".");
+      return test.matches(regex);
+    }
+    return test.toLowerCase(Locale.ROOT).contains(testName.toLowerCase(Locale.ROOT));
   }
 
   private void traceTestSpecs(
@@ -336,7 +392,8 @@ public class StateTestSubCommand implements Runnable {
 
         final String forkName = fork == null ? spec.getFork() : fork;
         if (cachedSchedules == null) {
-          cachedSchedules = ReferenceTestProtocolSchedules.create(parentCommand.getEvmConfiguration());
+          cachedSchedules =
+              ReferenceTestProtocolSchedules.create(parentCommand.getEvmConfiguration());
         }
         final ProtocolSchedule protocolSchedule = cachedSchedules.getByName(forkName);
         if (protocolSchedule == null) {
@@ -407,14 +464,18 @@ public class StateTestSubCommand implements Runnable {
         final List<Log> logs = result.getLogs();
         final Hash actualLogsHash = Hash.hash(RLP.encode(out -> out.writeList(logs, Log::writeTo)));
         summaryLine.put("postLogsHash", actualLogsHash.getBytes().toHexString());
-        summaryLine.put(
-            "pass",
-            spec.getExpectException() == null
-                && worldState.rootHash().equals(spec.getExpectedRootHash())
-                && actualLogsHash.equals(spec.getExpectedLogsHash()));
+        // A fixture that expects an exception passes when the transaction is rejected; otherwise it
+        // passes when the resulting state root and logs hash match the expected post values.
+        final boolean exceptionExpected = spec.getExpectException() != null;
+        final boolean pass =
+            exceptionExpected
+                ? result.isInvalid()
+                : worldState.rootHash().equals(spec.getExpectedRootHash())
+                    && actualLogsHash.equals(spec.getExpectedLogsHash());
+        summaryLine.put("pass", pass);
         if (result.isInvalid()) {
           summaryLine.put("validationError", result.getValidationResult().getErrorMessage());
-        } else if (spec.getExpectException() != null) {
+        } else if (exceptionExpected) {
           summaryLine.put(
               "validationError",
               "Exception '" + spec.getExpectException() + "' was expected but did not occur");
@@ -428,12 +489,24 @@ public class StateTestSubCommand implements Runnable {
       }
 
       if (isLastIteration) {
+        final boolean testPassed = summaryLine.has("pass") && summaryLine.get("pass").asBoolean();
+        if (testPassed) {
+          passCount.incrementAndGet();
+        } else {
+          failCount.incrementAndGet();
+          anyFailure.set(true);
+        }
         if (jsonArray) {
           final ObjectNode standardResult = SHARED_OBJECT_MAPPER.createObjectNode();
-          standardResult.put("name", summaryLine.has("test") ? summaryLine.get("test").asText() : "");
-          standardResult.put("pass", summaryLine.has("pass") && summaryLine.get("pass").asBoolean());
-          standardResult.put("fork", summaryLine.has("fork") ? summaryLine.get("fork").asText() : "");
-          standardResult.put("stateRoot", summaryLine.has("stateRoot") ? summaryLine.get("stateRoot").asText() : "");
+          standardResult.put(
+              "name", summaryLine.has("test") ? summaryLine.get("test").asText() : "");
+          standardResult.put(
+              "pass", summaryLine.has("pass") && summaryLine.get("pass").asBoolean());
+          standardResult.put(
+              "fork", summaryLine.has("fork") ? summaryLine.get("fork").asText() : "");
+          standardResult.put(
+              "stateRoot",
+              summaryLine.has("stateRoot") ? summaryLine.get("stateRoot").asText() : "");
           String error = "";
           if (summaryLine.has("validationError")) {
             error = summaryLine.get("validationError").asText();
@@ -442,7 +515,7 @@ public class StateTestSubCommand implements Runnable {
           }
           standardResult.put("error", error);
           jsonArrayResults.add(standardResult);
-        } else {
+        } else if (verbose || !testPassed) {
           parentCommand.out.println(summaryLine);
         }
       }

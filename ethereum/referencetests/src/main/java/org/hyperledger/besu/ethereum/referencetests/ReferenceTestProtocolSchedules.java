@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.referencetests;
 
+import org.hyperledger.besu.config.BlobScheduleOptions;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.config.StubGenesisConfigOptions;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
@@ -68,6 +69,23 @@ public class ReferenceTestProtocolSchedules {
 
   public static ReferenceTestProtocolSchedules create(final EvmConfiguration evmConfiguration) {
     return create(new StubGenesisConfigOptions(), evmConfiguration);
+  }
+
+  /**
+   * Creates the reference-test schedules with a fixture-supplied blob schedule applied to every
+   * fork (used by engine/blockchain tests on devnets whose blob target/max differ from defaults).
+   *
+   * @param evmConfiguration the EVM configuration
+   * @param blobScheduleOptions the blob schedule from the fixture config, or null for defaults
+   * @return the schedules
+   */
+  public static ReferenceTestProtocolSchedules create(
+      final EvmConfiguration evmConfiguration, final BlobScheduleOptions blobScheduleOptions) {
+    final StubGenesisConfigOptions genesisStub = new StubGenesisConfigOptions();
+    if (blobScheduleOptions != null) {
+      genesisStub.blobSchedule(blobScheduleOptions);
+    }
+    return create(genesisStub, evmConfiguration);
   }
 
   public static ReferenceTestProtocolSchedules create(
@@ -158,10 +176,46 @@ public class ReferenceTestProtocolSchedules {
                 Map.entry(
                     "Prague", createSchedule(genesisStub.clone().pragueTime(0), evmConfiguration)),
                 Map.entry(
-                    "Osaka", createSchedule(genesisStub.clone().osakaTime(0), evmConfiguration)),
+                    "PragueToOsakaAtTime15k",
+                    createSchedule(
+                        genesisStub.clone().pragueTime(0).osakaTime(15000), evmConfiguration)),
+                Map.entry(
+                    "Osaka",
+                    createSchedule(
+                        genesisStub.clone().pragueTime(0).osakaTime(0), evmConfiguration)),
+                Map.entry(
+                    "OsakaToBPO1AtTime15k",
+                    createSchedule(
+                        genesisStub.clone().pragueTime(0).osakaTime(0).bpo1Time(15000),
+                        evmConfiguration)),
+                Map.entry(
+                    "BPO1ToBPO2AtTime15k",
+                    createSchedule(
+                        genesisStub.clone().pragueTime(0).osakaTime(0).bpo1Time(0).bpo2Time(15000),
+                        evmConfiguration)),
                 Map.entry(
                     "Amsterdam",
-                    createSchedule(genesisStub.clone().amsterdamTime(0), evmConfiguration)),
+                    createSchedule(
+                        genesisStub
+                            .clone()
+                            .cancunTime(0)
+                            .pragueTime(0)
+                            .osakaTime(0)
+                            .bpo1Time(0)
+                            .bpo2Time(0)
+                            .amsterdamTime(0),
+                        evmConfiguration)),
+                Map.entry(
+                    "BPO2ToAmsterdamAtTime15k",
+                    createSchedule(
+                        genesisStub
+                            .clone()
+                            .pragueTime(0)
+                            .osakaTime(0)
+                            .bpo1Time(0)
+                            .bpo2Time(0)
+                            .amsterdamTime(15000),
+                        evmConfiguration)),
                 Map.entry(
                     "Bogota",
                     createSchedule(genesisStub.clone().futureEipsTime(0), evmConfiguration)),

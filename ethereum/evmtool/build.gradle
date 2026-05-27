@@ -79,6 +79,105 @@ application {
   mainClass = 'org.hyperledger.besu.evmtool.EvmTool'
 }
 
+// Runs the execution-spec devnet engine fixtures (blockchain_tests_engine) through the real
+// Engine API code path via the `engine-test` subcommand. Reuses the devnet fixture download/extract
+// from the :ethereum:referencetests project (extractDevnetFixtures) instead of fetching separately,
+// and fails the build on any fixture failure (engine-test exits non-zero).
+//
+// Optional gradle properties:
+//   -PengineTestWorkers=N        parallelism (defaults to available processors)
+//   -PengineTestPath=<subdir>    scope to a subdirectory of blockchain_tests_engine,
+//                                e.g. for_amsterdam (runs only the Amsterdam-fork fixtures)
+//   -PengineTestFilter=<substr>  only run tests whose node id contains <substr> (or a *?-glob)
+tasks.register('engineTestsDevnet', JavaExec) {
+  description = 'Runs execution-spec devnet engine (blockchain_tests_engine) fixtures via the real Engine API path.'
+  group = 'verification'
+
+  dependsOn ':ethereum:referencetests:extractDevnetFixtures'
+
+  classpath = sourceSets.main.runtimeClasspath
+  mainClass = 'org.hyperledger.besu.evmtool.EvmTool'
+
+  def engineFixtures = project(':ethereum:referencetests').layout.buildDirectory
+    .dir('execution-spec-devnet-tests/fixtures/blockchain_tests_engine')
+  def workerCount = project.findProperty('engineTestWorkers')?.toString()
+    ?: Runtime.runtime.availableProcessors().toString()
+  def subPath = project.findProperty('engineTestPath')?.toString()
+  def nameFilter = project.findProperty('engineTestFilter')?.toString()
+
+  doFirst {
+    def fixturesDir = engineFixtures.get().asFile
+    if (!fixturesDir.exists()) {
+      throw new GradleException(
+      "Engine fixtures not found at ${fixturesDir}.\n" +
+      "The pinned devnet fixtures tarball may predate blockchain_tests_engine; " +
+      "check the devnetTarConfig version in ethereum/referencetests/build.gradle.")
+    }
+    def runDir = subPath ? new File(fixturesDir, subPath) : fixturesDir
+    if (!runDir.exists()) {
+      throw new GradleException("Engine fixtures path not found: ${runDir} (from -PengineTestPath=${subPath})")
+    }
+    def cmd = [
+      'engine-test',
+      '--workers',
+      workerCount
+    ]
+    if (nameFilter != null) {
+      cmd += ['--run', nameFilter]
+    }
+    cmd += runDir.absolutePath
+    args = cmd
+  }
+}
+
+// Runs the execution-spec devnet state_tests (EVM/state-transition only — these are not covered by
+// engine-test) via the `state-test` subcommand. Reuses the devnet fixture download/extract from the
+// :ethereum:referencetests project (extractDevnetFixtures) and fails the build on any failure.
+//
+// Optional gradle properties:
+//   -PstateTestWorkers=N        parallelism (defaults to available processors)
+//   -PstateTestPath=<subdir>    scope to a subdirectory of state_tests (e.g. for_amsterdam)
+//   -PstateTestFilter=<substr>  only run tests whose name contains <substr> (or a *?-glob)
+tasks.register('stateTestsDevnet', JavaExec) {
+  description = 'Runs execution-spec devnet state_tests via the evmtool state-test runner.'
+  group = 'verification'
+
+  dependsOn ':ethereum:referencetests:extractDevnetFixtures'
+
+  classpath = sourceSets.main.runtimeClasspath
+  mainClass = 'org.hyperledger.besu.evmtool.EvmTool'
+
+  def stateFixtures = project(':ethereum:referencetests').layout.buildDirectory
+    .dir('execution-spec-devnet-tests/fixtures/state_tests')
+  def workerCount = project.findProperty('stateTestWorkers')?.toString()
+    ?: Runtime.runtime.availableProcessors().toString()
+  def subPath = project.findProperty('stateTestPath')?.toString()
+  def nameFilter = project.findProperty('stateTestFilter')?.toString()
+
+  doFirst {
+    def fixturesDir = stateFixtures.get().asFile
+    if (!fixturesDir.exists()) {
+      throw new GradleException(
+      "State fixtures not found at ${fixturesDir}.\n" +
+      "Check the devnetTarConfig version in ethereum/referencetests/build.gradle.")
+    }
+    def runDir = subPath ? new File(fixturesDir, subPath) : fixturesDir
+    if (!runDir.exists()) {
+      throw new GradleException("State fixtures path not found: ${runDir} (from -PstateTestPath=${subPath})")
+    }
+    def cmd = [
+      'state-test',
+      '--workers',
+      workerCount
+    ]
+    if (nameFilter != null) {
+      cmd += ['--run', nameFilter]
+    }
+    cmd += runDir.absolutePath
+    args = cmd
+  }
+}
+
 
 // rename the top level dir from besu-<version> to besu and this makes it really
 // simple for use in docker

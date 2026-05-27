@@ -15,14 +15,15 @@
  */
 package org.hyperledger.besu.ethereum.referencetests;
 
+import org.hyperledger.besu.config.BlobScheduleOptions;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.ConsensusContextFixture;
+import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiWorldStateProvider;
@@ -37,7 +38,9 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.BesuService;
 
+import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -45,6 +48,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 /**
  * Represents an engine test fixture (blockchain_test_engine format) containing engine API payloads
@@ -54,15 +58,17 @@ import com.fasterxml.jackson.databind.JsonNode;
 public class EngineTestCaseSpec {
 
   // Shared no-op ServiceManager — avoids anonymous class allocation per test
-  private static final ServiceManager SHARED_SERVICE_MANAGER = new ServiceManager() {
-    @Override
-    public <T extends BesuService> void addService(
-        final Class<T> serviceType, final T service) {}
-    @Override
-    public <T extends BesuService> Optional<T> getService(final Class<T> serviceType) {
-      return Optional.empty();
-    }
-  };
+  private static final ServiceManager SHARED_SERVICE_MANAGER =
+      new ServiceManager() {
+        @Override
+        public <T extends BesuService> void addService(
+            final Class<T> serviceType, final T service) {}
+
+        @Override
+        public <T extends BesuService> Optional<T> getService(final Class<T> serviceType) {
+          return Optional.empty();
+        }
+      };
 
   // Shared no-op trie loader — stateless, safe to reuse
   private static final NoopBonsaiCachedMerkleTrieLoader SHARED_TRIE_LOADER =
@@ -70,13 +76,15 @@ public class EngineTestCaseSpec {
 
   // Shared PostMergeContext singleton for engine tests — always post-merge, never syncing
   private static final org.hyperledger.besu.consensus.merge.PostMergeContext SHARED_MERGE_CONTEXT;
+
   static {
-    SHARED_MERGE_CONTEXT = new org.hyperledger.besu.consensus.merge.PostMergeContext() {
-      @Override
-      public boolean isSyncing() {
-        return false;
-      }
-    };
+    SHARED_MERGE_CONTEXT =
+        new org.hyperledger.besu.consensus.merge.PostMergeContext() {
+          @Override
+          public boolean isSyncing() {
+            return false;
+          }
+        };
     SHARED_MERGE_CONTEXT.setIsPostMerge(Difficulty.ZERO);
   }
 
@@ -86,6 +94,7 @@ public class EngineTestCaseSpec {
   private final Map<String, ReferenceTestWorldState.AccountMock> postState;
   private final Hash lastBlockHash;
   private final EngineNewPayload[] engineNewPayloads;
+  private final JsonNode config;
 
   @JsonCreator
   public EngineTestCaseSpec(
@@ -95,13 +104,65 @@ public class EngineTestCaseSpec {
       @JsonProperty("pre") final Map<String, ReferenceTestWorldState.AccountMock> pre,
       @JsonProperty("postState") final Map<String, ReferenceTestWorldState.AccountMock> postState,
       @JsonProperty("lastblockhash") final String lastBlockHash,
-      @JsonProperty("engineNewPayloads") final EngineNewPayload[] engineNewPayloads) {
+      @JsonProperty("engineNewPayloads") final EngineNewPayload[] engineNewPayloads,
+      @JsonProperty("config") final JsonNode config) {
     this.network = network;
     this.genesisBlockHeader = genesisBlockHeader;
     this.pre = pre;
     this.postState = postState;
     this.lastBlockHash = Hash.fromHexString(lastBlockHash);
     this.engineNewPayloads = engineNewPayloads;
+    this.config = config;
+  }
+
+  /**
+   * The raw JSON of the fixture's {@code config.blobSchedule}, or {@code null} if absent. Used as a
+   * cache key so a protocol schedule is built once per distinct blob schedule.
+   *
+   * @return the blob schedule node as a string, or "" when absent
+   */
+  public String getBlobScheduleKey() {
+    final JsonNode blobSchedule = config == null ? null : config.get("blobSchedule");
+    return blobSchedule == null ? "" : blobSchedule.toString();
+  }
+
+  /**
+   * Builds {@link BlobScheduleOptions} from the fixture's {@code config.blobSchedule}. Fork keys are
+   * lower-cased because Besu reads them as {@code cancun}/{@code prague}/{@code bpo1}..{@code bpo5}
+   * whereas fixtures use {@code Cancun}/{@code BPO1} etc.
+   *
+   * @return the blob schedule options, or empty when the fixture carries no blob schedule
+   */
+  public Optional<BlobScheduleOptions> getBlobScheduleOptions() {
+    final JsonNode blobSchedule = config == null ? null : config.get("blobSchedule");
+    if (blobSchedule == null || !blobSchedule.isObject()) {
+      return Optional.empty();
+    }
+    final ObjectNode root = ((ObjectNode) blobSchedule).objectNode();
+    final Iterator<Map.Entry<String, JsonNode>> forks = blobSchedule.fields();
+    while (forks.hasNext()) {
+      final Map.Entry<String, JsonNode> fork = forks.next();
+      final JsonNode value = fork.getValue();
+      if (!value.isObject()) {
+        continue;
+      }
+      // Besu's BlobSchedule reads numeric, all-lowercase keys (target/max/basefeeupdatefraction),
+      // but EELS fixtures encode the values as hex strings (e.g. "0x0e") under a camelCase
+      // baseFeeUpdateFraction; convert to lowercase numeric nodes.
+      final ObjectNode entry = root.objectNode();
+      entry.put("target", asInt(value.get("target")));
+      entry.put("max", asInt(value.get("max")));
+      entry.put("basefeeupdatefraction", asInt(value.get("baseFeeUpdateFraction")));
+      root.set(fork.getKey().toLowerCase(Locale.ROOT), entry);
+    }
+    return Optional.of(new BlobScheduleOptions(root));
+  }
+
+  private static int asInt(final JsonNode node) {
+    if (node == null || node.isNull()) {
+      return 0;
+    }
+    return node.isNumber() ? node.asInt() : Long.decode(node.asText().trim()).intValue();
   }
 
   public String getNetwork() {
@@ -142,9 +203,8 @@ public class EngineTestCaseSpec {
   }
 
   /**
-   * Build a ProtocolContext with MergeContext for engine tests.
-   * The MergeContext is required by AbstractEngineNewPayload to determine
-   * terminal total difficulty and merge status.
+   * Build a ProtocolContext with MergeContext for engine tests. The MergeContext is required by
+   * AbstractEngineNewPayload to determine terminal total difficulty and merge status.
    */
   public ProtocolContext buildProtocolContextForEngine(final MutableBlockchain blockchain) {
     return new ProtocolContext.Builder()
@@ -165,8 +225,7 @@ public class EngineTestCaseSpec {
                     DataStorageConfiguration.DEFAULT_BONSAI_CONFIG),
             blockchain,
             ImmutablePathBasedExtraStorageConfiguration.builder()
-                .maxLayersToLoad(
-                    engineNewPayloads != null ? (long) engineNewPayloads.length : 0L)
+                .maxLayersToLoad(engineNewPayloads != null ? (long) engineNewPayloads.length : 0L)
                 .build(),
             SHARED_TRIE_LOADER,
             SHARED_SERVICE_MANAGER,
