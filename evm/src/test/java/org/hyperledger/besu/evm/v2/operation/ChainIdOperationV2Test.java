@@ -30,7 +30,7 @@ import org.junit.jupiter.api.Test;
 
 class ChainIdOperationV2Test extends NullaryOperationV2Test {
 
-  public final GasCalculator gasCalculator = new BerlinGasCalculator();
+  private final GasCalculator gasCalculator = new BerlinGasCalculator();
 
   public ChainIdOperationV2Test() {
     super(new ChainIdOperationV2(new BerlinGasCalculator(), Bytes32.ZERO));
