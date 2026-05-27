@@ -63,7 +63,6 @@ import java.util.stream.Stream;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Assumptions;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -509,12 +508,5 @@ public class SnapWorldDownloadStateTest {
                 Bytes.EMPTY, Bytes32.wrap(ROOT_NODE_HASH.getBytes())))
         .isEmpty();
     assertThat(downloadState.isDownloading()).isTrue();
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

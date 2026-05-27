@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doNothing;
@@ -261,13 +262,12 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     var payloadId =
         coordinator.preparePayload(
-            genesisState.getBlock().getHeader(),
-            System.currentTimeMillis() / 1000,
-            Bytes32.ZERO,
-            suggestedFeeRecipient,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(genesisState.getBlock().getHeader())
+                .timestamp(System.currentTimeMillis() / 1000)
+                .prevRandao(Bytes32.ZERO)
+                .feeRecipient(suggestedFeeRecipient)
+                .build());
 
     ArgumentCaptor<PayloadWrapper> payloadWrapper = ArgumentCaptor.forClass(PayloadWrapper.class);
 
@@ -342,13 +342,12 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     var payloadId =
         willThrow.preparePayload(
-            genesisState.getBlock().getHeader(),
-            System.currentTimeMillis() / 1000,
-            Bytes32.random(),
-            suggestedFeeRecipient,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(genesisState.getBlock().getHeader())
+                .timestamp(System.currentTimeMillis() / 1000)
+                .prevRandao(Bytes32.random())
+                .feeRecipient(suggestedFeeRecipient)
+                .build());
 
     blockCreationTask.get();
 
@@ -371,6 +370,98 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     verify(badBlockManager, never()).addBadBlock(any(), any());
   }
 
+  /**
+   * Verifies that a Throwable thrown inside retryBlockCreationUntilUseful, at a point where
+   * isBlockCreationCancelled is already true, is handled gracefully and does not propagate out of
+   * the background task. The scenario: createBlock for the empty block (synchronous in
+   * preparePayload) succeeds normally; then inside the retry loop the second createBlock call first
+   * cancels block creation via finalizeProposalById, then throws a RuntimeException simulating a
+   * race-condition error. The catch (Throwable) block in retryBlockCreationUntilUseful sees
+   * isBlockCreationCancelled == true and logs at INFO instead of propagating the exception.
+   */
+  @Test
+  public void exceptionThrownAfterBlockCreationCancellationIsHandledGracefully()
+      throws ExecutionException, InterruptedException {
+
+    final AtomicReference<MergeCoordinator> coordinatorRef = new AtomicReference<>();
+    // Capture the payloadIdentifier from the empty-block putPayloadById call so the retry-loop
+    // spy can call finalizeProposalById with it.
+    final AtomicReference<PayloadIdentifier> payloadIdRef = new AtomicReference<>();
+
+    MergeCoordinator.MergeBlockCreatorFactory mergeBlockCreatorFactory =
+        (parentHeader, address) -> {
+          MergeBlockCreator beingSpiedOn =
+              spy(
+                  new MergeBlockCreator(
+                      miningConfiguration,
+                      parent -> Bytes.EMPTY,
+                      transactionPool,
+                      protocolContext,
+                      protocolSchedule,
+                      parentHeader,
+                      ethScheduler));
+
+          // First call (empty block, synchronous in preparePayload): run normally so that
+          // preparePayload completes and the retry loop is started.
+          // Second call (inside the retry loop): cancel block creation first so that
+          // isBlockCreationCancelled is true when the RuntimeException reaches the catch block.
+          doCallRealMethod()
+              .doAnswer(
+                  inv -> {
+                    PayloadIdentifier pid = payloadIdRef.get();
+                    if (pid != null) {
+                      coordinatorRef.get().finalizeProposalById(pid);
+                    }
+                    throw new RuntimeException(
+                        "simulated concurrency error after block creation was cancelled");
+                  })
+              .when(beingSpiedOn)
+              .createBlock(
+                  any(),
+                  any(Bytes32.class),
+                  anyLong(),
+                  eq(Optional.empty()),
+                  eq(Optional.empty()),
+                  eq(Optional.empty()),
+                  any());
+          return beingSpiedOn;
+        };
+
+    MergeCoordinator coordinatorUnderTest =
+        spy(
+            new MergeCoordinator(
+                protocolContext,
+                protocolSchedule,
+                ethScheduler,
+                miningConfiguration,
+                backwardSyncContext,
+                mergeBlockCreatorFactory));
+    coordinatorRef.set(coordinatorUnderTest);
+
+    // Capture payloadId from the empty-block putPayloadById; do NOT finalize here so the
+    // retry loop gets a chance to start and exercise the Throwable catch path.
+    doAnswer(
+            invocation -> {
+              payloadIdRef.compareAndSet(
+                  null, invocation.getArgument(0, PayloadWrapper.class).payloadIdentifier());
+              return null;
+            })
+        .when(mergeContext)
+        .putPayloadById(any());
+
+    coordinatorUnderTest.preparePayload(
+        new PreparePayloadArgsBuilder()
+            .parentHeader(genesisState.getBlock().getHeader())
+            .timestamp(System.currentTimeMillis() / 1000)
+            .prevRandao(Bytes32.ZERO)
+            .feeRecipient(suggestedFeeRecipient)
+            .build());
+
+    // The RuntimeException must not be propagated: the catch (Throwable) block should handle it
+    // gracefully (logging at INFO since isBlockCreationCancelled is true) and return null.
+    blockCreationTask.get();
+  }
+
   @Test
   public void shouldNotRecordProposedBadBlockToBadBlockManager()
       throws ExecutionException, InterruptedException {
@@ -381,13 +472,12 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     blockCreationTask.get();
 
     coordinator.preparePayload(
-        invalidParentHeader,
-        System.currentTimeMillis() / 1000,
-        Bytes32.ZERO,
-        suggestedFeeRecipient,
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty());
+        new PreparePayloadArgsBuilder()
+            .parentHeader(invalidParentHeader)
+            .timestamp(System.currentTimeMillis() / 1000)
+            .prevRandao(Bytes32.ZERO)
+            .feeRecipient(suggestedFeeRecipient)
+            .build());
 
     verify(badBlockManager, never()).addBadBlock(any(), any());
     assertThat(badBlockManager.getBadBlocks().size()).isEqualTo(0);
@@ -415,13 +505,12 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     var payloadId =
         coordinator.preparePayload(
-            genesisState.getBlock().getHeader(),
-            System.currentTimeMillis() / 1000,
-            Bytes32.ZERO,
-            suggestedFeeRecipient,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(genesisState.getBlock().getHeader())
+                .timestamp(System.currentTimeMillis() / 1000)
+                .prevRandao(Bytes32.ZERO)
+                .feeRecipient(suggestedFeeRecipient)
+                .build());
 
     blockCreationTask.get();
 
@@ -474,13 +563,12 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     var payloadId =
         coordinator.preparePayload(
-            genesisState.getBlock().getHeader(),
-            System.currentTimeMillis() / 1000,
-            Bytes32.ZERO,
-            suggestedFeeRecipient,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(genesisState.getBlock().getHeader())
+                .timestamp(System.currentTimeMillis() / 1000)
+                .prevRandao(Bytes32.ZERO)
+                .feeRecipient(suggestedFeeRecipient)
+                .build());
 
     blockCreationTask.get();
 
@@ -526,13 +614,12 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     var payloadId =
         coordinator.preparePayload(
-            genesisState.getBlock().getHeader(),
-            System.currentTimeMillis() / 1000,
-            Bytes32.ZERO,
-            suggestedFeeRecipient,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(genesisState.getBlock().getHeader())
+                .timestamp(System.currentTimeMillis() / 1000)
+                .prevRandao(Bytes32.ZERO)
+                .feeRecipient(suggestedFeeRecipient)
+                .build());
 
     blockCreationTask.get();
 
@@ -580,13 +667,12 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     var payloadId =
         coordinator.preparePayload(
-            genesisState.getBlock().getHeader(),
-            System.currentTimeMillis() / 1000,
-            Bytes32.ZERO,
-            suggestedFeeRecipient,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(genesisState.getBlock().getHeader())
+                .timestamp(System.currentTimeMillis() / 1000)
+                .prevRandao(Bytes32.ZERO)
+                .feeRecipient(suggestedFeeRecipient)
+                .build());
 
     try {
       blockCreationTask.get();
@@ -627,13 +713,12 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     var payloadId =
         coordinator.preparePayload(
-            genesisState.getBlock().getHeader(),
-            System.currentTimeMillis() / 1000,
-            Bytes32.ZERO,
-            suggestedFeeRecipient,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(genesisState.getBlock().getHeader())
+                .timestamp(System.currentTimeMillis() / 1000)
+                .prevRandao(Bytes32.ZERO)
+                .feeRecipient(suggestedFeeRecipient)
+                .build());
 
     waitForBlockCreationInProgress.await();
     coordinator.finalizeProposalById(payloadId);
@@ -684,25 +769,23 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     var payloadId1 =
         coordinator.preparePayload(
-            genesisState.getBlock().getHeader(),
-            timestamp,
-            Bytes32.ZERO,
-            suggestedFeeRecipient,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(genesisState.getBlock().getHeader())
+                .timestamp(timestamp)
+                .prevRandao(Bytes32.ZERO)
+                .feeRecipient(suggestedFeeRecipient)
+                .build());
 
     final CompletableFuture<Void> task1 = blockCreationTask;
 
     var payloadId2 =
         coordinator.preparePayload(
-            genesisState.getBlock().getHeader(),
-            timestamp,
-            Bytes32.ZERO,
-            suggestedFeeRecipient,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(genesisState.getBlock().getHeader())
+                .timestamp(timestamp)
+                .prevRandao(Bytes32.ZERO)
+                .feeRecipient(suggestedFeeRecipient)
+                .build());
 
     assertThat(payloadId1).isEqualTo(payloadId2);
 
@@ -738,25 +821,23 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     var payloadId1 =
         coordinator.preparePayload(
-            genesisState.getBlock().getHeader(),
-            timestamp,
-            Bytes32.ZERO,
-            suggestedFeeRecipient,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(genesisState.getBlock().getHeader())
+                .timestamp(timestamp)
+                .prevRandao(Bytes32.ZERO)
+                .feeRecipient(suggestedFeeRecipient)
+                .build());
 
     assertThat(coordinator.isBlockCreationCancelled(payloadId1)).isFalse();
 
     var payloadId2 =
         coordinator.preparePayload(
-            genesisState.getBlock().getHeader(),
-            timestamp + 1,
-            Bytes32.ZERO,
-            suggestedFeeRecipient,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(genesisState.getBlock().getHeader())
+                .timestamp(timestamp + 1)
+                .prevRandao(Bytes32.ZERO)
+                .feeRecipient(suggestedFeeRecipient)
+                .build());
 
     assertThat(payloadId1).isNotEqualTo(payloadId2);
     assertThat(coordinator.isBlockCreationCancelled(payloadId1)).isTrue();
@@ -783,13 +864,12 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
     final PayloadIdentifier payloadId =
         this.coordinator.preparePayload(
-            genesisState.getBlock().getHeader(),
-            1L,
-            Bytes32.ZERO,
-            suggestedFeeRecipient,
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(genesisState.getBlock().getHeader())
+                .timestamp(1L)
+                .prevRandao(Bytes32.ZERO)
+                .feeRecipient(suggestedFeeRecipient)
+                .build());
 
     ArgumentCaptor<PayloadWrapper> payloadWrapper = ArgumentCaptor.forClass(PayloadWrapper.class);
 
@@ -1043,7 +1123,6 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
   public static Stream<Arguments> getGasLimits() {
     return Stream.of(
         Arguments.of("mainnet", 1L, 60_000_000L),
-        Arguments.of("holesky", 17_000L, 60_000_000L),
         Arguments.of("sepolia", 11_155_111L, 60_000_000L),
         Arguments.of("hoodi", 560_048L, 60_000_000L),
         Arguments.of("ephemery", 39_438_135L, 60_000_000L));
@@ -1121,6 +1200,68 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
         true,
         true,
         MAX_SCORE);
+  }
+
+  @Test
+  public void updateForkChoiceShouldFailWhenWorldStateUnavailable() {
+    // Build a chain: genesis → terminal → block1 → block2
+    BlockHeader terminalHeader = terminalPowBlock();
+    sendNewPayloadAndForkchoiceUpdate(
+        new Block(terminalHeader, BlockBody.empty()), Optional.empty(), Hash.ZERO);
+
+    BlockHeader block1Header = nextBlockHeader(terminalHeader);
+    Block block1 = new Block(block1Header, BlockBody.empty());
+    sendNewPayloadAndForkchoiceUpdate(block1, Optional.empty(), terminalHeader.getHash());
+
+    BlockHeader block2Header = nextBlockHeader(block1Header);
+    Block block2 = new Block(block2Header, BlockBody.empty());
+    sendNewPayloadAndForkchoiceUpdate(block2, Optional.empty(), block1Header.getHash());
+
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(block2Header.getHash());
+
+    BlockHeader block3Header = nextBlockHeader(block2Header);
+    Block block3 = new Block(block3Header, BlockBody.empty());
+
+    // Simulate world state roll failure (storage error, pruned trie logs, etc.)
+    WorldStateArchive failingArchive = mock(WorldStateArchive.class);
+    when(failingArchive.getWorldState(
+            any(
+                org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams
+                    .class)))
+        .thenReturn(Optional.empty());
+
+    ProtocolContext failingProtocolContext =
+        new ProtocolContext.Builder()
+            .withBlockchain(blockchain)
+            .withWorldStateArchive(failingArchive)
+            .withConsensusContext(mergeContext)
+            .withBadBlockManager(badBlockManager)
+            .build();
+
+    MergeCoordinator failingCoordinator =
+        new MergeCoordinator(
+            failingProtocolContext,
+            protocolSchedule,
+            ethScheduler,
+            transactionPool,
+            miningConfiguration,
+            backwardSyncContext);
+
+    coordinator.rememberBlock(block3);
+    clearInvocations(blockchain);
+
+    ForkchoiceResult result =
+        failingCoordinator.updateForkChoice(
+            block3Header, block1Header.getHash(), block1Header.getHash());
+
+    assertThat(result.shouldNotProceedToPayloadBuildProcess()).isTrue();
+    assertThat(result.getStatus()).isEqualTo(ForkchoiceResult.Status.INVALID);
+    assertThat(result.getErrorMessage()).isPresent();
+
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(block2Header.getHash());
+
+    verify(blockchain, never()).setFinalized(block1Header.getHash());
+    verify(blockchain, never()).setSafeBlock(block1Header.getHash());
   }
 
   private static BlockHeader mockBlockHeader() {

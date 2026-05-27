@@ -228,13 +228,15 @@ bonsai-trie-logs-pruning-window-size=100_000
 receipt-compaction-enabled=true
 bonsai-parallel-tx-processing-enabled=false
 bonsai-parallel-state-root-computation-enabled=false
+Xbonsai-cross-block-cache-enabled=false
+Xbonsai-cross-block-cache-account-max-size=100
+Xbonsai-cross-block-cache-storage-max-size=100
 
 # feature flags
 Xsecp256k1-native-enabled=false
 Xaltbn128-native-enabled=false
 snapsync-server-enabled=true
 Xbonsai-full-flat-db-enabled=true
-Xpeertask-system-enabled=false
 era1-import-prepipeline-enabled=true
 era1-data-uri="mainnet.era1.nimbus.team/"
 era1-import-prepipeline-concurrency=4

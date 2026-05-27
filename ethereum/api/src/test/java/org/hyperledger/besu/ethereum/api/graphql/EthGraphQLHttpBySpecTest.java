@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.api.graphql;
 
 import static com.google.common.base.Preconditions.checkState;
-import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
@@ -32,7 +31,6 @@ import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
 import org.assertj.core.api.Assertions;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -85,12 +83,5 @@ public class EthGraphQLHttpBySpecTest extends AbstractEthGraphQLHttpServiceTest 
       final int expectedStatusCode = spec.getInteger("statusCode");
       Assertions.assertThat(resp.code()).isEqualTo(expectedStatusCode);
     }
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

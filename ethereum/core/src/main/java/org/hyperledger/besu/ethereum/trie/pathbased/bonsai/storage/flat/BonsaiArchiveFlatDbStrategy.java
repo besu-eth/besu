@@ -15,9 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat;
 
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE;
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_FREEZER;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE;
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_FREEZER;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
 
@@ -26,9 +24,7 @@ import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.BonsaiContext;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.CodeStorageStrategy;
-import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
-import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
@@ -48,24 +44,9 @@ import org.slf4j.LoggerFactory;
 public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
   private static final Logger LOG = LoggerFactory.getLogger(BonsaiArchiveFlatDbStrategy.class);
 
-  protected final Counter getAccountFromArchiveCounter;
-  protected final Counter getStorageFromArchiveCounter;
-
   public BonsaiArchiveFlatDbStrategy(
       final MetricsSystem metricsSystem, final CodeStorageStrategy codeStorageStrategy) {
     super(metricsSystem, codeStorageStrategy);
-
-    getAccountFromArchiveCounter =
-        metricsSystem.createCounter(
-            BesuMetricCategory.BLOCKCHAIN,
-            "get_account_from_archive_counter",
-            "Total number of calls to get account that were from archived state");
-
-    getStorageFromArchiveCounter =
-        metricsSystem.createCounter(
-            BesuMetricCategory.BLOCKCHAIN,
-            "get_storage_from_archive_counter",
-            "Total number of calls to get storage that were from archived state");
   }
 
   static final byte[] MAX_BLOCK_SUFFIX = Bytes.ofUnsignedLong(Long.MAX_VALUE).toArrayUnsafe();
@@ -123,7 +104,6 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
       final SegmentedKeyValueStorage storage) {
 
     getAccountCounter.inc();
-    Optional<SegmentedKeyValueStorage.NearestKeyValue> accountFound;
 
     // keyNearest, use MAX_BLOCK_SUFFIX in the absence of a block context:
     Bytes keyNearest =
@@ -131,7 +111,7 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
             getStateArchiveContextForRead(storage), accountHash.getBytes().toArrayUnsafe());
 
     // Find the nearest account state for this address and block context
-    Optional<SegmentedKeyValueStorage.NearestKeyValue> nearestAccount =
+    Optional<SegmentedKeyValueStorage.NearestKeyValue> accountFound =
         storage
             .getNearestBefore(ACCOUNT_INFO_STATE_ARCHIVE, keyNearest)
             .filter(
@@ -139,28 +119,8 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
                     accountHash.getBytes().commonPrefixLength(found.key())
                         >= accountHash.getBytes().size());
 
-    // If there isn't a match look in the archive DB segment
-    if (nearestAccount.isEmpty()) {
-      accountFound =
-          storage
-              .getNearestBefore(ACCOUNT_INFO_STATE_FREEZER, keyNearest)
-              .filter(
-                  found ->
-                      accountHash.getBytes().commonPrefixLength(found.key())
-                          >= accountHash.getBytes().size());
-
-      if (accountFound.isPresent()) {
-        getAccountFromArchiveCounter.inc();
-      } else {
-        getAccountNotFoundInFlatDatabaseCounter.inc();
-      }
-    } else {
-
-      accountFound = nearestAccount;
-      getAccountFoundInFlatDatabaseCounter.inc();
-    }
-
     if (accountFound.isPresent()) {
+      getAccountFoundInFlatDatabaseCounter.inc();
       // The entry exists (so metrics are still incremented) but we don't return deleted values
       return accountFound
           .filter(
@@ -171,6 +131,7 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
           .flatMap(SegmentedKeyValueStorage.NearestKeyValue::wrapBytes);
     }
 
+    getAccountNotFoundInFlatDatabaseCounter.inc();
     return Optional.empty();
   }
 
@@ -281,7 +242,7 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
   }
 
   /*
-   * Puts the account data for the given account hash and block context.
+   * Puts the account data for the given account hash.
    */
   @Override
   public void putFlatAccount(
@@ -289,12 +250,25 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
       final SegmentedKeyValueStorageTransaction transaction,
       final Hash accountHash,
       final Bytes accountValue) {
+    putFlatAccount(
+        getStateArchiveContextForWrite(storage).get(), transaction, accountHash, accountValue);
+  }
 
-    // key suffixed with block context, or MIN_BLOCK_SUFFIX if we have no context:
+  /**
+   * Puts the account data for the given account hash and block context.
+   *
+   * @param context the block context supplying the block number suffix for the archive key
+   * @param transaction the transaction to write into
+   * @param accountHash the hash of the account address
+   * @param accountValue the RLP-encoded account value
+   */
+  public void putFlatAccount(
+      final BonsaiContext context,
+      final SegmentedKeyValueStorageTransaction transaction,
+      final Hash accountHash,
+      final Bytes accountValue) {
     byte[] keySuffixed =
-        calculateArchiveKeyWithMinSuffix(
-            getStateArchiveContextForWrite(storage).get(), accountHash.getBytes().toArrayUnsafe());
-
+        calculateArchiveKeyWithMinSuffix(context, accountHash.getBytes().toArrayUnsafe());
     transaction.put(ACCOUNT_INFO_STATE_ARCHIVE, keySuffixed, accountValue.toArrayUnsafe());
   }
 
@@ -303,12 +277,22 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction,
       final Hash accountHash) {
+    removeFlatAccount(getStateArchiveContextForWrite(storage).get(), transaction, accountHash);
+  }
 
-    // insert a key suffixed with block context, with 'deleted account' value
+  /**
+   * Removes account data for the given account hash and block context.
+   *
+   * @param context the block context supplying the block number suffix for the archive key
+   * @param transaction the transaction to write into
+   * @param accountHash the hash of the account address
+   */
+  public void removeFlatAccount(
+      final BonsaiContext context,
+      final SegmentedKeyValueStorageTransaction transaction,
+      final Hash accountHash) {
     byte[] keySuffixed =
-        calculateArchiveKeyWithMinSuffix(
-            getStateArchiveContextForWrite(storage).get(), accountHash.getBytes().toArrayUnsafe());
-
+        calculateArchiveKeyWithMinSuffix(context, accountHash.getBytes().toArrayUnsafe());
     transaction.put(ACCOUNT_INFO_STATE_ARCHIVE, keySuffixed, DELETED_ACCOUNT_VALUE);
   }
 
@@ -328,7 +312,6 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
       final StorageSlotKey storageSlotKey,
       final SegmentedKeyValueStorage storage) {
 
-    Optional<SegmentedKeyValueStorage.NearestKeyValue> storageFound;
     getStorageValueCounter.inc();
 
     // get natural key from account hash and slot key
@@ -338,35 +321,15 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
         calculateArchiveKeyWithMaxSuffix(getStateArchiveContextForRead(storage), naturalKey);
 
     // Find the nearest storage for this address, slot key hash, and block context
-    Optional<SegmentedKeyValueStorage.NearestKeyValue> nearestStorage =
+    Optional<SegmentedKeyValueStorage.NearestKeyValue> storageFound =
         storage
             .getNearestBefore(ACCOUNT_STORAGE_ARCHIVE, keyNearest)
             .filter(
                 found -> Bytes.of(naturalKey).commonPrefixLength(found.key()) >= naturalKey.length);
 
-    // If there isn't a match look in the archive DB segment
-    if (nearestStorage.isEmpty()) {
-      // Check the archived storage as old state is moved out of the primary DB segment
-      storageFound =
-          storage
-              .getNearestBefore(ACCOUNT_STORAGE_FREEZER, keyNearest)
-              // don't return accounts that do not have a matching account hash
-              .filter(
-                  found ->
-                      Bytes.of(naturalKey).commonPrefixLength(found.key()) >= naturalKey.length);
-
-      if (storageFound.isPresent()) {
-        getStorageFromArchiveCounter.inc();
-      } else {
-        getStorageValueNotFoundInFlatDatabaseCounter.inc();
-      }
-    } else {
-      storageFound = nearestStorage;
-      getStorageValueFlatDatabaseCounter.inc();
-    }
-
-    // The entry exists (so metrics are still incremented) but we don't return deleted values
     if (storageFound.isPresent()) {
+      getStorageValueFlatDatabaseCounter.inc();
+      // The entry exists (so metrics are still incremented) but we don't return deleted values
       return storageFound
           // return empty when we find a "deleted value key"
           .filter(
@@ -377,6 +340,7 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
           .flatMap(SegmentedKeyValueStorage.NearestKeyValue::wrapBytes);
     }
 
+    getStorageValueNotFoundInFlatDatabaseCounter.inc();
     return Optional.empty();
   }
 
@@ -390,13 +354,33 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
       final Hash accountHash,
       final Hash slotHash,
       final Bytes storageValue) {
+    putFlatAccountStorageValueByStorageSlotHash(
+        getStateArchiveContextForWrite(storage).get(),
+        transaction,
+        accountHash,
+        slotHash,
+        storageValue);
+  }
 
+  /**
+   * Puts the storage value for the given account hash and storage slot key for a given context.
+   *
+   * @param context the block context supplying the block number suffix for the archive key
+   * @param transaction the transaction to write into
+   * @param accountHash the hash of the account address
+   * @param slotHash the hash of the storage slot key
+   * @param storageValue the storage value
+   */
+  public void putFlatAccountStorageValueByStorageSlotHash(
+      final BonsaiContext context,
+      final SegmentedKeyValueStorageTransaction transaction,
+      final Hash accountHash,
+      final Hash slotHash,
+      final Bytes storageValue) {
     // get natural key from account hash and slot key
     byte[] naturalKey = calculateNaturalSlotKey(accountHash, slotHash);
     // keyNearest, use MIN_BLOCK_SUFFIX in the absence of a block context:
-    byte[] keyNearest =
-        calculateArchiveKeyWithMinSuffix(getStateArchiveContextForWrite(storage).get(), naturalKey);
-
+    byte[] keyNearest = calculateArchiveKeyWithMinSuffix(context, naturalKey);
     transaction.put(ACCOUNT_STORAGE_ARCHIVE, keyNearest, storageValue.toArrayUnsafe());
   }
 
@@ -409,13 +393,27 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
       final SegmentedKeyValueStorageTransaction transaction,
       final Hash accountHash,
       final Hash slotHash) {
+    removeFlatAccountStorageValueByStorageSlotHash(
+        getStateArchiveContextForWrite(storage).get(), transaction, accountHash, slotHash);
+  }
 
+  /**
+   * Removes the storage value for the given account hash and storage slot key for a given context.
+   *
+   * @param context the block context supplying the block number suffix for the archive key
+   * @param transaction the transaction to write into
+   * @param accountHash the hash of the account address
+   * @param slotHash the hash of the storage slot key
+   */
+  public void removeFlatAccountStorageValueByStorageSlotHash(
+      final BonsaiContext context,
+      final SegmentedKeyValueStorageTransaction transaction,
+      final Hash accountHash,
+      final Hash slotHash) {
     // get natural key from account hash and slot key
     byte[] naturalKey = calculateNaturalSlotKey(accountHash, slotHash);
     // insert a key suffixed with block context, with 'deleted account' value
-    byte[] keySuffixed =
-        calculateArchiveKeyWithMinSuffix(getStateArchiveContextForWrite(storage).get(), naturalKey);
-
+    byte[] keySuffixed = calculateArchiveKeyWithMinSuffix(context, naturalKey);
     transaction.put(ACCOUNT_STORAGE_ARCHIVE, keySuffixed, DELETED_STORAGE_VALUE);
   }
 
@@ -458,8 +456,6 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
   private static void clearArchiveSegments(final SegmentedKeyValueStorage storage) {
     storage.clear(ACCOUNT_INFO_STATE_ARCHIVE);
     storage.clear(ACCOUNT_STORAGE_ARCHIVE);
-    storage.clear(ACCOUNT_INFO_STATE_FREEZER);
-    storage.clear(ACCOUNT_STORAGE_FREEZER);
   }
 
   // TODO JF: move this out of this class so can be used with ArchiveCodeStorageStrategy without

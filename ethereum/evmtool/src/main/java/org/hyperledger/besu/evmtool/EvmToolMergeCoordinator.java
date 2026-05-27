@@ -15,12 +15,13 @@
  */
 package org.hyperledger.besu.evmtool;
 
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
+import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -29,19 +30,17 @@ import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
-import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 
 import org.apache.tuweni.bytes.Bytes32;
 
 /**
- * Minimal MergeMiningCoordinator for evmtool engine-test.
- * Implements the core methods used by AbstractEngineNewPayload and
- * AbstractEngineForkchoiceUpdated without requiring the full merge
+ * Minimal MergeMiningCoordinator for evmtool engine-test. Implements the core methods used by
+ * AbstractEngineNewPayload and AbstractEngineForkchoiceUpdated without requiring the full merge
  * infrastructure (TransactionPool, BackwardSyncContext, etc.).
  */
 public class EvmToolMergeCoordinator implements MergeMiningCoordinator {
@@ -72,13 +71,18 @@ public class EvmToolMergeCoordinator implements MergeMiningCoordinator {
             .getByBlockHeader(block.getHeader())
             .getBlockValidator()
             .validateAndProcessBlock(
-                protocolContext, block, HeaderValidationMode.FULL, HeaderValidationMode.NONE,
-                blockAccessList, false);
+                protocolContext,
+                block,
+                HeaderValidationMode.FULL,
+                HeaderValidationMode.NONE,
+                blockAccessList,
+                false);
     result
         .getYield()
         .ifPresent(
             outputs -> {
-              protocolContext.getBlockchain()
+              protocolContext
+                  .getBlockchain()
                   .appendBlock(block, outputs.getReceipts(), outputs.getBlockAccessList());
               // Update world state head to the new block's state root
               protocolContext
@@ -99,8 +103,12 @@ public class EvmToolMergeCoordinator implements MergeMiningCoordinator {
         .getByBlockHeader(block.getHeader())
         .getBlockValidator()
         .validateAndProcessBlock(
-            protocolContext, block, HeaderValidationMode.FULL, HeaderValidationMode.NONE,
-            Optional.empty(), false);
+            protocolContext,
+            block,
+            HeaderValidationMode.FULL,
+            HeaderValidationMode.NONE,
+            Optional.empty(),
+            false);
   }
 
   @Override
@@ -115,12 +123,12 @@ public class EvmToolMergeCoordinator implements MergeMiningCoordinator {
       blockchain.rewindToBlock(newHead.getNumber());
     }
     if (!finalizedBlockHash.equals(Hash.ZERO)) {
-      blockchain.getBlockHeader(finalizedBlockHash)
+      blockchain
+          .getBlockHeader(finalizedBlockHash)
           .ifPresent(h -> blockchain.setFinalized(h.getHash()));
     }
     if (!safeBlockHash.equals(Hash.ZERO)) {
-      blockchain.getBlockHeader(safeBlockHash)
-          .ifPresent(h -> blockchain.setSafeBlock(h.getHash()));
+      blockchain.getBlockHeader(safeBlockHash).ifPresent(h -> blockchain.setSafeBlock(h.getHash()));
     }
     return ForkchoiceResult.withResult(
         blockchain.getBlockHeader(finalizedBlockHash), Optional.of(newHead));
@@ -172,10 +180,7 @@ public class EvmToolMergeCoordinator implements MergeMiningCoordinator {
   }
 
   @Override
-  public PayloadIdentifier preparePayload(
-      final BlockHeader parentHeader, final Long timestamp, final Bytes32 prevRandao,
-      final Address feeRecipient, final Optional<List<Withdrawal>> withdrawals,
-      final Optional<Bytes32> parentBeaconBlockRoot, final Optional<Long> slotNumber) {
+  public PayloadIdentifier preparePayload(final PreparePayloadArgs payloadArgs) {
     throw new UnsupportedOperationException("Payload building not supported in evmtool");
   }
 
@@ -191,19 +196,49 @@ public class EvmToolMergeCoordinator implements MergeMiningCoordinator {
   }
 
   // MiningCoordinator interface methods
-  @Override public void start() {}
-  @Override public void stop() {}
-  @Override public void awaitStop() {}
-  @Override public boolean enable() { return true; }
-  @Override public boolean disable() { return true; }
-  @Override public boolean isMining() { return false; }
-  @Override public Wei getMinTransactionGasPrice() { return Wei.ZERO; }
-  @Override public Wei getMinPriorityFeePerGas() { return Wei.ZERO; }
-  @Override public Optional<Address> getCoinbase() { return Optional.empty(); }
+  @Override
+  public void start() {}
+
+  @Override
+  public void stop() {}
+
+  @Override
+  public void awaitStop() {}
+
+  @Override
+  public boolean enable() {
+    return true;
+  }
+
+  @Override
+  public boolean disable() {
+    return true;
+  }
+
+  @Override
+  public boolean isMining() {
+    return false;
+  }
+
+  @Override
+  public Wei getMinTransactionGasPrice() {
+    return Wei.ZERO;
+  }
+
+  @Override
+  public Wei getMinPriorityFeePerGas() {
+    return Wei.ZERO;
+  }
+
+  @Override
+  public Optional<Address> getCoinbase() {
+    return Optional.empty();
+  }
 
   @Override
   public Optional<Block> createBlock(
-      final BlockHeader parentHeader, final List<Transaction> transactions,
+      final BlockHeader parentHeader,
+      final List<Transaction> transactions,
       final List<BlockHeader> ommers) {
     return Optional.empty();
   }
@@ -213,5 +248,29 @@ public class EvmToolMergeCoordinator implements MergeMiningCoordinator {
     return Optional.empty();
   }
 
-  @Override public void changeTargetGasLimit(final Long targetGasLimit) {}
+  @Override
+  public void changeTargetGasLimit(final Long targetGasLimit) {}
+
+  @Override
+  public ForkchoiceResult updateForkChoiceWithoutLegacySkip(
+      final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash) {
+    // The harness's updateForkChoice already performs no legacy "ancestor of head" skip,
+    // so the two variants behave identically here.
+    return updateForkChoice(newHead, finalizedBlockHash, safeBlockHash);
+  }
+
+  @Override
+  public boolean isAncestorOfFinalized(final Hash candidateHeadHash) {
+    // The harness tracks no finalized block, so no head is ever an ancestor of finalized.
+    // Returning false lets forkchoiceUpdated proceed to set the head normally.
+    return false;
+  }
+
+  @Override
+  public OptionalLong computeReorgDepth(final BlockHeader newHead) {
+    // The engine-test harness imports blocks sequentially and only advances the head via
+    // forkchoiceUpdated to the block just imported, so there is never a reorg. Report depth 0
+    // so the FCU MAX_REORG_DEPTH guard is never tripped.
+    return OptionalLong.of(0L);
+  }
 }

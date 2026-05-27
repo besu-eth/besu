@@ -349,7 +349,8 @@ public class NettyConnectionInitializer
         metricsSystem,
         this,
         this,
-        peerLookup);
+        peerLookup,
+        config.getMaxMessageSize());
   }
 
   @NotNull
@@ -365,7 +366,8 @@ public class NettyConnectionInitializer
         metricsSystem,
         this,
         this,
-        peerLookup);
+        peerLookup,
+        config.getMaxMessageSize());
   }
 
   @NotNull

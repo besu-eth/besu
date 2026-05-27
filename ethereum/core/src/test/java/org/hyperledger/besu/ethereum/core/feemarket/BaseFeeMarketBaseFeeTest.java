@@ -30,7 +30,6 @@ import java.util.stream.Stream;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.io.Resources;
 import org.junit.jupiter.api.Disabled;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -99,12 +98,5 @@ public class BaseFeeMarketBaseFeeTest {
     public void setExpectedBaseFee(final Wei expectedBaseFee) {
       this.expectedBaseFee = expectedBaseFee;
     }
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

@@ -59,7 +59,6 @@ public class SynchronizerConfiguration {
   public static final Boolean DEFAULT_ERA1_IMPORT_PREPIPELINE_ENABLED = Boolean.FALSE;
   public static final URI DEFAULT_ERA1_DATA_URI = URI.create("https://mainnet.era1.nimbus.team/");
   public static final Integer DEFAULT_ERA1_IMPORT_PREPIPELINE_CONCURRENCY = 1;
-
   // Fast sync config
   private final int syncPivotDistance;
   private final float fastSyncFullValidationRate;
@@ -91,10 +90,9 @@ public class SynchronizerConfiguration {
   private final int computationParallelism;
   private final int maxTrailingPeers;
   private final long worldStateMinMillisBeforeStalling;
-  private final long receiptsDownloadStepTimeoutMillis;
+  private final long forwardDownloadStepTimeoutMillis;
   private final long backwardHeadersDownloadStepTimeoutMillis;
   private final long bodiesDownloadStepTimeoutMillis;
-  private final boolean isPeerTaskSystemEnabled;
   private final boolean snapSyncSavePreCheckpointHeadersOnlyEnabled;
 
   // ERA1 import prepipeline config
@@ -128,7 +126,6 @@ public class SynchronizerConfiguration {
       final long receiptsDownloadStepTimeoutMillis,
       final long backwardHeadersDownloadStepTimeoutMillis,
       final long bodiesDownloadStepTimeoutMillis,
-      final boolean isPeerTaskSystemEnabled,
       final boolean snapSyncSavePreCheckpointHeadersOnlyEnabled,
       final boolean era1ImportPrepipelineEnabled,
       final URI era1DataUri,
@@ -155,10 +152,9 @@ public class SynchronizerConfiguration {
     this.transactionsParallelism = transactionsParallelism;
     this.computationParallelism = computationParallelism;
     this.maxTrailingPeers = maxTrailingPeers;
-    this.receiptsDownloadStepTimeoutMillis = receiptsDownloadStepTimeoutMillis;
+    this.forwardDownloadStepTimeoutMillis = receiptsDownloadStepTimeoutMillis;
     this.backwardHeadersDownloadStepTimeoutMillis = backwardHeadersDownloadStepTimeoutMillis;
     this.bodiesDownloadStepTimeoutMillis = bodiesDownloadStepTimeoutMillis;
-    this.isPeerTaskSystemEnabled = isPeerTaskSystemEnabled;
     this.snapSyncSavePreCheckpointHeadersOnlyEnabled = snapSyncSavePreCheckpointHeadersOnlyEnabled;
     this.era1ImportPrepipelineEnabled = era1ImportPrepipelineEnabled;
     this.era1DataUri = era1DataUri;
@@ -288,8 +284,8 @@ public class SynchronizerConfiguration {
     return maxTrailingPeers;
   }
 
-  public long getReceiptsDownloadStepTimeoutMillis() {
-    return receiptsDownloadStepTimeoutMillis;
+  public long getForwardDownloadStepTimeoutMillis() {
+    return forwardDownloadStepTimeoutMillis;
   }
 
   public long getBackwardHeadersDownloadStepTimeoutMillis() {
@@ -298,10 +294,6 @@ public class SynchronizerConfiguration {
 
   public long getBodiesDownloadStepTimeoutMillis() {
     return bodiesDownloadStepTimeoutMillis;
-  }
-
-  public boolean isPeerTaskSystemEnabled() {
-    return isPeerTaskSystemEnabled;
   }
 
   public boolean isSnapSyncSavePreCheckpointHeadersOnlyEnabled() {
@@ -347,7 +339,6 @@ public class SynchronizerConfiguration {
         DEFAULT_WORLD_STATE_MAX_REQUESTS_WITHOUT_PROGRESS;
     private long worldStateMinMillisBeforeStalling = DEFAULT_WORLD_STATE_MIN_MILLIS_BEFORE_STALLING;
     private int worldStateTaskCacheSize = DEFAULT_WORLD_STATE_TASK_CACHE_SIZE;
-    private boolean isPeerTaskSystemEnabled = false;
     private boolean snapSyncSavePreCheckpointHeadersOnlyEnabled = true;
     private boolean era1ImportPrepipelineEnabled = DEFAULT_ERA1_IMPORT_PREPIPELINE_ENABLED;
     private URI era1DataUri = DEFAULT_ERA1_DATA_URI;
@@ -493,11 +484,6 @@ public class SynchronizerConfiguration {
       return this;
     }
 
-    public Builder isPeerTaskSystemEnabled(final boolean isPeerTaskSystemEnabled) {
-      this.isPeerTaskSystemEnabled = isPeerTaskSystemEnabled;
-      return this;
-    }
-
     public Builder snapSyncSavePreCheckpointHeadersOnlyEnabled(
         final boolean snapSyncSavePreCheckpointHeadersOnlyEnabled) {
       this.snapSyncSavePreCheckpointHeadersOnlyEnabled =
@@ -547,7 +533,6 @@ public class SynchronizerConfiguration {
           receiptsDownloadStepTimeoutMillis,
           backwardHeadersDownloadStepTimeoutMillis,
           bodiesDownloadStepTimeoutMillis,
-          isPeerTaskSystemEnabled,
           snapSyncSavePreCheckpointHeadersOnlyEnabled,
           era1ImportPrepipelineEnabled,
           era1DataUri,

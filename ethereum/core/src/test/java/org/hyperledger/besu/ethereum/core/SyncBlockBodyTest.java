@@ -23,6 +23,7 @@ import org.hyperledger.besu.datatypes.GWei;
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.GasLimitCalculator;
+import org.hyperledger.besu.ethereum.mainnet.BlockAccessListValidator;
 import org.hyperledger.besu.ethereum.mainnet.BlockGasAccountingStrategy;
 import org.hyperledger.besu.ethereum.mainnet.BlockGasUsedValidator;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
@@ -224,6 +225,7 @@ public class SyncBlockBodyTest {
         true,
         Optional.empty(),
         Optional.empty(),
+        BlockAccessListValidator.ALWAYS_REJECT_BAL,
         new DefaultStateRootCommitterFactory(),
         BlockGasAccountingStrategy.FRONTIER,
         BlockGasUsedValidator.FRONTIER);

@@ -278,4 +278,69 @@ class AbstractCreateOperationTest {
 
     assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
   }
+
+  @Test
+  void oversizedInitcodeHaltsBeforeChargingStateGas() {
+    // EIP-8037: A CREATE with initcode exceeding maxInitcodeSize must halt with CODE_TOO_LARGE
+    // BEFORE any state gas is charged, so the state gas reservoir remains unchanged.
+    final long blockGasLimit = 36_000_000L;
+    final GasCalculator amsterdamCalc = new AmsterdamGasCalculator();
+    final FakeCreateOperation amsterdamOp = new FakeCreateOperation(amsterdamCalc);
+
+    final EVM evm = MainnetEVMs.amsterdam(EvmConfiguration.DEFAULT);
+    final int maxInitcodeSize = evm.getMaxInitcodeSize();
+    // Size just over the limit
+    final int oversizedLength = maxInitcodeSize + 1;
+
+    final UInt256 memoryOffset = UInt256.ZERO;
+    final MessageFrame frame =
+        MessageFrame.builder()
+            .type(MessageFrame.Type.CONTRACT_CREATION)
+            .contract(Address.ZERO)
+            .inputData(Bytes.EMPTY)
+            .sender(Address.fromHexString(SENDER))
+            .value(Wei.ZERO)
+            .apparentValue(Wei.ZERO)
+            .code(new Code(SIMPLE_CREATE))
+            .completer(__ -> {})
+            .address(Address.fromHexString(SENDER))
+            .blockHashLookup((__, ___) -> Hash.ZERO)
+            .blockValues(
+                new FakeBlockValues(1337) {
+                  @Override
+                  public long getGasLimit() {
+                    return blockGasLimit;
+                  }
+                })
+            .gasPrice(Wei.ZERO)
+            .miningBeneficiary(Address.ZERO)
+            .originator(Address.ZERO)
+            .initialGas(10_000_000L)
+            .worldUpdater(worldUpdater)
+            .build();
+
+    // Push CREATE args: value=0, offset=0, size=oversizedLength
+    frame.pushStackItem(Bytes.ofUnsignedLong(oversizedLength));
+    frame.pushStackItem(memoryOffset);
+    frame.pushStackItem(Bytes.EMPTY); // value = 0
+
+    when(account.getNonce()).thenReturn(55L);
+    when(account.getBalance()).thenReturn(Wei.ZERO);
+    when(worldUpdater.getAccount(any())).thenReturn(account);
+    when(worldUpdater.get(any())).thenReturn(account);
+    when(worldUpdater.getSenderAccount(any())).thenReturn(account);
+    when(worldUpdater.getOrCreate(any())).thenReturn(newAccount);
+    when(newAccount.getCode()).thenReturn(Bytes.EMPTY);
+    when(newAccount.isStorageEmpty()).thenReturn(true);
+    when(worldUpdater.updater()).thenReturn(worldUpdater);
+
+    final long stateGasBefore = frame.getStateGasReservoir();
+
+    final Operation.OperationResult result = amsterdamOp.execute(frame, evm);
+
+    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.CODE_TOO_LARGE);
+    assertThat(frame.getStateGasReservoir())
+        .as("State gas reservoir must be unchanged — no state gas charged for oversized initcode")
+        .isEqualTo(stateGasBefore);
+  }
 }

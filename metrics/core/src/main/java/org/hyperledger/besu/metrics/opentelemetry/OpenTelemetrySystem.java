@@ -67,6 +67,7 @@ import io.opentelemetry.sdk.metrics.data.SummaryPointData;
 import io.opentelemetry.sdk.resources.Resource;
 import io.opentelemetry.sdk.trace.SdkTracerProvider;
 import io.opentelemetry.semconv.incubating.ServiceIncubatingAttributes;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -192,7 +193,7 @@ public class OpenTelemetrySystem implements ObservableMetricsSystem {
     return observations.stream();
   }
 
-  private MetricCategory categoryNameToMetricCategory(final String name) {
+  private @Nullable MetricCategory categoryNameToMetricCategory(final String name) {
     Set<MetricCategory> categories =
         ImmutableSet.<MetricCategory>builder()
             .addAll(EnumSet.allOf(BesuMetricCategory.class))

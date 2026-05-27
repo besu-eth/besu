@@ -14,11 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.bonsai;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import org.hyperledger.besu.ethereum.api.jsonrpc.AbstractJsonRpcHttpBySpecTest;
-
-import org.junit.jupiter.api.Test;
 
 public class DebugJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
 
@@ -33,12 +29,5 @@ public class DebugJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
         new String[] {
           "debug/account-at", "debug/batch-send-raw-transaction", "debug/trace-transaction"
         }); // storageRange and accountRange are not working with bonsai trie
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

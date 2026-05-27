@@ -19,24 +19,21 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.DebugTraceTransactionResult;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.debug.TraceOptions;
-import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
-import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 
-import java.util.Collection;
+import java.io.IOException;
+import java.io.OutputStream;
 import java.util.Optional;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,11 +44,8 @@ public class DebugTraceBlock extends AbstractDebugTraceBlock {
   private final BlockHeaderFunctions blockHeaderFunctions;
 
   public DebugTraceBlock(
-      final ProtocolSchedule protocolSchedule,
-      final BlockchainQueries blockchainQueries,
-      final ObservableMetricsSystem metricsSystem,
-      final EthScheduler ethScheduler) {
-    super(protocolSchedule, blockchainQueries, metricsSystem, ethScheduler);
+      final ProtocolSchedule protocolSchedule, final BlockchainQueries blockchainQueries) {
+    super(protocolSchedule, blockchainQueries);
     this.blockHeaderFunctions = ScheduleBasedBlockHeaderFunctions.create(protocolSchedule);
   }
 
@@ -61,15 +55,39 @@ public class DebugTraceBlock extends AbstractDebugTraceBlock {
   }
 
   @Override
-  public JsonRpcResponse response(final JsonRpcRequestContext requestContext) {
+  protected Optional<Block> findBlock(final JsonRpcRequestContext request) {
+    try {
+      final String input = request.getRequiredParameter(0, String.class);
+      final Block block =
+          Block.readFrom(RLP.input(Bytes.fromHexString(input)), this.blockHeaderFunctions);
+      if (getBlockchainQueries()
+          .getBlockchain()
+          .getBlockByHash(block.getHeader().getParentHash())
+          .isEmpty()) {
+        return Optional.empty();
+      }
+      return Optional.of(block);
+    } catch (final RLPException | IllegalArgumentException | JsonRpcParameterException e) {
+      LOG.debug("Failed to resolve block for batch trace request", e);
+      return Optional.empty();
+    }
+  }
+
+  @Override
+  public void streamResponse(
+      final JsonRpcRequestContext requestContext, final OutputStream out, final ObjectMapper mapper)
+      throws IOException {
     final Block block;
     try {
       final String input = requestContext.getRequiredParameter(0, String.class);
       block = Block.readFrom(RLP.input(Bytes.fromHexString(input)), this.blockHeaderFunctions);
     } catch (final RLPException | IllegalArgumentException e) {
       LOG.debug("Failed to parse block RLP (index 0)", e);
-      return new JsonRpcErrorResponse(
-          requestContext.getRequest().getId(), RpcErrorType.INVALID_BLOCK_PARAMS);
+      mapper.writeValue(
+          out,
+          new JsonRpcErrorResponse(
+              requestContext.getRequest().getId(), RpcErrorType.INVALID_BLOCK_PARAMS));
+      return;
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcParameters(
           "Invalid block params (index 0)", RpcErrorType.INVALID_BLOCK_PARAMS, e);
@@ -80,12 +98,14 @@ public class DebugTraceBlock extends AbstractDebugTraceBlock {
         .getBlockchain()
         .getBlockByHash(block.getHeader().getParentHash())
         .isPresent()) {
-      final Collection<DebugTraceTransactionResult> results =
-          getTraces(requestContext, traceOptions, Optional.ofNullable(block));
-      return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), results);
+      final DebugTraceBlockStreamer streamer =
+          createStreamer(traceOptions, Optional.ofNullable(block));
+      writeStreamingResponse(requestContext.getRequest().getId(), streamer, out, mapper);
     } else {
-      return new JsonRpcErrorResponse(
-          requestContext.getRequest().getId(), RpcErrorType.PARENT_BLOCK_NOT_FOUND);
+      mapper.writeValue(
+          out,
+          new JsonRpcErrorResponse(
+              requestContext.getRequest().getId(), RpcErrorType.PARENT_BLOCK_NOT_FOUND));
     }
   }
 }

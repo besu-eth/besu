@@ -41,6 +41,7 @@ import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedCacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
 import org.hyperledger.besu.ethereum.trie.patricia.SimpleMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
@@ -68,8 +69,6 @@ import java.util.stream.IntStream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.assertj.core.api.Assertions;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
 
@@ -122,26 +121,33 @@ public class SnapServerTest {
     storage = new SegmentedInMemoryKeyValueStorage();
 
     // force a full flat db with code stored by code hash:
+    final BonsaiFlatDbStrategyProvider bonsaiFlatDbStrategyProvider =
+        new BonsaiFlatDbStrategyProvider(
+            noopMetrics,
+            dbMode == FlatDbMode.FULL
+                ? DataStorageConfiguration.DEFAULT_BONSAI_CONFIG
+                : DataStorageConfiguration.DEFAULT_BONSAI_ARCHIVE_CONFIG) {
+          @Override
+          public FlatDbMode getFlatDbMode() {
+            return dbMode;
+          }
+
+          @Override
+          protected boolean deriveUseCodeStorageByHash(
+              final SegmentedKeyValueStorage composedWorldStateStorage) {
+            return true;
+          }
+        };
     inMemoryStorage =
         new BonsaiWorldStateKeyValueStorage(
-            new BonsaiFlatDbStrategyProvider(
-                noopMetrics,
-                dbMode == FlatDbMode.FULL
-                    ? DataStorageConfiguration.DEFAULT_BONSAI_CONFIG
-                    : DataStorageConfiguration.DEFAULT_BONSAI_ARCHIVE_CONFIG) {
-              @Override
-              public FlatDbMode getFlatDbMode() {
-                return dbMode;
-              }
-
-              @Override
-              protected boolean deriveUseCodeStorageByHash(
-                  final SegmentedKeyValueStorage composedWorldStateStorage) {
-                return true;
-              }
-            },
+            bonsaiFlatDbStrategyProvider,
             storage,
-            new InMemoryKeyValueStorage());
+            new InMemoryKeyValueStorage(),
+            new VersionedCacheManager(
+                100, // accountCacheSize
+                100, // storageCacheSize
+                noopMetrics),
+            0);
 
     storageCoordinator = new WorldStateStorageCoordinator(inMemoryStorage);
     storageTrie =
@@ -159,7 +165,8 @@ public class SnapServerTest {
               }
             });
 
-    snapServer = new SnapServer(new EthMessages(), storageCoordinator, spyProvider).start();
+    // start snap server with no Long.MAX_VALUE timeout to avoid flaky tests
+    snapServer = new SnapServer(new EthMessages(), storageCoordinator, spyProvider, Long.MAX_VALUE);
     snapServer.start();
 
     acct1 = createTestAccount("10");
@@ -582,8 +589,7 @@ public class SnapServerTest {
     assertThat(trieNodeRequest).isNotNull();
     List<Bytes> trieNodes = trieNodeRequest.nodes(false);
     assertThat(trieNodes).isNotNull();
-    // TODO: adjust this assertion after sorting out the request fudge factor
-    assertThat(trieNodes.size()).isEqualTo(accountNodeLimit * 90 / 100);
+    assertThat(trieNodes.size()).isEqualTo(accountNodeLimit);
   }
 
   @ParameterizedTest
@@ -723,7 +729,7 @@ public class SnapServerTest {
     assertThat(trieNodeRequest).isNotNull();
     List<Bytes> trieNodes = trieNodeRequest.nodes(false);
     assertThat(trieNodes).isNotNull();
-    assertThat(trieNodes.size()).isEqualTo(3);
+    assertThat(trieNodes.size()).isEqualTo(trieNodeLimit + 1);
   }
 
   @ParameterizedTest
@@ -799,8 +805,8 @@ public class SnapServerTest {
     assertThat(codeRequest).isNotNull();
     ByteCodesMessage.ByteCodes codes = codeRequest.bytecodes(false);
     assertThat(codes).isNotNull();
-    // TODO adjust this assertion after sorting out the request fudge factor
-    assertThat(codes.codes().size()).isEqualTo(codeLimit * 90 / 100);
+    assertThat(codes.codes().size()).isEqualTo(codeLimit);
+    assertThat(codeRequest.getSize()).isGreaterThan(codeSize * codeLimit);
   }
 
   @ParameterizedTest
@@ -995,12 +1001,5 @@ public class SnapServerTest {
     assertThat(accountData).isNotNull();
     assertThat(accountData.accounts().size()).isEqualTo(expectedSize);
     return accountData;
-  }
-
-  @Test
-  void dryRunDetector() {
-    Assertions.assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

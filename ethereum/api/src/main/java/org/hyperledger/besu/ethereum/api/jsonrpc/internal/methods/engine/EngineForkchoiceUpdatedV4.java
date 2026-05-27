@@ -33,7 +33,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** The EngineForkchoiceUpdatedV4 method for Amsterdam fork with slotNumber support (EIP-7843). */
-public class EngineForkchoiceUpdatedV4 extends AbstractEngineForkchoiceUpdated {
+public class EngineForkchoiceUpdatedV4 extends AbstractEngineForkchoiceUpdatedV4 {
 
   private static final Logger LOG = LoggerFactory.getLogger(EngineForkchoiceUpdatedV4.class);
 

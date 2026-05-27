@@ -36,21 +36,34 @@ class TransactionsMessageHandler implements EthMessages.MessageCallback {
   private final TransactionsMessageProcessor transactionsMessageProcessor;
   private final EthScheduler scheduler;
   private final Duration txMsgKeepAlive;
+  private final int maxMessageSize;
   private final AtomicBoolean isEnabled = new AtomicBoolean(false);
 
   public TransactionsMessageHandler(
       final EthScheduler scheduler,
       final TransactionsMessageProcessor transactionsMessageProcessor,
-      final int txMsgKeepAliveSeconds) {
+      final int txMsgKeepAliveSeconds,
+      final int maxMessageSize) {
     this.scheduler = scheduler;
     this.transactionsMessageProcessor = transactionsMessageProcessor;
     this.txMsgKeepAlive = Duration.ofSeconds(txMsgKeepAliveSeconds);
+    this.maxMessageSize = maxMessageSize;
   }
 
   @Override
   public void exec(final EthMessage message) {
     if (isEnabled.get()) {
       final MessageData rawMessage = message.getData();
+      if (rawMessage.getSize() > maxMessageSize) {
+        LOG.debug(
+            "Oversized transactions message received ({} bytes), disconnecting: {}",
+            rawMessage.getSize(),
+            message.getPeer());
+        message
+            .getPeer()
+            .disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+        return;
+      }
       final Instant startedAt = now();
       scheduler.scheduleTxWorkerTask(
           () -> {

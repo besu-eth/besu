@@ -14,8 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
@@ -38,7 +36,6 @@ import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.assertj.core.api.Assertions;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -117,12 +114,5 @@ class StorageTrieNodeHealingRequestTest {
         new StorageTrieNodeHealingRequest(Hash.EMPTY, account0Hash, Hash.EMPTY, Bytes.EMPTY);
 
     Assertions.assertThat(request.getExistingData(worldStateStorageCoordinator)).isEmpty();
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

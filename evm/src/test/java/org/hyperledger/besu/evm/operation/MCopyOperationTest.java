@@ -25,7 +25,6 @@ import java.util.Arrays;
 import java.util.Collection;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -132,12 +131,5 @@ class MCopyOperationTest {
     assertThat(frame.memoryWordSize()).isEqualTo((expected.size() + 31) / 32);
     assertThat(frame.readMemory(0, expected.size())).isEqualTo(expected);
     assertThat(result.getGasCost()).isEqualTo(gasCost);
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

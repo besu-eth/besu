@@ -188,32 +188,6 @@ public class ForwardSyncStepTest {
 
   @Test
   public void shouldExecuteForwardSyncWhenPossible() throws Exception {
-    when(syncConfig.isPeerTaskSystemEnabled()).thenReturn(false);
-    final BackwardChain backwardChain = createBackwardChain(LOCAL_HEIGHT, LOCAL_HEIGHT + 3);
-    ForwardSyncStep step = new ForwardSyncStep(context, backwardChain);
-
-    final RespondingEthPeer.Responder responder =
-        RespondingEthPeer.blockchainResponder(remoteBlockchain);
-
-    final CompletableFuture<Void> completableFuture = step.executeAsync();
-
-    peer.respondWhile(
-        responder,
-        () -> {
-          try {
-            Thread.sleep(5);
-          } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-          }
-          return !completableFuture.isDone();
-        });
-
-    completableFuture.get();
-  }
-
-  @Test
-  public void shouldExecuteForwardSyncWhenPossibleUsingPeerTaskSystem() throws Exception {
-    when(syncConfig.isPeerTaskSystemEnabled()).thenReturn(true);
     final BackwardChain backwardChain = createBackwardChain(LOCAL_HEIGHT, LOCAL_HEIGHT + 3);
     ForwardSyncStep step = new ForwardSyncStep(context, backwardChain);
 
@@ -236,24 +210,6 @@ public class ForwardSyncStepTest {
 
   @Test
   public void shouldFindBlockWhenRequested() throws Exception {
-    ForwardSyncStep step =
-        new ForwardSyncStep(context, createBackwardChain(LOCAL_HEIGHT + 1, LOCAL_HEIGHT + 3));
-
-    final RespondingEthPeer.Responder responder =
-        RespondingEthPeer.blockchainResponder(remoteBlockchain);
-
-    final CompletableFuture<List<Block>> future =
-        step.requestBodies(List.of(getBlockByNumber(LOCAL_HEIGHT + 1).getHeader()));
-    peer.respondWhile(responder, () -> !future.isDone());
-    final List<Block> blocks = future.get();
-    Assertions.assertThat(blocks)
-        .hasSize(1)
-        .containsExactlyInAnyOrder(getBlockByNumber(LOCAL_HEIGHT + 1));
-  }
-
-  @Test
-  public void shouldFindBlockWhenRequestedUsingPeerTaskSystem() throws Exception {
-    when(syncConfig.isPeerTaskSystemEnabled()).thenReturn(true);
     ForwardSyncStep step =
         new ForwardSyncStep(context, createBackwardChain(LOCAL_HEIGHT + 1, LOCAL_HEIGHT + 3));
 

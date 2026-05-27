@@ -23,7 +23,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -35,11 +34,15 @@ import org.hyperledger.besu.ethereum.referencetests.GeneralStateTestCaseSpec;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestProtocolSchedules;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.precompile.AbstractBLS12PrecompiledContract;
+import org.hyperledger.besu.evm.precompile.AbstractPrecompiledContract;
+import org.hyperledger.besu.evm.precompile.KZGPointEvalPrecompiledContract;
 import org.hyperledger.besu.evm.tracing.OpCodeTracerConfigBuilder;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.tracing.StreamingOperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.evmtool.exception.UnsupportedForkException;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.util.LogConfigurator;
 
 import java.io.BufferedReader;
@@ -132,6 +135,13 @@ public class StateTestSubCommand implements Runnable {
           "Output results as a JSON array with standard schema: name, pass, fork, stateRoot, error.")
   private boolean jsonArray = false;
 
+  @Option(
+      names = {"--cache-precompiles"},
+      description =
+          "Enable precompile result caching, matching the runtime behavior of `--cache-precompiles` in besu.",
+      negatable = true)
+  private Boolean enablePrecompileCache = false;
+
   @ParentCommand private final EvmToolCommand parentCommand;
 
   // Collected results for --json-array mode
@@ -164,6 +174,9 @@ public class StateTestSubCommand implements Runnable {
   @Override
   public void run() {
     LogConfigurator.setLevel("", "OFF");
+    AbstractPrecompiledContract.setPrecompileCaching(enablePrecompileCache);
+    AbstractBLS12PrecompiledContract.setPrecompileCaching(enablePrecompileCache);
+    KZGPointEvalPrecompiledContract.setPrecompileCaching(enablePrecompileCache);
     final ObjectMapper stateTestMapper = JsonUtils.createObjectMapper();
 
     final JavaType javaType =

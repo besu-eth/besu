@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.messages.snap;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -44,6 +45,23 @@ public final class TrieNodeMessageTest {
 
     // check match originals.
     final ArrayDeque<Bytes> response = message.nodes(false);
+    Assertions.assertThat(response).isEqualTo(nodes);
+  }
+
+  @Test
+  public void wrapRoundTripTest() {
+    final List<Bytes> nodes = new ArrayList<>();
+    for (int i = 0; i < 20; ++i) {
+      nodes.add(Bytes32.random());
+    }
+
+    final TrieNodesMessage initialMessage = TrieNodesMessage.create(nodes);
+    final MessageData wrapped = initialMessage.wrapMessageData(BigInteger.valueOf(42));
+    final MessageData raw = new RawMessage(SnapV1.TRIE_NODES, wrapped.getData());
+
+    final TrieNodesMessage message = TrieNodesMessage.readFrom(raw);
+
+    final ArrayDeque<Bytes> response = message.nodes(true);
     Assertions.assertThat(response).isEqualTo(nodes);
   }
 }

@@ -82,6 +82,44 @@ public class WebSocketMessageHandler {
     } else {
       try {
         final JsonObject jsonRpcRequest = buffer.toJsonObject();
+
+        if (jsonRpcExecutor.isStreamingMethod(jsonRpcRequest.getString("method"))) {
+          vertx
+              .<Void>executeBlocking(
+                  promise -> {
+                    try (JsonResponseStreamer streamer = new JsonResponseStreamer(websocket)) {
+                      jsonRpcExecutor.executeStreaming(
+                          user,
+                          null,
+                          null,
+                          new IsAliveHandler(ethScheduler, timeoutSec),
+                          jsonRpcRequest,
+                          req -> {
+                            final WebSocketRpcRequest websocketRequest =
+                                req.mapTo(WebSocketRpcRequest.class);
+                            websocketRequest.setConnectionId(websocket.textHandlerID());
+                            return websocketRequest;
+                          },
+                          streamer,
+                          jsonObjectMapper);
+                      promise.complete();
+                    } catch (IOException e) {
+                      promise.fail(e);
+                    }
+                  })
+              .onFailure(
+                  throwable -> {
+                    LOG.error("Error streaming JSON-RPC response", throwable);
+                    try {
+                      final Integer id = jsonRpcRequest.getInteger("id", null);
+                      replyToClient(websocket, errorResponse(id, RpcErrorType.INTERNAL_ERROR));
+                    } catch (ClassCastException idNotIntegerException) {
+                      replyToClient(websocket, errorResponse(null, RpcErrorType.INTERNAL_ERROR));
+                    }
+                  });
+          return;
+        }
+
         vertx
             .<JsonRpcResponse>executeBlocking(
                 promise -> {

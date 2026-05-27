@@ -14,11 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.forest;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import org.hyperledger.besu.ethereum.api.jsonrpc.AbstractJsonRpcHttpBySpecTest;
-
-import org.junit.jupiter.api.Test;
 
 public class DebugJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
 
@@ -37,12 +33,5 @@ public class DebugJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
           "debug/account-range",
           "debug/storage-range"
         });
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

@@ -15,6 +15,7 @@
 package org.hyperledger.besu.metrics.prometheus;
 
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
 
 import org.hyperledger.besu.metrics.MetricsService;
 
@@ -26,6 +27,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import io.prometheus.metrics.exporter.pushgateway.PushGateway;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -33,8 +35,8 @@ import org.slf4j.LoggerFactory;
 public class MetricsPushGatewayService implements MetricsService {
   private static final Logger LOG = LoggerFactory.getLogger(MetricsPushGatewayService.class);
 
-  private PushGateway pushGateway;
-  private ScheduledExecutorService scheduledExecutorService;
+  private @Nullable PushGateway pushGateway;
+  private @Nullable ScheduledExecutorService scheduledExecutorService;
   private final MetricsConfiguration config;
   private final PrometheusMetricsSystem metricsSystem;
 
@@ -89,11 +91,12 @@ public class MetricsPushGatewayService implements MetricsService {
     metricsSystem.shutdown();
     final CompletableFuture<?> resultFuture = new CompletableFuture<>();
     try {
+      final var executor = requireNonNull(scheduledExecutorService);
       // Calling shutdown now cancels the pending push, which is desirable.
-      scheduledExecutorService.shutdownNow();
-      scheduledExecutorService.awaitTermination(30, TimeUnit.SECONDS);
+      executor.shutdownNow();
+      executor.awaitTermination(30, TimeUnit.SECONDS);
       try {
-        pushGateway.delete();
+        requireNonNull(pushGateway).delete();
       } catch (final Exception e) {
         LOG.error("Could not clean up results on the Prometheus Push Gateway.", e);
         // Do not complete exceptionally, the gateway may be down and failures
@@ -114,7 +117,7 @@ public class MetricsPushGatewayService implements MetricsService {
 
   private void pushMetrics() {
     try {
-      pushGateway.pushAdd();
+      requireNonNull(pushGateway).pushAdd();
     } catch (final IOException e) {
       LOG.warn("Could not push metrics", e);
     }

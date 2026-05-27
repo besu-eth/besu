@@ -160,19 +160,26 @@ public class BlockGasAccountingStrategyTest {
   }
 
   @Test
-  public void amsterdamStrategy_hasBlockCapacityPerDimension() {
+  public void amsterdamStrategy_hasBlockCapacityChecksRegularGasOnly() {
     final long blockGasLimit = 100_000L;
-    // Regular used: 60k, State used: 40k
-    // min(remaining_regular, remaining_state) = min(40k, 60k) = 40k
+    // Regular used: 60k, remaining regular = 40k
+    // State gas is NOT checked in hasBlockCapacity (only validated at block level)
     assertThat(
             BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
                 40_000L, 60_000L, 40_000L, blockGasLimit))
         .isTrue();
-    // txGasLimit=40001 > min(40k, 60k) = 40k — exceeds tighter dimension
+    // txGasLimit=40001 > remaining_regular=40k, exceeds regular capacity
     assertThat(
             BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
                 40_001L, 60_000L, 40_000L, blockGasLimit))
         .isFalse();
+
+    // Even when state gas is high, only regular headroom matters
+    // Regular used: 40k, State used: 80k, remaining regular = 60k
+    assertThat(
+            BlockGasAccountingStrategy.AMSTERDAM.hasBlockCapacity(
+                30_000L, 40_000L, 80_000L, blockGasLimit))
+        .isTrue();
 
     // When state gas is 0, only regular headroom matters: 100k - 60k = 40k
     assertThat(
@@ -184,7 +191,6 @@ public class BlockGasAccountingStrategyTest {
                 40_001L, 60_000L, 0L, blockGasLimit))
         .isFalse();
 
-    // Frontier only checks regular dimension (same as Amsterdam when stateGas=0)
     assertThat(
             BlockGasAccountingStrategy.FRONTIER.hasBlockCapacity(
                 40_000L, 60_000L, 0L, blockGasLimit))

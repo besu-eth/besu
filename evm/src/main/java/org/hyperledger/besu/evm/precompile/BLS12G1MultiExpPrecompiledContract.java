@@ -19,7 +19,6 @@ import org.hyperledger.besu.nativelib.gnark.LibGnarkEIP2537;
 import java.util.concurrent.TimeUnit;
 
 import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import org.apache.tuweni.bytes.Bytes;
 
 /** The type BLS12_G1 MultiExp precompiled contract. */
@@ -27,9 +26,7 @@ public class BLS12G1MultiExpPrecompiledContract extends AbstractBLS12Precompiled
 
   private static final int PARAMETER_LENGTH = 160;
   private static final Cache<Integer, PrecompileInputResultTuple> g1MSMCache =
-      Caffeine.newBuilder()
-          .maximumWeight(16_000_000)
-          .weigher((k, v) -> ((PrecompileInputResultTuple) v).cachedInput().size())
+      AbstractPrecompiledContract.resultCacheBuilder()
           .expireAfterWrite(15, TimeUnit.MINUTES) // Evict 15 minutes after each entry is written
           .build();
 

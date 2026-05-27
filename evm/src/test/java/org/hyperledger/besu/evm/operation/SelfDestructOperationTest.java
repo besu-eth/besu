@@ -34,7 +34,6 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -174,12 +173,5 @@ public class SelfDestructOperationTest {
       assertThat(messageFrame.getSelfDestructs()).isEmpty();
       assertThat(messageFrame.getCreates()).doesNotContain(orignatorAddress);
     }
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

@@ -14,14 +14,11 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.forest;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import org.hyperledger.besu.ethereum.api.jsonrpc.AbstractJsonRpcHttpBySpecTest;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import org.junit.jupiter.api.Disabled;
-import org.junit.jupiter.api.Test;
 
 @Disabled("Forest storage is deprecated - trace tests are covered by the Bonsai variant")
 public class TraceJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
@@ -54,12 +51,5 @@ public class TraceJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
           "trace/specs/trace-callMany",
           "trace/specs/trace-raw-transaction"
         });
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

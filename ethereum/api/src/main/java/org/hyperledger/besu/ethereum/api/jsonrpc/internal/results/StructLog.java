@@ -27,7 +27,18 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
-@JsonPropertyOrder({"pc", "op", "gas", "gasCost", "depth", "refund", "stack", "memory", "storage"})
+@JsonPropertyOrder({
+  "pc",
+  "op",
+  "gas",
+  "gasCost",
+  "depth",
+  "refund",
+  "stack",
+  "memory",
+  "returnData",
+  "storage"
+})
 public class StructLog {
 
   private static final char[] hexChars = "0123456789abcdef".toCharArray();
@@ -41,6 +52,7 @@ public class StructLog {
   private final String[] stack;
   private final Object storage;
   private final String reason;
+  private final String returnData;
 
   public StructLog(final TraceFrame traceFrame) {
     depth = traceFrame.getDepth() + 1;
@@ -64,6 +76,7 @@ public class StructLog {
 
     storage = traceFrame.getStorage().map(StructLog::formatStorage).orElse(null);
     reason = traceFrame.getRevertReason().map(bytes -> toCompactHex(bytes, true)).orElse(null);
+    returnData = traceFrame.getReturnData().map(Bytes::toHexString).orElse(null);
   }
 
   private static Map<String, String> formatStorage(final Map<UInt256, UInt256> storage) {
@@ -145,6 +158,12 @@ public class StructLog {
     return reason;
   }
 
+  @JsonGetter("returnData")
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  public String returnData() {
+    return returnData;
+  }
+
   @Override
   public boolean equals(final Object o) {
     if (this == o) {
@@ -205,5 +224,84 @@ public class StructLog {
     }
 
     return result.toString();
+  }
+
+  /**
+   * Writes compact hex directly into a char[] buffer. Returns the number of chars written. No
+   * StringBuilder, no String allocation.
+   */
+  public static int toCompactHex(final Bytes abytes, final boolean prefix, final char[] buf) {
+    final byte[] bytes = abytes.toArrayUnsafe();
+    final int size = bytes.length;
+    if (size == 0) {
+      if (prefix) {
+        buf[0] = '0';
+        buf[1] = 'x';
+        buf[2] = '0';
+        return 3;
+      } else {
+        buf[0] = '0';
+        return 1;
+      }
+    }
+    int pos = 0;
+    if (prefix) {
+      buf[pos++] = '0';
+      buf[pos++] = 'x';
+    }
+    boolean leadingZero = true;
+    for (int i = 0; i < size; i++) {
+      final byte b = bytes[i];
+      final int hi = (b >> 4) & 0xF;
+      if (!leadingZero || hi != 0) {
+        buf[pos++] = hexChars[hi];
+        leadingZero = false;
+      }
+      final int lo = b & 0xF;
+      if (!leadingZero || lo != 0 || i == size - 1) {
+        buf[pos++] = hexChars[lo];
+        leadingZero = false;
+      }
+    }
+    return pos;
+  }
+
+  /**
+   * Appends compact hex representation to an existing StringBuilder, avoiding allocation. The
+   * StringBuilder is cleared before use but retains its internal buffer.
+   */
+  public static void toCompactHex(
+      final Bytes abytes, final boolean prefix, final StringBuilder buf) {
+    buf.setLength(0);
+
+    if (abytes.isEmpty()) {
+      buf.append(prefix ? "0x0" : "0");
+      return;
+    }
+
+    final byte[] bytes = abytes.toArrayUnsafe();
+    final int size = bytes.length;
+
+    if (prefix) {
+      buf.append("0x");
+    }
+
+    boolean leadingZero = true;
+
+    for (int i = 0; i < size; i++) {
+      final byte b = bytes[i];
+
+      final int highNibble = (b >> 4) & 0xF;
+      if (!leadingZero || highNibble != 0) {
+        buf.append(hexChars[highNibble]);
+        leadingZero = false;
+      }
+
+      final int lowNibble = b & 0xF;
+      if (!leadingZero || lowNibble != 0 || i == size - 1) {
+        buf.append(hexChars[lowNibble]);
+        leadingZero = false;
+      }
+    }
   }
 }

@@ -90,6 +90,7 @@ public class EthSimulateV1TrielogTest {
 
     method =
         new EthSimulateV1(
+            null,
             blockchainQueries,
             protocolSchedule,
             new TransactionSimulator(
@@ -115,7 +116,7 @@ public class EthSimulateV1TrielogTest {
 
     // Create simulation parameter with returnTrieLog = true
     SimulateV1Parameter simulateV1Parameter =
-        new SimulateV1Parameter(List.of(blockStateCall), false, false, false, true);
+        new SimulateV1Parameter(List.of(blockStateCall), false, false, false, true, false);
 
     JsonRpcRequestContext request =
         new JsonRpcRequestContext(
@@ -166,7 +167,7 @@ public class EthSimulateV1TrielogTest {
 
     // Create simulation parameter with returnTrieLog = false
     SimulateV1Parameter simulateV1Parameter =
-        new SimulateV1Parameter(List.of(blockStateCall), false, false, false, false);
+        new SimulateV1Parameter(List.of(blockStateCall), false, false, false, false, false);
 
     JsonRpcRequestContext request =
         new JsonRpcRequestContext(
@@ -199,7 +200,7 @@ public class EthSimulateV1TrielogTest {
         new JsonBlockStateCallParameter(List.of(callParameter1, callParameter2), null, null);
 
     SimulateV1Parameter simulateV1Parameter =
-        new SimulateV1Parameter(List.of(blockStateCall), false, false, false, true);
+        new SimulateV1Parameter(List.of(blockStateCall), false, false, false, true, false);
 
     JsonRpcRequestContext request =
         new JsonRpcRequestContext(

@@ -54,6 +54,18 @@ For other configuration options run:
 
 ---
 
+## 📦 Module-Specific Benchmarks
+
+### engine_getPayloadBodies parallelization (`ethereum:api`)
+
+Benchmarks sequential vs parallel block body DB lookups for `engine_getPayloadBodiesByHash{V1,V2}` and `engine_getPayloadBodiesByRange{V1,V2}`. Uses simulated per-lookup latency to model warm-cache (100µs) and cold-cache (500µs) RocksDB reads.
+
+```bash
+./gradlew :ethereum:api:jmh -Pincludes=EngineGetPayloadBodiesParallel --rerun-tasks --no-daemon
+```
+
+---
+
 ## 🔥 Async Profiler Integration (Optional)
 
 To profile benchmarks with [Async Profiler](https://github.com/jvm-profiling-tools/async-profiler):

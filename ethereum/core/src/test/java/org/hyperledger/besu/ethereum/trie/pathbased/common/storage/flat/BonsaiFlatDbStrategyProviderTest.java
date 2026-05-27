@@ -18,7 +18,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFullFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiPartialFlatDbStrategy;
@@ -90,11 +89,13 @@ class FlatDbStrategyProviderTest {
   void upgradesFlatDbStrategyToArchiveFlatDbMode() {
     updateFlatDbMode(FlatDbMode.PARTIAL);
 
-    archiveFlatDbStrategyProvider.upgradeToFullFlatDbMode(composedWorldStateStorage);
+    archiveFlatDbStrategyProvider.upgradeToArchiveFlatDbMode(composedWorldStateStorage);
     assertThat(archiveFlatDbStrategyProvider.flatDbMode).isEqualTo(FlatDbMode.ARCHIVE);
     assertThat(archiveFlatDbStrategyProvider.flatDbStrategy).isNotNull();
+    // ARCHIVE mode uses BonsaiFullFlatDbStrategy for main storage (O(1) lookup);
+    // archive reads go through BonsaiArchiveReadFlatDbStrategyProvider.
     assertThat(archiveFlatDbStrategyProvider.getFlatDbStrategy(composedWorldStateStorage))
-        .isInstanceOf(BonsaiArchiveFlatDbStrategy.class);
+        .isExactlyInstanceOf(BonsaiFullFlatDbStrategy.class);
     assertThat(archiveFlatDbStrategyProvider.flatDbStrategy.codeStorageStrategy)
         .isInstanceOf(CodeHashCodeStorageStrategy.class);
   }
@@ -151,7 +152,7 @@ class FlatDbStrategyProviderTest {
         codeByHashEnabled
             ? CodeHashCodeStorageStrategy.class
             : AccountHashCodeStorageStrategy.class;
-    assertThat(flatDbStrategyProvider.flatDbMode).isEqualTo(FlatDbMode.ARCHIVE);
+    assertThat(flatDbStrategyProvider.flatDbMode).isEqualTo(FlatDbMode.FULL);
     assertThat(flatDbStrategyProvider.flatDbStrategy.codeStorageStrategy)
         .isInstanceOf(expectedCodeStorageClass);
   }
@@ -221,7 +222,7 @@ class FlatDbStrategyProviderTest {
     transaction.commit();
 
     flatDbStrategyProvider.loadFlatDbStrategy(composedWorldStateStorage);
-    assertThat(flatDbStrategyProvider.flatDbMode).isEqualTo(FlatDbMode.ARCHIVE);
+    assertThat(flatDbStrategyProvider.flatDbMode).isEqualTo(FlatDbMode.FULL);
     assertThat(flatDbStrategyProvider.flatDbStrategy.codeStorageStrategy)
         .isInstanceOf(AccountHashCodeStorageStrategy.class);
   }
@@ -289,7 +290,7 @@ class FlatDbStrategyProviderTest {
     transaction.commit();
 
     flatDbStrategyProvider.loadFlatDbStrategy(composedWorldStateStorage);
-    assertThat(flatDbStrategyProvider.flatDbMode).isEqualTo(FlatDbMode.ARCHIVE);
+    assertThat(flatDbStrategyProvider.flatDbMode).isEqualTo(FlatDbMode.FULL);
     assertThat(flatDbStrategyProvider.flatDbStrategy.codeStorageStrategy)
         .isInstanceOf(CodeHashCodeStorageStrategy.class);
   }

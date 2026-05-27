@@ -14,13 +14,9 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.bonsai;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 import org.hyperledger.besu.ethereum.api.jsonrpc.AbstractJsonRpcHttpBySpecTest;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
-
-import org.junit.jupiter.api.Test;
 
 public class EthByzantiumJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
 
@@ -38,12 +34,5 @@ public class EthByzantiumJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpec
 
   public static Object[][] specs() {
     return AbstractJsonRpcHttpBySpecTest.findSpecFiles(new String[] {"eth_latest"});
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

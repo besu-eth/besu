@@ -14,11 +14,11 @@
  */
 package org.hyperledger.besu.ethereum.eth.manager.snap;
 
-import static java.util.Collections.emptyList;
 import static org.slf4j.LoggerFactory.getLogger;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
 import org.hyperledger.besu.ethereum.eth.SnapProtocol;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
@@ -31,7 +31,6 @@ import org.hyperledger.besu.ethereum.eth.manager.task.AbstractPeerRequestTask;
 import org.hyperledger.besu.ethereum.eth.messages.snap.BlockAccessListsMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.SnapV2;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -40,28 +39,22 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 
 public class GetBlockAccessListsFromPeerTask
-    extends AbstractPeerRequestTask<List<BlockAccessList>> {
+    extends AbstractPeerRequestTask<List<SyncBlockAccessList>> {
 
   private static final Logger LOG = getLogger(GetBlockAccessListsFromPeerTask.class);
 
   private final List<BlockHeader> blockHeaders;
 
-  private GetBlockAccessListsFromPeerTask(
+  public GetBlockAccessListsFromPeerTask(
       final EthContext ethContext,
       final List<BlockHeader> blockHeaders,
       final MetricsSystem metricsSystem) {
     super(ethContext, SnapProtocol.NAME, SnapV2.BLOCK_ACCESS_LISTS, metricsSystem);
     this.blockHeaders = blockHeaders;
-  }
-
-  public static GetBlockAccessListsFromPeerTask forBlockAccessLists(
-      final EthContext ethContext,
-      final List<BlockHeader> blockHeaders,
-      final MetricsSystem metricsSystem) {
-    return new GetBlockAccessListsFromPeerTask(ethContext, blockHeaders, metricsSystem);
   }
 
   @Override
@@ -112,31 +105,41 @@ public class GetBlockAccessListsFromPeerTask
   }
 
   @Override
-  protected Optional<List<BlockAccessList>> processResponse(
+  protected Optional<List<SyncBlockAccessList>> processResponse(
       final boolean streamClosed, final MessageData message, final EthPeer peer) {
     if (streamClosed) {
-      return Optional.of(emptyList());
+      return Optional.empty();
     }
 
-    final List<BlockAccessList> result = new ArrayList<>();
+    final List<SyncBlockAccessList> result = new ArrayList<>();
     int index = 0;
-    for (final BlockAccessList bal :
-        BlockAccessListsMessage.readFrom(message).blockAccessLists(true)) {
+    for (final Bytes balRlp : BlockAccessListsMessage.readFrom(message).blockAccessListsRaw(true)) {
       if (index >= blockHeaders.size()) {
         throw new ProtocolViolationException(
             "Received more block access lists than requested: expected %d but got at least %d"
                 .formatted(blockHeaders.size(), index + 1));
       }
-      if (!bal.isEmpty()) {
-        final Hash expected = blockHeaders.get(index).getBalHash().orElseThrow();
-        final Hash actual = BodyValidation.balHash(bal);
+      final SyncBlockAccessList syncBlockAccessList = new SyncBlockAccessList(balRlp);
+      // TODO: Penalize peers maliciously denying BALs
+      if (!syncBlockAccessList.isUnavailable()) {
+        final int currentIndex = index;
+        final BlockHeader blockHeader = blockHeaders.get(currentIndex);
+        final Hash expected =
+            blockHeader
+                .getBalHash()
+                .orElseThrow(
+                    () ->
+                        new ProtocolViolationException(
+                            "Missing expected block access list hash at index %d for block %s"
+                                .formatted(currentIndex, blockHeader.getHash())));
+        final Hash actual = BodyValidation.balHash(syncBlockAccessList);
         if (!actual.equals(expected)) {
           throw new ProtocolViolationException(
               "Received block access list with invalid hash at index %d: expected %s, got %s"
                   .formatted(index, expected, actual));
         }
       }
-      result.add(bal);
+      result.add(syncBlockAccessList);
       index++;
     }
     return Optional.of(result);

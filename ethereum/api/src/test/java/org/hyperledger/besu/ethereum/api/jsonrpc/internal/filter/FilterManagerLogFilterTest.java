@@ -114,7 +114,7 @@ public class FilterManagerLogFilterTest {
   public void shouldNotReturnLogOnNewBlockIfToBlockIsInPast() {
     final String filterId =
         filterManager.installLogFilter(
-            new BlockParameter("0"), new BlockParameter("1"), logsQuery());
+            new BlockParameter("0x0"), new BlockParameter("0x1"), logsQuery());
     recordBlockEvents(1).get(0);
 
     final List<LogWithMetadata> retrievedLogs = filterManager.logsChanges(filterId);

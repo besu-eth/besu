@@ -20,10 +20,14 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
+import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.worldstate.WorldState;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -129,10 +133,20 @@ public interface SenderBalanceChecker {
     }
 
     private Wei getSenderBalance(final Address sender) {
-      final var maybeAccount = worldStateArchive.getWorldState().get(sender);
-      final var senderBalance = maybeAccount != null ? maybeAccount.getBalance() : Wei.ZERO;
-      logSenderBalance(sender, senderBalance);
-      return senderBalance;
+      final BlockHeader chainHead = blockchain.getChainHeadHeader();
+      try (final WorldState headState =
+          worldStateArchive
+              .getWorldState(WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(chainHead))
+              .get()) {
+        final Account maybeAccount = headState.get(sender);
+        final Wei senderBalance = maybeAccount != null ? maybeAccount.getBalance() : Wei.ZERO;
+        logSenderBalance(sender, senderBalance);
+        return senderBalance;
+      } catch (Exception e) {
+        LOG.warn(
+            "Failed to get balance for {} at chain header {}", sender, chainHead.toLogString(), e);
+        return Wei.ZERO;
+      }
     }
 
     @Override

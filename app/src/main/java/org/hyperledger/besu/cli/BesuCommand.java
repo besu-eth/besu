@@ -71,6 +71,7 @@ import org.hyperledger.besu.cli.options.TransactionPoolOptions;
 import org.hyperledger.besu.cli.options.storage.DataStorageOptions;
 import org.hyperledger.besu.cli.options.storage.PathBasedExtraStorageOptions;
 import org.hyperledger.besu.cli.options.unstable.QBFTOptions;
+import org.hyperledger.besu.cli.options.unstable.UnstableBftOptions;
 import org.hyperledger.besu.cli.presynctasks.PreSynchronizationTaskRunner;
 import org.hyperledger.besu.cli.subcommands.PasswordSubCommand;
 import org.hyperledger.besu.cli.subcommands.PublicKeySubCommand;
@@ -298,6 +299,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private final IpcOptions unstableIpcOptions = IpcOptions.create();
   private final ChainPruningOptions unstableChainPruningOptions = ChainPruningOptions.create();
   private final QBFTOptions unstableQbftOptions = QBFTOptions.create();
+  private final UnstableBftOptions unstableBftOptions = UnstableBftOptions.create();
 
   // stable CLI options
   final DataStorageOptions dataStorageOptions = DataStorageOptions.create();
@@ -564,12 +566,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   // Permission Option Group
   @CommandLine.ArgGroup(validate = false, heading = "@|bold Permissions Options|@%n")
   PermissionsOptions permissionsOptions = new PermissionsOptions();
-
-  @Option(
-      names = {"--revert-reason-enabled"},
-      description =
-          "Enable passing the revert reason back through TransactionReceipts (default: ${DEFAULT-VALUE})")
-  private final Boolean isRevertReasonEnabled = false;
 
   @Option(
       names = {"--required-blocks", "--required-block"},
@@ -1243,6 +1239,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .put("IPC Options", unstableIpcOptions)
             .put("Chain Data Pruning Options", unstableChainPruningOptions)
             .put("QBFT Options", unstableQbftOptions)
+            .put("BFT Options", unstableBftOptions)
             .build();
 
     UnstableOptionsSubCommand.createUnstableOptions(commandLine, unstableOptions);
@@ -1917,7 +1914,10 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
 
     jsonRpcConfiguration =
         jsonRpcHttpOptions.jsonRpcConfiguration(
-            hostsAllowlist, p2PDiscoveryConfig.p2pHost(), unstableRPCOptions.getHttpTimeoutSec());
+            hostsAllowlist,
+            p2PDiscoveryConfig.p2pHost(),
+            unstableRPCOptions.getHttpTimeoutSec(),
+            unstableRPCOptions.getHttpStreamingTimeoutSec());
     logger.info("RPC HTTP JSON-RPC config: {}", jsonRpcConfiguration);
     if (isEngineApiEnabled()) {
       engineJsonRpcConfiguration = createEngineJsonRpcConfiguration();
@@ -2054,9 +2054,10 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .metricsSystem((ObservableMetricsSystem) besuComponent.getMetricsSystem())
             .messagePermissioningProviders(permissioningService.getMessagePermissioningProviders())
             .clock(Clock.systemUTC())
-            .isRevertReasonEnabled(isRevertReasonEnabled)
             .storageProvider(storageProvider)
             .isEarlyRoundChangeEnabled(unstableQbftOptions.isEarlyRoundChangeEnabled())
+            .isLegacyBftProtocolEncodingEnabled(
+                unstableBftOptions.isLegacyProtocolEncodingEnabled())
             .requiredBlocks(requiredBlocks)
             .reorgLoggingThreshold(reorgLoggingThreshold)
             .evmConfiguration(unstableEvmOptions.toDomainObject())
@@ -2071,7 +2072,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .apiConfiguration(apiConfiguration)
             .balConfiguration(balConfiguration)
             .besuComponent(besuComponent);
-    if (DataStorageFormat.BONSAI.equals(getDataStorageConfiguration().getDataStorageFormat())) {
+    if (getDataStorageConfiguration().getDataStorageFormat().isBonsaiFormat()) {
       final PathBasedExtraStorageConfiguration subStorageConfiguration =
           getDataStorageConfiguration().getPathBasedExtraStorageConfiguration();
       besuControllerBuilder.isParallelTxProcessingEnabled(
@@ -2086,7 +2087,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         jsonRpcHttpOptions.jsonRpcConfiguration(
             engineRPCConfig.engineHostsAllowlist(),
             p2PDiscoveryConfig.p2pHost(),
-            unstableRPCOptions.getHttpTimeoutSec());
+            unstableRPCOptions.getHttpTimeoutSec(),
+            unstableRPCOptions.getHttpStreamingTimeoutSec());
     engineConfig.setPort(engineRPCConfig.engineRpcPort());
     engineConfig.setRpcApis(Arrays.asList("ENGINE", "ETH"));
     engineConfig.setEnabled(isEngineApiEnabled());

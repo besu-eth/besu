@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.FilterParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.blockheaders.NewBlockHeadersSubscription;
@@ -24,7 +25,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.logs.Log
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscribeRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscriptionType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.syncing.SyncingSubscription;
+import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.transactionreceipts.TransactionReceiptsSubscription;
 
+import java.util.List;
 import java.util.function.Function;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -130,6 +133,49 @@ public class SubscriptionBuilderTest {
         new SyncingSubscription(1L, CONNECTION_ID, SubscriptionType.SYNCING);
 
     assertThat(function.apply(subscription)).isInstanceOf(SyncingSubscription.class);
+  }
+
+  @Test
+  public void
+      shouldBuildTransactionReceiptsSubscriptionWhenSubscribeRequestTypeIsTransactionReceipts() {
+    final List<Hash> txHashes =
+        List.of(
+            Hash.fromHexString(
+                "0x0000000000000000000000000000000000000000000000000000000000000001"));
+    final SubscribeRequest subscribeRequest =
+        new SubscribeRequest(
+            SubscriptionType.TRANSACTION_RECEIPTS, null, null, txHashes, CONNECTION_ID);
+    final TransactionReceiptsSubscription expectedSubscription =
+        new TransactionReceiptsSubscription(1L, CONNECTION_ID, txHashes);
+
+    final Subscription builtSubscription =
+        subscriptionBuilder.build(1L, CONNECTION_ID, subscribeRequest);
+
+    assertThat(builtSubscription).usingRecursiveComparison().isEqualTo(expectedSubscription);
+  }
+
+  @Test
+  public void shouldBuildTransactionReceiptsSubscriptionWithNoFilter() {
+    final SubscribeRequest subscribeRequest =
+        new SubscribeRequest(
+            SubscriptionType.TRANSACTION_RECEIPTS, null, null, null, CONNECTION_ID);
+    final TransactionReceiptsSubscription expectedSubscription =
+        new TransactionReceiptsSubscription(1L, CONNECTION_ID, null);
+
+    final Subscription builtSubscription =
+        subscriptionBuilder.build(1L, CONNECTION_ID, subscribeRequest);
+
+    assertThat(builtSubscription).usingRecursiveComparison().isEqualTo(expectedSubscription);
+  }
+
+  @Test
+  public void
+      shouldReturnTransactionReceiptsSubscriptionWhenMappingTransactionReceiptsSubscription() {
+    final Function<Subscription, TransactionReceiptsSubscription> function =
+        subscriptionBuilder.mapToSubscriptionClass(TransactionReceiptsSubscription.class);
+    final Subscription subscription = new TransactionReceiptsSubscription(1L, CONNECTION_ID, null);
+
+    assertThat(function.apply(subscription)).isInstanceOf(TransactionReceiptsSubscription.class);
   }
 
   @Test

@@ -240,10 +240,9 @@ public class FilterManager extends AbstractVerticle {
       filter.resetExpireTime();
     }
 
-    final long fromBlockNumber =
-        filter.getFromBlock().getNumber().orElse(blockchainQueries.headBlockNumber());
-    final long toBlockNumber =
-        filter.getToBlock().getNumber().orElse(blockchainQueries.headBlockNumber());
+    final long headBlockNumber = blockchainQueries.headBlockNumber();
+    final long fromBlockNumber = filter.getFromBlock().getNumber().orElse(headBlockNumber);
+    final long toBlockNumber = filter.getToBlock().getNumber().orElse(headBlockNumber);
 
     return findLogsWithinRange(filter, fromBlockNumber, toBlockNumber);
   }

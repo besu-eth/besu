@@ -26,11 +26,14 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcNoResp
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 
+import java.io.IOException;
+import java.io.OutputStream;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.api.trace.StatusCode;
@@ -49,6 +52,9 @@ public class JsonRpcExecutor {
   private final JsonRpcProcessor rpcProcessor;
   private final Map<String, JsonRpcMethod> rpcMethods;
 
+  private record PreparedRequest(
+      JsonRpcRequestId id, JsonRpcMethod method, Span span, JsonRpcRequestContext context) {}
+
   public JsonRpcExecutor(
       final JsonRpcProcessor rpcProcessor, final Map<String, JsonRpcMethod> rpcMethods) {
     this.rpcProcessor = rpcProcessor;
@@ -62,25 +68,82 @@ public class JsonRpcExecutor {
       final Supplier<Boolean> alive,
       final JsonObject jsonRpcRequest,
       final Function<JsonObject, JsonRpcRequest> requestBodyProvider) {
+    final Object prepared =
+        prepareExecution(
+            optionalUser, tracer, spanContext, alive, jsonRpcRequest, requestBodyProvider);
+    if (prepared == null) {
+      return new JsonRpcNoResponse();
+    }
+    if (prepared instanceof JsonRpcResponse response) {
+      return response;
+    }
+    final PreparedRequest req = (PreparedRequest) prepared;
+    return rpcProcessor.process(req.id(), req.method(), req.span(), req.context());
+  }
+
+  public boolean isStreamingMethod(final String methodName) {
+    final JsonRpcMethod method = rpcMethods.get(methodName);
+    return method != null && method.isStreaming();
+  }
+
+  /**
+   * Executes a streaming JSON-RPC method. If the request fails validation (bad params, missing
+   * method, notification, etc.) the error response is returned without writing to {@code out},
+   * allowing the caller to send a proper HTTP error before headers are flushed.
+   *
+   * @return an error/no-op response if streaming did not start, or empty on success
+   */
+  public Optional<JsonRpcResponse> executeStreaming(
+      final Optional<User> optionalUser,
+      final Tracer tracer,
+      final Context spanContext,
+      final Supplier<Boolean> alive,
+      final JsonObject jsonRpcRequest,
+      final Function<JsonObject, JsonRpcRequest> requestBodyProvider,
+      final OutputStream out,
+      final ObjectMapper mapper)
+      throws IOException {
+    final Object prepared =
+        prepareExecution(
+            optionalUser, tracer, spanContext, alive, jsonRpcRequest, requestBodyProvider);
+    if (prepared == null) {
+      return Optional.of(new JsonRpcNoResponse());
+    }
+    if (prepared instanceof JsonRpcResponse response) {
+      return Optional.of(response);
+    }
+    final PreparedRequest req = (PreparedRequest) prepared;
+    rpcProcessor.streamProcess(req.id(), req.method(), req.span(), req.context(), out, mapper);
+    return Optional.empty();
+  }
+
+  /**
+   * Shared preamble for execute/executeStreaming: parses the request, creates the span, and
+   * validates method availability. Returns a {@link PreparedRequest} if ready to process, a {@link
+   * JsonRpcResponse} if there was a validation error, or null for notifications.
+   */
+  private Object prepareExecution(
+      final Optional<User> optionalUser,
+      final Tracer tracer,
+      final Context spanContext,
+      final Supplier<Boolean> alive,
+      final JsonObject jsonRpcRequest,
+      final Function<JsonObject, JsonRpcRequest> requestBodyProvider) {
     try {
       final JsonRpcRequest requestBody = requestBodyProvider.apply(jsonRpcRequest);
       final JsonRpcRequestId id = new JsonRpcRequestId(requestBody.getId());
-      // Handle notifications
       if (requestBody.isNotification()) {
-        // Notifications aren't handled so create empty result for now.
-        return new JsonRpcNoResponse();
+        return null;
       }
-      final Span span;
-      if (tracer != null) {
-        span =
-            tracer
-                .spanBuilder(requestBody.getMethod())
-                .setSpanKind(SpanKind.INTERNAL)
-                .setParent(spanContext)
-                .startSpan();
-      } else {
-        span = Span.getInvalid();
-      }
+      final Span span =
+          tracer != null
+              ? tracer
+                  .spanBuilder(requestBody.getMethod())
+                  .setSpanKind(SpanKind.INTERNAL)
+                  .setParent(spanContext)
+                  .startSpan()
+              : Span.getInvalid();
+
       final Optional<RpcErrorType> unavailableMethod = validateMethodAvailability(requestBody);
       if (unavailableMethod.isPresent()) {
         span.setStatus(StatusCode.ERROR, "method unavailable");
@@ -88,8 +151,7 @@ public class JsonRpcExecutor {
       }
 
       final JsonRpcMethod method = rpcMethods.get(requestBody.getMethod());
-
-      return rpcProcessor.process(
+      return new PreparedRequest(
           id, method, span, new JsonRpcRequestContext(requestBody, optionalUser, alive));
     } catch (final IllegalArgumentException e) {
       try {

@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
-import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import io.opentelemetry.api.trace.Tracer;
@@ -34,10 +33,15 @@ public class HandlerFactory {
   public static Handler<RoutingContext> timeout(
       final TimeoutOptions globalOptions, final Map<String, JsonRpcMethod> methods) {
     assert methods != null && globalOptions != null;
+    // Only explicitly registered non-streaming methods get a
+    // timeout from this handler.  Streaming methods are excluded because they can
+    // run much longer than the default 30s. Their timeout is managed by JsonRpcExecutorHandler
+    // instead.
     return TimeoutHandler.handler(
-        Optional.of(globalOptions),
-        methods.keySet().stream()
-            .collect(Collectors.toMap(Function.identity(), ignored -> globalOptions)));
+        Optional.empty(),
+        methods.entrySet().stream()
+            .filter(e -> !e.getValue().isStreaming())
+            .collect(Collectors.toMap(Map.Entry::getKey, ignored -> globalOptions)));
   }
 
   public static Handler<RoutingContext> authentication(

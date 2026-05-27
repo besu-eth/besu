@@ -55,11 +55,28 @@ public interface TransactionTraceParams {
     return Boolean.TRUE.equals(disableMemoryNullable());
   }
 
+  @JsonProperty(value = "enableMemory")
+  @Nullable Boolean enableMemoryNullable();
+
+  default boolean enableMemory() {
+    return Boolean.TRUE.equals(enableMemoryNullable());
+  }
+
   @JsonProperty(value = "disableStack")
   @Nullable Boolean disableStackNullable();
 
   default boolean disableStack() {
     return Boolean.TRUE.equals(disableStackNullable());
+  }
+
+  @JsonProperty(value = "limit")
+  @Nullable Integer limit();
+
+  @JsonProperty(value = "enableReturnData")
+  @Nullable Boolean enableReturnDataNullable();
+
+  default boolean enableReturnData() {
+    return Boolean.TRUE.equals(enableReturnDataNullable());
   }
 
   @JsonProperty("tracer")
@@ -86,6 +103,13 @@ public interface TransactionTraceParams {
   @JsonInclude(JsonInclude.Include.NON_NULL)
   StateOverrideMap stateOverrides();
 
+  @Value.Check
+  default void validate() {
+    if (limit() != null && limit() < 0) {
+      throw new IllegalArgumentException("limit must be >= 0, got: " + limit());
+    }
+  }
+
   /**
    * Convert JSON-RPC parameters to a {@link TraceOptions} object.
    *
@@ -103,7 +127,9 @@ public interface TransactionTraceParams {
     if (disableStorageNullable() != null) {
       builder.traceStorage(!disableStorage());
     }
-    if (disableMemoryNullable() != null) {
+    if (enableMemoryNullable() != null) {
+      builder.traceMemory(enableMemory());
+    } else if (disableMemoryNullable() != null) {
       builder.traceMemory(!disableMemory());
     } else if (tracerType != TracerType.OPCODE_TRACER) {
       // Non-opcode tracers (e.g. callTracer) need memory capture enabled for internal
@@ -112,6 +138,12 @@ public interface TransactionTraceParams {
     }
     if (disableStackNullable() != null) {
       builder.traceStack(!disableStack());
+    }
+    if (limit() != null) {
+      builder.limit(limit());
+    }
+    if (enableReturnDataNullable() != null) {
+      builder.traceReturnData(enableReturnData());
     }
     var opCodeTracerConfig = builder.traceOpcodes(opcodes()).build();
 

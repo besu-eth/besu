@@ -86,13 +86,24 @@ import org.hyperledger.besu.evm.operation.SwapOperation;
 import org.hyperledger.besu.evm.operation.VirtualOperation;
 import org.hyperledger.besu.evm.operation.XorOperation;
 import org.hyperledger.besu.evm.operation.XorOperationOptimized;
-import org.hyperledger.besu.evm.operation.v2.AddOperationV2;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.v2.operation.AddOperationV2;
+import org.hyperledger.besu.evm.v2.operation.DivOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ModOperationV2;
+import org.hyperledger.besu.evm.v2.operation.MulModOperationV2;
+import org.hyperledger.besu.evm.v2.operation.MulOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SDivOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SModOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SarOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ShlOperationV2;
+import org.hyperledger.besu.evm.v2.operation.ShrOperationV2;
+import org.hyperledger.besu.evm.v2.operation.SubOperationV2;
 
 import java.util.Optional;
 import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.NonNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -212,20 +223,24 @@ public class EVM {
    * Run to halt.
    *
    * @param frame the frame
-   * @param tracing the tracing
+   * @param operationTracer the tracing
    */
   // Note to maintainers: lots of Java idioms and OO principals are being set aside in the
   // name of performance. This is one of the hottest sections of code.
   //
   // Please benchmark before refactoring.
-  public void runToHalt(final MessageFrame frame, final OperationTracer tracing) {
+  public void runToHalt(final MessageFrame frame, @NonNull final OperationTracer operationTracer) {
+    // do not remove assert! A single, monomorphic tracer, is allowed in the EVM execution if
+    // tracing is disabled for
+    // optimization purposes
+    assert operationTracer.isEnabled() || operationTracer == OperationTracer.NO_TRACING;
+
     if (evmConfiguration.enableEvmV2()) {
-      runToHaltV2(frame, tracing);
+      runToHaltV2(frame, operationTracer);
       return;
     }
     evmSpecVersion.maybeWarnVersion();
 
-    var operationTracer = tracing == OperationTracer.NO_TRACING ? null : tracing;
     byte[] code = frame.getCode().getBytes().toArrayUnsafe();
     Operation[] operationArray = operations.getOperations();
     while (frame.getState() == MessageFrame.State.CODE_EXECUTING) {
@@ -240,9 +255,7 @@ public class EVM {
         currentOperation = endOfScriptStop;
       }
       frame.setCurrentOperation(currentOperation);
-      if (operationTracer != null) {
-        operationTracer.tracePreExecution(frame);
-      }
+      operationTracer.tracePreExecution(frame);
 
       OperationResult result;
       try {
@@ -446,9 +459,7 @@ public class EVM {
         final int opSize = result.getPcIncrement();
         frame.setPC(currentPC + opSize);
       }
-      if (operationTracer != null) {
-        operationTracer.tracePostExecution(frame, result);
-      }
+      operationTracer.tracePostExecution(frame, result);
     }
   }
 
@@ -458,10 +469,9 @@ public class EVM {
    * skeleton stub establishes the dispatch structure for incremental v2 operation rollout.
    */
   // Note: like runToHalt, this is performance-critical code. Benchmark before refactoring.
-  private void runToHaltV2(final MessageFrame frame, final OperationTracer tracing) {
+  private void runToHaltV2(final MessageFrame frame, final OperationTracer operationTracer) {
     evmSpecVersion.maybeWarnVersion();
 
-    var operationTracer = tracing == OperationTracer.NO_TRACING ? null : tracing;
     byte[] code = frame.getCode().getBytes().toArrayUnsafe();
     Operation[] operationArray = operations.getOperations();
     while (frame.getState() == MessageFrame.State.CODE_EXECUTING) {
@@ -476,16 +486,33 @@ public class EVM {
         currentOperation = endOfScriptStop;
       }
       frame.setCurrentOperation(currentOperation);
-      if (operationTracer != null) {
-        operationTracer.tracePreExecution(frame);
-      }
+      operationTracer.tracePreExecution(frame);
 
       OperationResult result;
       try {
         result =
             switch (opcode) {
-              case 0x01 -> AddOperationV2.staticOperation(frame, frame.stackDataV2());
-              // TODO: implement remaining opcodes in v2; until then fall through to v1
+              case 0x01 -> AddOperationV2.staticOperation(frame);
+              case 0x02 -> MulOperationV2.staticOperation(frame);
+              case 0x03 -> SubOperationV2.staticOperation(frame);
+              case 0x04 -> DivOperationV2.staticOperation(frame);
+              case 0x05 -> SDivOperationV2.staticOperation(frame);
+              case 0x06 -> ModOperationV2.staticOperation(frame);
+              case 0x07 -> SModOperationV2.staticOperation(frame);
+              case 0x09 -> MulModOperationV2.staticOperation(frame);
+              case 0x1b ->
+                  enableConstantinople
+                      ? ShlOperationV2.staticOperation(frame)
+                      : InvalidOperation.invalidOperationResult(opcode);
+              case 0x1c ->
+                  enableConstantinople
+                      ? ShrOperationV2.staticOperation(frame)
+                      : InvalidOperation.invalidOperationResult(opcode);
+              case 0x1d ->
+                  enableConstantinople
+                      ? SarOperationV2.staticOperation(frame)
+                      : InvalidOperation.invalidOperationResult(opcode);
+              // TODO EVMv2: implement remaining opcodes in v2; until then fall through to v1
               default -> {
                 frame.setCurrentOperation(currentOperation);
                 yield currentOperation.execute(frame, this);
@@ -510,9 +537,7 @@ public class EVM {
         final int opSize = result.getPcIncrement();
         frame.setPC(currentPC + opSize);
       }
-      if (operationTracer != null) {
-        operationTracer.tracePostExecution(frame, result);
-      }
+      operationTracer.tracePostExecution(frame, result);
     }
   }
 

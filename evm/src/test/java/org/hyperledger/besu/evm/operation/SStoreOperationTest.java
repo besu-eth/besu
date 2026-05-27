@@ -328,11 +328,4 @@ class SStoreOperationTest {
     final long expectedRemainingGas = gasBeforeSstore - expectedSpill;
     assertThat(frame.getRemainingGas()).isEqualTo(expectedRemainingGas);
   }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
-  }
 }

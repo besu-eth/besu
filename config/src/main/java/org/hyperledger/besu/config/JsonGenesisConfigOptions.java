@@ -39,6 +39,9 @@ import org.apache.tuweni.units.bigints.UInt256;
 public class JsonGenesisConfigOptions implements GenesisConfigOptions {
 
   private static final String ETHASH_CONFIG_KEY = "ethash";
+  // Preferred alias for ethash's fixeddifficulty block in genesis files; "ethash" is retained for
+  // backwards compatibility with existing genesis files.
+  private static final String FIXED_DIFFICULTY_CONFIG_KEY = "fixeddifficulty";
   private static final String IBFT_LEGACY_CONFIG_KEY = "ibft";
   private static final String IBFT2_CONFIG_KEY = "ibft2";
   private static final String QBFT_CONFIG_KEY = "qbft";
@@ -131,7 +134,7 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
 
   @Override
   public boolean isEthHash() {
-    return configRoot.has(ETHASH_CONFIG_KEY);
+    return configRoot.has(ETHASH_CONFIG_KEY) || configRoot.has(FIXED_DIFFICULTY_CONFIG_KEY);
   }
 
   @Override
@@ -208,10 +211,12 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
   }
 
   @Override
-  public EthashConfigOptions getEthashConfigOptions() {
-    return JsonUtil.getObjectNode(configRoot, ETHASH_CONFIG_KEY)
-        .map(EthashConfigOptions::new)
-        .orElse(EthashConfigOptions.DEFAULT);
+  public FixedDifficultyConfigOptions getFixedDifficultyConfigOptions() {
+    // Prefer the "fixeddifficulty" key; fall back to "ethash" for backwards compatibility.
+    return JsonUtil.getObjectNode(configRoot, FIXED_DIFFICULTY_CONFIG_KEY)
+        .or(() -> JsonUtil.getObjectNode(configRoot, ETHASH_CONFIG_KEY))
+        .map(FixedDifficultyConfigOptions::new)
+        .orElse(FixedDifficultyConfigOptions.DEFAULT);
   }
 
   @Override
@@ -492,7 +497,7 @@ public class JsonGenesisConfigOptions implements GenesisConfigOptions {
       builder.put("clique", getCliqueConfigOptions().asMap());
     }
     if (isEthHash()) {
-      builder.put("ethash", getEthashConfigOptions().asMap());
+      builder.put("ethash", getFixedDifficultyConfigOptions().asMap());
     }
     if (isIbftLegacy()) {
       builder.put("ibft", getIbftLegacyConfigOptions().asMap());

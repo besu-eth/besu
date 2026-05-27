@@ -21,6 +21,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
 
+import java.io.IOException;
+import java.io.OutputStream;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.opentelemetry.api.trace.Span;
 
 public class TimedJsonRpcProcessor implements JsonRpcProcessor {
@@ -43,6 +47,21 @@ public class TimedJsonRpcProcessor implements JsonRpcProcessor {
     try (final OperationTimer.TimingContext ignored =
         requestTimer.labels(request.getRequest().getMethod()).startTimer()) {
       return rpcProcessor.process(id, method, metricSpan, request);
+    }
+  }
+
+  @Override
+  public void streamProcess(
+      final JsonRpcRequestId id,
+      final JsonRpcMethod method,
+      final Span metricSpan,
+      final JsonRpcRequestContext request,
+      final OutputStream out,
+      final ObjectMapper mapper)
+      throws IOException {
+    try (final OperationTimer.TimingContext ignored =
+        requestTimer.labels(request.getRequest().getMethod()).startTimer()) {
+      rpcProcessor.streamProcess(id, method, metricSpan, request, out, mapper);
     }
   }
 }

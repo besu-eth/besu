@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.bonsai;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.ethereum.api.ApiConfiguration.DEFAULT_GAS_CAP;
 
 import org.hyperledger.besu.ethereum.api.ApiConfiguration;
@@ -23,8 +22,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.AbstractJsonRpcHttpBySpecTest;
 import org.hyperledger.besu.ethereum.core.BlockchainSetupUtil;
 import org.hyperledger.besu.ethereum.mainnet.HeaderValidationMode;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
-
-import org.junit.jupiter.api.Test;
 
 /**
  * This class is a test runner for the Bonsai test suite. It runs the tests defined in the Bonsai
@@ -59,12 +56,5 @@ public class EthSimulateV1BySpecTest extends AbstractJsonRpcHttpBySpecTest {
 
   public static Object[][] specs() {
     return findSpecFiles(new String[] {"eth/simulateV1/specs"});
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

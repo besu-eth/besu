@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncStateStorage;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePersistenceManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
@@ -48,7 +47,39 @@ public class SnapDownloaderFactory {
   private static final Logger LOG = LoggerFactory.getLogger(SnapDownloaderFactory.class);
   protected static final String SYNC_FOLDER = "syncFolder";
 
-  public static Optional<PivotSyncDownloader> createSnapDownloader(
+  public static Optional<SnapSyncController> createSnapDownloader(
+      final SnapSyncStatePersistenceManager snapContext,
+      final PivotBlockSelector pivotBlockSelector,
+      final SynchronizerConfiguration syncConfig,
+      final Path dataDirectory,
+      final ProtocolSchedule protocolSchedule,
+      final ProtocolContext protocolContext,
+      final MetricsSystem metricsSystem,
+      final EthContext ethContext,
+      final WorldStateStorageCoordinator worldStateStorageCoordinator,
+      final SyncState syncState,
+      final Clock clock,
+      final SyncDurationMetrics syncDurationMetrics) {
+    if (Boolean.TRUE.equals(syncConfig.getSnapSyncConfiguration().isSnap2Enabled())) {
+      // The snap/2 controller will be created here; until then v2 uses v1 behavior.
+    }
+
+    return createSnapDownloaderV1(
+        snapContext,
+        pivotBlockSelector,
+        syncConfig,
+        dataDirectory,
+        protocolSchedule,
+        protocolContext,
+        metricsSystem,
+        ethContext,
+        worldStateStorageCoordinator,
+        syncState,
+        clock,
+        syncDurationMetrics);
+  }
+
+  public static Optional<SnapSyncController> createSnapDownloaderV1(
       final SnapSyncStatePersistenceManager snapContext,
       final PivotBlockSelector pivotBlockSelector,
       final SynchronizerConfiguration syncConfig,
@@ -110,7 +141,7 @@ public class SnapDownloaderFactory {
             clock,
             metricsSystem,
             syncDurationMetrics);
-    final PivotSyncDownloader fastSyncDownloader =
+    final SnapSyncDownloader fastSyncDownloader =
         new SnapSyncDownloader(
             new PivotSyncActions(
                 syncConfig,
@@ -122,7 +153,6 @@ public class SnapDownloaderFactory {
                 pivotBlockSelector,
                 metricsSystem,
                 syncDataDirectory),
-            worldStateStorageCoordinator,
             snapWorldStateDownloader,
             syncDataDirectory,
             snapSyncState,

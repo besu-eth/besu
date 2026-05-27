@@ -20,7 +20,6 @@ import org.hyperledger.besu.datatypes.Quantity;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 
 import java.math.BigInteger;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
@@ -31,7 +30,6 @@ import org.apache.tuweni.units.bigints.UInt64;
 
 /** The Payload identifier. */
 public class PayloadIdentifier implements Quantity {
-
   private final UInt64 val;
 
   /**
@@ -61,8 +59,9 @@ public class PayloadIdentifier implements Quantity {
    * @param timestamp the timestamp
    * @param prevRandao the prev randao
    * @param feeRecipient the fee recipient
-   * @param withdrawals the withdrawals
-   * @param parentBeaconBlockRoot the parent beacon block root
+   * @param withdrawals the optional withdrawals
+   * @param parentBeaconBlockRoot the optional parent beacon block root
+   * @param slotNumber the optional beacon slot number
    * @return the payload identifier
    */
   public static PayloadIdentifier forPayloadParams(
@@ -71,23 +70,35 @@ public class PayloadIdentifier implements Quantity {
       final Bytes32 prevRandao,
       final Address feeRecipient,
       final Optional<List<Withdrawal>> withdrawals,
-      final Optional<Bytes32> parentBeaconBlockRoot) {
+      final Optional<Bytes32> parentBeaconBlockRoot,
+      final Optional<Long> slotNumber) {
 
+    // normally timestamp and parentHash should be enough to uniquely identify a payload
+    // but in special cases, reorgs, CL configuration changes (feeRecipient), or other edge case
+    // reasons CL may change other params, so for extra safety we include all the fields in
+    // the payload generation process
+
+    final long parentBeaconBlockRootPart =
+        parentBeaconBlockRoot.map(b32 -> (long) b32.hashCode()).orElse(Long.MAX_VALUE);
+
+    // for withdrawals the order in the list is not important so we sum all the hashCode
+    final long withdrawalPart =
+        withdrawals.map(ws -> ws.stream().mapToLong(Withdrawal::hashCode).sum()).orElse(-1L);
+
+    final long slotNumberPart = slotNumber.orElse(-1L);
+
+    // we finally spread all the values over 64bit, rotating only values where the shift could lose
+    // bits
     return new PayloadIdentifier(
         timestamp
-            ^ ((long) parentHash.getBytes().toHexString().hashCode()) << 8
-            ^ ((long) prevRandao.toHexString().hashCode()) << 16
-            ^ ((long) feeRecipient.getBytes().toHexString().hashCode()) << 24
-            ^ (long)
-                withdrawals
-                    .map(
-                        ws ->
-                            ws.stream()
-                                .sorted(Comparator.comparing(Withdrawal::getIndex))
-                                .map(Withdrawal::hashCode)
-                                .reduce(1, (a, b) -> a ^ (b * 31)))
-                    .orElse(0)
-            ^ ((long) parentBeaconBlockRoot.hashCode()) << 40);
+            ^ ((long) parentHash.getBytes().hashCode()) << 8
+            ^ ((long) prevRandao.hashCode()) << 16
+            ^ ((long) feeRecipient.getBytes().hashCode()) << 24
+            ^ parentBeaconBlockRootPart << 32
+            ^ slotNumberPart << 40
+            ^ slotNumberPart >> 24
+            ^ withdrawalPart << 48
+            ^ withdrawalPart >> 16);
   }
 
   @Override

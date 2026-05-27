@@ -135,6 +135,27 @@ public class PipelineBuilderTest {
   }
 
   @Test
+  public void shouldAggregateAllBatchesIntoSingleBatch() throws Exception {
+    final BlockingQueue<List<Integer>> output = new ArrayBlockingQueue<>(1);
+    final Pipeline<Integer> pipeline =
+        PipelineBuilder.<Integer>createPipeline(
+                "source", 20, NO_OP_LABELLED_2_COUNTER, false, "test")
+            .inBatches(4)
+            .inSingleBatch()
+            .andFinishWith("end", output::offer);
+
+    final Pipe<Integer> input = pipeline.getInputPipe();
+    tasks.forEachRemaining(input::put);
+    input.close();
+
+    pipeline.start(executorService).get(10, SECONDS);
+
+    assertThat(output.poll(10, SECONDS))
+        .containsExactly(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+    assertThat(output).isEmpty();
+  }
+
+  @Test
   public void shouldProcessAsync() throws Exception {
     final List<String> output = new ArrayList<>();
     final Pipeline<Integer> pipeline =

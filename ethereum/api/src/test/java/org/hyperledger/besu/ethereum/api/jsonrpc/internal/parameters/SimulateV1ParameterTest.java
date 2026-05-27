@@ -38,7 +38,7 @@ public class SimulateV1ParameterTest {
       final List<JsonBlockStateCallParameter> blockStateCalls,
       final BlockStateCallError expectedError) {
     SimulateV1Parameter simulateV1Parameter =
-        new SimulateV1Parameter(blockStateCalls, false, false, false, false);
+        new SimulateV1Parameter(blockStateCalls, false, false, false, false, false);
     Optional<BlockStateCallError> maybeValidationError =
         simulateV1Parameter.validate(VALID_PRECOMPILE_ADDRESSES);
     assertThat(maybeValidationError).isPresent();

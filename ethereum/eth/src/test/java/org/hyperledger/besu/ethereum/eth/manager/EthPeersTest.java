@@ -31,7 +31,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.NoAvailablePeersException;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.PeerDisconnectedException;
-import org.hyperledger.besu.ethereum.eth.messages.NodeDataMessage;
+import org.hyperledger.besu.ethereum.eth.messages.BlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.sync.ChainHeadTracker;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection.PeerNotConnected;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
@@ -445,7 +445,7 @@ public class EthPeersTest {
   }
 
   private void freeUpCapacity(final EthPeer ethPeer) {
-    MessageData message = NodeDataMessage.create(emptyList());
+    MessageData message = BlockBodiesMessage.create(emptyList());
     ethPeers.dispatchMessage(
         ethPeer, new EthMessage(ethPeer, message.wrapMessageData(BigInteger.ONE)));
     assertThat(ethPeer.hasAvailableRequestCapacity()).isTrue();
@@ -459,7 +459,7 @@ public class EthPeersTest {
   }
 
   private void useRequestSlot(final EthPeer peer) throws PeerNotConnected {
-    peer.getNodeData(singletonList(Hash.ZERO));
+    peer.getBodies(singletonList(Hash.ZERO));
   }
 
   @SuppressWarnings("unchecked")

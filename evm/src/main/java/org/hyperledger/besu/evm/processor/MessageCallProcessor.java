@@ -181,6 +181,10 @@ public class MessageCallProcessor extends AbstractMessageProcessor {
       final PrecompiledContract contract,
       final MessageFrame frame,
       final OperationTracer operationTracer) {
+    // EIP-7778/EIP-8037: precompile execution counts as code execution for the purpose of
+    // halt-burn classification — an OOG halt below should NOT be treated as a pre-execution
+    // halt and excluded from block regular gas.
+    frame.markCodeExecuted();
     final long gasRequirement = contract.gasRequirement(frame.getInputData());
     final Bytes output;
     if (frame.getRemainingGas() < gasRequirement) {

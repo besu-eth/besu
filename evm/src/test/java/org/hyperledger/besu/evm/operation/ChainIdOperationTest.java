@@ -26,7 +26,6 @@ import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -66,12 +65,5 @@ class ChainIdOperationTest {
     ChainIdOperation operation = new ChainIdOperation(new ConstantinopleGasCalculator(), chainId);
     final OperationResult result = operation.execute(messageFrame, null);
     assertThat(result.getGasCost()).isEqualTo(expectedGas);
-  }
-
-  @Test
-  void dryRunDetector() {
-    assertThat(true)
-        .withFailMessage("This test is here so gradle --dry-run executes this class")
-        .isTrue();
   }
 }

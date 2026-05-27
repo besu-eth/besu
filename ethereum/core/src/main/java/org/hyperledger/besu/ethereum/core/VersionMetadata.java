@@ -33,9 +33,6 @@ import org.slf4j.LoggerFactory;
 public class VersionMetadata implements Comparable<VersionMetadata> {
   private static final Logger LOG = LoggerFactory.getLogger(VersionMetadata.class);
 
-  /** Represents an unknown Besu version in the version metadata file */
-  public static final String BESU_VERSION_UNKNOWN = "UNKNOWN";
-
   private static final String METADATA_FILENAME = "VERSION_METADATA.json";
   private static final ObjectMapper MAPPER = new ObjectMapper();
   private final String besuVersion;
@@ -46,9 +43,7 @@ public class VersionMetadata implements Comparable<VersionMetadata> {
    * @return the version of Besu
    */
   public static String getRuntimeVersionString() {
-    return BesuVersionUtils.shortVersion() == null
-        ? BESU_VERSION_UNKNOWN
-        : BesuVersionUtils.shortVersion();
+    return BesuVersionUtils.shortVersion();
   }
 
   public static VersionMetadata getRuntimeVersion() {
@@ -97,7 +92,7 @@ public class VersionMetadata implements Comparable<VersionMetadata> {
       versionMetadata = MAPPER.readValue(metadataFile, VersionMetadata.class);
       LOG.info("Existing version data detected. Besu version {}", versionMetadata.besuVersion);
     } catch (FileNotFoundException fnfe) {
-      versionMetadata = new VersionMetadata(BESU_VERSION_UNKNOWN);
+      versionMetadata = new VersionMetadata(BesuVersionUtils.UNKNOWN);
     } catch (JsonProcessingException jpe) {
       throw new IllegalStateException(
           String.format("Invalid metadata file %s", metadataFile.getAbsolutePath()), jpe);
@@ -118,7 +113,7 @@ public class VersionMetadata implements Comparable<VersionMetadata> {
       final boolean enforceCompatibilityProtection, final Path dataDir) throws IOException {
     final VersionMetadata metadataVersion = VersionMetadata.lookUpFrom(dataDir);
     final VersionMetadata runtimeVersion = getRuntimeVersion();
-    if (metadataVersion.getBesuVersion().equals(VersionMetadata.BESU_VERSION_UNKNOWN)) {
+    if (metadataVersion.getBesuVersion().equals(BesuVersionUtils.UNKNOWN)) {
       // The version isn't known, potentially because the file doesn't exist. Write the latest
       // version to the metadata file.
       LOG.info(

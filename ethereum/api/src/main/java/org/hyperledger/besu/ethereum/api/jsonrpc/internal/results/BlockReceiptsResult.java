@@ -19,7 +19,7 @@ import java.util.List;
 import com.fasterxml.jackson.annotation.JsonValue;
 
 /** The result set from querying the receipts for a given block. */
-public class BlockReceiptsResult {
+public class BlockReceiptsResult implements JsonRpcResult {
 
   private final List<TransactionReceiptResult> results;
 

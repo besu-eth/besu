@@ -31,7 +31,6 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.ConsensusContextFixture;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.ParsedExtraData;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
@@ -50,6 +49,7 @@ import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.BesuService;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
 import java.util.Map;
@@ -67,21 +67,6 @@ import org.apache.tuweni.bytes.Bytes32;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public class BlockchainReferenceTestCaseSpec {
 
-  // Shared no-op ServiceManager — avoids anonymous class allocation per test
-  private static final ServiceManager SHARED_SERVICE_MANAGER = new ServiceManager() {
-    @Override
-    public <T extends BesuService> void addService(
-        final Class<T> serviceType, final T service) {}
-    @Override
-    public <T extends BesuService> Optional<T> getService(final Class<T> serviceType) {
-      return Optional.empty();
-    }
-  };
-
-  // Shared no-op trie loader — stateless, safe to reuse
-  private static final NoopBonsaiCachedMerkleTrieLoader SHARED_TRIE_LOADER =
-      new NoopBonsaiCachedMerkleTrieLoader();
-
   private final String network;
 
   private final CandidateBlock[] candidateBlocks;
@@ -94,21 +79,31 @@ public class BlockchainReferenceTestCaseSpec {
   private final String sealEngine;
 
   private WorldStateArchive buildWorldStateArchive(
-      final long cacheSize, final Blockchain blockchain) {
+      final DataStorageConfiguration storageConfiguration,
+      final long cacheSize,
+      final Blockchain blockchain) {
 
     final InMemoryKeyValueStorageProvider inMemoryKeyValueStorageProvider =
         new InMemoryKeyValueStorageProvider();
     final WorldStateArchive worldStateArchive =
         new BonsaiWorldStateProvider(
             (BonsaiWorldStateKeyValueStorage)
-                inMemoryKeyValueStorageProvider.createWorldStateStorage(
-                    DataStorageConfiguration.DEFAULT_BONSAI_CONFIG),
+                inMemoryKeyValueStorageProvider.createWorldStateStorage(storageConfiguration),
             blockchain,
-            ImmutablePathBasedExtraStorageConfiguration.builder()
-                .maxLayersToLoad(cacheSize)
-                .build(),
-            SHARED_TRIE_LOADER,
-            SHARED_SERVICE_MANAGER,
+            ImmutablePathBasedExtraStorageConfiguration.copyOf(
+                    storageConfiguration.getPathBasedExtraStorageConfiguration())
+                .withMaxLayersToLoad(cacheSize),
+            new NoopBonsaiCachedMerkleTrieLoader(),
+            new ServiceManager() {
+              @Override
+              public <T extends BesuService> void addService(
+                  final Class<T> serviceType, final T service) {}
+
+              @Override
+              public <T extends BesuService> Optional<T> getService(final Class<T> serviceType) {
+                return Optional.empty();
+              }
+            },
             EvmConfiguration.DEFAULT,
             () -> (__, ___) -> {},
             new CodeCache());
@@ -162,11 +157,13 @@ public class BlockchainReferenceTestCaseSpec {
     return genesisBlockHeader;
   }
 
-  public ProtocolContext buildProtocolContext(final MutableBlockchain blockchain) {
+  public ProtocolContext buildProtocolContext(
+      final DataStorageConfiguration storageConfiguration, final MutableBlockchain blockchain) {
     return new ProtocolContext.Builder()
         .withBlockchain(blockchain)
         .withWorldStateArchive(
             buildWorldStateArchive(
+                storageConfiguration,
                 Stream.of(candidateBlocks).filter(CandidateBlock::isExecutable).count(),
                 blockchain))
         .withConsensusContext(new ConsensusContextFixture())
@@ -308,6 +305,10 @@ public class BlockchainReferenceTestCaseSpec {
           && transactions == null
           && uncleHeaders == null
           && withdrawals == null) {
+        blockValid = false;
+      }
+
+      if (expectException != null || expectExceptionALL != null) {
         blockValid = false;
       }
 
