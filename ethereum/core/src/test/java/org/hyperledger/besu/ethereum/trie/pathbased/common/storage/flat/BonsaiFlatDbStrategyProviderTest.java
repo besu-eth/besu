@@ -18,7 +18,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFullFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiPartialFlatDbStrategy;
@@ -308,9 +307,9 @@ class FlatDbStrategyProviderTest {
   }
 
   @Test
-  void proofsEnabled_archiveFormat_createsArchiveFlatDbStrategyForTrieWrites() {
-    // Toggle "fresh DB + proofs flag on": BonsaiFlatDbStrategyProvider should create
-    // BonsaiArchiveFlatDbStrategy (trie checkpointing enabled) instead of BonsaiFullFlatDbStrategy.
+  void proofsEnabled_archiveFormat_createsFullFlatDbStrategyForTrieWrites() {
+    // BonsaiFlatDbStrategyProvider uses BonsaiFullFlatDbStrategy regardless of proofs flag
+    // for archive format (proofs are queried but not persisted).
     final DataStorageConfiguration proofsConfig =
         ImmutableDataStorageConfiguration.builder()
             .dataStorageFormat(DataStorageFormat.X_BONSAI_ARCHIVE)
@@ -329,7 +328,7 @@ class FlatDbStrategyProviderTest {
     proofsProvider.loadFlatDbStrategy(composedWorldStateStorage);
 
     assertThat(proofsProvider.getFlatDbStrategy(composedWorldStateStorage))
-        .isInstanceOf(BonsaiArchiveFlatDbStrategy.class);
+        .isExactlyInstanceOf(BonsaiFullFlatDbStrategy.class);
   }
 
   @Test

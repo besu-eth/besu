@@ -41,7 +41,9 @@ public class BonsaiTrieNodeStrategy implements TrieNodeStrategy {
       final Bytes32 nodeHash,
       final SegmentedKeyValueStorage storage) {
     return storage
-        .get(TRIE_BRANCH_STORAGE, Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe())
+        .get(
+            TRIE_BRANCH_STORAGE,
+            Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe())
         .map(Bytes::wrap);
   }
 
