@@ -105,7 +105,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
             worldStateKeyValueStorage.getCacheManager(),
             worldStateKeyValueStorage.getCurrentVersion(),
             stateProofsEnabled
-                ? new BonsaiArchiveTrieNodeStrategy(trieNodeCheckpointInterval)
+                ? new BonsaiArchiveTrieNodeStrategy(null) // reads archive; migrator owns all writes
                 : new BonsaiTrieNodeStrategy());
   }
 
