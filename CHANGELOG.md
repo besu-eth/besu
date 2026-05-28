@@ -23,6 +23,7 @@
 
 ### Bug fixes
 - `debug_accountAt`: fix off-by-one in transaction index validation that caused an `IndexOutOfBoundsException` when `txIndex` equalled the transaction list size; the boundary is now correctly rejected with `INVALID_TRANSACTION_PARAMS` [#10464](https://github.com/besu-eth/besu/pull/10464)
+- Fix transaction pool save/restore so disk access lock contention is reported through the returned futures instead of blocking callers or leaving the pool partially disabled. [#10561](https://github.com/besu-eth/besu/pull/10561)
 - Fix `Address.addressHash()` stalling under high concurrent load: replaced Guava `LoadingCache` (non-fair segment lock caused indefinite starvation when transaction pool validation and parallel block processing threads simultaneously saturated the same cache segments) with Caffeine, which computes hashes without holding a segment lock. [#10235](https://github.com/besu-eth/besu/pull/10235)
 - Fix `testing_buildBlockV1` to return correct `blockValue` (actual priority fees) and omit null `blockAccessList`/`slotNumber` fields from the response payload; same omission applies to `engine_getPayloadV6` (these fields are always populated for a V6 payload). [#10492](https://github.com/besu-eth/besu/pull/10492)
 - Fix `testing_buildBlockV1` to return error `-32000` when an explicitly provided transaction is not applicable (e.g. wrong nonce), instead of silently dropping it and returning a success response. [#10486](https://github.com/besu-eth/besu/pull/10486)

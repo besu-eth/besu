@@ -72,6 +72,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -80,6 +81,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -687,10 +689,11 @@ public class TransactionPool implements BlockAddedObserver {
       final CompletableFuture<Void> saveOperation =
           saveRestoreManager
               .saveToDisk(pendingTransactions)
-              .exceptionally(
-                  t -> {
-                    LOG.error("Error while saving transaction pool to disk", t);
-                    return null;
+              .whenComplete(
+                  (_, t) -> {
+                    if (t != null) {
+                      LOG.error("Error while saving transaction pool to disk", t);
+                    }
                   });
       pendingTransactions = new DisabledPendingTransactions();
       logStop();
@@ -788,28 +791,35 @@ public class TransactionPool implements BlockAddedObserver {
 
     synchronized CompletableFuture<Void> saveToDisk(
         final PendingTransactions pendingTransactionsToSave) {
-      cancelInProgressReadOperation();
-      return serializeAndDedupOperation(
-          () -> executeSaveToDisk(pendingTransactionsToSave), writeInProgress);
+      return cancelInProgressReadOperation()
+          .thenCompose(
+              _ ->
+                  serializeAndDedupOperation(
+                      () -> executeSaveToDisk(pendingTransactionsToSave), writeInProgress));
     }
 
     synchronized CompletableFuture<Void> loadFromDisk() {
       return serializeAndDedupOperation(this::executeLoadFromDisk, readInProgress);
     }
 
-    private void cancelInProgressReadOperation() {
-      final CompletableFuture<Void> maybeReadInProgress = readInProgress.get();
-      if (maybeReadInProgress != null && !maybeReadInProgress.isDone()) {
-        LOG.debug("Cancelling in progress read operation");
-        isCancelled.set(true);
-        try {
+    private CompletableFuture<Void> cancelInProgressReadOperation() {
+      try {
+        final CompletableFuture<Void> maybeReadInProgress = readInProgress.get();
+        if (maybeReadInProgress != null && !maybeReadInProgress.isDone()) {
+          LOG.debug("Cancelling in progress read operation");
+          isCancelled.set(true);
           // wait until read operation is canceled
           maybeReadInProgress.get();
           LOG.debug("In progress read operation cancelled");
-        } catch (InterruptedException | ExecutionException e) {
-          LOG.warn("Error while cancelling in progress read operation", e);
-          throw new RuntimeException(e);
         }
+        return CompletableFuture.completedFuture(null);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return CompletableFuture.failedFuture(
+            new RuntimeException("Error during the cancellation of current read operation", e));
+      } catch (ExecutionException e) {
+        return CompletableFuture.failedFuture(
+            new RuntimeException("Error during the cancellation of current read operation", e));
       }
     }
 
@@ -822,34 +832,48 @@ public class TransactionPool implements BlockAddedObserver {
         // at a time.
         CompletableFuture<Void> newOperation = new CompletableFuture<>();
         if (operationInProgress.compareAndSet(null, newOperation)) {
-          newOperation
-              .completeAsync(
-                  () -> {
-                    try {
-                      if (diskAccessLock.tryAcquire(
+          // acquire the lock asynchronously to not block the caller
+          CompletableFuture.runAsync(
+              () -> {
+                boolean lockAcquired = false;
+                Throwable failure = null;
+                try {
+                  lockAcquired =
+                      diskAccessLock.tryAcquire(
                           configuration.getUnstable().getSaveRestoreTimeout().toMillis(),
-                          TimeUnit.MILLISECONDS)) {
-                        try {
-                          isCancelled.set(false);
-                          operation.run();
-                        } finally {
-                          diskAccessLock.release();
-                        }
-                      } else {
-                        throw new RuntimeException("Timeout waiting for disk access lock");
-                      }
-                    } catch (InterruptedException e) {
-                      throw new RuntimeException(e);
-                    }
-                    return null;
-                  })
-              .whenComplete(
-                  (_, _) ->
-                      // remove in progress operation, so that the next one can start
-                      operationInProgress.set(null));
+                          TimeUnit.MILLISECONDS);
+                  if (lockAcquired) {
+                    isCancelled.set(false);
+                    operation.run();
+                  } else {
+                    failure = new TimeoutException("Timeout waiting for disk access lock");
+                  }
+                } catch (InterruptedException e) {
+                  Thread.currentThread().interrupt();
+                  failure = e;
+                } catch (Throwable t) {
+                  failure = t;
+                } finally {
+                  if (lockAcquired) {
+                    diskAccessLock.release();
+                  }
+                  if (failure == null) {
+                    newOperation.complete(null);
+                  } else {
+                    newOperation.completeExceptionally(failure);
+                  }
+                  // remove in progress operation, so that the next one can start
+                  operationInProgress.set(null);
+                }
+              });
           return newOperation;
         }
-        return operationInProgress.get();
+        return Objects.requireNonNullElseGet(
+            operationInProgress.get(),
+            () ->
+                CompletableFuture.failedFuture(
+                    new IllegalStateException(
+                        "Save/restore operation completed before it could be reused")));
       }
       return CompletableFuture.completedFuture(null);
     }
