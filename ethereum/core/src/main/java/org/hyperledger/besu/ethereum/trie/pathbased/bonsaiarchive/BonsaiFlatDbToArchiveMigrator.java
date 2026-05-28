@@ -217,12 +217,12 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
       if (maybeTrieLog.isPresent()) {
         final SegmentedKeyValueStorageTransaction tx =
             worldStateStorage.getComposedWorldStateStorage().startLowPriorityTransaction();
-        processBlock(maybeTrieLog.get(), blockNumber, tx);
-        saveProgress(blockNumber, tx);
-        tx.commit();
         if (migrationWorldState != null) {
           migrateTrieBlock(maybeTrieLog.get(), blockNumber);
         }
+        processBlock(maybeTrieLog.get(), blockNumber, tx);
+        saveProgress(blockNumber, tx);
+        tx.commit();
         migratedBlockNumber.set(blockNumber);
         if (shouldLog) {
           logProgress(blockNumber, target.get());

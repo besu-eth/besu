@@ -42,6 +42,7 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStoragePrefixedKeyBlockchainStorage;
 import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
@@ -51,6 +52,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.BonsaiContext;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.CodeHashCodeStorageStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogLayer;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManager;
+import org.hyperledger.besu.ethereum.trie.patricia.SimpleMerklePatriciaTrie;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
@@ -67,6 +69,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 
 import org.apache.tuweni.units.bigints.UInt256;
 import org.awaitility.Awaitility;
@@ -543,6 +546,27 @@ public class BonsaiFlatDbToArchiveMigratorTest {
   // --- trie checkpoint tests ---
 
   @Test
+  public void trieCheckpointWritesNodesToArchiveStorage() throws Exception {
+    // Create block 1 whose stateRoot matches what the migrator computes from createAccountTrieLog.
+    // persist() verifies the state root so the block header must carry the correct value.
+    final Hash stateRoot = computeTestAccountStateRoot();
+    final Block genesis = blockchain.getBlockByNumber(0).orElseThrow();
+    final Block block1 =
+        blockDataGenerator.block(
+            BlockDataGenerator.BlockOptions.create()
+                .setParentHash(genesis.getHash())
+                .setBlockNumber(1)
+                .setStateRoot(stateRoot));
+    blockchain.appendBlock(block1, blockDataGenerator.receipts(block1));
+
+    // interval=2 fires a checkpoint at block 1: (1+1) % 2 == 0
+    final BonsaiFlatDbToArchiveMigrator migrator = createMigratorWithRealTrieLogs(2);
+    migrator.migrate().get(MIGRATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+    assertThat(storage.streamKeys(TRIE_BRANCH_STORAGE_ARCHIVE).count()).isGreaterThan(0);
+  }
+
+  @Test
   public void noTrieCheckpointsWithoutInterval() throws Exception {
     appendBlocks(3);
     final BonsaiFlatDbToArchiveMigrator migrator = createMigrator();
@@ -651,6 +675,29 @@ public class BonsaiFlatDbToArchiveMigratorTest {
     return migrator;
   }
 
+  // Like createMigratorWithTrieCheckpoints but does NOT override the trie-log mock, so the
+  // setup's createAccountTrieLog is used. Genesis is stubbed to an empty TrieLog so the account
+  // creation in block 1 does not conflict with a prior rollForward on the same account.
+  private BonsaiFlatDbToArchiveMigrator createMigratorWithRealTrieLogs(final long interval) {
+    when(trieLogManager.getMaxLayersToLoad()).thenReturn(BOUNDARY_DISABLED);
+    // Genesis has no state changes in real usage; empty TrieLog avoids "account already exists"
+    // when block 1 rolls forward the same creation change.
+    when(trieLogManager.getTrieLogLayer(hashAt(0L))).thenReturn(Optional.of(new TrieLogLayer()));
+    final NoOpMetricsSystem metricsSystem = new NoOpMetricsSystem();
+    final BonsaiArchiveFlatDbStrategy archiveStrategy =
+        new BonsaiArchiveFlatDbStrategy(metricsSystem, new CodeHashCodeStorageStrategy(), interval);
+    final BonsaiFlatDbToArchiveMigrator migrator =
+        new BonsaiFlatDbToArchiveMigrator(
+            worldStateStorage,
+            trieLogManager,
+            blockchain,
+            Executors.newScheduledThreadPool(1),
+            metricsSystem,
+            archiveStrategy);
+    migrators.add(migrator);
+    return migrator;
+  }
+
   private BonsaiFlatDbToArchiveMigrator createMigrator(final long boundaryDistance) {
     return createMigrator(this.blockchain, boundaryDistance);
   }
@@ -679,6 +726,20 @@ public class BonsaiFlatDbToArchiveMigratorTest {
         new PmtStateTrieAccountValue(1, balance, Hash.EMPTY, Hash.EMPTY);
     trieLog.addAccountChange(TEST_ADDRESS, null, value);
     return trieLog;
+  }
+
+  // Compute the MPT state root for a world state containing only TEST_ADDRESS with balance=1,
+  // matching the account created by createAccountTrieLog(Wei.ONE). Used to set block header
+  // stateRoot so that BonsaiWorldState.persist() passes state root verification.
+  private Hash computeTestAccountStateRoot() {
+    final PmtStateTrieAccountValue account =
+        new PmtStateTrieAccountValue(1, Wei.ONE, Hash.EMPTY, Hash.EMPTY);
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    account.writeTo(out);
+    final SimpleMerklePatriciaTrie<org.apache.tuweni.bytes.Bytes, org.apache.tuweni.bytes.Bytes>
+        trie = new SimpleMerklePatriciaTrie<>(Function.identity());
+    trie.put(TEST_ADDRESS.addressHash().getBytes(), out.encoded());
+    return Hash.wrap(trie.getRootHash());
   }
 
   private Optional<byte[]> getArchivedAccountKey(final long blockNumber) {
