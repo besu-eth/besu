@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsaiarchive;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
+import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.ARCHIVE_PROOF_BLOCK_NUMBER_KEY;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_HASH_KEY;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_ROOT_HASH_KEY;
@@ -531,10 +532,17 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
     @Override
     public Optional<byte[]> get(final SegmentIdentifier segmentId, final byte[] key) {
       if (segmentId == TRIE_BRANCH_STORAGE) {
-        // Metadata keys must stay in-memory (live HEAD values would corrupt migration context)
+        // Metadata keys must stay in-memory (live HEAD values would corrupt migration context).
+        // ARCHIVE_PROOF_BLOCK_NUMBER_KEY is also intercepted: the proof-serving code writes this
+        // key to TRIE_BRANCH_STORAGE with a live HEAD-adjacent block number, and
+        // BonsaiArchiveTrieNodeStrategy.getStateTrieArchiveContextForWrite reads it first. If it
+        // leaked from live storage into the migration context, archive trie-node writes would
+        // receive a large suffix (near HEAD) instead of the correct window-based suffix, making
+        // them invisible to subsequent window reads (which search suffix ≤ checkpoint block).
         if (java.util.Arrays.equals(key, WORLD_BLOCK_NUMBER_KEY)
             || java.util.Arrays.equals(key, WORLD_BLOCK_HASH_KEY)
-            || java.util.Arrays.equals(key, WORLD_ROOT_HASH_KEY)) {
+            || java.util.Arrays.equals(key, WORLD_ROOT_HASH_KEY)
+            || java.util.Arrays.equals(key, ARCHIVE_PROOF_BLOCK_NUMBER_KEY)) {
           return getFromLayerOnly(segmentId, key);
         }
         // Trie node data: check in-memory first, then live storage.
