@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
@@ -108,10 +109,10 @@ class EthGetRawTransactionByHashTest {
   void shouldReturnNullResultWhenTransactionDoesNotExist() {
     final String transactionHash =
         "0xf9ef5f0cf02685711cdf687b72d4754901729b942f4ea7f956e7fb206cae2f9e";
-    when(transactionPool.getTransactionByHash(Hash.fromHexString(transactionHash)))
+    final Hash hash = Hash.fromHexString(transactionHash);
+    when(transactionPool.getTransactionByHash(hash))
         .thenReturn(Optional.empty());
-    when(blockchainQueries.transactionByHash(Hash.fromHexString(transactionHash)))
-        .thenReturn(Optional.empty());
+    when(blockchainQueries.transactionByHash(hash)).thenReturn(Optional.empty());
 
     final JsonRpcRequest request =
         new JsonRpcRequest(JSON_RPC_VERSION, method.getName(), new Object[] {transactionHash});
@@ -121,6 +122,9 @@ class EthGetRawTransactionByHashTest {
     assertThat(actualResponse)
         .usingRecursiveComparison()
         .isEqualTo(new JsonRpcSuccessResponse(request.getId(), null));
+    verify(transactionPool).getTransactionByHash(hash);
+    verify(blockchainQueries).transactionByHash(hash);
+    verifyNoMoreInteractions(transactionPool, blockchainQueries);
   }
 
   @Test
@@ -144,6 +148,9 @@ class EthGetRawTransactionByHashTest {
     assertThat(actualResponse)
         .usingRecursiveComparison()
         .isEqualTo(new JsonRpcSuccessResponse(request.getId(), VALID_TRANSACTION));
+    verify(transactionPool).getTransactionByHash(transaction.getHash());
+    verifyNoInteractions(blockchainQueries);
+    verifyNoMoreInteractions(transactionPool);
   }
 
   @Test
@@ -155,7 +162,6 @@ class EthGetRawTransactionByHashTest {
         new TransactionWithMetadata(transaction, 1, Optional.empty(), Hash.ZERO, 0, 0L);
 
     when(transactionPool.getTransactionByHash(transaction.getHash())).thenReturn(Optional.empty());
-    verifyNoMoreInteractions(transactionPool);
     when(blockchainQueries.transactionByHash(transaction.getHash()))
         .thenReturn(Optional.of(transactionWithMetadata));
 
@@ -170,5 +176,8 @@ class EthGetRawTransactionByHashTest {
     assertThat(actualResponse)
         .usingRecursiveComparison()
         .isEqualTo(new JsonRpcSuccessResponse(request.getId(), VALID_TRANSACTION));
+    verify(transactionPool).getTransactionByHash(transaction.getHash());
+    verify(blockchainQueries).transactionByHash(transaction.getHash());
+    verifyNoMoreInteractions(transactionPool, blockchainQueries);
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -23,8 +23,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
-import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
 public class DebugGetRawTransaction implements JsonRpcMethod {
 
@@ -56,13 +54,8 @@ public class DebugGetRawTransaction implements JsonRpcMethod {
         .map(
             tx ->
                 new JsonRpcSuccessResponse(
-                    requestContext.getRequest().getId(), toRawString(tx.getTransaction())))
+                    requestContext.getRequest().getId(),
+                    RawTransactionEncoder.toRawString(tx.getTransaction())))
         .orElse(new JsonRpcSuccessResponse(requestContext.getRequest().getId(), null));
-  }
-
-  private String toRawString(final Transaction transaction) {
-    final BytesValueRLPOutput out = new BytesValueRLPOutput();
-    transaction.writeTo(out);
-    return out.encoded().toHexString();
   }
 }
