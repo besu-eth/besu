@@ -27,6 +27,9 @@ import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.util.Collections;
 import java.util.Optional;
@@ -122,5 +125,74 @@ public class RoundChangeMessageTest {
     assertThatThrownBy(() -> RoundChangeMessageData.fromMessageData(messageData))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("MessageData has code 42 and thus is not a RoundChangeMessageData");
+  }
+
+  @Test
+  public void defaultEncodingEmitsCurrentThreeItemWireFormat() {
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final RoundChange roundChange = TestHelpers.createSignedRoundChangePayload(nodeKey);
+
+    final RLPInput rlpIn = RLP.input(roundChange.encode());
+    assertThat(rlpIn.enterList()).isEqualTo(3);
+  }
+
+  @Test
+  public void legacyEncodingOmitsBlockAccessListSlot() {
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final RoundChange reference = TestHelpers.createSignedRoundChangePayload(nodeKey);
+
+    final RoundChange legacy =
+        RoundChange.withLegacyEncoding(
+            reference.getSignedPayload(),
+            reference.getProposedBlock(),
+            reference.getBlockAccessList());
+
+    final RLPInput rlpIn = RLP.input(legacy.encode());
+    assertThat(rlpIn.enterList()).isEqualTo(2);
+  }
+
+  @Test
+  public void legacyEncodingSkipsBalEvenWhenPresent() {
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final RoundChange reference = TestHelpers.createSignedRoundChangePayload(nodeKey);
+
+    final RoundChange legacy =
+        RoundChange.withLegacyEncoding(
+            reference.getSignedPayload(),
+            reference.getProposedBlock(),
+            Optional.of(BlockAccessList.builder().build()));
+
+    final RLPInput rlpIn = RLP.input(legacy.encode());
+    assertThat(rlpIn.enterList()).isEqualTo(2);
+  }
+
+  @Test
+  public void canDecodeRoundChangeFromLegacyNodeWithoutBlockAccessList() {
+    // Pre-26.1.0 wire format: [SignedPayload, Block-or-null]            (2 items)
+    // Current wire format:    [SignedPayload, Block-or-null, BAL-or-null] (3 items)
+    final NodeKey nodeKey = NodeKeyUtils.generate();
+    final Proposal referenceProposal = TestHelpers.createSignedProposalPayload(nodeKey);
+    final RoundChange referenceRoundChange =
+        TestHelpers.createSignedRoundChangePayload(
+            nodeKey,
+            Optional.of(new PreparedRoundArtifacts(referenceProposal, Collections.emptyList())));
+
+    final BytesValueRLPOutput rlpOut = new BytesValueRLPOutput();
+    rlpOut.startList();
+    referenceRoundChange.getSignedPayload().writeTo(rlpOut);
+    referenceRoundChange.getProposedBlock().orElseThrow().writeTo(rlpOut);
+    rlpOut.endList();
+    final Bytes legacyEncoded = rlpOut.encoded();
+
+    when(messageData.getCode()).thenReturn(IbftV2.ROUND_CHANGE);
+    when(messageData.getData()).thenReturn(legacyEncoded);
+    final RoundChangeMessageData legacyMessage =
+        RoundChangeMessageData.fromMessageData(messageData);
+
+    final RoundChange decoded = legacyMessage.decode();
+
+    assertThat(decoded.getSignedPayload()).isEqualTo(referenceRoundChange.getSignedPayload());
+    assertThat(decoded.getProposedBlock()).isPresent();
+    assertThat(decoded.getBlockAccessList()).isEmpty();
   }
 }
