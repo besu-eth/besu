@@ -27,7 +27,6 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.Map;
-import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -35,26 +34,30 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Selects the pivot block for snap sync using FCU head and safe block headers.
+ * Selects the pivot block for snap sync using the FCU head header.
  *
- * <p>On every {@code engine_forkchoiceUpdated} the latest head and safe block hashes are recorded.
- * {@link #selectNewPivotBlock()} downloads missing headers on demand and picks a pivot:
+ * <p>On every {@code engine_forkchoiceUpdated} the latest head hash is recorded. {@link
+ * #selectNewPivotBlock()} resolves the head header (from the cache populated by {@code
+ * engine_newPayload}, or via a peer download) and anchors the pivot {@value PIVOT_DISTANCE} blocks
+ * behind it for reorg safety.
  *
- * <ol>
- *   <li>the safe block, if it is within the effective freshness threshold of the head;
- *   <li>otherwise the head block.
- * </ol>
- *
- * <p>The effective freshness threshold shrinks by one per estimated missed slot since the last FCU,
- * because the real chain tip has advanced by that many blocks. When the threshold reaches zero the
- * method fails with an exception so the caller knows the consensus client appears offline.
+ * <p>The pivot is reused across calls until the head has advanced at least {@value
+ * FRESHNESS_THRESHOLD} blocks past it, ensuring the pivot stays within the 128-block snap-serving
+ * window. The effective threshold shrinks by one per estimated missed slot since the last FCU; when
+ * it reaches zero the method fails so the caller knows the consensus client appears offline.
  */
 public class PivotSelectorFromSafeBlock
     implements PivotBlockSelector, NewPayloadListener, UnverifiedForkchoiceListener {
 
   private static final Logger LOG = LoggerFactory.getLogger(PivotSelectorFromSafeBlock.class);
   private static final long DIAGNOSTIC_LOG_RATE_LIMIT = Duration.ofMinutes(1).toMillis();
-  private static final Duration DEFAULT_SLOT_DURATION = Duration.ofSeconds(12);
+
+  /**
+   * Number of blocks behind the FCU head to anchor the pivot if no safe block is available. Chosen
+   * to match the typical distance of the safe block (≈ 2 epochs = 64 slots) to provide reorg
+   * protection.
+   */
+  private static final int PIVOT_DISTANCE = 64;
 
   /**
    * Maximum distance (in blocks) the pivot can lag behind the chain head before we select a new
@@ -62,10 +65,7 @@ public class PivotSelectorFromSafeBlock
    * is replaced while it still has ~1.5 minutes left in the snap-serving window. Requires the
    * pivot-check interval to be ≤ 1.5 minutes.
    */
-  public static final int SAFE_BLOCK_FRESHNESS_THRESHOLD = 120;
-
-  /** Number of blocks behind the FCU head to use as pivot anchor, for reorg safety. */
-  private static final int REORG_SAFETY_DISTANCE = 32;
+  public static final int FRESHNESS_THRESHOLD = 120;
 
   private final ProtocolContext protocolContext;
   private final GenesisConfigOptions genesisConfig;
@@ -105,11 +105,13 @@ public class PivotSelectorFromSafeBlock
 
   @Override
   public void onNewPayload(final BlockHeader header) {
+    LOG.info("Received new payload header {}, hash {}", header.getNumber(), header.getHash());
     headHeaders.put(header.getHash(), header);
   }
 
   @Override
   public void onNewUnverifiedForkchoice(final ForkchoiceEvent event) {
+    LOG.info("Received new FCU {}", event);
     lastFcuTimeMillis = clock.millis();
     latestHeadHash = event.getHeadBlockHash();
     latestSafeHash = event.hasValidSafeBlockHash() ? event.getSafeBlockHash() : Hash.ZERO;
@@ -162,71 +164,50 @@ public class PivotSelectorFromSafeBlock
       return logAndFailNoFcu();
     }
 
-    final BlockHeader cachedHead = headHeaders.get(headHash);
-    final BlockHeader headerForSlotDuration =
-        Optional.ofNullable(headHeaders.get(latestSafeHash))
-            .or(() -> Optional.ofNullable(cachedHead))
-            .orElse(null);
-    final Duration slotDuration =
-        headerForSlotDuration != null
-            ? protocolSchedule.getByBlockHeader(headerForSlotDuration).getSlotDuration()
-            : DEFAULT_SLOT_DURATION;
     final long nowMillis = clock.millis();
     final long millisSinceLastFcu = lastFcuTimeMillis > 0 ? nowMillis - lastFcuTimeMillis : 0;
-    final long estimatedMissedBlocks = millisSinceLastFcu / slotDuration.toMillis();
-    final long effectiveThreshold = SAFE_BLOCK_FRESHNESS_THRESHOLD - estimatedMissedBlocks;
 
-    if (effectiveThreshold <= 0) {
-      return CompletableFuture.failedFuture(
-          new RuntimeException(
-              "Consensus client appears offline: last FCU was "
-                  + (millisSinceLastFcu / 1000)
-                  + "s ago; pivot block would be outside the snap-serving window"));
-    }
+    return getOrDownload(headHash)
+        .thenCompose(
+            head -> {
+              final Duration slotDuration =
+                  protocolSchedule.getByBlockHeader(head).getSlotDuration();
+              final long estimatedMissedBlocks = millisSinceLastFcu / slotDuration.toMillis();
+              final long effectiveThreshold = FRESHNESS_THRESHOLD - estimatedMissedBlocks;
 
-    final BlockHeader currentPivot = lastReturnedPivot;
-    if (currentPivot != null && cachedHead != null) {
-      final long distanceFromHead = cachedHead.getNumber() - currentPivot.getNumber();
-      if (distanceFromHead < effectiveThreshold) {
-        LOG.debug(
-            "Reusing existing pivot block {} — head has only advanced {} blocks (threshold {})",
-            currentPivot.getNumber(),
-            distanceFromHead,
-            effectiveThreshold);
-        return CompletableFuture.completedFuture(new PivotSyncState(currentPivot, true));
-      }
-    }
+              if (effectiveThreshold <= 0) {
+                throw new RuntimeException(
+                    "Consensus client appears offline: last FCU was "
+                        + (millisSinceLastFcu / 1000)
+                        + "s ago; pivot block would be outside the snap-serving window");
+              }
 
-    final CompletableFuture<BlockHeader> headFuture = getOrDownload(headHash);
-
-    final Hash safeHash = latestSafeHash;
-    final CompletableFuture<Optional<BlockHeader>> safeFuture =
-        Hash.ZERO.equals(safeHash)
-            ? CompletableFuture.completedFuture(Optional.empty())
-            : getOrDownload(safeHash)
-                .thenApply(Optional::of)
-                .exceptionally(ignored -> Optional.empty());
-
-    return headFuture
-        .thenCombine(
-            safeFuture,
-            (head, maybeSafe) -> {
-              if (maybeSafe.isPresent()) {
-                final BlockHeader safe = maybeSafe.get();
-                if (head.getNumber() - safe.getNumber() < effectiveThreshold) {
-                  LOG.debug("Returning safe block {} as pivot", safe.getNumber());
-                  return CompletableFuture.completedFuture(new PivotSyncState(safe, true));
+              final BlockHeader currentPivot = lastReturnedPivot;
+              if (currentPivot != null) {
+                final long distanceFromHead = head.getNumber() - currentPivot.getNumber();
+                if (distanceFromHead < effectiveThreshold) {
+                  LOG.info(
+                      "Reusing existing pivot block {} — head has only advanced {} blocks (threshold {})",
+                      currentPivot.getNumber(),
+                      distanceFromHead,
+                      effectiveThreshold);
+                  return CompletableFuture.completedFuture(new PivotSyncState(currentPivot, true));
                 }
               }
-              int blocksToWalk = (int) Math.min(REORG_SAFETY_DISTANCE, head.getNumber());
-              LOG.debug(
-                  "Safe block not available or too far from head, walking back {} blocks from {} for reorg safety",
-                  blocksToWalk,
-                  head.getNumber());
+
+              final BlockHeader cachedSafe = headHeaders.get(latestSafeHash);
+              if (cachedSafe != null
+                  && head.getNumber() - cachedSafe.getNumber() < effectiveThreshold) {
+                LOG.debug("Using cached safe block {} as pivot", cachedSafe.getNumber());
+                return CompletableFuture.completedFuture(new PivotSyncState(cachedSafe, true));
+              }
+
+              final int blocksToWalk = (int) Math.min(PIVOT_DISTANCE, head.getNumber());
+              LOG.info(
+                  "Walking back {} blocks from head {} for pivot", blocksToWalk, head.getNumber());
               return walkBackParents(head, blocksToWalk)
                   .thenApply(anchored -> new PivotSyncState(anchored, true));
             })
-        .thenCompose(cf -> cf)
         .thenApply(
             state -> {
               state.getPivotBlockHeader().ifPresent(h -> lastReturnedPivot = h);
@@ -241,7 +222,7 @@ public class PivotSelectorFromSafeBlock
       LOG.info(
           "Waiting for consensus client, this may be because your consensus client is still syncing");
     }
-    LOG.debug("No forkchoice update received yet");
+    LOG.info("No forkchoice update received yet");
     return CompletableFuture.failedFuture(
         new RuntimeException("No forkchoice update received yet"));
   }

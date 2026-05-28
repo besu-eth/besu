@@ -109,16 +109,16 @@ public class PivotSelectorFromSafeBlockTest {
 
   @Test
   void selectNewPivotBlockWalksBackFromHeadWhenNoSafeBlock() {
-    final List<BlockHeader> chain = chain(50, 1); // blocks 1–50
+    final List<BlockHeader> chain = chain(100, 1); // blocks 1–100
     chain.forEach(selector::onNewPayload);
 
-    final BlockHeader head = chain.get(49); // block 50
+    final BlockHeader head = chain.get(99); // block 100
     selector.onNewUnverifiedForkchoice(fcu(head.getHash(), Hash.ZERO, Hash.ZERO));
 
     final CompletableFuture<PivotSyncState> result = selector.selectNewPivotBlock();
     assertThat(result).isCompleted();
-    // head(50) - REORG_SAFETY_DISTANCE(32) = block 18
-    assertThat(result.join().getPivotBlockHeader().map(BlockHeader::getNumber)).contains(18L);
+    // head(100) - PIVOT_DISTANCE(64) = block 36
+    assertThat(result.join().getPivotBlockHeader().map(BlockHeader::getNumber)).contains(36L);
   }
 
   @Test
@@ -132,8 +132,8 @@ public class PivotSelectorFromSafeBlockTest {
 
     final CompletableFuture<PivotSyncState> result = selector.selectNewPivotBlock();
     assertThat(result).isCompleted();
-    // head(200) - REORG_SAFETY_DISTANCE(32) = block 168
-    assertThat(result.join().getPivotBlockHeader().map(BlockHeader::getNumber)).contains(168L);
+    // head(200) - PIVOT_DISTANCE(64) = block 136
+    assertThat(result.join().getPivotBlockHeader().map(BlockHeader::getNumber)).contains(136L);
   }
 
   @Test
@@ -146,7 +146,7 @@ public class PivotSelectorFromSafeBlockTest {
 
     final CompletableFuture<PivotSyncState> result = selector.selectNewPivotBlock();
     assertThat(result).isCompleted();
-    // walks back min(32, 9) = 9 steps → block 0
+    // walks back min(64, 9) = 9 steps → block 0
     assertThat(result.join().getPivotBlockHeader().map(BlockHeader::getNumber)).contains(0L);
   }
 
@@ -154,24 +154,24 @@ public class PivotSelectorFromSafeBlockTest {
 
   @Test
   void prunesHeadersBelowFinalizedBlockNumberWhenFinalizedIsInCache() {
-    final List<BlockHeader> chain = chain(100, 1); // blocks 1–100
+    final List<BlockHeader> chain = chain(200, 1); // blocks 1–200
     chain.forEach(selector::onNewPayload);
 
-    final BlockHeader finalized = chain.get(49); // block 50
-    final BlockHeader head = chain.get(99); // block 100
+    final BlockHeader finalized = chain.get(99); // block 100
+    final BlockHeader head = chain.get(199); // block 200
 
-    // FCU with known finalized — triggers pruning of blocks < 50
+    // FCU with known finalized — triggers pruning of blocks < 100
     selector.onNewUnverifiedForkchoice(fcu(head.getHash(), head.getHash(), finalized.getHash()));
 
-    // Block 30 (pruned from cache) used as safe: cache miss → headerDownloader must be called
+    // Block 30 was pruned; using it as safe causes cache miss → fallback to walkback
     final BlockHeader block30 = chain.get(29);
-    when(headerDownloader.downloadBlockHeader(block30.getHash()))
-        .thenReturn(CompletableFuture.completedFuture(block30));
-
     selector.onNewUnverifiedForkchoice(fcu(head.getHash(), block30.getHash(), finalized.getHash()));
-    selector.selectNewPivotBlock().join();
 
-    verify(headerDownloader).downloadBlockHeader(block30.getHash());
+    final CompletableFuture<PivotSyncState> result = selector.selectNewPivotBlock();
+    assertThat(result).isCompleted();
+    // block30 pruned → cachedSafe null → walkback PIVOT_DISTANCE(64) from head(200) = block 136
+    assertThat(result.join().getPivotBlockHeader().map(BlockHeader::getNumber)).contains(136L);
+    verify(headerDownloader, never()).downloadBlockHeader(any());
   }
 
   @Test
