@@ -58,7 +58,7 @@ public class DebugGetRawReceipts extends AbstractBlockParameterMethod {
         .getBlockHashByNumber(blockNumber)
         .flatMap(blockHash -> getBlockchainQueries().getBlockchain().getTxReceipts(blockHash))
         .map(this::toRLP)
-        .orElseGet(() -> new String[0]);
+        .orElse(null);
   }
 
   private String[] toRLP(final List<TransactionReceipt> receipts) {
