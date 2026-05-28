@@ -57,10 +57,12 @@ public class PivotSelectorFromSafeBlock
   private static final Duration DEFAULT_SLOT_DURATION = Duration.ofSeconds(12);
 
   /**
-   * Maximum distance (in blocks) the safe block can be behind head (7 minutes) and still be used as
-   * pivot.
+   * Maximum distance (in blocks) the pivot can lag behind the chain head before we select a new
+   * one. Set to 120 = 128 (snap-serving window) − 8 (≈ 1.5 min buffer at 12 s/slot), so the pivot
+   * is replaced while it still has ~1.5 minutes left in the snap-serving window. Requires the
+   * pivot-check interval to be ≤ 1.5 minutes.
    */
-  public static final int SAFE_BLOCK_FRESHNESS_THRESHOLD = 93;
+  public static final int SAFE_BLOCK_FRESHNESS_THRESHOLD = 120;
 
   /** Number of blocks behind the FCU head to use as pivot anchor, for reorg safety. */
   private static final int REORG_SAFETY_DISTANCE = 32;

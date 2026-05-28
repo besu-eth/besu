@@ -37,7 +37,7 @@ import org.slf4j.LoggerFactory;
  */
 public class DynamicPivotBlockSelector {
 
-  private static final int CHECK_INTERVAL_MINUTES = 6;
+  private static final int CHECK_INTERVAL_MINUTES = 1;
   private static final Duration CHECK_INTERVAL = Duration.ofMinutes(CHECK_INTERVAL_MINUTES);
   public static final BiConsumer<BlockHeader, Boolean> doNothingOnPivotChange = (___, __) -> {};
 

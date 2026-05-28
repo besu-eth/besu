@@ -87,8 +87,8 @@ public class PivotSelectorFromSafeBlockTest {
     when(clock.millis()).thenReturn(0L);
     selector.onNewUnverifiedForkchoice(fcu(head.getHash(), Hash.ZERO, Hash.ZERO));
 
-    // >93 slots have elapsed since the last FCU — CL appears offline
-    when(clock.millis()).thenReturn(93 * SLOT_MILLIS + 1);
+    // >120 slots have elapsed since the last FCU — CL appears offline
+    when(clock.millis()).thenReturn(120 * SLOT_MILLIS + 1);
 
     assertThat(selector.selectNewPivotBlock()).isCompletedExceptionally();
   }
@@ -99,7 +99,7 @@ public class PivotSelectorFromSafeBlockTest {
     chain.forEach(selector::onNewPayload);
 
     final BlockHeader head = chain.get(99); // block 100
-    final BlockHeader safe = chain.get(49); // block 50 — 50 behind head, within 93 threshold
+    final BlockHeader safe = chain.get(49); // block 50 — 50 behind head, within 120 threshold
     selector.onNewUnverifiedForkchoice(fcu(head.getHash(), safe.getHash(), Hash.ZERO));
 
     final CompletableFuture<PivotSyncState> result = selector.selectNewPivotBlock();
@@ -127,7 +127,7 @@ public class PivotSelectorFromSafeBlockTest {
     chain.forEach(selector::onNewPayload);
 
     final BlockHeader head = chain.get(199); // block 200
-    final BlockHeader safe = chain.get(0); // block 1 — 199 blocks behind head, exceeds 93
+    final BlockHeader safe = chain.get(0); // block 1 — 199 blocks behind head, exceeds 120
     selector.onNewUnverifiedForkchoice(fcu(head.getHash(), safe.getHash(), Hash.ZERO));
 
     final CompletableFuture<PivotSyncState> result = selector.selectNewPivotBlock();
@@ -229,13 +229,13 @@ public class PivotSelectorFromSafeBlockTest {
     final PivotSyncState first = selector.selectNewPivotBlock().join();
     assertThat(first.getPivotBlockHeader()).contains(safe);
 
-    // Advance head by only 10 blocks — well within threshold (93)
+    // Advance head by only 10 blocks — well within threshold (120)
     final List<BlockHeader> extension = chain(10, 101); // blocks 101–110
     extension.forEach(selector::onNewPayload);
     final BlockHeader newHead = extension.get(9); // block 110
     selector.onNewUnverifiedForkchoice(fcu(newHead.getHash(), safe.getHash(), Hash.ZERO));
 
-    // Second call — head(110) - pivot(50) = 60 < 93 → must reuse
+    // Second call — head(110) - pivot(50) = 60 < 120 → must reuse
     final PivotSyncState second = selector.selectNewPivotBlock().join();
     assertThat(second.getPivotBlockHeader()).contains(safe);
     verify(headerDownloader, never()).downloadBlockHeader(any());
@@ -259,8 +259,8 @@ public class PivotSelectorFromSafeBlockTest {
     final BlockHeader safe160 = chain.get(159); // block 160
     selector.onNewUnverifiedForkchoice(fcu(head200.getHash(), safe160.getHash(), Hash.ZERO));
 
-    // head(200) - lastReturnedPivot(50) = 150 >= 93 → must refresh
-    // new pivot: safe160, since head(200) - safe(160) = 40 < 93
+    // head(200) - lastReturnedPivot(50) = 150 >= 120 → must refresh
+    // new pivot: safe160, since head(200) - safe(160) = 40 < 120
     final PivotSyncState second = selector.selectNewPivotBlock().join();
     assertThat(second.getPivotBlockHeader()).contains(safe160);
   }
