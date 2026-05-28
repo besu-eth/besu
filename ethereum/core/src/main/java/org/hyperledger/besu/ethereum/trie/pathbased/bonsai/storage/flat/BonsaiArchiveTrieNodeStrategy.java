@@ -29,6 +29,8 @@ import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Archive trie node strategy. Reads from {@code TRIE_BRANCH_STORAGE_ARCHIVE} using suffix-based
@@ -36,6 +38,8 @@ import org.apache.tuweni.bytes.Bytes32;
  * TRIE_BRANCH_STORAGE_ARCHIVE}.
  */
 public class BonsaiArchiveTrieNodeStrategy implements TrieNodeStrategy {
+
+  private static final Logger LOG = LoggerFactory.getLogger(BonsaiArchiveTrieNodeStrategy.class);
 
   private final BonsaiTrieNodeStrategy defaultStrategy = new BonsaiTrieNodeStrategy();
   private final Long trieNodeCheckpointInterval;
@@ -96,10 +100,14 @@ public class BonsaiArchiveTrieNodeStrategy implements TrieNodeStrategy {
     defaultStrategy.putFlatAccountTrieNode(storage, transaction, location, nodeHash, node);
     if (trieNodeCheckpointInterval != null) {
       ensureIntervalSeeded(storage);
+      final BonsaiContext ctx = getStateTrieArchiveContextForWrite(storage);
       byte[] keySuffixed =
-          BonsaiArchiveKeyUtil.calculateArchiveKeyWithMinSuffix(
-              getStateTrieArchiveContextForWrite(storage), location.toArrayUnsafe());
+          BonsaiArchiveKeyUtil.calculateArchiveKeyWithMinSuffix(ctx, location.toArrayUnsafe());
       transaction.put(TRIE_BRANCH_STORAGE_ARCHIVE, keySuffixed, node.toArrayUnsafe());
+      LOG.trace(
+          "Archive account trie node written: location={} suffix={}",
+          location,
+          ctx.getBlockNumber().orElse(-1L));
     }
   }
 
@@ -115,11 +123,16 @@ public class BonsaiArchiveTrieNodeStrategy implements TrieNodeStrategy {
         storage, transaction, accountHash, location, nodeHash, node);
     if (trieNodeCheckpointInterval != null) {
       ensureIntervalSeeded(storage);
+      final BonsaiContext ctx = getStateTrieArchiveContextForWrite(storage);
       byte[] keySuffixed =
           BonsaiArchiveKeyUtil.calculateArchiveKeyWithMinSuffix(
-              getStateTrieArchiveContextForWrite(storage),
-              Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe());
+              ctx, Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe());
       transaction.put(TRIE_BRANCH_STORAGE_ARCHIVE, keySuffixed, node.toArrayUnsafe());
+      LOG.trace(
+          "Archive storage trie node written: account={} location={} suffix={}",
+          accountHash,
+          location,
+          ctx.getBlockNumber().orElse(-1L));
     }
   }
 

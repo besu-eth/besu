@@ -490,6 +490,10 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   private void migrateTrieBlock(final TrieLog trieLog, final long blockNumber) {
     ((PathBasedWorldStateUpdateAccumulator<?>) migrationWorldState.updater()).rollForward(trieLog);
     if (isTrieCheckpointBlock(blockNumber)) {
+      final long interval = archiveStrategy.getTrieNodeCheckpointInterval();
+      final long suffix = (blockNumber / interval) * interval;
+      LOG.info(
+          "Archive trie checkpoint: persisting block {} (window suffix {})", blockNumber, suffix);
       blockchain
           .getBlockHeader(blockNumber)
           .ifPresent(
@@ -497,6 +501,11 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
                 migrationWorldState.persist(header);
                 migrationTrieStorage.clearInMemory();
                 migrationTrieStorage.seedCheckpoint(header);
+                LOG.info(
+                    "Archive trie checkpoint complete: block {} suffix {} stateRoot {}",
+                    blockNumber,
+                    suffix,
+                    header.getStateRoot());
               });
     }
   }
