@@ -18,7 +18,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.RequestType;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapWorldDownloadState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.AccountFlatDatabaseHealingRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.AccountTrieNodeHealingRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.StorageFlatDatabaseHealingRangeRequest;
@@ -119,7 +118,7 @@ public abstract class SnapDataRequest implements TasksPriorityProvider {
   public int persist(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
-      final SnapWorldDownloadState downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
     return doPersist(
@@ -129,7 +128,7 @@ public abstract class SnapDataRequest implements TasksPriorityProvider {
   protected abstract int doPersist(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
-      final SnapWorldDownloadState downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration);
 
@@ -140,7 +139,7 @@ public abstract class SnapDataRequest implements TasksPriorityProvider {
   }
 
   public abstract Stream<SnapDataRequest> getChildRequests(
-      final SnapWorldDownloadState downloadState,
+      final SnapRequestContext downloadState,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncProcessState snapSyncState);
 
@@ -160,7 +159,7 @@ public abstract class SnapDataRequest implements TasksPriorityProvider {
   protected int saveParent(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
-      final SnapWorldDownloadState downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
     if (pendingChildren.decrementAndGet() == 0) {
