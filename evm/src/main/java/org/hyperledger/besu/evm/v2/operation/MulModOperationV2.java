@@ -49,9 +49,9 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
   public static OperationResult staticOperation(final MessageFrame frame) {
     if (!frame.stackHasItemsV2(3)) return UNDERFLOW_RESPONSE;
     int top = frame.stackTopV2();
-    final int aOffset = (--top) << 2;
-    final int bOffset = (--top) << 2;
-    final int mOffset = (--top) << 2;
+    final int aOffset = (top - 1) << 2;
+    final int bOffset = (top - 2) << 2;
+    final int mOffset = (top - 3) << 2;
 
     final long[] stack = frame.stackDataV2();
     final UInt256 valueA =
@@ -68,7 +68,7 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
     stack[mOffset + 2] = r.u1();
     stack[mOffset + 3] = r.u0();
 
-    frame.setTopV2(++top);
+    frame.setTopV2(top - 2);
     return MUL_MOD_SUCCESS;
   }
 }
