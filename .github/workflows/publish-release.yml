@@ -211,27 +211,30 @@ jobs:
     env:
       RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
     steps:
-      - name: checkout
+      - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ env.RELEASE_VERSION }}
+          sparse-checkout: '.github/workflows/promote_artifacts.py'
 
-      - name: Set up Java
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
         with:
-          distribution: temurin
-          java-version: 25
+          python-version: '3.13'
 
-      - name: setup gradle
-        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
-        with:
-          cache-disabled: true
+      - name: Install dependencies
+        run: pip install requests
 
-      - name: Artifactory Publish
+      - name: Promote Maven artifacts from staging to production
+        # Copies artifacts built by draft-release.yml from besu-maven-rc to besu-maven.
+        # No rebuild — the artifacts promoted here are byte-identical to what was
+        # published to besu-maven-rc during the RC burn-in phase.
         env:
           ARTIFACTORY_USER: ${{ secrets.BESU_ARTIFACTORY_USER }}
           ARTIFACTORY_KEY: ${{ secrets.BESU_ARTIFACTORY_TOKEN }}
-        run: ./gradlew -Prelease.releaseVersion=${{ env.RELEASE_VERSION }} -Pversion=${{env.RELEASE_VERSION}} artifactoryPublish
+        run: |
+          python3 .github/workflows/promote_artifacts.py \
+            --besu_version="${{ env.RELEASE_VERSION }}" \
+            --src_repo=besu-maven-rc \
+            --dst_repo=besu-maven
 
   verify_artifactory:
     runs-on: ubuntu-latest

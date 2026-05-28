@@ -38,6 +38,9 @@ jobs:
             exit 1
           fi
           echo "release_version=$RELEASE_VERSION" >> $GITHUB_OUTPUT  # Set as output using the new syntax
+          # Maven version strips any RC suffix so staged JARs have the final release coordinates
+          # (e.g. 26.5.0-RC1 → 26.5.0). This means publish-release can promote without renaming.
+          echo "maven_version=${RELEASE_VERSION%-RC*}" >> $GITHUB_OUTPUT
 
       # Perform a tag checkout to ensure tag is available
       - name: Verify tag Exist
@@ -48,6 +51,7 @@ jobs:
 
     outputs:
       release_version: ${{ steps.validate_release_version.outputs.release_version }}
+      maven_version: ${{ steps.validate_release_version.outputs.maven_version }}
 
   build:
     runs-on: ubuntu-latest
@@ -322,6 +326,48 @@ jobs:
 
       - name: Stop container
         run: docker stop ${{ env.CONTAINER_NAME }}
+
+  artifactory-staging:
+    # Publish Maven JARs to the besu-maven-rc staging repo using the final release
+    # version (RC suffix stripped). publish-release.yml will promote these to
+    # besu-maven without rebuilding, giving byte-identical artifacts to burn-in.
+    # Prerequisite: a 'besu-maven-rc' local repo must exist in Artifactory with
+    # the same layout as besu-maven.
+    runs-on: ubuntu-latest
+    needs: [validate, build]
+    if: contains(needs.validate.outputs.release_version, '-RC')
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+      MAVEN_VERSION: ${{ needs.validate.outputs.maven_version }}
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.RELEASE_VERSION }}
+
+      - name: Set up Java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Setup gradle
+        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+        with:
+          cache-disabled: true
+
+      - name: Publish to Artifactory staging
+        env:
+          ARTIFACTORY_USER: ${{ secrets.BESU_ARTIFACTORY_USER }}
+          ARTIFACTORY_KEY: ${{ secrets.BESU_ARTIFACTORY_TOKEN }}
+          ARTIFACTORY_REPO: besu-maven-rc
+        run: |
+          # Build and publish with the release version (e.g. 26.5.0), not the RC tag
+          # (26.5.0-RC1), so the promoted artifacts will have correct Maven coordinates.
+          ./gradlew \
+            -Prelease.releaseVersion=${{ env.MAVEN_VERSION }} \
+            -Pversion=${{ env.MAVEN_VERSION }} \
+            artifactoryPublish
 
   release-draft:
     runs-on: ubuntu-latest
