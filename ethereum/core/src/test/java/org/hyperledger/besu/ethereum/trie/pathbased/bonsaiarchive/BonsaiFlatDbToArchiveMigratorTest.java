@@ -554,8 +554,8 @@ public class BonsaiFlatDbToArchiveMigratorTest {
   @Test
   public void trieBlockMigrationCompletesWithIntervalConfigured() throws Exception {
     // With interval configured, migration must complete and advance flat-DB progress.
-    // Trie archive writes cannot be directly observed in tests: the migration world state
-    // uses trieDisabled(true) and createMigratorWithTrieCheckpoints uses empty trie logs.
+    // Trie archive writes cannot be directly observed in tests: createMigratorWithTrieCheckpoints
+    // uses empty trie logs so no account/storage state is present to hash.
     appendBlocks(3);
     final BonsaiFlatDbToArchiveMigrator migrator = createMigratorWithTrieCheckpoints(10);
     migrator.migrate().get(MIGRATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -591,14 +591,15 @@ public class BonsaiFlatDbToArchiveMigratorTest {
     final BonsaiFlatDbToArchiveMigrator secondMigrator = createMigratorWithTrieCheckpoints(100);
     secondMigrator.migrate().get(MIGRATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
-    // Blocks 1-3 must NOT be re-processed by the second migrator.
-    verify(trieLogManager, times(1)).getTrieLogLayer(hashAt(1L));
-    verify(trieLogManager, times(1)).getTrieLogLayer(hashAt(2L));
-    verify(trieLogManager, times(1)).getTrieLogLayer(hashAt(3L));
-    // Blocks 4-6 must be processed by the second migrator.
+    // Blocks 4-6 must be processed exactly once by the second migrator.
     verify(trieLogManager, times(1)).getTrieLogLayer(hashAt(4L));
     verify(trieLogManager, times(1)).getTrieLogLayer(hashAt(5L));
     verify(trieLogManager, times(1)).getTrieLogLayer(hashAt(6L));
+    // Blocks 1-3 are fetched once during the first migration and once during
+    // trie recovery re-roll (restoring accumulator state from last checkpoint).
+    verify(trieLogManager, times(2)).getTrieLogLayer(hashAt(1L));
+    verify(trieLogManager, times(2)).getTrieLogLayer(hashAt(2L));
+    verify(trieLogManager, times(2)).getTrieLogLayer(hashAt(3L));
   }
 
   // --- test helpers ---

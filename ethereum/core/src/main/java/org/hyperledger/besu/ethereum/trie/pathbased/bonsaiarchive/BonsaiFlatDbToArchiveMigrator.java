@@ -138,9 +138,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
         migratedBlockNumber::get);
     if (archiveStrategy.getTrieNodeCheckpointInterval() != null) {
       initMigrationWorldState(metricsSystem);
-      getMigrationProgress()
-          .flatMap(blockchain::getBlockHeader)
-          .ifPresent(migrationTrieStorage::seedCheckpoint);
+      recoverTrieState();
     }
   }
 
@@ -445,10 +443,6 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
             CacheManager.NO_OP_CACHE,
             0L,
             new BonsaiArchiveTrieNodeStrategy(interval));
-    final WorldStateConfig trieDisabledConfig =
-        WorldStateConfig.newBuilder(WorldStateConfig.createStatefulConfigWithTrie())
-            .trieDisabled(true)
-            .build();
     final CodeCache codeCache = new CodeCache();
     migrationWorldState =
         new BonsaiWorldState(
@@ -458,20 +452,58 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
                 migrationKvStorage, EvmConfiguration.DEFAULT, codeCache),
             new NoOpTrieLogManager(),
             EvmConfiguration.DEFAULT,
-            trieDisabledConfig,
+            WorldStateConfig.createStatefulConfigWithTrie(),
             codeCache);
+  }
+
+  private void recoverTrieState() {
+    final long progress = getMigrationProgress().orElse(-1L);
+    if (progress < 0) {
+      return;
+    }
+    final long interval = archiveStrategy.getTrieNodeCheckpointInterval();
+    // Derive the last trie checkpoint: largest block B ≤ progress where (B+1) % interval == 0
+    final long lastCheckpoint = ((progress + 1) / interval) * interval - 1;
+    if (lastCheckpoint >= 0) {
+      blockchain.getBlockHeader(lastCheckpoint).ifPresent(migrationTrieStorage::seedCheckpoint);
+    }
+    // Re-roll blocks after the checkpoint up to current flat-DB progress to restore accumulator
+    final long reRollStart = lastCheckpoint + 1;
+    if (reRollStart <= progress) {
+      reRollTrieFrom(reRollStart, progress);
+    }
+  }
+
+  private void reRollTrieFrom(final long startBlock, final long endBlock) {
+    for (long b = startBlock; b <= endBlock; b++) {
+      final long blockNum = b;
+      blockchain
+          .getBlockHeader(blockNum)
+          .flatMap(h -> trieLogManager.getTrieLogLayer(h.getHash()))
+          .ifPresent(
+              tl ->
+                  ((PathBasedWorldStateUpdateAccumulator<?>) migrationWorldState.updater())
+                      .rollForward(tl));
+    }
   }
 
   private void migrateTrieBlock(final TrieLog trieLog, final long blockNumber) {
     ((PathBasedWorldStateUpdateAccumulator<?>) migrationWorldState.updater()).rollForward(trieLog);
-    blockchain
-        .getBlockHeader(blockNumber)
-        .ifPresent(
-            header -> {
-              migrationWorldState.persist(header);
-              migrationTrieStorage.clearInMemory();
-              migrationTrieStorage.seedCheckpoint(header);
-            });
+    if (isTrieCheckpointBlock(blockNumber)) {
+      blockchain
+          .getBlockHeader(blockNumber)
+          .ifPresent(
+              header -> {
+                migrationWorldState.persist(header);
+                migrationTrieStorage.clearInMemory();
+                migrationTrieStorage.seedCheckpoint(header);
+              });
+    }
+  }
+
+  private boolean isTrieCheckpointBlock(final long blockNumber) {
+    return blockNumber > 0
+        && (blockNumber + 1) % archiveStrategy.getTrieNodeCheckpointInterval() == 0;
   }
 
   private static final class MigrationTrieStorage extends LayeredKeyValueStorage {
@@ -485,8 +517,16 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
     @Override
     public Optional<byte[]> get(final SegmentIdentifier segmentId, final byte[] key) {
       if (segmentId == TRIE_BRANCH_STORAGE) {
-        // Never fall through to live storage — the in-memory layer is the sole trie source
-        return getFromLayerOnly(segmentId, key);
+        // Metadata keys must stay in-memory (live HEAD values would corrupt migration context)
+        if (java.util.Arrays.equals(key, WORLD_BLOCK_NUMBER_KEY)
+            || java.util.Arrays.equals(key, WORLD_BLOCK_HASH_KEY)
+            || java.util.Arrays.equals(key, WORLD_ROOT_HASH_KEY)) {
+          return getFromLayerOnly(segmentId, key);
+        }
+        // Trie node data: check in-memory first, then live storage.
+        // Unchanged nodes are identical at any historical state and at HEAD.
+        final Optional<byte[]> inMemory = getFromLayerOnly(segmentId, key);
+        return inMemory.isPresent() ? inMemory : real.get(segmentId, key);
       }
       return real.get(segmentId, key);
     }
