@@ -170,6 +170,7 @@ public class PivotSelectorFromSafeBlock
     return getOrDownload(headHash)
         .thenCompose(
             head -> {
+              LOG.info("Head block {} is at {}", head.getNumber(), head.getHash());
               final Duration slotDuration =
                   protocolSchedule.getByBlockHeader(head).getSlotDuration();
               final long estimatedMissedBlocks = millisSinceLastFcu / slotDuration.toMillis();
@@ -198,7 +199,7 @@ public class PivotSelectorFromSafeBlock
               final BlockHeader cachedSafe = headHeaders.get(latestSafeHash);
               if (cachedSafe != null
                   && head.getNumber() - cachedSafe.getNumber() < effectiveThreshold) {
-                LOG.debug("Using cached safe block {} as pivot", cachedSafe.getNumber());
+                LOG.info("Using cached safe block {} as pivot", cachedSafe.getNumber());
                 return CompletableFuture.completedFuture(new PivotSyncState(cachedSafe, true));
               }
 

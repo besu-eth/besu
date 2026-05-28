@@ -63,6 +63,7 @@ public class SingleBlockHeaderDownloader {
         .getScheduler()
         .scheduleServiceTask(
             () -> {
+              LOG.debug("Downloading block header by hash {}", hash);
               GetHeadersFromPeerTask task =
                   new GetHeadersFromPeerTask(
                       hash,
