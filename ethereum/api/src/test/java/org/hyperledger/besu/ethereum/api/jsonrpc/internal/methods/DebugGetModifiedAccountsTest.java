@@ -142,7 +142,7 @@ public class DebugGetModifiedAccountsTest {
 
     final JsonRpcSuccessResponse response =
         (JsonRpcSuccessResponse)
-            getModifiedAccountsByHash.response(request(block1.getBlockHash().toHexString()));
+            getModifiedAccountsByHash.response(hashRequest(block1.getBlockHash().toHexString()));
 
     assertThat((List<String>) response.getResult())
         .containsExactly(
@@ -167,7 +167,8 @@ public class DebugGetModifiedAccountsTest {
     final JsonRpcSuccessResponse response =
         (JsonRpcSuccessResponse)
             getModifiedAccountsByHash.response(
-                request(block0.getBlockHash().toHexString(), block2.getBlockHash().toHexString()));
+                hashRequest(
+                    block0.getBlockHash().toHexString(), block2.getBlockHash().toHexString()));
 
     assertThat((List<String>) response.getResult())
         .containsExactly(
@@ -217,7 +218,7 @@ public class DebugGetModifiedAccountsTest {
 
     final JsonRpcResponse response =
         getModifiedAccountsByHash.response(
-            request(
+            hashRequest(
                 block0.getBlockHash().toHexString(), disconnectedEnd.getBlockHash().toHexString()));
 
     assertThat(((JsonRpcErrorResponse) response).getErrorType())
@@ -255,7 +256,7 @@ public class DebugGetModifiedAccountsTest {
 
     final JsonRpcResponse response =
         getModifiedAccountsByHash.response(
-            request(
+            hashRequest(
                 block0.getBlockHash().toHexString(), distantBlock.getBlockHash().toHexString()));
 
     assertThat(((JsonRpcErrorResponse) response).getErrorType())
@@ -284,6 +285,11 @@ public class DebugGetModifiedAccountsTest {
   private JsonRpcRequestContext request(final Object... params) {
     return new JsonRpcRequestContext(
         new JsonRpcRequest("2.0", "debug_getModifiedAccountsByNumber", params));
+  }
+
+  private JsonRpcRequestContext hashRequest(final Object... params) {
+    return new JsonRpcRequestContext(
+        new JsonRpcRequest("2.0", "debug_getModifiedAccountsByHash", params));
   }
 
   private BlockHeader blockHeader(final long number) {
