@@ -459,6 +459,9 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   private void recoverTrieState() {
     final long progress = getMigrationProgress().orElse(-1L);
     if (progress < 0) {
+      // Fresh start: seed from genesis so trie reads during the first checkpoint window have a
+      // valid context and don't fall back to the noisy "block context not present" warning path.
+      blockchain.getBlockHeader(0L).ifPresent(migrationTrieStorage::seedCheckpoint);
       return;
     }
     final long interval = archiveStrategy.getTrieNodeCheckpointInterval();
