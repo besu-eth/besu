@@ -452,7 +452,9 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
                 migrationKvStorage, EvmConfiguration.DEFAULT, codeCache),
             new NoOpTrieLogManager(),
             EvmConfiguration.DEFAULT,
-            WorldStateConfig.createStatefulConfigWithTrie(),
+            WorldStateConfig.newBuilder(WorldStateConfig.createStatefulConfigWithTrie())
+                .parallelStateRootComputationEnabled(false)
+                .build(),
             codeCache);
   }
 
