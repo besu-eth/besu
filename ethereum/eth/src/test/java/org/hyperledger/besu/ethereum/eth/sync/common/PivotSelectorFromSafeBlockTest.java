@@ -45,6 +45,7 @@ public class PivotSelectorFromSafeBlockTest {
 
   private static final long FCU_TIME_MILLIS = 1_000_000L;
   private static final long SLOT_MILLIS = 12_000L;
+  private static final int PIVOT_WINDOW_VALIDITY = 120;
 
   private final GenesisConfigOptions genesisConfig = mock(GenesisConfigOptions.class);
   private final SingleBlockHeaderDownloader headerDownloader =
@@ -69,7 +70,13 @@ public class PivotSelectorFromSafeBlockTest {
 
     selector =
         new PivotSelectorFromSafeBlock(
-            protocolContext, genesisConfig, headerDownloader, protocolSchedule, clock, () -> {});
+            protocolContext,
+            genesisConfig,
+            headerDownloader,
+            protocolSchedule,
+            clock,
+            PIVOT_WINDOW_VALIDITY,
+            () -> {});
   }
 
   // --- selectNewPivotBlock ---
@@ -87,8 +94,8 @@ public class PivotSelectorFromSafeBlockTest {
     when(clock.millis()).thenReturn(0L);
     selector.onNewUnverifiedForkchoice(fcu(head.getHash(), Hash.ZERO, Hash.ZERO));
 
-    // >120 slots have elapsed since the last FCU — CL appears offline
-    when(clock.millis()).thenReturn(120 * SLOT_MILLIS + 1);
+    // >pivotBlockWindowValidity slots have elapsed since the last FCU — CL appears offline
+    when(clock.millis()).thenReturn(PIVOT_WINDOW_VALIDITY * SLOT_MILLIS + 1);
 
     assertThat(selector.selectNewPivotBlock()).isCompletedExceptionally();
   }

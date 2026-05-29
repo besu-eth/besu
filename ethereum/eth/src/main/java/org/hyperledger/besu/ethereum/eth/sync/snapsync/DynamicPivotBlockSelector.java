@@ -31,17 +31,16 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Selects the pivot block for snap sync dynamically. Every {@value #CHECK_INTERVAL_MINUTES} minutes
- * it asks the underlying {@link PivotSyncActions} for a fresh pivot; if the result differs from the
- * current pivot it downloads the new header and switches.
+ * Selects the pivot block for snap sync dynamically. Asks the underlying {@link PivotSyncActions}
+ * for a fresh pivot at most once per configured interval; if the result differs from the current
+ * pivot it downloads the new header and switches.
  */
 public class DynamicPivotBlockSelector {
 
-  private static final int CHECK_INTERVAL_MINUTES = 1;
-  private static final Duration CHECK_INTERVAL = Duration.ofMinutes(CHECK_INTERVAL_MINUTES);
   public static final BiConsumer<BlockHeader, Boolean> doNothingOnPivotChange = (___, __) -> {};
 
   private static final Logger LOG = LoggerFactory.getLogger(DynamicPivotBlockSelector.class);
+  private static final Duration CHECK_INTERVAL = Duration.ofMinutes(1);
 
   private final AtomicBoolean isTimeToCheckAgain = new AtomicBoolean(true);
 
@@ -68,6 +67,7 @@ public class DynamicPivotBlockSelector {
       return;
     }
 
+    boolean cycleSucceeded = false;
     try {
       CompletableFuture.completedFuture(PivotSyncState.EMPTY_SYNC_STATE)
           .thenCompose(syncActions::selectPivotBlock)
@@ -82,19 +82,14 @@ public class DynamicPivotBlockSelector {
                 }
                 return downloadNewPivotBlock(fss);
               })
-          .whenComplete(
-              (unused, throwable) -> {
-                if (throwable != null) {
-                  LOG.debug("Error while searching for a new pivot", throwable);
-                }
-              })
           .get();
+      cycleSucceeded = true;
     } catch (Exception e) {
       LOG.debug("Exception while searching for new pivot", e);
     }
 
     switchToNewPivotBlock(onNewPivotBlock);
-    scheduleNextCheck();
+    scheduleNextCheck(cycleSucceeded);
   }
 
   private CompletableFuture<Void> downloadNewPivotBlock(final PivotSyncState fss) {
@@ -112,22 +107,30 @@ public class DynamicPivotBlockSelector {
   }
 
   private boolean isSamePivotBlock(final PivotSyncState fss) {
-    return fss.hasPivotBlockHash()
-        && syncState
-            .getPivotBlockHeader()
-            .map(h -> h.getHash().equals(fss.getPivotBlockHash().get()))
-            .orElse(false);
+    final Optional<BlockHeader> currentPivot = syncState.getPivotBlockHeader();
+    if (currentPivot.isEmpty()) {
+      return false;
+    }
+    if (fss.hasPivotBlockHash()) {
+      return currentPivot.get().getHash().equals(fss.getPivotBlockHash().get());
+    }
+    return fss.getPivotBlockNumber().isPresent()
+        && fss.getPivotBlockNumber().getAsLong() == currentPivot.get().getNumber();
   }
 
-  private void scheduleNextCheck() {
-    ethContext
-        .getScheduler()
-        .scheduleFutureTask(
-            () -> {
-              LOG.debug("Time to check the pivot again");
-              isTimeToCheckAgain.set(true);
-            },
-            CHECK_INTERVAL);
+  private void scheduleNextCheck(final boolean delayNextCheck) {
+    if (delayNextCheck) {
+      ethContext
+          .getScheduler()
+          .scheduleFutureTask(
+              () -> {
+                LOG.debug("Is time to check the pivot again");
+                isTimeToCheckAgain.set(true);
+              },
+              CHECK_INTERVAL);
+    } else {
+      isTimeToCheckAgain.set(true);
+    }
   }
 
   public void switchToNewPivotBlock(final BiConsumer<BlockHeader, Boolean> onSwitchDone) {

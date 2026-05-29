@@ -34,17 +34,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Selects the pivot block for snap sync using the FCU head header.
+ * Selects the pivot block for snap sync using the FCU safe and head header.
  *
- * <p>On every {@code engine_forkchoiceUpdated} the latest head hash is recorded. {@link
- * #selectNewPivotBlock()} resolves the head header (from the cache populated by {@code
- * engine_newPayload}, or via a peer download) and anchors the pivot {@value PIVOT_DISTANCE} blocks
- * behind it for reorg safety.
- *
- * <p>The pivot is reused across calls until the head has advanced at least {@value
- * FRESHNESS_THRESHOLD} blocks past it, ensuring the pivot stays within the 128-block snap-serving
- * window. The effective threshold shrinks by one per estimated missed slot since the last FCU; when
- * it reaches zero the method fails so the caller knows the consensus client appears offline.
+ * <p>The pivot is reused across calls until the head has advanced at least {@code
+ * pivotBlockWindowValidity} blocks past it, ensuring the pivot stays within the 128-block
+ * snap-serving window. The effective threshold shrinks by one per estimated missed slot since the
+ * last FCU; when it reaches zero the method fails so the caller knows the consensus client appears
+ * offline.
  */
 public class PivotSelectorFromSafeBlock
     implements PivotBlockSelector, NewPayloadListener, UnverifiedForkchoiceListener {
@@ -59,19 +55,12 @@ public class PivotSelectorFromSafeBlock
    */
   private static final int PIVOT_DISTANCE = 64;
 
-  /**
-   * Maximum distance (in blocks) the pivot can lag behind the chain head before we select a new
-   * one. Set to 120 = 128 (snap-serving window) − 8 (≈ 1.5 min buffer at 12 s/slot), so the pivot
-   * is replaced while it still has ~1.5 minutes left in the snap-serving window. Requires the
-   * pivot-check interval to be ≤ 1.5 minutes.
-   */
-  public static final int FRESHNESS_THRESHOLD = 120;
-
   private final ProtocolContext protocolContext;
   private final GenesisConfigOptions genesisConfig;
   private final SingleBlockHeaderDownloader headerDownloader;
   private final ProtocolSchedule protocolSchedule;
   private final Clock clock;
+  private final int pivotBlockWindowValidity;
   private final Runnable cleanupAction;
 
   private volatile Hash latestHeadHash = Hash.ZERO;
@@ -93,25 +82,27 @@ public class PivotSelectorFromSafeBlock
       final SingleBlockHeaderDownloader headerDownloader,
       final ProtocolSchedule protocolSchedule,
       final Clock clock,
+      final int pivotBlockWindowValidity,
       final Runnable cleanupAction) {
     this.protocolContext = protocolContext;
     this.genesisConfig = genesisConfig;
     this.headerDownloader = headerDownloader;
     this.protocolSchedule = protocolSchedule;
     this.clock = clock;
+    this.pivotBlockWindowValidity = pivotBlockWindowValidity;
     this.cleanupAction = cleanupAction;
     this.lastNoFcuInfoLog = clock.millis();
   }
 
   @Override
   public void onNewPayload(final BlockHeader header) {
-    LOG.info("Received new payload header {}, hash {}", header.getNumber(), header.getHash());
+    LOG.debug("Received new payload header {}, hash {}", header.getNumber(), header.getHash());
     headHeaders.put(header.getHash(), header);
   }
 
   @Override
   public void onNewUnverifiedForkchoice(final ForkchoiceEvent event) {
-    LOG.info("Received new FCU {}", event);
+    LOG.debug("Received new FCU {}", event);
     lastFcuTimeMillis = clock.millis();
     latestHeadHash = event.getHeadBlockHash();
     latestSafeHash = event.hasValidSafeBlockHash() ? event.getSafeBlockHash() : Hash.ZERO;
@@ -170,11 +161,11 @@ public class PivotSelectorFromSafeBlock
     return getOrDownload(headHash)
         .thenCompose(
             head -> {
-              LOG.info("Head block {} is at {}", head.getNumber(), head.getHash());
+              LOG.debug("Head block {} is at {}", head.getNumber(), head.getHash());
               final Duration slotDuration =
                   protocolSchedule.getByBlockHeader(head).getSlotDuration();
               final long estimatedMissedBlocks = millisSinceLastFcu / slotDuration.toMillis();
-              final long effectiveThreshold = FRESHNESS_THRESHOLD - estimatedMissedBlocks;
+              final long effectiveThreshold = pivotBlockWindowValidity - estimatedMissedBlocks;
 
               if (effectiveThreshold <= 0) {
                 throw new RuntimeException(
@@ -187,7 +178,7 @@ public class PivotSelectorFromSafeBlock
               if (currentPivot != null) {
                 final long distanceFromHead = head.getNumber() - currentPivot.getNumber();
                 if (distanceFromHead < effectiveThreshold) {
-                  LOG.info(
+                  LOG.debug(
                       "Reusing existing pivot block {} — head has only advanced {} blocks (threshold {})",
                       currentPivot.getNumber(),
                       distanceFromHead,
@@ -199,15 +190,15 @@ public class PivotSelectorFromSafeBlock
               final BlockHeader cachedSafe = headHeaders.get(latestSafeHash);
               if (cachedSafe != null
                   && head.getNumber() - cachedSafe.getNumber() < effectiveThreshold) {
-                LOG.info("Using cached safe block {} as pivot", cachedSafe.getNumber());
+                LOG.debug("Using safe block {} as pivot", cachedSafe.getNumber());
                 return CompletableFuture.completedFuture(new PivotSyncState(cachedSafe, true));
               }
 
               final int blocksToWalk = (int) Math.min(PIVOT_DISTANCE, head.getNumber());
-              LOG.info(
+              LOG.debug(
                   "Walking back {} blocks from head {} for pivot", blocksToWalk, head.getNumber());
               return walkBackParents(head, blocksToWalk)
-                  .thenApply(anchored -> new PivotSyncState(anchored, true));
+                  .thenApply(newPivot -> new PivotSyncState(newPivot, true));
             })
         .thenApply(
             state -> {
@@ -223,7 +214,7 @@ public class PivotSelectorFromSafeBlock
       LOG.info(
           "Waiting for consensus client, this may be because your consensus client is still syncing");
     }
-    LOG.info("No forkchoice update received yet");
+    LOG.debug("No forkchoice update received yet");
     return CompletableFuture.failedFuture(
         new RuntimeException("No forkchoice update received yet"));
   }

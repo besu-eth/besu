@@ -44,6 +44,7 @@ import org.hyperledger.besu.ethereum.eth.peervalidation.PeerValidator;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -117,7 +118,12 @@ public class PivotSyncActionsTest {
     syncState = new SyncState(blockchain, ethPeers);
     pivotSyncActions =
         createPivotSyncActions(
-            syncConfig, new PivotSelectorFromPeers(ethContext, syncConfig, syncState));
+            syncConfig,
+            new PivotSelectorFromPeers(
+                ethContext,
+                syncConfig,
+                syncState,
+                SnapSyncConfiguration.DEFAULT_PIVOT_BLOCK_WINDOW_VALIDITY));
   }
 
   @ParameterizedTest
@@ -168,7 +174,12 @@ public class PivotSyncActionsTest {
 
     pivotSyncActions =
         createPivotSyncActions(
-            syncConfig, new PivotSelectorFromPeers(ethContext, syncConfig, syncState));
+            syncConfig,
+            new PivotSelectorFromPeers(
+                ethContext,
+                syncConfig,
+                syncState,
+                SnapSyncConfiguration.DEFAULT_PIVOT_BLOCK_WINDOW_VALIDITY));
 
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 5000);
 
@@ -185,7 +196,12 @@ public class PivotSyncActionsTest {
     setUp(storageFormat, Optional.of(1));
     pivotSyncActions =
         createPivotSyncActions(
-            syncConfig, new PivotSelectorFromPeers(ethContext, syncConfig, syncState));
+            syncConfig,
+            new PivotSelectorFromPeers(
+                ethContext,
+                syncConfig,
+                syncState,
+                SnapSyncConfiguration.DEFAULT_PIVOT_BLOCK_WINDOW_VALIDITY));
 
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager, Difficulty.of(1000), 5500);
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager, Difficulty.of(2000), 4000);
@@ -203,7 +219,12 @@ public class PivotSyncActionsTest {
     setUp(storageFormat, Optional.of(2));
     pivotSyncActions =
         createPivotSyncActions(
-            syncConfig, new PivotSelectorFromPeers(ethContext, syncConfig, syncState));
+            syncConfig,
+            new PivotSelectorFromPeers(
+                ethContext,
+                syncConfig,
+                syncState,
+                SnapSyncConfiguration.DEFAULT_PIVOT_BLOCK_WINDOW_VALIDITY));
 
     EthProtocolManagerTestUtil.disableEthSchedulerAutoRun(ethProtocolManager);
 
@@ -277,7 +298,12 @@ public class PivotSyncActionsTest {
     final int peerCount = 4;
     pivotSyncActions =
         createPivotSyncActions(
-            syncConfig, new PivotSelectorFromPeers(ethContext, syncConfig, syncState));
+            syncConfig,
+            new PivotSelectorFromPeers(
+                ethContext,
+                syncConfig,
+                syncState,
+                SnapSyncConfiguration.DEFAULT_PIVOT_BLOCK_WINDOW_VALIDITY));
     final long minPivotHeight = syncConfig.getSyncPivotDistance() + 1L;
     EthProtocolManagerTestUtil.disableEthSchedulerAutoRun(ethProtocolManager);
 
@@ -325,7 +351,12 @@ public class PivotSyncActionsTest {
     setUp(storageFormat, Optional.of(1));
     pivotSyncActions =
         createPivotSyncActions(
-            syncConfig, new PivotSelectorFromPeers(ethContext, syncConfig, syncState));
+            syncConfig,
+            new PivotSelectorFromPeers(
+                ethContext,
+                syncConfig,
+                syncState,
+                SnapSyncConfiguration.DEFAULT_PIVOT_BLOCK_WINDOW_VALIDITY));
     final long pivotDistance = syncConfig.getSyncPivotDistance();
 
     EthProtocolManagerTestUtil.disableEthSchedulerAutoRun(ethProtocolManager);
@@ -386,7 +417,12 @@ public class PivotSyncActionsTest {
     setUp(storageFormat, Optional.of(1));
     pivotSyncActions =
         createPivotSyncActions(
-            syncConfig, new PivotSelectorFromPeers(ethContext, syncConfig, syncState));
+            syncConfig,
+            new PivotSelectorFromPeers(
+                ethContext,
+                syncConfig,
+                syncState,
+                SnapSyncConfiguration.DEFAULT_PIVOT_BLOCK_WINDOW_VALIDITY));
 
     final BlockHeader expectedHeader = blockchain.getBlockHeader(1).get();
     final PeerTaskExecutor peerTaskExecutor = ethContext.getPeerTaskExecutor();
@@ -431,6 +467,7 @@ public class PivotSyncActionsTest {
                 headerDownloader,
                 blockchainSetupUtil.getProtocolSchedule(),
                 Clock.systemUTC(),
+                SnapSyncConfiguration.DEFAULT_PIVOT_BLOCK_WINDOW_VALIDITY,
                 () -> {}));
 
     final BlockHeader expectedHeader = blockchain.getBlockHeader(3).get();

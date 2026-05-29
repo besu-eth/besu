@@ -1106,7 +1106,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
           syncState,
           protocolContext,
           nodeKey,
-          blockchain.getChainHeadHeader());
+          blockchain.getChainHeadHeader(),
+          syncConfig.getSnapSyncConfiguration().getPivotBlockWindowValidity());
     } else if (genesisConfigOptions.getTerminalTotalDifficulty().isPresent()) {
       LOG.info("TTD difficulty is present, creating initial sync for PoS");
 
@@ -1124,6 +1125,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
               headerDownloader,
               protocolSchedule,
               Clock.systemUTC(),
+              syncConfig.getSnapSyncConfiguration().getPivotBlockWindowValidity(),
               () -> {
                 cleanups.forEach(Runnable::run);
                 LOG.info("Initial sync done, unsubscribing forkchoice + newPayload listeners");
@@ -1139,7 +1141,11 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
       return selector;
     } else {
       LOG.info("TTD difficulty is not present, creating initial sync phase for PoW");
-      return new PivotSelectorFromPeers(ethContext, syncConfig, syncState);
+      return new PivotSelectorFromPeers(
+          ethContext,
+          syncConfig,
+          syncState,
+          syncConfig.getSnapSyncConfiguration().getPivotBlockWindowValidity());
     }
   }
 
