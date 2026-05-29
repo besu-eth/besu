@@ -22,6 +22,8 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBa
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_ROOT_HASH_KEY;
 
+import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
@@ -60,6 +62,9 @@ import java.io.Closeable;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
@@ -113,6 +118,9 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
 
   private BonsaiWorldState migrationWorldState;
   private MigrationTrieStorage migrationTrieStorage;
+  private BonsaiCachedMerkleTrieLoader migrationTrieLoader;
+  private BonsaiWorldStateKeyValueStorage migrationKvStorage;
+  private Map<Address, StorageSlotKey> windowStorageAccounts;
 
   /**
    * Creates a new BonsaiFlatDbToArchiveMigrator.
@@ -448,8 +456,8 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
     final StaticArchiveFlatDbStrategyProvider provider =
         new StaticArchiveFlatDbStrategyProvider(metricsSystem, readStrategy);
     provider.loadFlatDbStrategy(migrationTrieStorage);
-    final BonsaiCachedMerkleTrieLoader migrationTrieLoader = new NoopBonsaiCachedMerkleTrieLoader();
-    final BonsaiWorldStateKeyValueStorage migrationKvStorage =
+    migrationTrieLoader = new NoopBonsaiCachedMerkleTrieLoader();
+    migrationKvStorage =
         new BonsaiWorldStateKeyValueStorage(
             provider,
             migrationTrieStorage,
@@ -457,6 +465,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
             CacheManager.NO_OP_CACHE,
             0L,
             new BonsaiArchiveTrieNodeStrategy(interval, migrationTrieLoader));
+    windowStorageAccounts = new HashMap<>();
     final CodeCache codeCache = new CodeCache();
     migrationWorldState =
         new BonsaiWorldState(
@@ -507,6 +516,15 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   }
 
   private void migrateTrieBlock(final TrieLog trieLog, final long blockNumber) {
+    trieLog
+        .getStorageChanges()
+        .forEach(
+            (address, storageChanges) -> {
+              if (!storageChanges.isEmpty()) {
+                windowStorageAccounts.putIfAbsent(
+                    address, storageChanges.keySet().iterator().next());
+              }
+            });
     ((PathBasedWorldStateUpdateAccumulator<?>) migrationWorldState.updater()).rollForward(trieLog);
     if (isTrieCheckpointBlock(blockNumber)) {
       final long interval = archiveStrategy.getTrieNodeCheckpointInterval();
@@ -517,9 +535,11 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
           .getBlockHeader(blockNumber)
           .ifPresent(
               header -> {
+                prewarmStorageTrieCache();
                 migrationWorldState.persist(header);
                 migrationTrieStorage.clearInMemory();
                 migrationTrieStorage.seedCheckpoint(header);
+                windowStorageAccounts.clear();
                 LOG.info(
                     "Archive trie checkpoint complete: block {} suffix {} stateRoot {}",
                     blockNumber,
@@ -527,6 +547,23 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
                     header.getStateRoot());
               });
     }
+  }
+
+  private void prewarmStorageTrieCache() {
+    if (windowStorageAccounts.isEmpty()) {
+      return;
+    }
+    final List<CompletableFuture<Void>> futures =
+        windowStorageAccounts.entrySet().stream()
+            .map(
+                e ->
+                    CompletableFuture.runAsync(
+                        () ->
+                            migrationTrieLoader.cacheStorageNodes(
+                                migrationKvStorage, e.getKey(), e.getValue()),
+                        PREFETCH_POOL))
+            .toList();
+    CompletableFuture.allOf(futures.toArray(new CompletableFuture<?>[0])).join();
   }
 
   private boolean isTrieCheckpointBlock(final long blockNumber) {
