@@ -269,6 +269,7 @@ public class ReplayTest {
     final SparseTransactions sparseTransactions =
         new SparseTransactions(
             poolConfig,
+            () -> currBlockHeader,
             ethScheduler,
             evictCollector,
             txPoolMetrics,
@@ -278,6 +279,7 @@ public class ReplayTest {
     final ReadyTransactions readyTransactions =
         new ReadyTransactions(
             poolConfig,
+            () -> currBlockHeader,
             ethScheduler,
             sparseTransactions,
             txPoolMetrics,

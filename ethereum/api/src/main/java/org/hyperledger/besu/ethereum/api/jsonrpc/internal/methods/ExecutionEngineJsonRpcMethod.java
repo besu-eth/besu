@@ -39,7 +39,8 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     INVALID,
     SYNCING,
     ACCEPTED,
-    INVALID_BLOCK_HASH;
+    INVALID_BLOCK_HASH,
+    INCLUSION_LIST_UNSATISFIED;
   }
 
   public static final long ENGINE_API_LOGGING_THRESHOLD = 60000L;

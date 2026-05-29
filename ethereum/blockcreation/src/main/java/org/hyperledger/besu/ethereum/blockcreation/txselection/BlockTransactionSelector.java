@@ -66,9 +66,16 @@ import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableSet;
 import java.util.Optional;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -135,6 +142,7 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
   private volatile TransactionSelectionResult validTxSelectionTimeoutResult;
   private volatile TransactionSelectionResult invalidTxSelectionTimeoutResult;
   private volatile FutureTask<Void> currTxSelectionTask;
+  private final Set<Transaction> inclusionListTransactions;
 
   public BlockTransactionSelector(
       final MiningConfiguration miningConfiguration,
@@ -150,7 +158,8 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
       final PluginTransactionSelector pluginTransactionSelector,
       final EthScheduler ethScheduler,
       final SelectorsStateManager selectorsStateManager,
-      final Optional<BlockAccessList.BlockAccessListBuilder> maybeBlockAccessListBuilder) {
+      final Optional<BlockAccessList.BlockAccessListBuilder> maybeBlockAccessListBuilder,
+      final List<Transaction> inclusionListTransactions) {
     this.transactionProcessor = transactionProcessor;
     this.blockchain = blockchain;
     this.worldState = worldState;
@@ -180,6 +189,7 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
     this.pluginTxsSelectionMaxTimeNanos =
         miningConfiguration.getPluginTxsSelectionMaxTime(blockTxsSelectionMaxTime).toNanos();
     this.maybeBlockAccessListBuilder = maybeBlockAccessListBuilder;
+    this.inclusionListTransactions = new HashSet<>(inclusionListTransactions);
   }
 
   private List<AbstractTransactionSelector> createTransactionSelectors(
@@ -209,11 +219,51 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
    */
   public TransactionSelectionResults buildTransactionListForBlock() {
     blockSelectionContext.transactionPool().selectTransactions(this::timeLimitedSelection);
+
+    LOG.debug(
+        "Inclusion list transactions selection will evaluate {} transactions",
+        inclusionListTransactions.size());
+    // for any inclusion list txs not yet selected, evaluate and include it now
+    // this is not time-limited, since failing to include any of these txs will result
+    // in an invalid block
+    for (final Transaction ilTx : sortTransactionList(inclusionListTransactions)) {
+      final TransactionSelectionResult ilResult =
+          evaluateTransaction(new PendingTransaction.Local.Priority(ilTx));
+      LOG.atDebug()
+          .setMessage("Inclusion list tx {} selection result: {}")
+          .addArgument(ilTx::toTraceLog)
+          .addArgument(ilResult)
+          .log();
+    }
+
     LOG.atTrace()
         .setMessage("Transaction selection result {}")
         .addArgument(transactionSelectionResults::toTraceLog)
         .log();
     return transactionSelectionResults;
+  }
+
+  private List<Transaction> sortTransactionList(
+      final Collection<Transaction> inclusionListTransactions) {
+    // for the moment we just make sure txs are sorted by nonce for each sender (note that there
+    // could be multiple txs for the same nonce)
+    // more sophisticated sorting based on effective priority fee can be implemented later
+    final Map<Address, NavigableSet<Transaction>> txsBySender = new HashMap<>();
+
+    for (final Transaction tx : inclusionListTransactions) {
+      txsBySender
+          .computeIfAbsent(
+              // compare first by nonce then by hash, in case there is more than one tx with the
+              // same nonce
+              tx.getSender(),
+              k ->
+                  new TreeSet<>(
+                      Comparator.comparingLong(Transaction::getNonce)
+                          .thenComparing(Transaction::getHash)))
+          .add(tx);
+    }
+
+    return txsBySender.values().stream().flatMap(NavigableSet::stream).toList();
   }
 
   public void cancel() {
@@ -516,6 +566,8 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
    */
   public TransactionSelectionResults evaluateTransactions(final List<Transaction> transactions) {
     selectorsStateManager.blockSelectionStarted();
+
+    LOG.debug("Considering only passed {} transactions for block creation", transactions.size());
 
     transactions.forEach(
         transaction -> evaluateTransaction(new PendingTransaction.Local.Priority(transaction)));
@@ -942,6 +994,8 @@ public class BlockTransactionSelector implements BlockTransactionSelectionServic
           blockGasUsed,
           receiptGasUsed,
           processingResult.getStateGasUsedForBlock());
+
+      inclusionListTransactions.remove(transaction);
 
       notifySelected(evaluationContext, processingResult);
       LOG.atTrace()

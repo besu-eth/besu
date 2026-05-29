@@ -15,237 +15,226 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult;
+import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
+import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EngineForkchoiceUpdatedParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadAttributesParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineUpdateForkchoiceResult;
-import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.WithdrawalsValidator;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.stream.Stream;
 
-import io.vertx.core.Vertx;
 import org.apache.tuweni.bytes.Bytes32;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
-public class EngineForkchoiceUpdatedV4Test {
+public class EngineForkchoiceUpdatedV4Test extends AbstractEngineForkchoiceUpdatedTest {
 
-  private static final Vertx vertx = Vertx.vertx();
-  private static final long CANCUN_MILESTONE = 1_000_000L;
-  private static final long AMSTERDAM_MILESTONE = 2_000_000L;
+  private static final Bytes32 MOCK_PBSR = Bytes32.fromHexStringLenient("0xBEEF");
+  private static final String MOCK_SLOT = "0x1";
 
-  private final BlockHeaderTestFixture blockHeaderBuilder =
-      new BlockHeaderTestFixture().baseFeePerGas(Wei.ONE);
-
-  @Mock private ProtocolSpec protocolSpec;
-  @Mock private ProtocolSchedule protocolSchedule;
-  @Mock private ProtocolContext protocolContext;
-  @Mock private MergeContext mergeContext;
-  @Mock private MergeMiningCoordinator mergeCoordinator;
-  @Mock private MutableBlockchain blockchain;
-  @Mock private EngineCallListener engineCallListener;
-
-  private EngineForkchoiceUpdatedV4 method;
-
-  @BeforeEach
-  public void before() {
-    when(protocolContext.safeConsensusContext(Mockito.any())).thenReturn(Optional.of(mergeContext));
-    when(protocolContext.getBlockchain()).thenReturn(blockchain);
-    when(protocolSpec.getWithdrawalsValidator())
-        .thenReturn(new WithdrawalsValidator.AllowedWithdrawals());
-    when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(protocolSpec);
-    when(protocolSchedule.milestoneFor(CANCUN)).thenReturn(Optional.of(CANCUN_MILESTONE));
-    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(AMSTERDAM_MILESTONE));
-    method =
-        new EngineForkchoiceUpdatedV4(
-            vertx, protocolSchedule, protocolContext, mergeCoordinator, engineCallListener);
+  public EngineForkchoiceUpdatedV4Test() {
+    super(
+        (vertx,
+            protocolSchedule1,
+            protocolContext,
+            mergeCoordinator1,
+            transactionPool1,
+            engineCallListener) ->
+            new EngineForkchoiceUpdatedV4(
+                vertx,
+                protocolSchedule1,
+                protocolContext,
+                mergeCoordinator1,
+                transactionPool1,
+                engineCallListener));
   }
 
+  @Override
+  protected EnginePayloadAttributesParameter createPayloadParams(
+      final long timestamp, final List<WithdrawalParameter> withdrawals) {
+    return new EnginePayloadAttributesParameter(
+        String.valueOf(timestamp),
+        Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
+        Address.ECREC.toHexString(),
+        withdrawals,
+        MOCK_PBSR.toHexString(),
+        MOCK_SLOT,
+        "0x1c9c380",
+        null);
+  }
+
+  @Override
+  protected Optional<Bytes32> getParentBeaconBlockRoot(
+      final EnginePayloadAttributesParameter params) {
+    return Optional.ofNullable(params.getParentBeaconBlockRoot());
+  }
+
+  @Override
+  protected Optional<Long> getSlotNumber(final EnginePayloadAttributesParameter params) {
+    return Optional.ofNullable(params.getSlotNumber());
+  }
+
+  @Override
+  protected long defaultPayloadTimestamp() {
+    return AMSTERDAM_MILESTONE + 1;
+  }
+
+  @Override
   @Test
   public void shouldReturnExpectedMethodName() {
     assertThat(method.getName()).isEqualTo("engine_forkchoiceUpdatedV4");
   }
 
+  @Override
   @Test
-  public void shouldSkipUpdateWhenHeadIsAncestorOfFinalized() {
-    final BlockHeader finalized =
-        blockHeaderBuilder.number(100L).timestamp(AMSTERDAM_MILESTONE + 1).buildHeader();
-    final BlockHeader head =
-        blockHeaderBuilder.number(50L).timestamp(AMSTERDAM_MILESTONE + 1).buildHeader();
-    setupValidForkchoiceState(head, finalized);
-    when(mergeCoordinator.computeReorgDepth(head)).thenReturn(OptionalLong.of(0L));
-    when(mergeCoordinator.isAncestorOfFinalized(head.getHash())).thenReturn(true);
+  public void shouldIgnoreUpdateToOldHeadAndNotPreparePayload() {
+    // V4 (per execution-apis #786) skips the forkchoice update only when the new head is an
+    // ancestor of the latest known finalized block, not the legacy "old head" optimization. Verify
+    // that V4 returns VALID without preparing a payload for that scenario.
+    BlockHeader mockHeader =
+        blockHeaderBuilder.timestamp(defaultPayloadTimestamp() - 1).buildHeader();
 
-    final EngineForkchoiceUpdatedParameter param =
-        new EngineForkchoiceUpdatedParameter(
-            head.getHash(), finalized.getHash(), finalized.getHash());
+    when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))
+        .thenReturn(Optional.of(mockHeader));
+    when(mergeCoordinator.isAncestorOfFinalized(mockHeader.getHash())).thenReturn(true);
 
-    final JsonRpcResponse resp = resp(param, Optional.empty());
+    var payloadParams = createPayloadParams(defaultPayloadTimestamp(), null);
 
-    assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
+    var resp =
+        (JsonRpcSuccessResponse)
+            resp(
+                new EngineForkchoiceUpdatedParameter(
+                    mockHeader.getBlockHash(), Hash.ZERO, Hash.ZERO),
+                Optional.of(payloadParams));
 
-    final EngineUpdateForkchoiceResult result =
-        (EngineUpdateForkchoiceResult) ((JsonRpcSuccessResponse) resp).getResult();
-    assertThat(result.getPayloadStatus().getStatus()).isEqualTo(VALID);
-    assertThat(result.getPayloadStatus().getLatestValidHashAsString())
-        .isEqualTo(head.getHash().toHexString());
-    assertThat(result.getPayloadId()).isNull();
+    var forkchoiceRes = (EngineUpdateForkchoiceResult) resp.getResult();
 
-    verify(mergeCoordinator, never()).updateForkChoiceWithoutLegacySkip(any(), any(), any());
-    verify(mergeCoordinator, never()).updateForkChoice(any(), any(), any());
+    verify(mergeCoordinator, never())
+        .preparePayload(any(MergeMiningCoordinator.PreparePayloadArgs.class));
+
+    assertThat(forkchoiceRes.getPayloadStatus().getStatus()).isEqualTo(VALID);
+    assertThat(forkchoiceRes.getPayloadStatus().getError()).isNull();
+    assertThat(forkchoiceRes.getPayloadId()).isNull();
   }
 
   @Test
-  public void shouldNotSkipUpdateWhenHeadIsNotAncestorOfFinalized() {
-    final BlockHeader finalized =
-        blockHeaderBuilder.number(100L).timestamp(AMSTERDAM_MILESTONE + 1).buildHeader();
-    final BlockHeader head =
-        blockHeaderBuilder.number(150L).timestamp(AMSTERDAM_MILESTONE + 1).buildHeader();
+  public void shouldReturnInvalidSlotNumberWhenMissingSlotNumber() {
+    when(protocolSpec.getWithdrawalsValidator())
+        .thenReturn(new WithdrawalsValidator.AllowedWithdrawals());
+    BlockHeader mockParent =
+        blockHeaderBuilder.timestamp(defaultPayloadTimestamp() - 2).number(9L).buildHeader();
+    BlockHeader mockHeader =
+        blockHeaderBuilder
+            .timestamp(defaultPayloadTimestamp() - 1)
+            .number(10L)
+            .parentHash(mockParent.getHash())
+            .buildHeader();
+    setupValidForkchoiceUpdate(mockHeader);
 
-    setupValidForkchoiceState(head, finalized);
-    when(mergeCoordinator.computeReorgDepth(head)).thenReturn(OptionalLong.of(0L));
-    when(mergeCoordinator.isAncestorOfFinalized(head.getHash())).thenReturn(false);
-    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(
-            head, finalized.getHash(), finalized.getHash()))
-        .thenReturn(ForkchoiceResult.withResult(Optional.of(finalized), Optional.of(head)));
+    var payloadParams =
+        new EnginePayloadAttributesParameter(
+            String.valueOf(defaultPayloadTimestamp()),
+            Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
+            Address.ECREC.toString(),
+            List.of(),
+            MOCK_PBSR.toHexString(),
+            null,
+            "0x1c9c380",
+            List.of());
 
-    final EngineForkchoiceUpdatedParameter param =
-        new EngineForkchoiceUpdatedParameter(
-            head.getHash(), finalized.getHash(), finalized.getHash());
-
-    final JsonRpcResponse resp = resp(param, Optional.empty());
-
-    assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
-    verify(mergeCoordinator, times(1))
-        .updateForkChoiceWithoutLegacySkip(head, finalized.getHash(), finalized.getHash());
-    verify(mergeCoordinator, never()).updateForkChoice(any(), any(), any());
-  }
-
-  @Test
-  public void shouldNotSkipUpdateWhenFinalizedHashIsZero() {
-    final BlockHeader head =
-        blockHeaderBuilder.number(50L).timestamp(AMSTERDAM_MILESTONE + 1).buildHeader();
-
-    when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), Hash.ZERO))
-        .thenReturn(Optional.of(head));
-    when(mergeCoordinator.computeReorgDepth(head)).thenReturn(OptionalLong.of(0L));
-    when(mergeCoordinator.isAncestorOfFinalized(head.getHash())).thenReturn(false);
-    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(head, Hash.ZERO, Hash.ZERO))
-        .thenReturn(ForkchoiceResult.withResult(Optional.empty(), Optional.of(head)));
-
-    final EngineForkchoiceUpdatedParameter param =
-        new EngineForkchoiceUpdatedParameter(head.getHash(), Hash.ZERO, Hash.ZERO);
-
-    final JsonRpcResponse resp = resp(param, Optional.empty());
-
-    assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
-    verify(mergeCoordinator, times(1))
-        .updateForkChoiceWithoutLegacySkip(head, Hash.ZERO, Hash.ZERO);
-  }
-
-  @Test
-  public void shouldRejectWithTooDeepReorgWhenDepthExceedsLimit() {
-    final BlockHeader head =
-        blockHeaderBuilder.number(20_000L).timestamp(AMSTERDAM_MILESTONE + 1).buildHeader();
-    when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), Hash.ZERO))
-        .thenReturn(Optional.of(head));
-    when(mergeCoordinator.computeReorgDepth(head))
-        .thenReturn(OptionalLong.of(MergeMiningCoordinator.MAX_REORG_DEPTH + 1));
-
-    final EngineForkchoiceUpdatedParameter param =
-        new EngineForkchoiceUpdatedParameter(head.getHash(), Hash.ZERO, Hash.ZERO);
-
-    final JsonRpcResponse resp = resp(param, Optional.empty());
+    var resp =
+        resp(
+            new EngineForkchoiceUpdatedParameter(
+                mockHeader.getHash(), Hash.ZERO, mockParent.getHash()),
+            Optional.of(payloadParams));
 
     assertThat(resp.getType()).isEqualTo(RpcResponseType.ERROR);
-    final JsonRpcErrorResponse errorResp = (JsonRpcErrorResponse) resp;
-    assertThat(errorResp.getErrorType()).isEqualTo(RpcErrorType.TOO_DEEP_REORG);
-    assertThat(errorResp.getError().getCode()).isEqualTo(-38006);
-    assertThat(errorResp.getError().getMessage()).isEqualTo("Too deep reorg");
-
-    verify(mergeCoordinator, never()).updateForkChoiceWithoutLegacySkip(any(), any(), any());
-    verify(mergeCoordinator, never()).updateForkChoice(any(), any(), any());
-    verify(mergeCoordinator, never()).isAncestorOfFinalized(any());
+    assertThat(((JsonRpcErrorResponse) resp).getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_SLOT_NUMBER_PARAMS);
   }
 
   @Test
-  public void shouldAcceptWhenReorgDepthEqualsLimit() {
-    final BlockHeader head =
-        blockHeaderBuilder.number(20_000L).timestamp(AMSTERDAM_MILESTONE + 1).buildHeader();
-    when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), Hash.ZERO))
-        .thenReturn(Optional.of(head));
-    when(mergeCoordinator.computeReorgDepth(head))
-        .thenReturn(OptionalLong.of(MergeMiningCoordinator.MAX_REORG_DEPTH));
-    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(head, Hash.ZERO, Hash.ZERO))
-        .thenReturn(ForkchoiceResult.withResult(Optional.empty(), Optional.of(head)));
+  public void shouldReturnValidPayloadAttributesWhenSlotNumberPresent() {
+    when(protocolSpec.getWithdrawalsValidator())
+        .thenReturn(new WithdrawalsValidator.AllowedWithdrawals());
+    BlockHeader mockParent =
+        blockHeaderBuilder.timestamp(defaultPayloadTimestamp() - 2).number(9L).buildHeader();
+    BlockHeader mockHeader =
+        blockHeaderBuilder
+            .timestamp(defaultPayloadTimestamp() - 1)
+            .number(10L)
+            .parentHash(mockParent.getHash())
+            .buildHeader();
+    setupValidForkchoiceUpdate(mockHeader);
 
-    final EngineForkchoiceUpdatedParameter param =
-        new EngineForkchoiceUpdatedParameter(head.getHash(), Hash.ZERO, Hash.ZERO);
+    var payloadParams =
+        new EnginePayloadAttributesParameter(
+            String.valueOf(defaultPayloadTimestamp()),
+            Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
+            Address.ECREC.toString(),
+            List.of(),
+            MOCK_PBSR.toHexString(),
+            MOCK_SLOT,
+            "0x1c9c380",
+            null);
 
-    final JsonRpcResponse resp = resp(param, Optional.empty());
+    var mockPayloadId =
+        PayloadIdentifier.forPayloadParams(
+            mockHeader.getHash(),
+            payloadParams.getTimestamp(),
+            payloadParams.getPrevRandao(),
+            payloadParams.getSuggestedFeeRecipient(),
+            Optional.of(List.of()),
+            getParentBeaconBlockRoot(payloadParams),
+            getSlotNumber(payloadParams),
+            Optional.ofNullable(payloadParams.getTargetGasLimit()),
+            List.of());
 
-    assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
-    verify(mergeCoordinator, times(1))
-        .updateForkChoiceWithoutLegacySkip(head, Hash.ZERO, Hash.ZERO);
-  }
+    when(mergeCoordinator.preparePayload(
+            new PreparePayloadArgsBuilder()
+                .parentHeader(mockHeader)
+                .timestamp(payloadParams.getTimestamp())
+                .prevRandao(payloadParams.getPrevRandao())
+                .feeRecipient(Address.ECREC)
+                .withdrawals(List.of())
+                .parentBeaconBlockRoot(getParentBeaconBlockRoot(payloadParams))
+                .slotNumber(getSlotNumber(payloadParams))
+                .targetGasLimit(Optional.ofNullable(payloadParams.getTargetGasLimit()))
+                .inclusionListTransactions(List.of())
+                .build()))
+        .thenReturn(mockPayloadId);
 
-  @Test
-  public void shouldAcceptWhenReorgDepthIsEmpty() {
-    final BlockHeader head =
-        blockHeaderBuilder.number(50L).timestamp(AMSTERDAM_MILESTONE + 1).buildHeader();
-    when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), Hash.ZERO))
-        .thenReturn(Optional.of(head));
-    when(mergeCoordinator.computeReorgDepth(head)).thenReturn(OptionalLong.empty());
-    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(head, Hash.ZERO, Hash.ZERO))
-        .thenReturn(ForkchoiceResult.withResult(Optional.empty(), Optional.of(head)));
-
-    final EngineForkchoiceUpdatedParameter param =
-        new EngineForkchoiceUpdatedParameter(head.getHash(), Hash.ZERO, Hash.ZERO);
-
-    final JsonRpcResponse resp = resp(param, Optional.empty());
-
-    assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
-    verify(mergeCoordinator, times(1))
-        .updateForkChoiceWithoutLegacySkip(head, Hash.ZERO, Hash.ZERO);
+    assertSuccessWithPayloadForForkchoiceResult(
+        new EngineForkchoiceUpdatedParameter(mockHeader.getHash(), Hash.ZERO, mockParent.getHash()),
+        Optional.of(payloadParams),
+        ForkchoiceResult.withResult(Optional.empty(), Optional.of(mockHeader)),
+        VALID);
   }
 
   @Test
@@ -267,6 +256,7 @@ public class EngineForkchoiceUpdatedV4Test {
             null,
             Bytes32.ZERO.toHexString(),
             "0x1",
+            null,
             null);
 
     final JsonRpcResponse resp = resp(param, Optional.of(attrs));
@@ -276,21 +266,13 @@ public class EngineForkchoiceUpdatedV4Test {
     assertThat(err.getErrorType()).isEqualTo(RpcErrorType.INVALID_TARGET_GAS_LIMIT_PARAMS);
   }
 
-  private void setupValidForkchoiceState(final BlockHeader head, final BlockHeader finalized) {
-    when(blockchain.getBlockHeader(finalized.getHash())).thenReturn(Optional.of(finalized));
-    when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), finalized.getHash()))
-        .thenReturn(Optional.of(head));
-    when(mergeCoordinator.isDescendantOf(any(), any())).thenReturn(true);
+  @Override
+  protected String getMethodName() {
+    return RpcMethod.ENGINE_FORKCHOICE_UPDATED_V4.getMethodName();
   }
 
-  private JsonRpcResponse resp(
-      final EngineForkchoiceUpdatedParameter forkchoiceParam,
-      final Optional<EnginePayloadAttributesParameter> payloadParam) {
-    return method.response(
-        new JsonRpcRequestContext(
-            new JsonRpcRequest(
-                "2.0",
-                RpcMethod.ENGINE_FORKCHOICE_UPDATED_V4.getMethodName(),
-                Stream.concat(Stream.of(forkchoiceParam), payloadParam.stream()).toArray())));
+  @Override
+  protected RpcErrorType expectedInvalidPayloadError() {
+    return RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES;
   }
 }

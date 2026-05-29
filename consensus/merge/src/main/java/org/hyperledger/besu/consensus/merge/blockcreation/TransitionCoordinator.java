@@ -146,24 +146,8 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
   }
 
   @Override
-  public PayloadIdentifier preparePayload(
-      final BlockHeader parentHeader,
-      final Long timestamp,
-      final Bytes32 prevRandao,
-      final Address feeRecipient,
-      final Optional<List<Withdrawal>> withdrawals,
-      final Optional<Bytes32> parentBeaconBlockRoot,
-      final Optional<Long> slotNumber,
-      final Optional<Long> targetGasLimit) {
-    return mergeCoordinator.preparePayload(
-        parentHeader,
-        timestamp,
-        prevRandao,
-        feeRecipient,
-        withdrawals,
-        parentBeaconBlockRoot,
-        slotNumber,
-        targetGasLimit);
+  public PayloadIdentifier preparePayload(final PreparePayloadArgs preparePayloadArgs) {
+    return mergeCoordinator.preparePayload(preparePayloadArgs);
   }
 
   @Override

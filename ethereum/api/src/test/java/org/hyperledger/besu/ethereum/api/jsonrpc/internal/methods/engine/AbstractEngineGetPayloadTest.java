@@ -94,7 +94,8 @@ public abstract class AbstractEngineGetPayloadTest extends AbstractScheduledApiT
           Optional.empty(),
           Optional.empty(),
           Optional.empty(),
-          Optional.empty());
+          Optional.empty(),
+          Collections.emptyList());
   protected static final BlockHeader mockHeader =
       new BlockHeaderTestFixture().prevRandao(Bytes32.random()).buildHeader();
   private static final Block mockBlock =
@@ -179,7 +180,8 @@ public abstract class AbstractEngineGetPayloadTest extends AbstractScheduledApiT
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty()));
+                Optional.empty(),
+                Collections.emptyList()));
     assertThat(resp).isInstanceOf(JsonRpcErrorResponse.class);
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
@@ -208,7 +210,8 @@ public abstract class AbstractEngineGetPayloadTest extends AbstractScheduledApiT
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Optional.empty(),
+            Collections.emptyList());
     final BlockHeader mockHeader = new BlockHeaderTestFixture().timestamp(timestamp).buildHeader();
     final Block mockBlock =
         new Block(mockHeader, new BlockBody(Collections.emptyList(), Collections.emptyList()));
@@ -243,7 +246,8 @@ public abstract class AbstractEngineGetPayloadTest extends AbstractScheduledApiT
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Optional.empty(),
+            Collections.emptyList());
 
     final BlockHeader testHeader =
         new BlockHeaderTestFixture()

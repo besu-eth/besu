@@ -65,7 +65,8 @@ public class EngineNewPayloadV4 extends AbstractEngineNewPayload {
       final EnginePayloadParameter payloadParameter,
       final Optional<List<String>> maybeVersionedHashParam,
       final Optional<String> maybeBeaconBlockRootParam,
-      final Optional<List<String>> maybeRequestsParam) {
+      final Optional<List<String>> maybeRequestsParam,
+      final Optional<List<String>> maybeInclusionListTransactions) {
     if (payloadParameter.getBlobGasUsed() == null) {
       return ValidationResult.invalid(
           RpcErrorType.INVALID_BLOB_GAS_USED_PARAMS, "Missing blob gas used field");

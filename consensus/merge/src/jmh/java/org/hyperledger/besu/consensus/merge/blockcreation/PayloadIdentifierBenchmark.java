@@ -125,6 +125,7 @@ public class PayloadIdentifierBenchmark {
         withdrawals,
         parentBeaconBlockRoot,
         slotNumber,
-        Optional.empty());
+        Optional.empty(),
+        List.of());
   }
 }

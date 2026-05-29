@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.core.Synchronizer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
+import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.p2p.network.P2PNetwork;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeDnsConfiguration;
@@ -88,6 +89,76 @@ public class JsonRpcMethodsFactory {
       final Optional<EnodeDnsConfiguration> enodeDnsConfiguration,
       final TransactionSimulator transactionSimulator,
       final EthScheduler ethScheduler) {
+    return methods(
+        clientNodeName,
+        clientVersion,
+        commit,
+        networkId,
+        genesisConfigOptions,
+        p2pNetwork,
+        blockchainQueries,
+        synchronizer,
+        protocolSchedule,
+        protocolContext,
+        filterManager,
+        transactionPool,
+        miningConfiguration,
+        miningCoordinator,
+        metricsSystem,
+        supportedCapabilities,
+        accountsAllowlistController,
+        nodeAllowlistController,
+        rpcApis,
+        jsonRpcConfiguration,
+        webSocketConfiguration,
+        metricsConfiguration,
+        graphQLConfiguration,
+        natService,
+        namedPlugins,
+        dataDir,
+        ethPeers,
+        consensusEngineServer,
+        apiConfiguration,
+        enodeDnsConfiguration,
+        transactionSimulator,
+        ethScheduler,
+        InclusionListConfiguration.DEFAULT);
+  }
+
+  public Map<String, JsonRpcMethod> methods(
+      final String clientNodeName,
+      final String clientVersion,
+      final String commit,
+      final BigInteger networkId,
+      final GenesisConfigOptions genesisConfigOptions,
+      final P2PNetwork p2pNetwork,
+      final BlockchainQueries blockchainQueries,
+      final Synchronizer synchronizer,
+      final ProtocolSchedule protocolSchedule,
+      final ProtocolContext protocolContext,
+      final FilterManager filterManager,
+      final TransactionPool transactionPool,
+      final MiningConfiguration miningConfiguration,
+      final MiningCoordinator miningCoordinator,
+      final ObservableMetricsSystem metricsSystem,
+      final Set<Capability> supportedCapabilities,
+      final Optional<AccountLocalConfigPermissioningController> accountsAllowlistController,
+      final Optional<NodeLocalConfigPermissioningController> nodeAllowlistController,
+      final Collection<String> rpcApis,
+      final JsonRpcConfiguration jsonRpcConfiguration,
+      final WebSocketConfiguration webSocketConfiguration,
+      final MetricsConfiguration metricsConfiguration,
+      final GraphQLConfiguration graphQLConfiguration,
+      final NatService natService,
+      final Map<String, BesuPlugin> namedPlugins,
+      final Path dataDir,
+      final EthPeers ethPeers,
+      final Vertx consensusEngineServer,
+      final ApiConfiguration apiConfiguration,
+      final Optional<EnodeDnsConfiguration> enodeDnsConfiguration,
+      final TransactionSimulator transactionSimulator,
+      final EthScheduler ethScheduler,
+      final InclusionListConfiguration inclusionListConfiguration) {
     final Map<String, JsonRpcMethod> enabled = new HashMap<>();
     if (!rpcApis.isEmpty()) {
       final JsonRpcMethod modules = new RpcModules(rpcApis);
@@ -123,7 +194,8 @@ public class JsonRpcMethodsFactory {
                   clientVersion,
                   commit,
                   transactionPool,
-                  metricsSystem),
+                  metricsSystem,
+                  inclusionListConfiguration),
               new EthJsonRpcMethods(
                   blockchainQueries,
                   synchronizer,

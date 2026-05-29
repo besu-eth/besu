@@ -145,6 +145,8 @@ public class MilestoneDefinitions {
             config.getAmsterdamTime(),
             specFactory::amsterdamDefinition),
         createTimestampMilestone(
+            MainnetHardforkId.BOGOTA, config.getBogotaTime(), specFactory::bogotaDefinition),
+        createTimestampMilestone(
             MainnetHardforkId.FUTURE_EIPS,
             config.getFutureEipsTime(),
             specFactory::futureEipsDefinition),

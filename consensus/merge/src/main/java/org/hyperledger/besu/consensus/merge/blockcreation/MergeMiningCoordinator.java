@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
@@ -33,6 +34,7 @@ import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 
 import org.apache.tuweni.bytes.Bytes32;
+import org.immutables.value.Value;
 
 /** The interface Merge mining coordinator. */
 public interface MergeMiningCoordinator extends MiningCoordinator {
@@ -40,19 +42,39 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
   long MAX_REORG_DEPTH = 90_000L;
 
   /**
+   * Arguments passed to {@link MergeMiningCoordinator#preparePayload(PreparePayloadArgs)}.
+   *
+   * @param parentHeader the parent block header
+   * @param timestamp the payload timestamp
+   * @param prevRandao the previous RANDAO mix
+   * @param feeRecipient the suggested fee recipient address
+   * @param withdrawals the withdrawals, if present
+   * @param parentBeaconBlockRoot the parent beacon block root, if present
+   * @param slotNumber the consensus-layer slot number, if present
+   * @param targetGasLimit the consensus-layer target gas limit, if present
+   * @param inclusionListTransactions the inclusion list transactions, if present
+   */
+  @Value.Builder
+  record PreparePayloadArgs(
+      BlockHeader parentHeader,
+      Long timestamp,
+      Bytes32 prevRandao,
+      Address feeRecipient,
+      Optional<List<Withdrawal>> withdrawals,
+      Optional<Bytes32> parentBeaconBlockRoot,
+      Optional<Long> slotNumber,
+      Optional<Long> targetGasLimit,
+      Optional<List<Transaction>> inclusionListTransactions) {}
+
+  /**
    * Prepare payload identifier.
    *
-   * @param parentHeader the parent header
-   * @param timestamp the timestamp
-   * @param prevRandao the prev randao
-   * @param feeRecipient the fee recipient
-   * @param withdrawals the optional list of withdrawals
-   * @param parentBeaconBlockRoot optional root hash of the parent beacon block
-   * @param slotNumber optional slot number (EIP-7843)
-   * @param targetGasLimit optional CL-supplied target gas limit for this payload
+   * @param preparePayloadArgs the payload arguments
    * @return the payload identifier
    */
-  PayloadIdentifier preparePayload(
+  PayloadIdentifier preparePayload(final PreparePayloadArgs preparePayloadArgs);
+
+  default PayloadIdentifier preparePayload(
       final BlockHeader parentHeader,
       final Long timestamp,
       final Bytes32 prevRandao,
@@ -60,7 +82,19 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
       final Optional<List<Withdrawal>> withdrawals,
       final Optional<Bytes32> parentBeaconBlockRoot,
       final Optional<Long> slotNumber,
-      final Optional<Long> targetGasLimit);
+      final Optional<Long> targetGasLimit) {
+    return preparePayload(
+        new PreparePayloadArgs(
+            parentHeader,
+            timestamp,
+            prevRandao,
+            feeRecipient,
+            withdrawals,
+            parentBeaconBlockRoot,
+            slotNumber,
+            targetGasLimit,
+            Optional.empty()));
+  }
 
   @Override
   default boolean isCompatibleWithEngineApi() {

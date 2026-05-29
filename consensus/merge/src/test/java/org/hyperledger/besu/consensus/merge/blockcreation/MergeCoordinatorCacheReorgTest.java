@@ -320,14 +320,13 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
     transactions.addTransaction(createLocalTransaction(0, value), Optional.empty());
 
     coordinator.preparePayload(
-        genesisState.getBlock().getHeader(),
-        System.currentTimeMillis() / 1000,
-        random,
-        Address.ZERO,
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty(),
-        Optional.empty());
+        new PreparePayloadArgsBuilder()
+            .parentHeader(genesisState.getBlock().getHeader())
+            .timestamp(System.currentTimeMillis() / 1000)
+            .prevRandao(random)
+            .feeRecipient(Address.ZERO)
+            .targetGasLimit(Optional.empty())
+            .build());
 
     boolean built = latch.await(30, TimeUnit.SECONDS);
     assertThat(built)

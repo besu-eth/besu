@@ -110,7 +110,8 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Optional.empty(),
+            Collections.emptyList());
 
     BlockWithReceipts shanghaiBlock =
         new BlockWithReceipts(
@@ -152,7 +153,8 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Optional.empty(),
+            Collections.emptyList());
 
     BlockWithReceipts pragueBlock =
         new BlockWithReceipts(
@@ -196,7 +198,8 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
             Optional.empty(),
             Optional.empty(),
             Optional.empty(),
-            Optional.empty());
+            Optional.empty(),
+            Collections.emptyList());
 
     BlobTestFixture blobTestFixture = new BlobTestFixture();
     BlobsWithCommitments bwc = blobTestFixture.createBlobsWithCommitments(1);

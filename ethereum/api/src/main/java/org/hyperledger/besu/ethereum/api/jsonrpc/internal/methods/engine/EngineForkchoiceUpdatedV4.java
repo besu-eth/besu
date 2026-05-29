@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -23,6 +24,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EngineForkc
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadAttributesParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 
@@ -42,8 +44,15 @@ public class EngineForkchoiceUpdatedV4 extends AbstractEngineForkchoiceUpdatedV4
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final MergeMiningCoordinator mergeCoordinator,
+      final TransactionPool transactionPool,
       final EngineCallListener engineCallListener) {
-    super(vertx, protocolSchedule, protocolContext, mergeCoordinator, engineCallListener);
+    super(
+        vertx,
+        protocolSchedule,
+        protocolContext,
+        mergeCoordinator,
+        transactionPool,
+        engineCallListener);
   }
 
   @Override
@@ -55,15 +64,10 @@ public class EngineForkchoiceUpdatedV4 extends AbstractEngineForkchoiceUpdatedV4
   protected ValidationResult<RpcErrorType> validateParameter(
       final EngineForkchoiceUpdatedParameter fcuParameter,
       final Optional<EnginePayloadAttributesParameter> maybePayloadAttributes) {
-    if (fcuParameter.getHeadBlockHash() == null) {
-      return ValidationResult.invalid(
-          getInvalidPayloadAttributesError(), "Missing head block hash");
-    } else if (fcuParameter.getSafeBlockHash() == null) {
-      return ValidationResult.invalid(
-          getInvalidPayloadAttributesError(), "Missing safe block hash");
-    } else if (fcuParameter.getFinalizedBlockHash() == null) {
-      return ValidationResult.invalid(
-          getInvalidPayloadAttributesError(), "Missing finalized block hash");
+    final ValidationResult<RpcErrorType> commonValidation =
+        super.validateParameter(fcuParameter, maybePayloadAttributes);
+    if (!commonValidation.isValid()) {
+      return commonValidation;
     }
     if (maybePayloadAttributes.isPresent()) {
       if (maybePayloadAttributes.get().getParentBeaconBlockRoot() == null) {
@@ -84,7 +88,8 @@ public class EngineForkchoiceUpdatedV4 extends AbstractEngineForkchoiceUpdatedV4
 
   @Override
   protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    return ForkSupportHelper.validateForkSupported(AMSTERDAM, amsterdamMilestone, blockTimestamp);
+    return ForkSupportHelper.validateForkSupported(
+        AMSTERDAM, amsterdamMilestone, BOGOTA, bogotaMilestone, blockTimestamp);
   }
 
   @Override
@@ -93,7 +98,7 @@ public class EngineForkchoiceUpdatedV4 extends AbstractEngineForkchoiceUpdatedV4
 
     if (payloadAttributes.getParentBeaconBlockRoot() == null) {
       LOG.error(
-          "Parent beacon block root hash not present in payload attributes after Amsterdam hardfork");
+          "Parent beacon block root hash not present in payload attributes after Cancun hardfork");
       return Optional.of(new JsonRpcErrorResponse(requestId, getInvalidPayloadAttributesError()));
     }
 

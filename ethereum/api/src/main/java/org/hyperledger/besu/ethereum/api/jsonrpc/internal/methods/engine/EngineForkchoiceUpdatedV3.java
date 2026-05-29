@@ -20,7 +20,6 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EngineForkchoiceUpdatedParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadAttributesParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -52,29 +51,6 @@ public class EngineForkchoiceUpdatedV3 extends AbstractEngineForkchoiceUpdated {
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateParameter(
-      final EngineForkchoiceUpdatedParameter fcuParameter,
-      final Optional<EnginePayloadAttributesParameter> maybePayloadAttributes) {
-    if (fcuParameter.getHeadBlockHash() == null) {
-      return ValidationResult.invalid(
-          getInvalidPayloadAttributesError(), "Missing head block hash");
-    } else if (fcuParameter.getSafeBlockHash() == null) {
-      return ValidationResult.invalid(
-          getInvalidPayloadAttributesError(), "Missing safe block hash");
-    } else if (fcuParameter.getFinalizedBlockHash() == null) {
-      return ValidationResult.invalid(
-          getInvalidPayloadAttributesError(), "Missing finalized block hash");
-    }
-    if (maybePayloadAttributes.isPresent()) {
-      if (maybePayloadAttributes.get().getParentBeaconBlockRoot() == null) {
-        return ValidationResult.invalid(
-            getInvalidPayloadAttributesError(), "Missing parent beacon block root hash");
-      }
-    }
-    return ValidationResult.valid();
-  }
-
-  @Override
   protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
     return ForkSupportHelper.validateForkSupported(
         CANCUN, cancunMilestone, AMSTERDAM, amsterdamMilestone, blockTimestamp);
@@ -86,7 +62,12 @@ public class EngineForkchoiceUpdatedV3 extends AbstractEngineForkchoiceUpdated {
 
     if (payloadAttributes.getParentBeaconBlockRoot() == null) {
       LOG.error(
-          "Parent beacon block root hash not present in payload attributes after cancun hardfork");
+          "Parent beacon block root hash not present in payload attributes after Cancun hardfork");
+      return Optional.of(new JsonRpcErrorResponse(requestId, getInvalidPayloadAttributesError()));
+    }
+
+    if (payloadAttributes.getSlotNumber() != null) {
+      LOG.error("Slot number present in payload attributes before Amsterdam hardfork");
       return Optional.of(new JsonRpcErrorResponse(requestId, getInvalidPayloadAttributesError()));
     }
 

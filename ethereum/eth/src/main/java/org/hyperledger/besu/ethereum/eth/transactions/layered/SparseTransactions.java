@@ -45,6 +45,7 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.BiFunction;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
 import com.google.common.collect.Iterables;
@@ -69,13 +70,21 @@ public class SparseTransactions extends AbstractTransactionsLayer {
 
   public SparseTransactions(
       final TransactionPoolConfiguration poolConfig,
+      final Supplier<BlockHeader> chainHeadHeaderSupplier,
       final EthScheduler ethScheduler,
       final TransactionsLayer nextLayer,
       final TransactionPoolMetrics metrics,
       final BiFunction<PendingTransaction, PendingTransaction, Boolean>
           transactionReplacementTester,
       final BlobCache blobCache) {
-    super(poolConfig, ethScheduler, nextLayer, transactionReplacementTester, metrics, blobCache);
+    super(
+        poolConfig,
+        chainHeadHeaderSupplier,
+        ethScheduler,
+        nextLayer,
+        transactionReplacementTester,
+        metrics,
+        blobCache);
     orderByGap = new ArrayList<>(poolConfig.getMaxFutureBySender());
     IntStream.range(0, poolConfig.getMaxFutureBySender())
         .forEach(i -> orderByGap.add(new SendersByPriority()));

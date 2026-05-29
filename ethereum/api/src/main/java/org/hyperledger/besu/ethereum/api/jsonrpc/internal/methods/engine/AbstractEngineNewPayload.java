@@ -15,8 +15,8 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static java.util.stream.Collectors.toList;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.ACCEPTED;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INCLUSION_LIST_UNSATISFIED;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID_BLOCK_HASH;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.SYNCING;
@@ -53,9 +53,12 @@ import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListDecoder;
 import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
 import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListValidationResult;
+import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListValidator;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -63,6 +66,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.ExcessBlobGasCalculator;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -73,6 +77,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -84,15 +89,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMethod {
+  private static final Logger LOG = LoggerFactory.getLogger(AbstractEngineNewPayload.class);
 
   private static final Hash OMMERS_HASH_CONSTANT = Hash.EMPTY_LIST_HASH;
-  private static final Logger LOG = LoggerFactory.getLogger(AbstractEngineNewPayload.class);
   private static final BlockHeaderFunctions headerFunctions = new MainnetBlockHeaderFunctions();
+  private final InclusionListValidator inclusionListValidator = new InclusionListValidator();
   private final MergeMiningCoordinator mergeCoordinator;
   private final EthPeers ethPeers;
   private long lastExecutionTimeInNs = 0L;
-
-  protected final Optional<Long> amsterdamMilestone;
 
   public AbstractEngineNewPayload(
       final Vertx vertx,
@@ -110,8 +114,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
         "execution_time_head",
         "The execution time of the last block (head)",
         this::getLastExecutionTime);
-
-    this.amsterdamMilestone = protocolSchedule.milestoneFor(AMSTERDAM);
   }
 
   @Override
@@ -161,10 +163,14 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
           e);
     }
 
-    final ValidationResult<RpcErrorType> forkValidationResult =
-        validateForkSupported(blockParam.getTimestamp());
-    if (!forkValidationResult.isValid()) {
-      return new JsonRpcErrorResponse(reqId, forkValidationResult);
+    final Optional<List<String>> maybeInclusionListTransactions;
+    try {
+      maybeInclusionListTransactions = requestContext.getOptionalList(4, String.class);
+    } catch (JsonRpcParameterException e) {
+      throw new InvalidJsonRpcRequestException(
+          "Invalid inclusion list transactions parameters (index 4)",
+          RpcErrorType.INVALID_INCLUSION_LIST_TRANSACTIONS_PARAMS,
+          e);
     }
 
     final ValidationResult<RpcErrorType> parameterValidationResult =
@@ -172,9 +178,16 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
             blockParam,
             maybeVersionedHashParam,
             maybeParentBeaconBlockRootParam,
-            maybeRequestsParam);
+            maybeRequestsParam,
+            maybeInclusionListTransactions);
     if (!parameterValidationResult.isValid()) {
       return new JsonRpcErrorResponse(reqId, parameterValidationResult);
+    }
+
+    final ValidationResult<RpcErrorType> forkValidationResult =
+        validateForkSupported(blockParam.getTimestamp());
+    if (!forkValidationResult.isValid()) {
+      return new JsonRpcErrorResponse(reqId, forkValidationResult);
     }
 
     final Optional<List<VersionedHash>> maybeVersionedHashes;
@@ -230,13 +243,13 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     final Optional<BlockAccessList> maybeBlockAccessList;
     try {
       maybeBlockAccessList = extractBlockAccessList(blockParam);
-    } catch (final InvalidBlockAccessListException e) {
+    } catch (final Exception e) {
       return respondWithInvalid(
           reqId,
           blockParam,
           mergeCoordinator.getLatestValidAncestor(blockParam.getParentHash()).orElse(null),
           INVALID,
-          e.getMessage());
+          "Invalid block access list encoding");
     }
 
     if (mergeContext.get().isSyncing()) {
@@ -313,13 +326,15 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     final var blobTransactions =
         transactions.stream().filter(transaction -> transaction.getType().supportsBlob()).toList();
 
-    ValidationResult<RpcErrorType> blobValidationResult =
+    final ProtocolSpec protocolSpec = protocolSchedule.get().getByBlockHeader(newBlockHeader);
+
+    final ValidationResult<RpcErrorType> blobValidationResult =
         validateBlobs(
             blobTransactions,
             newBlockHeader,
             maybeParentHeader,
             maybeVersionedHashes,
-            protocolSchedule.get().getByBlockHeader(newBlockHeader));
+            protocolSpec);
     if (!blobValidationResult.isValid()) {
       return respondWithInvalid(
           reqId,
@@ -391,6 +406,31 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     final BlockProcessingResult executionResult =
         mergeCoordinator.rememberBlock(block, maybeBlockAccessList);
     if (executionResult.isSuccessful()) {
+      // verify inclusion list transactions rules are satisfied
+      if (maybeInclusionListTransactions.isPresent()) {
+        try {
+          final InclusionListValidationResult result =
+              validateInclusionListTransactions(
+                  protocolSpec,
+                  protocolContext,
+                  newBlockHeader,
+                  executionResult,
+                  Set.copyOf(blockParam.getTransactions()),
+                  maybeInclusionListTransactions.get());
+          if (!result.isValid()) {
+            return respondWithInvalid(
+                reqId,
+                blockParam,
+                mergeCoordinator.getLatestValidAncestor(blockParam.getParentHash()).orElse(null),
+                INCLUSION_LIST_UNSATISFIED,
+                result.getErrorMessage().orElse(""));
+          }
+        } catch (Exception e) {
+          return new JsonRpcErrorResponse(
+              reqId, RpcErrorType.INVALID_INCLUSION_LIST_TRANSACTIONS_PARAMS);
+        }
+      }
+
       lastExecutionTimeInNs = System.nanoTime() - startTimeNs;
       logImportedBlockInfo(
           block,
@@ -496,7 +536,9 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
       final Hash latestValidHash,
       final EngineStatus invalidStatus,
       final String validationError) {
-    if (!INVALID.equals(invalidStatus) && !INVALID_BLOCK_HASH.equals(invalidStatus)) {
+    if (!INVALID.equals(invalidStatus)
+        && !INVALID_BLOCK_HASH.equals(invalidStatus)
+        && !INCLUSION_LIST_UNSATISFIED.equals(invalidStatus)) {
       throw new IllegalArgumentException(
           "Don't call respondWithInvalid() with non-invalid status of " + invalidStatus.toString());
     }
@@ -530,23 +572,9 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
       final EnginePayloadParameter parameter,
       final Optional<List<String>> maybeVersionedHashParam,
       final Optional<String> maybeBeaconBlockRootParam,
-      final Optional<List<String>> maybeRequestsParam) {
+      final Optional<List<String>> maybeRequestsParam,
+      final Optional<List<String>> maybeInclusionListTransactions) {
     return ValidationResult.valid();
-  }
-
-  protected Optional<BlockAccessList> extractBlockAccessList(
-      final EnginePayloadParameter payloadParameter) throws InvalidBlockAccessListException {
-    return Optional.empty();
-  }
-
-  protected static class InvalidBlockAccessListException extends Exception {
-    InvalidBlockAccessListException(final String message) {
-      super(message);
-    }
-
-    InvalidBlockAccessListException(final String message, final Throwable cause) {
-      super(message, cause);
-    }
   }
 
   protected ValidationResult<RpcErrorType> validateBlobs(
@@ -668,6 +696,39 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     return calculated == actual ? Optional.empty() : Optional.of(calculated);
   }
 
+  private InclusionListValidationResult validateInclusionListTransactions(
+      final ProtocolSpec protocolSpec,
+      final ProtocolContext protocolContext,
+      final BlockHeader newBlockHeader,
+      final BlockProcessingResult executionResult,
+      final Set<String> payloadHexTransactions,
+      final List<String> inclusionListHexTransactions) {
+
+    // we can now check the inclusion of the all txs without decoding, since we have already
+    // decoded the payload txs, so if they match we are sure they are valid too
+    final List<Bytes> notConfirmedILTxs =
+        inclusionListHexTransactions.stream()
+            .filter(
+                ilHexTx -> {
+                  if (payloadHexTransactions.contains(ilHexTx)) {
+                    LOG.info("IL tx already confirmed: {}", ilHexTx);
+                    return false;
+                  }
+                  LOG.info("IL tx not confirmed verify if it could be included: {}", ilHexTx);
+                  return true;
+                })
+            .map(Bytes::fromHexString)
+            .toList();
+
+    // all IL txs are in the block so just return valid
+    if (notConfirmedILTxs.isEmpty()) {
+      return InclusionListValidationResult.valid();
+    }
+
+    return inclusionListValidator.validate(
+        protocolSpec, protocolContext, newBlockHeader, executionResult, notConfirmedILTxs);
+  }
+
   private Optional<List<VersionedHash>> extractVersionedHashes(
       final Optional<List<String>> maybeVersionedHashParam) {
     return maybeVersionedHashParam.map(
@@ -702,6 +763,19 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
                       return new Request(RequestType.of(request.get(0)), requestData);
                     })
                 .collect(Collectors.toList()));
+  }
+
+  private Optional<BlockAccessList> extractBlockAccessList(
+      final EnginePayloadParameter payloadParameter) {
+    final String blockAccessList = payloadParameter.getBlockAccessList();
+
+    if (blockAccessList == null) {
+      return Optional.empty();
+    }
+
+    return Optional.of(
+        BlockAccessListDecoder.decode(
+            new BytesValueRLPInput(Bytes.fromHexString(blockAccessList), false)));
   }
 
   private void logImportedBlockInfo(

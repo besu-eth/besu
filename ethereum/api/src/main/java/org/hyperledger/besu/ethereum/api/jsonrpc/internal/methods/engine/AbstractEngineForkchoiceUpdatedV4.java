@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static java.util.stream.Collectors.toList;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.BOGOTA;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.SYNCING;
@@ -25,6 +26,7 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
+import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -40,16 +42,22 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineUpdateForkchoiceResult;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
+import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.stream.Collectors;
 
 import io.vertx.core.Vertx;
+import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.spi.LoggingEventBuilder;
@@ -73,11 +81,15 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
   /** The merge mining coordinator. */
   protected final MergeMiningCoordinator mergeCoordinator;
 
+  protected final TransactionPool transactionPool;
+
   /** Cancun activation timestamp, if scheduled. */
   protected final Optional<Long> cancunMilestone;
 
   /** Amsterdam activation timestamp, if scheduled. */
   protected final Optional<Long> amsterdamMilestone;
+
+  protected final Optional<Long> bogotaMilestone;
 
   /**
    * Instantiates a new V4-spec abstract engine forkchoice updated.
@@ -86,6 +98,7 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
    * @param protocolSchedule the protocol schedule
    * @param protocolContext the protocol context
    * @param mergeCoordinator the merge coordinator
+   * @param transactionPool the transaction pool
    * @param engineCallListener the engine call listener
    */
   public AbstractEngineForkchoiceUpdatedV4(
@@ -93,12 +106,15 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final MergeMiningCoordinator mergeCoordinator,
+      final TransactionPool transactionPool,
       final EngineCallListener engineCallListener) {
     super(vertx, protocolSchedule, protocolContext, engineCallListener);
 
     this.mergeCoordinator = mergeCoordinator;
+    this.transactionPool = transactionPool;
     cancunMilestone = protocolSchedule.milestoneFor(CANCUN);
     amsterdamMilestone = protocolSchedule.milestoneFor(AMSTERDAM);
+    bogotaMilestone = protocolSchedule.milestoneFor(BOGOTA);
   }
 
   /**
@@ -111,6 +127,16 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
   protected ValidationResult<RpcErrorType> validateParameter(
       final EngineForkchoiceUpdatedParameter forkchoiceUpdatedParameter,
       final Optional<EnginePayloadAttributesParameter> maybePayloadAttributes) {
+    if (forkchoiceUpdatedParameter.getHeadBlockHash() == null) {
+      return ValidationResult.invalid(
+          getInvalidPayloadAttributesError(), "Missing head block hash");
+    } else if (forkchoiceUpdatedParameter.getSafeBlockHash() == null) {
+      return ValidationResult.invalid(
+          getInvalidPayloadAttributesError(), "Missing safe block hash");
+    } else if (forkchoiceUpdatedParameter.getFinalizedBlockHash() == null) {
+      return ValidationResult.invalid(
+          getInvalidPayloadAttributesError(), "Missing finalized block hash");
+    }
     return ValidationResult.valid();
   }
 
@@ -261,20 +287,33 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
       return handleNonValidForkchoiceUpdate(requestId, forkchoiceResult);
     }
 
+    final List<Transaction> inclusionListTransactions =
+        validateAndDecodeInclusionListTransactions(
+            maybePayloadAttributes
+                .map(EnginePayloadAttributesParameter::getInclusionListTransactions)
+                .orElse(List.of()));
+
+    final var ilTxsAddedResult = transactionPool.addRemoteTransactions(inclusionListTransactions);
+    LOG.trace("Inclusion list transactions added to txpool, result {}", ilTxsAddedResult);
+
     // begin preparing a block if we have a non-empty payload attributes param
     final Optional<List<Withdrawal>> finalWithdrawals = withdrawals;
     Optional<PayloadIdentifier> payloadId =
         maybePayloadAttributes.map(
             payloadAttributes ->
                 mergeCoordinator.preparePayload(
-                    newHead,
-                    payloadAttributes.getTimestamp(),
-                    payloadAttributes.getPrevRandao(),
-                    payloadAttributes.getSuggestedFeeRecipient(),
-                    finalWithdrawals,
-                    Optional.ofNullable(payloadAttributes.getParentBeaconBlockRoot()),
-                    Optional.ofNullable(payloadAttributes.getSlotNumber()),
-                    Optional.ofNullable(payloadAttributes.getTargetGasLimit())));
+                    new PreparePayloadArgsBuilder()
+                        .parentHeader(newHead)
+                        .timestamp(payloadAttributes.getTimestamp())
+                        .prevRandao(payloadAttributes.getPrevRandao())
+                        .feeRecipient(payloadAttributes.getSuggestedFeeRecipient())
+                        .withdrawals(finalWithdrawals)
+                        .parentBeaconBlockRoot(
+                            Optional.ofNullable(payloadAttributes.getParentBeaconBlockRoot()))
+                        .slotNumber(Optional.ofNullable(payloadAttributes.getSlotNumber()))
+                        .targetGasLimit(Optional.ofNullable(payloadAttributes.getTargetGasLimit()))
+                        .inclusionListTransactions(inclusionListTransactions)
+                        .build()));
 
     payloadId.ifPresent(
         pid ->
@@ -456,5 +495,30 @@ public abstract class AbstractEngineForkchoiceUpdatedV4 extends ExecutionEngineJ
         forkChoice.getHeadBlockHash(),
         forkChoice.getSafeBlockHash(),
         forkChoice.getFinalizedBlockHash());
+  }
+
+  private List<Transaction> validateAndDecodeInclusionListTransactions(
+      final List<Bytes> rawTransactions) {
+    if (rawTransactions == null || rawTransactions.isEmpty()) {
+      return List.of();
+    }
+
+    final List<Transaction> ilTxs = new ArrayList<>(rawTransactions.size());
+    for (final Bytes rawTransaction : rawTransactions) {
+      try {
+        ilTxs.add(TransactionDecoder.decodeOpaqueBytes(rawTransaction, EncodingContext.BLOCK_BODY));
+      } catch (final Exception e) {
+        LOG.atInfo()
+            .setMessage("Ignoring invalid IL tx bytes {}")
+            .addArgument(rawTransaction::toHexString)
+            .log();
+      }
+    }
+
+    LOG.atInfo()
+        .setMessage("Received {} inclusion list transactions")
+        .addArgument(ilTxs.size())
+        .log();
+    return ilTxs;
   }
 }

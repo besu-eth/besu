@@ -16,12 +16,13 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
 import org.hyperledger.besu.datatypes.Address;
 
+import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.vertx.core.json.JsonObject;
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 public class EnginePayloadAttributesParameter {
@@ -33,6 +34,7 @@ public class EnginePayloadAttributesParameter {
   private final Bytes32 parentBeaconBlockRoot;
   private final Long slotNumber;
   private final Long targetGasLimit;
+  private final List<Bytes> inclusionListTransactions;
 
   @JsonCreator
   public EnginePayloadAttributesParameter(
@@ -42,7 +44,8 @@ public class EnginePayloadAttributesParameter {
       @JsonProperty("withdrawals") final List<WithdrawalParameter> withdrawals,
       @JsonProperty("parentBeaconBlockRoot") final String parentBeaconBlockRoot,
       @JsonProperty("slotNumber") final String slotNumber,
-      @JsonProperty("targetGasLimit") final String targetGasLimit) {
+      @JsonProperty("targetGasLimit") final String targetGasLimit,
+      @JsonProperty("inclusionListTransactions") final List<String> inclusionListTransactions) {
     this.timestamp = Long.decode(timestamp);
     this.prevRandao = Bytes32.fromHexString(prevRandao);
     this.suggestedFeeRecipient = Address.fromHexString(suggestedFeeRecipient);
@@ -51,6 +54,45 @@ public class EnginePayloadAttributesParameter {
         parentBeaconBlockRoot == null ? null : Bytes32.fromHexString(parentBeaconBlockRoot);
     this.slotNumber = slotNumber == null ? null : Long.decode(slotNumber);
     this.targetGasLimit = targetGasLimit == null ? null : Long.decode(targetGasLimit);
+    this.inclusionListTransactions = parseInclusionListTransactions(inclusionListTransactions);
+  }
+
+  public EnginePayloadAttributesParameter(
+      final String timestamp,
+      final String prevRandao,
+      final String suggestedFeeRecipient,
+      final List<WithdrawalParameter> withdrawals,
+      final String parentBeaconBlockRoot,
+      final String slotNumber,
+      final List<String> inclusionListTransactions) {
+    this(
+        timestamp,
+        prevRandao,
+        suggestedFeeRecipient,
+        withdrawals,
+        parentBeaconBlockRoot,
+        slotNumber,
+        null,
+        inclusionListTransactions);
+  }
+
+  private List<Bytes> parseInclusionListTransactions(final List<String> hexTransactions) {
+    if (hexTransactions == null) {
+      return null;
+    }
+
+    final List<Bytes> txBytes = new ArrayList<>(hexTransactions.size());
+    for (final String hexTransaction : hexTransactions) {
+      if (hexTransaction == null || hexTransaction.isEmpty()) {
+        throw new IllegalArgumentException("Inclusion list transaction cannot be null or empty");
+      }
+      try {
+        txBytes.add(Bytes.fromHexString(hexTransaction));
+      } catch (final IllegalArgumentException e) {
+        throw new IllegalArgumentException("Invalid inclusion list transaction format", e);
+      }
+    }
+    return txBytes;
   }
 
   public Long getTimestamp() {
@@ -81,6 +123,10 @@ public class EnginePayloadAttributesParameter {
     return targetGasLimit;
   }
 
+  public List<Bytes> getInclusionListTransactions() {
+    return inclusionListTransactions;
+  }
+
   public String serialize() {
     final JsonObject json =
         new JsonObject()
@@ -88,9 +134,7 @@ public class EnginePayloadAttributesParameter {
             .put("prevRandao", prevRandao.toHexString())
             .put("suggestedFeeRecipient", suggestedFeeRecipient.getBytes().toHexString());
     if (withdrawals != null) {
-      json.put(
-          "withdrawals",
-          withdrawals.stream().map(WithdrawalParameter::asJsonObject).collect(Collectors.toList()));
+      json.put("withdrawals", withdrawals.stream().map(WithdrawalParameter::asJsonObject).toList());
     }
     if (parentBeaconBlockRoot != null) {
       json.put("parentBeaconBlockRoot", parentBeaconBlockRoot.toHexString());
@@ -100,6 +144,11 @@ public class EnginePayloadAttributesParameter {
     }
     if (targetGasLimit != null) {
       json.put("targetGasLimit", targetGasLimit);
+    }
+    if (inclusionListTransactions != null) {
+      json.put(
+          "inclusionListTransactions",
+          inclusionListTransactions.stream().map(Bytes::toHexString).toList());
     }
     return json.encode();
   }
