@@ -37,11 +37,6 @@ public class ReadinessCheck implements HealthService.HealthCheck {
   }
 
   @Override
-  public boolean isHealthy(final HealthService.ParamSource params) {
-    return checkHealth(params).isHealthy();
-  }
-
-  @Override
   public HealthService.HealthCheckResult checkHealth(final HealthService.ParamSource params) {
     LOG.debug("Invoking readiness check.");
     final JsonObject checks = new JsonObject();

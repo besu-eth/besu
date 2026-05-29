@@ -21,7 +21,8 @@ import io.vertx.ext.web.RoutingContext;
 
 public final class HealthService {
 
-  public static final HealthService ALWAYS_HEALTHY = new HealthService(params -> true);
+  public static final HealthService ALWAYS_HEALTHY =
+      new HealthService(params -> new HealthCheckResult(true, new JsonObject()));
 
   public static final String LIVENESS_PATH = "/liveness";
   public static final String READINESS_PATH = "/readiness";
@@ -81,11 +82,7 @@ public final class HealthService {
 
   @FunctionalInterface
   public interface HealthCheck {
-    boolean isHealthy(ParamSource paramSource);
-
-    default HealthCheckResult checkHealth(final ParamSource paramSource) {
-      return new HealthCheckResult(isHealthy(paramSource), new JsonObject());
-    }
+    HealthCheckResult checkHealth(ParamSource paramSource);
   }
 
   @FunctionalInterface

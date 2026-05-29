@@ -45,6 +45,7 @@
 - Improve native memory handling in RocksDB storage: `LRUCache`, `ColumnFamilyOptions`, and temporary options-file loading objects are now explicitly closed [#10456](https://github.com/besu-eth/besu/pull/10456)
 - `eth_capabilities`: `state` and `stateproofs` now report `disabled: true` when genesis world state is unavailable (e.g. SNAP sync nodes) [#10377](https://github.com/besu-eth/besu/pull/10377)
 - Auto-discover the advertised IPv6 host in the ENR from DiscV5 peer consensus when `--p2p-interface-ipv6` is set without `--p2p-host-ipv6`. [#10468](https://github.com/besu-eth/besu/pull/10468)
+- Enrich `/readiness` health endpoint with diagnostic details (peer count, sync status) in the response body [#10412](https://github.com/besu-eth/besu/pull/10412)
 
 ## 26.5.0
 

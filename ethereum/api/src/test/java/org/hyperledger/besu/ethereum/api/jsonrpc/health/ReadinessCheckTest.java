@@ -47,7 +47,7 @@ public class ReadinessCheckTest {
     when(p2pNetwork.getPeerCount()).thenReturn(1);
     when(synchronizer.getSyncStatus()).thenReturn(Optional.empty());
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isTrue();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isTrue();
   }
 
   @Test
@@ -56,7 +56,7 @@ public class ReadinessCheckTest {
     when(p2pNetwork.getPeerCount()).thenReturn(0);
     when(synchronizer.getSyncStatus()).thenReturn(Optional.empty());
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isTrue();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isTrue();
   }
 
   @Test
@@ -67,7 +67,7 @@ public class ReadinessCheckTest {
 
     params.put(MIN_PEERS_PARAM, "0");
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isTrue();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isTrue();
   }
 
   @Test
@@ -78,7 +78,7 @@ public class ReadinessCheckTest {
 
     params.put(MIN_PEERS_PARAM, "10");
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isFalse();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isFalse();
   }
 
   @Test
@@ -89,7 +89,7 @@ public class ReadinessCheckTest {
 
     params.put(MIN_PEERS_PARAM, "abc");
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isFalse();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isFalse();
   }
 
   @Test
@@ -98,7 +98,7 @@ public class ReadinessCheckTest {
     when(p2pNetwork.getPeerCount()).thenReturn(5);
     when(synchronizer.getSyncStatus()).thenReturn(createSyncStatus(1000, 1002));
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isTrue();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isTrue();
   }
 
   @Test
@@ -107,7 +107,7 @@ public class ReadinessCheckTest {
     when(p2pNetwork.getPeerCount()).thenReturn(5);
     when(synchronizer.getSyncStatus()).thenReturn(createSyncStatus(1000, 1003));
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isFalse();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isFalse();
   }
 
   @Test
@@ -118,7 +118,7 @@ public class ReadinessCheckTest {
 
     params.put("maxBlocksBehind", "100");
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isTrue();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isTrue();
   }
 
   @Test
@@ -129,7 +129,7 @@ public class ReadinessCheckTest {
 
     params.put("maxBlocksBehind", "100");
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isFalse();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isFalse();
   }
 
   @Test
@@ -140,7 +140,7 @@ public class ReadinessCheckTest {
 
     params.put("maxBlocksBehind", "abc");
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isFalse();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isFalse();
   }
 
   @Test
