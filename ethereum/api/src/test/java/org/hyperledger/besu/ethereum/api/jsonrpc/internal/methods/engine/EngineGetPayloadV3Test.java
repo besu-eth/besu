@@ -20,7 +20,7 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.UNSUPPORTED_FORK;
-import static org.mockito.Mockito.lenient;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -57,37 +57,27 @@ import java.math.BigInteger;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import org.apache.tuweni.bytes.Bytes32;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith({MockitoExtension.class})
-public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
+public class EngineGetPayloadV3Test extends EngineGetPayloadV2Test {
 
-  public EngineGetPayloadV3Test() {
-    super();
-  }
-
-  @BeforeEach
   @Override
-  public void before() {
-    super.before();
-    lenient().when(mergeContext.retrievePayloadById(mockPid)).thenReturn(Optional.of(mockPayload));
-    when(protocolContext.safeConsensusContext(Mockito.any())).thenReturn(Optional.of(mergeContext));
-    this.method =
-        new EngineGetPayloadV3(
-            vertx,
-            protocolSchedule,
-            protocolContext,
-            mergeMiningCoordinator,
-            factory,
-            engineCallListener,
-            CANCUN,
-            PRAGUE);
+  protected EngineGetPayloadV1 createMethodInstance() {
+    return new EngineGetPayloadV3(
+        vertx,
+        protocolSchedule,
+        protocolContext,
+        mergeMiningCoordinator,
+        factory,
+        engineCallListener,
+        CANCUN,
+        PRAGUE);
   }
 
   @Override
@@ -98,10 +88,12 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
 
   @Test
   public void shouldReturnUnsupportedForkIfBlockTimestampIsBeforeCancunMilestone() {
+    assumeTrue(getMinSupportedTimestamp().isPresent());
+    final long unsupportedTimestamp = getMinSupportedTimestamp().getAsLong() - 1;
     BlockHeader shanghaiHeader =
         new BlockHeaderTestFixture()
             .prevRandao(Bytes32.random())
-            .timestamp(cancunHardfork.milestone() - 1)
+            .timestamp(unsupportedTimestamp)
             .excessBlobGas(BlobGas.of(10L))
             .buildHeader();
 
@@ -109,7 +101,7 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
         PayloadIdentifier.forPayloadParams(
             new PreparePayloadArgsBuilder()
                 .parentHeader(new BlockHeaderTestFixture().buildHeader())
-                .timestamp(cancunHardfork.milestone() - 1)
+                .timestamp(unsupportedTimestamp)
                 .prevRandao(Bytes32.random())
                 .feeRecipient(Address.fromHexString("0x42"))
                 .build());
@@ -129,7 +121,7 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
 
     when(mergeContext.retrievePayloadById(shanghaiPid)).thenReturn(Optional.of(payloadShanghai));
 
-    final var resp = resp(RpcMethod.ENGINE_GET_PAYLOAD_V3.getMethodName(), shanghaiPid);
+    final var resp = resp(getMethodName(), shanghaiPid);
 
     assertThat(resp).isInstanceOf(JsonRpcErrorResponse.class);
     assertThat(((JsonRpcErrorResponse) resp).getErrorType())
@@ -138,10 +130,12 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
 
   @Test
   public void shouldReturnUnsupportedForkIfBlockTimestampIsAfterPragueMilestone() {
+    assumeTrue(getFirstUnsupportedTimestamp().isPresent());
+    final long unsupportedTimestamp = getFirstUnsupportedTimestamp().getAsLong();
     BlockHeader pragueHeader =
         new BlockHeaderTestFixture()
             .prevRandao(Bytes32.random())
-            .timestamp(pragueHardfork.milestone())
+            .timestamp(unsupportedTimestamp)
             .excessBlobGas(BlobGas.of(10L))
             .buildHeader();
 
@@ -149,7 +143,7 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
         PayloadIdentifier.forPayloadParams(
             new PreparePayloadArgsBuilder()
                 .parentHeader(new BlockHeaderTestFixture().buildHeader())
-                .timestamp(cancunHardfork.milestone())
+                .timestamp(unsupportedTimestamp)
                 .prevRandao(Bytes32.random())
                 .feeRecipient(Address.fromHexString("0x42"))
                 .build());
@@ -170,7 +164,7 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
     when(mergeContext.retrievePayloadById(postCancunPid))
         .thenReturn(Optional.of(payloadPostCancun));
 
-    final var resp = resp(RpcMethod.ENGINE_GET_PAYLOAD_V3.getMethodName(), postCancunPid);
+    final var resp = resp(getMethodName(), postCancunPid);
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
     assertThat(jsonRpcError.getCode()).isEqualTo(UNSUPPORTED_FORK.getCode());
     verify(engineCallListener, times(1)).executionEngineCalled();
@@ -231,7 +225,7 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
     when(mergeContext.retrievePayloadById(postCancunPid))
         .thenReturn(Optional.of(payloadPostCancun));
 
-    final var resp = resp(RpcMethod.ENGINE_GET_PAYLOAD_V3.getMethodName(), postCancunPid);
+    final var resp = resp(getMethodName(), postCancunPid);
     assertThat(resp).isInstanceOf(JsonRpcSuccessResponse.class);
     Optional.of(resp)
         .map(JsonRpcSuccessResponse.class::cast)
@@ -258,7 +252,21 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
 
   @Override
   protected long getValidPayloadTimestamp() {
-    // V3 works with Cancun (>= 30) but must be before Prague (< 50)
     return 35L;
+  }
+
+  @Override
+  protected OptionalLong getMinSupportedTimestamp() {
+    return OptionalLong.of(cancunHardfork.milestone());
+  }
+
+  @Override
+  protected OptionalLong getFirstUnsupportedTimestamp() {
+    return OptionalLong.of(pragueHardfork.milestone());
+  }
+
+  @Override
+  protected boolean supportsPreShanghaiPayloads() {
+    return false;
   }
 }

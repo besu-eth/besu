@@ -17,7 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.UNSUPPORTED_FORK;
-import static org.mockito.Mockito.lenient;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -40,39 +40,29 @@ import org.hyperledger.besu.ethereum.core.BlockWithReceipts;
 
 import java.util.Collections;
 import java.util.Optional;
+import java.util.OptionalLong;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
-public class EngineGetPayloadV2Test extends AbstractEngineGetPayloadTest {
+public class EngineGetPayloadV2Test extends EngineGetPayloadV1Test {
 
-  public EngineGetPayloadV2Test() {
-    super();
-  }
-
-  @BeforeEach
   @Override
-  public void before() {
-    super.before();
-    lenient().when(mergeContext.retrievePayloadById(mockPid)).thenReturn(Optional.of(mockPayload));
-    when(protocolContext.safeConsensusContext(Mockito.any())).thenReturn(Optional.of(mergeContext));
-    this.method =
-        new EngineGetPayloadV2(
-            vertx,
-            protocolSchedule,
-            protocolContext,
-            mergeMiningCoordinator,
-            factory,
-            engineCallListener,
-            null,
-            CANCUN);
+  protected EngineGetPayloadV1 createMethodInstance() {
+    return new EngineGetPayloadV2(
+        vertx,
+        protocolSchedule,
+        protocolContext,
+        mergeMiningCoordinator,
+        factory,
+        engineCallListener,
+        null,
+        CANCUN);
   }
 
   @Override
@@ -110,6 +100,8 @@ public class EngineGetPayloadV2Test extends AbstractEngineGetPayloadTest {
 
   @Test
   public void shouldReturnExecutionPayloadWithoutWithdrawals_PreShanghaiBlock() {
+    assumeTrue(supportsPreShanghaiPayloads());
+
     final var resp = resp(RpcMethod.ENGINE_GET_PAYLOAD_V2.getMethodName(), mockPid);
     assertThat(resp).isInstanceOf(JsonRpcSuccessResponse.class);
     Optional.of(resp)
@@ -124,9 +116,13 @@ public class EngineGetPayloadV2Test extends AbstractEngineGetPayloadTest {
   }
 
   @Test
-  public void shouldReturnUnsupportedForkIfBlockTimestampIsAfterCancunMilestone() {
-    // Cancun starts at timestamp 30
-    final BlockHeader mockHeader = new BlockHeaderTestFixture().timestamp(31L).buildHeader();
+  public void shouldReturnUnsupportedForkIfBlockTimestampIsAtFirstUnsupportedForkMilestone() {
+    assumeTrue(getFirstUnsupportedTimestamp().isPresent());
+
+    final BlockHeader mockHeader =
+        new BlockHeaderTestFixture()
+            .timestamp(getFirstUnsupportedTimestamp().getAsLong())
+            .buildHeader();
     final Block mockBlock =
         new Block(mockHeader, new BlockBody(Collections.emptyList(), Collections.emptyList()));
     final BlockWithReceipts mockBlockWithReceipts =
@@ -141,7 +137,7 @@ public class EngineGetPayloadV2Test extends AbstractEngineGetPayloadTest {
 
     when(mergeContext.retrievePayloadById(mockPid)).thenReturn(Optional.of(mockPayload));
 
-    final var resp = resp(RpcMethod.ENGINE_GET_PAYLOAD_V2.getMethodName(), mockPid);
+    final var resp = resp(getMethodName(), mockPid);
 
     final JsonRpcError jsonRpcError =
         Optional.of(resp)
@@ -159,7 +155,15 @@ public class EngineGetPayloadV2Test extends AbstractEngineGetPayloadTest {
 
   @Override
   protected long getValidPayloadTimestamp() {
-    // V2 works with Shanghai but must be before Cancun (< 30)
     return 25L;
+  }
+
+  @Override
+  protected OptionalLong getFirstUnsupportedTimestamp() {
+    return OptionalLong.of(cancunHardfork.milestone());
+  }
+
+  protected boolean supportsPreShanghaiPayloads() {
+    return true;
   }
 }

@@ -18,7 +18,7 @@ import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.OSAKA;
-import static org.mockito.Mockito.lenient;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -56,40 +56,28 @@ import java.math.BigInteger;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith({MockitoExtension.class})
-public class EngineGetPayloadV5Test extends AbstractEngineGetPayloadTest {
+public class EngineGetPayloadV5Test extends EngineGetPayloadV4Test {
 
-  public EngineGetPayloadV5Test() {
-    super();
-  }
-
-  @BeforeEach
   @Override
-  public void before() {
-    super.before();
-    lenient()
-        .when(mergeContext.retrievePayloadById(mockPid))
-        .thenReturn(Optional.of(mockPayloadWithDepositRequests));
-    when(protocolContext.safeConsensusContext(Mockito.any())).thenReturn(Optional.of(mergeContext));
-    this.method =
-        new EngineGetPayloadV5(
-            vertx,
-            protocolSchedule,
-            protocolContext,
-            mergeMiningCoordinator,
-            factory,
-            engineCallListener,
-            OSAKA,
-            AMSTERDAM);
+  protected EngineGetPayloadV1 createMethodInstance() {
+    return new EngineGetPayloadV5(
+        vertx,
+        protocolSchedule,
+        protocolContext,
+        mergeMiningCoordinator,
+        factory,
+        engineCallListener,
+        OSAKA,
+        AMSTERDAM);
   }
 
   @Override
@@ -100,8 +88,10 @@ public class EngineGetPayloadV5Test extends AbstractEngineGetPayloadTest {
 
   @Test
   public void shouldReturnUnsupportedForkIfBlockTimestampIsBeforeOsakaMilestone() {
-    PayloadIdentifier cancunPayload = setupPayload(osakaHardfork.milestone() - 1);
-    final var resp = resp(RpcMethod.ENGINE_GET_PAYLOAD_V5.getMethodName(), cancunPayload);
+    assumeTrue(getMinSupportedTimestamp().isPresent());
+
+    PayloadIdentifier cancunPayload = setupPayload(getMinSupportedTimestamp().getAsLong() - 1);
+    final var resp = resp(getMethodName(), cancunPayload);
     assertThat(resp).isInstanceOf(JsonRpcErrorResponse.class);
     assertThat(((JsonRpcErrorResponse) resp).getErrorType())
         .isEqualTo(RpcErrorType.UNSUPPORTED_FORK);
@@ -109,8 +99,10 @@ public class EngineGetPayloadV5Test extends AbstractEngineGetPayloadTest {
 
   @Test
   public void shouldReturnUnsupportedForkIfBlockTimestampIsAtAmsterdamMilestone() {
-    PayloadIdentifier amsterdamPayload = setupPayload(amsterdamHardfork.milestone());
-    final var resp = resp(RpcMethod.ENGINE_GET_PAYLOAD_V5.getMethodName(), amsterdamPayload);
+    assumeTrue(getFirstUnsupportedTimestamp().isPresent());
+
+    PayloadIdentifier amsterdamPayload = setupPayload(getFirstUnsupportedTimestamp().getAsLong());
+    final var resp = resp(getMethodName(), amsterdamPayload);
     assertThat(resp).isInstanceOf(JsonRpcErrorResponse.class);
     assertThat(((JsonRpcErrorResponse) resp).getErrorType())
         .isEqualTo(RpcErrorType.UNSUPPORTED_FORK);
@@ -118,8 +110,11 @@ public class EngineGetPayloadV5Test extends AbstractEngineGetPayloadTest {
 
   @Test
   public void shouldReturnUnsupportedForkIfBlockTimestampIsAfterAmsterdamMilestone() {
-    PayloadIdentifier amsterdamPayload = setupPayload(amsterdamHardfork.milestone() + 1);
-    final var resp = resp(RpcMethod.ENGINE_GET_PAYLOAD_V5.getMethodName(), amsterdamPayload);
+    assumeTrue(getFirstUnsupportedTimestamp().isPresent());
+
+    PayloadIdentifier amsterdamPayload =
+        setupPayload(getFirstUnsupportedTimestamp().getAsLong() + 1);
+    final var resp = resp(getMethodName(), amsterdamPayload);
     assertThat(resp).isInstanceOf(JsonRpcErrorResponse.class);
     assertThat(((JsonRpcErrorResponse) resp).getErrorType())
         .isEqualTo(RpcErrorType.UNSUPPORTED_FORK);
@@ -180,7 +175,7 @@ public class EngineGetPayloadV5Test extends AbstractEngineGetPayloadTest {
 
     when(mergeContext.retrievePayloadById(payloadIdentifier)).thenReturn(Optional.of(payload));
 
-    final var resp = resp(RpcMethod.ENGINE_GET_PAYLOAD_V5.getMethodName(), payloadIdentifier);
+    final var resp = resp(getMethodName(), payloadIdentifier);
     assertThat(resp).isInstanceOf(JsonRpcSuccessResponse.class);
     final List<String> requestsWithoutRequestId =
         requests.stream()
@@ -213,8 +208,23 @@ public class EngineGetPayloadV5Test extends AbstractEngineGetPayloadTest {
   }
 
   @Override
+  protected List<String> getExecutionRequests(final Object result) {
+    assertThat(result).isInstanceOf(EngineGetPayloadResultV5.class);
+    return ((EngineGetPayloadResultV5) result).getExecutionRequests();
+  }
+
+  @Override
   protected long getValidPayloadTimestamp() {
-    // V5 works with Osaka (>= 60) but must be before Amsterdam (< 70)
     return 65L;
+  }
+
+  @Override
+  protected OptionalLong getMinSupportedTimestamp() {
+    return OptionalLong.of(osakaHardfork.milestone());
+  }
+
+  @Override
+  protected OptionalLong getFirstUnsupportedTimestamp() {
+    return OptionalLong.of(amsterdamHardfork.milestone());
   }
 }

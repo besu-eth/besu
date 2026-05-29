@@ -18,7 +18,6 @@ import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.InstanceOfAssertFactories.map;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -62,48 +61,41 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.S
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
-public class EngineGetPayloadV6Test extends AbstractEngineGetPayloadTest {
+public class EngineGetPayloadV6Test extends EngineGetPayloadV5Test {
 
   private static final long AMSTERDAM_TIMESTAMP = 100L;
   private static final ObjectMapper OBJECT_MAPPER =
       JsonRpcObjectMapperFactory.createResponseMapper();
 
-  public EngineGetPayloadV6Test() {
-    super();
+  @Override
+  protected void setupVersionSpecificMocks() {
+    super.setupVersionSpecificMocks();
+    when(protocolSchedule.milestoneFor(AMSTERDAM)).thenReturn(Optional.of(AMSTERDAM_TIMESTAMP));
   }
 
-  @BeforeEach
   @Override
-  public void before() {
-    super.before();
-    lenient().when(mergeContext.retrievePayloadById(mockPid)).thenReturn(Optional.of(mockPayload));
-    when(protocolContext.safeConsensusContext(Mockito.any())).thenReturn(Optional.of(mergeContext));
-    lenient()
-        .when(protocolSchedule.milestoneFor(AMSTERDAM))
-        .thenReturn(Optional.of(AMSTERDAM_TIMESTAMP));
-    this.method =
-        new EngineGetPayloadV6(
-            vertx,
-            protocolSchedule,
-            protocolContext,
-            mergeMiningCoordinator,
-            factory,
-            engineCallListener,
-            AMSTERDAM,
-            null);
+  protected EngineGetPayloadV1 createMethodInstance() {
+    return new EngineGetPayloadV6(
+        vertx,
+        protocolSchedule,
+        protocolContext,
+        mergeMiningCoordinator,
+        factory,
+        engineCallListener,
+        AMSTERDAM,
+        null);
   }
 
   @Override
@@ -118,7 +110,7 @@ public class EngineGetPayloadV6Test extends AbstractEngineGetPayloadTest {
     final BlockAccessList blockAccessList = createSampleBlockAccessList();
     final String encodedBlockAccessList = encodeBlockAccessList(blockAccessList);
     final BlockHeader header =
-        new BlockHeaderTestFixture()
+        blockHeaderTestFixture()
             .timestamp(AMSTERDAM_TIMESTAMP + 1)
             .excessBlobGas(BlobGas.ZERO)
             .blobGasUsed(0L)
@@ -239,13 +231,47 @@ public class EngineGetPayloadV6Test extends AbstractEngineGetPayloadTest {
   }
 
   @Override
-  String getMethodName() {
+  protected String getMethodName() {
     return RpcMethod.ENGINE_GET_PAYLOAD_V6.getMethodName();
   }
 
   @Override
+  protected List<String> getExecutionRequests(final Object result) {
+    assertThat(result).isInstanceOf(EngineGetPayloadResultV6.class);
+    return ((EngineGetPayloadResultV6) result).getExecutionRequests();
+  }
+
+  @Override
   protected long getValidPayloadTimestamp() {
-    // V6 works with Amsterdam (>= 100)
     return AMSTERDAM_TIMESTAMP + 1;
+  }
+
+  @Override
+  protected OptionalLong getMinSupportedTimestamp() {
+    return OptionalLong.of(AMSTERDAM_TIMESTAMP);
+  }
+
+  @Override
+  protected OptionalLong getFirstUnsupportedTimestamp() {
+    return OptionalLong.empty();
+  }
+
+  @Override
+  protected Optional<BlockAccessList> defaultBlockAccessList() {
+    return Optional.of(createSampleBlockAccessList());
+  }
+
+  @Override
+  protected Optional<List<Request>> defaultRequests() {
+    return Optional.of(
+        List.of(
+            new Request(RequestType.DEPOSIT, Bytes.of(1)),
+            new Request(RequestType.WITHDRAWAL, Bytes.of(1)),
+            new Request(RequestType.CONSOLIDATION, Bytes.of(1))));
+  }
+
+  @Override
+  protected BlockHeaderTestFixture blockHeaderTestFixture() {
+    return super.blockHeaderTestFixture().slotNumber(1L);
   }
 }
