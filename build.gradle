@@ -766,6 +766,12 @@ subprojects {
     options.incremental = true
   }
 
+  // Reproducible archives: stable file order and zero timestamps so that
+  // identical source produces byte-identical JARs across independent builds.
+  tasks.withType(AbstractArchiveTask).configureEach {
+    preserveFileTimestamps = false
+    reproducibleFileOrder = true
+  }
 
   configurations {
     testSupportAnnotationProcessor.extendsFrom annotationProcessor
@@ -984,6 +990,8 @@ distTar {
   compression = Compression.GZIP
   setVersion(archiveBuildVersion)
   archiveExtension = 'tar.gz'
+  preserveFileTimestamps = false
+  reproducibleFileOrder = true
 }
 
 distZip {
@@ -992,6 +1000,8 @@ distZip {
     delete fileTree(dir: 'build/distributions', include: '*.zip')
   }
   setVersion(archiveBuildVersion)
+  preserveFileTimestamps = false
+  reproducibleFileOrder = true
 }
 
 publishing {
