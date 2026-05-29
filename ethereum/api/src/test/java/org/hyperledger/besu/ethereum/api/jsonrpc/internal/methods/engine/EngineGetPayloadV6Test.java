@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.InstanceOfAssertFactories.map;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -31,7 +32,9 @@ import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.RequestType;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -57,8 +60,11 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.S
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -72,6 +78,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 public class EngineGetPayloadV6Test extends AbstractEngineGetPayloadTest {
 
   private static final long AMSTERDAM_TIMESTAMP = 100L;
+  private static final ObjectMapper OBJECT_MAPPER =
+      JsonRpcObjectMapperFactory.createResponseMapper();
 
   public EngineGetPayloadV6Test() {
     super();
@@ -89,11 +97,13 @@ public class EngineGetPayloadV6Test extends AbstractEngineGetPayloadTest {
     this.method =
         new EngineGetPayloadV6(
             vertx,
+            protocolSchedule,
             protocolContext,
             mergeMiningCoordinator,
             factory,
             engineCallListener,
-            protocolSchedule);
+            AMSTERDAM,
+            null);
   }
 
   @Override
@@ -156,7 +166,13 @@ public class EngineGetPayloadV6Test extends AbstractEngineGetPayloadTest {
     final EngineGetPayloadResultV6 result =
         (EngineGetPayloadResultV6) ((JsonRpcSuccessResponse) resp).getResult();
 
-    assertThat(result.getExecutionPayload().getBlockAccessList()).isEqualTo(encodedBlockAccessList);
+    assertThat(result.getExecutionPayload()).isInstanceOf(ExecutionPayloadV4.class);
+    assertThat(result.getExecutionPayload().getBlockAccessList()).isEqualTo(blockAccessList);
+    final Map<String, Object> wireResult =
+        OBJECT_MAPPER.convertValue(result, new TypeReference<>() {});
+    assertThat(wireResult.get("executionPayload"))
+        .asInstanceOf(map(String.class, Object.class))
+        .containsEntry("blockAccessList", encodedBlockAccessList);
     assertThat(result.getBlockValue()).isEqualTo(Quantity.create(payload.blockValue()));
     verify(engineCallListener, times(1)).executionEngineCalled();
   }

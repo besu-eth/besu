@@ -15,16 +15,20 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResultV1;
 
+import java.util.Map;
 import java.util.Optional;
 
-import org.apache.tuweni.bytes.Bytes32;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -34,9 +38,26 @@ import org.mockito.quality.Strictness;
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 public class EngineGetPayloadV1Test extends AbstractEngineGetPayloadTest {
+  private static final ObjectMapper OBJECT_MAPPER =
+      JsonRpcObjectMapperFactory.createResponseMapper();
 
   public EngineGetPayloadV1Test() {
-    super(EngineGetPayloadV1::new);
+    super(
+        (vertx,
+            protocolSchedule,
+            protocolContext,
+            mergeMiningCoordinator,
+            blockResultFactory,
+            engineCallListener) ->
+            new EngineGetPayloadV1(
+                vertx,
+                protocolSchedule,
+                protocolContext,
+                mergeMiningCoordinator,
+                blockResultFactory,
+                engineCallListener,
+                null,
+                SHANGHAI));
   }
 
   @Override
@@ -54,11 +75,17 @@ public class EngineGetPayloadV1Test extends AbstractEngineGetPayloadTest {
         .map(JsonRpcSuccessResponse.class::cast)
         .ifPresent(
             r -> {
-              assertThat(r.getResult()).isInstanceOf(EngineGetPayloadResultV1.class);
-              final EngineGetPayloadResultV1 res = (EngineGetPayloadResultV1) r.getResult();
-              assertThat(res.getHash()).isEqualTo(mockHeader.getHash().toString());
-              assertThat(res.getPrevRandao())
-                  .isEqualTo(mockHeader.getPrevRandao().map(Bytes32::toString).orElse(""));
+              assertThat(r.getResult()).isInstanceOf(ExecutionPayloadV1.class);
+              final ExecutionPayloadV1 res = (ExecutionPayloadV1) r.getResult();
+              assertThat(res.getBlockHash()).isEqualTo(mockHeader.getHash());
+              assertThat(res.getPrevRandao()).isEqualTo(mockHeader.getPrevRandao().orElse(null));
+
+              final Map<String, Object> wirePayload =
+                  OBJECT_MAPPER.convertValue(res, new TypeReference<>() {});
+              assertThat(wirePayload)
+                  .containsEntry("blockHash", mockHeader.getHash().toString())
+                  .containsEntry(
+                      "prevRandao", mockHeader.getPrevRandao().orElseThrow().toHexString());
             });
     verify(engineCallListener, times(1)).executionEngineCalled();
   }

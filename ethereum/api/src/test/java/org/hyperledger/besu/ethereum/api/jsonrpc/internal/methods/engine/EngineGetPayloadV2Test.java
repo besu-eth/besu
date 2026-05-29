@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.UNSUPPORTED_FORK;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
@@ -23,6 +24,8 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.PayloadWrapper;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -38,7 +41,6 @@ import org.hyperledger.besu.ethereum.core.BlockWithReceipts;
 import java.util.Collections;
 import java.util.Optional;
 
-import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -64,11 +66,13 @@ public class EngineGetPayloadV2Test extends AbstractEngineGetPayloadTest {
     this.method =
         new EngineGetPayloadV2(
             vertx,
+            protocolSchedule,
             protocolContext,
             mergeMiningCoordinator,
             factory,
             engineCallListener,
-            protocolSchedule);
+            null,
+            CANCUN);
   }
 
   @Override
@@ -92,12 +96,14 @@ public class EngineGetPayloadV2Test extends AbstractEngineGetPayloadTest {
             r -> {
               assertThat(r.getResult()).isInstanceOf(EngineGetPayloadResultV2.class);
               final EngineGetPayloadResultV2 res = (EngineGetPayloadResultV2) r.getResult();
-              assertThat(res.getExecutionPayload().getWithdrawals()).isNotNull();
-              assertThat(res.getExecutionPayload().getHash())
-                  .isEqualTo(mockHeader.getHash().toString());
+              assertThat(res.getExecutionPayload()).isInstanceOf(ExecutionPayloadV2.class);
+              final ExecutionPayloadV2 executionPayload =
+                  (ExecutionPayloadV2) res.getExecutionPayload();
+              assertThat(executionPayload.getWithdrawals()).isNotNull();
+              assertThat(executionPayload.getBlockHash()).isEqualTo(mockHeader.getHash());
               assertThat(res.getBlockValue()).isEqualTo(Quantity.create(0));
-              assertThat(res.getExecutionPayload().getPrevRandao())
-                  .isEqualTo(mockHeader.getPrevRandao().map(Bytes32::toString).orElse(""));
+              assertThat(executionPayload.getPrevRandao())
+                  .isEqualTo(mockHeader.getPrevRandao().orElse(null));
             });
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
@@ -112,7 +118,7 @@ public class EngineGetPayloadV2Test extends AbstractEngineGetPayloadTest {
             r -> {
               assertThat(r.getResult()).isInstanceOf(EngineGetPayloadResultV2.class);
               final EngineGetPayloadResultV2 res = (EngineGetPayloadResultV2) r.getResult();
-              assertThat(res.getExecutionPayload().getWithdrawals()).isNull();
+              assertThat(res.getExecutionPayload()).isExactlyInstanceOf(ExecutionPayloadV1.class);
             });
     verify(engineCallListener, times(1)).executionEngineCalled();
   }

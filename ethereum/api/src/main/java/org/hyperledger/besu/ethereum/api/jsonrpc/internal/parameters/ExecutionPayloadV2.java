@@ -14,14 +14,47 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 
 import java.util.List;
+import java.util.Optional;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.annotation.JsonSetter;
 
+@JsonInclude(JsonInclude.Include.NON_NULL)
+@JsonPropertyOrder({
+  "parentHash",
+  "feeRecipient",
+  "stateRoot",
+  "receiptsRoot",
+  "logsBloom",
+  "prevRandao",
+  "blockNumber",
+  "gasLimit",
+  "gasUsed",
+  "timestamp",
+  "extraData",
+  "baseFeePerGas",
+  "blockHash",
+  "transactions",
+  "withdrawals"
+})
 public sealed class ExecutionPayloadV2 extends ExecutionPayloadV1 permits ExecutionPayloadV3 {
   private List<Withdrawal> withdrawals;
+
+  public ExecutionPayloadV2() {}
+
+  public ExecutionPayloadV2(
+      final BlockHeader header,
+      final List<Transaction> transactions,
+      final Optional<List<Withdrawal>> withdrawals) {
+    super(header, transactions);
+    this.withdrawals = withdrawals.orElse(null);
+  }
 
   @JsonSetter("withdrawals")
   public void setWithdrawals(final List<Withdrawal> withdrawals) {

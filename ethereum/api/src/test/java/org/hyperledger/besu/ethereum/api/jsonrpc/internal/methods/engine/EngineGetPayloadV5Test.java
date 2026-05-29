@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.OSAKA;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -31,6 +33,7 @@ import org.hyperledger.besu.datatypes.RequestType;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -80,11 +83,13 @@ public class EngineGetPayloadV5Test extends AbstractEngineGetPayloadTest {
     this.method =
         new EngineGetPayloadV5(
             vertx,
+            protocolSchedule,
             protocolContext,
             mergeMiningCoordinator,
             factory,
             engineCallListener,
-            protocolSchedule);
+            OSAKA,
+            AMSTERDAM);
   }
 
   @Override
@@ -189,17 +194,13 @@ public class EngineGetPayloadV5Test extends AbstractEngineGetPayloadTest {
             r -> {
               assertThat(r.getResult()).isInstanceOf(EngineGetPayloadResultV5.class);
               final EngineGetPayloadResultV5 res = (EngineGetPayloadResultV5) r.getResult();
+              assertThat(res.getExecutionPayload()).isInstanceOf(ExecutionPayloadV3.class);
               assertThat(res.getExecutionPayload().getWithdrawals()).isNotNull();
-              assertThat(res.getExecutionPayload().getHash())
-                  .isEqualTo(header.getHash().toString());
+              assertThat(res.getExecutionPayload().getBlockHash()).isEqualTo(header.getHash());
               assertThat(res.getBlockValue()).isEqualTo(Quantity.create(0));
               assertThat(res.getExecutionPayload().getPrevRandao())
-                  .isEqualTo(header.getPrevRandao().map(Bytes32::toString).orElse(""));
-              // excessBlobGas: QUANTITY, 256 bits
-              String expectedQuantityOf10 = Bytes32.leftPad(Bytes.of(10)).toQuantityHexString();
-              assertThat(res.getExecutionPayload().getExcessBlobGas()).isNotEmpty();
-              assertThat(res.getExecutionPayload().getExcessBlobGas())
-                  .isEqualTo(expectedQuantityOf10);
+                  .isEqualTo(header.getPrevRandao().orElse(null));
+              assertThat(res.getExecutionPayload().getExcessBlobGas()).isEqualTo(BlobGas.of(10L));
               assertThat(res.getExecutionRequests()).isNotEmpty();
               assertThat(res.getExecutionRequests()).isEqualTo(requestsWithoutRequestId);
             });

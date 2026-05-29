@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.UNSUPPORTED_FORK;
 import static org.mockito.Mockito.lenient;
@@ -32,6 +34,7 @@ import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
@@ -55,7 +58,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -79,11 +81,13 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
     this.method =
         new EngineGetPayloadV3(
             vertx,
+            protocolSchedule,
             protocolContext,
             mergeMiningCoordinator,
             factory,
             engineCallListener,
-            protocolSchedule);
+            CANCUN,
+            PRAGUE);
   }
 
   @Override
@@ -235,17 +239,14 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
             r -> {
               assertThat(r.getResult()).isInstanceOf(EngineGetPayloadResultV3.class);
               final EngineGetPayloadResultV3 res = (EngineGetPayloadResultV3) r.getResult();
+              assertThat(res.getExecutionPayload()).isInstanceOf(ExecutionPayloadV3.class);
               assertThat(res.getExecutionPayload().getWithdrawals()).isNotNull();
-              assertThat(res.getExecutionPayload().getHash())
-                  .isEqualTo(cancunHeader.getHash().toString());
+              assertThat(res.getExecutionPayload().getBlockHash())
+                  .isEqualTo(cancunHeader.getHash());
               assertThat(res.getBlockValue()).isEqualTo(Quantity.create(0));
               assertThat(res.getExecutionPayload().getPrevRandao())
-                  .isEqualTo(cancunHeader.getPrevRandao().map(Bytes32::toString).orElse(""));
-              // excessBlobGas: QUANTITY, 256 bits
-              String expectedQuantityOf10 = Bytes32.leftPad(Bytes.of(10)).toQuantityHexString();
-              assertThat(res.getExecutionPayload().getExcessBlobGas()).isNotEmpty();
-              assertThat(res.getExecutionPayload().getExcessBlobGas())
-                  .isEqualTo(expectedQuantityOf10);
+                  .isEqualTo(cancunHeader.getPrevRandao().orElse(null));
+              assertThat(res.getExecutionPayload().getExcessBlobGas()).isEqualTo(BlobGas.of(10L));
             });
     verify(engineCallListener, times(1)).executionEngineCalled();
   }

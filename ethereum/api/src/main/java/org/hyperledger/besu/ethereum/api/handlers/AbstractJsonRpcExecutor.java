@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.handlers;
 import static io.netty.handler.codec.http.HttpHeaderValues.APPLICATION_JSON;
 
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.context.ContextKey;
 import org.hyperledger.besu.ethereum.api.jsonrpc.execution.JsonRpcExecutor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
@@ -28,7 +29,6 @@ import java.io.IOException;
 import java.util.Optional;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.opentelemetry.api.trace.Tracer;
 import io.opentelemetry.context.Context;
@@ -50,8 +50,7 @@ public abstract class AbstractJsonRpcExecutor {
   final JsonRpcConfiguration jsonRpcConfiguration;
 
   private static final ObjectMapper jsonObjectMapper =
-      new ObjectMapper()
-          .registerModule(new Jdk8Module()); // Handle JDK8 Optionals (de)serialization
+      JsonRpcObjectMapperFactory.createResponseMapper();
 
   /**
    * Creates a new AbstractJsonRpcExecutor.

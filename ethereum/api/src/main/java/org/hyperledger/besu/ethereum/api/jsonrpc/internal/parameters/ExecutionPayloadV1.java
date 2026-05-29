@@ -18,17 +18,38 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.LogsBloomFilter;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.datatypes.parameters.UnsignedLongParameter;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
-import org.hyperledger.besu.ethereum.core.encoding.TransactionDecoder;
+import org.hyperledger.besu.ethereum.core.json.QuantityJson;
+import org.hyperledger.besu.ethereum.core.json.TransactionJson;
 
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
+@JsonInclude(JsonInclude.Include.NON_NULL)
+@JsonPropertyOrder({
+  "parentHash",
+  "feeRecipient",
+  "stateRoot",
+  "receiptsRoot",
+  "logsBloom",
+  "prevRandao",
+  "blockNumber",
+  "gasLimit",
+  "gasUsed",
+  "timestamp",
+  "extraData",
+  "baseFeePerGas",
+  "blockHash",
+  "transactions"
+})
 public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
   private Hash blockHash;
   private Hash parentHash;
@@ -44,6 +65,30 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
   private Hash receiptsRoot;
   private LogsBloomFilter logsBloom;
   private List<Transaction> transactions;
+
+  public ExecutionPayloadV1() {}
+
+  public ExecutionPayloadV1(final BlockHeader header, final List<Transaction> transactions) {
+    setFieldsFromBlock(header, transactions);
+  }
+
+  protected void setFieldsFromBlock(
+      final BlockHeader header, final List<Transaction> transactions) {
+    this.blockNumber = header.getNumber();
+    this.blockHash = header.getHash();
+    this.parentHash = header.getParentHash();
+    this.logsBloom = header.getLogsBloom();
+    this.stateRoot = header.getStateRoot();
+    this.receiptsRoot = header.getReceiptsRoot();
+    this.extraData = header.getExtraData();
+    this.baseFeePerGas = header.getBaseFee().orElse(null);
+    this.gasLimit = header.getGasLimit();
+    this.gasUsed = header.getGasUsed();
+    this.timestamp = header.getTimestamp();
+    this.transactions = transactions;
+    this.feeRecipient = header.getCoinbase();
+    this.prevRandao = header.getPrevRandao().orElse(null);
+  }
 
   @JsonSetter("blockHash")
   public void setBlockHash(final Hash blockHash) {
@@ -66,36 +111,40 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
   }
 
   @JsonSetter("blockNumber")
-  public void setBlockNumber(final UnsignedLongParameter blockNumber) {
-    this.blockNumber = blockNumber.getValue();
+  @JsonDeserialize(using = QuantityJson.LongDeserializer.class)
+  public void setBlockNumber(final long blockNumber) {
+    this.blockNumber = blockNumber;
   }
 
   @JsonSetter("baseFeePerGas")
-  public void setBaseFeePerGas(final String baseFeePerGas) {
-    this.baseFeePerGas = Wei.fromHexString(baseFeePerGas);
+  public void setBaseFeePerGas(final Wei baseFeePerGas) {
+    this.baseFeePerGas = baseFeePerGas;
   }
 
   @JsonSetter("gasLimit")
-  public void setGasLimit(final UnsignedLongParameter gasLimit) {
-    this.gasLimit = gasLimit.getValue();
+  @JsonDeserialize(using = QuantityJson.LongDeserializer.class)
+  public void setGasLimit(final long gasLimit) {
+    this.gasLimit = gasLimit;
   }
 
   @JsonSetter("gasUsed")
-  public void setGasUsed(final UnsignedLongParameter gasUsed) {
-    this.gasUsed = gasUsed.getValue();
+  @JsonDeserialize(using = QuantityJson.LongDeserializer.class)
+  public void setGasUsed(final long gasUsed) {
+    this.gasUsed = gasUsed;
   }
 
   @JsonSetter("timestamp")
-  public void setTimestamp(final UnsignedLongParameter timestamp) {
-    this.timestamp = timestamp.getValue();
+  @JsonDeserialize(using = QuantityJson.LongDeserializer.class)
+  public void setTimestamp(final long timestamp) {
+    this.timestamp = timestamp;
   }
 
   @JsonSetter("extraData")
-  public void setExtraData(final String extraData) {
+  public void setExtraData(final Bytes extraData) {
     if (extraData == null) {
       throw new IllegalArgumentException("extraData must be present");
     }
-    this.extraData = Bytes.fromHexString(extraData);
+    this.extraData = extraData;
   }
 
   @JsonSetter("receiptsRoot")
@@ -109,21 +158,14 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
   }
 
   @JsonSetter("prevRandao")
-  public void setPrevRandao(final String prevRandao) {
-    this.prevRandao = Bytes32.fromHexString(prevRandao);
+  public void setPrevRandao(final Bytes32 prevRandao) {
+    this.prevRandao = prevRandao;
   }
 
   @JsonSetter("transactions")
-  public void setTransactions(final List<String> hexTransactions) {
-    try {
-      this.transactions =
-          hexTransactions.stream()
-              .map(Bytes::fromHexString)
-              .map(in -> TransactionDecoder.decodeOpaqueBytes(in, EncodingContext.BLOCK_BODY))
-              .toList();
-    } catch (final Exception e) {
-      throw new IllegalArgumentException(e);
-    }
+  @JsonDeserialize(contentUsing = TransactionJson.BlockBodyDeserializer.class)
+  public void setTransactions(final List<Transaction> transactions) {
+    this.transactions = transactions;
   }
 
   public Hash getBlockHash() {
@@ -142,6 +184,7 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
     return stateRoot;
   }
 
+  @JsonSerialize(using = QuantityJson.LongSerializer.class)
   public long getBlockNumber() {
     return blockNumber;
   }
@@ -150,14 +193,17 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
     return baseFeePerGas;
   }
 
+  @JsonSerialize(using = QuantityJson.LongSerializer.class)
   public long getGasLimit() {
     return gasLimit;
   }
 
+  @JsonSerialize(using = QuantityJson.LongSerializer.class)
   public long getGasUsed() {
     return gasUsed;
   }
 
+  @JsonSerialize(using = QuantityJson.LongSerializer.class)
   public long getTimestamp() {
     return timestamp;
   }
@@ -178,6 +224,7 @@ public sealed class ExecutionPayloadV1 permits ExecutionPayloadV2 {
     return prevRandao;
   }
 
+  @JsonSerialize(contentUsing = TransactionJson.BlockBodySerializer.class)
   public List<Transaction> getTransactions() {
     return transactions;
   }

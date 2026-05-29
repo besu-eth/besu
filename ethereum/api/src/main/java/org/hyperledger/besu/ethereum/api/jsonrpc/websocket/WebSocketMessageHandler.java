@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.websocket;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_REQUEST;
 
 import org.hyperledger.besu.ethereum.api.handlers.IsAliveHandler;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.execution.JsonRpcExecutor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
@@ -34,7 +35,6 @@ import com.fasterxml.jackson.core.JsonGenerator.Feature;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
-import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.ServerWebSocket;
@@ -48,13 +48,11 @@ import org.slf4j.LoggerFactory;
 public class WebSocketMessageHandler {
 
   private static final ObjectMapper jsonObjectMapper =
-      new ObjectMapper()
-          .registerModule(new Jdk8Module()); // Handle JDK8 Optionals (de)serialization
+      JsonRpcObjectMapperFactory.createResponseMapper();
 
   private static final Logger LOG = LoggerFactory.getLogger(WebSocketMessageHandler.class);
   private static final ObjectWriter JSON_OBJECT_WRITER =
-      new ObjectMapper()
-          .registerModule(new Jdk8Module()) // Handle JDK8 Optionals (de)serialization
+      jsonObjectMapper
           .writer()
           .without(Feature.FLUSH_PASSED_TO_STREAM)
           .with(Feature.AUTO_CLOSE_TARGET);

@@ -154,7 +154,7 @@ public sealed class EngineNewPayloadV3<
     final ExecutionPayloadV3 payloadParameter = requestParameters.payloadParameter();
     blockHeaderBuilder
         .blobGasUsed(payloadParameter.getBlobGasUsed())
-        .excessBlobGas(BlobGas.fromHexString(payloadParameter.getExcessBlobGas()))
+        .excessBlobGas(payloadParameter.getExcessBlobGas())
         .parentBeaconBlockRoot(requestParameters.parentBeaconBlockRoot());
   }
 

@@ -14,33 +14,75 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
-import org.hyperledger.besu.datatypes.parameters.UnsignedLongParameter;
-import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListDecoder;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.core.json.QuantityJson;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 
+import java.util.List;
+import java.util.Optional;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.annotation.JsonSetter;
-import org.apache.tuweni.bytes.Bytes;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 
+@JsonInclude(JsonInclude.Include.NON_NULL)
+@JsonPropertyOrder({
+  "parentHash",
+  "feeRecipient",
+  "stateRoot",
+  "receiptsRoot",
+  "logsBloom",
+  "prevRandao",
+  "blockNumber",
+  "gasLimit",
+  "gasUsed",
+  "timestamp",
+  "extraData",
+  "baseFeePerGas",
+  "blockHash",
+  "transactions",
+  "withdrawals",
+  "blobGasUsed",
+  "excessBlobGas",
+  "blockAccessList",
+  "slotNumber"
+})
 public final class ExecutionPayloadV4 extends ExecutionPayloadV3 {
   private BlockAccessList blockAccessList;
   private Long slotNumber;
 
+  public ExecutionPayloadV4() {}
+
+  public ExecutionPayloadV4(
+      final BlockHeader header,
+      final List<Transaction> transactions,
+      final Optional<List<Withdrawal>> withdrawals,
+      final Optional<BlockAccessList> blockAccessList) {
+    super(header, transactions, withdrawals);
+    this.blockAccessList = blockAccessList.orElse(null);
+    this.slotNumber = header.getOptionalSlotNumber().orElse(null);
+  }
+
   @JsonSetter("blockAccessList")
-  public void setBlockAccessList(final Bytes rawBlockAccessList) {
-    this.blockAccessList =
-        BlockAccessListDecoder.decode(new BytesValueRLPInput(rawBlockAccessList, false));
+  public void setBlockAccessList(final BlockAccessList blockAccessList) {
+    this.blockAccessList = blockAccessList;
   }
 
   @JsonSetter("slotNumber")
-  public void setSlotNumber(final UnsignedLongParameter slotNumber) {
-    this.slotNumber = slotNumber.getValue();
+  @JsonDeserialize(using = QuantityJson.LongDeserializer.class)
+  public void setSlotNumber(final Long slotNumber) {
+    this.slotNumber = slotNumber;
   }
 
   public BlockAccessList getBlockAccessList() {
     return blockAccessList;
   }
 
+  @JsonSerialize(using = QuantityJson.LongSerializer.class)
   public Long getSlotNumber() {
     return slotNumber;
   }

@@ -41,6 +41,7 @@ import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockWithReceipts;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
 import java.util.Collections;
 import java.util.Optional;
@@ -64,8 +65,9 @@ public abstract class AbstractEngineGetPayloadTest extends AbstractScheduledApiT
 
   @FunctionalInterface
   interface MethodFactory {
-    AbstractEngineGetPayload create(
+    EngineGetPayloadV1 create(
         final Vertx vertx,
+        final ProtocolSchedule protocolSchedule,
         final ProtocolContext protocolContext,
         final MergeMiningCoordinator mergeCoordinator,
         final BlockResultFactory ethPeers,
@@ -73,7 +75,7 @@ public abstract class AbstractEngineGetPayloadTest extends AbstractScheduledApiT
   }
 
   private final Optional<MethodFactory> methodFactory;
-  protected AbstractEngineGetPayload method;
+  protected EngineGetPayloadV1 method;
 
   public AbstractEngineGetPayloadTest(final MethodFactory methodFactory) {
     this.methodFactory = Optional.of(methodFactory);
@@ -147,7 +149,13 @@ public abstract class AbstractEngineGetPayloadTest extends AbstractScheduledApiT
       this.method =
           methodFactory
               .get()
-              .create(vertx, protocolContext, mergeMiningCoordinator, factory, engineCallListener);
+              .create(
+                  vertx,
+                  protocolSchedule,
+                  protocolContext,
+                  mergeMiningCoordinator,
+                  factory,
+                  engineCallListener);
     }
   }
 

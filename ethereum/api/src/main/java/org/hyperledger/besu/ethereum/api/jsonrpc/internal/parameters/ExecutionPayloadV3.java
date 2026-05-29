@@ -14,29 +14,73 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
-import org.hyperledger.besu.datatypes.parameters.UnsignedLongParameter;
+import org.hyperledger.besu.datatypes.BlobGas;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.core.json.QuantityJson;
 
+import java.util.List;
+import java.util.Optional;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 
+@JsonInclude(JsonInclude.Include.NON_NULL)
+@JsonPropertyOrder({
+  "parentHash",
+  "feeRecipient",
+  "stateRoot",
+  "receiptsRoot",
+  "logsBloom",
+  "prevRandao",
+  "blockNumber",
+  "gasLimit",
+  "gasUsed",
+  "timestamp",
+  "extraData",
+  "baseFeePerGas",
+  "blockHash",
+  "transactions",
+  "withdrawals",
+  "blobGasUsed",
+  "excessBlobGas"
+})
 public sealed class ExecutionPayloadV3 extends ExecutionPayloadV2 permits ExecutionPayloadV4 {
   private Long blobGasUsed;
-  private String excessBlobGas;
+  private BlobGas excessBlobGas;
+
+  public ExecutionPayloadV3() {}
+
+  public ExecutionPayloadV3(
+      final BlockHeader header,
+      final List<Transaction> transactions,
+      final Optional<List<Withdrawal>> withdrawals) {
+    super(header, transactions, withdrawals);
+    this.blobGasUsed = header.getBlobGasUsed().orElse(0L);
+    this.excessBlobGas = header.getExcessBlobGas().orElse(BlobGas.ZERO);
+  }
 
   @JsonSetter("blobGasUsed")
-  public void setBlobGasUsed(final UnsignedLongParameter blobGasUsed) {
-    this.blobGasUsed = blobGasUsed.getValue();
+  @JsonDeserialize(using = QuantityJson.LongDeserializer.class)
+  public void setBlobGasUsed(final Long blobGasUsed) {
+    this.blobGasUsed = blobGasUsed;
   }
 
   @JsonSetter("excessBlobGas")
-  public void setExcessBlobGas(final String excessBlobGas) {
+  public void setExcessBlobGas(final BlobGas excessBlobGas) {
     this.excessBlobGas = excessBlobGas;
   }
 
+  @JsonSerialize(using = QuantityJson.LongSerializer.class)
   public Long getBlobGasUsed() {
     return blobGasUsed;
   }
 
-  public String getExcessBlobGas() {
+  public BlobGas getExcessBlobGas() {
     return excessBlobGas;
   }
 }

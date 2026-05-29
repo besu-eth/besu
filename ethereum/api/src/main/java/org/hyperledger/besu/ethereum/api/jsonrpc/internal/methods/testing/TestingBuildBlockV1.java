@@ -44,14 +44,10 @@ import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
-import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
-import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import org.hyperledger.besu.util.HexUtils;
 
@@ -252,20 +248,9 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
 
       final Block block = result.getBlock();
 
-      final List<String> txsAsHex =
-          block.getBody().getTransactions().stream()
-              .map(tx -> TransactionEncoder.encodeOpaqueBytes(tx, EncodingContext.BLOCK_BODY))
-              .map(b -> HexUtils.toFastHex(b, true))
-              .collect(Collectors.toList());
-
       final Optional<List<String>> executionRequests = getExecutionRequests(result);
 
       final BlobsBundleV2 blobsBundle = new BlobsBundleV2(block.getBody().getTransactions());
-
-      final String blockAccessListHex = encodeBlockAccessList(result.getBlockAccessList());
-
-      final String slotNumberHex =
-          block.getHeader().getOptionalSlotNumber().map(Quantity::create).orElse(null);
 
       final Wei blockValue =
           BlockValueCalculator.calculateBlockValue(
@@ -274,13 +259,12 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
       final EngineGetPayloadResultV6 responsePayload =
           new EngineGetPayloadResultV6(
               block.getHeader(),
-              txsAsHex,
+              block.getBody().getTransactions(),
               block.getBody().getWithdrawals(),
               executionRequests,
               Quantity.create(blockValue),
               blobsBundle,
-              blockAccessListHex,
-              slotNumberHex);
+              result.getBlockAccessList());
 
       return new JsonRpcSuccessResponse(requestId, responsePayload);
 
@@ -320,16 +304,5 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
                     .map(Request::getEncodedRequest)
                     .map(b -> HexUtils.toFastHex(b, true))
                     .toList());
-  }
-
-  private String encodeBlockAccessList(final Optional<BlockAccessList> maybeBlockAccessList) {
-    return maybeBlockAccessList
-        .map(
-            bal -> {
-              final BytesValueRLPOutput output = new BytesValueRLPOutput();
-              bal.writeTo(output);
-              return output.encoded().toHexString();
-            })
-        .orElse(null);
   }
 }

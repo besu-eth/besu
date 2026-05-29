@@ -14,36 +14,15 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
-import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.core.json.Bytes32Deserializer;
-import org.hyperledger.besu.ethereum.core.json.BytesDeserializer;
-import org.hyperledger.besu.ethereum.core.json.HashDeserializer;
-import org.hyperledger.besu.ethereum.core.json.UInt64Deserializer;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 
 import java.util.List;
 import java.util.Optional;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonToken;
-import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
-import com.fasterxml.jackson.databind.module.SimpleModule;
-import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
-import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.Bytes32;
-import org.apache.tuweni.units.bigints.UInt64;
 
 public class JsonRpcParameter {
-
-  private static final SimpleModule ETH_MODULE =
-      new SimpleModule("eth")
-          .addDeserializer(Hash.class, new HashDeserializer())
-          .addDeserializer(UInt64.class, new UInt64Deserializer())
-          .addDeserializer(Bytes.class, new BytesDeserializer())
-          .addDeserializer(Bytes32.class, new Bytes32Deserializer());
 
   /**
    * Jackson's default {@link ObjectMapper}. Classes that need to tolerate unknown JSON properties
@@ -51,22 +30,16 @@ public class JsonRpcParameter {
    * that annotation, an unknown property fails deserialization regardless of its value.
    */
   private static final ObjectMapper mapperDefault =
-      new ObjectMapper()
-          .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true)
-          .registerModule(new Jdk8Module()) // Handle JDK8 Optionals (de)serialization
-          .registerModule(ETH_MODULE); // Handle ETH-specific data structures
+      JsonRpcObjectMapperFactory.createParameterMapper();
 
   /**
    * Like mapperDefault but with {@link DeserializationFeature#FAIL_ON_UNKNOWN_PROPERTIES}
-   * explicitly enabled and an {@link IgnoreNullUnknownHandler} attached: unknown JSON properties
-   * whose value is {@code null} are silently dropped, while unknown properties with a non-{@code
-   * null} value still cause deserialization to fail.
+   * explicitly enabled and a handler attached: unknown JSON properties whose value is {@code null}
+   * are silently dropped, while unknown properties with a non-{@code null} value still cause
+   * deserialization to fail.
    */
   private static final ObjectMapper mapperFailOnUnknownButNull =
-      mapperDefault
-          .copy()
-          .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true)
-          .addHandler(new IgnoreNullUnknownHandler());
+      JsonRpcObjectMapperFactory.createParameterMapperIgnoringUnknownNulls();
 
   /**
    * Retrieves a required parameter at the given index interpreted as the given class. Throws
@@ -251,9 +224,9 @@ public class JsonRpcParameter {
     DEFAULT(mapperDefault),
     /**
      * Like {@link #DEFAULT} but with {@link DeserializationFeature#FAIL_ON_UNKNOWN_PROPERTIES}
-     * explicitly enabled and an {@link IgnoreNullUnknownHandler} attached: unknown JSON properties
-     * whose value is {@code null} are silently dropped, while unknown properties with a non-{@code
-     * null} value still cause deserialization to fail.
+     * explicitly enabled and a handler attached: unknown JSON properties whose value is {@code
+     * null} are silently dropped, while unknown properties with a non-{@code null} value still
+     * cause deserialization to fail.
      */
     FAIL_ON_UNKNOWN_BUT_NULL(mapperFailOnUnknownButNull);
 
@@ -261,28 +234,6 @@ public class JsonRpcParameter {
 
     Configuration(final ObjectMapper mapper) {
       this.mapper = mapper;
-    }
-  }
-
-  private static class IgnoreNullUnknownHandler extends DeserializationProblemHandler {
-    @Override
-    public boolean handleUnknownProperty(
-        final DeserializationContext ctxt,
-        final JsonParser p,
-        final JsonDeserializer<?> deserializer,
-        final Object beanOrClass,
-        final String propertyName)
-        throws java.io.IOException {
-      if (p.currentToken() != JsonToken.VALUE_NULL) {
-        return false;
-      }
-      // Per DeserializationProblemHandler contract, the handler must consume the value
-      // when returning true. skipChildren() is the idiomatic call; it is a no-op for
-      // scalar tokens (including VALUE_NULL) but satisfies the contract and protects
-      // against different Jackson code paths that do not advance the parser after
-      // seeing a true return value.
-      p.skipChildren();
-      return true;
     }
   }
 }

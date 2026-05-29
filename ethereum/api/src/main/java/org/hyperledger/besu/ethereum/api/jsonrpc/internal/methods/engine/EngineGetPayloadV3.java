@@ -14,44 +14,36 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
-
 import org.hyperledger.besu.consensus.merge.PayloadWrapper;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
-import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
-
-import java.util.Optional;
 
 import io.vertx.core.Vertx;
 
-public class EngineGetPayloadV3 extends AbstractEngineGetPayload {
-
-  private final Optional<Long> cancunMilestone;
+public sealed class EngineGetPayloadV3 extends EngineGetPayloadV2 permits EngineGetPayloadV4 {
 
   public EngineGetPayloadV3(
       final Vertx vertx,
+      final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final MergeMiningCoordinator mergeMiningCoordinator,
       final BlockResultFactory blockResultFactory,
       final EngineCallListener engineCallListener,
-      final ProtocolSchedule schedule) {
+      final HardforkId minSupportedFork,
+      final HardforkId firstUnsupportedFork) {
     super(
         vertx,
-        schedule,
+        protocolSchedule,
         protocolContext,
         mergeMiningCoordinator,
         blockResultFactory,
-        engineCallListener);
-    cancunMilestone = schedule.milestoneFor(CANCUN);
+        engineCallListener,
+        minSupportedFork,
+        firstUnsupportedFork);
   }
 
   @Override
@@ -60,20 +52,7 @@ public class EngineGetPayloadV3 extends AbstractEngineGetPayload {
   }
 
   @Override
-  protected JsonRpcResponse createResponse(
-      final JsonRpcRequestContext request, final PayloadWrapper payload) {
-
-    return new JsonRpcSuccessResponse(
-        request.getRequest().getId(), blockResultFactory.payloadTransactionCompleteV3(payload));
-  }
-
-  @Override
-  protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    return ForkSupportHelper.validateForkSupported(
-        CANCUN,
-        cancunMilestone,
-        PRAGUE,
-        protocolSchedule.flatMap(s -> s.milestoneFor(PRAGUE)),
-        blockTimestamp);
+  protected Object createResponsePayload(final PayloadWrapper payload) {
+    return blockResultFactory.payloadTransactionCompleteV3(payload);
   }
 }
