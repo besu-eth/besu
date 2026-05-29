@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethstats;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.times;
@@ -42,6 +43,7 @@ import org.hyperledger.besu.ethstats.request.EthStatsRequest;
 import org.hyperledger.besu.ethstats.util.EthStatsConnectOptions;
 import org.hyperledger.besu.ethstats.util.ImmutableEthStatsConnectOptions;
 
+import java.lang.reflect.Field;
 import java.math.BigInteger;
 import java.time.Duration;
 import java.util.List;
@@ -309,6 +311,28 @@ public class EthStatsServiceTest {
     final JsonNode expectedBlockResultNode = objectMapper.valueToTree(expectedBlockResult);
 
     assertThat(blockDataNode).isEqualTo(expectedBlockResultNode);
+  }
+
+  @Test
+  public void shouldThrowWhenSendBlockReportCalledBeforeConnect() {
+    assertThatThrownBy(() -> ethStatsService.sendBlockReport())
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("WebSocket connection is required but is not available.");
+  }
+
+  @Test
+  public void shouldThrowWhenSendBlockReportCalledBeforeEnodeInitialized() throws Exception {
+    setPrivateField("webSocket", webSocket);
+
+    assertThatThrownBy(() -> ethStatsService.sendBlockReport())
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("Local enode URL has not been initialized yet.");
+  }
+
+  private void setPrivateField(final String fieldName, final Object value) throws Exception {
+    final Field field = EthStatsService.class.getDeclaredField(fieldName);
+    field.setAccessible(true);
+    field.set(ethStatsService, value);
   }
 
   private <T> AsyncResult<T> succeededWebSocketEvent(final T object) {
