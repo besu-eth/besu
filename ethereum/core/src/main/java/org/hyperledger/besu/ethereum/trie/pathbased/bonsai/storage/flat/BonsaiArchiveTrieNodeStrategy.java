@@ -21,6 +21,7 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBa
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_NUMBER_KEY;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.BonsaiContext;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
@@ -43,10 +44,17 @@ public class BonsaiArchiveTrieNodeStrategy implements TrieNodeStrategy {
 
   private final BonsaiTrieNodeStrategy defaultStrategy = new BonsaiTrieNodeStrategy();
   private final Long trieNodeCheckpointInterval;
+  private final BonsaiCachedMerkleTrieLoader trieLoader;
   private volatile boolean intervalSeeded = false;
 
   public BonsaiArchiveTrieNodeStrategy(final Long trieNodeCheckpointInterval) {
+    this(trieNodeCheckpointInterval, null);
+  }
+
+  public BonsaiArchiveTrieNodeStrategy(
+      final Long trieNodeCheckpointInterval, final BonsaiCachedMerkleTrieLoader trieLoader) {
     this.trieNodeCheckpointInterval = trieNodeCheckpointInterval;
+    this.trieLoader = trieLoader;
   }
 
   @Override
@@ -104,6 +112,9 @@ public class BonsaiArchiveTrieNodeStrategy implements TrieNodeStrategy {
       byte[] keySuffixed =
           BonsaiArchiveKeyUtil.calculateArchiveKeyWithMinSuffix(ctx, location.toArrayUnsafe());
       transaction.put(TRIE_BRANCH_STORAGE_ARCHIVE, keySuffixed, node.toArrayUnsafe());
+      if (trieLoader != null) {
+        trieLoader.putAccountNode(nodeHash, node);
+      }
       LOG.trace(
           "Archive account trie node written: location={} suffix={}",
           location,
@@ -128,6 +139,9 @@ public class BonsaiArchiveTrieNodeStrategy implements TrieNodeStrategy {
           BonsaiArchiveKeyUtil.calculateArchiveKeyWithMinSuffix(
               ctx, Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe());
       transaction.put(TRIE_BRANCH_STORAGE_ARCHIVE, keySuffixed, node.toArrayUnsafe());
+      if (trieLoader != null) {
+        trieLoader.putStorageNode(nodeHash, node);
+      }
       LOG.trace(
           "Archive storage trie node written: account={} location={} suffix={}",
           accountHash,

@@ -133,6 +133,14 @@ public class BonsaiCachedMerkleTrieLoader implements StorageSubscriber {
     }
   }
 
+  public void putAccountNode(final Bytes32 nodeHash, final Bytes node) {
+    accountNodes.put(nodeHash, node);
+  }
+
+  public void putStorageNode(final Bytes32 nodeHash, final Bytes node) {
+    storageNodes.put(nodeHash, node);
+  }
+
   public Optional<Bytes> getAccountStateTrieNode(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
       final Bytes location,

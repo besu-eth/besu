@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.NoOpBonsaiCachedWorldStorageManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoopBonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -62,6 +63,8 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -90,6 +93,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   private static final Logger LOG = LoggerFactory.getLogger(BonsaiFlatDbToArchiveMigrator.class);
   private static final int LOG_INTERVAL_SECONDS = 60;
   private static final long CATCHUP_LOG_THRESHOLD = 32;
+  private static final Executor PREFETCH_POOL = Executors.newVirtualThreadPerTaskExecutor();
 
   private static final byte[] MIGRATION_PROGRESS_KEY =
       "ARCHIVE_MIGRATION_PROGRESS".getBytes(StandardCharsets.UTF_8);
@@ -210,11 +214,10 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
 
   private void migrateBlocks(
       final long startBlock, final AtomicLong target, final boolean shouldLog) {
+    CompletableFuture<Optional<TrieLog>> prefetched = prefetchTrieLog(startBlock);
     for (long blockNumber = startBlock; blockNumber <= target.get(); blockNumber++) {
-      final Optional<TrieLog> maybeTrieLog =
-          blockchain
-              .getBlockHeader(blockNumber)
-              .flatMap(header -> trieLogManager.getTrieLogLayer(header.getHash()));
+      final Optional<TrieLog> maybeTrieLog = prefetched.join();
+      prefetched = prefetchTrieLog(blockNumber + 1);
       if (maybeTrieLog.isPresent()) {
         final SegmentedKeyValueStorageTransaction tx =
             worldStateStorage.getComposedWorldStateStorage().startLowPriorityTransaction();
@@ -232,6 +235,15 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
         throw new IllegalStateException("No trie log found for block " + blockNumber);
       }
     }
+  }
+
+  private CompletableFuture<Optional<TrieLog>> prefetchTrieLog(final long blockNumber) {
+    return CompletableFuture.supplyAsync(
+        () ->
+            blockchain
+                .getBlockHeader(blockNumber)
+                .flatMap(header -> trieLogManager.getTrieLogLayer(header.getHash())),
+        PREFETCH_POOL);
   }
 
   /**
@@ -436,6 +448,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
     final StaticArchiveFlatDbStrategyProvider provider =
         new StaticArchiveFlatDbStrategyProvider(metricsSystem, readStrategy);
     provider.loadFlatDbStrategy(migrationTrieStorage);
+    final BonsaiCachedMerkleTrieLoader migrationTrieLoader = new NoopBonsaiCachedMerkleTrieLoader();
     final BonsaiWorldStateKeyValueStorage migrationKvStorage =
         new BonsaiWorldStateKeyValueStorage(
             provider,
@@ -443,12 +456,12 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
             new InMemoryKeyValueStorage(),
             CacheManager.NO_OP_CACHE,
             0L,
-            new BonsaiArchiveTrieNodeStrategy(interval));
+            new BonsaiArchiveTrieNodeStrategy(interval, migrationTrieLoader));
     final CodeCache codeCache = new CodeCache();
     migrationWorldState =
         new BonsaiWorldState(
             migrationKvStorage,
-            new NoopBonsaiCachedMerkleTrieLoader(),
+            migrationTrieLoader,
             new NoOpBonsaiCachedWorldStorageManager(
                 migrationKvStorage, EvmConfiguration.DEFAULT, codeCache),
             new NoOpTrieLogManager(),
