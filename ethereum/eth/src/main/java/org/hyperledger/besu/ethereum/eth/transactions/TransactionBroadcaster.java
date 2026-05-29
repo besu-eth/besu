@@ -114,10 +114,13 @@ public class TransactionBroadcaster
 
     Collections.shuffle(peers, random);
 
+    final int actualNumPeersToSendFullTransactions =
+        Math.min(numPeersToSendFullTransactions, peers.size());
+
     final List<EthPeer> sendFullTransactionsPeers =
-        peers.subList(0, numPeersToSendFullTransactions);
+        peers.subList(0, actualNumPeersToSendFullTransactions);
     final List<EthPeer> sendOnlyHashesPeers =
-        peers.subList(numPeersToSendFullTransactions, peers.size());
+        peers.subList(actualNumPeersToSendFullTransactions, peers.size());
 
     LOG.atTrace()
         .setMessage("Sending full transactions to {} peers, transaction hashes only to {} peers")

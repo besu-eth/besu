@@ -47,11 +47,15 @@ public class BftSyncAcceptanceTest extends ParameterizedBftTestBase {
       throws Exception {
     setUp(testName, nodeFactory);
 
+    // Prefix node names with testName+syncMode so parallel parameterized cases
+    // (ibft2/FULL, qbft/FULL, ibft2/SNAP) hash to distinct fixed ports and don't collide.
+    final String prefix = testName + "-" + syncMode.name() + "-";
+
     // Create validator network with 4 validators
-    final BesuNode validator1 = nodeFactory.createBonsaiNodeFixedPort(besu, "validator1");
-    final BesuNode validator2 = nodeFactory.createBonsaiNodeFixedPort(besu, "validator2");
-    final BesuNode validator3 = nodeFactory.createBonsaiNodeFixedPort(besu, "validator3");
-    final BesuNode validator4 = nodeFactory.createBonsaiNodeFixedPort(besu, "validator4");
+    final BesuNode validator1 = nodeFactory.createBonsaiNodeFixedPort(besu, prefix + "validator1");
+    final BesuNode validator2 = nodeFactory.createBonsaiNodeFixedPort(besu, prefix + "validator2");
+    final BesuNode validator3 = nodeFactory.createBonsaiNodeFixedPort(besu, prefix + "validator3");
+    final BesuNode validator4 = nodeFactory.createBonsaiNodeFixedPort(besu, prefix + "validator4");
 
     // Enable snap server on validators 1-3 so they can serve world state data
     // This is required for SNAP sync mode to work

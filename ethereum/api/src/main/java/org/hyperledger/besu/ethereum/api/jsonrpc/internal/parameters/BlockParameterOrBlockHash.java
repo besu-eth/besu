@@ -79,6 +79,9 @@ public class BlockParameterOrBlockHash {
         requireCanonical = false;
       } else if (normalizedValue.length() > 16) {
         throw new IllegalArgumentException("hex number > 64 bits");
+      } else if (!normalizedValue.startsWith("0x")) {
+        throw new IllegalArgumentException(
+            "Invalid block number: must be a hex string with 0x prefix");
       } else {
         type = BlockParameterType.NUMERIC;
         number = OptionalLong.of(Long.decode(value.toString()));
@@ -97,8 +100,13 @@ public class BlockParameterOrBlockHash {
           requireCanonical = false;
         }
       } else {
+        final String blockNumberText = jsonNode.get("blockNumber").asText();
+        if (!blockNumberText.toLowerCase(Locale.ROOT).startsWith("0x")) {
+          throw new IllegalArgumentException(
+              "Invalid block number: must be a hex string with 0x prefix");
+        }
         type = BlockParameterType.NUMERIC;
-        number = OptionalLong.of(Long.decode(jsonNode.get("blockNumber").asText()));
+        number = OptionalLong.of(Long.decode(blockNumberText));
         blockHash = Optional.empty();
         requireCanonical = false;
       }
