@@ -58,7 +58,7 @@ public class Code {
    * @param codeHash the hash of the bytecode
    */
   public Code(final Bytes byteCode, final Hash codeHash) {
-    this.bytes = byteCode;
+    this.bytes = Bytes.wrap(byteCode.toArrayUnsafe());
     this.codeHash = codeHash;
   }
 
