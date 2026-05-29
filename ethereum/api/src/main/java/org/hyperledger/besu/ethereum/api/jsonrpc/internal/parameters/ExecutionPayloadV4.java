@@ -21,7 +21,6 @@ import org.hyperledger.besu.ethereum.core.json.QuantityJson;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import java.util.List;
-import java.util.Optional;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
@@ -60,11 +59,11 @@ public final class ExecutionPayloadV4 extends ExecutionPayloadV3 {
   public ExecutionPayloadV4(
       final BlockHeader header,
       final List<Transaction> transactions,
-      final Optional<List<Withdrawal>> withdrawals,
-      final Optional<BlockAccessList> blockAccessList) {
+      final List<Withdrawal> withdrawals,
+      final BlockAccessList blockAccessList) {
     super(header, transactions, withdrawals);
-    this.blockAccessList = blockAccessList.orElse(null);
-    this.slotNumber = header.getOptionalSlotNumber().orElse(null);
+    this.blockAccessList = blockAccessList;
+    this.slotNumber = header.getOptionalSlotNumber().orElseThrow();
   }
 
   @JsonSetter("blockAccessList")

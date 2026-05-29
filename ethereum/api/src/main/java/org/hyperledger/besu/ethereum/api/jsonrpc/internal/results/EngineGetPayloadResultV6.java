@@ -21,7 +21,6 @@ import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import java.util.List;
-import java.util.Optional;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
@@ -43,17 +42,17 @@ public class EngineGetPayloadResultV6 {
   public EngineGetPayloadResultV6(
       final BlockHeader header,
       final List<Transaction> transactions,
-      final Optional<List<Withdrawal>> withdrawals,
-      final Optional<List<String>> executionRequests,
+      final List<Withdrawal> withdrawals,
+      final List<String> executionRequests,
       final String blockValue,
       final BlobsBundleV2 blobsBundle,
-      final Optional<BlockAccessList> blockAccessList) {
+      final BlockAccessList blockAccessList) {
     this.executionPayload =
         new ExecutionPayloadV4(header, transactions, withdrawals, blockAccessList);
     this.blockValue = blockValue;
     this.blobsBundle = blobsBundle;
     this.shouldOverrideBuilder = false;
-    this.executionRequests = executionRequests.orElse(null);
+    this.executionRequests = executionRequests;
   }
 
   @JsonGetter(value = "executionPayload")

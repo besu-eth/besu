@@ -42,7 +42,7 @@ public class EngineGetPayloadResultV5 {
   public EngineGetPayloadResultV5(
       final BlockHeader header,
       final List<Transaction> transactions,
-      final Optional<List<Withdrawal>> withdrawals,
+      final List<Withdrawal> withdrawals,
       final Optional<List<String>> executionRequests,
       final String blockValue,
       final BlobsBundleV2 blobsBundle) {

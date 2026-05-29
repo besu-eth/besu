@@ -20,7 +20,6 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 
 import java.util.List;
-import java.util.Optional;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
@@ -35,7 +34,7 @@ public class EngineGetPayloadResultV3 {
   public EngineGetPayloadResultV3(
       final BlockHeader header,
       final List<Transaction> transactions,
-      final Optional<List<Withdrawal>> withdrawals,
+      final List<Withdrawal> withdrawals,
       final String blockValue,
       final BlobsBundleV1 blobsBundle) {
     this.executionPayload = new ExecutionPayloadV3(header, transactions, withdrawals);

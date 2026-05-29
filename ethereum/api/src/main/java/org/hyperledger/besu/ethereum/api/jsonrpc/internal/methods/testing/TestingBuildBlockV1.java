@@ -260,11 +260,11 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
           new EngineGetPayloadResultV6(
               block.getHeader(),
               block.getBody().getTransactions(),
-              block.getBody().getWithdrawals(),
-              executionRequests,
+              block.getBody().getWithdrawals().orElseThrow(),
+              executionRequests.orElseThrow(),
               Quantity.create(blockValue),
               blobsBundle,
-              result.getBlockAccessList());
+              result.getBlockAccessList().orElseThrow());
 
       return new JsonRpcSuccessResponse(requestId, responsePayload);
 

@@ -153,7 +153,7 @@ public class BlockResultFactory {
     return new EngineGetPayloadResultV3(
         blockWithReceipts.getHeader(),
         block.getBody().getTransactions(),
-        block.getBody().getWithdrawals(),
+        block.getBody().getWithdrawals().orElseThrow(),
         Quantity.create(payload.blockValue()),
         blobsBundleV1);
   }
@@ -167,7 +167,7 @@ public class BlockResultFactory {
     return new EngineGetPayloadResultV4(
         blockWithReceipts.getHeader(),
         block.getBody().getTransactions(),
-        block.getBody().getWithdrawals(),
+        block.getBody().getWithdrawals().orElseThrow(),
         requestsWithoutRequestId,
         Quantity.create(payload.blockValue()),
         blobsBundleV1);
@@ -182,7 +182,7 @@ public class BlockResultFactory {
     return new EngineGetPayloadResultV5(
         blockWithReceipts.getHeader(),
         block.getBody().getTransactions(),
-        block.getBody().getWithdrawals(),
+        block.getBody().getWithdrawals().orElseThrow(),
         requestsWithoutRequestId,
         Quantity.create(payload.blockValue()),
         blobsBundleV2);
@@ -198,11 +198,11 @@ public class BlockResultFactory {
     return new EngineGetPayloadResultV6(
         blockWithReceipts.getHeader(),
         block.getBody().getTransactions(),
-        block.getBody().getWithdrawals(),
-        requestsWithoutRequestId,
+        block.getBody().getWithdrawals().orElseThrow(),
+        requestsWithoutRequestId.orElseThrow(),
         Quantity.create(payload.blockValue()),
         blobsBundleV2,
-        payload.blockAccessList());
+        payload.blockAccessList().orElseThrow());
   }
 
   private static Optional<List<String>> requestsAsHex(final PayloadWrapper payload) {

@@ -19,7 +19,6 @@ import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 
 import java.util.List;
-import java.util.Optional;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
@@ -51,9 +50,9 @@ public sealed class ExecutionPayloadV2 extends ExecutionPayloadV1 permits Execut
   public ExecutionPayloadV2(
       final BlockHeader header,
       final List<Transaction> transactions,
-      final Optional<List<Withdrawal>> withdrawals) {
+      final List<Withdrawal> withdrawals) {
     super(header, transactions);
-    this.withdrawals = withdrawals.orElse(null);
+    this.withdrawals = withdrawals;
   }
 
   @JsonSetter("withdrawals")

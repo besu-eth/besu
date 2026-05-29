@@ -21,7 +21,6 @@ import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.core.json.QuantityJson;
 
 import java.util.List;
-import java.util.Optional;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
@@ -58,7 +57,7 @@ public sealed class ExecutionPayloadV3 extends ExecutionPayloadV2 permits Execut
   public ExecutionPayloadV3(
       final BlockHeader header,
       final List<Transaction> transactions,
-      final Optional<List<Withdrawal>> withdrawals) {
+      final List<Withdrawal> withdrawals) {
     super(header, transactions, withdrawals);
     this.blobGasUsed = header.getBlobGasUsed().orElse(0L);
     this.excessBlobGas = header.getExcessBlobGas().orElse(BlobGas.ZERO);

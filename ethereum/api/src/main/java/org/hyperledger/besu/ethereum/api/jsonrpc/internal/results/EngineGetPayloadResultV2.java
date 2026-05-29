@@ -41,7 +41,7 @@ public class EngineGetPayloadResultV2 {
       final String blockValue) {
     this.executionPayload =
         withdrawals.isPresent()
-            ? new ExecutionPayloadV2(header, transactions, withdrawals)
+            ? new ExecutionPayloadV2(header, transactions, withdrawals.get())
             : new ExecutionPayloadV1(header, transactions);
     this.blockValue = blockValue;
   }
