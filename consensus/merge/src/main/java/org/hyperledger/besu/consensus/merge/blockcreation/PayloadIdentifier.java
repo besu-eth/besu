@@ -17,6 +17,7 @@ package org.hyperledger.besu.consensus.merge.blockcreation;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Quantity;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 
 import java.math.BigInteger;
@@ -83,6 +84,12 @@ public class PayloadIdentifier implements Quantity {
 
     final long targetGasLimitPart = preparePayloadArgs.targetGasLimit().orElse(-1L);
 
+    final long inclusionListTxsPart =
+        preparePayloadArgs
+            .inclusionListTransactions()
+            .map(txs -> txs.stream().mapToLong(Transaction::hashCode).sum())
+            .orElse(-1L);
+
     // we finally spread all the values over 64bit, rotating only values where the shift could lose
     // bits
     return new PayloadIdentifier(
@@ -96,7 +103,9 @@ public class PayloadIdentifier implements Quantity {
             ^ withdrawalPart << 48
             ^ withdrawalPart >> 16
             ^ targetGasLimitPart << 56
-            ^ targetGasLimitPart >> 8);
+            ^ targetGasLimitPart >> 8
+            ^ inclusionListTxsPart << 4
+            ^ inclusionListTxsPart >> 8);
   }
 
   /**
@@ -107,11 +116,11 @@ public class PayloadIdentifier implements Quantity {
    * @param parentHash the parent hash
    * @param timestamp the timestamp
    * @param prevRandao the prev randao
-   * @param feeRecipient the fee recipient
    * @param withdrawals the optional withdrawals
    * @param parentBeaconBlockRoot the optional parent beacon block root
    * @param slotNumber the optional beacon slot number
    * @param targetGasLimit the optional target gas limit
+   * @param inclusionListTransactions the inclusion list transactions
    * @return the payload identifier
    */
   public static PayloadIdentifier forPayloadParams(
@@ -122,7 +131,14 @@ public class PayloadIdentifier implements Quantity {
       final Optional<List<Withdrawal>> withdrawals,
       final Optional<Bytes32> parentBeaconBlockRoot,
       final Optional<Long> slotNumber,
-      final Optional<Long> targetGasLimit) {
+      final Optional<Long> targetGasLimit,
+      final List<Transaction> inclusionListTransactions) {
+
+    // normally timestamp and parentHash should be enough to uniquely identify a payload
+    // but in special cases, reorgs, CL configuration changes (feeRecipient), or other edge case
+    // reasons CL may change other params, so for extra safety we include all the fields in
+    // the payload generation process
+
     final long parentBeaconBlockRootPart =
         parentBeaconBlockRoot.map(b32 -> (long) b32.hashCode()).orElse(Long.MAX_VALUE);
     final long withdrawalPart =
@@ -130,6 +146,8 @@ public class PayloadIdentifier implements Quantity {
     final long slotNumberPart = slotNumber.orElse(-1L);
 
     final long targetGasLimitPart = targetGasLimit.orElse(-1L);
+    final long inclusionListTxsPart =
+        inclusionListTransactions.stream().mapToLong(Transaction::hashCode).sum();
 
     // we finally spread all the values over 64bit, rotating only values where the shift could lose
     // bits
@@ -144,7 +162,30 @@ public class PayloadIdentifier implements Quantity {
             ^ withdrawalPart << 48
             ^ withdrawalPart >> 16
             ^ targetGasLimitPart << 56
-            ^ targetGasLimitPart >> 8);
+            ^ targetGasLimitPart >> 8
+            ^ inclusionListTxsPart << 4
+            ^ inclusionListTxsPart >> 8);
+  }
+
+  public static PayloadIdentifier forPayloadParams(
+      final Hash parentHash,
+      final Long timestamp,
+      final Bytes32 prevRandao,
+      final Address feeRecipient,
+      final Optional<List<Withdrawal>> withdrawals,
+      final Optional<Bytes32> parentBeaconBlockRoot,
+      final Optional<Long> slotNumber,
+      final List<Transaction> inclusionListTransactions) {
+    return forPayloadParams(
+        parentHash,
+        timestamp,
+        prevRandao,
+        feeRecipient,
+        withdrawals,
+        parentBeaconBlockRoot,
+        slotNumber,
+        Optional.empty(),
+        inclusionListTransactions);
   }
 
   @Override

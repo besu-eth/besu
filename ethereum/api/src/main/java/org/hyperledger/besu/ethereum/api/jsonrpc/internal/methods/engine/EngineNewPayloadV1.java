@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.ACCEPTED;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INCLUSION_LIST_UNSATISFIED;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID_BLOCK_HASH;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.SYNCING;
@@ -263,6 +264,12 @@ public sealed class EngineNewPayloadV1<
     final long startTimeNs = System.nanoTime();
     final BlockProcessingResult executionResult = rememberBlock(block, blockParam);
     if (executionResult.isSuccessful()) {
+      final Optional<JsonRpcResponse> postExecutionInvalidResponse =
+          validatePostExecution(reqId, requestParameters, block, executionResult);
+      if (postExecutionInvalidResponse.isPresent()) {
+        return postExecutionInvalidResponse.get();
+      }
+
       lastExecutionTimeInNs = System.nanoTime() - startTimeNs;
       logImportedBlockInfo(
           block, lastExecutionTimeInNs, executionResult.getNbParallelizedTransactions());
@@ -398,7 +405,9 @@ public sealed class EngineNewPayloadV1<
       final Hash latestValidHash,
       final EngineStatus invalidStatus,
       final String validationError) {
-    if (!INVALID.equals(invalidStatus) && !INVALID_BLOCK_HASH.equals(invalidStatus)) {
+    if (!INVALID.equals(invalidStatus)
+        && !INVALID_BLOCK_HASH.equals(invalidStatus)
+        && !INCLUSION_LIST_UNSATISFIED.equals(invalidStatus)) {
       throw new IllegalArgumentException(
           "Don't call respondWithInvalid() with non-invalid status of " + invalidStatus.toString());
     }
@@ -429,6 +438,19 @@ public sealed class EngineNewPayloadV1<
 
   protected ValidationResult<RpcErrorType> validateParameters(final NPRP requestParameters) {
     return ValidationResult.valid();
+  }
+
+  /**
+   * Extension point for version-specific validation that requires a successfully processed block
+   * (e.g. inclusion list satisfaction, EIP-7805). Returns a response to short-circuit with if
+   * validation fails; {@link Optional#empty()} to proceed with the normal VALID response.
+   */
+  protected Optional<JsonRpcResponse> validatePostExecution(
+      final Object reqId,
+      final NPRP requestParameters,
+      final Block block,
+      final BlockProcessingResult executionResult) {
+    return Optional.empty();
   }
 
   protected ValidationResult<RpcErrorType> validateNewBlock(

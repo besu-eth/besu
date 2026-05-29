@@ -21,7 +21,7 @@ import java.util.List;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-public final class PayloadAttributesV4 extends PayloadAttributesV3 {
+public sealed class PayloadAttributesV4 extends PayloadAttributesV3 permits PayloadAttributesV5 {
 
   private final Long slotNumber;
   private final Long targetGasLimit;

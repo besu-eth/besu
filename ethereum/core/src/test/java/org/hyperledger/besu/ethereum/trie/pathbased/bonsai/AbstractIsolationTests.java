@@ -143,6 +143,7 @@ public abstract class AbstractIsolationTests {
           poolConfiguration,
           new GasPricePrioritizedTransactions(
               poolConfiguration,
+              protocolContext.getBlockchain()::getChainHeadHeader,
               ethScheduler,
               new EndLayer(txPoolMetrics),
               txPoolMetrics,

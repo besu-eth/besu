@@ -26,7 +26,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.blockcreation.BlockCreationTiming;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
 import org.hyperledger.besu.ethereum.chain.BadBlockCause;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
@@ -55,7 +54,6 @@ import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.math.BigInteger;
 import java.time.Duration;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -232,9 +230,19 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
   @Override
   public PayloadIdentifier preparePayload(final PreparePayloadArgs preparePayloadArgs) {
+    final BlockHeader parentHeader = preparePayloadArgs.parentHeader();
+    final Long timestamp = preparePayloadArgs.timestamp();
+    final Bytes32 prevRandao = preparePayloadArgs.prevRandao();
+    final Address feeRecipient = preparePayloadArgs.feeRecipient();
+    final Optional<List<Withdrawal>> withdrawals = preparePayloadArgs.withdrawals();
+    final Optional<Bytes32> parentBeaconBlockRoot = preparePayloadArgs.parentBeaconBlockRoot();
+    final Optional<Long> slotNumber = preparePayloadArgs.slotNumber();
+    final Optional<Long> targetGasLimit = preparePayloadArgs.targetGasLimit();
+    final List<Transaction> inclusionListTransactions =
+        preparePayloadArgs.inclusionListTransactions().orElse(List.of());
 
     // we assume that preparePayload is always called sequentially, since the RPC Engine calls
-    // are sequential, if this assumption changes then more synchronization should be added to
+    // are sequential, if this assumption changes, then more synchronization should be added to
     // shared data structures
 
     final PayloadIdentifier payloadIdentifier =
@@ -250,41 +258,39 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     cancelAnyExistingBlockCreationTasks(payloadIdentifier);
 
     final MergeBlockCreator mergeBlockCreator =
-        this.mergeBlockCreatorFactory.forParams(
-            preparePayloadArgs.parentHeader(),
-            Optional.ofNullable(preparePayloadArgs.feeRecipient()));
+        this.mergeBlockCreatorFactory.forParams(parentHeader, Optional.ofNullable(feeRecipient));
 
-    // put the empty block in first
-    final BlockCreationResult emptyBlockResult =
+    // put the minimal block in first, it includes only the inclusion list txs
+    final BlockCreationResult minimalBlockResult =
         mergeBlockCreator.createBlock(
-            Optional.of(Collections.emptyList()),
-            preparePayloadArgs.prevRandao(),
-            preparePayloadArgs.timestamp(),
-            preparePayloadArgs.withdrawals(),
-            preparePayloadArgs.parentBeaconBlockRoot(),
-            preparePayloadArgs.slotNumber(),
-            preparePayloadArgs.targetGasLimit(),
-            preparePayloadArgs.parentHeader());
-    final Block emptyBlock = emptyBlockResult.getBlock();
+            Optional.of(inclusionListTransactions),
+            prevRandao,
+            timestamp,
+            withdrawals,
+            parentBeaconBlockRoot,
+            slotNumber,
+            targetGasLimit,
+            parentHeader);
+    final Block minimalBlock = minimalBlockResult.getBlock();
 
     BlockProcessingResult result =
-        validateProposedBlock(emptyBlock, emptyBlockResult.getBlockAccessList());
+        validateProposedBlock(minimalBlock, minimalBlockResult.getBlockAccessList());
     if (result.isSuccessful()) {
       mergeContext.putPayloadById(
           new PayloadWrapper(
               payloadIdentifier,
-              new BlockWithReceipts(emptyBlock, result.getReceipts()),
-              emptyBlockResult.getBlockAccessList(),
+              new BlockWithReceipts(minimalBlock, result.getReceipts()),
+              minimalBlockResult.getBlockAccessList(),
               result.getRequests(),
-              BlockCreationTiming.EMPTY));
+              minimalBlockResult.getBlockCreationTimings()));
       LOG.info(
           "Start building proposals for block {} identified by {}",
-          emptyBlock.getHeader().getNumber(),
+          minimalBlock.getHeader().getNumber(),
           payloadIdentifier);
     } else {
       LOG.warn(
-          "failed to validate empty block proposal {}, reason {}",
-          emptyBlock.getHash(),
+          "failed to validate minimal block proposal {}, reason {}",
+          minimalBlock.getHash(),
           result.errorMessage);
       if (result.causedBy().isPresent()) {
         LOG.warn("caused by", result.causedBy().get());
@@ -297,17 +303,18 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
         preparePayloadArgs.prevRandao(),
         payloadIdentifier,
         mergeBlockCreator,
-        preparePayloadArgs.withdrawals(),
-        preparePayloadArgs.parentBeaconBlockRoot(),
-        preparePayloadArgs.slotNumber(),
-        preparePayloadArgs.targetGasLimit(),
-        preparePayloadArgs.parentHeader());
+        withdrawals,
+        parentBeaconBlockRoot,
+        slotNumber,
+        targetGasLimit,
+        parentHeader,
+        inclusionListTransactions);
 
     return payloadIdentifier;
   }
 
   private void cancelAnyExistingBlockCreationTasks(final PayloadIdentifier payloadIdentifier) {
-    if (blockCreationTasks.size() > 0) {
+    if (!blockCreationTasks.isEmpty()) {
       String existingPayloadIdsBeingBuilt =
           blockCreationTasks.keySet().stream()
               .map(PayloadIdentifier::toHexString)
@@ -405,7 +412,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       final Optional<Bytes32> parentBeaconBlockRoot,
       final Optional<Long> slotNumber,
       final Optional<Long> targetGasLimit,
-      final BlockHeader parentHeader) {
+      final BlockHeader parentHeader,
+      final List<Transaction> inclusionListTransactions) {
 
     final Supplier<BlockCreationResult> blockCreator =
         () ->
@@ -417,7 +425,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                 parentBeaconBlockRoot,
                 slotNumber,
                 targetGasLimit,
-                parentHeader);
+                parentHeader,
+                inclusionListTransactions);
 
     LOG.debug(
         "Block creation started for payload id {}, remaining time is {}ms",

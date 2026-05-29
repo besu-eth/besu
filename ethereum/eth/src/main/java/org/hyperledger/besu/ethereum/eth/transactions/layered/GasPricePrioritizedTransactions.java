@@ -25,7 +25,9 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfigurati
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 
+import java.util.List;
 import java.util.function.BiFunction;
+import java.util.function.Supplier;
 
 /**
  * Holds the current set of pending transactions with the ability to iterate them based on priority
@@ -38,6 +40,7 @@ public class GasPricePrioritizedTransactions extends AbstractPrioritizedTransact
 
   public GasPricePrioritizedTransactions(
       final TransactionPoolConfiguration poolConfig,
+      final Supplier<BlockHeader> chainHeadHeaderSupplier,
       final EthScheduler ethScheduler,
       final TransactionsLayer nextLayer,
       final TransactionPoolMetrics metrics,
@@ -48,6 +51,7 @@ public class GasPricePrioritizedTransactions extends AbstractPrioritizedTransact
       final SenderBalanceChecker senderBalanceChecker) {
     super(
         poolConfig,
+        chainHeadHeaderSupplier,
         ethScheduler,
         nextLayer,
         metrics,
@@ -64,6 +68,11 @@ public class GasPricePrioritizedTransactions extends AbstractPrioritizedTransact
         .thenComparing(PendingTransaction::getGasPrice)
         .thenComparing(PendingTransaction::getSequence)
         .compare(pt1, pt2);
+  }
+
+  @Override
+  List<PendingTransaction> getInclusionList(final BlockHeader header) {
+    return List.of();
   }
 
   @Override

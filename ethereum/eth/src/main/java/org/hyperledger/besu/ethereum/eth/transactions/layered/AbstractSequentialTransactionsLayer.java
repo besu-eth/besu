@@ -19,6 +19,7 @@ import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemo
 import static org.hyperledger.besu.ethereum.eth.transactions.layered.LayeredRemovalReason.LayerMoveReason.FOLLOW_INVALIDATED;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
 import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
@@ -32,18 +33,27 @@ import java.util.NavigableMap;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.BiFunction;
+import java.util.function.Supplier;
 
 public abstract class AbstractSequentialTransactionsLayer extends AbstractTransactionsLayer {
 
   public AbstractSequentialTransactionsLayer(
       final TransactionPoolConfiguration poolConfig,
+      final Supplier<BlockHeader> chainHeadHeaderSupplier,
       final EthScheduler ethScheduler,
       final TransactionsLayer nextLayer,
       final BiFunction<PendingTransaction, PendingTransaction, Boolean>
           transactionReplacementTester,
       final TransactionPoolMetrics metrics,
       final BlobCache blobCache) {
-    super(poolConfig, ethScheduler, nextLayer, transactionReplacementTester, metrics, blobCache);
+    super(
+        poolConfig,
+        chainHeadHeaderSupplier,
+        ethScheduler,
+        nextLayer,
+        transactionReplacementTester,
+        metrics,
+        blobCache);
   }
 
   @Override

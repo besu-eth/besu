@@ -20,6 +20,7 @@ import static org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolStru
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCache;
@@ -27,6 +28,8 @@ import org.hyperledger.besu.ethereum.eth.transactions.PendingTransaction;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionAddedResult;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
+import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.DefaultInclusionListSelector;
+import org.hyperledger.besu.ethereum.eth.transactions.inclusionlist.InclusionListTransactionSelector;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -38,6 +41,7 @@ import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.function.BiFunction;
 import java.util.function.Predicate;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -47,9 +51,12 @@ import java.util.stream.Collectors;
 public abstract class AbstractPrioritizedTransactions extends AbstractSequentialTransactionsLayer {
   protected final TreeSet<PendingTransaction> orderByFee;
   private final MiningConfiguration miningConfiguration;
+  protected final InclusionListTransactionSelector inclusionListTransactionSelector =
+      new DefaultInclusionListSelector();
 
   public AbstractPrioritizedTransactions(
       final TransactionPoolConfiguration poolConfig,
+      final Supplier<BlockHeader> chainHeadHeaderSupplier,
       final EthScheduler ethScheduler,
       final TransactionsLayer prioritizedTransactions,
       final TransactionPoolMetrics metrics,
@@ -59,6 +66,7 @@ public abstract class AbstractPrioritizedTransactions extends AbstractSequential
       final MiningConfiguration miningConfiguration) {
     super(
         poolConfig,
+        chainHeadHeaderSupplier,
         ethScheduler,
         prioritizedTransactions,
         transactionReplacementTester,
@@ -288,4 +296,6 @@ public abstract class AbstractPrioritizedTransactions extends AbstractSequential
     logMinPriorityFeePerGas(currMinPriorityFeePerGas);
     return currMinPriorityFeePerGas;
   }
+
+  abstract List<PendingTransaction> getInclusionList(final BlockHeader header);
 }

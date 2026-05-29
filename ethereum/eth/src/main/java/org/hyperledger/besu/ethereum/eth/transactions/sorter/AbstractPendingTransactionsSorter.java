@@ -393,6 +393,13 @@ public abstract class AbstractPendingTransactionsSorter implements PendingTransa
   }
 
   @Override
+  public List<PendingTransaction> getInclusionListPendingTransactions(
+      final BlockHeader blockHeader) {
+    // ToDo: proper implementation
+    return getPendingTransactions();
+  }
+
+  @Override
   public SenderPendingTransactionsData getPendingTransactionsFor(final Address sender) {
     final PendingTransactionsForSender pendingTransactionsForSender =
         transactionsBySender.get(sender);

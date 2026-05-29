@@ -315,6 +315,13 @@ public interface GenesisConfigOptions {
   OptionalLong getAmsterdamTime();
 
   /**
+   * Gets Bogota time.
+   *
+   * @return the Bogota time
+   */
+  OptionalLong getBogotaTime();
+
+  /**
    * Gets future eips time.
    *
    * @return the future eips time
