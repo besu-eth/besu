@@ -58,9 +58,9 @@ jobs:
       - name: Create and push multi-arch manifest
         run: |
           docker buildx imagetools create \
-            -t "${{ env.registry }}/${{ secrets.DOCKER_ORG }}/besu:${{ needs.compute-version.outputs.version }}" \
+            -t "${{ env.registry }}/${{ secrets.DOCKER_ORG }}/besu:develop" \
             $(find /tmp/digests -type f -printf "${{ env.registry }}/${{ secrets.DOCKER_ORG }}/besu@sha256:%f ")
       - name: Inspect manifest
         run: |
           docker buildx imagetools inspect \
-            "${{ env.registry }}/${{ secrets.DOCKER_ORG }}/besu:${{ needs.compute-version.outputs.version }}"
+            "${{ env.registry }}/${{ secrets.DOCKER_ORG }}/besu:develop"
