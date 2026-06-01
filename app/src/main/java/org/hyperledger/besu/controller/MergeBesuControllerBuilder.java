@@ -107,6 +107,8 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
 
     var mergeContext = protocolContext.getConsensusContext(MergeContext.class);
 
+    // Default an absent TTD to ZERO, matching createConsensusContext. With TTD=0 the comparator
+    // degenerates to "longest chain wins", which is correct for a pure PoS-from-genesis chain.
     var mergeBestPeerComparator =
         new TransitionBestPeerComparator(
             genesisConfigOptions

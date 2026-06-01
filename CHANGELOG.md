@@ -29,6 +29,7 @@
 - Fix blob transaction sidecar validation: detect missing sidecars, KZG commitment/versioned-hash mismatches, and type/size mismatches against eth/68 announcements; disconnect offending peers immediately [#10510](https://github.com/hyperledger/besu/pull/10510)
 - Fix `PeerTransactionTracker` incorrectly evicting peers that are connected but awaiting `ChainHeadTracker` validation, causing Besu to silently drop announced transactions from those peers [#10511](https://github.com/hyperledger/besu/pull/10511)
 - Fix `RLPException` observed during BFT (QBFT/IBFT2) rolling upgrades from Besu 25.x. Use the flag `--Xbft-legacy-protocol-encoding` on each upgrading Besu node to remain compatible with existing Besu 25.x nodes on the BFT network. [#10499](https://github.com/besu-eth/besu/pull/10499)
+- Fix Besu failing to start with `IllegalArgumentException: Unknown consensus mechanism defined` when a genesis file declares no consensus mechanism (e.g. an empty `"config": {}`). Besu now logs a warning and falls back to Proof-of-Stake (Merge). [#10266](https://github.com/besu-eth/besu/pull/10266)
 
 ### Additions and Improvements
 - Add `eth_baseFee` JSON-RPC method, returning the calculated base fee of the next block [#10457](https://github.com/besu-eth/besu/pull/10457)
