@@ -49,8 +49,6 @@ public class EmptyConsensusGenesisTest extends AcceptanceTestBase {
 
   @Test
   public void shouldStartAndFallBackToPoSWhenNoConsensusMechanismInGenesis() throws Exception {
-    cluster.startConsoleCapture();
-
     final BesuNode node =
         besu.createArchiveNode(
             "empty-consensus",
@@ -59,13 +57,15 @@ public class EmptyConsensusGenesisTest extends AcceptanceTestBase {
                     .devMode(false)
                     .genesisConfigProvider(__ -> Optional.of(EMPTY_CONSENSUS_GENESIS)));
 
+    cluster.startConsoleCapture();
+
+    // cluster.start() (not runNodeStart()) is required: only it applies the genesisConfigProvider.
     cluster.start(node);
 
     // JSON-RPC must be reachable; eth_blockNumber must return cleanly (genesis block 0).
     assertThat(node.execute(ethTransactions.blockNumber())).isEqualTo(BigInteger.ZERO);
 
     // The fallback MUST be logged, otherwise the user has no signal the genesis was incomplete.
-    assertThat(cluster.getConsoleContents())
-        .contains("No consensus mechanism detected, using PoS");
+    assertThat(cluster.getConsoleContents()).contains("No consensus mechanism detected");
   }
 }

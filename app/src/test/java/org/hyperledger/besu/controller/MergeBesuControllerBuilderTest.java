@@ -217,9 +217,10 @@ public class MergeBesuControllerBuilderTest {
   }
 
   @Test
-  public void buildsWhenTerminalTotalDifficultyIsAbsent() {
+  public void buildsSuccessfullyWhenTerminalTotalDifficultyIsAbsent() {
     when(genesisConfigOptions.getTerminalTotalDifficulty()).thenReturn(Optional.empty());
 
+    // The real assertion is that build() no longer throws on an absent TTD.
     final Difficulty terminalTotalDifficulty =
         visitWithMockConfigs(new MergeBesuControllerBuilder())
             .build()

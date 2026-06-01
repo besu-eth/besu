@@ -17,6 +17,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- Fix Besu failing to start with `IllegalArgumentException: Unknown consensus mechanism defined` when a genesis file declares no consensus mechanism (e.g. an empty `"config": {}`). Besu now logs a warning and falls back to Proof-of-Stake (Merge). [#10266](https://github.com/besu-eth/besu/pull/10266)
 
 ### Additions and Improvements
 - Upgrade web3j dependencies to 5.0.3 [#10627](https://github.com/besu-eth/besu/pull/10627)
@@ -84,8 +85,12 @@
 - Fix blob transaction sidecar validation: detect missing sidecars, KZG commitment/versioned-hash mismatches, and type/size mismatches against eth/68 announcements; disconnect offending peers immediately [#10510](https://github.com/hyperledger/besu/pull/10510)
 - Fix `PeerTransactionTracker` incorrectly evicting peers that are connected but awaiting `ChainHeadTracker` validation, causing Besu to silently drop announced transactions from those peers [#10511](https://github.com/hyperledger/besu/pull/10511)
 - Fix `RLPException` observed during BFT (QBFT/IBFT2) rolling upgrades from Besu 25.x. Use the flag `--Xbft-legacy-protocol-encoding` on each upgrading Besu node to remain compatible with existing Besu 25.x nodes on the BFT network. [#10499](https://github.com/besu-eth/besu/pull/10499)
+<<<<<<< HEAD
 - Use a non-zero exit code when Besu shuts down after detecting disk-full errors in RocksDB transactions or log bloom cache I/O, allowing process managers to restart or alert correctly [#10254](https://github.com/besu-eth/besu/pull/10254)
 - Cache successfully validated engine JWT token so that the same token is only checked once per minute [#10559](https://github.com/besu-eth/besu/pull/10559) 
+=======
+- Fix Besu failing to start with `IllegalArgumentException: Unknown consensus mechanism defined` when a genesis file declares no consensus mechanism (e.g. an empty `"config": {}`). Besu now logs a warning and falls back to Proof-of-Stake (Merge). [#10266](https://github.com/besu-eth/besu/pull/10266)
+>>>>>>> e6c425de9b (Address maintainer review feedback for empty-consensus PoS fallback)
 
 ### Additions and Improvements
 - Add `eth_baseFee` JSON-RPC method, returning the calculated base fee of the next block [#10457](https://github.com/besu-eth/besu/pull/10457)
