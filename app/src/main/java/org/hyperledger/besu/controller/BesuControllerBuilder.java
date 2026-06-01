@@ -663,18 +663,16 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             syncConfig.getComputationParallelism(),
             metricsSystem);
 
-    final DefaultBlockchain defaultBlockchain =
-        (DefaultBlockchain)
-            DefaultBlockchain.createMutable(
-                genesisState.getBlock(),
-                blockchainStorage,
-                metricsSystem,
-                reorgLoggingThreshold,
-                dataDirectory.toString(),
-                numberOfBlocksToCache,
-                numberOfBlockHeadersToCache);
-    defaultBlockchain.setSenderNonceIndexingEnabled(senderNonceIndexingEnabled);
-    final MutableBlockchain blockchain = defaultBlockchain;
+    final MutableBlockchain blockchain =
+        DefaultBlockchain.createMutable(
+            genesisState.getBlock(),
+            blockchainStorage,
+            metricsSystem,
+            reorgLoggingThreshold,
+            dataDirectory.toString(),
+            numberOfBlocksToCache,
+            numberOfBlockHeadersToCache,
+            senderNonceIndexingEnabled);
 
     if (isCacheLastBlockHeadersPreloadEnabled && numberOfBlockHeadersToCache > 0) {
       LOG.info(

@@ -102,7 +102,7 @@ public class DefaultBlockchain implements MutableBlockchain {
       final BlockchainStorage blockchainStorage,
       final MetricsSystem metricsSystem,
       final long reorgLoggingThreshold) {
-    this(genesisBlock, blockchainStorage, metricsSystem, reorgLoggingThreshold, null, 0, 0);
+    this(genesisBlock, blockchainStorage, metricsSystem, reorgLoggingThreshold, null, 0, 0, false);
   }
 
   private DefaultBlockchain(
@@ -113,6 +113,26 @@ public class DefaultBlockchain implements MutableBlockchain {
       final String dataDirectory,
       final int numberOfBlocksToCache,
       final int numberOfBlockHeadersToCache) {
+    this(
+        genesisBlock,
+        blockchainStorage,
+        metricsSystem,
+        reorgLoggingThreshold,
+        dataDirectory,
+        numberOfBlocksToCache,
+        numberOfBlockHeadersToCache,
+        false);
+  }
+
+  private DefaultBlockchain(
+      final Optional<Block> genesisBlock,
+      final BlockchainStorage blockchainStorage,
+      final MetricsSystem metricsSystem,
+      final long reorgLoggingThreshold,
+      final String dataDirectory,
+      final int numberOfBlocksToCache,
+      final int numberOfBlockHeadersToCache,
+      final boolean senderNonceIndexingEnabled) {
     checkNotNull(genesisBlock);
     checkNotNull(blockchainStorage);
     checkNotNull(metricsSystem);
@@ -132,6 +152,7 @@ public class DefaultBlockchain implements MutableBlockchain {
 
     this.reorgLoggingThreshold = reorgLoggingThreshold;
     this.blockChoiceRule = heaviestChainBlockChoiceRule;
+    this.senderNonceIndexing = senderNonceIndexingEnabled;
 
     initializeCaches(metricsSystem, numberOfBlockHeadersToCache, numberOfBlocksToCache);
     createCounters(metricsSystem);
@@ -302,7 +323,29 @@ public class DefaultBlockchain implements MutableBlockchain {
         reorgLoggingThreshold,
         dataDirectory,
         numberOfBlocksToCache,
-        numberOfBlockHeadersToCache);
+        numberOfBlockHeadersToCache,
+        false);
+  }
+
+  public static MutableBlockchain createMutable(
+      final Block genesisBlock,
+      final BlockchainStorage blockchainStorage,
+      final MetricsSystem metricsSystem,
+      final long reorgLoggingThreshold,
+      final String dataDirectory,
+      final int numberOfBlocksToCache,
+      final int numberOfBlockHeadersToCache,
+      final boolean senderNonceIndexingEnabled) {
+    checkNotNull(genesisBlock);
+    return new DefaultBlockchain(
+        Optional.of(genesisBlock),
+        blockchainStorage,
+        metricsSystem,
+        reorgLoggingThreshold,
+        dataDirectory,
+        numberOfBlocksToCache,
+        numberOfBlockHeadersToCache,
+        senderNonceIndexingEnabled);
   }
 
   public static Blockchain create(
