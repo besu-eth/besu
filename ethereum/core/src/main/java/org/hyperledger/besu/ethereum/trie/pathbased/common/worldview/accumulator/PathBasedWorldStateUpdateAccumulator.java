@@ -20,6 +20,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListIndex;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
@@ -121,12 +122,17 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
    */
   public void setBlockAccessListOverlay(
       final BlockAccessList blockAccessList, final long maxTxIndexExclusive) {
+    setBlockAccessListOverlay(BlockAccessListIndex.of(blockAccessList), maxTxIndexExclusive);
+  }
+
+  public void setBlockAccessListOverlay(
+      final BlockAccessListIndex blockAccessListIndex, final long maxTxIndexExclusive) {
     if (!accountsToUpdate.isEmpty() || !storageToUpdate.isEmpty() || !codeToUpdate.isEmpty()) {
       throw new IllegalStateException(
           "BAL overlay must be set before any account, storage, or code access");
     }
     this.maybeBlockAccessListOverlay =
-        Optional.of(new BlockAccessListOverlay(blockAccessList, maxTxIndexExclusive));
+        Optional.of(new BlockAccessListOverlay(blockAccessListIndex, maxTxIndexExclusive));
   }
 
   public void clearBlockAccessListOverlay() {
@@ -578,20 +584,30 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         return Optional.ofNullable(value.getUpdated());
       }
     }
+    final Optional<UInt256> balPriorStorage =
+        getBalPriorStorageValue(address, storageSlotKey);
+    if (balPriorStorage.isPresent()) {
+      storageToUpdate
+          .computeIfAbsent(
+              address,
+              key ->
+                  new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), storagePreloader))
+          .put(storageSlotKey, new PathBasedValue<>(null, balPriorStorage.get()));
+      return balPriorStorage;
+    }
     try {
       final Optional<UInt256> valueUInt =
           (wrappedWorldView() instanceof PathBasedWorldState worldState)
               ? worldState.getStorageValueByStorageSlotKey(address, storageSlotKey)
               : wrappedWorldView().getStorageValueByStorageSlotKey(address, storageSlotKey);
       final UInt256 parentValue = valueUInt.orElse(null);
-      final UInt256 effectiveValue = applyBalStorageOverlay(address, storageSlotKey, parentValue);
       storageToUpdate
-              .computeIfAbsent(
-                      address,
-                      key ->
-                              new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), storagePreloader))
-              .put(storageSlotKey, new PathBasedValue<>(parentValue, effectiveValue));
-      return Optional.ofNullable(effectiveValue);
+          .computeIfAbsent(
+              address,
+              key ->
+                  new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), storagePreloader))
+          .put(storageSlotKey, new PathBasedValue<>(parentValue, parentValue));
+      return Optional.ofNullable(parentValue);
     } catch (MerkleTrieException e) {
       // need to throw to trigger the heal
       throw new MerkleTrieException(
@@ -981,11 +997,10 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     maybeBlockAccessListOverlay.ifPresent(overlay -> overlay.applyToAccount(address, account));
   }
 
-  private UInt256 applyBalStorageOverlay(
-      final Address address, final StorageSlotKey storageSlotKey, final UInt256 parentValue) {
-    return maybeBlockAccessListOverlay
-        .map(overlay -> overlay.getStorageValue(address, storageSlotKey, parentValue))
-        .orElse(parentValue);
+  private Optional<UInt256> getBalPriorStorageValue(
+      final Address address, final StorageSlotKey storageSlotKey) {
+    return maybeBlockAccessListOverlay.flatMap(
+        overlay -> overlay.getPriorStorageValue(address, storageSlotKey));
   }
 
   private Optional<Bytes> getCodeWithBalOverlay(final Address address, final Hash codeHash) {

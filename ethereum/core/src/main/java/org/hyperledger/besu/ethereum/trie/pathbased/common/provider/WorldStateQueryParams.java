@@ -15,7 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.common.provider;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListIndex;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 
 import java.util.Objects;
@@ -27,11 +27,12 @@ public class WorldStateQueryParams {
   /**
    * BAL overlay applied when the world state's accumulator is created (parallel execution).
    *
-   * @param blockAccessList block access list for the current block
+   * @param blockAccessListIndex per-block address index for the current block's BAL
    * @param maxTxIndexExclusive index of the transaction about to execute; overlay includes changes
    *     with {@code txIndex < maxTxIndexExclusive}
    */
-  public record BalOverlayQuery(BlockAccessList blockAccessList, long maxTxIndexExclusive) {}
+  public record BalOverlayQuery(
+      BlockAccessListIndex blockAccessListIndex, long maxTxIndexExclusive) {}
 
   private final BlockHeader blockHeader;
   private final boolean shouldWorldStateUpdateHead;
@@ -247,13 +248,14 @@ public class WorldStateQueryParams {
     /**
      * Applies a BAL overlay when the queried world state's accumulator is created.
      *
-     * @param blockAccessList block access list for the current block
+     * @param blockAccessListIndex per-block address index for the current block's BAL
      * @param maxTxIndexExclusive index of the transaction about to execute
      * @return the builder
      */
     public Builder withBalOverlay(
-        final BlockAccessList blockAccessList, final long maxTxIndexExclusive) {
-      this.balOverlayQuery = Optional.of(new BalOverlayQuery(blockAccessList, maxTxIndexExclusive));
+        final BlockAccessListIndex blockAccessListIndex, final long maxTxIndexExclusive) {
+      this.balOverlayQuery =
+          Optional.of(new BalOverlayQuery(blockAccessListIndex, maxTxIndexExclusive));
       return this;
     }
 

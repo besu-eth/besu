@@ -232,7 +232,9 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
       final Optional<WorldStateQueryParams.BalOverlayQuery> balOverlayQuery) {
     final Optional<BlockAccessListOverlay> blockAccessListOverlay =
         balOverlayQuery.map(
-            q -> new BlockAccessListOverlay(q.blockAccessList(), q.maxTxIndexExclusive()));
+            q ->
+                new BlockAccessListOverlay(
+                    q.blockAccessListIndex(), q.maxTxIndexExclusive()));
     final BlockHeader chainHeadBlockHeader = blockchain.getChainHeadHeader();
     if (chainHeadBlockHeader.getNumber() - blockHeader.getNumber()
         >= trieLogManager.getMaxLayersToLoad()) {

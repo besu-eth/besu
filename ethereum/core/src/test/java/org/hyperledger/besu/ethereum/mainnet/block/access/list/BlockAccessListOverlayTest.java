@@ -61,8 +61,9 @@ class BlockAccessListOverlayTest {
                 new CodeChange(0, Bytes.fromHexString("0xAA")),
                 new CodeChange(1, Bytes.fromHexString("0xBB"))));
 
-    final BlockAccessListOverlay overlay =
-        new BlockAccessListOverlay(new BlockAccessList(List.of(accountChanges)), 2L);
+    final BlockAccessListIndex index =
+        BlockAccessListIndex.of(new BlockAccessList(List.of(accountChanges)));
+    final BlockAccessListOverlay overlay = new BlockAccessListOverlay(index, 2L);
 
     assertThat(overlay.hasPriorAccountState(ADDRESS)).isTrue();
     assertThat(overlay.getCode(ADDRESS)).contains(Bytes.fromHexString("0xBB"));
@@ -88,7 +89,8 @@ class BlockAccessListOverlayTest {
             List.of(new CodeChange(2, Bytes.fromHexString("0xCC"))));
 
     final BlockAccessListOverlay overlay =
-        new BlockAccessListOverlay(new BlockAccessList(List.of(accountChanges)), 2L);
+        new BlockAccessListOverlay(
+            BlockAccessListIndex.of(new BlockAccessList(List.of(accountChanges))), 2L);
 
     assertThat(overlay.hasPriorAccountState(ADDRESS)).isFalse();
     assertThat(overlay.getCode(ADDRESS)).isEmpty();
@@ -111,7 +113,8 @@ class BlockAccessListOverlayTest {
             List.of());
 
     final BlockAccessListOverlay overlay =
-        new BlockAccessListOverlay(new BlockAccessList(List.of(accountChanges)), 2L);
+        new BlockAccessListOverlay(
+            BlockAccessListIndex.of(new BlockAccessList(List.of(accountChanges))), 2L);
 
     assertThat(overlay.getStorageValue(ADDRESS, SLOT, UInt256.valueOf(99))).isEqualTo(UInt256.ZERO);
     assertThat(overlay.hasPriorStorageChange(ADDRESS, SLOT)).isTrue();

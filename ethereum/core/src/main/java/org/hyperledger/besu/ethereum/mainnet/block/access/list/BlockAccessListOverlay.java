@@ -19,9 +19,7 @@ import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.account.MutableAccount;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.function.ToLongFunction;
 
@@ -29,96 +27,108 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
 /**
- * Read-only overlay of {@link BlockAccessList} state as of the end of transaction {@code
- * maxTxIndexExclusive - 1} (i.e. all changes with {@code txIndex < maxTxIndexExclusive}).
+ * Resolves prior-block state from a {@link BlockAccessList} as of the end of transaction {@code
+ * maxTxIndexExclusive - 1} (changes with {@code txIndex < maxTxIndexExclusive}).
  *
- * <p>Account and storage values are resolved once at construction so hot-path reads are map lookups
- * without re-scanning change lists.
+ * <p>Uses a shared {@link BlockAccessListIndex} and looks up only the requested address or storage
+ * slot — no full-BAL materialization and no database access.
  */
 public final class BlockAccessListOverlay {
 
-  private final Map<Address, AccountOverlay> accountOverlays;
+  private final BlockAccessListIndex blockAccessListIndex;
+  private final long maxTxIndexExclusive;
+
+  public BlockAccessListOverlay(
+      final BlockAccessListIndex blockAccessListIndex, final long maxTxIndexExclusive) {
+    this.blockAccessListIndex = blockAccessListIndex;
+    this.maxTxIndexExclusive = maxTxIndexExclusive;
+  }
 
   public BlockAccessListOverlay(
       final BlockAccessList blockAccessList, final long maxTxIndexExclusive) {
-    this.accountOverlays = buildAccountOverlays(blockAccessList, maxTxIndexExclusive);
+    this(BlockAccessListIndex.of(blockAccessList), maxTxIndexExclusive);
   }
 
   public boolean hasPriorAccountState(final Address address) {
-    final AccountOverlay overlay = accountOverlays.get(address);
-    return overlay != null && overlay.hasPriorAccountState();
+    return blockAccessListIndex
+        .getAccountChanges(address)
+        .map(this::hasResolvedAccountField)
+        .orElse(false);
+  }
+
+  public boolean hasPriorStorageChange(final Address address, final StorageSlotKey storageSlotKey) {
+    return getPriorStorageValue(address, storageSlotKey).isPresent();
   }
 
   public void applyToAccount(final Address address, final MutableAccount account) {
-    final AccountOverlay overlay = accountOverlays.get(address);
-    if (overlay != null) {
-      overlay.applyTo(account);
-    }
+    blockAccessListIndex
+        .getAccountChanges(address)
+        .ifPresent(
+            accountChanges -> {
+              findLatestBeforeMax(
+                      accountChanges.balanceChanges(),
+                      maxTxIndexExclusive,
+                      BlockAccessList.BalanceChange::txIndex)
+                  .ifPresent(change -> account.setBalance(change.postBalance()));
+              findLatestBeforeMax(
+                      accountChanges.nonceChanges(),
+                      maxTxIndexExclusive,
+                      BlockAccessList.NonceChange::txIndex)
+                  .ifPresent(change -> account.setNonce(change.newNonce()));
+              findLatestBeforeMax(
+                      accountChanges.codeChanges(),
+                      maxTxIndexExclusive,
+                      BlockAccessList.CodeChange::txIndex)
+                  .ifPresent(change -> account.setCode(change.newCode()));
+            });
   }
 
   public Optional<Bytes> getCode(final Address address) {
-    final AccountOverlay overlay = accountOverlays.get(address);
-    return overlay == null ? Optional.empty() : overlay.code();
+    return blockAccessListIndex
+        .getAccountChanges(address)
+        .flatMap(
+            accountChanges ->
+                findLatestBeforeMax(
+                    accountChanges.codeChanges(),
+                    maxTxIndexExclusive,
+                    BlockAccessList.CodeChange::txIndex))
+        .map(BlockAccessList.CodeChange::newCode);
+  }
+
+  /**
+   * Returns the storage value from the BAL when a prior change exists; empty if the caller should
+   * load from the parent world state / database.
+   */
+  public Optional<UInt256> getPriorStorageValue(
+      final Address address, final StorageSlotKey storageSlotKey) {
+    return blockAccessListIndex
+        .getSlotChanges(address, storageSlotKey)
+        .flatMap(
+            slotChanges ->
+                findLatestBeforeMax(
+                    slotChanges.changes(),
+                    maxTxIndexExclusive,
+                    BlockAccessList.StorageChange::txIndex))
+        .map(
+            latest ->
+                latest.newValue() != null ? latest.newValue() : UInt256.ZERO);
   }
 
   public UInt256 getStorageValue(
       final Address address, final StorageSlotKey storageSlotKey, final UInt256 parentValue) {
-    final AccountOverlay overlay = accountOverlays.get(address);
-    if (overlay == null) {
-      return parentValue;
-    }
-    return overlay.storageValue(storageSlotKey).orElse(parentValue);
+    return getPriorStorageValue(address, storageSlotKey).orElse(parentValue);
   }
 
-  private static Map<Address, AccountOverlay> buildAccountOverlays(
-      final BlockAccessList blockAccessList, final long maxTxIndexExclusive) {
-    final Map<Address, AccountOverlay> overlays = new HashMap<>();
-    for (final BlockAccessList.AccountChanges accountChanges : blockAccessList.accountChanges()) {
-      final Optional<Wei> balance =
-          findLatestBeforeMax(
-                  accountChanges.balanceChanges(),
-                  maxTxIndexExclusive,
-                  BlockAccessList.BalanceChange::txIndex)
-              .map(BlockAccessList.BalanceChange::postBalance);
-      final Optional<Long> nonce =
-          findLatestBeforeMax(
-                  accountChanges.nonceChanges(),
-                  maxTxIndexExclusive,
-                  BlockAccessList.NonceChange::txIndex)
-              .map(BlockAccessList.NonceChange::newNonce);
-      final Optional<Bytes> code =
-          findLatestBeforeMax(
-                  accountChanges.codeChanges(),
-                  maxTxIndexExclusive,
-                  BlockAccessList.CodeChange::txIndex)
-              .map(BlockAccessList.CodeChange::newCode);
-      final Map<StorageSlotKey, UInt256> storage =
-          buildStorageOverlay(accountChanges.storageChanges(), maxTxIndexExclusive);
-      if (balance.isPresent() || nonce.isPresent() || code.isPresent() || !storage.isEmpty()) {
-        overlays.put(
-            accountChanges.address(),
-            new AccountOverlay(balance, nonce, code, Map.copyOf(storage)));
-      }
-    }
-    return Map.copyOf(overlays);
-  }
-
-  private static Map<StorageSlotKey, UInt256> buildStorageOverlay(
-      final List<BlockAccessList.SlotChanges> storageChanges, final long maxTxIndexExclusive) {
-    if (storageChanges.isEmpty()) {
-      return Map.of();
-    }
-    final Map<StorageSlotKey, UInt256> storage = new HashMap<>();
-    for (final BlockAccessList.SlotChanges slotChanges : storageChanges) {
-      findLatestBeforeMax(
-              slotChanges.changes(), maxTxIndexExclusive, BlockAccessList.StorageChange::txIndex)
-          .ifPresent(
-              latest -> {
-                final UInt256 value = latest.newValue() != null ? latest.newValue() : UInt256.ZERO;
-                storage.put(slotChanges.slot(), value);
-              });
-    }
-    return storage;
+  private boolean hasResolvedAccountField(final BlockAccessList.AccountChanges accountChanges) {
+    return findLatestBeforeMax(
+            accountChanges.balanceChanges(), maxTxIndexExclusive, BlockAccessList.BalanceChange::txIndex)
+        .isPresent()
+        || findLatestBeforeMax(
+                accountChanges.nonceChanges(), maxTxIndexExclusive, BlockAccessList.NonceChange::txIndex)
+            .isPresent()
+        || findLatestBeforeMax(
+                accountChanges.codeChanges(), maxTxIndexExclusive, BlockAccessList.CodeChange::txIndex)
+            .isPresent();
   }
 
   /**
@@ -143,26 +153,5 @@ public final class BlockAccessListOverlay {
       }
     }
     return latestIndex < 0 ? Optional.empty() : Optional.of(changes.get(latestIndex));
-  }
-
-  private record AccountOverlay(
-      Optional<Wei> balance,
-      Optional<Long> nonce,
-      Optional<Bytes> code,
-      Map<StorageSlotKey, UInt256> storageBySlot) {
-
-    boolean hasPriorAccountState() {
-      return balance.isPresent() || nonce.isPresent() || code.isPresent();
-    }
-
-    Optional<UInt256> storageValue(final StorageSlotKey storageSlotKey) {
-      return Optional.ofNullable(storageBySlot.get(storageSlotKey));
-    }
-
-    void applyTo(final MutableAccount account) {
-      balance.ifPresent(account::setBalance);
-      nonce.ifPresent(account::setNonce);
-      code.ifPresent(account::setCode);
-    }
   }
 }
