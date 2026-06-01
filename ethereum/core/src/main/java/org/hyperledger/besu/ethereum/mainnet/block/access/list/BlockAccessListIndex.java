@@ -40,7 +40,7 @@ public final class BlockAccessListIndex {
     for (final BlockAccessList.AccountChanges changes : accountChanges) {
       entries.put(changes.address(), new AccountEntry(changes));
     }
-    return new BlockAccessListIndex(Map.copyOf(entries));
+    return new BlockAccessListIndex(entries);
   }
 
   public Optional<BlockAccessList.AccountChanges> getAccountChanges(final Address address) {
@@ -78,7 +78,7 @@ public final class BlockAccessListIndex {
               for (final BlockAccessList.SlotChanges slotChange : storageChanges) {
                 built.put(slotChange.slot(), slotChange);
               }
-              slotIndex = Map.copyOf(built);
+              slotIndex = built;
             }
             storageBySlot = slotIndex;
           }
