@@ -282,9 +282,10 @@ public class BaseBftProtocolScheduleBuilderTest {
     when(genesisConfig.getBftConfigOptions()).thenReturn(configBlockPeriod2);
     when(genesisConfig.getLondonBlockNumber()).thenReturn(OptionalLong.of(50));
 
-    // All forks after block 100 should be time based forks and retrieval from the fork
-    // schedule should be based on block timestamp not block number
-    when(genesisConfig.getShanghaiTime()).thenReturn(OptionalLong.of(100));
+    // All forks after the Shanghai timestamp should be time based forks and retrieval from the
+    // fork schedule should be based on block timestamp not block number.
+    // Timestamps must be >= 1st January 2023 (epoch 1_672_531_200) as earlier values are rejected.
+    when(genesisConfig.getShanghaiTime()).thenReturn(OptionalLong.of(1_672_531_200L));
     TransitionsConfigOptions transitions = TransitionsConfigOptions.DEFAULT;
     when(genesisConfig.getTransitions()).thenReturn(transitions);
 
@@ -295,8 +296,8 @@ public class BaseBftProtocolScheduleBuilderTest {
         new ForksSchedule<>(
             List.of(
                 new ForkSpec<>(0, configBlockPeriod2),
-                new ForkSpec<>(123456, configBlockPeriod3),
-                new ForkSpec<>(999999, configBlockPeriod4)));
+                new ForkSpec<>(1_672_531_200L, configBlockPeriod3),
+                new ForkSpec<>(1_673_000_000L, configBlockPeriod4)));
 
     createProtocolSchedule(forkSchedule);
 
@@ -305,12 +306,14 @@ public class BaseBftProtocolScheduleBuilderTest {
     assertThat(forkSchedule.getFork(10, 0).getForkType())
         .isEqualTo(ForkSpec.ForkScheduleType.BLOCK);
     assertThat(forkSchedule.getFork(10, 0).getValue().getBlockPeriodSeconds()).isEqualTo(2);
-    assertThat(forkSchedule.getFork(10, 123456).getForkType())
+    assertThat(forkSchedule.getFork(10, 1_672_531_200L).getForkType())
         .isEqualTo(ForkSpec.ForkScheduleType.TIME);
-    assertThat(forkSchedule.getFork(10, 123456).getValue().getBlockPeriodSeconds()).isEqualTo(3);
-    assertThat(forkSchedule.getFork(10, 999999).getForkType())
+    assertThat(forkSchedule.getFork(10, 1_672_531_200L).getValue().getBlockPeriodSeconds())
+        .isEqualTo(3);
+    assertThat(forkSchedule.getFork(10, 1_673_000_000L).getForkType())
         .isEqualTo(ForkSpec.ForkScheduleType.TIME);
-    assertThat(forkSchedule.getFork(10, 999999).getValue().getBlockPeriodSeconds()).isEqualTo(4);
+    assertThat(forkSchedule.getFork(10, 1_673_000_000L).getValue().getBlockPeriodSeconds())
+        .isEqualTo(4);
   }
 
   private BftConfigOptions createBftConfig(final BigInteger blockReward) {

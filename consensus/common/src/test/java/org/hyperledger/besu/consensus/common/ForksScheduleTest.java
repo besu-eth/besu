@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -34,6 +35,7 @@ import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ScheduledProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -126,8 +128,9 @@ public class ForksScheduleTest {
     final BftProtocolSchedule mockSchedule = mock(BftProtocolSchedule.class);
     when(mockSchedule.getSpecTypeByBlockNumberOrTimestamp(anyLong(), anyLong()))
         .thenReturn(ForkSpec.ForkScheduleType.TIME);
+    when(mockSchedule.getScheduledProtocolSpecs()).thenReturn(List.of());
 
-    assertThatThrownBy(() -> schedule.applyMilestoneTypes(mockSchedule))
+    assertThatThrownBy(() -> schedule.applyMilestoneTypes(mockSchedule, Long.MAX_VALUE))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("TIMESTAMP")
         .hasMessageContaining("1672531200");
@@ -141,8 +144,10 @@ public class ForksScheduleTest {
     final BftProtocolSchedule mockSchedule = mock(BftProtocolSchedule.class);
     when(mockSchedule.getSpecTypeByBlockNumberOrTimestamp(anyLong(), anyLong()))
         .thenReturn(ForkSpec.ForkScheduleType.TIME);
+    when(mockSchedule.getScheduledProtocolSpecs()).thenReturn(List.of());
 
-    assertThatCode(() -> schedule.applyMilestoneTypes(mockSchedule)).doesNotThrowAnyException();
+    assertThatCode(() -> schedule.applyMilestoneTypes(mockSchedule, Long.MAX_VALUE))
+        .doesNotThrowAnyException();
   }
 
   @Test
@@ -153,8 +158,75 @@ public class ForksScheduleTest {
     final BftProtocolSchedule mockSchedule = mock(BftProtocolSchedule.class);
     when(mockSchedule.getSpecTypeByBlockNumberOrTimestamp(anyLong(), anyLong()))
         .thenReturn(ForkSpec.ForkScheduleType.BLOCK);
+    when(mockSchedule.getScheduledProtocolSpecs()).thenReturn(List.of());
 
-    assertThatCode(() -> schedule.applyMilestoneTypes(mockSchedule)).doesNotThrowAnyException();
+    assertThatCode(() -> schedule.applyMilestoneTypes(mockSchedule, Long.MAX_VALUE))
+        .doesNotThrowAnyException();
+  }
+
+  @Test
+  public void applyMilestoneTypesThrowsForInvalidTimestampEvmSpecWhenInTimeMode() {
+    final ForksSchedule<BftConfigOptions> schedule =
+        new ForksSchedule<>(List.of(createForkSpec(0, 10)));
+    final long currentBlockNumber = 1_000_000L;
+
+    final BftProtocolSchedule mockSchedule = mock(BftProtocolSchedule.class);
+    when(mockSchedule.getSpecTypeByBlockNumberOrTimestamp(eq(0L), eq(0L)))
+        .thenReturn(ForkSpec.ForkScheduleType.BLOCK);
+    when(mockSchedule.getSpecTypeByBlockNumberOrTimestamp(
+            eq(currentBlockNumber), eq(currentBlockNumber)))
+        .thenReturn(ForkSpec.ForkScheduleType.TIME);
+
+    final ScheduledProtocolSpec mockTimestampSpec =
+        mock(ScheduledProtocolSpec.TimestampProtocolSpec.class);
+    when(mockTimestampSpec.fork()).thenReturn(new ScheduledProtocolSpec.Hardfork("test", 800L));
+    when(mockSchedule.getScheduledProtocolSpecs()).thenReturn(List.of(mockTimestampSpec));
+
+    assertThatThrownBy(() -> schedule.applyMilestoneTypes(mockSchedule, currentBlockNumber))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("TIMESTAMP")
+        .hasMessageContaining("1672531200");
+  }
+
+  @Test
+  public void applyMilestoneTypesDoesNotThrowForTimestampEvmSpecWhenCurrentSpecIsBlockType() {
+    final ForksSchedule<BftConfigOptions> schedule =
+        new ForksSchedule<>(List.of(createForkSpec(0, 10)));
+    final long currentBlockNumber = 500L;
+
+    final BftProtocolSchedule mockSchedule = mock(BftProtocolSchedule.class);
+    when(mockSchedule.getSpecTypeByBlockNumberOrTimestamp(anyLong(), anyLong()))
+        .thenReturn(ForkSpec.ForkScheduleType.BLOCK);
+
+    final ScheduledProtocolSpec mockTimestampSpec =
+        mock(ScheduledProtocolSpec.TimestampProtocolSpec.class);
+    when(mockTimestampSpec.fork()).thenReturn(new ScheduledProtocolSpec.Hardfork("test", 800L));
+    when(mockSchedule.getScheduledProtocolSpecs()).thenReturn(List.of(mockTimestampSpec));
+
+    assertThatCode(() -> schedule.applyMilestoneTypes(mockSchedule, currentBlockNumber))
+        .doesNotThrowAnyException();
+  }
+
+  @Test
+  public void applyMilestoneTypesDoesNotThrowForValidTimestampEvmSpecAtJan2023Boundary() {
+    final ForksSchedule<BftConfigOptions> schedule =
+        new ForksSchedule<>(List.of(createForkSpec(0, 10)));
+
+    final BftProtocolSchedule mockSchedule = mock(BftProtocolSchedule.class);
+    // Genesis fork (block 0) is BLOCK-type; the current-block lookup uses Long.MAX_VALUE → TIME
+    when(mockSchedule.getSpecTypeByBlockNumberOrTimestamp(anyLong(), anyLong()))
+        .thenReturn(ForkSpec.ForkScheduleType.TIME);
+    when(mockSchedule.getSpecTypeByBlockNumberOrTimestamp(eq(0L), eq(0L)))
+        .thenReturn(ForkSpec.ForkScheduleType.BLOCK);
+
+    final ScheduledProtocolSpec mockTimestampSpec =
+        mock(ScheduledProtocolSpec.TimestampProtocolSpec.class);
+    when(mockTimestampSpec.fork())
+        .thenReturn(new ScheduledProtocolSpec.Hardfork("test", 1_672_531_200L));
+    when(mockSchedule.getScheduledProtocolSpecs()).thenReturn(List.of(mockTimestampSpec));
+
+    assertThatCode(() -> schedule.applyMilestoneTypes(mockSchedule, Long.MAX_VALUE))
+        .doesNotThrowAnyException();
   }
 
   private ForkSpec<BftConfigOptions> createForkSpecWithMiningBeneficiary(

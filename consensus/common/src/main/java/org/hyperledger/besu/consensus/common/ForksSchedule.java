@@ -15,11 +15,13 @@
 package org.hyperledger.besu.consensus.common;
 
 import org.hyperledger.besu.consensus.common.bft.BftProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ScheduledProtocolSpec;
 
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.NavigableSet;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Function;
@@ -48,12 +50,16 @@ public class ForksSchedule<C> {
   }
 
   /**
-   * Apply the protocol schedule to the forks to assert their fork type - block or timestamp
+   * Apply the protocol schedule to the forks to assert their fork type - block or timestamp. Also
+   * validates that no TIMESTAMP-type fork (BFT or EVM) has a value before 1st January 2023.
    *
    * @param protocolSchedule the protocol schedule
+   * @param currentBlockNumber the chain's current head block number, used to determine whether the
+   *     active EVM spec is timestamp-based; callers without access to the chain head should pass
+   *     {@link Long#MAX_VALUE} to apply the most conservative validation
    */
-
-  public void applyMilestoneTypes(final BftProtocolSchedule protocolSchedule) {
+  public void applyMilestoneTypes(
+      final BftProtocolSchedule protocolSchedule, final long currentBlockNumber) {
     forks.forEach(
         f -> {
           f.setForkType(
@@ -67,6 +73,24 @@ public class ForksSchedule<C> {
                     f.getBlock(), MIN_TIMESTAMP_FORK_EPOCH_SECONDS));
           }
         });
+
+    final ForkSpec.ForkScheduleType currentEvmSpecType =
+        protocolSchedule.getSpecTypeByBlockNumberOrTimestamp(
+            currentBlockNumber, currentBlockNumber);
+    if (currentEvmSpecType == ForkSpec.ForkScheduleType.TIME) {
+      final Optional<ScheduledProtocolSpec> invalidEvmSpec =
+          protocolSchedule.getScheduledProtocolSpecs().stream()
+              .filter(s -> s instanceof ScheduledProtocolSpec.TimestampProtocolSpec)
+              .filter(s -> s.fork().milestone() < MIN_TIMESTAMP_FORK_EPOCH_SECONDS)
+              .findFirst();
+      if (invalidEvmSpec.isPresent()) {
+        throw new IllegalArgumentException(
+            String.format(
+                "Fork of type TIMESTAMP has block value %d which is before 1st January 2023"
+                    + " (epoch seconds %d); timestamp-based forks earlier than this are not supported.",
+                invalidEvmSpec.get().fork().milestone(), MIN_TIMESTAMP_FORK_EPOCH_SECONDS));
+      }
+    }
   }
 
   /**
