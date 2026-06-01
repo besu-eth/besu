@@ -42,7 +42,13 @@ public class BonsaiArchiveTrieNodeStrategy implements TrieNodeStrategy {
 
   private static final Logger LOG = LoggerFactory.getLogger(BonsaiArchiveTrieNodeStrategy.class);
 
-  private final BonsaiTrieNodeStrategy defaultStrategy = new BonsaiTrieNodeStrategy();
+  /**
+   * Plain point-lookup strategy used for the "current trie" reads/writes. Defaults to {@link
+   * BonsaiTrieNodeStrategy} over TRIE_BRANCH_STORAGE; the migrator subclass supplies one over its
+   * migration column family.
+   */
+  protected final TrieNodeStrategy baseStrategy;
+
   private final Long trieNodeCheckpointInterval;
   private final BonsaiCachedMerkleTrieLoader trieLoader;
   private volatile boolean intervalSeeded = false;
@@ -53,8 +59,16 @@ public class BonsaiArchiveTrieNodeStrategy implements TrieNodeStrategy {
 
   public BonsaiArchiveTrieNodeStrategy(
       final Long trieNodeCheckpointInterval, final BonsaiCachedMerkleTrieLoader trieLoader) {
+    this(trieNodeCheckpointInterval, trieLoader, new BonsaiTrieNodeStrategy());
+  }
+
+  protected BonsaiArchiveTrieNodeStrategy(
+      final Long trieNodeCheckpointInterval,
+      final BonsaiCachedMerkleTrieLoader trieLoader,
+      final TrieNodeStrategy baseStrategy) {
     this.trieNodeCheckpointInterval = trieNodeCheckpointInterval;
     this.trieLoader = trieLoader;
+    this.baseStrategy = baseStrategy;
   }
 
   @Override
@@ -69,7 +83,7 @@ public class BonsaiArchiveTrieNodeStrategy implements TrieNodeStrategy {
             found -> found.key().size() == location.size() + BonsaiArchiveKeyUtil.KEY_SUFFIX_LENGTH)
         .filter(found -> location.commonPrefixLength(found.key()) >= location.size())
         .flatMap(SegmentedKeyValueStorage.NearestKeyValue::wrapBytes)
-        .or(() -> defaultStrategy.getFlatAccountTrieNode(location, nodeHash, storage));
+        .or(() -> baseStrategy.getFlatAccountTrieNode(location, nodeHash, storage));
   }
 
   @Override
@@ -95,7 +109,7 @@ public class BonsaiArchiveTrieNodeStrategy implements TrieNodeStrategy {
             found ->
                 accountHashLocation.commonPrefixLength(found.key()) >= accountHashLocation.size())
         .flatMap(SegmentedKeyValueStorage.NearestKeyValue::wrapBytes)
-        .or(() -> defaultStrategy.getFlatStorageTrieNode(accountHash, location, nodeHash, storage));
+        .or(() -> baseStrategy.getFlatStorageTrieNode(accountHash, location, nodeHash, storage));
   }
 
   @Override
@@ -105,7 +119,7 @@ public class BonsaiArchiveTrieNodeStrategy implements TrieNodeStrategy {
       final Bytes location,
       final Bytes32 nodeHash,
       final Bytes node) {
-    defaultStrategy.putFlatAccountTrieNode(storage, transaction, location, nodeHash, node);
+    baseStrategy.putFlatAccountTrieNode(storage, transaction, location, nodeHash, node);
     if (trieNodeCheckpointInterval != null) {
       ensureIntervalSeeded(storage);
       final BonsaiContext ctx = getStateTrieArchiveContextForWrite(storage);
@@ -130,7 +144,7 @@ public class BonsaiArchiveTrieNodeStrategy implements TrieNodeStrategy {
       final Bytes location,
       final Bytes32 nodeHash,
       final Bytes node) {
-    defaultStrategy.putFlatStorageTrieNode(
+    baseStrategy.putFlatStorageTrieNode(
         storage, transaction, accountHash, location, nodeHash, node);
     if (trieNodeCheckpointInterval != null) {
       ensureIntervalSeeded(storage);
@@ -155,7 +169,7 @@ public class BonsaiArchiveTrieNodeStrategy implements TrieNodeStrategy {
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction,
       final Bytes location) {
-    defaultStrategy.removeFlatAccountStateTrieNode(storage, transaction, location);
+    baseStrategy.removeFlatAccountStateTrieNode(storage, transaction, location);
   }
 
   private BonsaiContext getStateTrieArchiveContextForWrite(final SegmentedKeyValueStorage storage) {

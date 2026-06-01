@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_MIGRATION;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy.calculateNaturalSlotKey;
 import static org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveKeyUtil.calculateArchiveKeyWithMinSuffix;
@@ -564,6 +565,27 @@ public class BonsaiFlatDbToArchiveMigratorTest {
     migrator.migrate().get(MIGRATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
     assertThat(storage.streamKeys(TRIE_BRANCH_STORAGE_ARCHIVE).count()).isGreaterThan(0);
+  }
+
+  @Test
+  public void trieCheckpointWritesNodesToMigrationCf() throws Exception {
+    // The migration CF (plain-key, single-version) is written alongside the suffixed archive CF
+    // during a checkpoint persist, and provides the fast point-lookup read substrate.
+    final Hash stateRoot = computeTestAccountStateRoot();
+    final Block genesis = blockchain.getBlockByNumber(0).orElseThrow();
+    final Block block1 =
+        blockDataGenerator.block(
+            BlockDataGenerator.BlockOptions.create()
+                .setParentHash(genesis.getHash())
+                .setBlockNumber(1)
+                .setStateRoot(stateRoot));
+    blockchain.appendBlock(block1, blockDataGenerator.receipts(block1));
+
+    // interval=2 fires a checkpoint at block 1: (1+1) % 2 == 0
+    final BonsaiFlatDbToArchiveMigrator migrator = createMigratorWithRealTrieLogs(2);
+    migrator.migrate().get(MIGRATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+    assertThat(storage.streamKeys(TRIE_BRANCH_MIGRATION).count()).isGreaterThan(0);
   }
 
   @Test

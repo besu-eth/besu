@@ -60,6 +60,18 @@ public enum KeyValueSegmentIdentifier implements SegmentIdentifier {
       false,
       true,
       true),
+  // Migration trie: a single-version, plain-key (no block suffix) copy of the archive migrator's
+  // current trie. It is written by the migrator alongside the suffixed TRIE_BRANCH_STORAGE_ARCHIVE
+  // entries and read with point lookups (bloom-accelerated, cache-resident) instead of the
+  // I/O-bound reverse seekForPrev over the multi-version archive CF. Never read by the proof query
+  // path.
+  TRIE_BRANCH_MIGRATION(
+      "TRIE_BRANCH_MIGRATION".getBytes(StandardCharsets.UTF_8),
+      EnumSet.of(X_BONSAI_ARCHIVE),
+      false,
+      true,
+      false,
+      true),
   VARIABLES(new byte[] {11}), // formerly GOQUORUM_PRIVATE_WORLD_STATE
 
   // previously supported GoQuorum private states

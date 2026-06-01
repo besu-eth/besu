@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
@@ -25,13 +26,27 @@ import java.util.Optional;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
-/** Default trie node strategy. Reads and writes go to TRIE_BRANCH_STORAGE. */
+/**
+ * Default trie node strategy. Reads and writes go to a single plain-key trie segment
+ * (TRIE_BRANCH_STORAGE by default). The target segment is configurable so the archive migrator can
+ * reuse the same point-lookup behaviour against its dedicated migration column family.
+ */
 public class BonsaiTrieNodeStrategy implements TrieNodeStrategy {
+
+  private final SegmentIdentifier trieSegment;
+
+  public BonsaiTrieNodeStrategy() {
+    this(TRIE_BRANCH_STORAGE);
+  }
+
+  public BonsaiTrieNodeStrategy(final SegmentIdentifier trieSegment) {
+    this.trieSegment = trieSegment;
+  }
 
   @Override
   public Optional<Bytes> getFlatAccountTrieNode(
       final Bytes location, final Bytes32 nodeHash, final SegmentedKeyValueStorage storage) {
-    return storage.get(TRIE_BRANCH_STORAGE, location.toArrayUnsafe()).map(Bytes::wrap);
+    return storage.get(trieSegment, location.toArrayUnsafe()).map(Bytes::wrap);
   }
 
   @Override
@@ -41,9 +56,7 @@ public class BonsaiTrieNodeStrategy implements TrieNodeStrategy {
       final Bytes32 nodeHash,
       final SegmentedKeyValueStorage storage) {
     return storage
-        .get(
-            TRIE_BRANCH_STORAGE,
-            Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe())
+        .get(trieSegment, Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe())
         .map(Bytes::wrap);
   }
 
@@ -54,7 +67,7 @@ public class BonsaiTrieNodeStrategy implements TrieNodeStrategy {
       final Bytes location,
       final Bytes32 nodeHash,
       final Bytes node) {
-    transaction.put(TRIE_BRANCH_STORAGE, location.toArrayUnsafe(), node.toArrayUnsafe());
+    transaction.put(trieSegment, location.toArrayUnsafe(), node.toArrayUnsafe());
   }
 
   @Override
@@ -66,7 +79,7 @@ public class BonsaiTrieNodeStrategy implements TrieNodeStrategy {
       final Bytes32 nodeHash,
       final Bytes node) {
     transaction.put(
-        TRIE_BRANCH_STORAGE,
+        trieSegment,
         Bytes.concatenate(accountHash.getBytes(), location).toArrayUnsafe(),
         node.toArrayUnsafe());
   }
@@ -76,6 +89,6 @@ public class BonsaiTrieNodeStrategy implements TrieNodeStrategy {
       final SegmentedKeyValueStorage storage,
       final SegmentedKeyValueStorageTransaction transaction,
       final Bytes location) {
-    transaction.remove(TRIE_BRANCH_STORAGE, location.toArrayUnsafe());
+    transaction.remove(trieSegment, location.toArrayUnsafe());
   }
 }

@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsaiarchive;
 
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_MIGRATION;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.ARCHIVE_PROOF_BLOCK_NUMBER_KEY;
@@ -32,7 +33,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoopBonsaiCache
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.CacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveTrieNodeStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveMigrationTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.BonsaiContext;
@@ -458,7 +459,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
             new InMemoryKeyValueStorage(),
             CacheManager.NO_OP_CACHE,
             0L,
-            new BonsaiArchiveTrieNodeStrategy(interval, migrationTrieLoader));
+            new BonsaiArchiveMigrationTrieNodeStrategy(interval, migrationTrieLoader));
     final CodeCache codeCache = new CodeCache();
     migrationWorldState =
         new BonsaiWorldState(
@@ -520,7 +521,9 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
           .ifPresent(
               header -> {
                 migrationWorldState.persist(header);
-                migrationTrieStorage.clearInMemory();
+                // The migration CF is persistent and overwrite-in-place, so trie-node reads in
+                // the next window find this window's nodes immediately — no clearInMemory() wipe
+                // of a read substrate. Only the in-memory metadata keys are refreshed.
                 migrationTrieStorage.seedCheckpoint(header);
                 LOG.info(
                     "Archive trie checkpoint complete: block {} suffix {} stateRoot {}",
@@ -546,6 +549,14 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
 
     @Override
     public Optional<byte[]> get(final SegmentIdentifier segmentId, final byte[] key) {
+      if (segmentId == TRIE_BRANCH_MIGRATION) {
+        // Migration trie nodes: point lookup against the persistent migration CF, falling back to
+        // live HEAD's TRIE_BRANCH_STORAGE for nodes the migrator has never rewritten (unchanged
+        // nodes are byte-identical at any historical state and at HEAD). This mirrors the previous
+        // archive seekForPrev → HEAD read order, but as a bloom-accelerated point lookup.
+        final Optional<byte[]> migration = real.get(TRIE_BRANCH_MIGRATION, key);
+        return migration.isPresent() ? migration : real.get(TRIE_BRANCH_STORAGE, key);
+      }
       if (segmentId == TRIE_BRANCH_STORAGE) {
         // Metadata keys must stay in-memory (live HEAD values would corrupt migration context).
         // ARCHIVE_PROOF_BLOCK_NUMBER_KEY is also intercepted: the proof-serving code writes this
@@ -605,7 +616,12 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
 
     @Override
     public void put(final SegmentIdentifier segmentId, final byte[] key, final byte[] value) {
-      if (segmentId == TRIE_BRANCH_STORAGE) {
+      if (segmentId == TRIE_BRANCH_MIGRATION) {
+        // Current-trie nodes: persistent, plain-key, overwrite-in-place migration CF.
+        realTx.put(segmentId, key, value);
+      } else if (segmentId == TRIE_BRANCH_STORAGE) {
+        // Metadata keys only (WORLD_*, ARCHIVE_PROOF_BLOCK_NUMBER_KEY) — kept in-memory so they
+        // never touch live HEAD's TRIE_BRANCH_STORAGE.
         inMemoryTx.put(segmentId, key, value);
       } else if (segmentId == TRIE_BRANCH_STORAGE_ARCHIVE) {
         realTx.put(segmentId, key, value);
@@ -615,7 +631,9 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
 
     @Override
     public void remove(final SegmentIdentifier segmentId, final byte[] key) {
-      if (segmentId == TRIE_BRANCH_STORAGE) {
+      if (segmentId == TRIE_BRANCH_MIGRATION) {
+        realTx.remove(segmentId, key);
+      } else if (segmentId == TRIE_BRANCH_STORAGE) {
         inMemoryTx.remove(segmentId, key);
       }
       // archive removes dropped
