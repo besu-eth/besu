@@ -59,15 +59,14 @@ abstract class AbstractFixedCostOperationV2 extends AbstractOperationV2 {
     if (frame.getRemainingGas() < gasCost) {
       return outOfGasResponse;
     }
-    return executeFixedCostOperation(frame, evm);
+    return executeFixedCostOperation(frame);
   }
 
   /**
    * Execute fixed cost operation.
    *
    * @param frame the frame
-   * @param evm the evm
    * @return the operation result
    */
-  protected abstract OperationResult executeFixedCostOperation(MessageFrame frame, EVM evm);
+  protected abstract OperationResult executeFixedCostOperation(MessageFrame frame);
 }

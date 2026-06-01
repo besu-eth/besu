@@ -1,0 +1,113 @@
+name: nightly kurtosis interop
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+env:
+  ENCLAVE_NAME: besu-cl-interop
+
+jobs:
+  kurtosis-cl-interop:
+    name: "Besu CL interop (Lighthouse + Prysm)"
+    runs-on: besu-research-ubuntu-8
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Set Besu image
+        run: echo "BESU_IMAGE=docker.io/${{ secrets.DOCKER_ORG }}/besu:develop" >> "$GITHUB_ENV"
+
+      - name: Install Kurtosis CLI
+        run: |
+          echo "deb [trusted=yes] https://apt.fury.io/kurtosis-tech/ /" | sudo tee /etc/apt/sources.list.d/kurtosis.list
+          sudo apt-get update -q
+          sudo apt-get install -y kurtosis-cli
+
+      - name: Write network params
+        run: |
+          cat > network_params.yaml <<EOF
+          participants:
+            - el_type: besu
+              el_image: ${BESU_IMAGE}
+              cl_type: lighthouse
+            - el_type: besu
+              el_image: ${BESU_IMAGE}
+              cl_type: prysm
+          network_params:
+            preset: minimal
+          additional_services:
+            - assertoor
+          assertoor_params:
+            run_block_proposal_check: true
+            run_transaction_test: true
+          EOF
+
+      - name: Start Kurtosis network
+        run: |
+          kurtosis run github.com/ethpandaops/ethereum-package \
+            --enclave "$ENCLAVE_NAME" \
+            --args-file network_params.yaml \
+            --image-download always
+
+      - name: Wait for assertoor results
+        run: |
+          ASSERTOOR_PORT=$(kurtosis enclave inspect "$ENCLAVE_NAME" 2>&1 \
+            | grep assertoor \
+            | grep -oP '127\.0\.0\.1:\K\d+' \
+            | head -1)
+          echo "Assertoor at port ${ASSERTOOR_PORT}"
+
+          for i in $(seq 1 120); do
+            sleep 10
+            RESPONSE=$(curl -sf "http://127.0.0.1:${ASSERTOOR_PORT}/api/v1/test_runs" 2>/dev/null) || continue
+
+            ALL_DONE=true
+            ANY_FAILED=false
+            RUN_COUNT=0
+            while IFS= read -r STATUS; do
+              RUN_COUNT=$((RUN_COUNT + 1))
+              case "$STATUS" in
+                "success"|"skipped") ;;
+                "failure"|"aborted") ANY_FAILED=true ;;
+                *) ALL_DONE=false ;;  # pending, running
+              esac
+            done < <(echo "$RESPONSE" | jq -r '.data[].status')
+            if [ "$RUN_COUNT" -eq 0 ]; then
+              ALL_DONE=false
+            fi
+
+            if $ANY_FAILED; then
+              echo "One or more assertoor tests failed"
+              exit 1
+            fi
+            if $ALL_DONE; then
+              echo "All assertoor tests passed"
+              exit 0
+            fi
+
+            echo "Waiting... (attempt ${i}/120)"
+          done
+
+          echo "Assertoor tests timed out after 20 minutes"
+          exit 1
+
+      - name: Dump enclave logs
+        if: failure()
+        run: kurtosis enclave dump "$ENCLAVE_NAME" ./enclave-dump
+
+      - name: Upload enclave logs
+        if: failure()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: enclave-dump-${{ github.run_id }}
+          path: enclave-dump/
+          retention-days: 7
+
+      - name: Cleanup enclave
+        if: always()
+        run: kurtosis enclave rm -f "$ENCLAVE_NAME" || true
