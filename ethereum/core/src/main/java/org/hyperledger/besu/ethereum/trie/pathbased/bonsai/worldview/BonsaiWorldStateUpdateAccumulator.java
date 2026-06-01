@@ -65,7 +65,7 @@ public class BonsaiWorldStateUpdateAccumulator
             getStoragePreloader(),
             getEvmConfiguration(),
             codeCache,
-            getBlockAccessListOverlay());
+            getMaybeBlockAccessListOverlay());
     copy.cloneFromUpdater(this);
     return copy;
   }

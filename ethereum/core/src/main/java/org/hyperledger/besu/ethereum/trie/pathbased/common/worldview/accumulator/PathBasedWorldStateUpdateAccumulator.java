@@ -78,7 +78,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
 
   private final Map<UInt256, Hash> storageKeyHashLookup = new ConcurrentHashMap<>();
   protected boolean isAccumulatorStateChanged;
-  private Optional<BlockAccessListOverlay> blockAccessListOverlay = Optional.empty();
+  private Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay = Optional.empty();
 
   public PathBasedWorldStateUpdateAccumulator(
       final PathBasedWorldView world,
@@ -93,14 +93,14 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       final Consumer<PathBasedValue<ACCOUNT>> accountPreloader,
       final Consumer<StorageSlotKey> storagePreloader,
       final EvmConfiguration evmConfiguration,
-      final Optional<BlockAccessListOverlay> blockAccessListOverlay) {
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
     super(world, evmConfiguration);
     this.accountsToUpdate = new AccountConsumingMap<>(new ConcurrentHashMap<>(), accountPreloader);
     this.accountPreloader = accountPreloader;
     this.storagePreloader = storagePreloader;
     this.isAccumulatorStateChanged = false;
     this.evmConfiguration = evmConfiguration;
-    this.blockAccessListOverlay = blockAccessListOverlay;
+    this.maybeBlockAccessListOverlay = maybeBlockAccessListOverlay;
   }
 
   public void cloneFromUpdater(final PathBasedWorldStateUpdateAccumulator<ACCOUNT> source) {
@@ -110,7 +110,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     storageToUpdate.putAll(source.storageToUpdate);
     updatedAccounts.putAll(source.updatedAccounts);
     deletedAccounts.addAll(source.deletedAccounts);
-    this.blockAccessListOverlay = source.blockAccessListOverlay;
+    this.maybeBlockAccessListOverlay = source.maybeBlockAccessListOverlay;
     this.isAccumulatorStateChanged = true;
   }
 
@@ -125,16 +125,16 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       throw new IllegalStateException(
           "BAL overlay must be set before any account, storage, or code access");
     }
-    this.blockAccessListOverlay =
+    this.maybeBlockAccessListOverlay =
         Optional.of(new BlockAccessListOverlay(blockAccessList, maxTxIndexExclusive));
   }
 
   public void clearBlockAccessListOverlay() {
-    this.blockAccessListOverlay = Optional.empty();
+    this.maybeBlockAccessListOverlay = Optional.empty();
   }
 
-  public Optional<BlockAccessListOverlay> getBlockAccessListOverlay() {
-    return blockAccessListOverlay;
+  public Optional<BlockAccessListOverlay> getMaybeBlockAccessListOverlay() {
+    return maybeBlockAccessListOverlay;
   }
 
   /**
@@ -585,15 +585,12 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
               : wrappedWorldView().getStorageValueByStorageSlotKey(address, storageSlotKey);
       final UInt256 parentValue = valueUInt.orElse(null);
       final UInt256 effectiveValue = applyBalStorageOverlay(address, storageSlotKey, parentValue);
-      if (parentValue != null
-          || hasBalStorageOverlayValue(address, storageSlotKey, effectiveValue)) {
-        storageToUpdate
-            .computeIfAbsent(
-                address,
-                key ->
-                    new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), storagePreloader))
-            .put(storageSlotKey, new PathBasedValue<>(parentValue, effectiveValue));
-      }
+      storageToUpdate
+              .computeIfAbsent(
+                      address,
+                      key ->
+                              new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), storagePreloader))
+              .put(storageSlotKey, new PathBasedValue<>(parentValue, effectiveValue));
       return Optional.ofNullable(effectiveValue);
     } catch (MerkleTrieException e) {
       // need to throw to trigger the heal
@@ -956,15 +953,14 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     updatedAccounts.clear();
     deletedAccounts.clear();
     storageKeyHashLookup.clear();
-    blockAccessListOverlay = Optional.empty();
+    maybeBlockAccessListOverlay = Optional.empty();
   }
 
   private ACCOUNT tryLoadAccountFromBalOverlay(final Address address) {
-    if (blockAccessListOverlay.isEmpty()) {
+    if (maybeBlockAccessListOverlay.isEmpty()) {
       return null;
     }
-    final BlockAccessListOverlay overlay = blockAccessListOverlay.get();
-    if (!overlay.hasPriorAccountState(address)) {
+    if (!maybeBlockAccessListOverlay.get().hasPriorAccountState(address)) {
       return null;
     }
     final ACCOUNT account =
@@ -977,32 +973,24 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
             Hash.EMPTY_TRIE_HASH,
             Hash.EMPTY,
             true);
-    overlay.applyToAccount(address, account);
+    maybeBlockAccessListOverlay.get().applyToAccount(address,account);
     return account;
   }
 
   private void applyBlockAccessListOverlay(final Address address, final ACCOUNT account) {
-    blockAccessListOverlay.ifPresent(overlay -> overlay.applyToAccount(address, account));
-  }
-
-  private boolean hasBalStorageOverlayValue(
-      final Address address, final StorageSlotKey storageSlotKey, final UInt256 effectiveValue) {
-    return effectiveValue != null
-        && blockAccessListOverlay
-            .map(overlay -> overlay.hasPriorStorageChange(address, storageSlotKey))
-            .orElse(false);
+    maybeBlockAccessListOverlay.ifPresent(overlay -> overlay.applyToAccount(address, account));
   }
 
   private UInt256 applyBalStorageOverlay(
       final Address address, final StorageSlotKey storageSlotKey, final UInt256 parentValue) {
-    return blockAccessListOverlay
+    return maybeBlockAccessListOverlay
         .map(overlay -> overlay.getStorageValue(address, storageSlotKey, parentValue))
         .orElse(parentValue);
   }
 
   private Optional<Bytes> getCodeWithBalOverlay(final Address address, final Hash codeHash) {
-    if (blockAccessListOverlay.isPresent()) {
-      final Optional<Bytes> balCode = blockAccessListOverlay.get().getCode(address);
+    if (maybeBlockAccessListOverlay.isPresent()) {
+      final Optional<Bytes> balCode = maybeBlockAccessListOverlay.get().getCode(address);
       if (balCode.isPresent()) {
         codeToUpdate.putIfAbsent(address, new PathBasedValue<>(null, balCode.get()));
         return balCode;

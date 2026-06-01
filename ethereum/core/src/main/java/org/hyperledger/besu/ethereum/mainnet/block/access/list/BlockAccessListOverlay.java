@@ -37,27 +37,16 @@ import org.apache.tuweni.units.bigints.UInt256;
  */
 public final class BlockAccessListOverlay {
 
-  private final long maxTxIndexExclusive;
   private final Map<Address, AccountOverlay> accountOverlays;
 
   public BlockAccessListOverlay(
       final BlockAccessList blockAccessList, final long maxTxIndexExclusive) {
-    this.maxTxIndexExclusive = maxTxIndexExclusive;
     this.accountOverlays = buildAccountOverlays(blockAccessList, maxTxIndexExclusive);
-  }
-
-  public long maxTxIndexExclusive() {
-    return maxTxIndexExclusive;
   }
 
   public boolean hasPriorAccountState(final Address address) {
     final AccountOverlay overlay = accountOverlays.get(address);
     return overlay != null && overlay.hasPriorAccountState();
-  }
-
-  public boolean hasPriorStorageChange(final Address address, final StorageSlotKey storageSlotKey) {
-    final AccountOverlay overlay = accountOverlays.get(address);
-    return overlay != null && overlay.hasStorageOverlay(storageSlotKey);
   }
 
   public void applyToAccount(final Address address, final MutableAccount account) {
@@ -133,18 +122,27 @@ public final class BlockAccessListOverlay {
   }
 
   /**
-   * Returns the latest change with {@code txIndex < maxIndex}. Lists are sorted by {@code txIndex}
-   * ascending, so we scan from the end.
+   * Returns the latest change with {@code txIndex < maxIndex}. Change lists are sorted by {@code
+   * txIndex} ascending.
    */
   private static <T> Optional<T> findLatestBeforeMax(
       final List<T> changes, final long maxIndex, final ToLongFunction<T> txIndexGetter) {
-    for (int i = changes.size() - 1; i >= 0; i--) {
-      final T change = changes.get(i);
-      if (txIndexGetter.applyAsLong(change) < maxIndex) {
-        return Optional.of(change);
+    if (changes.isEmpty()) {
+      return Optional.empty();
+    }
+    int lo = 0;
+    int hi = changes.size() - 1;
+    int latestIndex = -1;
+    while (lo <= hi) {
+      final int mid = (lo + hi) >>> 1;
+      if (txIndexGetter.applyAsLong(changes.get(mid)) < maxIndex) {
+        latestIndex = mid;
+        lo = mid + 1;
+      } else {
+        hi = mid - 1;
       }
     }
-    return Optional.empty();
+    return latestIndex < 0 ? Optional.empty() : Optional.of(changes.get(latestIndex));
   }
 
   private record AccountOverlay(
@@ -155,10 +153,6 @@ public final class BlockAccessListOverlay {
 
     boolean hasPriorAccountState() {
       return balance.isPresent() || nonce.isPresent() || code.isPresent();
-    }
-
-    boolean hasStorageOverlay(final StorageSlotKey storageSlotKey) {
-      return storageBySlot.containsKey(storageSlotKey);
     }
 
     Optional<UInt256> storageValue(final StorageSlotKey storageSlotKey) {
