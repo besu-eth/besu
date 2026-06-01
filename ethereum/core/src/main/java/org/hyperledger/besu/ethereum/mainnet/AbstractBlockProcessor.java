@@ -342,23 +342,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         applyPartialBlockAccessView(
             transactionProcessingResult.getPartialBlockAccessView(), blockAccessListBuilder);
 
-        if (blockAccessListBuilder.isPresent()) {
-          final BlockAccessListItemSizeCheck itemSizeCheck =
-              protocolSpec
-                  .getBlockAccessListValidator()
-                  .validateExecutedBlockAccessListItemSize(
-                      blockAccessListBuilder.get().eip7928ItemCount(), blockHeader, protocolSpec);
-          if (itemSizeCheck.isOverBudget()) {
-            final String errorMessage =
-                itemSizeCheck.overBudgetError().orElseThrow().errorMessage();
-            LOG.error(errorMessage);
-            if (worldState instanceof BonsaiWorldState) {
-              ((BonsaiWorldStateUpdateAccumulator) blockUpdater).reset();
-            }
-            return new BlockProcessingResult(Optional.empty(), errorMessage);
-          }
-        }
-
         if (transactionUpdater instanceof StackedUpdater<?, ?>) {
           transactionUpdater.commit();
         }
