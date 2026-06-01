@@ -149,7 +149,7 @@ public class DynamicPivotBlockSelector {
           lastPivotBlockFound = Optional.empty();
           onSwitchDone.accept(blockHeader, true);
         },
-        () -> onSwitchDone.accept(syncState.getPivotBlockHeader().orElseThrow(), false));
+        () -> syncState.getPivotBlockHeader().ifPresent(h -> onSwitchDone.accept(h, false)));
   }
 
   public boolean isBlockchainBehind() {
