@@ -106,6 +106,7 @@ public class EngineGetPayloadBodiesByRangeV1 extends AbstractEngineGetPayloadBod
     EngineGetPayloadBodiesResultV1 engineGetPayloadBodiesResultV1 =
         blockResultFactory.payloadBodiesCompleteV1(
             LongStream.range(startBlockNumber, endExclusiveBlockNumber)
+                .parallel()
                 .mapToObj(
                     blockNumber ->
                         blockchain
