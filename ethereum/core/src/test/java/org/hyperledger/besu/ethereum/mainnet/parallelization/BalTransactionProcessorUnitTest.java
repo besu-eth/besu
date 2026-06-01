@@ -41,6 +41,7 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.NoOpBonsaiCachedWorldStorageManager;
@@ -96,6 +97,11 @@ class BalTransactionProcessorUnitTest {
       BonsaiWorldState worldState) {}
 
   private BonsaiWorldState createEmptyWorldState() {
+    return createEmptyWorldState(Optional.empty());
+  }
+
+  private BonsaiWorldState createEmptyWorldState(
+      final Optional<BlockAccessListOverlay> blockAccessListOverlay) {
     final BonsaiWorldStateKeyValueStorage storage =
         new BonsaiWorldStateKeyValueStorage(
             new InMemoryKeyValueStorageProvider(),
@@ -109,7 +115,8 @@ class BalTransactionProcessorUnitTest {
         new NoOpTrieLogManager(),
         EvmConfiguration.DEFAULT,
         createStatefulConfigWithTrie(),
-        new CodeCache());
+        new CodeCache(),
+        blockAccessListOverlay);
   }
 
   private TestEnvironment createTestEnvironment() {
@@ -120,7 +127,22 @@ class BalTransactionProcessorUnitTest {
     final BonsaiWorldState worldState = createEmptyWorldState();
 
     when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
-    when(worldStateArchive.getWorldState(any())).thenReturn(Optional.of(worldState));
+    when(worldStateArchive.getWorldState(any()))
+        .thenAnswer(
+            invocation -> {
+              final WorldStateQueryParams queryParams = invocation.getArgument(0);
+              if (queryParams == null) {
+                return Optional.empty();
+              }
+              final Optional<BlockAccessListOverlay> overlay =
+                  queryParams
+                      .getBalOverlayQuery()
+                      .map(
+                          q ->
+                              new BlockAccessListOverlay(
+                                  q.blockAccessList(), q.maxTxIndexExclusive()));
+              return Optional.of(createEmptyWorldState(overlay));
+            });
     when(parentHeader.getBlockHash()).thenReturn(Hash.ZERO);
     when(parentHeader.getStateRoot()).thenReturn(Hash.EMPTY_TRIE_HASH);
 
@@ -141,9 +163,7 @@ class BalTransactionProcessorUnitTest {
   }
 
   private PartialBlockAccessView emptyPartialBlockAccessView(final long txIndex) {
-    return new PartialBlockAccessView.PartialBlockAccessViewBuilder()
-        .withTxIndex(txIndex)
-        .build();
+    return new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(txIndex).build();
   }
 
   private void stubSuccessfulTransaction() {
@@ -345,9 +365,7 @@ class BalTransactionProcessorUnitTest {
       assertEquals(nonce, account.getNonce(), "Nonce should come from partial BAL");
       assertEquals(code, account.getCode(), "Code should come from partial BAL");
       assertEquals(
-          UInt256.valueOf(11),
-          account.getStorageValue(slotOneKey),
-          "Slot one should be applied");
+          UInt256.valueOf(11), account.getStorageValue(slotOneKey), "Slot one should be applied");
       assertEquals(UInt256.ZERO, account.getStorageValue(slotTwoKey), "Null slot clears to zero");
       assertNull(
           env.worldState().updater().get(readOnlyAddress),

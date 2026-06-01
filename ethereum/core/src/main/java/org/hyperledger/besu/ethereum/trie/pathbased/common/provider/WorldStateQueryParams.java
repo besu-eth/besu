@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.common.provider;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 
 import java.util.Objects;
@@ -22,10 +23,21 @@ import java.util.Optional;
 
 /** Parameters for querying the world state. */
 public class WorldStateQueryParams {
+
+  /**
+   * BAL overlay applied when the world state's accumulator is created (parallel execution).
+   *
+   * @param blockAccessList block access list for the current block
+   * @param maxTxIndexExclusive index of the transaction about to execute; overlay includes changes
+   *     with {@code txIndex < maxTxIndexExclusive}
+   */
+  public record BalOverlayQuery(BlockAccessList blockAccessList, long maxTxIndexExclusive) {}
+
   private final BlockHeader blockHeader;
   private final boolean shouldWorldStateUpdateHead;
   private final Hash blockHash;
   private final Optional<Hash> stateRoot;
+  private final Optional<BalOverlayQuery> balOverlayQuery;
 
   /**
    * Private constructor to enforce the use of the Builder.
@@ -37,6 +49,7 @@ public class WorldStateQueryParams {
     this.shouldWorldStateUpdateHead = builder.shouldWorldStateUpdateHead;
     this.blockHash = builder.blockHash;
     this.stateRoot = builder.stateRoot;
+    this.balOverlayQuery = builder.balOverlayQuery;
   }
 
   /**
@@ -73,6 +86,15 @@ public class WorldStateQueryParams {
    */
   public Optional<Hash> getStateRoot() {
     return stateRoot;
+  }
+
+  /**
+   * Optional BAL overlay to configure on the new world state's accumulator at creation time.
+   *
+   * @return BAL overlay query parameters, if any
+   */
+  public Optional<BalOverlayQuery> getBalOverlayQuery() {
+    return balOverlayQuery;
   }
 
   /**
@@ -156,12 +178,14 @@ public class WorldStateQueryParams {
     return shouldWorldStateUpdateHead == that.shouldWorldStateUpdateHead
         && Objects.equals(blockHeader, that.blockHeader)
         && Objects.equals(blockHash, that.blockHash)
-        && Objects.equals(stateRoot, that.stateRoot);
+        && Objects.equals(stateRoot, that.stateRoot)
+        && Objects.equals(balOverlayQuery, that.balOverlayQuery);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(blockHeader, shouldWorldStateUpdateHead, blockHash, stateRoot);
+    return Objects.hash(
+        blockHeader, shouldWorldStateUpdateHead, blockHash, stateRoot, balOverlayQuery);
   }
 
   public static class Builder {
@@ -169,6 +193,7 @@ public class WorldStateQueryParams {
     private boolean shouldWorldStateUpdateHead = false;
     private Hash blockHash;
     private Optional<Hash> stateRoot = Optional.empty();
+    private Optional<BalOverlayQuery> balOverlayQuery = Optional.empty();
 
     private Builder() {}
 
@@ -216,6 +241,19 @@ public class WorldStateQueryParams {
      */
     public Builder withStateRoot(final Hash stateRoot) {
       this.stateRoot = Optional.ofNullable(stateRoot);
+      return this;
+    }
+
+    /**
+     * Applies a BAL overlay when the queried world state's accumulator is created.
+     *
+     * @param blockAccessList block access list for the current block
+     * @param maxTxIndexExclusive index of the transaction about to execute
+     * @return the builder
+     */
+    public Builder withBalOverlay(
+        final BlockAccessList blockAccessList, final long maxTxIndexExclusive) {
+      this.balOverlayQuery = Optional.of(new BalOverlayQuery(blockAccessList, maxTxIndexExclusive));
       return this;
     }
 
