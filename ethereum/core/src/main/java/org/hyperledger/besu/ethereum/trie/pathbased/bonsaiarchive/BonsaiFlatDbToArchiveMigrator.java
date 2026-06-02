@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsaiarchive;
 
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE;
-import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_MIGRATION;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.ARCHIVE_PROOF_BLOCK_NUMBER_KEY;
@@ -510,13 +509,13 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
         reRollTrieFrom(reRollStart, progress);
       }
     } else {
-      // No trie checkpoint persisted yet. TRIE_BRANCH_MIGRATION already has the correct nodes
-      // for block `progress` from the previous migration run. Seeding from genesis and re-rolling
+      // No trie checkpoint persisted yet. TRIE_BRANCH_STORAGE_ARCHIVE has checkpoint nodes from
+      // the previous migration run up to block `progress`. Seeding from genesis and re-rolling
       // would be wrong: the genesis root doesn't match those nodes, so persist() at the first
       // checkpoint would compute a mismatched state root. Instead, seed directly from block
-      // `progress` so the migration world state's root hash is consistent with the CF. The
-      // accumulator stays empty — catch-up will load accounts via loadAccountFromParent at the
-      // correct root rather than through an accumulated chain of rollForwards.
+      // `progress` so the migration world state's root hash is consistent with the archive CF.
+      // The accumulator stays empty — catch-up will load accounts via loadAccountFromParent at
+      // the correct root rather than through an accumulated chain of rollForwards.
       blockchain.getBlockHeader(progress).ifPresent(migrationTrieStorage::seedCheckpoint);
     }
   }
@@ -574,14 +573,6 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
 
     @Override
     public Optional<byte[]> get(final SegmentIdentifier segmentId, final byte[] key) {
-      if (segmentId == TRIE_BRANCH_MIGRATION) {
-        // Migration trie nodes: point lookup against the persistent migration CF, falling back to
-        // live HEAD's TRIE_BRANCH_STORAGE for nodes the migrator has never rewritten (unchanged
-        // nodes are byte-identical at any historical state and at HEAD). This mirrors the previous
-        // archive seekForPrev → HEAD read order, but as a bloom-accelerated point lookup.
-        final Optional<byte[]> migration = real.get(TRIE_BRANCH_MIGRATION, key);
-        return migration.isPresent() ? migration : real.get(TRIE_BRANCH_STORAGE, key);
-      }
       if (segmentId == TRIE_BRANCH_STORAGE) {
         // Metadata keys must stay in-memory (live HEAD values would corrupt migration context).
         // ARCHIVE_PROOF_BLOCK_NUMBER_KEY is also intercepted: the proof-serving code writes this
@@ -641,10 +632,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
 
     @Override
     public void put(final SegmentIdentifier segmentId, final byte[] key, final byte[] value) {
-      if (segmentId == TRIE_BRANCH_MIGRATION) {
-        // Current-trie nodes: persistent, plain-key, overwrite-in-place migration CF.
-        realTx.put(segmentId, key, value);
-      } else if (segmentId == TRIE_BRANCH_STORAGE) {
+      if (segmentId == TRIE_BRANCH_STORAGE) {
         // Metadata keys only (WORLD_*, ARCHIVE_PROOF_BLOCK_NUMBER_KEY) — kept in-memory so they
         // never touch live HEAD's TRIE_BRANCH_STORAGE.
         inMemoryTx.put(segmentId, key, value);
@@ -656,9 +644,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
 
     @Override
     public void remove(final SegmentIdentifier segmentId, final byte[] key) {
-      if (segmentId == TRIE_BRANCH_MIGRATION) {
-        realTx.remove(segmentId, key);
-      } else if (segmentId == TRIE_BRANCH_STORAGE) {
+      if (segmentId == TRIE_BRANCH_STORAGE) {
         inMemoryTx.remove(segmentId, key);
       }
       // archive removes dropped
