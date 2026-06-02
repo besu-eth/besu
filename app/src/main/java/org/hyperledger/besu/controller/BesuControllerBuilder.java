@@ -209,6 +209,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   private int numberOfBlocksToCache = 0;
   private int numberOfBlockHeadersToCache = 0;
   private boolean isCacheLastBlockHeadersPreloadEnabled;
+  private boolean senderNonceIndexingEnabled = false;
 
   /** whether parallel transaction processing is enabled or not */
   protected boolean isParallelTxProcessingEnabled;
@@ -511,6 +512,18 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   }
 
   /**
+   * Sets whether the sender-nonce → transaction hash index is maintained.
+   *
+   * @param senderNonceIndexingEnabled {@code true} to enable the index (disabled by default)
+   * @return the besu controller builder
+   */
+  public BesuControllerBuilder senderNonceIndexingEnabled(
+      final boolean senderNonceIndexingEnabled) {
+    this.senderNonceIndexingEnabled = senderNonceIndexingEnabled;
+    return this;
+  }
+
+  /**
    * Sets whether the block header cache should be preloaded.
    *
    * @param isCacheLastBlockHeadersPreloadEnabled {@code true} to enable preloading of the block
@@ -657,7 +670,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             reorgLoggingThreshold,
             dataDirectory.toString(),
             numberOfBlocksToCache,
-            numberOfBlockHeadersToCache);
+            numberOfBlockHeadersToCache,
+            senderNonceIndexingEnabled);
 
     if (isCacheLastBlockHeadersPreloadEnabled && numberOfBlockHeadersToCache > 0) {
       LOG.info(

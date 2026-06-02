@@ -28,10 +28,24 @@ jar {
   }
 }
 
+compileJava {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
+    option('NullAway:AnnotatedPackages', 'org.hyperledger.besu.ethstats')
+  }
+}
+
+tasks.named('compileTestJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.ERROR)
+    option('NullAway:AnnotatedPackages', 'org.hyperledger.besu.ethstats')
+  }
+}
+
+
 dependencies {
   api 'org.slf4j:slf4j-api'
 
-  compileOnly 'org.jspecify:jspecify'
 
   implementation 'com.fasterxml.jackson.core:jackson-databind'
   implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jdk8'
@@ -65,4 +79,8 @@ dependencies {
   testImplementation 'org.junit.jupiter:junit-jupiter'
   testImplementation 'org.mockito:mockito-core'
   testImplementation 'org.mockito:mockito-junit-jupiter'
+
+  // NullAway dependencies
+  errorprone 'com.uber.nullaway:nullaway'
+  compileOnlyApi 'org.jspecify:jspecify'
 }
