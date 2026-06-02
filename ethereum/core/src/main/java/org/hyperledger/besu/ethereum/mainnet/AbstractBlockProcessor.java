@@ -244,8 +244,10 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     final BlockAwareOperationTracer blockTracer =
         getBlockImportTracer(protocolContext, blockHeader);
 
-    // translate BlockAwareOperationTracer.NO_TRACING to OperationTracer.NO_TRACING to avoid megamorphism
-    OperationTracer effectiveTracer = !blockTracer.isEnabled() ? OperationTracer.NO_TRACING : blockTracer;
+    // translate BlockAwareOperationTracer.NO_TRACING to OperationTracer.NO_TRACING to avoid
+    // megamorphism
+    OperationTracer effectiveTracer =
+        !blockTracer.isEnabled() ? OperationTracer.NO_TRACING : blockTracer;
 
     SlowBlockTracer maybeSlowBlockTracer = null;
     // TODO SLD - hook up to config
@@ -552,7 +554,9 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
 
       LOG.trace("traceEndBlock for {}", blockHeader.getNumber());
       blockTracer.traceEndBlock(blockHeader, blockBody);
-      if (maybeSlowBlockTracer != null) maybeSlowBlockTracer.traceEndBlock(blockHeader.getNumber(), blockHeader.getBlockHash(), blockHeader.getGasUsed());
+      if (maybeSlowBlockTracer != null)
+        maybeSlowBlockTracer.traceEndBlock(
+            blockHeader.getNumber(), blockHeader.getBlockHash(), blockHeader.getGasUsed());
 
       try {
         worldState.persist(blockHeader, stateRootCommitter);
