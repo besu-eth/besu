@@ -26,7 +26,6 @@ jar {
       'Commit-Hash': getGitCommitDetails(40).hash
       )
   }
-
 }
 
 // Copy the catalog into the resources output dir so it is on the classpath when
