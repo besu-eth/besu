@@ -109,6 +109,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   protected final AtomicBoolean migrationRunning = new AtomicBoolean(false);
   protected final AtomicLong ongoingTarget = new AtomicLong(0);
   protected final AtomicBoolean catchUpRunning = new AtomicBoolean(false);
+  private volatile boolean catchUpFailed = false;
   protected volatile OptionalLong blockObserverId = OptionalLong.empty();
   private boolean closed = false;
 
@@ -283,6 +284,9 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   }
 
   private void scheduleCatchUpIfNeeded() {
+    if (catchUpFailed) {
+      return;
+    }
     if (!catchUpRunning.compareAndSet(false, true)) {
       return;
     }
@@ -322,6 +326,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
       }
     } catch (final RuntimeException ex) {
       failed = true;
+      catchUpFailed = true;
       LOG.error(
           "Bonsai archive catch-up failed at block {} — archive proofs will be unavailable until restart: {}",
           migratedBlockNumber.get() + 1,
@@ -498,12 +503,21 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
     // Derive the last trie checkpoint: largest block B ≤ progress where (B+1) % interval == 0
     final long lastCheckpoint = ((progress + 1) / interval) * interval - 1;
     if (lastCheckpoint >= 0) {
+      // A real checkpoint was persisted. Seed from it and re-roll the partial window.
       blockchain.getBlockHeader(lastCheckpoint).ifPresent(migrationTrieStorage::seedCheckpoint);
-    }
-    // Re-roll blocks after the checkpoint up to current flat-DB progress to restore accumulator
-    final long reRollStart = lastCheckpoint + 1;
-    if (reRollStart <= progress) {
-      reRollTrieFrom(reRollStart, progress);
+      final long reRollStart = lastCheckpoint + 1;
+      if (reRollStart <= progress) {
+        reRollTrieFrom(reRollStart, progress);
+      }
+    } else {
+      // No trie checkpoint persisted yet. TRIE_BRANCH_MIGRATION already has the correct nodes
+      // for block `progress` from the previous migration run. Seeding from genesis and re-rolling
+      // would be wrong: the genesis root doesn't match those nodes, so persist() at the first
+      // checkpoint would compute a mismatched state root. Instead, seed directly from block
+      // `progress` so the migration world state's root hash is consistent with the CF. The
+      // accumulator stays empty — catch-up will load accounts via loadAccountFromParent at the
+      // correct root rather than through an accumulated chain of rollForwards.
+      blockchain.getBlockHeader(progress).ifPresent(migrationTrieStorage::seedCheckpoint);
     }
   }
 
