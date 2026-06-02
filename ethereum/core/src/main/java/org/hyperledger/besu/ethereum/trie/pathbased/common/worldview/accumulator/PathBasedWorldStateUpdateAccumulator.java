@@ -19,6 +19,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedAccount;
@@ -47,6 +48,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -76,18 +78,29 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
 
   private final Map<UInt256, Hash> storageKeyHashLookup = new ConcurrentHashMap<>();
   protected boolean isAccumulatorStateChanged;
+  private Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay = Optional.empty();
 
   public PathBasedWorldStateUpdateAccumulator(
       final PathBasedWorldView world,
       final Consumer<PathBasedValue<ACCOUNT>> accountPreloader,
       final Consumer<StorageSlotKey> storagePreloader,
       final EvmConfiguration evmConfiguration) {
+    this(world, accountPreloader, storagePreloader, evmConfiguration, Optional.empty());
+  }
+
+  public PathBasedWorldStateUpdateAccumulator(
+      final PathBasedWorldView world,
+      final Consumer<PathBasedValue<ACCOUNT>> accountPreloader,
+      final Consumer<StorageSlotKey> storagePreloader,
+      final EvmConfiguration evmConfiguration,
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
     super(world, evmConfiguration);
     this.accountsToUpdate = new AccountConsumingMap<>(new ConcurrentHashMap<>(), accountPreloader);
     this.accountPreloader = accountPreloader;
     this.storagePreloader = storagePreloader;
     this.isAccumulatorStateChanged = false;
     this.evmConfiguration = evmConfiguration;
+    this.maybeBlockAccessListOverlay = maybeBlockAccessListOverlay;
   }
 
   public void cloneFromUpdater(final PathBasedWorldStateUpdateAccumulator<ACCOUNT> source) {
@@ -97,7 +110,12 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     storageToUpdate.putAll(source.storageToUpdate);
     updatedAccounts.putAll(source.updatedAccounts);
     deletedAccounts.addAll(source.deletedAccounts);
+    this.maybeBlockAccessListOverlay = source.maybeBlockAccessListOverlay;
     this.isAccumulatorStateChanged = true;
+  }
+
+  protected Optional<BlockAccessListOverlay> getMaybeBlockAccessListOverlay() {
+    return maybeBlockAccessListOverlay;
   }
 
   /**
@@ -309,18 +327,33 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
           account = wrappedWorldView().get(address);
         }
         if (account instanceof PathBasedAccount pathBasedAccount) {
-          ACCOUNT mutableAccount = copyAccount((ACCOUNT) pathBasedAccount, this, true);
-          accountsToUpdate.put(
-              address, new PathBasedValue<>((ACCOUNT) pathBasedAccount, mutableAccount));
-          return mutableAccount;
-        } else {
-          // add the empty read in accountsToUpdate
-          accountsToUpdate.put(address, new PathBasedValue<>(null, null));
-          return null;
+          final ACCOUNT priorAccount = copyAccount((ACCOUNT) pathBasedAccount);
+          final ACCOUNT updatedAccount = copyAccount((ACCOUNT) pathBasedAccount, this, true);
+          applyBalOverlayToAccountState(address, () -> updatedAccount);
+          accountsToUpdate.put(address, new PathBasedValue<>(priorAccount, updatedAccount));
+          return accountFunction.apply(accountsToUpdate.get(address));
         }
-      } else {
-        return accountFunction.apply(pathBasedValue);
+        final Optional<ACCOUNT> balOnlyAccount =
+            applyBalOverlayToAccountState(
+                address,
+                () ->
+                    createAccount(
+                        this,
+                        address,
+                        hashAndSaveAccountPreImage(address),
+                        0,
+                        Wei.ZERO,
+                        Hash.EMPTY_TRIE_HASH,
+                        Hash.EMPTY,
+                        true));
+        if (balOnlyAccount.isPresent()) {
+          accountsToUpdate.put(address, new PathBasedValue<>(null, balOnlyAccount.get()));
+          return balOnlyAccount.get();
+        }
+        accountsToUpdate.put(address, new PathBasedValue<>(null, null));
+        return null;
       }
+      return accountFunction.apply(pathBasedValue);
     } catch (MerkleTrieException e) {
       // need to throw to trigger the heal
       throw new MerkleTrieException(
@@ -506,14 +539,18 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     final PathBasedValue<Bytes> localCode = codeToUpdate.get(address);
     if (localCode == null) {
       final Optional<Bytes> code = wrappedWorldView().getCode(address, codeHash);
-      if (code.isEmpty() && !codeHash.equals(Hash.EMPTY)) {
+      final PathBasedValue<Bytes> codeValue =
+          new PathBasedValue<>(code.orElse(null), code.orElse(null));
+      applyBalOverlayToCode(address, codeValue);
+      codeToUpdate.put(address, codeValue);
+      if (codeValue.getUpdated() == null && !codeHash.equals(Hash.EMPTY)) {
         throw new MerkleTrieException(
             "invalid account code",
             Optional.of(address),
             Bytes32.wrap(codeHash.getBytes()),
             Bytes.EMPTY);
       }
-      return code;
+      return Optional.ofNullable(codeValue.getUpdated());
     } else {
       return Optional.ofNullable(localCode.getUpdated());
     }
@@ -538,20 +575,23 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       }
     }
     try {
-      final Optional<UInt256> valueUInt =
+      final Optional<UInt256> prior =
           (wrappedWorldView() instanceof PathBasedWorldState worldState)
               ? worldState.getStorageValueByStorageSlotKey(address, storageSlotKey)
               : wrappedWorldView().getStorageValueByStorageSlotKey(address, storageSlotKey);
+      final PathBasedValue<UInt256> storageValue =
+          new PathBasedValue<>(prior.orElse(null), prior.orElse(null));
+      applyBalOverlayToStorage(address, storageSlotKey, storageValue);
+
       storageToUpdate
           .computeIfAbsent(
               address,
               key ->
                   new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), storagePreloader))
-          .put(
-              storageSlotKey, new PathBasedValue<>(valueUInt.orElse(null), valueUInt.orElse(null)));
-      return valueUInt;
+          .put(storageSlotKey, storageValue);
+
+      return Optional.ofNullable(storageValue.getUpdated());
     } catch (MerkleTrieException e) {
-      // need to throw to trigger the heal
       throw new MerkleTrieException(
           e.getMessage(), Optional.of(address), e.getHash(), e.getLocation());
     }
@@ -719,8 +759,11 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     try {
       final Account parentAccount = wrappedWorldView().get(address);
       if (parentAccount instanceof PathBasedAccount account) {
+        final ACCOUNT priorAccount = copyAccount((ACCOUNT) account);
+        final ACCOUNT updatedAccount = copyAccount((ACCOUNT) account, this, true);
+        applyBalOverlayToAccountState(address, () -> updatedAccount);
         final PathBasedValue<ACCOUNT> loadedAccountValue =
-            new PathBasedValue<>(copyAccount((ACCOUNT) account), ((ACCOUNT) account));
+            new PathBasedValue<>(priorAccount, updatedAccount);
         accountsToUpdate.put(address, loadedAccountValue);
         return loadedAccountValue;
       } else {
@@ -908,6 +951,31 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     updatedAccounts.clear();
     deletedAccounts.clear();
     storageKeyHashLookup.clear();
+  }
+
+  private Optional<ACCOUNT> applyBalOverlayToAccountState(
+      final Address address, final Supplier<ACCOUNT> accountSupplier) {
+    return blockAccessListOverlay().flatMap(
+        overlay -> overlay.applyToAccountState(address, accountSupplier));
+  }
+
+  private void applyBalOverlayToCode(
+      final Address address, final PathBasedValue<Bytes> codeValue) {
+    blockAccessListOverlay()
+        .ifPresent(overlay -> overlay.applyToCode(address, codeValue::setUpdated));
+  }
+
+  private void applyBalOverlayToStorage(
+      final Address address,
+      final StorageSlotKey storageSlotKey,
+      final PathBasedValue<UInt256> storageValue) {
+    blockAccessListOverlay()
+        .ifPresent(
+            overlay -> overlay.applyToStorage(address, storageSlotKey, storageValue::setUpdated));
+  }
+
+  private Optional<BlockAccessListOverlay> blockAccessListOverlay() {
+    return maybeBlockAccessListOverlay;
   }
 
   protected Hash hashAndSaveAccountPreImage(final Address address) {
