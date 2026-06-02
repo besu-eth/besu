@@ -15,14 +15,13 @@
 package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 public interface SnapSyncController {
 
-  CompletableFuture<PivotSyncState> start();
+  CompletableFuture<SnapSyncProcessState> start();
 
   void stop();
 

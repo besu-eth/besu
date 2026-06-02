@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
 import java.time.Duration;
@@ -70,7 +71,7 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
   }
 
   @Override
-  public CompletableFuture<PivotSyncState> selectNewPivotBlock() {
+  public CompletableFuture<SnapSyncProcessState> selectNewPivotBlock() {
     final Optional<ForkchoiceEvent> maybeForkchoice = forkchoiceStateSupplier.get();
     final var now = System.currentTimeMillis();
 
@@ -115,14 +116,14 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
     return CompletableFuture.completedFuture(null);
   }
 
-  private CompletableFuture<PivotSyncState> selectLastSafeBlockAsPivot(final Hash safeHash) {
+  private CompletableFuture<SnapSyncProcessState> selectLastSafeBlockAsPivot(final Hash safeHash) {
     LOG.debug("Returning safe block hash {} as pivot", safeHash);
     return headerDownloader
         .downloadBlockHeader(safeHash)
-        .thenApply(blockHeader -> new PivotSyncState(blockHeader, true));
+        .thenApply(blockHeader -> new SnapSyncProcessState(blockHeader, true));
   }
 
-  private CompletableFuture<PivotSyncState> selectFallbackBlockAsPivot(
+  private CompletableFuture<SnapSyncProcessState> selectFallbackBlockAsPivot(
       final Hash fallbackBlockHash) {
     LOG.debug(
         "Safe block not changed in the last {} min, using a previous head block {} as fallback",
@@ -130,7 +131,7 @@ public class PivotSelectorFromSafeBlock implements PivotBlockSelector {
         fallbackBlockHash);
     return headerDownloader
         .downloadBlockHeader(fallbackBlockHash)
-        .thenApply(blockHeader -> new PivotSyncState(blockHeader, true));
+        .thenApply(blockHeader -> new SnapSyncProcessState(blockHeader, true));
   }
 
   @Override

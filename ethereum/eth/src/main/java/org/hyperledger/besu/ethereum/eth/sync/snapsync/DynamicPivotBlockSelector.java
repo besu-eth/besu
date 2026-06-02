@@ -18,7 +18,6 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotUpdateListener;
 
 import java.time.Duration;
@@ -100,7 +99,7 @@ public class DynamicPivotBlockSelector {
                       .log();
 
                   searchForNewPivot =
-                      CompletableFuture.completedFuture(PivotSyncState.EMPTY_SYNC_STATE)
+                      CompletableFuture.completedFuture(new SnapSyncProcessState())
                           .thenCompose(syncActions::selectPivotBlock)
                           .thenCompose(
                               fss -> {
@@ -154,7 +153,7 @@ public class DynamicPivotBlockSelector {
     }
   }
 
-  private CompletableFuture<Void> downloadNewPivotBlock(final PivotSyncState fss) {
+  private CompletableFuture<Void> downloadNewPivotBlock(final SnapSyncProcessState fss) {
     return syncActions
         .downloadPivotBlockHeader(fss)
         .thenAccept(
@@ -168,7 +167,7 @@ public class DynamicPivotBlockSelector {
         .orTimeout(20, TimeUnit.SECONDS);
   }
 
-  private boolean isSamePivotBlock(final PivotSyncState fss) {
+  private boolean isSamePivotBlock(final SnapSyncProcessState fss) {
     return lastPivotBlockFound.isPresent()
         && fss.hasPivotBlockHash()
         && lastPivotBlockFound.get().getHash().equals(fss.getPivotBlockHash().get());

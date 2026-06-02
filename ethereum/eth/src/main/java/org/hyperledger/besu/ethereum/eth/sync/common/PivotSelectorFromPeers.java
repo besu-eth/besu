@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerLimiter;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 
 import java.util.List;
@@ -49,7 +50,7 @@ public class PivotSelectorFromPeers implements PivotBlockSelector {
   }
 
   @Override
-  public CompletableFuture<PivotSyncState> selectNewPivotBlock() {
+  public CompletableFuture<SnapSyncProcessState> selectNewPivotBlock() {
     return selectBestPeer()
         .map(this::fromPeer)
         .orElse(
@@ -79,7 +80,7 @@ public class PivotSelectorFromPeers implements PivotBlockSelector {
     return syncState.bestChainHeight();
   }
 
-  protected CompletableFuture<PivotSyncState> fromPeer(final EthPeer peer) {
+  protected CompletableFuture<SnapSyncProcessState> fromPeer(final EthPeer peer) {
     final long pivotBlockNumber =
         peer.chainState().getEstimatedHeight() - syncConfig.getSyncPivotDistance();
     if (pivotBlockNumber <= BlockHeader.GENESIS_BLOCK_NUMBER) {
@@ -89,7 +90,7 @@ public class PivotSelectorFromPeers implements PivotBlockSelector {
           new RuntimeException("No peers with sufficient height"));
     }
     LOG.info("Selecting block number {} as fast sync pivot block.", pivotBlockNumber);
-    return CompletableFuture.completedFuture(new PivotSyncState(pivotBlockNumber, false));
+    return CompletableFuture.completedFuture(new SnapSyncProcessState(pivotBlockNumber, false));
   }
 
   protected Optional<EthPeer> selectBestPeer() {
