@@ -22,6 +22,8 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.Transaction;
+import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.worldstate.WorldView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,9 +36,15 @@ public class SlowBlockTracer implements OperationTracer {
   private static final Logger SLOW_BLOCK_LOG = LoggerFactory.getLogger("SlowBlock");
   private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
 
+  private int transactionCount;
+  // Timing
   private long executionStartNanos;
   private long executionTimeNanos;
-  private int transactionCount;
+  // EVM operation counters
+  private int sloadCount;
+  private int sstoreCount;
+  private int callCount;
+  private int createCount;
 
   public void traceStartBlock() {
     executionStartNanos = System.nanoTime();
@@ -60,6 +68,23 @@ public class SlowBlockTracer implements OperationTracer {
     transactionCount++;
   }
 
+
+  // TODO SLD consider tracePostExecution(final int opcode) to avoid megamorphic operation.getName
+  @Override
+  public void tracePostExecution(final MessageFrame frame, final Operation.OperationResult operationResult) {
+      final var operation = frame.getCurrentOperation();
+      if (operation != null) {
+        switch (operation.getName()) {
+          case "SLOAD" -> sloadCount++;
+          case "SSTORE" -> sstoreCount++;
+          case "CALL", "CALLCODE", "DELEGATECALL", "STATICCALL" ->
+              callCount++;
+          case "CREATE", "CREATE2" -> createCount++;
+          default -> {} // No tracking needed for other operations
+        }
+      }
+  }
+
   private void logSlowBlock(final long blockNumber, final Hash blockHash, final long gasUsed) {
     String formattedMGasPerSecond = String.format("%.2f", calculateMGasPerSecond(gasUsed));
     try {
@@ -79,6 +104,12 @@ public class SlowBlockTracer implements OperationTracer {
 
       final ObjectNode throughputNode = json.putObject("throughput");
       throughputNode.put("mgas_per_sec", formattedMGasPerSecond);
+
+      final ObjectNode evmNode = json.putObject("evm");
+      evmNode.put("sload", sloadCount);
+      evmNode.put("sstore", sstoreCount);
+      evmNode.put("calls", callCount);
+      evmNode.put("creates", createCount);
 
       SLOW_BLOCK_LOG.warn(JSON_MAPPER.writeValueAsString(json));
     } catch (JsonProcessingException e) {
