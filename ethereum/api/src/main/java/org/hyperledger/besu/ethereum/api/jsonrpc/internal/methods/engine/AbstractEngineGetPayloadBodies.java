@@ -19,6 +19,7 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
@@ -29,6 +30,8 @@ import io.vertx.core.Vertx;
 public abstract class AbstractEngineGetPayloadBodies extends ExecutionEngineJsonRpcMethod {
   protected static final int MAX_REQUEST_BLOCKS = 1024;
   protected final BlockResultFactory blockResultFactory;
+
+  protected record BlockBodyWithAccessList(Optional<BlockBody> body, Optional<String> accessList) {}
 
   protected AbstractEngineGetPayloadBodies(
       final Vertx vertx,
@@ -57,6 +60,12 @@ public abstract class AbstractEngineGetPayloadBodies extends ExecutionEngineJson
     return blockchain
         .getBlockAccessList(blockHash)
         .map(AbstractEngineGetPayloadBodies::encodeBlockAccessList);
+  }
+
+  protected BlockBodyWithAccessList getBlockBodyWithAccessList(
+      final Blockchain blockchain, final Hash blockHash) {
+    return new BlockBodyWithAccessList(
+        blockchain.getBlockBody(blockHash), getBlockAccessList(blockchain, blockHash));
   }
 
   protected static String encodeBlockAccessList(final BlockAccessList blockAccessList) {
