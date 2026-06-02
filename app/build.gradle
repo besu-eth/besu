@@ -35,9 +35,7 @@ tasks.register('copyArtifactsCatalogToResources', Copy) {
   from(project.rootProject.layout.buildDirectory.file('reports/dependencies/besu-artifacts-catalog.json'))
   into(layout.buildDirectory.dir('resources/main/META-INF'))
 }
-processResources.finalizedBy copyArtifactsCatalogToResources
-jar.dependsOn copyArtifactsCatalogToResources
-tasks.withType(JavaExec).configureEach { dependsOn copyArtifactsCatalogToResources }
+processResources.dependsOn copyArtifactsCatalogToResources
 
 dependencies {
   api project(':datatypes')
