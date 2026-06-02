@@ -28,6 +28,7 @@ import org.hyperledger.besu.evm.worldstate.WorldView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -45,6 +46,10 @@ public class SlowBlockTracer implements OperationTracer {
   private int sstoreCount;
   private int callCount;
   private int createCount;
+  // Unique tracking
+  private final Set<Address> uniqueAccountsTouched = new HashSet<>();
+  private final Set<StorageSlotKey> uniqueStorageSlots = new HashSet<>();
+  private final Set<Address> uniqueContractsExecuted = new HashSet<>();
 
   public void traceStartBlock() {
     executionStartNanos = System.nanoTime();
@@ -68,6 +73,22 @@ public class SlowBlockTracer implements OperationTracer {
     transactionCount++;
   }
 
+  // TODO SLD consider tracePreExecution(final MessageFrame frame, final int opcode) to avoid megamorphic operation.getName
+  @Override
+  public void tracePreExecution(final MessageFrame frame) {
+    final var operation = frame.getCurrentOperation();
+    final String name = operation.getName();
+    if ("SLOAD".equals(name) || "SSTORE".equals(name)) {
+      final Address storageAddress = frame.getRecipientAddress();
+      // TODO SLD EVMv2 needs to read from v2 stack
+      // TODO SLD do we need to convert to UInt256 or can leave as Bytes? (Note: Bytes32 errors for some reason)
+      final Bytes slotKey = frame.getStackItem(0);
+      uniqueStorageSlots.add(new StorageSlotKey(storageAddress, slotKey));
+      uniqueAccountsTouched.add(storageAddress);
+    }
+  }
+
+  private record StorageSlotKey(Address address, Bytes slotKey) {}
 
   // TODO SLD consider tracePostExecution(final int opcode) to avoid megamorphic operation.getName
   @Override
@@ -83,6 +104,20 @@ public class SlowBlockTracer implements OperationTracer {
           default -> {} // No tracking needed for other operations
         }
       }
+  }
+
+  @Override
+  public void traceContextEnter(final MessageFrame frame) {
+    final Address recipient = frame.getRecipientAddress();
+    if (recipient != null) {
+      uniqueContractsExecuted.add(recipient);
+      uniqueAccountsTouched.add(recipient);
+    }
+
+    final Address sender = frame.getSenderAddress();
+    if (sender != null) {
+      uniqueAccountsTouched.add(recipient);
+    }
   }
 
   private void logSlowBlock(final long blockNumber, final Hash blockHash, final long gasUsed) {
@@ -105,6 +140,11 @@ public class SlowBlockTracer implements OperationTracer {
       final ObjectNode throughputNode = json.putObject("throughput");
       throughputNode.put("mgas_per_sec", formattedMGasPerSecond);
 
+      final ObjectNode uniqueNode = json.putObject("unique");
+      uniqueNode.put("accounts", uniqueAccountsTouched.size());
+      uniqueNode.put("storage_slots", uniqueStorageSlots.size());
+      uniqueNode.put("contracts", uniqueContractsExecuted.size());
+
       final ObjectNode evmNode = json.putObject("evm");
       evmNode.put("sload", sloadCount);
       evmNode.put("sstore", sstoreCount);
@@ -114,7 +154,6 @@ public class SlowBlockTracer implements OperationTracer {
       SLOW_BLOCK_LOG.warn(JSON_MAPPER.writeValueAsString(json));
     } catch (JsonProcessingException e) {
       // Fallback to simple log
-
       SLOW_BLOCK_LOG.atWarn()
               .setMessage("Slow block number={} hash={} exec={}ms gas={} mgas/s={} txs={}")
               .addArgument(blockNumber)
