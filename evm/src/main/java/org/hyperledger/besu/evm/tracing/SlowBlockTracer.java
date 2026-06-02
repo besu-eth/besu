@@ -19,7 +19,11 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Log;
 import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.operation.AbstractCallOperation;
+import org.hyperledger.besu.evm.operation.AbstractCreateOperation;
 import org.hyperledger.besu.evm.operation.Operation;
+import org.hyperledger.besu.evm.operation.SLoadOperation;
+import org.hyperledger.besu.evm.operation.SStoreOperation;
 import org.hyperledger.besu.evm.worldstate.WorldView;
 
 import java.util.HashSet;
@@ -74,17 +78,13 @@ public class SlowBlockTracer implements OperationTracer {
     transactionCount++;
   }
 
-  // TODO SLD consider tracePreExecution(final MessageFrame frame, final int opcode) to avoid
-  // megamorphic operation.getName
   @Override
   public void tracePreExecution(final MessageFrame frame) {
-    final var operation = frame.getCurrentOperation();
-    final String name = operation.getName();
-    if ("SLOAD".equals(name) || "SSTORE".equals(name)) {
+    final var op = frame.getCurrentOperation();
+    if (op instanceof SLoadOperation || op instanceof SStoreOperation) { // TODO SLD EVMv2 support
       final Address storageAddress = frame.getRecipientAddress();
       // TODO SLD EVMv2 needs to read from v2 stack
-      // TODO SLD do we need to convert to UInt256 or can leave as Bytes? (Note: Bytes32 errors for
-      // some reason)
+      // TODO SLD convert to UInt256 or can leave as Bytes? (Note: Bytes32 errors for some reason)
       final Bytes slotKey = frame.getStackItem(0);
       uniqueStorageSlots.add(new StorageSlotKey(storageAddress, slotKey));
       uniqueAccountsTouched.add(storageAddress);
@@ -93,19 +93,16 @@ public class SlowBlockTracer implements OperationTracer {
 
   private record StorageSlotKey(Address address, Bytes slotKey) {}
 
-  // TODO SLD consider tracePostExecution(final int opcode) to avoid megamorphic operation.getName
   @Override
   public void tracePostExecution(
       final MessageFrame frame, final Operation.OperationResult operationResult) {
-    final var operation = frame.getCurrentOperation();
-    if (operation != null) {
-      switch (operation.getName()) {
-        case "SLOAD" -> sloadCount++;
-        case "SSTORE" -> sstoreCount++;
-        case "CALL", "CALLCODE", "DELEGATECALL", "STATICCALL" -> callCount++;
-        case "CREATE", "CREATE2" -> createCount++;
-        default -> {} // No tracking needed for other operations
-      }
+    switch (frame.getCurrentOperation()) {
+      // TODO SLD EVMv2 support
+      case SLoadOperation _ -> sloadCount++;
+      case SStoreOperation _ -> sstoreCount++;
+      case AbstractCallOperation _ -> callCount++; // CALL, CALLCODE, DELEGATECALL, STATICCALL
+      case AbstractCreateOperation _ -> createCount++; // CREATE, CREATE2
+      default -> {} // No tracking needed for other operations
     }
   }
 
