@@ -26,10 +26,10 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
 import java.time.Clock;
 import java.time.Duration;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -67,7 +67,8 @@ public class PivotSelectorFromSafeBlock
   private volatile Hash latestSafeHash = Hash.ZERO;
   private volatile Hash latestFinalizedHash = Hash.ZERO;
   private volatile long lastFcuTimeMillis = 0;
-  private final Map<Hash, BlockHeader> headHeaders = new ConcurrentHashMap<>();
+  private final Cache<Hash, BlockHeader> headHeaders =
+      Caffeine.newBuilder().maximumSize(1000).build();
   private volatile long lastNoFcuInfoLog;
   private volatile BlockHeader lastReturnedPivot = null;
 
@@ -117,12 +118,12 @@ public class PivotSelectorFromSafeBlock
   }
 
   private void pruneHeadersBelowFinalized(final Hash finalizedHash) {
-    final BlockHeader finalizedHeader = headHeaders.get(finalizedHash);
+    final BlockHeader finalizedHeader = headHeaders.getIfPresent(finalizedHash);
     if (finalizedHeader == null) {
       return;
     }
     final long finalizedNumber = finalizedHeader.getNumber();
-    headHeaders.values().removeIf(h -> h.getNumber() < finalizedNumber);
+    headHeaders.asMap().values().removeIf(h -> h.getNumber() < finalizedNumber);
   }
 
   private CompletableFuture<BlockHeader> walkBackParents(
@@ -135,7 +136,7 @@ public class PivotSelectorFromSafeBlock
   }
 
   private CompletableFuture<BlockHeader> getOrDownload(final Hash hash) {
-    final BlockHeader cached = headHeaders.get(hash);
+    final BlockHeader cached = headHeaders.getIfPresent(hash);
     if (cached != null) {
       return CompletableFuture.completedFuture(cached);
     }
@@ -168,10 +169,11 @@ public class PivotSelectorFromSafeBlock
               final long effectiveThreshold = pivotBlockWindowValidity - estimatedMissedBlocks;
 
               if (effectiveThreshold <= 0) {
-                throw new RuntimeException(
-                    "Consensus client appears offline: last FCU was "
-                        + (millisSinceLastFcu / 1000)
-                        + "s ago; pivot block would be outside the snap-serving window");
+                return CompletableFuture.failedFuture(
+                    new RuntimeException(
+                        "Consensus client appears offline: last FCU was "
+                            + (millisSinceLastFcu / 1000)
+                            + "s ago; pivot block would be outside the snap-serving window"));
               }
 
               final BlockHeader currentPivot = lastReturnedPivot;
@@ -187,7 +189,7 @@ public class PivotSelectorFromSafeBlock
                 }
               }
 
-              final BlockHeader cachedSafe = headHeaders.get(latestSafeHash);
+              final BlockHeader cachedSafe = headHeaders.getIfPresent(latestSafeHash);
               if (cachedSafe != null
                   && head.getNumber() - cachedSafe.getNumber() < effectiveThreshold) {
                 LOG.debug("Using safe block {} as pivot", cachedSafe.getNumber());
@@ -237,7 +239,7 @@ public class PivotSelectorFromSafeBlock
   @Override
   public long getBestChainHeight() {
     final long localChainHeight = protocolContext.getBlockchain().getChainHeadBlockNumber();
-    final BlockHeader headHeader = headHeaders.get(latestHeadHash);
+    final BlockHeader headHeader = headHeaders.getIfPresent(latestHeadHash);
     final long cachedHeadNumber = headHeader != null ? headHeader.getNumber() : 0L;
     return Math.max(cachedHeadNumber, localChainHeight);
   }

@@ -314,7 +314,8 @@ public class SynchronizerOptions implements CLIOptions<SynchronizerConfiguration
       paramLabel = "<INTEGER>",
       description =
           "Deprecated, no-op. Pivot caching is driven by the engine newPayload header cache.")
-  private int snapsyncPivotBlockDistanceBeforeCaching = 60;
+  private int snapsyncPivotBlockDistanceBeforeCaching =
+      SnapSyncConfiguration.DEFAULT_PIVOT_BLOCK_DISTANCE_BEFORE_CACHING;
 
   @CommandLine.Option(
       names = SNAP_STORAGE_COUNT_PER_REQUEST_FLAG,

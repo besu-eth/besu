@@ -27,6 +27,9 @@ public class SnapSyncConfiguration {
    */
   public static final int DEFAULT_PIVOT_BLOCK_WINDOW_VALIDITY = 120;
 
+  /** Retained as a named constant for the deprecated CLI flag. */
+  public static final int DEFAULT_PIVOT_BLOCK_DISTANCE_BEFORE_CACHING = 60;
+
   /** How often {@code DynamicPivotBlockSelector} re-evaluates whether to refresh the pivot. */
   public static final long DEFAULT_PIVOT_CHECK_INTERVAL_MILLIS = 60_000L;
 
