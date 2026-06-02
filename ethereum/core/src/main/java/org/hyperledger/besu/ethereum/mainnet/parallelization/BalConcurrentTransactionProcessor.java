@@ -228,7 +228,8 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
           return Optional.empty();
         }
 
-        applyWritesFromPartialBlockAccessView(maybePartialBlockAccessView.get(), blockAccumulator);
+        applyWritesFromPartialBlockAccessView(
+            maybePartialBlockAccessView.get(), blockAccumulator);
 
         confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
         result.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
