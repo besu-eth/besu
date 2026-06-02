@@ -48,6 +48,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -328,11 +329,23 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         if (account instanceof PathBasedAccount pathBasedAccount) {
           final ACCOUNT priorAccount = copyAccount((ACCOUNT) pathBasedAccount);
           final ACCOUNT updatedAccount = copyAccount((ACCOUNT) pathBasedAccount, this, true);
-          applyBalOverlayToAccount(address, updatedAccount);
+          applyBalOverlayToAccountState(address, () -> updatedAccount);
           accountsToUpdate.put(address, new PathBasedValue<>(priorAccount, updatedAccount));
           return accountFunction.apply(accountsToUpdate.get(address));
         }
-        final Optional<ACCOUNT> balOnlyAccount = createBalOnlyAccount(address);
+        final Optional<ACCOUNT> balOnlyAccount =
+            applyBalOverlayToAccountState(
+                address,
+                () ->
+                    createAccount(
+                        this,
+                        address,
+                        hashAndSaveAccountPreImage(address),
+                        0,
+                        Wei.ZERO,
+                        Hash.EMPTY_TRIE_HASH,
+                        Hash.EMPTY,
+                        true));
         if (balOnlyAccount.isPresent()) {
           accountsToUpdate.put(address, new PathBasedValue<>(null, balOnlyAccount.get()));
           return balOnlyAccount.get();
@@ -526,19 +539,18 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     final PathBasedValue<Bytes> localCode = codeToUpdate.get(address);
     if (localCode == null) {
       final Optional<Bytes> code = wrappedWorldView().getCode(address, codeHash);
-      applyBalOverlayToCode(address, code);
-      final PathBasedValue<Bytes> trackedCode = codeToUpdate.get(address);
-      if (trackedCode != null) {
-        return Optional.ofNullable(trackedCode.getUpdated());
-      }
-      if (code.isEmpty() && !codeHash.equals(Hash.EMPTY)) {
+      final PathBasedValue<Bytes> codeValue =
+          new PathBasedValue<>(code.orElse(null), code.orElse(null));
+      applyBalOverlayToCode(address, codeValue);
+      codeToUpdate.put(address, codeValue);
+      if (codeValue.getUpdated() == null && !codeHash.equals(Hash.EMPTY)) {
         throw new MerkleTrieException(
             "invalid account code",
             Optional.of(address),
             Bytes32.wrap(codeHash.getBytes()),
             Bytes.EMPTY);
       }
-      return code;
+      return Optional.ofNullable(codeValue.getUpdated());
     } else {
       return Optional.ofNullable(localCode.getUpdated());
     }
@@ -749,6 +761,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       if (parentAccount instanceof PathBasedAccount account) {
         final ACCOUNT priorAccount = copyAccount((ACCOUNT) account);
         final ACCOUNT updatedAccount = copyAccount((ACCOUNT) account, this, true);
+        applyBalOverlayToAccountState(address, () -> updatedAccount);
         final PathBasedValue<ACCOUNT> loadedAccountValue =
             new PathBasedValue<>(priorAccount, updatedAccount);
         accountsToUpdate.put(address, loadedAccountValue);
@@ -940,39 +953,16 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     storageKeyHashLookup.clear();
   }
 
-  private Optional<ACCOUNT> createBalOnlyAccount(final Address address) {
-    if (blockAccessListOverlay()
-        .map(overlay -> overlay.hasPriorAccountState(address))
-        .orElse(false)) {
-      final ACCOUNT account =
-          createAccount(
-              this,
-              address,
-              hashAndSaveAccountPreImage(address),
-              0,
-              Wei.ZERO,
-              Hash.EMPTY_TRIE_HASH,
-              Hash.EMPTY,
-              true);
-      applyBalOverlayToAccount(address, account);
-      return Optional.of(account);
-    }
-    return Optional.empty();
+  private Optional<ACCOUNT> applyBalOverlayToAccountState(
+      final Address address, final Supplier<ACCOUNT> accountSupplier) {
+    return blockAccessListOverlay().flatMap(
+        overlay -> overlay.applyToAccountState(address, accountSupplier));
   }
 
-  private void applyBalOverlayToAccount(final Address address, final ACCOUNT account) {
-    blockAccessListOverlay().ifPresent(overlay -> overlay.applyToAccount(address, account));
-  }
-
-  private void applyBalOverlayToCode(final Address address, final Optional<Bytes> parentCode) {
+  private void applyBalOverlayToCode(
+      final Address address, final PathBasedValue<Bytes> codeValue) {
     blockAccessListOverlay()
-        .ifPresent(
-            overlay ->
-                overlay.applyToCode(
-                    address,
-                    balCode ->
-                        codeToUpdate.putIfAbsent(
-                            address, new PathBasedValue<>(parentCode.orElse(null), balCode))));
+        .ifPresent(overlay -> overlay.applyToCode(address, codeValue::setUpdated));
   }
 
   private void applyBalOverlayToStorage(

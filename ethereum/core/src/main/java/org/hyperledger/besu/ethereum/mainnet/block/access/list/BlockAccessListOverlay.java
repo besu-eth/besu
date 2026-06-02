@@ -15,12 +15,16 @@
 package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
+import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedAccount;
 import org.hyperledger.besu.evm.account.MutableAccount;
 
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import java.util.function.ToLongFunction;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -44,37 +48,47 @@ public final class BlockAccessListOverlay {
     this.maxTxIndexExclusive = maxTxIndexExclusive;
   }
 
-  public boolean hasPriorAccountState(final Address address) {
+  /**
+   * Applies balance, nonce and code hash from the BAL when prior changes exist. The {@code
+   * accountSupplier} provides the account to mutate (existing copy or newly created).
+   */
+  public <A extends MutableAccount> Optional<A> applyToAccountState(
+      final Address address, final Supplier<A> accountSupplier) {
     return blockAccessListAddressView
         .getAccountChanges(address)
-        .map(this::hasResolvedAccountField)
-        .orElse(false);
-  }
-
-  public boolean hasPriorStorageChange(final Address address, final StorageSlotKey storageSlotKey) {
-    return hasPriorStorageChangeInternal(address, storageSlotKey);
-  }
-
-  public void applyToAccount(final Address address, final MutableAccount account) {
-    blockAccessListAddressView
-        .getAccountChanges(address)
-        .ifPresent(
+        .flatMap(
             accountChanges -> {
-              findLatestBeforeMax(
-                      accountChanges.balanceChanges(),
-                      maxTxIndexExclusive,
-                      BlockAccessList.BalanceChange::txIndex)
-                  .ifPresent(change -> account.setBalance(change.postBalance()));
-              findLatestBeforeMax(
-                      accountChanges.nonceChanges(),
-                      maxTxIndexExclusive,
-                      BlockAccessList.NonceChange::txIndex)
-                  .ifPresent(change -> account.setNonce(change.newNonce()));
-            });
-  }
+              final Optional<Wei> balance =
+                  findLatestBeforeMax(
+                          accountChanges.balanceChanges(),
+                          maxTxIndexExclusive,
+                          BlockAccessList.BalanceChange::txIndex)
+                      .map(BlockAccessList.BalanceChange::postBalance);
+              final Optional<Long> nonce =
+                  findLatestBeforeMax(
+                          accountChanges.nonceChanges(),
+                          maxTxIndexExclusive,
+                          BlockAccessList.NonceChange::txIndex)
+                      .map(BlockAccessList.NonceChange::newNonce);
+              final Optional<Hash> codeHash =
+                  findLatestBeforeMax(
+                          accountChanges.codeChanges(),
+                          maxTxIndexExclusive,
+                          BlockAccessList.CodeChange::txIndex)
+                      .map(BlockAccessListOverlay::codeHashFromChange);
 
-  public void applyToCode(final Address address, final MutableAccount account) {
-    applyToCode(address, account::setCode);
+              if (balance.isEmpty() && nonce.isEmpty() && codeHash.isEmpty()) {
+                return Optional.empty();
+              }
+
+              final A account = accountSupplier.get();
+              balance.ifPresent(account::setBalance);
+              nonce.ifPresent(account::setNonce);
+              if (codeHash.isPresent() && account instanceof PathBasedAccount pathBasedAccount) {
+                pathBasedAccount.setCodeHash(codeHash.get());
+              }
+              return Optional.of(account);
+            });
   }
 
   public void applyToCode(final Address address, final Consumer<Bytes> codeApplier) {
@@ -87,6 +101,11 @@ public final class BlockAccessListOverlay {
                     maxTxIndexExclusive,
                     BlockAccessList.CodeChange::txIndex))
         .ifPresent(change -> codeApplier.accept(change.newCode()));
+  }
+
+  private static Hash codeHashFromChange(final BlockAccessList.CodeChange change) {
+    final Bytes code = change.newCode();
+    return code == null || code.isEmpty() ? Hash.EMPTY : Hash.hash(code);
   }
 
   public void applyToStorage(
@@ -104,39 +123,6 @@ public final class BlockAccessListOverlay {
         .ifPresent(
             change ->
                 valueApplier.accept(change.newValue() != null ? change.newValue() : UInt256.ZERO));
-  }
-
-  public UInt256 getStorageValue(
-      final Address address, final StorageSlotKey storageSlotKey, final UInt256 parentValue) {
-    final UInt256[] resolved = {parentValue};
-    applyToStorage(address, storageSlotKey, balValue -> resolved[0] = balValue);
-    return resolved[0];
-  }
-
-  private boolean hasResolvedAccountField(final BlockAccessList.AccountChanges accountChanges) {
-    return findLatestBeforeMax(
-                accountChanges.balanceChanges(),
-                maxTxIndexExclusive,
-                BlockAccessList.BalanceChange::txIndex)
-            .isPresent()
-        || findLatestBeforeMax(
-                accountChanges.nonceChanges(),
-                maxTxIndexExclusive,
-                BlockAccessList.NonceChange::txIndex)
-            .isPresent();
-  }
-
-  private boolean hasPriorStorageChangeInternal(
-      final Address address, final StorageSlotKey storageSlotKey) {
-    return blockAccessListAddressView
-        .getSlotChanges(address, storageSlotKey)
-        .flatMap(
-            slotChanges ->
-                findLatestBeforeMax(
-                    slotChanges.changes(),
-                    maxTxIndexExclusive,
-                    BlockAccessList.StorageChange::txIndex))
-        .isPresent();
   }
 
   /**

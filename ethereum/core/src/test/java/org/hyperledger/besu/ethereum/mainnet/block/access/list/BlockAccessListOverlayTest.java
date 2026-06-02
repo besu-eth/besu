@@ -15,8 +15,12 @@
 package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.AccountChanges;
@@ -25,14 +29,14 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.C
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.NonceChange;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
-import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedValue;
 
 import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 
 class BlockAccessListOverlayTest {
 
@@ -61,22 +65,24 @@ class BlockAccessListOverlayTest {
                 new CodeChange(0, Bytes.fromHexString("0xAA")),
                 new CodeChange(1, Bytes.fromHexString("0xBB"))));
 
-    final BlockAccessListAddressView addressView =
-        BlockAccessListAddressView.of(new BlockAccessList(List.of(accountChanges)));
-    final BlockAccessListOverlay overlay = new BlockAccessListOverlay(addressView, 2L);
+    final BlockAccessListOverlay overlay =
+        new BlockAccessListOverlay(
+            BlockAccessListAddressView.of(new BlockAccessList(List.of(accountChanges))), 2L);
 
-    assertThat(overlay.hasPriorAccountState(ADDRESS)).isTrue();
-    assertThat(overlay.getStorageValue(ADDRESS, SLOT, UInt256.ZERO)).isEqualTo(UInt256.valueOf(1));
-    assertThat(overlay.hasPriorStorageChange(ADDRESS, SLOT)).isTrue();
+    final PathBasedValue<UInt256> storageValue =
+        new PathBasedValue<>(UInt256.valueOf(99), UInt256.valueOf(99));
+    overlay.applyToStorage(ADDRESS, SLOT, storageValue::setUpdated);
+    assertThat(storageValue.getUpdated()).isEqualTo(UInt256.valueOf(1));
 
-    final MutableAccount account = Mockito.mock(MutableAccount.class);
-    overlay.applyToAccount(ADDRESS, account);
-    Mockito.verify(account).setBalance(Wei.of(200));
-    Mockito.verify(account).setNonce(1L);
-    Mockito.verify(account, Mockito.never()).setCode(Mockito.any());
+    final PathBasedValue<Bytes> codeValue = new PathBasedValue<>(Bytes.EMPTY, Bytes.EMPTY);
+    overlay.applyToCode(ADDRESS, codeValue::setUpdated);
+    assertThat(codeValue.getUpdated()).isEqualTo(Bytes.fromHexString("0xBB"));
 
-    overlay.applyToCode(ADDRESS, account);
-    Mockito.verify(account).setCode(Bytes.fromHexString("0xBB"));
+    final PathBasedAccount account = mock(PathBasedAccount.class);
+    assertThat(overlay.applyToAccountState(ADDRESS, () -> account)).contains(account);
+    verify(account).setBalance(Wei.of(200));
+    verify(account).setNonce(1L);
+    verify(account).setCodeHash(Hash.hash(Bytes.fromHexString("0xBB")));
   }
 
   @Test
@@ -94,14 +100,19 @@ class BlockAccessListOverlayTest {
         new BlockAccessListOverlay(
             BlockAccessListAddressView.of(new BlockAccessList(List.of(accountChanges))), 2L);
 
-    assertThat(overlay.hasPriorAccountState(ADDRESS)).isFalse();
-    assertThat(overlay.getStorageValue(ADDRESS, SLOT, UInt256.valueOf(42)))
-        .isEqualTo(UInt256.valueOf(42));
-    assertThat(overlay.hasPriorStorageChange(ADDRESS, SLOT)).isFalse();
+    final PathBasedValue<UInt256> storageValue =
+        new PathBasedValue<>(UInt256.valueOf(42), UInt256.valueOf(42));
+    overlay.applyToStorage(ADDRESS, SLOT, storageValue::setUpdated);
+    assertThat(storageValue.getUpdated()).isEqualTo(UInt256.valueOf(42));
 
-    final MutableAccount account = Mockito.mock(MutableAccount.class);
-    overlay.applyToCode(ADDRESS, account);
-    Mockito.verify(account, Mockito.never()).setCode(Mockito.any());
+    final PathBasedValue<Bytes> codeValue = new PathBasedValue<>(Bytes.EMPTY, Bytes.EMPTY);
+    overlay.applyToCode(ADDRESS, codeValue::setUpdated);
+    assertThat(codeValue.getUpdated()).isEqualTo(Bytes.EMPTY);
+
+    final PathBasedAccount account = mock(PathBasedAccount.class);
+    assertThat(overlay.applyToAccountState(ADDRESS, () -> account)).isEmpty();
+    verify(account, never()).setBalance(org.mockito.ArgumentMatchers.any());
+    verify(account, never()).setCodeHash(org.mockito.ArgumentMatchers.any());
   }
 
   @Test
@@ -121,7 +132,9 @@ class BlockAccessListOverlayTest {
         new BlockAccessListOverlay(
             BlockAccessListAddressView.of(new BlockAccessList(List.of(accountChanges))), 2L);
 
-    assertThat(overlay.getStorageValue(ADDRESS, SLOT, UInt256.valueOf(99))).isEqualTo(UInt256.ZERO);
-    assertThat(overlay.hasPriorStorageChange(ADDRESS, SLOT)).isTrue();
+    final PathBasedValue<UInt256> storageValue =
+        new PathBasedValue<>(UInt256.valueOf(99), UInt256.valueOf(99));
+    overlay.applyToStorage(ADDRESS, SLOT, storageValue::setUpdated);
+    assertThat(storageValue.getUpdated()).isEqualTo(UInt256.ZERO);
   }
 }
