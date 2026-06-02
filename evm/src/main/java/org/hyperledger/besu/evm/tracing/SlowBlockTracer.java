@@ -14,10 +14,6 @@
  */
 package org.hyperledger.besu.evm.tracing;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.apache.tuweni.bytes.Bytes;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Log;
@@ -25,12 +21,17 @@ import org.hyperledger.besu.datatypes.Transaction;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.operation.Operation;
 import org.hyperledger.besu.evm.worldstate.WorldView;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import org.apache.tuweni.bytes.Bytes;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class SlowBlockTracer implements OperationTracer {
 
@@ -73,7 +74,8 @@ public class SlowBlockTracer implements OperationTracer {
     transactionCount++;
   }
 
-  // TODO SLD consider tracePreExecution(final MessageFrame frame, final int opcode) to avoid megamorphic operation.getName
+  // TODO SLD consider tracePreExecution(final MessageFrame frame, final int opcode) to avoid
+  // megamorphic operation.getName
   @Override
   public void tracePreExecution(final MessageFrame frame) {
     final var operation = frame.getCurrentOperation();
@@ -81,7 +83,8 @@ public class SlowBlockTracer implements OperationTracer {
     if ("SLOAD".equals(name) || "SSTORE".equals(name)) {
       final Address storageAddress = frame.getRecipientAddress();
       // TODO SLD EVMv2 needs to read from v2 stack
-      // TODO SLD do we need to convert to UInt256 or can leave as Bytes? (Note: Bytes32 errors for some reason)
+      // TODO SLD do we need to convert to UInt256 or can leave as Bytes? (Note: Bytes32 errors for
+      // some reason)
       final Bytes slotKey = frame.getStackItem(0);
       uniqueStorageSlots.add(new StorageSlotKey(storageAddress, slotKey));
       uniqueAccountsTouched.add(storageAddress);
@@ -92,18 +95,18 @@ public class SlowBlockTracer implements OperationTracer {
 
   // TODO SLD consider tracePostExecution(final int opcode) to avoid megamorphic operation.getName
   @Override
-  public void tracePostExecution(final MessageFrame frame, final Operation.OperationResult operationResult) {
-      final var operation = frame.getCurrentOperation();
-      if (operation != null) {
-        switch (operation.getName()) {
-          case "SLOAD" -> sloadCount++;
-          case "SSTORE" -> sstoreCount++;
-          case "CALL", "CALLCODE", "DELEGATECALL", "STATICCALL" ->
-              callCount++;
-          case "CREATE", "CREATE2" -> createCount++;
-          default -> {} // No tracking needed for other operations
-        }
+  public void tracePostExecution(
+      final MessageFrame frame, final Operation.OperationResult operationResult) {
+    final var operation = frame.getCurrentOperation();
+    if (operation != null) {
+      switch (operation.getName()) {
+        case "SLOAD" -> sloadCount++;
+        case "SSTORE" -> sstoreCount++;
+        case "CALL", "CALLCODE", "DELEGATECALL", "STATICCALL" -> callCount++;
+        case "CREATE", "CREATE2" -> createCount++;
+        default -> {} // No tracking needed for other operations
       }
+    }
   }
 
   @Override
@@ -154,15 +157,16 @@ public class SlowBlockTracer implements OperationTracer {
       SLOW_BLOCK_LOG.warn(JSON_MAPPER.writeValueAsString(json));
     } catch (JsonProcessingException e) {
       // Fallback to simple log
-      SLOW_BLOCK_LOG.atWarn()
-              .setMessage("Slow block number={} hash={} exec={}ms gas={} mgas/s={} txs={}")
-              .addArgument(blockNumber)
-              .addArgument(blockHash.toHexString())
-              .addArgument(executionTimeNanos / 1_000_000)
-              .addArgument(gasUsed)
-              .addArgument(formattedMGasPerSecond)
-              .addArgument(transactionCount)
-              .log();
+      SLOW_BLOCK_LOG
+          .atWarn()
+          .setMessage("Slow block number={} hash={} exec={}ms gas={} mgas/s={} txs={}")
+          .addArgument(blockNumber)
+          .addArgument(blockHash.toHexString())
+          .addArgument(executionTimeNanos / 1_000_000)
+          .addArgument(gasUsed)
+          .addArgument(formattedMGasPerSecond)
+          .addArgument(transactionCount)
+          .log();
     }
   }
 
