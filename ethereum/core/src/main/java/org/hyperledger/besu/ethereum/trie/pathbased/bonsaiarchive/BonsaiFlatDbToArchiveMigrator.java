@@ -224,10 +224,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
       if (maybeTrieLog.isPresent()) {
         final SegmentedKeyValueStorageTransaction tx =
             worldStateStorage.getComposedWorldStateStorage().startLowPriorityTransaction();
-        if (migrationWorldState != null && blockNumber > 0) {
-          // Block 0 (genesis) is seeded into migrationWorldState via recoverTrieState();
-          // its trie log has prior=null for genesis-alloc accounts which would conflict
-          // with the already-seeded state, so skip rollForward for genesis.
+        if (migrationWorldState != null) {
           migrateTrieBlock(maybeTrieLog.get(), blockNumber);
         }
         processBlock(maybeTrieLog.get(), blockNumber, tx);
@@ -493,9 +490,11 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   private void recoverTrieState() {
     final long progress = getMigrationProgress().orElse(-1L);
     if (progress < 0) {
-      // Fresh start: seed from genesis so trie reads during the first checkpoint window have a
-      // valid context and don't fall back to the noisy "block context not present" warning path.
-      blockchain.getBlockHeader(0L).ifPresent(migrationTrieStorage::seedCheckpoint);
+      // Fresh start: leave the migration world state at the default empty-trie root
+      // (WORLD_ROOT_HASH_KEY unset → Hash.EMPTY_TRIE_HASH). migrateBlocks() will roll
+      // forward from block 0, including the genesis trie log, so all accounts end up
+      // in the accumulator. persist() at the first checkpoint then builds the trie
+      // from scratch without needing historical nodes from TRIE_BRANCH_STORAGE.
       return;
     }
     final long interval = archiveStrategy.getTrieNodeCheckpointInterval();
@@ -509,14 +508,11 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
         reRollTrieFrom(reRollStart, progress);
       }
     } else {
-      // No trie checkpoint persisted yet. TRIE_BRANCH_STORAGE_ARCHIVE has checkpoint nodes from
-      // the previous migration run up to block `progress`. Seeding from genesis and re-rolling
-      // would be wrong: the genesis root doesn't match those nodes, so persist() at the first
-      // checkpoint would compute a mismatched state root. Instead, seed directly from block
-      // `progress` so the migration world state's root hash is consistent with the archive CF.
-      // The accumulator stays empty — catch-up will load accounts via loadAccountFromParent at
-      // the correct root rather than through an accumulated chain of rollForwards.
-      blockchain.getBlockHeader(progress).ifPresent(migrationTrieStorage::seedCheckpoint);
+      // No trie checkpoint reached yet. Re-roll from block 0 (the genesis trie log creates all
+      // genesis accounts) so the accumulator has the full account set. persist() at the first
+      // checkpoint builds from the empty-trie root without reading from TRIE_BRANCH_STORAGE,
+      // avoiding stale HEAD nodes that have overwritten the genesis/historical trie.
+      reRollTrieFrom(0, progress);
     }
   }
 
