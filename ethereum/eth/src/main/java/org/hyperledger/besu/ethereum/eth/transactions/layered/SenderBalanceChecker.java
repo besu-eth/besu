@@ -31,6 +31,7 @@ import org.hyperledger.besu.evm.worldstate.WorldState;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -134,10 +135,17 @@ public interface SenderBalanceChecker {
 
     private Wei getSenderBalance(final Address sender) {
       final BlockHeader chainHead = blockchain.getChainHeadHeader();
-      try (final WorldState headState =
-          worldStateArchive
-              .getWorldState(WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(chainHead))
-              .get()) {
+      final Optional<? extends WorldState> maybeHeadState =
+          worldStateArchive.getWorldState(
+              WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(chainHead));
+      if (maybeHeadState.isEmpty()) {
+        LOG.warn(
+            "Failed to get balance for {} at chain header {} (world state unavailable)",
+            sender,
+            chainHead.toLogString());
+        return Wei.ZERO;
+      }
+      try (final WorldState headState = maybeHeadState.get()) {
         final Account maybeAccount = headState.get(sender);
         final Wei senderBalance = maybeAccount != null ? maybeAccount.getBalance() : Wei.ZERO;
         logSenderBalance(sender, senderBalance);

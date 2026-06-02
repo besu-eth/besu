@@ -254,7 +254,10 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
       try {
 
         final Optional<BlockHeader> maybePersistedHeader =
-            blockchain.getBlockHeader(mutableState.blockHash()).map(BlockHeader.class::cast);
+            blockchain
+                .getBlockHeader(mutableState.blockHash())
+                .or(() -> blockchain.getBlockHeaderSafe(mutableState.blockHash()))
+                .map(BlockHeader.class::cast);
 
         final List<TrieLog> rollBacks = new ArrayList<>();
         final List<TrieLog> rollForwards = new ArrayList<>();
@@ -262,7 +265,10 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
           trieLogManager.getTrieLogLayer(mutableState.blockHash()).ifPresent(rollBacks::add);
         } else {
           final Optional<BlockHeader> maybeTargetHeader =
-              blockchain.getBlockHeader(blockHash).map(BlockHeader.class::cast);
+              blockchain
+                  .getBlockHeader(blockHash)
+                  .or(() -> blockchain.getBlockHeaderSafe(blockHash))
+                  .map(BlockHeader.class::cast);
           if (maybeTargetHeader.isEmpty()) {
             LOG.debug("Target block header not found for hash {}, skipping roll", blockHash);
             return Optional.empty();
