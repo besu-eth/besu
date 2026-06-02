@@ -61,6 +61,7 @@ public class SlowBlockTracer implements OperationTracer {
   }
 
   private void logSlowBlock(final long blockNumber, final Hash blockHash, final long gasUsed) {
+    String formattedMGasPerSecond = String.format("%.2f", calculateMGasPerSecond(gasUsed));
     try {
       final ObjectNode json = JSON_MAPPER.createObjectNode();
       json.put("level", "warn");
@@ -76,6 +77,9 @@ public class SlowBlockTracer implements OperationTracer {
       timingNode.put("execution_ms", executionTimeNanos / 1_000_000);
       timingNode.put("total_ms", executionTimeNanos / 1_000_000);
 
+      final ObjectNode throughputNode = json.putObject("throughput");
+      throughputNode.put("mgas_per_sec", formattedMGasPerSecond);
+
       SLOW_BLOCK_LOG.warn(JSON_MAPPER.writeValueAsString(json));
     } catch (JsonProcessingException e) {
       // Fallback to simple log
@@ -86,7 +90,7 @@ public class SlowBlockTracer implements OperationTracer {
               .addArgument(blockHash.toHexString())
               .addArgument(executionTimeNanos / 1_000_000)
               .addArgument(gasUsed)
-              .addArgument(String.format("%.2f", calculateMGasPerSecond(gasUsed)))
+              .addArgument(formattedMGasPerSecond)
               .addArgument(transactionCount)
               .log();
     }
