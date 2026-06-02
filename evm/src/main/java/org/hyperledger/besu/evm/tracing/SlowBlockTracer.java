@@ -37,7 +37,21 @@ import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * A tracer that collects execution metrics and logs slow blocks.
+ *
+ * <p>The tracer implements the cross-client execution metrics specification, collecting detailed
+ * statistics about block execution including timing, state access patterns, cache performance, and
+ * EVM operation counts. Blocks exceeding the configured threshold are logged in a standardized JSON
+ * format.
+ *
+ * <p>The tracer uses a dedicated "SlowBlock" logger, allowing operators to route slow block output
+ * to a separate file/sink via logback configuration.
+ */
 public class SlowBlockTracer implements OperationTracer {
+
+  /** default constructor */
+  public SlowBlockTracer() {}
 
   private static final Logger SLOW_BLOCK_LOG = LoggerFactory.getLogger("SlowBlock");
   private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
@@ -56,10 +70,18 @@ public class SlowBlockTracer implements OperationTracer {
   private final Set<StorageSlotKey> uniqueStorageSlots = new HashSet<>();
   private final Set<Address> uniqueContractsExecuted = new HashSet<>();
 
+  /** Supports slow block timing metrics, distinct from BlockAwareOperationTracer */
   public void traceStartBlock() {
     executionStartNanos = System.nanoTime();
   }
 
+  /**
+   * Completes the slow block metrics and triggers a log event.
+   *
+   * @param blockNumber the block number
+   * @param blockHash the block hash
+   * @param gasUsed the gas used at the end of the block (after refunds)
+   */
   public void traceEndBlock(final long blockNumber, final Hash blockHash, final long gasUsed) {
     executionTimeNanos = System.nanoTime() - executionStartNanos;
     logSlowBlock(blockNumber, blockHash, gasUsed);
