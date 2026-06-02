@@ -42,11 +42,6 @@ import org.apache.tuweni.bytes.Bytes32;
  */
 public class BonsaiArchiveMigrationTrieNodeStrategy extends BonsaiArchiveTrieNodeStrategy {
 
-  // Fallback for nodes not yet in the migration CF (e.g. unchanged genesis nodes).
-  // TRIE_BRANCH_STORAGE holds the genesis/live trie; TRIE_BRANCH_MIGRATION is only populated
-  // as persist() writes checkpoints, so before the first checkpoint it is empty.
-  private static final BonsaiTrieNodeStrategy STORAGE_FALLBACK = new BonsaiTrieNodeStrategy();
-
   public BonsaiArchiveMigrationTrieNodeStrategy(
       final Long trieNodeCheckpointInterval, final BonsaiCachedMerkleTrieLoader trieLoader) {
     super(
@@ -56,10 +51,8 @@ public class BonsaiArchiveMigrationTrieNodeStrategy extends BonsaiArchiveTrieNod
   @Override
   public Optional<Bytes> getFlatAccountTrieNode(
       final Bytes location, final Bytes32 nodeHash, final SegmentedKeyValueStorage storage) {
-    // Migration CF first; fall back to TRIE_BRANCH_STORAGE for genesis/unchanged nodes.
-    return baseStrategy
-        .getFlatAccountTrieNode(location, nodeHash, storage)
-        .or(() -> STORAGE_FALLBACK.getFlatAccountTrieNode(location, nodeHash, storage));
+    // Point lookup against the migration CF (with HEAD fallback handled by the migration storage).
+    return baseStrategy.getFlatAccountTrieNode(location, nodeHash, storage);
   }
 
   @Override
@@ -68,10 +61,6 @@ public class BonsaiArchiveMigrationTrieNodeStrategy extends BonsaiArchiveTrieNod
       final Bytes location,
       final Bytes32 nodeHash,
       final SegmentedKeyValueStorage storage) {
-    return baseStrategy
-        .getFlatStorageTrieNode(accountHash, location, nodeHash, storage)
-        .or(
-            () ->
-                STORAGE_FALLBACK.getFlatStorageTrieNode(accountHash, location, nodeHash, storage));
+    return baseStrategy.getFlatStorageTrieNode(accountHash, location, nodeHash, storage);
   }
 }
