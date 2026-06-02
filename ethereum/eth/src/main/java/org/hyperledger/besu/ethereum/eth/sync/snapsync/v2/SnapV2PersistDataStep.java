@@ -68,8 +68,10 @@ public class SnapV2PersistDataStep {
     try {
       final WorldStateKeyValueStorage.Updater updater = worldStateStorageCoordinator.updater();
       for (final Task<SnapDataRequest> task : tasks) {
-        if (task.getData().isResponseReceived()) {
-          final SnapDataRequest request = task.getData();
+        final SnapDataRequest request = task.getData();
+        if (request.isExpired(snapSyncState)) {
+          throw new IllegalStateException(expiredRequestMessage(request));
+        } else if (request.isResponseReceived()) {
           final int nbNodesSaved =
               request.persist(
                   worldStateStorageCoordinator,
@@ -106,6 +108,21 @@ public class SnapV2PersistDataStep {
       update.run();
     }
     return tasks;
+  }
+
+  private String expiredRequestMessage(final SnapDataRequest request) {
+    final String currentPivot =
+        snapSyncState.getPivotBlockHeader().map(header -> header.toLogString()).orElse("empty");
+    final String requestPivot =
+        request instanceof SnapV2DataRequest snapV2DataRequest
+            ? snapV2DataRequest.getPivotBlockHeader().toLogString()
+            : "unknown";
+    return "Expired snap/2 request reached persist step: type "
+        + request.getRequestType()
+        + ", request pivot "
+        + requestPivot
+        + ", current pivot "
+        + currentPivot;
   }
 
   public Task<SnapDataRequest> persist(final Task<SnapDataRequest> task) {

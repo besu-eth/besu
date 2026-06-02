@@ -15,8 +15,10 @@
 package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
+import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptEncoder;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.DownloadSyncBodiesStep;
@@ -194,20 +196,35 @@ public class SnapSyncChainDownloadPipelineFactory {
             pivotHeader.getNumber(),
             syncConfig.getSnapSyncConfiguration().isSnapSyncTransactionIndexingEnabled());
 
-    return PipelineBuilder.createPipelineFrom(
-            "forwardHeaderSource",
-            headerSource,
-            downloaderParallelism,
-            metricsSystem.createLabelledCounter(
-                BesuMetricCategory.SYNCHRONIZER,
-                "forward_bodies_receipts_pipeline_processed_total",
-                "Number of entries processed by each forward bodies/receipts pipeline stage",
-                "step",
-                "action"),
-            true,
-            "forwardBodiesReceipts")
-        .thenProcessAsyncOrdered("downloadBodies", downloadBodiesStep, downloaderParallelism)
-        .thenProcessAsyncOrdered("downloadReceipts", downloadReceiptsStep, downloaderParallelism)
-        .andFinishWith("importBlocks", importBlocksStep);
+    PipelineBuilder<List<BlockHeader>, List<SyncBlockWithReceipts>> pipelineBuilder =
+        PipelineBuilder.createPipelineFrom(
+                "forwardHeaderSource",
+                headerSource,
+                downloaderParallelism,
+                metricsSystem.createLabelledCounter(
+                    BesuMetricCategory.SYNCHRONIZER,
+                    "forward_bodies_receipts_pipeline_processed_total",
+                    "Number of entries processed by each forward bodies/receipts pipeline stage",
+                    "step",
+                    "action"),
+                true,
+                "forwardBodiesReceipts")
+            .thenProcessAsyncOrdered("downloadBodies", downloadBodiesStep, downloaderParallelism)
+            .thenProcessAsyncOrdered(
+                "downloadReceipts", downloadReceiptsStep, downloaderParallelism);
+
+    if (Boolean.TRUE.equals(syncConfig.getSnapSyncConfiguration().isSnap2Enabled())) {
+      final DownloadAndPersistBlockAccessListsStep downloadBlockAccessListsStep =
+          new DownloadAndPersistBlockAccessListsStep(
+              ethContext,
+              metricsSystem,
+              (DefaultBlockchain) blockchain,
+              Duration.ofMillis(syncConfig.getForwardDownloadStepTimeoutMillis()));
+      pipelineBuilder =
+          pipelineBuilder.thenProcessAsyncOrdered(
+              "downloadBlockAccessLists", downloadBlockAccessListsStep, downloaderParallelism);
+    }
+
+    return pipelineBuilder.andFinishWith("importBlocks", importBlocksStep);
   }
 }
