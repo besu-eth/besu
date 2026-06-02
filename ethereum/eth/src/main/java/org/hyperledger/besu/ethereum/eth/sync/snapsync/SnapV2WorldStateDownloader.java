@@ -19,7 +19,6 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.WorldStateHealFinishedListener;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePersistenceManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
@@ -115,7 +114,7 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
 
   @Override
   public CompletableFuture<Void> run(
-      final PivotSyncActions fastSyncActions, final PivotSyncState fastSyncState) {
+      final PivotSyncActions fastSyncActions, final SnapSyncProcessState snapSyncState) {
     synchronized (this) {
       final SnapV2WorldDownloadState oldDownloadState = this.downloadState.get();
       if (oldDownloadState != null && oldDownloadState.isDownloading()) {
@@ -126,8 +125,7 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
         return failed;
       }
 
-      final SnapSyncProcessState snapSyncState = (SnapSyncProcessState) fastSyncState;
-      final BlockHeader header = fastSyncState.getPivotBlockHeader().orElseThrow();
+      final BlockHeader header = snapSyncState.getPivotBlockHeader().orElseThrow();
       final Hash stateRoot = header.getStateRoot();
       LOG.info(
           "Downloading snap/2 world state from peers for static pivot block {}. State root {}",
