@@ -115,7 +115,11 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       if (stateProofsEnabled) {
         final Optional<BlockHeader> checkpointBlock =
             getCheckpointStateStartBlock(queryParams.getBlockHeader().getBlockHash());
-        if (checkpointBlock.isPresent()) {
+        // Only use the archive proof path if the migration has fully processed the checkpoint
+        // block. If migration is still behind the checkpoint, the archive flat-DB and trie-node
+        // CFs won't have checkpoint data yet, causing spurious "nonces differ" failures.
+        if (checkpointBlock.isPresent()
+            && archiveMigrationProgressSupplier.getAsLong() >= checkpointBlock.get().getNumber()) {
           LOG.debug(
               "Returning archive proof state for block {} via checkpoint {}",
               queryParams.getBlockHeader().getNumber(),
