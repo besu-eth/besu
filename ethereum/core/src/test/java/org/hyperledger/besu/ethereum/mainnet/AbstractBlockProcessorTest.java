@@ -38,11 +38,17 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
+import org.hyperledger.besu.ethereum.mainnet.blockhash.PreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitterFactory;
+import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestBlockchain;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestWorldState;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.plugin.ServiceManager.SimpleServiceManager;
+import org.hyperledger.besu.plugin.services.BlockImportTracerProvider;
+import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
@@ -52,6 +58,7 @@ import org.apache.tuweni.units.bigints.UInt64;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -124,6 +131,30 @@ abstract class AbstractBlockProcessorTest {
     blockProcessor.processBlock(
         protocolContext, blockchain, worldState, testBlockBuilder(withdrawals));
     verify(withdrawalsProcessor, never()).processWithdrawals(any(), any(), any(), any());
+  }
+
+  @Test
+  void processBlock_tracingEnabled() {
+    // TODO SLD enable slow block tracer options once available
+    final PreExecutionProcessor preExecutionProcessor = mock(PreExecutionProcessor.class);
+    final BlockAwareOperationTracer blockImportTracer = mock(BlockAwareOperationTracer.class);
+    final SimpleServiceManager serviceManager = new SimpleServiceManager();
+    serviceManager.addService(
+        BlockImportTracerProvider.class, ignoredBlockHeader -> blockImportTracer);
+
+    when(protocolContext.getPluginServiceManager()).thenReturn(serviceManager);
+    when(protocolSpec.getPreExecutionProcessor()).thenReturn(preExecutionProcessor);
+
+    blockProcessor.processBlock(
+        protocolContext, blockchain, worldState, testBlockBuilder(emptyList()));
+
+    final ArgumentCaptor<BlockProcessingContext> blockProcessingContextCaptor =
+        ArgumentCaptor.forClass(BlockProcessingContext.class);
+    verify(preExecutionProcessor).process(blockProcessingContextCaptor.capture(), any());
+
+    assertThat(blockProcessingContextCaptor.getValue().getOperationTracer())
+        .as("Expected the block processing context to have the block import tracer, not NO_TRACING")
+        .isNotSameAs(OperationTracer.NO_TRACING);
   }
 
   @Test
