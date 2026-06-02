@@ -297,6 +297,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
   }
 
   private void catchUp() {
+    boolean failed = false;
     try {
       final long startBlock = migratedBlockNumber.get() + 1;
       final long initialTarget = ongoingTarget.get();
@@ -306,13 +307,11 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
       final long blocksToMigrate = initialTarget - startBlock + 1;
       final boolean shouldLog = blocksToMigrate >= CATCHUP_LOG_THRESHOLD;
       final Instant catchUpStart = shouldLog ? Instant.now() : null;
-      if (shouldLog) {
-        LOG.info(
-            "Bonsai archive catch-up starting: {} blocks from {} to {}",
-            blocksToMigrate,
-            startBlock,
-            initialTarget);
-      }
+      LOG.debug(
+          "Bonsai archive catch-up starting: {} blocks from {} to {}",
+          blocksToMigrate,
+          startBlock,
+          initialTarget);
       migrateBlocks(startBlock, ongoingTarget, shouldLog);
       if (shouldLog) {
         final Duration duration = Duration.between(catchUpStart, Instant.now());
@@ -321,9 +320,18 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
             (migratedBlockNumber.get() - startBlock + 1),
             DurationFormatUtils.formatDurationWords(duration.toMillis(), true, true));
       }
+    } catch (final RuntimeException ex) {
+      failed = true;
+      LOG.error(
+          "Bonsai archive catch-up failed at block {} — archive proofs will be unavailable until restart: {}",
+          migratedBlockNumber.get() + 1,
+          ex.getMessage(),
+          ex);
     } finally {
       catchUpRunning.set(false);
-      if (migratedBlockNumber.get() < ongoingTarget.get()) {
+      // Do not reschedule on failure — a persistent error would otherwise create a
+      // tight log-spam loop. The migration will resume on the next node restart.
+      if (!failed && migratedBlockNumber.get() < ongoingTarget.get()) {
         scheduleCatchUpIfNeeded();
       }
     }
