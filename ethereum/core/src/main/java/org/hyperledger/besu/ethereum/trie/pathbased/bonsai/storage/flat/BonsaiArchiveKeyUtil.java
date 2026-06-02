@@ -83,7 +83,7 @@ public class BonsaiArchiveKeyUtil {
             .map(Bytes::toArrayUnsafe)
             .orElseGet(
                 () -> {
-                  LOG.atWarn().setMessage("Block context not present, using default suffix").log();
+                  LOG.atDebug().setMessage("Block context not present, using default suffix").log();
                   return orElseSuffix;
                 }));
   }
