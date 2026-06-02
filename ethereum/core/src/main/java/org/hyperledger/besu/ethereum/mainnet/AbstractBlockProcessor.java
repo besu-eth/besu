@@ -46,7 +46,6 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorld
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
-import org.hyperledger.besu.evm.tracing.SlowBlockTracer;
 import org.hyperledger.besu.evm.worldstate.StackedUpdater;
 import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -138,7 +137,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final ProtocolContext protocolContext, final BlockHeader header) {
 
     if (blockImportTracerProvider == null) {
-
       // fetch from context once, and keep.
       blockImportTracerProvider =
           Optional.ofNullable(protocolContext.getPluginServiceManager())
