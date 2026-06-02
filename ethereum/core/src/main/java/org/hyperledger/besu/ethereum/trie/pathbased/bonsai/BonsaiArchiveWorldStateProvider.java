@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiAr
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
@@ -216,6 +217,15 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         for (final TrieLog rollBack : rollBacks) {
           LOG.info("Attempting rollback of {}", rollBack.getBlockHash());
           diffBasedUpdater.rollBack(rollBack);
+        }
+        // After rolling back N blocks, each account's storageRoot has been updated to the
+        // target block's value. But persist() needs to build the storage trie starting from
+        // a root whose nodes ARE in the archive CF — i.e. the checkpoint root. Reset each
+        // account's storageRoot to its checkpoint value (getPrior().storageRoot) so persist()
+        // uses the checkpoint's archived nodes as the trie base and derives the target
+        // storageRoot from the slot diffs in storagesToUpdate.
+        if (diffBasedUpdater instanceof BonsaiWorldStateUpdateAccumulator bonsaiUpdater) {
+          bonsaiUpdater.resetStorageRootsToCheckpointForArchiveProof();
         }
         diffBasedUpdater.commit();
 

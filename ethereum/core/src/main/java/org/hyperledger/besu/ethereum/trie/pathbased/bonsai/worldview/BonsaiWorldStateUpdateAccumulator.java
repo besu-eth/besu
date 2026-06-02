@@ -56,6 +56,27 @@ public class BonsaiWorldStateUpdateAccumulator
     return copy;
   }
 
+  /**
+   * For archive proof rolling: after rolling back N blocks, each account with storage changes has
+   * its storageRoot at the target block's value (e.g. block 5). But persist() needs to start the
+   * storage trie from a root whose nodes ARE in the archive CF — i.e. the checkpoint root (block
+   * 99). Reset storageRoot to the checkpoint value (getPrior().storageRoot) so persist() uses the
+   * checkpoint's trie as the base and derives the target root from the slot diffs.
+   */
+  public void resetStorageRootsToCheckpointForArchiveProof() {
+    getStorageToUpdate()
+        .keySet()
+        .forEach(
+            address -> {
+              final PathBasedValue<BonsaiAccount> accountValue = getAccountsToUpdate().get(address);
+              if (accountValue != null
+                  && accountValue.getUpdated() != null
+                  && accountValue.getPrior() != null) {
+                accountValue.getUpdated().setStorageRoot(accountValue.getPrior().getStorageRoot());
+              }
+            });
+  }
+
   @Override
   protected BonsaiAccount copyAccount(final BonsaiAccount account) {
     return new BonsaiAccount(account);
