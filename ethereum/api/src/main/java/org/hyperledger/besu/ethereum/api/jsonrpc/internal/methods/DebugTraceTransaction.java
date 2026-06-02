@@ -89,6 +89,10 @@ public class DebugTraceTransaction implements JsonRpcMethod {
       final DebugTraceTransactionResult debugResult =
           debugTraceTransactionResult(hash, transactionWithMetadata.get(), traceOptions);
 
+      if (debugResult == null) {
+        return new JsonRpcErrorResponse(
+            requestContext.getRequest().getId(), RpcErrorType.WORLD_STATE_UNAVAILABLE);
+      }
       return new JsonRpcSuccessResponse(
           requestContext.getRequest().getId(), debugResult.getResult());
     } else {
