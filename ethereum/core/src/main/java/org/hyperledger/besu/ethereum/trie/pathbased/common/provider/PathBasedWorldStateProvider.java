@@ -261,7 +261,13 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
         if (maybePersistedHeader.isEmpty()) {
           trieLogManager.getTrieLogLayer(mutableState.blockHash()).ifPresent(rollBacks::add);
         } else {
-          BlockHeader targetHeader = blockchain.getBlockHeader(blockHash).get();
+          final Optional<BlockHeader> maybeTargetHeader =
+              blockchain.getBlockHeader(blockHash).map(BlockHeader.class::cast);
+          if (maybeTargetHeader.isEmpty()) {
+            LOG.debug("Target block header not found for hash {}, skipping roll", blockHash);
+            return Optional.empty();
+          }
+          BlockHeader targetHeader = maybeTargetHeader.get();
           BlockHeader persistedHeader = maybePersistedHeader.get();
           // roll back from persisted to even with target
           Hash persistedBlockHash = persistedHeader.getBlockHash();

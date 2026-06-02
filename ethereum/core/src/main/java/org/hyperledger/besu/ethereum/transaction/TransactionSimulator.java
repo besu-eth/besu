@@ -205,6 +205,7 @@ public class TransactionSimulator {
     final var parentHeader =
         blockchain
             .getBlockHeader(parentHash)
+            .or(() -> blockchain.getBlockHeaderSafe(parentHash))
             .orElseThrow(
                 () ->
                     new IllegalStateException("Block with hash " + parentHash + " not available"));

@@ -224,7 +224,10 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
       if (maybeTrieLog.isPresent()) {
         final SegmentedKeyValueStorageTransaction tx =
             worldStateStorage.getComposedWorldStateStorage().startLowPriorityTransaction();
-        if (migrationWorldState != null) {
+        if (migrationWorldState != null && blockNumber > 0) {
+          // Block 0 (genesis) is seeded into migrationWorldState via recoverTrieState();
+          // its trie log has prior=null for genesis-alloc accounts which would conflict
+          // with the already-seeded state, so skip rollForward for genesis.
           migrateTrieBlock(maybeTrieLog.get(), blockNumber);
         }
         processBlock(maybeTrieLog.get(), blockNumber, tx);
