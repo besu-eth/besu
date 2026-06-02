@@ -15,7 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.common.provider;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListIndex;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAddressView;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 
 import java.util.Objects;
@@ -27,12 +27,12 @@ public class WorldStateQueryParams {
   /**
    * BAL overlay applied when the world state's accumulator is created (parallel execution).
    *
-   * @param blockAccessListIndex per-block address index for the current block's BAL
+   * @param blockAccessListAddressView per-block address-indexed view of the current block's BAL
    * @param maxTxIndexExclusive index of the transaction about to execute; overlay includes changes
    *     with {@code txIndex < maxTxIndexExclusive}
    */
   public record BalOverlayQuery(
-      BlockAccessListIndex blockAccessListIndex, long maxTxIndexExclusive) {}
+      BlockAccessListAddressView blockAccessListAddressView, long maxTxIndexExclusive) {}
 
   private final BlockHeader blockHeader;
   private final boolean shouldWorldStateUpdateHead;
@@ -248,14 +248,15 @@ public class WorldStateQueryParams {
     /**
      * Applies a BAL overlay when the queried world state's accumulator is created.
      *
-     * @param blockAccessListIndex per-block address index for the current block's BAL
+     * @param blockAccessListAddressView per-block address-indexed view of the current block's BAL
      * @param maxTxIndexExclusive index of the transaction about to execute
      * @return the builder
      */
     public Builder withBalOverlay(
-        final BlockAccessListIndex blockAccessListIndex, final long maxTxIndexExclusive) {
+        final BlockAccessListAddressView blockAccessListAddressView,
+        final long maxTxIndexExclusive) {
       this.balOverlayQuery =
-          Optional.of(new BalOverlayQuery(blockAccessListIndex, maxTxIndexExclusive));
+          Optional.of(new BalOverlayQuery(blockAccessListAddressView, maxTxIndexExclusive));
       return this;
     }
 

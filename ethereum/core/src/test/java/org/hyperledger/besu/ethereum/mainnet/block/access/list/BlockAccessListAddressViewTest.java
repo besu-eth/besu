@@ -27,16 +27,15 @@ import java.util.List;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 
-class BlockAccessListIndexTest {
+class BlockAccessListAddressViewTest {
 
   private static final Address ADDRESS =
       Address.fromHexString("0x00000000000000000000000000000000000000aa");
   private static final StorageSlotKey SLOT = new StorageSlotKey(UInt256.ONE);
 
   @Test
-  void looksUpAccountAndSlotWithoutScanningOtherAddresses() {
-    final Address other =
-        Address.fromHexString("0x00000000000000000000000000000000000000bb");
+  void looksUpAccountAndSlotByAddress() {
+    final Address other = Address.fromHexString("0x00000000000000000000000000000000000000bb");
     final BlockAccessList bal =
         new BlockAccessList(
             List.of(
@@ -49,15 +48,12 @@ class BlockAccessListIndexTest {
                     List.of()),
                 new AccountChanges(other, List.of(), List.of(), List.of(), List.of(), List.of())));
 
-    final BlockAccessListIndex index = BlockAccessListIndex.of(bal);
+    final BlockAccessListAddressView addressView = BlockAccessListAddressView.of(bal);
 
-    assertThat(index.getAccountChanges(ADDRESS)).isPresent();
-    assertThat(index.getAccountChanges(other)).isPresent();
-    assertThat(
-            index
-                .getSlotChanges(ADDRESS, SLOT)
-                .map(BlockAccessList.SlotChanges::slot))
+    assertThat(addressView.getAccountChanges(ADDRESS)).isPresent();
+    assertThat(addressView.getAccountChanges(other)).isPresent();
+    assertThat(addressView.getSlotChanges(ADDRESS, SLOT).map(BlockAccessList.SlotChanges::slot))
         .contains(SLOT);
-    assertThat(index.getSlotChanges(other, SLOT)).isEmpty();
+    assertThat(addressView.getSlotChanges(other, SLOT)).isEmpty();
   }
 }

@@ -23,24 +23,25 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Address-indexed view of a {@link BlockAccessList}, built once per block. Does not resolve transaction
- * indices or materialize state — use {@link BlockAccessListOverlay} for per-transaction prior state.
+ * Address-indexed view of a {@link BlockAccessList}, built once per block. Does not resolve
+ * transaction indices or materialize state — use {@link BlockAccessListOverlay} for per-transaction
+ * prior state.
  */
-public final class BlockAccessListIndex {
+public final class BlockAccessListAddressView {
 
   private final Map<Address, AccountEntry> accountEntries;
 
-  private BlockAccessListIndex(final Map<Address, AccountEntry> accountEntries) {
+  private BlockAccessListAddressView(final Map<Address, AccountEntry> accountEntries) {
     this.accountEntries = accountEntries;
   }
 
-  public static BlockAccessListIndex of(final BlockAccessList blockAccessList) {
+  public static BlockAccessListAddressView of(final BlockAccessList blockAccessList) {
     final List<BlockAccessList.AccountChanges> accountChanges = blockAccessList.accountChanges();
     final Map<Address, AccountEntry> entries = HashMap.newHashMap(accountChanges.size());
     for (final BlockAccessList.AccountChanges changes : accountChanges) {
       entries.put(changes.address(), new AccountEntry(changes));
     }
-    return new BlockAccessListIndex(entries);
+    return new BlockAccessListAddressView(entries);
   }
 
   public Optional<BlockAccessList.AccountChanges> getAccountChanges(final Address address) {
@@ -56,35 +57,28 @@ public final class BlockAccessListIndex {
 
   private static final class AccountEntry {
     private final BlockAccessList.AccountChanges accountChanges;
-    private volatile Map<StorageSlotKey, BlockAccessList.SlotChanges> storageBySlot;
+    private final Map<StorageSlotKey, BlockAccessList.SlotChanges> storageBySlot;
 
     private AccountEntry(final BlockAccessList.AccountChanges accountChanges) {
       this.accountChanges = accountChanges;
+      this.storageBySlot = buildStorageBySlot(accountChanges.storageChanges());
+    }
+
+    private static Map<StorageSlotKey, BlockAccessList.SlotChanges> buildStorageBySlot(
+        final List<BlockAccessList.SlotChanges> storageChanges) {
+      if (storageChanges.isEmpty()) {
+        return Map.of();
+      }
+      final Map<StorageSlotKey, BlockAccessList.SlotChanges> built =
+          HashMap.newHashMap(storageChanges.size());
+      for (final BlockAccessList.SlotChanges slotChange : storageChanges) {
+        built.put(slotChange.slot(), slotChange);
+      }
+      return built;
     }
 
     Optional<BlockAccessList.SlotChanges> slotChanges(final StorageSlotKey storageSlotKey) {
-      Map<StorageSlotKey, BlockAccessList.SlotChanges> slotIndex = storageBySlot;
-      if (slotIndex == null) {
-        synchronized (this) {
-          slotIndex = storageBySlot;
-          if (slotIndex == null) {
-            final List<BlockAccessList.SlotChanges> storageChanges =
-                accountChanges.storageChanges();
-            if (storageChanges.isEmpty()) {
-              slotIndex = Map.of();
-            } else {
-              final Map<StorageSlotKey, BlockAccessList.SlotChanges> built =
-                  HashMap.newHashMap(storageChanges.size());
-              for (final BlockAccessList.SlotChanges slotChange : storageChanges) {
-                built.put(slotChange.slot(), slotChange);
-              }
-              slotIndex = built;
-            }
-            storageBySlot = slotIndex;
-          }
-        }
-      }
-      return Optional.ofNullable(slotIndex.get(storageSlotKey));
+      return Optional.ofNullable(storageBySlot.get(storageSlotKey));
     }
   }
 }

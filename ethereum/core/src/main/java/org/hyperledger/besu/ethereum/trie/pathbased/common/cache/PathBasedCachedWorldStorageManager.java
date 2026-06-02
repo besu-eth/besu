@@ -138,7 +138,7 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
   }
 
   public Optional<PathBasedWorldState> getWorldState(
-      final Hash blockHash, final Optional<BlockAccessListOverlay> blockAccessListOverlay) {
+      final Hash blockHash, final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
     if (cachedWorldStatesByHash.containsKey(blockHash)) {
       // return a new worldstate using worldstate storage and an isolated copy of the updater
       return Optional.ofNullable(cachedWorldStatesByHash.get(blockHash))
@@ -148,7 +148,7 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
                       archive,
                       createLayeredKeyValueStorage(cached.getWorldStateStorage()),
                       evmConfiguration,
-                      blockAccessListOverlay));
+                      maybeBlockAccessListOverlay));
     }
     LOG.atDebug()
         .setMessage("did not find worldstate in cache for {}")
@@ -164,7 +164,7 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
 
   public Optional<PathBasedWorldState> getNearestWorldState(
       final BlockHeader blockHeader,
-      final Optional<BlockAccessListOverlay> blockAccessListOverlay) {
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
     LOG.atDebug()
         .setMessage("getting nearest worldstate for {}")
         .addArgument(blockHeader::toLogString)
@@ -196,7 +196,7 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
                     archive,
                     createLayeredKeyValueStorage(storage),
                     evmConfiguration,
-                    blockAccessListOverlay));
+                    maybeBlockAccessListOverlay));
   }
 
   public Optional<PathBasedWorldState> getHeadWorldState(
@@ -300,7 +300,7 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
       final PathBasedWorldStateProvider archive,
       final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage,
       final EvmConfiguration evmConfiguration,
-      final Optional<BlockAccessListOverlay> blockAccessListOverlay);
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay);
 
   public abstract PathBasedWorldStateKeyValueStorage createLayeredKeyValueStorage(
       final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage);

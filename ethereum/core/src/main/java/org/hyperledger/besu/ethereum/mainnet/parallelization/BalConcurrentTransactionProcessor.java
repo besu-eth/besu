@@ -27,7 +27,7 @@ import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListIndex;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAddressView;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.prefetch.BalPrefetcher;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
@@ -62,7 +62,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
   private final MainnetTransactionProcessor transactionProcessor;
   private final BlockAccessList blockAccessList;
-  private final BlockAccessListIndex blockAccessListIndex;
+  private final BlockAccessListAddressView blockAccessListAddressView;
   private final Duration balProcessingTimeout;
   private final Optional<BalPrefetcher> maybePrefetcher;
 
@@ -72,7 +72,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final BalConfiguration balConfiguration) {
     this.transactionProcessor = transactionProcessor;
     this.blockAccessList = blockAccessList;
-    this.blockAccessListIndex = BlockAccessListIndex.of(blockAccessList);
+    this.blockAccessListAddressView = BlockAccessListAddressView.of(blockAccessList);
     this.balProcessingTimeout = balConfiguration.getBalProcessingTimeout();
     this.maybePrefetcher =
         balConfiguration.isBalPreFetchReadingEnabled()
@@ -95,8 +95,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
                     WorldStateQueryParams.newBuilder()
                         .withBlockHeader(blockHeader)
                         .withShouldWorldStateUpdateHead(false)
-                        .withBalOverlay(
-                            blockAccessListIndex, (long) transactionLocation + 1L)
+                        .withBalOverlay(blockAccessListAddressView, (long) transactionLocation + 1L)
                         .build())
                 .map(BonsaiWorldState.class::cast));
   }

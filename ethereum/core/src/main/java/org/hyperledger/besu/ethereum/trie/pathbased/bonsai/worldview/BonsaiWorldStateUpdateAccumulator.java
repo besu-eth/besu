@@ -50,8 +50,8 @@ public class BonsaiWorldStateUpdateAccumulator
       final Consumer<StorageSlotKey> storagePreloader,
       final EvmConfiguration evmConfiguration,
       final CodeCache codeCache,
-      final Optional<BlockAccessListOverlay> blockAccessListOverlay) {
-    super(world, accountPreloader, storagePreloader, evmConfiguration, blockAccessListOverlay);
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
+    super(world, accountPreloader, storagePreloader, evmConfiguration, maybeBlockAccessListOverlay);
 
     this.codeCache = codeCache;
   }

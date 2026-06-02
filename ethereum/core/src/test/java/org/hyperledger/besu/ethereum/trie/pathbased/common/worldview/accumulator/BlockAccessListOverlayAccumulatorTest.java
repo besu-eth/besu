@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.datatypes.Address;
@@ -30,6 +29,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.B
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.NonceChange;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAddressView;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldStateUpdateAccumulator;
@@ -87,9 +87,9 @@ class BlockAccessListOverlayAccumulatorTest {
                     List.of())));
 
     withAccumulator(
+        bal,
+        1L,
         accumulator -> {
-          accumulator.setBlockAccessListOverlay(bal, 1L);
-
           final Account readAccount = accumulator.get(ADDRESS);
           assertThat(readAccount).isNotNull();
           assertThat(readAccount.getBalance()).isEqualTo(balBalance);
@@ -121,9 +121,9 @@ class BlockAccessListOverlayAccumulatorTest {
                     List.of())));
 
     withAccumulator(
+        bal,
+        1L,
         accumulator -> {
-          accumulator.setBlockAccessListOverlay(bal, 1L);
-
           assertThat(accumulator.getStorageValue(address, UInt256.valueOf(7))).isEqualTo(balValue);
 
           final var slotValue = accumulator.getStorageToUpdate().get(address).get(slotKey);
@@ -151,9 +151,9 @@ class BlockAccessListOverlayAccumulatorTest {
                     List.of())));
 
     withAccumulator(
+        bal,
+        1L,
         accumulator -> {
-          accumulator.setBlockAccessListOverlay(bal, 1L);
-
           final Account readAccount = accumulator.get(balOnlyAddress);
           assertThat(readAccount).isNotNull();
           assertThat(readAccount.getBalance()).isEqualTo(balBalance);
@@ -185,9 +185,9 @@ class BlockAccessListOverlayAccumulatorTest {
                     List.of())));
 
     withAccumulator(
+        bal,
+        1L,
         accumulator -> {
-          accumulator.setBlockAccessListOverlay(bal, 1L);
-
           assertThat(accumulator.getStorageValue(balOnlyAddress, UInt256.valueOf(7)))
               .isEqualTo(balValue);
 
@@ -214,35 +214,13 @@ class BlockAccessListOverlayAccumulatorTest {
                     List.of())));
 
     withAccumulator(
+        bal,
+        1L,
         accumulator -> {
-          accumulator.setBlockAccessListOverlay(bal, 1L);
-
           assertThat(accumulator.get(ADDRESS).getBalance()).isEqualTo(balBalance);
 
           accumulator.getAccount(ADDRESS).setBalance(txBalance);
           assertThat(accumulator.get(ADDRESS).getBalance()).isEqualTo(txBalance);
-        });
-  }
-
-  @Test
-  void overlayCannotBeSetAfterStateAccess() {
-    final BlockAccessList bal =
-        new BlockAccessList(
-            List.of(
-                new AccountChanges(
-                    ADDRESS,
-                    List.of(),
-                    List.of(),
-                    List.of(new BalanceChange(0, Wei.ONE)),
-                    List.of(),
-                    List.of())));
-
-    withAccumulator(
-        accumulator -> {
-          accumulator.get(ADDRESS);
-          assertThatThrownBy(() -> accumulator.setBlockAccessListOverlay(bal, 1L))
-              .isInstanceOf(IllegalStateException.class)
-              .hasMessageContaining("BAL overlay must be set before");
         });
   }
 
@@ -261,19 +239,25 @@ class BlockAccessListOverlayAccumulatorTest {
                     List.of())));
 
     withAccumulator(
-        accumulator -> {
-          accumulator.setBlockAccessListOverlay(bal, 1L);
-          assertThat(accumulator.get(ADDRESS).getBalance()).isEqualTo(Wei.of(2_000));
-        });
+        bal,
+        1L,
+        accumulator -> assertThat(accumulator.get(ADDRESS).getBalance()).isEqualTo(Wei.of(2_000)));
   }
 
-  private void withAccumulator(final Consumer<BonsaiWorldStateUpdateAccumulator> consumer) {
+  private void withAccumulator(
+      final BlockAccessList bal,
+      final long maxTxIndexExclusive,
+      final Consumer<BonsaiWorldStateUpdateAccumulator> consumer) {
     final BonsaiWorldState worldState =
         (BonsaiWorldState)
             protocolContext
                 .getWorldStateArchive()
                 .getWorldState(
-                    WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(chainHeadHeader))
+                    WorldStateQueryParams.newBuilder()
+                        .withBlockHeader(chainHeadHeader)
+                        .withShouldWorldStateUpdateHead(false)
+                        .withBalOverlay(BlockAccessListAddressView.of(bal), maxTxIndexExclusive)
+                        .build())
                 .orElseThrow();
     try {
       final BonsaiWorldStateUpdateAccumulator accumulator =

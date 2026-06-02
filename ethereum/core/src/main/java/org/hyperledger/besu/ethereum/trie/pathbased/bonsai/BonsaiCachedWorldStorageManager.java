@@ -54,14 +54,14 @@ public class BonsaiCachedWorldStorageManager extends PathBasedCachedWorldStorage
       final PathBasedWorldStateProvider archive,
       final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage,
       final EvmConfiguration evmConfiguration,
-      final Optional<BlockAccessListOverlay> blockAccessListOverlay) {
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
     return new BonsaiWorldState(
         (BonsaiWorldStateProvider) archive,
         (BonsaiWorldStateKeyValueStorage) worldStateKeyValueStorage,
         evmConfiguration,
         WorldStateConfig.newBuilder(worldStateConfig).build(),
         codeCache,
-        blockAccessListOverlay);
+        maybeBlockAccessListOverlay);
   }
 
   @Override

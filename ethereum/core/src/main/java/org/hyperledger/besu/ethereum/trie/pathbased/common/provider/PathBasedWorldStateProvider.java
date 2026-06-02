@@ -230,11 +230,11 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
   private Optional<MutableWorldState> getFullWorldStateFromCache(
       final BlockHeader blockHeader,
       final Optional<WorldStateQueryParams.BalOverlayQuery> balOverlayQuery) {
-    final Optional<BlockAccessListOverlay> blockAccessListOverlay =
+    final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay =
         balOverlayQuery.map(
             q ->
                 new BlockAccessListOverlay(
-                    q.blockAccessListIndex(), q.maxTxIndexExclusive()));
+                    q.blockAccessListAddressView(), q.maxTxIndexExclusive()));
     final BlockHeader chainHeadBlockHeader = blockchain.getChainHeadHeader();
     if (chainHeadBlockHeader.getNumber() - blockHeader.getNumber()
         >= trieLogManager.getMaxLayersToLoad()) {
@@ -244,10 +244,11 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
       return Optional.empty();
     }
     return cachedWorldStorageManager
-        .getWorldState(blockHeader.getBlockHash(), blockAccessListOverlay)
+        .getWorldState(blockHeader.getBlockHash(), maybeBlockAccessListOverlay)
         .or(
             () ->
-                cachedWorldStorageManager.getNearestWorldState(blockHeader, blockAccessListOverlay))
+                cachedWorldStorageManager.getNearestWorldState(
+                    blockHeader, maybeBlockAccessListOverlay))
         .or(
             () ->
                 cachedWorldStorageManager.getHeadWorldState(

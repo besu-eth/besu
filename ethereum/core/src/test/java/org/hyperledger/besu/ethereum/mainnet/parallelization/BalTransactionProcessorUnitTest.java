@@ -140,7 +140,7 @@ class BalTransactionProcessorUnitTest {
                       .map(
                           q ->
                               new BlockAccessListOverlay(
-                                  q.blockAccessListIndex(), q.maxTxIndexExclusive()));
+                                  q.blockAccessListAddressView(), q.maxTxIndexExclusive()));
               return Optional.of(createEmptyWorldState(overlay));
             });
     when(parentHeader.getBlockHash()).thenReturn(Hash.ZERO);

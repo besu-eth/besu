@@ -87,7 +87,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
       final EvmConfiguration evmConfiguration,
       final WorldStateConfig worldStateConfig,
       final CodeCache codeCache,
-      final Optional<BlockAccessListOverlay> blockAccessListOverlay) {
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
     this(
         worldStateKeyValueStorage,
         archive.getCachedMerkleTrieLoader(),
@@ -96,7 +96,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
         evmConfiguration,
         worldStateConfig,
         codeCache,
-        blockAccessListOverlay);
+        maybeBlockAccessListOverlay);
   }
 
   public BonsaiWorldState(
@@ -126,7 +126,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
       final EvmConfiguration evmConfiguration,
       final WorldStateConfig worldStateConfig,
       final CodeCache codeCache,
-      final Optional<BlockAccessListOverlay> blockAccessListOverlay) {
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
     super(worldStateKeyValueStorage, cachedWorldStorageManager, trieLogManager, worldStateConfig);
     this.bonsaiCachedMerkleTrieLoader = bonsaiCachedMerkleTrieLoader;
     this.worldStateKeyValueStorage = worldStateKeyValueStorage;
@@ -141,7 +141,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
                     getWorldStateStorage(), addr, value),
             evmConfiguration,
             codeCache,
-            blockAccessListOverlay));
+            maybeBlockAccessListOverlay));
     this.codeCache = codeCache;
   }
 

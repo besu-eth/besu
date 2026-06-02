@@ -61,12 +61,11 @@ class BlockAccessListOverlayTest {
                 new CodeChange(0, Bytes.fromHexString("0xAA")),
                 new CodeChange(1, Bytes.fromHexString("0xBB"))));
 
-    final BlockAccessListIndex index =
-        BlockAccessListIndex.of(new BlockAccessList(List.of(accountChanges)));
-    final BlockAccessListOverlay overlay = new BlockAccessListOverlay(index, 2L);
+    final BlockAccessListAddressView addressView =
+        BlockAccessListAddressView.of(new BlockAccessList(List.of(accountChanges)));
+    final BlockAccessListOverlay overlay = new BlockAccessListOverlay(addressView, 2L);
 
     assertThat(overlay.hasPriorAccountState(ADDRESS)).isTrue();
-    assertThat(overlay.getCode(ADDRESS)).contains(Bytes.fromHexString("0xBB"));
     assertThat(overlay.getStorageValue(ADDRESS, SLOT, UInt256.ZERO)).isEqualTo(UInt256.valueOf(1));
     assertThat(overlay.hasPriorStorageChange(ADDRESS, SLOT)).isTrue();
 
@@ -74,6 +73,9 @@ class BlockAccessListOverlayTest {
     overlay.applyToAccount(ADDRESS, account);
     Mockito.verify(account).setBalance(Wei.of(200));
     Mockito.verify(account).setNonce(1L);
+    Mockito.verify(account, Mockito.never()).setCode(Mockito.any());
+
+    overlay.applyToCode(ADDRESS, account);
     Mockito.verify(account).setCode(Bytes.fromHexString("0xBB"));
   }
 
@@ -90,13 +92,16 @@ class BlockAccessListOverlayTest {
 
     final BlockAccessListOverlay overlay =
         new BlockAccessListOverlay(
-            BlockAccessListIndex.of(new BlockAccessList(List.of(accountChanges))), 2L);
+            BlockAccessListAddressView.of(new BlockAccessList(List.of(accountChanges))), 2L);
 
     assertThat(overlay.hasPriorAccountState(ADDRESS)).isFalse();
-    assertThat(overlay.getCode(ADDRESS)).isEmpty();
     assertThat(overlay.getStorageValue(ADDRESS, SLOT, UInt256.valueOf(42)))
         .isEqualTo(UInt256.valueOf(42));
     assertThat(overlay.hasPriorStorageChange(ADDRESS, SLOT)).isFalse();
+
+    final MutableAccount account = Mockito.mock(MutableAccount.class);
+    overlay.applyToCode(ADDRESS, account);
+    Mockito.verify(account, Mockito.never()).setCode(Mockito.any());
   }
 
   @Test
@@ -114,7 +119,7 @@ class BlockAccessListOverlayTest {
 
     final BlockAccessListOverlay overlay =
         new BlockAccessListOverlay(
-            BlockAccessListIndex.of(new BlockAccessList(List.of(accountChanges))), 2L);
+            BlockAccessListAddressView.of(new BlockAccessList(List.of(accountChanges))), 2L);
 
     assertThat(overlay.getStorageValue(ADDRESS, SLOT, UInt256.valueOf(99))).isEqualTo(UInt256.ZERO);
     assertThat(overlay.hasPriorStorageChange(ADDRESS, SLOT)).isTrue();

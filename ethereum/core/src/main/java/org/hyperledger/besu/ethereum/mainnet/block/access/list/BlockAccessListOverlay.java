@@ -16,11 +16,11 @@ package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.account.MutableAccount;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 import java.util.function.ToLongFunction;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -30,38 +30,33 @@ import org.apache.tuweni.units.bigints.UInt256;
  * Resolves prior-block state from a {@link BlockAccessList} as of the end of transaction {@code
  * maxTxIndexExclusive - 1} (changes with {@code txIndex < maxTxIndexExclusive}).
  *
- * <p>Uses a shared {@link BlockAccessListIndex} and looks up only the requested address or storage
- * slot — no full-BAL materialization and no database access.
+ * <p>Uses a shared {@link BlockAccessListAddressView} and looks up only the requested address or
+ * storage slot — no full-BAL materialization and no database access.
  */
 public final class BlockAccessListOverlay {
 
-  private final BlockAccessListIndex blockAccessListIndex;
+  private final BlockAccessListAddressView blockAccessListAddressView;
   private final long maxTxIndexExclusive;
 
   public BlockAccessListOverlay(
-      final BlockAccessListIndex blockAccessListIndex, final long maxTxIndexExclusive) {
-    this.blockAccessListIndex = blockAccessListIndex;
+      final BlockAccessListAddressView blockAccessListAddressView, final long maxTxIndexExclusive) {
+    this.blockAccessListAddressView = blockAccessListAddressView;
     this.maxTxIndexExclusive = maxTxIndexExclusive;
   }
 
-  public BlockAccessListOverlay(
-      final BlockAccessList blockAccessList, final long maxTxIndexExclusive) {
-    this(BlockAccessListIndex.of(blockAccessList), maxTxIndexExclusive);
-  }
-
   public boolean hasPriorAccountState(final Address address) {
-    return blockAccessListIndex
+    return blockAccessListAddressView
         .getAccountChanges(address)
         .map(this::hasResolvedAccountField)
         .orElse(false);
   }
 
   public boolean hasPriorStorageChange(final Address address, final StorageSlotKey storageSlotKey) {
-    return getPriorStorageValue(address, storageSlotKey).isPresent();
+    return hasPriorStorageChangeInternal(address, storageSlotKey);
   }
 
   public void applyToAccount(final Address address, final MutableAccount account) {
-    blockAccessListIndex
+    blockAccessListAddressView
         .getAccountChanges(address)
         .ifPresent(
             accountChanges -> {
@@ -75,16 +70,15 @@ public final class BlockAccessListOverlay {
                       maxTxIndexExclusive,
                       BlockAccessList.NonceChange::txIndex)
                   .ifPresent(change -> account.setNonce(change.newNonce()));
-              findLatestBeforeMax(
-                      accountChanges.codeChanges(),
-                      maxTxIndexExclusive,
-                      BlockAccessList.CodeChange::txIndex)
-                  .ifPresent(change -> account.setCode(change.newCode()));
             });
   }
 
-  public Optional<Bytes> getCode(final Address address) {
-    return blockAccessListIndex
+  public void applyToCode(final Address address, final MutableAccount account) {
+    applyToCode(address, account::setCode);
+  }
+
+  public void applyToCode(final Address address, final Consumer<Bytes> codeApplier) {
+    blockAccessListAddressView
         .getAccountChanges(address)
         .flatMap(
             accountChanges ->
@@ -92,16 +86,14 @@ public final class BlockAccessListOverlay {
                     accountChanges.codeChanges(),
                     maxTxIndexExclusive,
                     BlockAccessList.CodeChange::txIndex))
-        .map(BlockAccessList.CodeChange::newCode);
+        .ifPresent(change -> codeApplier.accept(change.newCode()));
   }
 
-  /**
-   * Returns the storage value from the BAL when a prior change exists; empty if the caller should
-   * load from the parent world state / database.
-   */
-  public Optional<UInt256> getPriorStorageValue(
-      final Address address, final StorageSlotKey storageSlotKey) {
-    return blockAccessListIndex
+  public void applyToStorage(
+      final Address address,
+      final StorageSlotKey storageSlotKey,
+      final Consumer<UInt256> valueApplier) {
+    blockAccessListAddressView
         .getSlotChanges(address, storageSlotKey)
         .flatMap(
             slotChanges ->
@@ -109,26 +101,42 @@ public final class BlockAccessListOverlay {
                     slotChanges.changes(),
                     maxTxIndexExclusive,
                     BlockAccessList.StorageChange::txIndex))
-        .map(
-            latest ->
-                latest.newValue() != null ? latest.newValue() : UInt256.ZERO);
+        .ifPresent(
+            change ->
+                valueApplier.accept(change.newValue() != null ? change.newValue() : UInt256.ZERO));
   }
 
   public UInt256 getStorageValue(
       final Address address, final StorageSlotKey storageSlotKey, final UInt256 parentValue) {
-    return getPriorStorageValue(address, storageSlotKey).orElse(parentValue);
+    final UInt256[] resolved = {parentValue};
+    applyToStorage(address, storageSlotKey, balValue -> resolved[0] = balValue);
+    return resolved[0];
   }
 
   private boolean hasResolvedAccountField(final BlockAccessList.AccountChanges accountChanges) {
     return findLatestBeforeMax(
-            accountChanges.balanceChanges(), maxTxIndexExclusive, BlockAccessList.BalanceChange::txIndex)
-        .isPresent()
-        || findLatestBeforeMax(
-                accountChanges.nonceChanges(), maxTxIndexExclusive, BlockAccessList.NonceChange::txIndex)
+                accountChanges.balanceChanges(),
+                maxTxIndexExclusive,
+                BlockAccessList.BalanceChange::txIndex)
             .isPresent()
         || findLatestBeforeMax(
-                accountChanges.codeChanges(), maxTxIndexExclusive, BlockAccessList.CodeChange::txIndex)
+                accountChanges.nonceChanges(),
+                maxTxIndexExclusive,
+                BlockAccessList.NonceChange::txIndex)
             .isPresent();
+  }
+
+  private boolean hasPriorStorageChangeInternal(
+      final Address address, final StorageSlotKey storageSlotKey) {
+    return blockAccessListAddressView
+        .getSlotChanges(address, storageSlotKey)
+        .flatMap(
+            slotChanges ->
+                findLatestBeforeMax(
+                    slotChanges.changes(),
+                    maxTxIndexExclusive,
+                    BlockAccessList.StorageChange::txIndex))
+        .isPresent();
   }
 
   /**

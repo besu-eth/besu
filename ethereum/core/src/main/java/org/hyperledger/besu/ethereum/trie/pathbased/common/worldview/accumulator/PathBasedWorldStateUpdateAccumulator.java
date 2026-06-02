@@ -19,8 +19,6 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListIndex;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
@@ -115,31 +113,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     this.isAccumulatorStateChanged = true;
   }
 
-  /**
-   * Applies BAL state from prior transactions on first account/storage reads. {@code
-   * maxTxIndexExclusive} is the index of the transaction about to execute (overlay includes all
-   * changes with {@code txIndex < maxTxIndexExclusive}).
-   */
-  public void setBlockAccessListOverlay(
-      final BlockAccessList blockAccessList, final long maxTxIndexExclusive) {
-    setBlockAccessListOverlay(BlockAccessListIndex.of(blockAccessList), maxTxIndexExclusive);
-  }
-
-  public void setBlockAccessListOverlay(
-      final BlockAccessListIndex blockAccessListIndex, final long maxTxIndexExclusive) {
-    if (!accountsToUpdate.isEmpty() || !storageToUpdate.isEmpty() || !codeToUpdate.isEmpty()) {
-      throw new IllegalStateException(
-          "BAL overlay must be set before any account, storage, or code access");
-    }
-    this.maybeBlockAccessListOverlay =
-        Optional.of(new BlockAccessListOverlay(blockAccessListIndex, maxTxIndexExclusive));
-  }
-
-  public void clearBlockAccessListOverlay() {
-    this.maybeBlockAccessListOverlay = Optional.empty();
-  }
-
-  public Optional<BlockAccessListOverlay> getMaybeBlockAccessListOverlay() {
+  protected Optional<BlockAccessListOverlay> getMaybeBlockAccessListOverlay() {
     return maybeBlockAccessListOverlay;
   }
 
@@ -352,16 +326,16 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
           account = wrappedWorldView().get(address);
         }
         if (account instanceof PathBasedAccount pathBasedAccount) {
-          ACCOUNT mutableAccount = copyAccount((ACCOUNT) pathBasedAccount, this, true);
-          applyBlockAccessListOverlay(address, mutableAccount);
-          accountsToUpdate.put(
-              address, new PathBasedValue<>((ACCOUNT) pathBasedAccount, mutableAccount));
-          return mutableAccount;
+          final ACCOUNT priorAccount = copyAccount((ACCOUNT) pathBasedAccount);
+          final ACCOUNT updatedAccount = copyAccount((ACCOUNT) pathBasedAccount, this, true);
+          applyBalOverlayToAccount(address, updatedAccount);
+          accountsToUpdate.put(address, new PathBasedValue<>(priorAccount, updatedAccount));
+          return accountFunction.apply(accountsToUpdate.get(address));
         }
-        final ACCOUNT balAccount = tryLoadAccountFromBalOverlay(address);
-        if (balAccount != null) {
-          accountsToUpdate.put(address, new PathBasedValue<>(null, balAccount));
-          return balAccount;
+        final Optional<ACCOUNT> balOnlyAccount = createBalOnlyAccount(address);
+        if (balOnlyAccount.isPresent()) {
+          accountsToUpdate.put(address, new PathBasedValue<>(null, balOnlyAccount.get()));
+          return balOnlyAccount.get();
         }
         accountsToUpdate.put(address, new PathBasedValue<>(null, null));
         return null;
@@ -545,14 +519,18 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
                 tracked.setStorageWasCleared(false); // storage already cleared for this transaction
               }
             });
-    markTransactionBoundary();
   }
 
   @Override
   public Optional<Bytes> getCode(final Address address, final Hash codeHash) {
     final PathBasedValue<Bytes> localCode = codeToUpdate.get(address);
     if (localCode == null) {
-      final Optional<Bytes> code = getCodeWithBalOverlay(address, codeHash);
+      final Optional<Bytes> code = wrappedWorldView().getCode(address, codeHash);
+      applyBalOverlayToCode(address, code);
+      final PathBasedValue<Bytes> trackedCode = codeToUpdate.get(address);
+      if (trackedCode != null) {
+        return Optional.ofNullable(trackedCode.getUpdated());
+      }
       if (code.isEmpty() && !codeHash.equals(Hash.EMPTY)) {
         throw new MerkleTrieException(
             "invalid account code",
@@ -584,32 +562,24 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         return Optional.ofNullable(value.getUpdated());
       }
     }
-    final Optional<UInt256> balPriorStorage =
-        getBalPriorStorageValue(address, storageSlotKey);
-    if (balPriorStorage.isPresent()) {
-      storageToUpdate
-          .computeIfAbsent(
-              address,
-              key ->
-                  new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), storagePreloader))
-          .put(storageSlotKey, new PathBasedValue<>(null, balPriorStorage.get()));
-      return balPriorStorage;
-    }
     try {
-      final Optional<UInt256> valueUInt =
+      final Optional<UInt256> prior =
           (wrappedWorldView() instanceof PathBasedWorldState worldState)
               ? worldState.getStorageValueByStorageSlotKey(address, storageSlotKey)
               : wrappedWorldView().getStorageValueByStorageSlotKey(address, storageSlotKey);
-      final UInt256 parentValue = valueUInt.orElse(null);
+      final PathBasedValue<UInt256> storageValue =
+          new PathBasedValue<>(prior.orElse(null), prior.orElse(null));
+      applyBalOverlayToStorage(address, storageSlotKey, storageValue);
+
       storageToUpdate
           .computeIfAbsent(
               address,
               key ->
                   new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), storagePreloader))
-          .put(storageSlotKey, new PathBasedValue<>(parentValue, parentValue));
-      return Optional.ofNullable(parentValue);
+          .put(storageSlotKey, storageValue);
+
+      return Optional.ofNullable(storageValue.getUpdated());
     } catch (MerkleTrieException e) {
-      // need to throw to trigger the heal
       throw new MerkleTrieException(
           e.getMessage(), Optional.of(address), e.getHash(), e.getLocation());
     }
@@ -779,7 +749,6 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       if (parentAccount instanceof PathBasedAccount account) {
         final ACCOUNT priorAccount = copyAccount((ACCOUNT) account);
         final ACCOUNT updatedAccount = copyAccount((ACCOUNT) account, this, true);
-        applyBlockAccessListOverlay(address, updatedAccount);
         final PathBasedValue<ACCOUNT> loadedAccountValue =
             new PathBasedValue<>(priorAccount, updatedAccount);
         accountsToUpdate.put(address, loadedAccountValue);
@@ -969,49 +938,54 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     updatedAccounts.clear();
     deletedAccounts.clear();
     storageKeyHashLookup.clear();
-    maybeBlockAccessListOverlay = Optional.empty();
   }
 
-  private ACCOUNT tryLoadAccountFromBalOverlay(final Address address) {
-    if (maybeBlockAccessListOverlay.isEmpty()) {
-      return null;
+  private Optional<ACCOUNT> createBalOnlyAccount(final Address address) {
+    if (blockAccessListOverlay()
+        .map(overlay -> overlay.hasPriorAccountState(address))
+        .orElse(false)) {
+      final ACCOUNT account =
+          createAccount(
+              this,
+              address,
+              hashAndSaveAccountPreImage(address),
+              0,
+              Wei.ZERO,
+              Hash.EMPTY_TRIE_HASH,
+              Hash.EMPTY,
+              true);
+      applyBalOverlayToAccount(address, account);
+      return Optional.of(account);
     }
-    if (!maybeBlockAccessListOverlay.get().hasPriorAccountState(address)) {
-      return null;
-    }
-    final ACCOUNT account =
-        createAccount(
-            this,
-            address,
-            hashAndSaveAccountPreImage(address),
-            0,
-            Wei.ZERO,
-            Hash.EMPTY_TRIE_HASH,
-            Hash.EMPTY,
-            true);
-    maybeBlockAccessListOverlay.get().applyToAccount(address,account);
-    return account;
+    return Optional.empty();
   }
 
-  private void applyBlockAccessListOverlay(final Address address, final ACCOUNT account) {
-    maybeBlockAccessListOverlay.ifPresent(overlay -> overlay.applyToAccount(address, account));
+  private void applyBalOverlayToAccount(final Address address, final ACCOUNT account) {
+    blockAccessListOverlay().ifPresent(overlay -> overlay.applyToAccount(address, account));
   }
 
-  private Optional<UInt256> getBalPriorStorageValue(
-      final Address address, final StorageSlotKey storageSlotKey) {
-    return maybeBlockAccessListOverlay.flatMap(
-        overlay -> overlay.getPriorStorageValue(address, storageSlotKey));
+  private void applyBalOverlayToCode(final Address address, final Optional<Bytes> parentCode) {
+    blockAccessListOverlay()
+        .ifPresent(
+            overlay ->
+                overlay.applyToCode(
+                    address,
+                    balCode ->
+                        codeToUpdate.putIfAbsent(
+                            address, new PathBasedValue<>(parentCode.orElse(null), balCode))));
   }
 
-  private Optional<Bytes> getCodeWithBalOverlay(final Address address, final Hash codeHash) {
-    if (maybeBlockAccessListOverlay.isPresent()) {
-      final Optional<Bytes> balCode = maybeBlockAccessListOverlay.get().getCode(address);
-      if (balCode.isPresent()) {
-        codeToUpdate.putIfAbsent(address, new PathBasedValue<>(null, balCode.get()));
-        return balCode;
-      }
-    }
-    return wrappedWorldView().getCode(address, codeHash);
+  private void applyBalOverlayToStorage(
+      final Address address,
+      final StorageSlotKey storageSlotKey,
+      final PathBasedValue<UInt256> storageValue) {
+    blockAccessListOverlay()
+        .ifPresent(
+            overlay -> overlay.applyToStorage(address, storageSlotKey, storageValue::setUpdated));
+  }
+
+  private Optional<BlockAccessListOverlay> blockAccessListOverlay() {
+    return maybeBlockAccessListOverlay;
   }
 
   protected Hash hashAndSaveAccountPreImage(final Address address) {
