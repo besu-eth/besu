@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManage
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.cache.PathBasedWorldStateCacheManager;
 import org.hyperledger.besu.evm.account.Account;
+import org.hyperledger.besu.evm.tracing.SlowBlockTracer;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
@@ -48,6 +49,7 @@ import jakarta.validation.constraints.NotNull;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -173,6 +175,14 @@ public abstract class PathBasedWorldState
 
   @Override
   public void persist(final BlockHeader blockHeader, final StateRootCommitter committer) {
+    persist(blockHeader, committer, null);
+  }
+
+  @Override
+  public void persist(
+      final BlockHeader blockHeader,
+      final StateRootCommitter committer,
+      final @Nullable SlowBlockTracer maybeSlowBlockTracer) {
     LOG.atDebug()
         .setMessage("Persist world state for block {}")
         .addArgument(() -> Optional.ofNullable(blockHeader))
@@ -186,11 +196,17 @@ public abstract class PathBasedWorldState
     Runnable cacheWorldState = () -> {};
 
     try {
+      // state_hash_ms
+      final long stateHashStartNanos = maybeSlowBlockTracer != null ? System.nanoTime() : 0;
       final Hash calculatedRootHash =
           committer.computeRoot(
               buildStateRootSupplier(stateUpdater, blockHeader), this, stateUpdater, blockHeader);
+      if (maybeSlowBlockTracer != null) {
+        maybeSlowBlockTracer.addStateHashTime(System.nanoTime() - stateHashStartNanos);
+      }
 
       if (blockHeader != null) {
+        // TODO SLD should verification be recorded in a timing metric?
         verifyWorldStateRoot(calculatedRootHash, blockHeader);
         saveTrieLog =
             () -> {
@@ -228,6 +244,8 @@ public abstract class PathBasedWorldState
       success = true;
     } finally {
       if (success) {
+        // commit_ms
+        final long commitStartNanos = maybeSlowBlockTracer != null ? System.nanoTime() : 0;
         // commit the trielog transaction ahead of the state, in case of an abnormal shutdown:
         saveTrieLog.run();
         // commit only the composed worldstate, as trielog transaction is already complete:
@@ -236,6 +254,11 @@ public abstract class PathBasedWorldState
           // optionally save the committed worldstate state in the cache
           cacheWorldState.run();
         }
+
+        if (maybeSlowBlockTracer != null) {
+          maybeSlowBlockTracer.addCommitTime(System.nanoTime() - commitStartNanos);
+        }
+
         accumulator.reset();
       } else {
         stateUpdater.rollback();

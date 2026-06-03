@@ -14,9 +14,12 @@
  */
 package org.hyperledger.besu.plugin.services.worldstate;
 
+import org.hyperledger.besu.evm.tracing.SlowBlockTracer;
 import org.hyperledger.besu.evm.worldstate.MutableWorldView;
 import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.plugin.data.BlockHeader;
+
+import org.jspecify.annotations.Nullable;
 
 /**
  * Represents a mutable view of the Ethereum world state, allowing queries and modifications to
@@ -29,6 +32,26 @@ import org.hyperledger.besu.plugin.data.BlockHeader;
  * org.hyperledger.besu.evm.worldstate.MutableWorldView}.
  */
 public interface MutableWorldState extends WorldState, MutableWorldView {
+
+  /**
+   * Persist accumulated changes to underlying storage. This overload allows for recording of
+   * persistence timings through an optional {@link SlowBlockTracer}. The main use case is as a live
+   * tracer during block processing
+   *
+   * @param blockHeader If persisting for an imported block, the block hash of the world state this
+   *     represents. If this does not represent a forward transition from one block to the next
+   *     `null` should be passed in.
+   * @param committer An implementation of {@link StateRootCommitter} responsible for recomputing
+   *     the state root and committing the state changes to storage.
+   * @param maybeSlowBlockTracer An optional {@link SlowBlockTracer} to record persistence timings.
+   *     Nullable instead of Optional for hotpath performance.
+   */
+  default void persist(
+      final BlockHeader blockHeader,
+      final StateRootCommitter committer,
+      final @Nullable SlowBlockTracer maybeSlowBlockTracer) {
+    persist(blockHeader, committer);
+  }
 
   /**
    * Persist accumulated changes to underlying storage.
