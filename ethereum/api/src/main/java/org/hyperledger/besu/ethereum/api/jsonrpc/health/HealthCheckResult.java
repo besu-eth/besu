@@ -14,8 +14,26 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.health;
 
+import io.netty.handler.codec.http.HttpResponseStatus;
+
 public enum HealthCheckResult {
-  HEALTHY,
-  UNHEALTHY,
-  BAD_REQUEST
+  HEALTHY(HttpResponseStatus.OK.code(), "UP"),
+  UNHEALTHY(HttpResponseStatus.SERVICE_UNAVAILABLE.code(), "DOWN"),
+  BAD_REQUEST(HttpResponseStatus.BAD_REQUEST.code(), "BAD_REQUEST");
+
+  private final int statusCode;
+  private final String statusText;
+
+  HealthCheckResult(final int statusCode, final String statusText) {
+    this.statusCode = statusCode;
+    this.statusText = statusText;
+  }
+
+  public int getStatusCode() {
+    return statusCode;
+  }
+
+  public String getStatusText() {
+    return statusText;
+  }
 }
