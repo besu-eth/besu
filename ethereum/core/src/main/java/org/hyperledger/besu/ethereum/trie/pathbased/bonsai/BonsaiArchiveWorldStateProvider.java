@@ -231,7 +231,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
           (PathBasedWorldStateUpdateAccumulator<?>) mutableState.updater();
       try {
         for (final TrieLog rollBack : rollBacks) {
-          LOG.info("Attempting rollback of {}", rollBack.getBlockHash());
+          LOG.debug("Attempting rollback of {}", rollBack.getBlockHash());
           diffBasedUpdater.rollBack(rollBack);
         }
         // After rolling back N blocks, each account's storageRoot has been updated to the
