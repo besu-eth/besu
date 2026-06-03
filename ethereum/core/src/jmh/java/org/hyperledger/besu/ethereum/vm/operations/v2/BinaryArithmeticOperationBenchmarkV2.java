@@ -21,12 +21,23 @@ import java.util.Random;
 
 public abstract class BinaryArithmeticOperationBenchmarkV2 extends BinaryOperationBenchmarkV2 {
   static class Case {
+    /** Marker value for {@link #bSizeBytes} when the divisor is a known power of two. */
+    static final int B_POWER_OF_TWO = -2;
+
     final int aSizeBytes;
     final int bSizeBytes;
 
+    /** Set when {@link #bSizeBytes} == {@link #B_POWER_OF_TWO}; the bit position N for 2^N. */
+    final int bPow2Bit;
+
     private Case(final int aSize, final int bSize) {
+      this(aSize, bSize, -1);
+    }
+
+    private Case(final int aSize, final int bSize, final int bPow2Bit) {
       this.aSizeBytes = aSize;
       this.bSizeBytes = bSize;
+      this.bPow2Bit = bPow2Bit;
     }
 
     static Case fromString(final String opcodeName, final String caseName) {
@@ -35,12 +46,21 @@ public abstract class BinaryArithmeticOperationBenchmarkV2 extends BinaryOperati
         if (splitString.length < 3 || !opcodeName.equalsIgnoreCase(splitString[0])) {
           throw new IllegalArgumentException();
         }
+        // `<opcode>_<aSize>_POW2_<N>` builds the divisor as 2^N (e.g. address mask 2^160).
+        if (splitString[2].startsWith("POW2_")) {
+          int bit = Integer.parseInt(splitString[2].substring(5));
+          if (bit < 1 || bit > 255) {
+            throw new IllegalArgumentException("POW2 bit position must be in [1, 255]");
+          }
+          return new Case(parseSizeBytes(splitString[1]), B_POWER_OF_TWO, bit);
+        }
         return new Case(parseSizeBytes(splitString[1]), parseSizeBytes(splitString[2]));
       } catch (IllegalArgumentException t) {
         throw new IllegalArgumentException(
             String.format(
-                "%s must have the format [%s_size_size] where size is #bits",
-                caseName, opcodeName));
+                "%s must have the format [%s_size_size] or [%s_size_POW2_N], "
+                    + "where size is #bits and N is a bit position in [1, 255]",
+                caseName, opcodeName, opcodeName));
       }
     }
 
@@ -84,7 +104,22 @@ public abstract class BinaryArithmeticOperationBenchmarkV2 extends BinaryOperati
       aPool[i] = BenchmarkHelperV2.bytesToUInt256(a);
       bPool[i] = BenchmarkHelperV2.bytesToUInt256(b);
     }
+
+    // Replace random b values with the chosen 2^N divisor. setUp is not on the measured path.
+    if (scenario.bSizeBytes == Case.B_POWER_OF_TWO) {
+      final UInt256 pow2Divisor = pow2(scenario.bPow2Bit);
+      for (int i = 0; i < bPool.length; i++) {
+        bPool[i] = pow2Divisor;
+      }
+    }
     index = 0;
+  }
+
+  private static UInt256 pow2(final int n) {
+    if (n < 64) return new UInt256(0, 0, 0, 1L << n);
+    if (n < 128) return new UInt256(0, 0, 1L << (n - 64), 0);
+    if (n < 192) return new UInt256(0, 1L << (n - 128), 0, 0);
+    return new UInt256(1L << (n - 192), 0, 0, 0);
   }
 
   /**

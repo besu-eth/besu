@@ -41,7 +41,13 @@ public class DivOperationBenchmarkV2 extends BinaryArithmeticOperationBenchmarkV
     "DIV_128_256",
     "DIV_192_256",
     "DIV_256_256",
-    "DIV_RANDOM_RANDOM"
+    "DIV_RANDOM_RANDOM",
+    "DIV_256_POW2_8",
+    "DIV_256_POW2_64",
+    "DIV_256_POW2_128",
+    "DIV_256_POW2_160",
+    "DIV_256_POW2_192",
+    "DIV_256_POW2_240"
   })
   private String caseName;
 
