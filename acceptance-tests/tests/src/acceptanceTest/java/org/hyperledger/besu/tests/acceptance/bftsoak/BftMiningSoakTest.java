@@ -324,9 +324,14 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
     simpleStorageContractOsaka.set(BigInteger.valueOf(123)).send();
     assertThat(simpleStorageContractOsaka.get().send()).isEqualTo(BigInteger.valueOf(123));
 
-    // Verify TSTORE/TLOAD (EIP-1153 transient storage) works in a single transaction
-    assertThat(simpleStorageContractOsaka.testTransientStorage(BigInteger.valueOf(99)).send())
-        .isEqualTo(BigInteger.valueOf(99));
+    // Verify TSTORE/TLOAD (EIP-1153 transient storage) by sending a transaction and checking
+    // it succeeds. testTransientStorage is non-view (uses TSTORE), so send() returns a receipt.
+    assertThat(
+            simpleStorageContractOsaka
+                .testTransientStorage(BigInteger.valueOf(99))
+                .send()
+                .getStatus())
+        .isEqualTo("0x1");
 
     LOG.info("Testing EIP-7702 type 4 transaction (code delegation) under the osaka fork");
     // richBenefactorTwo is the authorizer; richBenefactorThree sponsors the type-4 transaction.
@@ -425,6 +430,9 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
           JsonUtil.objectNodeFromString(minerNode.getGenesisConfig().get());
       final ObjectNode config = (ObjectNode) genesisConfigNode.get("config");
       // Osaka is cumulative — all intermediate time-based forks must be set to the same timestamp
+      config.put("shanghaiTime", blockTimestamp);
+      config.put("cancunTime", blockTimestamp);
+      config.put("pragueTime", blockTimestamp);
       config.put("osakaTime", blockTimestamp);
       minerNode.setGenesisConfig(genesisConfigNode.toString());
     }
