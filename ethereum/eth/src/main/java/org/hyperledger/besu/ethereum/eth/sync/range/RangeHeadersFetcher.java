@@ -26,7 +26,7 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask.Direction;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
 import java.util.List;
@@ -43,20 +43,20 @@ public class RangeHeadersFetcher {
   private final ProtocolSchedule protocolSchedule;
   private final EthContext ethContext;
   // The range we're aiming to reach at the end of this sync.
-  private final PivotSyncState fastSyncState;
+  private final SnapSyncProcessState fastSyncState;
 
   public RangeHeadersFetcher(
       final SynchronizerConfiguration syncConfig,
       final ProtocolSchedule protocolSchedule,
       final EthContext ethContext) {
-    this(syncConfig, protocolSchedule, ethContext, new PivotSyncState());
+    this(syncConfig, protocolSchedule, ethContext, new SnapSyncProcessState());
   }
 
   public RangeHeadersFetcher(
       final SynchronizerConfiguration syncConfig,
       final ProtocolSchedule protocolSchedule,
       final EthContext ethContext,
-      final PivotSyncState fastSyncState) {
+      final SnapSyncProcessState fastSyncState) {
     this.syncConfig = syncConfig;
     this.protocolSchedule = protocolSchedule;
     this.ethContext = ethContext;

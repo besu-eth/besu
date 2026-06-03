@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerLimiter;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 
 import java.util.List;
@@ -54,7 +55,7 @@ public class PivotSelectorFromPeers implements PivotBlockSelector {
   }
 
   @Override
-  public CompletableFuture<PivotSyncState> selectNewPivotBlock() {
+  public CompletableFuture<SnapSyncProcessState> selectNewPivotBlock() {
     return selectBestPeer()
         .map(this::fromPeer)
         .orElse(
@@ -84,7 +85,7 @@ public class PivotSelectorFromPeers implements PivotBlockSelector {
     return syncState.bestChainHeight();
   }
 
-  protected CompletableFuture<PivotSyncState> fromPeer(final EthPeer peer) {
+  protected CompletableFuture<SnapSyncProcessState> fromPeer(final EthPeer peer) {
     final long bestPeerHeight = peer.chainState().getEstimatedHeight();
 
     // Reuse the previously selected pivot while the best peer's head is still within the
@@ -96,7 +97,8 @@ public class PivotSelectorFromPeers implements PivotBlockSelector {
           lastReturnedPivotNumber,
           bestPeerHeight,
           pivotBlockWindowValidity);
-      return CompletableFuture.completedFuture(new PivotSyncState(lastReturnedPivotNumber, false));
+      return CompletableFuture.completedFuture(
+          new SnapSyncProcessState(lastReturnedPivotNumber, false));
     }
 
     final long pivotBlockNumber = bestPeerHeight - syncConfig.getSyncPivotDistance();
@@ -108,7 +110,7 @@ public class PivotSelectorFromPeers implements PivotBlockSelector {
     }
     lastReturnedPivotNumber = pivotBlockNumber;
     LOG.info("Selecting block number {} as fast sync pivot block.", pivotBlockNumber);
-    return CompletableFuture.completedFuture(new PivotSyncState(pivotBlockNumber, false));
+    return CompletableFuture.completedFuture(new SnapSyncProcessState(pivotBlockNumber, false));
   }
 
   protected Optional<EthPeer> selectBestPeer() {

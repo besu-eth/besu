@@ -27,7 +27,6 @@ import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 
@@ -56,10 +55,10 @@ public class DynamicPivotBlockManagerTest {
   @Test
   public void shouldSwitchPivotWhenDifferentFromCurrent() {
     final BlockHeader newHeader = new BlockHeaderTestFixture().number(1060).buildHeader();
-    final PivotSyncState selectedState = new PivotSyncState(newHeader.getHash(), false);
-    final PivotSyncState downloadedState = new PivotSyncState(newHeader, false);
+    final SnapSyncProcessState selectedState = new SnapSyncProcessState(newHeader.getHash(), false);
+    final SnapSyncProcessState downloadedState = new SnapSyncProcessState(newHeader, false);
 
-    when(fastSyncActions.selectPivotBlock(PivotSyncState.EMPTY_SYNC_STATE))
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(completedFuture(selectedState));
     when(fastSyncActions.downloadPivotBlockHeader(selectedState))
         .thenReturn(completedFuture(downloadedState));
@@ -79,9 +78,10 @@ public class DynamicPivotBlockManagerTest {
   @Test
   public void shouldNotSwitchPivotWhenSameAsCurrent() {
     final BlockHeader currentHeader = new BlockHeaderTestFixture().number(1060).buildHeader();
-    final PivotSyncState selectedState = new PivotSyncState(currentHeader.getHash(), false);
+    final SnapSyncProcessState selectedState =
+        new SnapSyncProcessState(currentHeader.getHash(), false);
 
-    when(fastSyncActions.selectPivotBlock(PivotSyncState.EMPTY_SYNC_STATE))
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(completedFuture(selectedState));
     when(snapSyncState.getPivotBlockHeader()).thenReturn(Optional.of(currentHeader));
     when(snapSyncState.getPivotBlockNumber()).thenReturn(java.util.OptionalLong.of(1060));
@@ -107,10 +107,10 @@ public class DynamicPivotBlockManagerTest {
         new DynamicPivotBlockSelector(nonFiringContext, fastSyncActions, snapSyncState, null);
 
     final BlockHeader newHeader = new BlockHeaderTestFixture().number(1060).buildHeader();
-    final PivotSyncState selectedState = new PivotSyncState(newHeader.getHash(), false);
-    final PivotSyncState downloadedState = new PivotSyncState(newHeader, false);
+    final SnapSyncProcessState selectedState = new SnapSyncProcessState(newHeader.getHash(), false);
+    final SnapSyncProcessState downloadedState = new SnapSyncProcessState(newHeader, false);
 
-    when(fastSyncActions.selectPivotBlock(PivotSyncState.EMPTY_SYNC_STATE))
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
         .thenReturn(completedFuture(selectedState));
     when(fastSyncActions.downloadPivotBlockHeader(selectedState))
         .thenReturn(completedFuture(downloadedState));
@@ -119,11 +119,11 @@ public class DynamicPivotBlockManagerTest {
 
     // first check triggers select + switch
     throttled.check(doNothingOnPivotChange());
-    verify(fastSyncActions).selectPivotBlock(PivotSyncState.EMPTY_SYNC_STATE);
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
 
     // second immediate check is a no-op — timer has not fired
     throttled.check(doNothingOnPivotChange());
-    verify(fastSyncActions).selectPivotBlock(PivotSyncState.EMPTY_SYNC_STATE); // still just once
+    verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState()); // still just once
   }
 
   private static java.util.function.BiConsumer<BlockHeader, Boolean> doNothingOnPivotChange() {

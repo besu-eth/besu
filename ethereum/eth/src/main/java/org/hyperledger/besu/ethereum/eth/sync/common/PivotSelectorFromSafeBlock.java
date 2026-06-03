@@ -22,6 +22,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
 import java.time.Clock;
@@ -150,7 +151,7 @@ public class PivotSelectorFromSafeBlock
   }
 
   @Override
-  public CompletableFuture<PivotSyncState> selectNewPivotBlock() {
+  public CompletableFuture<SnapSyncProcessState> selectNewPivotBlock() {
     final Hash headHash = latestHeadHash;
     if (Hash.ZERO.equals(headHash)) {
       return logAndFailNoFcu();
@@ -185,7 +186,8 @@ public class PivotSelectorFromSafeBlock
                       currentPivot.getNumber(),
                       distanceFromHead,
                       effectiveThreshold);
-                  return CompletableFuture.completedFuture(new PivotSyncState(currentPivot, true));
+                  return CompletableFuture.completedFuture(
+                      new SnapSyncProcessState(currentPivot, true));
                 }
               }
 
@@ -193,14 +195,15 @@ public class PivotSelectorFromSafeBlock
               if (cachedSafe != null
                   && head.getNumber() - cachedSafe.getNumber() < effectiveThreshold) {
                 LOG.debug("Using safe block {} as pivot", cachedSafe.getNumber());
-                return CompletableFuture.completedFuture(new PivotSyncState(cachedSafe, true));
+                return CompletableFuture.completedFuture(
+                    new SnapSyncProcessState(cachedSafe, true));
               }
 
               final int blocksToWalk = (int) Math.min(PIVOT_DISTANCE, head.getNumber());
               LOG.debug(
                   "Walking back {} blocks from head {} for pivot", blocksToWalk, head.getNumber());
               return walkBackParents(head, blocksToWalk)
-                  .thenApply(newPivot -> new PivotSyncState(newPivot, true));
+                  .thenApply(newPivot -> new SnapSyncProcessState(newPivot, true));
             })
         .thenApply(
             state -> {
@@ -209,7 +212,7 @@ public class PivotSelectorFromSafeBlock
             });
   }
 
-  private CompletableFuture<PivotSyncState> logAndFailNoFcu() {
+  private CompletableFuture<SnapSyncProcessState> logAndFailNoFcu() {
     final long now = clock.millis();
     if (lastNoFcuInfoLog + DIAGNOSTIC_LOG_RATE_LIMIT < now) {
       lastNoFcuInfoLog = now;

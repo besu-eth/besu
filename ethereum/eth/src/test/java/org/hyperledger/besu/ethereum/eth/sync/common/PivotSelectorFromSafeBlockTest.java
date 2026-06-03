@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 
@@ -109,7 +110,7 @@ public class PivotSelectorFromSafeBlockTest {
     final BlockHeader safe = chain.get(49); // block 50 — 50 behind head, within 120 threshold
     selector.onNewUnverifiedForkchoice(fcu(head.getHash(), safe.getHash(), Hash.ZERO));
 
-    final CompletableFuture<PivotSyncState> result = selector.selectNewPivotBlock();
+    final CompletableFuture<SnapSyncProcessState> result = selector.selectNewPivotBlock();
     assertThat(result).isCompleted();
     assertThat(result.join().getPivotBlockHeader()).contains(safe);
   }
@@ -122,7 +123,7 @@ public class PivotSelectorFromSafeBlockTest {
     final BlockHeader head = chain.get(99); // block 100
     selector.onNewUnverifiedForkchoice(fcu(head.getHash(), Hash.ZERO, Hash.ZERO));
 
-    final CompletableFuture<PivotSyncState> result = selector.selectNewPivotBlock();
+    final CompletableFuture<SnapSyncProcessState> result = selector.selectNewPivotBlock();
     assertThat(result).isCompleted();
     // head(100) - PIVOT_DISTANCE(64) = block 36
     assertThat(result.join().getPivotBlockHeader().map(BlockHeader::getNumber)).contains(36L);
@@ -137,7 +138,7 @@ public class PivotSelectorFromSafeBlockTest {
     final BlockHeader safe = chain.get(0); // block 1 — 199 blocks behind head, exceeds 120
     selector.onNewUnverifiedForkchoice(fcu(head.getHash(), safe.getHash(), Hash.ZERO));
 
-    final CompletableFuture<PivotSyncState> result = selector.selectNewPivotBlock();
+    final CompletableFuture<SnapSyncProcessState> result = selector.selectNewPivotBlock();
     assertThat(result).isCompleted();
     // head(200) - PIVOT_DISTANCE(64) = block 136
     assertThat(result.join().getPivotBlockHeader().map(BlockHeader::getNumber)).contains(136L);
@@ -151,7 +152,7 @@ public class PivotSelectorFromSafeBlockTest {
     final BlockHeader head = chain.get(9); // block 9 — less than REORG_SAFETY_DISTANCE(32)
     selector.onNewUnverifiedForkchoice(fcu(head.getHash(), Hash.ZERO, Hash.ZERO));
 
-    final CompletableFuture<PivotSyncState> result = selector.selectNewPivotBlock();
+    final CompletableFuture<SnapSyncProcessState> result = selector.selectNewPivotBlock();
     assertThat(result).isCompleted();
     // walks back min(64, 9) = 9 steps → block 0
     assertThat(result.join().getPivotBlockHeader().map(BlockHeader::getNumber)).contains(0L);
@@ -174,7 +175,7 @@ public class PivotSelectorFromSafeBlockTest {
     final BlockHeader block30 = chain.get(29);
     selector.onNewUnverifiedForkchoice(fcu(head.getHash(), block30.getHash(), finalized.getHash()));
 
-    final CompletableFuture<PivotSyncState> result = selector.selectNewPivotBlock();
+    final CompletableFuture<SnapSyncProcessState> result = selector.selectNewPivotBlock();
     assertThat(result).isCompleted();
     // block30 pruned → cachedSafe null → walkback PIVOT_DISTANCE(64) from head(200) = block 136
     assertThat(result.join().getPivotBlockHeader().map(BlockHeader::getNumber)).contains(136L);
@@ -233,7 +234,7 @@ public class PivotSelectorFromSafeBlockTest {
     selector.onNewUnverifiedForkchoice(fcu(head.getHash(), safe.getHash(), Hash.ZERO));
 
     // First call — selects and stores safe block (50) as lastReturnedPivot
-    final PivotSyncState first = selector.selectNewPivotBlock().join();
+    final SnapSyncProcessState first = selector.selectNewPivotBlock().join();
     assertThat(first.getPivotBlockHeader()).contains(safe);
 
     // Advance head by only 10 blocks — well within threshold (120)
@@ -243,7 +244,7 @@ public class PivotSelectorFromSafeBlockTest {
     selector.onNewUnverifiedForkchoice(fcu(newHead.getHash(), safe.getHash(), Hash.ZERO));
 
     // Second call — head(110) - pivot(50) = 60 < 120 → must reuse
-    final PivotSyncState second = selector.selectNewPivotBlock().join();
+    final SnapSyncProcessState second = selector.selectNewPivotBlock().join();
     assertThat(second.getPivotBlockHeader()).contains(safe);
     verify(headerDownloader, never()).downloadBlockHeader(any());
   }
@@ -258,7 +259,7 @@ public class PivotSelectorFromSafeBlockTest {
     selector.onNewUnverifiedForkchoice(fcu(head100.getHash(), safe50.getHash(), Hash.ZERO));
 
     // First call — stores block 50 as lastReturnedPivot
-    final PivotSyncState first = selector.selectNewPivotBlock().join();
+    final SnapSyncProcessState first = selector.selectNewPivotBlock().join();
     assertThat(first.getPivotBlockHeader()).contains(safe50);
 
     // Advance head to block 200; safe also advances to block 160
@@ -268,7 +269,7 @@ public class PivotSelectorFromSafeBlockTest {
 
     // head(200) - lastReturnedPivot(50) = 150 >= 120 → must refresh
     // new pivot: safe160, since head(200) - safe(160) = 40 < 120
-    final PivotSyncState second = selector.selectNewPivotBlock().join();
+    final SnapSyncProcessState second = selector.selectNewPivotBlock().join();
     assertThat(second.getPivotBlockHeader()).contains(safe160);
   }
 
