@@ -34,8 +34,8 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResponseCode;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.range.RangeHeadersFetcher;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -265,7 +265,7 @@ public class RangeHeadersFetcherTest {
             .build(),
         protocolSchedule,
         ethContext,
-        new PivotSyncState(targetHeader));
+        new SnapSyncProcessState(targetHeader, false));
   }
 
   private BlockHeader header(final long blockNumber) {

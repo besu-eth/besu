@@ -26,7 +26,6 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.common.BackwardHeaderDriver;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncStateStorage;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotUpdateListener;
 import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.common.WorldStateHealFinishedListener;
@@ -159,7 +158,7 @@ public class SnapSyncChainDownloader
       final EthContext ethContext,
       final SyncState syncState,
       final MetricsSystem metricsSystem,
-      final PivotSyncState fastSyncState,
+      final SnapSyncProcessState fastSyncState,
       final SyncDurationMetrics syncDurationMetrics,
       final Path fastSyncDataDirectory) {
 

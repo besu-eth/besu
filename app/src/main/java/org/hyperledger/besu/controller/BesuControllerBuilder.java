@@ -21,7 +21,6 @@ import org.hyperledger.besu.components.BesuComponent;
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.consensus.merge.MergeContext;
-import org.hyperledger.besu.consensus.merge.UnverifiedForkchoiceSupplier;
 import org.hyperledger.besu.consensus.qbft.BFTPivotSelectorFromPeers;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.datatypes.Hash;
@@ -1121,37 +1120,46 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
           syncState,
           protocolContext,
           nodeKey,
-          blockchain.getChainHeadHeader());
+          blockchain.getChainHeadHeader(),
+          syncConfig.getSnapSyncConfiguration().getPivotBlockWindowValidity());
     } else if (genesisConfigOptions.getTerminalTotalDifficulty().isPresent()) {
       LOG.info("TTD difficulty is present, creating initial sync for PoS");
 
       final MergeContext mergeContext = protocolContext.getConsensusContext(MergeContext.class);
-      final UnverifiedForkchoiceSupplier unverifiedForkchoiceSupplier =
-          new UnverifiedForkchoiceSupplier();
-      final long subscriptionId =
-          mergeContext.addNewUnverifiedForkchoiceListener(unverifiedForkchoiceSupplier);
-
-      final Runnable unsubscribeForkchoiceListener =
-          () -> {
-            mergeContext.removeNewUnverifiedForkchoiceListener(subscriptionId);
-            LOG.info("Initial sync done, unsubscribe forkchoice supplier");
-          };
 
       final SingleBlockHeaderDownloader headerDownloader =
           new SingleBlockHeaderDownloader(ethContext, protocolSchedule);
 
-      return new PivotSelectorFromSafeBlock(
-          protocolContext,
-          protocolSchedule,
-          ethContext,
-          genesisConfigOptions,
-          unverifiedForkchoiceSupplier,
-          unsubscribeForkchoiceListener,
-          headerDownloader,
-          clock);
+      final List<Runnable> cleanups = new ArrayList<>();
+
+      final PivotSelectorFromSafeBlock selector =
+          new PivotSelectorFromSafeBlock(
+              protocolContext,
+              genesisConfigOptions,
+              headerDownloader,
+              protocolSchedule,
+              Clock.systemUTC(),
+              syncConfig.getSnapSyncConfiguration().getPivotBlockWindowValidity(),
+              () -> {
+                cleanups.forEach(Runnable::run);
+                LOG.info("Initial sync done, unsubscribing forkchoice + newPayload listeners");
+              });
+
+      final long newPayloadSubscriptionId = mergeContext.addNewPayloadListener(selector);
+      cleanups.add(() -> mergeContext.removeNewPayloadListener(newPayloadSubscriptionId));
+
+      final long selectorSubscriptionId = mergeContext.addNewUnverifiedForkchoiceListener(selector);
+      cleanups.add(
+          () -> mergeContext.removeNewUnverifiedForkchoiceListener(selectorSubscriptionId));
+
+      return selector;
     } else {
       LOG.info("TTD difficulty is not present, creating initial sync phase for PoW");
-      return new PivotSelectorFromPeers(ethContext, syncConfig, syncState);
+      return new PivotSelectorFromPeers(
+          ethContext,
+          syncConfig,
+          syncState,
+          syncConfig.getSnapSyncConfiguration().getPivotBlockWindowValidity());
     }
   }
 

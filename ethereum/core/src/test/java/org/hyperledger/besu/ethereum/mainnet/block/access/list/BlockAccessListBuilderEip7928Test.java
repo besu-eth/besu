@@ -18,6 +18,8 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 
+import java.util.List;
+
 import org.apache.tuweni.units.bigints.UInt256;
 import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -67,6 +69,24 @@ class BlockAccessListBuilderEip7928Test {
     Assertions.assertThat(viaMerge.eip7928ItemCount())
         .isEqualTo(direct.eip7928ItemCount())
         .isEqualTo(4L);
+  }
+
+  @Test
+  void mergeFromRejectsStorageSlotWithEmptyChanges() {
+    final BlockAccessList invalid =
+        new BlockAccessList(
+            List.of(
+                new BlockAccessList.AccountChanges(
+                    ADDR_1,
+                    List.of(new BlockAccessList.SlotChanges(SLOT_1, List.of())),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of())));
+
+    Assertions.assertThatThrownBy(() -> BlockAccessList.builder().mergeFrom(invalid))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("at least one storage change");
   }
 
   private static PartialBlockAccessView partialWithOneAccountAndStorageWrite(final int txIndex) {

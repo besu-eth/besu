@@ -90,6 +90,30 @@ public interface MergeContext extends ConsensusContext {
       final Hash headBlockHash, final Hash safeBlockHash, final Hash finalizedBlockHash);
 
   /**
+   * Add new payload listener.
+   *
+   * @param newPayloadListener the new payload listener
+   * @return the subscriber id
+   */
+  long addNewPayloadListener(final NewPayloadListener newPayloadListener);
+
+  /**
+   * Remove new payload listener.
+   *
+   * @param subscriberId the subscriber id
+   */
+  void removeNewPayloadListener(final long subscriberId);
+
+  /**
+   * Fire new payload event. Called for every {@code engine_newPayload} request received from the
+   * consensus layer, with the header reconstructed from the payload (block-hash verified, but not
+   * yet validated against the local chain).
+   *
+   * @param header the header from the new payload
+   */
+  void fireNewPayloadEvent(final BlockHeader header);
+
+  /**
    * Gets terminal total difficulty.
    *
    * @return the terminal total difficulty

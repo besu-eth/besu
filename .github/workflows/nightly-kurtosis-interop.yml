@@ -48,8 +48,10 @@ jobs:
           EOF
 
       - name: Start Kurtosis network
+        # pin ethereum-package to the last commit before the 2026 May 29 batch that introduced GpuConfig,
+        # once the upstream bug is fixed we can drop the pin
         run: |
-          kurtosis run github.com/ethpandaops/ethereum-package \
+          kurtosis run github.com/ethpandaops/ethereum-package@35b770d5cddb5c356fd0e9157b8db8acf5809365 \
             --enclave "$ENCLAVE_NAME" \
             --args-file network_params.yaml \
             --image-download always

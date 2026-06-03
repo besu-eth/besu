@@ -28,6 +28,7 @@ import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncChainDownloader;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -103,13 +104,14 @@ public class PivotSyncActions {
     return pivotBlockSelector.getBestChainHeight();
   }
 
-  public CompletableFuture<PivotSyncState> selectPivotBlock(final PivotSyncState fastSyncState) {
+  public CompletableFuture<SnapSyncProcessState> selectPivotBlock(
+      final SnapSyncProcessState fastSyncState) {
     return fastSyncState.hasPivotBlockHeader()
         ? completedFuture(fastSyncState)
         : selectNewPivotBlock();
   }
 
-  private CompletableFuture<PivotSyncState> selectNewPivotBlock() {
+  private CompletableFuture<SnapSyncProcessState> selectNewPivotBlock() {
     return pivotBlockSelector
         .selectNewPivotBlock()
         .exceptionallyCompose(throwable -> retrySelectPivotBlockAfterDelay());
@@ -120,20 +122,20 @@ public class PivotSyncActions {
     return ethContext.getScheduler().scheduleFutureTask(future, duration);
   }
 
-  private CompletableFuture<PivotSyncState> retrySelectPivotBlockAfterDelay() {
+  private CompletableFuture<SnapSyncProcessState> retrySelectPivotBlockAfterDelay() {
     return ethContext
         .getScheduler()
         .scheduleFutureTask(pivotBlockSelector::prepareRetry, Duration.ofSeconds(5))
         .thenCompose(ignore -> selectNewPivotBlock());
   }
 
-  public CompletableFuture<PivotSyncState> downloadPivotBlockHeader(
-      final PivotSyncState currentState) {
+  public CompletableFuture<SnapSyncProcessState> downloadPivotBlockHeader(
+      final SnapSyncProcessState currentState) {
     return internalDownloadPivotBlockHeader(currentState).thenApply(this::updateStats);
   }
 
-  private CompletableFuture<PivotSyncState> internalDownloadPivotBlockHeader(
-      final PivotSyncState currentState) {
+  private CompletableFuture<SnapSyncProcessState> internalDownloadPivotBlockHeader(
+      final SnapSyncProcessState currentState) {
     if (currentState.hasPivotBlockHeader()) {
       LOG.debug("Initial sync state {} already contains the block header", currentState);
       return completedFuture(currentState);
@@ -146,7 +148,7 @@ public class PivotSyncActions {
             unused ->
                 currentState
                     .getPivotBlockHash()
-                    .map(this::downloadPivotBlockHeader)
+                    .map(hash -> downloadPivotBlockHeader(hash, currentState.isSourceTrusted()))
                     .orElseGet(
                         () ->
                             new PivotBlockRetriever(
@@ -158,7 +160,7 @@ public class PivotSyncActions {
                                 .downloadPivotBlockHeader()));
   }
 
-  private PivotSyncState updateStats(final PivotSyncState fastSyncState) {
+  private SnapSyncProcessState updateStats(final SnapSyncProcessState fastSyncState) {
     pivotBlockSelectionCounter.inc();
     fastSyncState
         .getPivotBlockHeader()
@@ -167,7 +169,7 @@ public class PivotSyncActions {
   }
 
   public ChainDownloader createChainDownloader(
-      final PivotSyncState currentState, final SyncDurationMetrics syncDurationMetrics) {
+      final SnapSyncProcessState currentState, final SyncDurationMetrics syncDurationMetrics) {
     return SnapSyncChainDownloader.create(
         syncConfig,
         worldStateStorageCoordinator,
@@ -181,7 +183,8 @@ public class PivotSyncActions {
         fastSyncDataDirectory);
   }
 
-  private CompletableFuture<PivotSyncState> downloadPivotBlockHeader(final Hash hash) {
+  private CompletableFuture<SnapSyncProcessState> downloadPivotBlockHeader(
+      final Hash hash, final boolean sourceIsTrusted) {
     LOG.debug("Downloading pivot block header by hash {}", hash);
     return ethContext
         .getScheduler()
@@ -228,7 +231,7 @@ public class PivotSyncActions {
                     .log();
               }
             })
-        .thenApply(PivotSyncState::new);
+        .thenApply(blockHeader -> new SnapSyncProcessState(blockHeader, sourceIsTrusted));
   }
 
   public boolean isBlockchainBehind(final long blockNumber) {
