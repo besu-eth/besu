@@ -81,6 +81,7 @@ class BonsaiArchiveStorageProofIntegrationTest {
   private static final long TARGET_BLOCK = 2L; // before first checkpoint (block 3)
 
   private BonsaiFlatDbToArchiveMigrator migrator;
+  private MutableBlockchain blockchain;
 
   @AfterEach
   void tearDown() {
@@ -91,9 +92,46 @@ class BonsaiArchiveStorageProofIntegrationTest {
 
   @Test
   void historicalStorageProof_rollsBackAcrossCheckpoint_withoutMissingTrieNode() throws Exception {
+    final BonsaiArchiveWorldStateProvider archiveProvider = buildMigratedArchive();
+    final BlockHeader targetHeader = blockchain.getBlockHeader(TARGET_BLOCK).orElseThrow();
+
+    final Optional<WorldStateProof> proof =
+        archiveProvider.getAccountProof(
+            targetHeader, ACCOUNT, List.of(UInt256.ONE), Function.identity());
+
+    assertThat(proof)
+        .withFailMessage("archive proof should be available for historical block %d", TARGET_BLOCK)
+        .isPresent();
+    // Slot 1 was set to the block number, so at block 2 it must prove value 2.
+    assertThat(proof.get().getStorageProof(UInt256.ONE)).isNotEmpty();
+    assertThat(proof.get().getStorageValue(UInt256.ONE)).isEqualTo(UInt256.valueOf(TARGET_BLOCK));
+  }
+
+  @Test
+  void historicalStorageProof_absentSlot_returnsValidExclusionProof() throws Exception {
+    final BonsaiArchiveWorldStateProvider archiveProvider = buildMigratedArchive();
+    final BlockHeader targetHeader = blockchain.getBlockHeader(TARGET_BLOCK).orElseThrow();
+
+    // Slot 0 is never written by applyBlockChanges (only slots 1 and 100+i), so at the historical
+    // block it is absent. The archive proof must still be present and prove value zero with a
+    // non-empty exclusion proof witness reconstructed from the rolled-back storage trie.
+    final UInt256 absentSlot = UInt256.ZERO;
+    final Optional<WorldStateProof> proof =
+        archiveProvider.getAccountProof(
+            targetHeader, ACCOUNT, List.of(absentSlot), Function.identity());
+
+    assertThat(proof)
+        .withFailMessage("archive exclusion proof should be available for historical block")
+        .isPresent();
+    assertThat(proof.get().getStorageValue(absentSlot)).isEqualTo(UInt256.ZERO);
+    // A valid exclusion proof is a non-empty Merkle witness (the divergent leaf / branch path).
+    assertThat(proof.get().getStorageProof(absentSlot)).isNotEmpty();
+  }
+
+  private BonsaiArchiveWorldStateProvider buildMigratedArchive() throws Exception {
     final BlockDataGenerator blockGen = new BlockDataGenerator();
     final Block genesis = blockGen.genesisBlock();
-    final MutableBlockchain blockchain =
+    blockchain =
         DefaultBlockchain.createMutable(
             genesis,
             new KeyValueStoragePrefixedKeyBlockchainStorage(
@@ -230,19 +268,7 @@ class BonsaiArchiveStorageProofIntegrationTest {
             new CodeCache(),
             new NoOpMetricsSystem());
     archiveProvider.setArchiveMigrationProgressSupplier(() -> (long) NUM_BLOCKS);
-
-    final BlockHeader targetHeader = blockchain.getBlockHeader(TARGET_BLOCK).orElseThrow();
-
-    final Optional<WorldStateProof> proof =
-        archiveProvider.getAccountProof(
-            targetHeader, ACCOUNT, List.of(UInt256.ONE), Function.identity());
-
-    assertThat(proof)
-        .withFailMessage("archive proof should be available for historical block %d", TARGET_BLOCK)
-        .isPresent();
-    // Slot 1 was set to the block number, so at block 2 it must prove value 2.
-    assertThat(proof.get().getStorageProof(UInt256.ONE)).isNotEmpty();
-    assertThat(proof.get().getStorageValue(UInt256.ONE)).isEqualTo(UInt256.valueOf(TARGET_BLOCK));
+    return archiveProvider;
   }
 
   private void applyBlockChanges(final BonsaiWorldState state, final int blockNumber) {
