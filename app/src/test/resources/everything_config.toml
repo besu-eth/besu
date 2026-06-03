@@ -100,6 +100,7 @@ json-pretty-print-enabled=false
 cache-last-blocks=512
 cache-last-block-headers=5000
 cache-last-block-headers-preload-enabled=true
+tx-sender-nonce-index-enabled=false
 cache-precompiles=true
 rpc-gas-cap = 50000000
 rpc-max-trace-filter-range=100

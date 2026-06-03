@@ -25,7 +25,6 @@ import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordina
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapWorldDownloadState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.StackTrie;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
@@ -64,6 +63,7 @@ public class AccountRangeDataRequest extends SnapDataRequest {
   protected final Optional<Bytes32> endStorageRange;
 
   protected final StackTrie stackTrie;
+  private final boolean persistIncompleteTrieNodes;
   private Optional<Boolean> isProofValid;
 
   protected AccountRangeDataRequest(
@@ -71,12 +71,14 @@ public class AccountRangeDataRequest extends SnapDataRequest {
       final Bytes32 startKeyHash,
       final Bytes32 endKeyHash,
       final Optional<Bytes32> startStorageRange,
-      final Optional<Bytes32> endStorageRange) {
+      final Optional<Bytes32> endStorageRange,
+      final boolean persistIncompleteTrieNodes) {
     super(ACCOUNT_RANGE, rootHash);
     this.startKeyHash = startKeyHash;
     this.endKeyHash = endKeyHash;
     this.startStorageRange = startStorageRange;
     this.endStorageRange = endStorageRange;
+    this.persistIncompleteTrieNodes = persistIncompleteTrieNodes;
     this.isProofValid = Optional.empty();
     this.stackTrie = new StackTrie(rootHash, startKeyHash);
     LOG.trace(
@@ -88,7 +90,7 @@ public class AccountRangeDataRequest extends SnapDataRequest {
 
   protected AccountRangeDataRequest(
       final Hash rootHash, final Bytes32 startKeyHash, final Bytes32 endKeyHash) {
-    this(rootHash, startKeyHash, endKeyHash, Optional.empty(), Optional.empty());
+    this(rootHash, startKeyHash, endKeyHash, Optional.empty(), Optional.empty(), false);
   }
 
   protected AccountRangeDataRequest(
@@ -101,14 +103,15 @@ public class AccountRangeDataRequest extends SnapDataRequest {
         Bytes32.wrap(accountHash.getBytes()),
         Bytes32.wrap(accountHash.getBytes()),
         Optional.of(startStorageRange),
-        Optional.of(endStorageRange));
+        Optional.of(endStorageRange),
+        false);
   }
 
   @Override
   protected int doPersist(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
-      final SnapWorldDownloadState downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
 
@@ -122,6 +125,9 @@ public class AccountRangeDataRequest extends SnapDataRequest {
     final AtomicInteger nbNodesSaved = new AtomicInteger();
     final NodeUpdater nodeUpdater =
         (location, hash, value) -> {
+          if (persistIncompleteTrieNodes && location.isEmpty()) {
+            downloadState.setRootNodeData(value);
+          }
           applyForStrategy(
               updater,
               onBonsai -> {
@@ -146,7 +152,7 @@ public class AccountRangeDataRequest extends SnapDataRequest {
                       .putAccountInfoState(Hash.wrap(key), value));
         });
 
-    stackTrie.commit(flatDatabaseUpdater.get(), nodeUpdater);
+    stackTrie.commit(flatDatabaseUpdater.get(), nodeUpdater, persistIncompleteTrieNodes);
 
     downloadState.getMetricsManager().notifyAccountsDownloaded(stackTrie.getElementsCount().get());
 
@@ -187,7 +193,7 @@ public class AccountRangeDataRequest extends SnapDataRequest {
 
   @Override
   public Stream<SnapDataRequest> getChildRequests(
-      final SnapWorldDownloadState downloadState,
+      final SnapRequestContext downloadState,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncProcessState snapSyncState) {
     final List<SnapDataRequest> childRequests = new ArrayList<>();
@@ -205,12 +211,18 @@ public class AccountRangeDataRequest extends SnapDataRequest {
                   .getMetricsManager()
                   .notifyRangeProgress(DOWNLOAD, missingRightElement, endKeyHash);
               childRequests.add(
-                  createAccountRangeDataRequest(getRootHash(), missingRightElement, endKeyHash));
+                  createAccountRangeDataRequest(
+                      getRootHash(), missingRightElement, endKeyHash, persistIncompleteTrieNodes));
             },
-            () ->
-                downloadState
-                    .getMetricsManager()
-                    .notifyRangeProgress(DOWNLOAD, endKeyHash, endKeyHash));
+            () -> {
+              downloadState
+                  .getMetricsManager()
+                  .notifyRangeProgress(DOWNLOAD, endKeyHash, endKeyHash);
+              // TODO: A range is not truly complete until all child storage and code requests
+              // spawned from this account range have finished downloading.
+              // Defer markAccountRangeComplete until all children are finished.
+              downloadState.markAccountRangeComplete(startKeyHash, endKeyHash);
+            });
 
     // find missing storages and code
     for (Map.Entry<Bytes32, Bytes> account : taskElement.keys().entrySet()) {
@@ -223,7 +235,8 @@ public class AccountRangeDataRequest extends SnapDataRequest {
                 account.getKey(),
                 Bytes32.wrap(accountValue.getStorageRoot().getBytes()),
                 startStorageRange.orElse(MIN_RANGE),
-                endStorageRange.orElse(MAX_RANGE)));
+                endStorageRange.orElse(MAX_RANGE),
+                persistIncompleteTrieNodes));
       }
       if (!accountValue.getCodeHash().equals(Hash.EMPTY)) {
         childRequests.add(
@@ -274,6 +287,6 @@ public class AccountRangeDataRequest extends SnapDataRequest {
     final Bytes32 startKeyHash = in.readBytes32();
     final Bytes32 endKeyHash = in.readBytes32();
     in.leaveList();
-    return createAccountRangeDataRequest(rootHash, startKeyHash, endKeyHash);
+    return createAccountRangeDataRequest(rootHash, startKeyHash, endKeyHash, false);
   }
 }

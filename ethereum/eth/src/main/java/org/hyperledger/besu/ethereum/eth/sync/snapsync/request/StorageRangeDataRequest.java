@@ -24,7 +24,6 @@ import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordina
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapWorldDownloadState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.StackTrie;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
@@ -63,6 +62,7 @@ public class StorageRangeDataRequest extends SnapDataRequest {
 
   private final StackTrie stackTrie;
   private Optional<Boolean> isProofValid;
+  private final boolean persistIncompleteTrieNodes;
 
   protected StorageRangeDataRequest(
       final Hash rootHash,
@@ -70,11 +70,22 @@ public class StorageRangeDataRequest extends SnapDataRequest {
       final Bytes32 storageRoot,
       final Bytes32 startKeyHash,
       final Bytes32 endKeyHash) {
+    this(rootHash, accountHash, storageRoot, startKeyHash, endKeyHash, false);
+  }
+
+  protected StorageRangeDataRequest(
+      final Hash rootHash,
+      final Bytes32 accountHash,
+      final Bytes32 storageRoot,
+      final Bytes32 startKeyHash,
+      final Bytes32 endKeyHash,
+      final boolean persistIncompleteTrieNodes) {
     super(STORAGE_RANGE, rootHash);
     this.accountHash = Hash.wrap(accountHash);
     this.storageRoot = storageRoot;
     this.startKeyHash = startKeyHash;
     this.endKeyHash = endKeyHash;
+    this.persistIncompleteTrieNodes = persistIncompleteTrieNodes;
     this.isProofValid = Optional.empty();
     this.stackTrie = new StackTrie(Hash.wrap(getStorageRoot()), startKeyHash);
     LOG.trace(
@@ -89,7 +100,7 @@ public class StorageRangeDataRequest extends SnapDataRequest {
   protected int doPersist(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
-      final SnapWorldDownloadState downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
 
@@ -117,7 +128,7 @@ public class StorageRangeDataRequest extends SnapDataRequest {
                           accountHash, Hash.wrap(key), Bytes32.leftPad(RLP.decodeValue(value))));
         });
 
-    stackTrie.commit(flatDatabaseUpdater.get(), nodeUpdater);
+    stackTrie.commit(flatDatabaseUpdater.get(), nodeUpdater, persistIncompleteTrieNodes);
 
     downloadState.getMetricsManager().notifySlotsDownloaded(stackTrie.getElementsCount().get());
 
@@ -125,7 +136,7 @@ public class StorageRangeDataRequest extends SnapDataRequest {
   }
 
   public void addResponse(
-      final SnapWorldDownloadState downloadState,
+      final SnapRequestContext downloadState,
       final WorldStateProofProvider worldStateProofProvider,
       final NavigableMap<Bytes32, Bytes> slots,
       final ArrayDeque<Bytes> proofs) {
@@ -141,11 +152,14 @@ public class StorageRangeDataRequest extends SnapDataRequest {
             .addArgument(() -> slots.isEmpty() ? "none" : slots.lastKey())
             .log();
 
-        downloadState.addAccountToHealingList(CompactEncoding.bytesToPath(accountHash.getBytes()));
-        // We will request the new storage root of the account because it is apparently no longer
-        // valid with the new pivot block.
-        downloadState.enqueueRequest(
-            createAccountDataRequest(getRootHash(), accountHash, startKeyHash, endKeyHash));
+        if (!persistIncompleteTrieNodes) {
+          downloadState.addAccountToHealingList(
+              CompactEncoding.bytesToPath(accountHash.getBytes()));
+          // We will request the new storage root of the account because it is apparently no longer
+          // valid with the new pivot block.
+          downloadState.enqueueRequest(
+              createAccountDataRequest(getRootHash(), accountHash, startKeyHash, endKeyHash));
+        }
         isProofValid = Optional.of(false);
       } else {
         stackTrie.addElement(startKeyHash, proofs, slots);
@@ -156,6 +170,8 @@ public class StorageRangeDataRequest extends SnapDataRequest {
 
   @Override
   public boolean isResponseReceived() {
+    // TODO: If isResponseReceived() == true, the task is marked completed, but
+    // not enqueued for healing in v2
     return isProofValid.isPresent();
   }
 
@@ -166,7 +182,7 @@ public class StorageRangeDataRequest extends SnapDataRequest {
 
   @Override
   public Stream<SnapDataRequest> getChildRequests(
-      final SnapWorldDownloadState downloadState,
+      final SnapRequestContext downloadState,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncProcessState snapSyncState) {
     final List<SnapDataRequest> childRequests = new ArrayList<>();
@@ -194,12 +210,15 @@ public class StorageRangeDataRequest extends SnapDataRequest {
                                 Bytes32.wrap(accountHash.getBytes()),
                                 storageRoot,
                                 key,
-                                value);
+                                value,
+                                persistIncompleteTrieNodes);
                         childRequests.add(storageRangeDataRequest);
                       });
             });
 
-    if (startKeyHash.equals(MIN_RANGE) && !taskElement.proofs().isEmpty()) {
+    if (!persistIncompleteTrieNodes
+        && startKeyHash.equals(MIN_RANGE)
+        && !taskElement.proofs().isEmpty()) {
       // need to heal this account storage
       downloadState.addAccountToHealingList(CompactEncoding.bytesToPath(accountHash.getBytes()));
     }

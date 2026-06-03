@@ -71,6 +71,7 @@ import org.hyperledger.besu.cli.options.TransactionPoolOptions;
 import org.hyperledger.besu.cli.options.storage.DataStorageOptions;
 import org.hyperledger.besu.cli.options.storage.PathBasedExtraStorageOptions;
 import org.hyperledger.besu.cli.options.unstable.QBFTOptions;
+import org.hyperledger.besu.cli.options.unstable.UnstableBftOptions;
 import org.hyperledger.besu.cli.presynctasks.PreSynchronizationTaskRunner;
 import org.hyperledger.besu.cli.subcommands.PasswordSubCommand;
 import org.hyperledger.besu.cli.subcommands.PublicKeySubCommand;
@@ -298,6 +299,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private final IpcOptions unstableIpcOptions = IpcOptions.create();
   private final ChainPruningOptions unstableChainPruningOptions = ChainPruningOptions.create();
   private final QBFTOptions unstableQbftOptions = QBFTOptions.create();
+  private final UnstableBftOptions unstableBftOptions = UnstableBftOptions.create();
 
   // stable CLI options
   final DataStorageOptions dataStorageOptions = DataStorageOptions.create();
@@ -637,6 +639,13 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       names = {"--cache-last-block-headers-preload-enabled"},
       description = "Enable preloading of the block header cache (default: ${DEFAULT-VALUE})")
   private final Boolean isCacheLastBlockHeadersPreloadEnabled = false;
+
+  @CommandLine.Option(
+      names = {"--tx-sender-nonce-index-enabled"},
+      description =
+          "Enable indexing of mined transactions by sender address and nonce, to support"
+              + " eth_getTransactionBySenderAndNonce. (default: ${DEFAULT-VALUE})")
+  private final Boolean txSenderNonceIndexEnabled = true;
 
   @CommandLine.Option(
       names = {"--cache-precompiles"},
@@ -1237,6 +1246,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .put("IPC Options", unstableIpcOptions)
             .put("Chain Data Pruning Options", unstableChainPruningOptions)
             .put("QBFT Options", unstableQbftOptions)
+            .put("BFT Options", unstableBftOptions)
             .build();
 
     UnstableOptionsSubCommand.createUnstableOptions(commandLine, unstableOptions);
@@ -2053,6 +2063,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .clock(Clock.systemUTC())
             .storageProvider(storageProvider)
             .isEarlyRoundChangeEnabled(unstableQbftOptions.isEarlyRoundChangeEnabled())
+            .isLegacyBftProtocolEncodingEnabled(
+                unstableBftOptions.isLegacyProtocolEncodingEnabled())
             .requiredBlocks(requiredBlocks)
             .reorgLoggingThreshold(reorgLoggingThreshold)
             .evmConfiguration(unstableEvmOptions.toDomainObject())
@@ -2063,6 +2075,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .cacheLastBlocks(numberOfBlocksToCache)
             .cacheLastBlockHeaders(numberOfBlockHeadersToCache)
             .isCacheLastBlockHeadersPreloadEnabled(isCacheLastBlockHeadersPreloadEnabled)
+            .senderNonceIndexingEnabled(txSenderNonceIndexEnabled)
             .genesisStateHashCacheEnabled(genesisStateHashCacheEnabled)
             .apiConfiguration(apiConfiguration)
             .balConfiguration(balConfiguration)

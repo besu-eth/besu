@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.eth.manager.snap;
 
-import static java.util.Collections.emptyList;
 import static org.slf4j.LoggerFactory.getLogger;
 
 import org.hyperledger.besu.datatypes.Hash;
@@ -50,19 +49,12 @@ public class GetBlockAccessListsFromPeerTask
 
   private final List<BlockHeader> blockHeaders;
 
-  private GetBlockAccessListsFromPeerTask(
+  public GetBlockAccessListsFromPeerTask(
       final EthContext ethContext,
       final List<BlockHeader> blockHeaders,
       final MetricsSystem metricsSystem) {
     super(ethContext, SnapProtocol.NAME, SnapV2.BLOCK_ACCESS_LISTS, metricsSystem);
     this.blockHeaders = blockHeaders;
-  }
-
-  public static GetBlockAccessListsFromPeerTask forBlockAccessLists(
-      final EthContext ethContext,
-      final List<BlockHeader> blockHeaders,
-      final MetricsSystem metricsSystem) {
-    return new GetBlockAccessListsFromPeerTask(ethContext, blockHeaders, metricsSystem);
   }
 
   @Override
@@ -116,7 +108,7 @@ public class GetBlockAccessListsFromPeerTask
   protected Optional<List<SyncBlockAccessList>> processResponse(
       final boolean streamClosed, final MessageData message, final EthPeer peer) {
     if (streamClosed) {
-      return Optional.of(emptyList());
+      return Optional.empty();
     }
 
     final List<SyncBlockAccessList> result = new ArrayList<>();
@@ -128,7 +120,8 @@ public class GetBlockAccessListsFromPeerTask
                 .formatted(blockHeaders.size(), index + 1));
       }
       final SyncBlockAccessList syncBlockAccessList = new SyncBlockAccessList(balRlp);
-      if (!syncBlockAccessList.isEmpty()) {
+      // TODO: Penalize peers maliciously denying BALs
+      if (!syncBlockAccessList.isUnavailable()) {
         final int currentIndex = index;
         final BlockHeader blockHeader = blockHeaders.get(currentIndex);
         final Hash expected =

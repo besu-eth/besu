@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.core.encoding;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
@@ -29,6 +30,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.S
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 
 import java.util.List;
 
@@ -104,6 +106,62 @@ public class AccessListTransactionEncoderTest {
 
     assertThat(decoded.rawRlp()).isPresent();
     assertThat(decoded.accountChanges()).isEmpty();
+  }
+
+  @Test
+  void shouldRoundTripAccountWithNoStorageChanges() {
+    final Address address = Address.fromHexString("0x00000000219ab540356cbb839cbe05303d7705fa");
+    final AccountChanges accountChanges =
+        new AccountChanges(
+            address,
+            List.of(),
+            List.of(),
+            List.of(new BalanceChange(0, Wei.fromEth(1))),
+            List.of(new NonceChange(0, 5L)),
+            List.of());
+
+    final BlockAccessList original = new BlockAccessList(List.of(accountChanges));
+
+    final BytesValueRLPOutput output = new BytesValueRLPOutput();
+    BlockAccessListEncoder.encode(original, output);
+    final Bytes encoded = output.encoded();
+
+    final BytesValueRLPInput input = new BytesValueRLPInput(encoded, false);
+    final BlockAccessList decoded = BlockAccessListDecoder.decode(input);
+
+    assertThat(decoded.rawRlp()).isPresent();
+    assertThat(decoded.accountChanges()).hasSize(1);
+    final AccountChanges decodedAcct = decoded.accountChanges().get(0);
+    assertThat(decodedAcct.address()).isEqualTo(address);
+    assertThat(decodedAcct.storageChanges()).isEmpty();
+    assertThat(decodedAcct.storageReads()).isEmpty();
+    assertThat(decodedAcct.balanceChanges()).hasSize(1);
+    assertThat(decodedAcct.nonceChanges()).hasSize(1);
+    assertThat(decodedAcct.codeChanges()).isEmpty();
+  }
+
+  @Test
+  void shouldRejectSlotChangesWithoutStorageChanges() {
+    final Address address = Address.fromHexString("0x00000000219ab540356cbb839cbe05303d7705fa");
+    final StorageSlotKey slotKey = new StorageSlotKey(Wei.ONE.toUInt256());
+    final BlockAccessList invalidAccessList =
+        new BlockAccessList(
+            List.of(
+                new AccountChanges(
+                    address,
+                    List.of(new SlotChanges(slotKey, List.of())),
+                    List.of(),
+                    List.of(),
+                    List.of(),
+                    List.of())));
+
+    final BytesValueRLPOutput output = new BytesValueRLPOutput();
+    BlockAccessListEncoder.encode(invalidAccessList, output);
+
+    assertThatThrownBy(
+            () -> BlockAccessListDecoder.decode(new BytesValueRLPInput(output.encoded(), false)))
+        .isInstanceOf(RLPException.class)
+        .hasMessageContaining("at least one storage change");
   }
 
   @Test
