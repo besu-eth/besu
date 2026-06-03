@@ -230,6 +230,22 @@ public class AdditionalColumnFamilyOptionsIntegrationTest {
   }
 
   @Test
+  public void mmapReadsWithNoBlockCacheNativeStringParses() throws Exception {
+    RocksDbUtil.loadNativeLibrary();
+    final Properties props = new Properties();
+    props.setProperty("block_based_table_factory.format_version", "5");
+    props.setProperty("block_based_table_factory.filter_policy", "bloomfilter:10:false");
+    props.setProperty("block_based_table_factory.partition_filters", "false");
+    props.setProperty("block_based_table_factory.cache_index_and_filter_blocks", "false");
+    props.setProperty("block_based_table_factory.block_size", "32768");
+    props.setProperty("block_based_table_factory.no_block_cache", "true");
+    try (ColumnFamilyOptions opts =
+        ColumnFamilyOptions.getColumnFamilyOptionsFromProps(new ConfigOptions(), props)) {
+      assertThat(opts).isNotNull();
+    }
+  }
+
+  @Test
   public void unknownCfKeyInStringInvalidatesEntireAdditionalColumnFamilyOptions(
       @TempDir final Path dbDir) throws Exception {
     RocksDbUtil.loadNativeLibrary();

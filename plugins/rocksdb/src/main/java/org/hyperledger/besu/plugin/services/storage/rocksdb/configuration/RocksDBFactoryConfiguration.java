@@ -170,8 +170,8 @@ public class RocksDBFactoryConfiguration {
 
   /**
    * When true, SST reads use RocksDB mmap: {@code DBOptions.allow_mmap_reads} for this database
-   * plus {@code block_based_table_factory.allow_mmap_reads} on Bonsai {@code
-   * ACCOUNT_STORAGE_STORAGE}, {@code ACCOUNT_STORAGE_ARCHIVE}, and {@code TRIE_BRANCH_STORAGE}.
+   * and no block cache on Bonsai {@code ACCOUNT_STORAGE_STORAGE}, {@code ACCOUNT_STORAGE_ARCHIVE},
+   * and {@code TRIE_BRANCH_STORAGE} (table format set in Java).
    *
    * @return whether mmap reads are enabled for those column families
    */

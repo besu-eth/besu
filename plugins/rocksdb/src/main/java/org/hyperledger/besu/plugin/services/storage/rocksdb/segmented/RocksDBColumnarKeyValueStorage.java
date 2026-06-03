@@ -49,6 +49,7 @@ import com.google.common.collect.Streams;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.tuweni.bytes.Bytes;
 import org.rocksdb.AbstractRocksIterator;
+import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
@@ -64,6 +65,7 @@ import org.rocksdb.RocksDBException;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.Statistics;
 import org.rocksdb.Status;
+import org.rocksdb.TableFormatConfig;
 import org.rocksdb.TransactionDBOptions;
 import org.rocksdb.WriteOptions;
 import org.slf4j.Logger;
@@ -100,7 +102,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   private final WriteOptions tryDeleteOptions =
       new WriteOptions().setNoSlowdown(true).setIgnoreMissingColumnFamilies(true);
-  private final ReadOptions readOptions = new ReadOptions().setVerifyChecksums(false);
+  private final ReadOptions readOptions;
+  private final ReadOptions mmapReadOptions;
   private final MetricsSystem metricsSystem;
   private final RocksDBMetricsFactory rocksDBMetricsFactory;
 
@@ -152,6 +155,12 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     this.configuration = configuration;
     this.metricsSystem = metricsSystem;
     this.rocksDBMetricsFactory = rocksDBMetricsFactory;
+    this.readOptions = new ReadOptions().setVerifyChecksums(false);
+    if (configuration.isMmapReadsBonsaiSlotTrieBranchEnabled()) {
+      this.mmapReadOptions = new ReadOptions().setVerifyChecksums(false).setFillCache(false);
+    } else {
+      this.mmapReadOptions = this.readOptions;
+    }
 
     try {
       trimmedSegments = new ArrayList<>(defaultSegments);
@@ -213,6 +222,10 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     }
 
     final ColumnFamilyOptions columnOpts = columnFamilyOptionsFromNativeProperties(cfProps);
+    if (configuration.isMmapReadsBonsaiSlotTrieBranchEnabled()
+        && isMmapReadsTargetBonsaiSegment(segment)) {
+      applyMmapOptimizedTableFormat(columnOpts);
+    }
 
     columnOpts.setLevelCompactionDynamicLevelBytes(dynamicLevelCompaction);
     if (segment.containsStaticData()) {
@@ -242,18 +255,25 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     cfProps.setProperty("block_based_table_factory.partition_filters", "false");
     cfProps.setProperty("block_based_table_factory.cache_index_and_filter_blocks", "false");
     cfProps.setProperty("block_based_table_factory.block_size", Long.toString(ROCKSDB_BLOCK_SIZE));
-    cfProps.setProperty("block_based_table_factory.block_cache", Long.toString(blockCacheBytes));
-    if (configuration.isMmapReadsBonsaiSlotTrieBranchEnabled()
-        && isMmapReadsTargetBonsaiSegment(segment)) {
-      cfProps.setProperty("block_based_table_factory.allow_mmap_reads", "true");
+    if (!(configuration.isMmapReadsBonsaiSlotTrieBranchEnabled()
+        && isMmapReadsTargetBonsaiSegment(segment))) {
+      cfProps.setProperty("block_based_table_factory.block_cache", Long.toString(blockCacheBytes));
     }
   }
 
-  private static boolean isMmapReadsTargetBonsaiSegment(final SegmentIdentifier segment) {
+  static boolean isMmapReadsTargetBonsaiSegment(final SegmentIdentifier segment) {
     final String n = segment.getName();
     return KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE.name().equals(n)
         || KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE.name().equals(n)
         || KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE.name().equals(n);
+  }
+
+  ReadOptions readOptionsFor(final SegmentIdentifier segment) {
+    if (configuration.isMmapReadsBonsaiSlotTrieBranchEnabled()
+        && isMmapReadsTargetBonsaiSegment(segment)) {
+      return mmapReadOptions;
+    }
+    return readOptions;
   }
 
   /**
@@ -320,6 +340,24 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       base = new ColumnFamilyOptions();
     }
     return base.setTtl(0).setCompressionType(CompressionType.LZ4_COMPRESSION);
+  }
+
+  /**
+   * Disables the RocksDB block cache for mmap target column families so reads rely on OS page cache
+   * ({@link DBOptions#setAllowMmapReads} is set separately). {@code allow_mmap_reads} must not be
+   * passed in the native option string: RocksDB JNI rejects it and {@code
+   * getColumnFamilyOptionsFromProps} returns null.
+   */
+  private static void applyMmapOptimizedTableFormat(final ColumnFamilyOptions columnOpts) {
+    final TableFormatConfig existing = columnOpts.tableFormatConfig();
+    final BlockBasedTableConfig tableConfig;
+    if (existing instanceof BlockBasedTableConfig blockBasedTableConfig) {
+      tableConfig = blockBasedTableConfig;
+    } else {
+      tableConfig = new BlockBasedTableConfig();
+      columnOpts.setTableFormatConfig(tableConfig);
+    }
+    tableConfig.setNoBlockCache(true);
   }
 
   private static void configureBlobDBForSegment(
@@ -502,7 +540,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     throwIfClosed();
 
     try (final OperationTimer.TimingContext ignored = metrics.getReadLatency().startTimer()) {
-      return Optional.ofNullable(getDB().get(safeColumnHandle(segment), readOptions, key));
+      return Optional.ofNullable(
+          getDB().get(safeColumnHandle(segment), readOptionsFor(segment), key));
     } catch (final RocksDBException e) {
       throw new StorageException(e);
     }
@@ -513,7 +552,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
 
     try (final RocksIterator rocksIterator =
-        getDB().newIterator(safeColumnHandle(segmentIdentifier))) {
+        getDB().newIterator(safeColumnHandle(segmentIdentifier), readOptionsFor(segmentIdentifier))) {
       rocksIterator.seekForPrev(key.toArrayUnsafe());
       return Optional.of(rocksIterator)
           .filter(AbstractRocksIterator::isValid)
@@ -526,7 +565,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
 
     try (final RocksIterator rocksIterator =
-        getDB().newIterator(safeColumnHandle(segmentIdentifier))) {
+        getDB().newIterator(safeColumnHandle(segmentIdentifier), readOptionsFor(segmentIdentifier))) {
       rocksIterator.seek(key.toArrayUnsafe());
       return Optional.of(rocksIterator)
           .filter(AbstractRocksIterator::isValid)
@@ -536,7 +575,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   @Override
   public Stream<Pair<byte[], byte[]>> stream(final SegmentIdentifier segmentIdentifier) {
-    final RocksIterator rocksIterator = getDB().newIterator(safeColumnHandle(segmentIdentifier));
+    final RocksIterator rocksIterator =
+        getDB().newIterator(safeColumnHandle(segmentIdentifier), readOptionsFor(segmentIdentifier));
     rocksIterator.seekToFirst();
     return RocksDbIterator.create(rocksIterator).toStream();
   }
@@ -544,7 +584,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   @Override
   public Stream<Pair<byte[], byte[]>> streamFromKey(
       final SegmentIdentifier segmentIdentifier, final byte[] startKey) {
-    final RocksIterator rocksIterator = getDB().newIterator(safeColumnHandle(segmentIdentifier));
+    final RocksIterator rocksIterator =
+        getDB().newIterator(safeColumnHandle(segmentIdentifier), readOptionsFor(segmentIdentifier));
     rocksIterator.seek(startKey);
     return RocksDbIterator.create(rocksIterator).toStream();
   }
@@ -553,7 +594,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   public Stream<Pair<byte[], byte[]>> streamFromKey(
       final SegmentIdentifier segmentIdentifier, final byte[] startKey, final byte[] endKey) {
     final Bytes endKeyBytes = Bytes.wrap(endKey);
-    final RocksIterator rocksIterator = getDB().newIterator(safeColumnHandle(segmentIdentifier));
+    final RocksIterator rocksIterator =
+        getDB().newIterator(safeColumnHandle(segmentIdentifier), readOptionsFor(segmentIdentifier));
     rocksIterator.seek(startKey);
     return RocksDbIterator.create(rocksIterator)
         .toStream()
@@ -562,7 +604,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   @Override
   public Stream<byte[]> streamKeys(final SegmentIdentifier segmentIdentifier) {
-    final RocksIterator rocksIterator = getDB().newIterator(safeColumnHandle(segmentIdentifier));
+    final RocksIterator rocksIterator =
+        getDB().newIterator(safeColumnHandle(segmentIdentifier), readOptionsFor(segmentIdentifier));
     rocksIterator.seekToFirst();
     return RocksDbIterator.create(rocksIterator).toStreamKeys();
   }
@@ -611,6 +654,10 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       txOptions.close();
       options.close();
       tryDeleteOptions.close();
+      readOptions.close();
+      if (mmapReadOptions != readOptions) {
+        mmapReadOptions.close();
+      }
       columnHandlesBySegmentIdentifier.values().stream()
           .map(RocksDbSegmentIdentifier::get)
           .forEach(ColumnFamilyHandle::close);

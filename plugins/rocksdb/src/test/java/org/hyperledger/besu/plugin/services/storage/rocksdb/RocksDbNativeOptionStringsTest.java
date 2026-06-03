@@ -136,4 +136,20 @@ public class RocksDbNativeOptionStringsTest {
       assertThat(opts).isNotNull();
     }
   }
+
+  @Test
+  public void allowMmapReadsInNativeCfOptionStringInvalidatesParse() {
+    RocksDbUtil.loadNativeLibrary();
+    final RocksDbNativeOptionStrings.InsertionOrderedProperties cfProps =
+        new RocksDbNativeOptionStrings.InsertionOrderedProperties();
+    cfProps.setProperty("block_based_table_factory.format_version", "5");
+    cfProps.setProperty("block_based_table_factory.filter_policy", "bloomfilter:10:false");
+    cfProps.setProperty("block_based_table_factory.partition_filters", "false");
+    cfProps.setProperty("block_based_table_factory.cache_index_and_filter_blocks", "false");
+    cfProps.setProperty("block_based_table_factory.block_size", "32768");
+    cfProps.setProperty("block_based_table_factory.allow_mmap_reads", "true");
+    assertThat(
+            ColumnFamilyOptions.getColumnFamilyOptionsFromProps(new ConfigOptions(), cfProps))
+        .isNull();
+  }
 }

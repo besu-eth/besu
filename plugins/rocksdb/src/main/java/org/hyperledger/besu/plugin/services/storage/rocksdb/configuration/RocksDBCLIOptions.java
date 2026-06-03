@@ -83,7 +83,7 @@ public class RocksDBCLIOptions {
   /**
    * When true, enables mmap SST reads for Bonsai {@code ACCOUNT_STORAGE_STORAGE}, {@code
    * ACCOUNT_STORAGE_ARCHIVE}, and {@code TRIE_BRANCH_STORAGE} column families ({@code
-   * block_based_table_factory.allow_mmap_reads}) and sets {@link org.rocksdb.DBOptions#setAllowMmapReads}
+   * table format via Java}) and sets {@link org.rocksdb.DBOptions#setAllowMmapReads}
    * so RocksDB logs {@code Options.allow_mmap_reads: 1} for this database. Prefer {@link
    * #MAX_OPEN_FILES_FLAG} {@code -1} so RocksDB can keep SSTs open. Experimental.
    */
@@ -201,7 +201,7 @@ public class RocksDBCLIOptions {
       negatable = true,
       paramLabel = "<BOOLEAN>",
       description =
-          "Mmap SST reads for ACCOUNT_STORAGE_* / TRIE_BRANCH_STORAGE CFs and DBOptions.allow_mmap_reads for this DB (default: ${DEFAULT-VALUE}). Prefer unlimited max open files for this experiment.")
+          "Mmap SST reads for ACCOUNT_STORAGE_* / TRIE_BRANCH_STORAGE CFs: DBOptions.allow_mmap_reads, no block cache on those CFs, fill_cache=false on reads (default: ${DEFAULT-VALUE}). Prefer unlimited max open files for this experiment.")
   boolean mmapReadsBonsaiSlotTrieBranch = DEFAULT_MMAP_READS_BONSAI_SLOT_TRIE_BRANCH;
 
   private RocksDBCLIOptions() {}

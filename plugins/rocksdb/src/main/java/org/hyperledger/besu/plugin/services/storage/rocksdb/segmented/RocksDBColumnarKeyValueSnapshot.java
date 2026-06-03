@@ -69,7 +69,9 @@ public class RocksDBColumnarKeyValueSnapshot
   private final boolean isReadCacheEnabledForSnapshots;
   private final RocksDBMetrics metrics;
   private final Function<SegmentIdentifier, ColumnFamilyHandle> columnFamilyMapper;
+  private final boolean mmapReadsBonsaiSlotTrieBranchEnabled;
   private final ReadOptions readOptions;
+  private final ReadOptions mmapReadOptions;
 
   /**
    * Instantiates a new RocksDb columnar key value snapshot.
@@ -80,15 +82,26 @@ public class RocksDBColumnarKeyValueSnapshot
   RocksDBColumnarKeyValueSnapshot(
       final OptimisticTransactionDB db,
       final boolean isReadCacheEnabledForSnapshots,
+      final boolean mmapReadsBonsaiSlotTrieBranchEnabled,
       final Function<SegmentIdentifier, ColumnFamilyHandle> columnFamilyMapper,
       final RocksDBMetrics metrics) {
     this.db = db;
     this.isReadCacheEnabledForSnapshots = isReadCacheEnabledForSnapshots;
+    this.mmapReadsBonsaiSlotTrieBranchEnabled = mmapReadsBonsaiSlotTrieBranchEnabled;
     this.metrics = metrics;
     this.columnFamilyMapper = columnFamilyMapper;
     this.snapshot = new RocksDBSnapshot(db);
     this.readOptions =
         new ReadOptions().setVerifyChecksums(false).setSnapshot(snapshot.getSnapshot());
+    if (mmapReadsBonsaiSlotTrieBranchEnabled) {
+      this.mmapReadOptions =
+          new ReadOptions()
+              .setVerifyChecksums(false)
+              .setFillCache(false)
+              .setSnapshot(snapshot.getSnapshot());
+    } else {
+      this.mmapReadOptions = this.readOptions;
+    }
     if (isReadCacheEnabledForSnapshots) {
       maybeCache =
           Optional.of(
@@ -106,25 +119,35 @@ public class RocksDBColumnarKeyValueSnapshot
     try (final OperationTimer.TimingContext ignored = metrics.getReadLatency().startTimer()) {
       final ColumnFamilyHandle handle = columnFamilyMapper.apply(segment);
       if (isReadCacheEnabledForSnapshots && segment.isEligibleToHighSpecFlag()) {
-        return getFromCacheOrRead(segment.getId(), key, handle, maybeCache.get());
+        return getFromCacheOrRead(
+            segment.getId(), key, handle, maybeCache.get(), readOptionsFor(segment));
       } else {
-        return Optional.ofNullable(snapshot.get(handle, readOptions, key));
+        return Optional.ofNullable(snapshot.get(handle, readOptionsFor(segment), key));
       }
     } catch (final RocksDBException e) {
       throw new StorageException(e);
     }
   }
 
+  private ReadOptions readOptionsFor(final SegmentIdentifier segment) {
+    if (mmapReadsBonsaiSlotTrieBranchEnabled
+        && RocksDBColumnarKeyValueStorage.isMmapReadsTargetBonsaiSegment(segment)) {
+      return mmapReadOptions;
+    }
+    return readOptions;
+  }
+
   private Optional<byte[]> getFromCacheOrRead(
       final byte[] segmentId,
       final byte[] key,
       final ColumnFamilyHandle handle,
-      final Cache<Bytes, Optional<byte[]>> cache)
+      final Cache<Bytes, Optional<byte[]>> cache,
+      final ReadOptions segmentReadOptions)
       throws RocksDBException {
     final Bytes cacheKey = makeCacheKey(segmentId, key);
     Optional<byte[]> cached = cache.getIfPresent(cacheKey);
     if (cached == null) {
-      final byte[] value = snapshot.get(handle, readOptions, key);
+      final byte[] value = snapshot.get(handle, segmentReadOptions, key);
       cached = Optional.ofNullable(value);
       cache.put(cacheKey, cached);
     }
@@ -143,7 +166,8 @@ public class RocksDBColumnarKeyValueSnapshot
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
 
     try (final RocksIterator rocksIterator =
-        db.newIterator(columnFamilyMapper.apply(segmentIdentifier), readOptions)) {
+        db.newIterator(
+            columnFamilyMapper.apply(segmentIdentifier), readOptionsFor(segmentIdentifier))) {
       rocksIterator.seekForPrev(key.toArrayUnsafe());
       return Optional.of(rocksIterator)
           .filter(AbstractRocksIterator::isValid)
@@ -155,7 +179,8 @@ public class RocksDBColumnarKeyValueSnapshot
   public Optional<NearestKeyValue> getNearestAfter(
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
     try (final RocksIterator rocksIterator =
-        db.newIterator(columnFamilyMapper.apply(segmentIdentifier), readOptions)) {
+        db.newIterator(
+            columnFamilyMapper.apply(segmentIdentifier), readOptionsFor(segmentIdentifier))) {
       rocksIterator.seek(key.toArrayUnsafe());
       return Optional.of(rocksIterator)
           .filter(AbstractRocksIterator::isValid)
@@ -167,7 +192,7 @@ public class RocksDBColumnarKeyValueSnapshot
   public Stream<Pair<byte[], byte[]>> stream(final SegmentIdentifier segment) {
     throwIfClosed();
     final RocksIterator rocksIterator =
-        db.newIterator(columnFamilyMapper.apply(segment), readOptions);
+        db.newIterator(columnFamilyMapper.apply(segment), readOptionsFor(segment));
     rocksIterator.seekToFirst();
     return RocksDbIterator.create(rocksIterator).toStream();
   }
@@ -178,7 +203,7 @@ public class RocksDBColumnarKeyValueSnapshot
     throwIfClosed();
 
     final RocksIterator rocksIterator =
-        db.newIterator(columnFamilyMapper.apply(segment), readOptions);
+        db.newIterator(columnFamilyMapper.apply(segment), readOptionsFor(segment));
     rocksIterator.seek(startKey);
     return RocksDbIterator.create(rocksIterator).toStream();
   }
@@ -190,7 +215,7 @@ public class RocksDBColumnarKeyValueSnapshot
     final Bytes endKeyBytes = Bytes.wrap(endKey);
 
     final RocksIterator rocksIterator =
-        db.newIterator(columnFamilyMapper.apply(segment), readOptions);
+        db.newIterator(columnFamilyMapper.apply(segment), readOptionsFor(segment));
     rocksIterator.seek(startKey);
     return RocksDbIterator.create(rocksIterator)
         .toStream()
@@ -202,7 +227,7 @@ public class RocksDBColumnarKeyValueSnapshot
     throwIfClosed();
 
     final RocksIterator rocksIterator =
-        db.newIterator(columnFamilyMapper.apply(segment), readOptions);
+        db.newIterator(columnFamilyMapper.apply(segment), readOptionsFor(segment));
     rocksIterator.seekToFirst();
     return RocksDbIterator.create(rocksIterator).toStreamKeys();
   }
@@ -257,6 +282,9 @@ public class RocksDBColumnarKeyValueSnapshot
     if (closed.compareAndSet(false, true)) {
       closed.set(true);
       readOptions.close();
+      if (mmapReadOptions != readOptions) {
+        mmapReadOptions.close();
+      }
       snapshot.close();
     }
   }
