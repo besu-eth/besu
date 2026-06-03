@@ -12,25 +12,19 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.eth.sync;
+package org.hyperledger.besu.consensus.merge;
 
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 
-import java.util.concurrent.CompletableFuture;
+/** Listener notified when a new payload arrives from the consensus layer. */
+public interface NewPayloadListener {
 
-public interface PivotBlockSelector {
-
-  CompletableFuture<SnapSyncProcessState> selectNewPivotBlock();
-
-  CompletableFuture<Void> prepareRetry();
-
-  default void close() {
-    // do nothing by default
-  }
-
-  default long getMinRequiredBlockNumber() {
-    return 0L;
-  }
-
-  long getBestChainHeight();
+  /**
+   * Called for each {@code engine_newPayload} request received from the consensus layer. The header
+   * has had its block hash verified against the payload contents but has not been validated against
+   * the local chain — callers must treat it as untrusted.
+   *
+   * @param header the header reconstructed from the payload
+   */
+  void onNewPayload(BlockHeader header);
 }
