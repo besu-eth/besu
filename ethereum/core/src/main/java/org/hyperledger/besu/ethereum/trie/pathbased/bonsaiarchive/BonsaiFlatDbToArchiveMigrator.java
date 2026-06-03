@@ -501,8 +501,21 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
     // Derive the last trie checkpoint: largest block B ≤ progress where (B+1) % interval == 0
     final long lastCheckpoint = ((progress + 1) / interval) * interval - 1;
     if (lastCheckpoint >= 0) {
-      // A real checkpoint was persisted. Seed from it and re-roll the partial window.
-      blockchain.getBlockHeader(lastCheckpoint).ifPresent(migrationTrieStorage::seedCheckpoint);
+      // A real checkpoint was persisted. Seed the metadata layer and reset the in-memory
+      // worldStateRootHash field so persist() at the next checkpoint starts from this
+      // block's state root, not Hash.EMPTY_TRIE_HASH (which is what initMigrationWorldState
+      // sets on a fresh JVM start before any persist() has been called).
+      blockchain
+          .getBlockHeader(lastCheckpoint)
+          .ifPresent(
+              header -> {
+                migrationTrieStorage.seedCheckpoint(header);
+                // resetWorldStateTo updates the in-memory worldStateRootHash / worldStateBlockHash
+                // fields that persist() reads as the base trie root.  seedCheckpoint only writes
+                // the key-value layer; without this call the field stays EMPTY_TRIE_HASH and the
+                // next checkpoint's persist() produces the wrong state root.
+                migrationWorldState.resetWorldStateTo(header);
+              });
       final long reRollStart = lastCheckpoint + 1;
       if (reRollStart <= progress) {
         reRollTrieFrom(reRollStart, progress);

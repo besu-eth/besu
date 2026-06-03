@@ -602,6 +602,65 @@ public class BonsaiFlatDbToArchiveMigratorTest {
   }
 
   @Test
+  public void secondCheckpointAfterRestart_doesNotMismatchStateRoot() throws Exception {
+    // Regression test for StateRootMismatchException at the second+ checkpoint after restart.
+    //
+    // Root cause: on a fresh JVM start migrationWorldState.worldStateRootHash is initialised to
+    // Hash.EMPTY_TRIE_HASH.  In a single session persist() keeps this field up to date.  But on
+    // restart recoverTrieState() called seedCheckpoint() — which only updated the key-value
+    // metadata layer — without also calling migrationWorldState.resetWorldStateTo().  The in-memory
+    // worldStateRootHash field stayed EMPTY_TRIE_HASH, so the second checkpoint's persist() started
+    // from an empty trie instead of the first checkpoint's state root → wrong root.
+    //
+    // interval=2: checkpoints at blocks 1, 3, 5, ...
+    // Step A: first migrator runs on blocks 1-2, persists checkpoint at block 1 (progress=2).
+    // Step B: block 3 is appended; second migrator (restart simulation) picks up from
+    //         progress=2 and must persist the second checkpoint at block 3 without error.
+    final Hash stateRoot = computeTestAccountStateRoot();
+    final Block genesis = blockchain.getBlockByNumber(0).orElseThrow();
+    final Block block1 =
+        blockDataGenerator.block(
+            BlockDataGenerator.BlockOptions.create()
+                .setParentHash(genesis.getHash())
+                .setBlockNumber(1)
+                .setStateRoot(stateRoot));
+    blockchain.appendBlock(block1, blockDataGenerator.receipts(block1));
+    // Block 2: no account changes → same stateRoot.  isTrieCheckpointBlock(2)=(3%2=1)≠0 → no cp.
+    final Block block2 =
+        blockDataGenerator.block(
+            BlockDataGenerator.BlockOptions.create()
+                .setParentHash(block1.getHash())
+                .setBlockNumber(2)
+                .setStateRoot(stateRoot));
+    blockchain.appendBlock(block2, blockDataGenerator.receipts(block2));
+    when(trieLogManager.getTrieLogLayer(hashAt(2L))).thenReturn(Optional.of(new TrieLogLayer()));
+
+    // --- Step A: first migration (blocks 1-2, checkpoint at block 1, progress=2). ---
+    final BonsaiFlatDbToArchiveMigrator firstMigrator = createMigratorWithRealTrieLogs(2);
+    firstMigrator.migrate().get(MIGRATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    assertThat(firstMigrator.getMigrationProgress()).hasValue(2L);
+    firstMigrator.close();
+
+    // --- Append block 3 (second checkpoint) AFTER first migration completes. ---
+    final Block block3 =
+        blockDataGenerator.block(
+            BlockDataGenerator.BlockOptions.create()
+                .setParentHash(block2.getHash())
+                .setBlockNumber(3)
+                .setStateRoot(stateRoot));
+    blockchain.appendBlock(block3, blockDataGenerator.receipts(block3));
+    when(trieLogManager.getTrieLogLayer(hashAt(3L))).thenReturn(Optional.of(new TrieLogLayer()));
+
+    // --- Step B: simulated restart — new migrator, same storage, progress=2. ---
+    // recoverTrieState() seeds from block-1 checkpoint.  Without the fix worldStateRootHash
+    // stays EMPTY_TRIE_HASH on fresh JVM init; persist() at block 3 then computes
+    // EMPTY_TRIE_HASH ≠ stateRoot → StateRootMismatchException.
+    final BonsaiFlatDbToArchiveMigrator secondMigrator = createMigratorWithRealTrieLogs(2);
+    secondMigrator.migrate().get(MIGRATION_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+    assertThat(secondMigrator.getMigrationProgress()).hasValue(3L);
+  }
+
+  @Test
   public void trieBlockRestartResumesCorrectlyWithIntervalConfigured() throws Exception {
     // First migration: process blocks 1-3, progress saved as 3.
     appendBlocks(3);
