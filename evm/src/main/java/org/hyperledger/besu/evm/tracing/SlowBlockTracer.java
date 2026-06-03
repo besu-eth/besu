@@ -58,8 +58,10 @@ public class SlowBlockTracer implements OperationTracer {
 
   private int transactionCount;
   // Timing
-  private long executionStartNanos;
-  private long executionTimeNanos;
+  private long stateHashTimeNanos;
+  private long commitTimeNanos;
+  private long totalStartNanos;
+  private long totalTimeNanos;
   // EVM operation counters
   private int sloadCount;
   private int sstoreCount;
@@ -72,18 +74,20 @@ public class SlowBlockTracer implements OperationTracer {
 
   /** Supports slow block timing metrics, distinct from BlockAwareOperationTracer */
   public void traceStartBlock() {
-    executionStartNanos = System.nanoTime();
+    totalStartNanos = System.nanoTime();
   }
 
   /**
-   * Completes the slow block metrics and triggers a log event.
+   * Completes the slow block metrics and triggers a log event. The callsite differs from other
+   * block-aware tracers as it includes state persistence, i.e., this is called after
+   * MutableWorldState.persist()
    *
    * @param blockNumber the block number
    * @param blockHash the block hash
    * @param gasUsed the gas used at the end of the block (after refunds)
    */
   public void traceEndBlock(final long blockNumber, final Hash blockHash, final long gasUsed) {
-    executionTimeNanos = System.nanoTime() - executionStartNanos;
+    totalTimeNanos = System.nanoTime() - totalStartNanos;
     logSlowBlock(blockNumber, blockHash, gasUsed);
   }
 
@@ -142,8 +146,27 @@ public class SlowBlockTracer implements OperationTracer {
     }
   }
 
+  /**
+   * records time in nanos for state_hash_ms
+   *
+   * @param timeNanos the time in nanos
+   */
+  public void addStateHashTime(final long timeNanos) {
+    stateHashTimeNanos = timeNanos;
+  }
+
+  /**
+   * records time in nanos for commit_ms
+   *
+   * @param timeNanos the time in nanos
+   */
+  public void addCommitTime(final long timeNanos) {
+    commitTimeNanos = timeNanos;
+  }
+
   private void logSlowBlock(final long blockNumber, final Hash blockHash, final long gasUsed) {
     String formattedMGasPerSecond = String.format("%.2f", calculateMGasPerSecond(gasUsed));
+    long executionTimeNanos = totalTimeNanos - stateHashTimeNanos - commitTimeNanos;
     try {
       final ObjectNode json = JSON_MAPPER.createObjectNode();
       json.put("level", "warn");
@@ -157,7 +180,9 @@ public class SlowBlockTracer implements OperationTracer {
 
       final ObjectNode timingNode = json.putObject("timing");
       timingNode.put("execution_ms", executionTimeNanos / 1_000_000);
-      timingNode.put("total_ms", executionTimeNanos / 1_000_000);
+      timingNode.put("state_hash_ms", stateHashTimeNanos / 1_000_000);
+      timingNode.put("commit_ms", commitTimeNanos / 1_000_000);
+      timingNode.put("total_ms", totalTimeNanos / 1_000_000);
 
       final ObjectNode throughputNode = json.putObject("throughput");
       throughputNode.put("mgas_per_sec", formattedMGasPerSecond);
@@ -181,7 +206,7 @@ public class SlowBlockTracer implements OperationTracer {
           .setMessage("Slow block number={} hash={} exec={}ms gas={} mgas/s={} txs={}")
           .addArgument(blockNumber)
           .addArgument(blockHash.toHexString())
-          .addArgument(executionTimeNanos / 1_000_000)
+          .addArgument(totalTimeNanos / 1_000_000)
           .addArgument(gasUsed)
           .addArgument(formattedMGasPerSecond)
           .addArgument(transactionCount)
@@ -190,9 +215,9 @@ public class SlowBlockTracer implements OperationTracer {
   }
 
   private double calculateMGasPerSecond(final long gasUsed) {
-    if (executionTimeNanos == 0) {
+    if (totalTimeNanos == 0) {
       return 0.00;
     }
-    return (gasUsed / 1_000_000.0) / (executionTimeNanos / 1_000_000_000.0);
+    return (gasUsed / 1_000_000.0) / (totalTimeNanos / 1_000_000_000.0);
   }
 }
