@@ -23,10 +23,12 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiArchiveWorldStateLayerStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveReadFlatDbStrategyProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiTrieNodeStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiArchiveWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
@@ -126,7 +128,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
               queryParams.getBlockHeader().getNumber(),
               checkpointBlock.get().getNumber());
           return rollArchiveProofWorldStateToBlockHash(
-                  newFrozenArchiveWorldState(worldStateConfig),
+                  newArchiveProofWorldState(worldStateConfig),
                   checkpointBlock.get(),
                   queryParams.getBlockHeader().getBlockHash())
               .map(MutableWorldState::freezeStorage);
@@ -144,10 +146,24 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
 
   private BonsaiWorldState newFrozenArchiveWorldState(final WorldStateConfig config) {
     final BonsaiWorldState worldState =
-        new BonsaiWorldState(this, archiveReadStorage, evmConfiguration, config, codeCache);
+        new BonsaiArchiveWorldState(this, archiveReadStorage, evmConfiguration, config, codeCache);
     // Freeze before persisting to ensure the historical block number does not affect the database
     worldState.freezeStorage();
     return worldState;
+  }
+
+  /**
+   * Builds a world state for archive proof generation, backed by an in-memory {@link
+   * BonsaiArchiveWorldStateLayerStorage} layer over the (read-only) archive storage. It is
+   * deliberately NOT frozen: the subsequent {@code rollArchiveProofWorldStateToBlockHash} persist
+   * must be able to write the rolled-back trie nodes into the layer (keyed at the target block's
+   * suffix via {@code ARCHIVE_PROOF_BLOCK_NUMBER_KEY}) so the proof can read the historical state.
+   * The writes land only in the discardable in-memory layer, never the persistent archive CF.
+   */
+  private BonsaiWorldState newArchiveProofWorldState(final WorldStateConfig config) {
+    final BonsaiArchiveWorldStateLayerStorage layerStorage =
+        new BonsaiArchiveWorldStateLayerStorage(archiveReadStorage);
+    return new BonsaiArchiveWorldState(this, layerStorage, evmConfiguration, config, codeCache);
   }
 
   private Optional<BlockHeader> getCheckpointStateStartBlock(final Hash targetHash) {

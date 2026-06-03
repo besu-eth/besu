@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage;
 
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
 
 import org.hyperledger.besu.datatypes.Hash;
@@ -73,18 +74,21 @@ public class BonsaiWorldStateLayerStorage extends BonsaiSnapshotWorldStateKeyVal
       return Optional.empty();
     }
 
-    // Pass getComposedWorldStateStorage() (the LayeredKeyValueStorage) directly so that
-    // getFlatAccount reads WORLD_BLOCK_NUMBER_KEY from the layer's in-memory state.
-    // The getWithCache/cacheGetFunction path would pass the raw parent storage to
-    // getFlatAccount, bypassing any in-memory keys set by resetWorldStateToCheckpoint
-    // and causing archive flat-DB reads to use the HEAD block context instead of the
-    // checkpoint context, leading to "nonces differ" during rollback.
-    return getFlatDbStrategy()
-        .getFlatAccount(
-            this::getWorldStateRootHash,
-            this::getAccountStateTrieNode,
-            accountHash,
-            getComposedWorldStateStorage());
+    return getWithCache(
+        ACCOUNT_INFO_STATE,
+        accountHash.getBytes(),
+        persistentStorage ->
+            cacheManager.getFromCacheOrStorage(
+                ACCOUNT_INFO_STATE,
+                accountHash.getBytes(),
+                getCurrentVersion(),
+                () ->
+                    getFlatDbStrategy()
+                        .getFlatAccount(
+                            this::getWorldStateRootHash,
+                            this::getAccountStateTrieNode,
+                            accountHash,
+                            persistentStorage)));
   }
 
   @Override
