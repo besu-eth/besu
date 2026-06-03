@@ -369,7 +369,9 @@ public class BesuController implements java.io.Closeable {
         }
         builder = new CliqueBesuControllerBuilder();
       } else {
-        throw new IllegalArgumentException("Unknown consensus mechanism defined");
+        LOG.warn(
+            "No consensus mechanism detected in genesis config (PoW/IBFT2/QBFT/Clique not configured), using PoS");
+        return new MergeBesuControllerBuilder().genesisConfig(genesisConfig);
       }
 
       // wrap with TransitionBesuControllerBuilder if we have a terminal total difficulty:

@@ -217,6 +217,21 @@ public class MergeBesuControllerBuilderTest {
   }
 
   @Test
+  public void buildsSuccessfullyWhenTerminalTotalDifficultyIsAbsent() {
+    when(genesisConfigOptions.getTerminalTotalDifficulty()).thenReturn(Optional.empty());
+
+    // The real assertion is that build() no longer throws on an absent TTD.
+    final Difficulty terminalTotalDifficulty =
+        visitWithMockConfigs(new MergeBesuControllerBuilder())
+            .build()
+            .getProtocolContext()
+            .getConsensusContext(MergeContext.class)
+            .getTerminalTotalDifficulty();
+
+    assertThat(terminalTotalDifficulty).isEqualTo(Difficulty.ZERO);
+  }
+
+  @Test
   public void assertConfiguredBlock() {
     final Blockchain mockChain = mock(Blockchain.class);
     when(mockChain.getBlockHeader(anyLong())).thenReturn(Optional.of(mock(BlockHeader.class)));
