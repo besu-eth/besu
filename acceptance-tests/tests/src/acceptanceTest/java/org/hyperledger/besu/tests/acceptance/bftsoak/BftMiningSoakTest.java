@@ -143,7 +143,7 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
     // archiveChainHeight will be captured just before set(201) where value is verified 101.
     // Using a block near the London upgrade is more reliable than a very early block because
     // the archive migration is guaranteed to have processed it by the time we query.
-    BigInteger archiveChainHeight = BigInteger.ZERO;
+    BigInteger archiveChainHeight;
 
     // Check the state of the contract has updated correctly. We'll set & get this several times
     // during the test
