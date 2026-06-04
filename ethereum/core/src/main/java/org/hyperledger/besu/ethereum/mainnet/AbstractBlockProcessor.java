@@ -555,7 +555,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       LOG.trace("traceEndBlock for {}", blockHeader.getNumber());
       blockTracer.traceEndBlock(blockHeader, blockBody);
 
-      try {
+      try { // TODO SLD newPayload performs trieLogPersist only; FCU persists state
         worldState.persist(blockHeader, stateRootCommitter, maybeSlowBlockTracer);
       } catch (MerkleTrieException e) {
         LOG.trace("Merkle trie exception during Transaction processing ", e);
@@ -575,12 +575,11 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       } catch (Exception e) {
         LOG.error("failed persisting block", e);
         return new BlockProcessingResult(Optional.empty(), e);
-      }
-
-      // traceEndBlock called here as slow block tracing should include persist metrics
-      if (maybeSlowBlockTracer != null) {
-        maybeSlowBlockTracer.traceEndBlock(
-            blockHeader.getNumber(), blockHeader.getBlockHash(), blockHeader.getGasUsed());
+      } finally {
+        if (maybeSlowBlockTracer != null) {
+          maybeSlowBlockTracer.traceEndBlockPersist(
+              blockHeader.getNumber(), blockHeader.getBlockHash(), blockHeader.getGasUsed());
+        }
       }
 
       // EIP-8037: gas_metered = max(cumulative_regular, cumulative_state)
