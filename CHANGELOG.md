@@ -16,6 +16,7 @@
 - `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` is deprecated and will be removed in a future release; the flag is now a silent no-op.
 
 ### Bug fixes
+- Fix WebSocket RPC event-loop stall caused by slow clients filling the TCP write queue. [#10354](https://github.com/besu-eth/besu/pull/10354)
 
 ### Additions and Improvements
 - Add `eth_getTransactionBySenderAndNonce` JSON-RPC method to look up a transaction by sender address and nonce (pending or mined).
