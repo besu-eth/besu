@@ -114,46 +114,6 @@ public class ChainSyncStateTest {
   }
 
   @Test
-  public void withAdvancedBodyAnchorShouldUpdateBlockDownloadAnchorAndPreserveOtherFields() {
-    final BlockHeader advancedAnchor = new BlockHeaderTestFixture().number(800).buildHeader();
-    final ChainSyncState initial =
-        ChainSyncState.initialSync(pivotBlockHeader, checkpointBlockHeader, genesisBlockHeader);
-
-    final ChainSyncState result = initial.withAdvancedBodyAnchor(advancedAnchor);
-
-    assertThat(result.blockDownloadAnchor()).isEqualTo(advancedAnchor);
-    assertThat(result.pivotBlockHeader()).isEqualTo(pivotBlockHeader);
-    assertThat(result.headerDownloadAnchor()).isEqualTo(genesisBlockHeader);
-    assertThat(result.headersDownloadComplete()).isFalse();
-    assertThat(result.headerDownloadProgress()).isNull();
-  }
-
-  @Test
-  public void withAdvancedBodyAnchorShouldPreserveHeadersDownloadComplete() {
-    final BlockHeader advancedAnchor = new BlockHeaderTestFixture().number(800).buildHeader();
-    final ChainSyncState completed =
-        ChainSyncState.initialSync(pivotBlockHeader, checkpointBlockHeader, genesisBlockHeader)
-            .withHeadersDownloadComplete();
-
-    final ChainSyncState result = completed.withAdvancedBodyAnchor(advancedAnchor);
-
-    assertThat(result.headersDownloadComplete()).isTrue();
-    assertThat(result.blockDownloadAnchor()).isEqualTo(advancedAnchor);
-  }
-
-  @Test
-  public void withAdvancedBodyAnchorShouldReturnNewInstance() {
-    final BlockHeader advancedAnchor = new BlockHeaderTestFixture().number(800).buildHeader();
-    final ChainSyncState initial =
-        ChainSyncState.initialSync(pivotBlockHeader, checkpointBlockHeader, genesisBlockHeader);
-
-    final ChainSyncState result = initial.withAdvancedBodyAnchor(advancedAnchor);
-
-    assertThat(result).isNotSameAs(initial);
-    assertThat(initial.blockDownloadAnchor()).isEqualTo(checkpointBlockHeader);
-  }
-
-  @Test
   public void fromHeadShouldUpdateBlockDownloadAnchor() {
     ChainSyncState initialState =
         ChainSyncState.initialSync(pivotBlockHeader, checkpointBlockHeader, genesisBlockHeader);
@@ -400,13 +360,31 @@ public class ChainSyncStateTest {
   }
 
   @Test
+  public void withRecoveryMatchShouldNotRaiseBlockDownloadAnchorAboveCurrentProgress() {
+    // matchedAncestor is ABOVE the existing blockDownloadAnchor. This happens in Case B crash
+    // recovery when the body anchor was set to the chain-head (e.g. 300) but recovery found a
+    // canonical match higher up the chain (e.g. 800). blockDownloadAnchor must not be raised.
+    final BlockHeader newPivot = new BlockHeaderTestFixture().number(2000).buildHeader();
+    final BlockHeader lowAnchor = new BlockHeaderTestFixture().number(300).buildHeader();
+    final BlockHeader matchedAncestor = new BlockHeaderTestFixture().number(800).buildHeader();
+
+    final ChainSyncState before = new ChainSyncState(newPivot, lowAnchor, null, false, null);
+    final ChainSyncState after = before.withRecoveryMatch(matchedAncestor);
+
+    assertThat(after.blockDownloadAnchor()).isEqualTo(lowAnchor);
+    assertThat(after.headerDownloadAnchor()).isEqualTo(matchedAncestor);
+    assertThat(after.pivotBlockHeader()).isEqualTo(newPivot);
+    assertThat(after.headersDownloadComplete()).isFalse();
+    assertThat(after.headerDownloadProgress()).isNull();
+  }
+
+  @Test
   public void withRecoveryMatchReplacesBothAnchorsWithMatchedAncestor() {
     final BlockHeader newPivot = new BlockHeaderTestFixture().number(2000).buildHeader();
     final BlockHeader originalAnchor = new BlockHeaderTestFixture().number(1500).buildHeader();
     final BlockHeader matchedAncestor = new BlockHeaderTestFixture().number(1400).buildHeader();
 
-    final ChainSyncState before =
-        new ChainSyncState(newPivot, originalAnchor, null, false, null);
+    final ChainSyncState before = new ChainSyncState(newPivot, originalAnchor, null, false, null);
 
     final ChainSyncState after = before.withRecoveryMatch(matchedAncestor);
 

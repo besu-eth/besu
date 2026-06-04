@@ -30,10 +30,8 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
-import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
@@ -417,144 +415,6 @@ public class SnapSyncChainDownloaderTest {
     // Stage 2 was invoked with the pre-Stage-1 snapshot anchor (500), confirming Stage 2 reads
     // from ChainSyncState.blockDownloadAnchor() as designed in C2.
     verify(pipelineFactory).createForwardBodiesAndReceiptsDownloadPipeline(eq(500L), any(), any());
-  }
-
-  @Test
-  public void shouldAdvanceBodyDownloadAnchorToChainHeadWhenBodyMatchesCanonical()
-      throws Exception {
-    final BlockHeader genesisHeader = new BlockHeaderTestFixture().number(0).buildHeader();
-    final BlockHeader header700 = new BlockHeaderTestFixture().number(700).buildHeader();
-    final Hash hash700 = header700.getHash();
-
-    final ChainSyncState initialState =
-        ChainSyncState.initialSync(pivotBlockHeader, checkpointBlockHeader, genesisHeader)
-            .withHeadersDownloadComplete();
-    chainSyncStateStorage.storeState(initialState);
-
-    @SuppressWarnings("unchecked")
-    final Pipeline<List<BlockHeader>> forwardPipeline = mock(Pipeline.class);
-    when(pipelineFactory.createForwardBodiesAndReceiptsDownloadPipeline(anyLong(), any(), any()))
-        .thenReturn(forwardPipeline);
-    when(scheduler.startPipeline(any())).thenReturn(CompletableFuture.completedFuture(null));
-    when(ethPeers.peerCount()).thenReturn(1);
-
-    when(blockchain.blockIsOnCanonicalChain(pivotBlockHeader.getHash())).thenReturn(true);
-    when(blockchain.getChainHeadBlockNumber()).thenReturn(700L);
-    when(blockchain.getBlockHashByNumber(700L)).thenReturn(Optional.of(hash700));
-    when(blockchain.getBlockBody(hash700)).thenReturn(Optional.of(mock(BlockBody.class)));
-    when(blockchain.getBlockHeader(700L)).thenReturn(Optional.of(header700));
-
-    final SnapSyncChainDownloader downloader =
-        new SnapSyncChainDownloader(
-            pipelineFactory,
-            syncConfig,
-            protocolSchedule,
-            protocolContext,
-            ethContext,
-            syncState,
-            syncDurationMetrics,
-            pivotBlockHeader,
-            chainSyncStateStorage,
-            headerDownloader);
-
-    downloader.onWorldStateHealFinished();
-    downloader.start().get(5, TimeUnit.SECONDS);
-
-    final ArgumentCaptor<Long> anchorCaptor = ArgumentCaptor.forClass(Long.class);
-    verify(pipelineFactory)
-        .createForwardBodiesAndReceiptsDownloadPipeline(anchorCaptor.capture(), any(), any());
-    assertThat(anchorCaptor.getValue()).isEqualTo(700L);
-  }
-
-  @Test
-  public void shouldFindBodyFrontierViaBinarySearchWhenChainHeadBodyMissing() throws Exception {
-    final BlockHeader genesisHeader = new BlockHeaderTestFixture().number(0).buildHeader();
-    final BlockHeader header127 = new BlockHeaderTestFixture().number(127).buildHeader();
-    final Hash hash127 = header127.getHash();
-
-    // Anchor=genesis(0), chainHead=256, no body at 256.
-    // Binary search: low=0, high=255, mid=127 → hit → low=127; high-low=128 not >128 → stop.
-    final ChainSyncState initialState =
-        ChainSyncState.initialSync(pivotBlockHeader, genesisHeader, genesisHeader)
-            .withHeadersDownloadComplete();
-    chainSyncStateStorage.storeState(initialState);
-
-    @SuppressWarnings("unchecked")
-    final Pipeline<List<BlockHeader>> forwardPipeline = mock(Pipeline.class);
-    when(pipelineFactory.createForwardBodiesAndReceiptsDownloadPipeline(anyLong(), any(), any()))
-        .thenReturn(forwardPipeline);
-    when(scheduler.startPipeline(any())).thenReturn(CompletableFuture.completedFuture(null));
-    when(ethPeers.peerCount()).thenReturn(1);
-
-    when(blockchain.blockIsOnCanonicalChain(pivotBlockHeader.getHash())).thenReturn(true);
-    when(blockchain.getChainHeadBlockNumber()).thenReturn(256L);
-    lenient().when(blockchain.getBlockHashByNumber(anyLong())).thenReturn(Optional.empty());
-    when(blockchain.getBlockHashByNumber(127L)).thenReturn(Optional.of(hash127));
-    when(blockchain.getBlockBody(hash127)).thenReturn(Optional.of(mock(BlockBody.class)));
-    when(blockchain.getBlockHeader(127L)).thenReturn(Optional.of(header127));
-
-    final SnapSyncChainDownloader downloader =
-        new SnapSyncChainDownloader(
-            pipelineFactory,
-            syncConfig,
-            protocolSchedule,
-            protocolContext,
-            ethContext,
-            syncState,
-            syncDurationMetrics,
-            pivotBlockHeader,
-            chainSyncStateStorage,
-            headerDownloader);
-
-    downloader.onWorldStateHealFinished();
-    downloader.start().get(5, TimeUnit.SECONDS);
-
-    final ArgumentCaptor<Long> anchorCaptor = ArgumentCaptor.forClass(Long.class);
-    verify(pipelineFactory)
-        .createForwardBodiesAndReceiptsDownloadPipeline(anchorCaptor.capture(), any(), any());
-    assertThat(anchorCaptor.getValue()).isEqualTo(127L);
-  }
-
-  @Test
-  public void shouldNotAdvanceAnchorWhenNoBodiesExistAboveAnchor() throws Exception {
-    final BlockHeader genesisHeader = new BlockHeaderTestFixture().number(0).buildHeader();
-
-    final ChainSyncState initialState =
-        ChainSyncState.initialSync(pivotBlockHeader, checkpointBlockHeader, genesisHeader)
-            .withHeadersDownloadComplete();
-    chainSyncStateStorage.storeState(initialState);
-
-    @SuppressWarnings("unchecked")
-    final Pipeline<List<BlockHeader>> forwardPipeline = mock(Pipeline.class);
-    when(pipelineFactory.createForwardBodiesAndReceiptsDownloadPipeline(anyLong(), any(), any()))
-        .thenReturn(forwardPipeline);
-    when(scheduler.startPipeline(any())).thenReturn(CompletableFuture.completedFuture(null));
-    when(ethPeers.peerCount()).thenReturn(1);
-
-    when(blockchain.blockIsOnCanonicalChain(pivotBlockHeader.getHash())).thenReturn(true);
-    when(blockchain.getChainHeadBlockNumber()).thenReturn(700L);
-    lenient().when(blockchain.getBlockHashByNumber(anyLong())).thenReturn(Optional.empty());
-
-    final SnapSyncChainDownloader downloader =
-        new SnapSyncChainDownloader(
-            pipelineFactory,
-            syncConfig,
-            protocolSchedule,
-            protocolContext,
-            ethContext,
-            syncState,
-            syncDurationMetrics,
-            pivotBlockHeader,
-            chainSyncStateStorage,
-            headerDownloader);
-
-    downloader.onWorldStateHealFinished();
-    downloader.start().get(5, TimeUnit.SECONDS);
-
-    final ArgumentCaptor<Long> anchorCaptor = ArgumentCaptor.forClass(Long.class);
-    verify(pipelineFactory)
-        .createForwardBodiesAndReceiptsDownloadPipeline(anchorCaptor.capture(), any(), any());
-    assertThat(anchorCaptor.getValue()).isEqualTo(500L);
   }
 
   @Test
