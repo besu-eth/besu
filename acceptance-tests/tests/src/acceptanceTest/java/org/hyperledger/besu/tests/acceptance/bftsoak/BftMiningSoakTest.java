@@ -56,7 +56,7 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
 
   private final int NUM_STEPS = 5;
 
-  private final int MIN_TEST_TIME_MINS = 60;
+  private final int MIN_TEST_TIME_MINS = 70;
 
   private static final long ONE_MINUTE = Duration.of(1, ChronoUnit.MINUTES).toMillis();
 
@@ -65,8 +65,8 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
   private static final long TEN_SECONDS = Duration.of(10, ChronoUnit.SECONDS).toMillis();
 
   static int getTestDurationMins() {
-    // Use a default soak time of 60 mins
-    return Integer.getInteger("acctests.soakTimeMins", 60);
+    // Use a default soak time of 70 mins
+    return Integer.getInteger("acctests.soakTimeMins", 70);
   }
 
   @ParameterizedTest(name = "{index}: {0}")
@@ -289,6 +289,34 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
     simpleStorageContract.set(BigInteger.valueOf(301)).send();
     assertThat(simpleStorageContract.get().send()).isEqualTo(BigInteger.valueOf(301));
 
+    // Upgrade the chain to shanghai in 120 seconds, then deploy a shanghai-era contract to verify
+    Instant shanghaiUpgradeStartTime = Instant.now();
+    upgradeToShanghai(
+        minerNode1,
+        minerNode2,
+        minerNode3,
+        minerNode4,
+        shanghaiUpgradeStartTime.getEpochSecond() + 120);
+
+    cluster.verify(blockchain.reachesHeight(minerNode4, 1, 180));
+
+    // Check if 120 seconds have passed since the shanghai upgrade and wait otherwise
+    while (Instant.now().getEpochSecond() < shanghaiUpgradeStartTime.getEpochSecond() + 130) {
+      Thread.sleep(TEN_SECONDS);
+    }
+
+    LOG.info(
+        "Deploying a smart contract that should only work if the chain is running on the shanghai fork");
+    SimpleStorageShanghai simpleStorageContractShanghai =
+        minerNode1.execute(contractTransactions.createSmartContract(SimpleStorageShanghai.class));
+
+    assertThat(simpleStorageContractShanghai.getContractAddress()).isNotNull();
+
+    // Verify standard storage works under shanghai
+    assertThat(simpleStorageContractShanghai.get().send()).isEqualTo(BigInteger.ZERO);
+    simpleStorageContractShanghai.set(BigInteger.valueOf(111)).send();
+    assertThat(simpleStorageContractShanghai.get().send()).isEqualTo(BigInteger.valueOf(111));
+
     // Upgrade the chain to osaka in 120 seconds. Then try to deploy osaka-era contracts
     Instant osakaUpgradeStartTime = Instant.now();
     upgradeToOsaka(
@@ -300,17 +328,10 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
 
     cluster.verify(blockchain.reachesHeight(minerNode4, 1, 180));
 
-    // Check if 120 seconds have passed since the upgrade and wait otherwise
+    // Check if 120 seconds have passed since the osaka upgrade and wait otherwise
     while (Instant.now().getEpochSecond() < osakaUpgradeStartTime.getEpochSecond() + 130) {
       Thread.sleep(TEN_SECONDS);
     }
-
-    LOG.info(
-        "Deploying a smart contract that should only work if the chain is running on the shanghai fork (included in osaka)");
-    SimpleStorageShanghai simpleStorageContractShanghai =
-        minerNode1.execute(contractTransactions.createSmartContract(SimpleStorageShanghai.class));
-
-    assertThat(simpleStorageContractShanghai.getContractAddress()).isNotNull();
 
     LOG.info(
         "Deploying a smart contract that should only work if the chain is running on the osaka fork");
@@ -394,6 +415,11 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
     // Archive node test. Check the state of the contract when it was first updated in the test
     LOG.info(
         "Checking that the archive node shows us the original smart contract value if we set a historic block number");
+    // Wait for the archive node to fully sync to the current chain height before querying
+    // historical state. The archive was restarted during the Shanghai and Osaka upgrades, so
+    // without this wait it may not yet have processed all blocks and could return stale state.
+    BigInteger currentChainHeight = minerNode1.execute(ethTransactions.blockNumber());
+    minerNode2.verify(blockchain.minimumHeight(currentChainHeight.intValue(), 180));
     simpleStorageArchive.setDefaultBlockParameter(
         DefaultBlockParameter.valueOf(archiveChainHeight));
     assertThat(simpleStorageArchive.get().send()).isEqualTo(BigInteger.valueOf(101));
@@ -422,6 +448,18 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
     }
   }
 
+  private static void updateGenesisConfigToShanghai(
+      final BesuNode minerNode, final long shanghaiTime) {
+
+    if (minerNode.getGenesisConfig().isPresent()) {
+      final ObjectNode genesisConfigNode =
+          JsonUtil.objectNodeFromString(minerNode.getGenesisConfig().get());
+      final ObjectNode config = (ObjectNode) genesisConfigNode.get("config");
+      config.put("shanghaiTime", shanghaiTime);
+      minerNode.setGenesisConfig(genesisConfigNode.toString());
+    }
+  }
+
   private static void updateGenesisConfigToOsaka(
       final BesuNode minerNode, final long blockTimestamp) {
 
@@ -429,8 +467,8 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
       final ObjectNode genesisConfigNode =
           JsonUtil.objectNodeFromString(minerNode.getGenesisConfig().get());
       final ObjectNode config = (ObjectNode) genesisConfigNode.get("config");
-      // Osaka is cumulative — all intermediate time-based forks must be set to the same timestamp
-      config.put("shanghaiTime", blockTimestamp);
+      // Osaka is cumulative: cancunTime and pragueTime must accompany osakaTime.
+      // shanghaiTime is already set from the prior Shanghai upgrade step.
       config.put("cancunTime", blockTimestamp);
       config.put("pragueTime", blockTimestamp);
       config.put("osakaTime", blockTimestamp);
@@ -468,6 +506,34 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
     LOG.info("Upgrading node 4 to london fork");
     stopNode(minerNode4);
     updateGenesisConfigToLondon(minerNode4, true, londonBlockNumber);
+    startNode(minerNode4);
+  }
+
+  private void upgradeToShanghai(
+      final BesuNode minerNode1,
+      final BesuNode minerNode2,
+      final BesuNode minerNode3,
+      final BesuNode minerNode4,
+      final long shanghaiTime)
+      throws InterruptedException {
+    LOG.info("Upgrading node 1 to shanghai fork");
+    stopNode(minerNode1);
+    updateGenesisConfigToShanghai(minerNode1, shanghaiTime);
+    startNode(minerNode1);
+
+    LOG.info("Upgrading node 2 to shanghai fork");
+    stopNode(minerNode2);
+    updateGenesisConfigToShanghai(minerNode2, shanghaiTime);
+    startNode(minerNode2);
+
+    LOG.info("Upgrading node 3 to shanghai fork");
+    stopNode(minerNode3);
+    updateGenesisConfigToShanghai(minerNode3, shanghaiTime);
+    startNode(minerNode3);
+
+    LOG.info("Upgrading node 4 to shanghai fork");
+    stopNode(minerNode4);
+    updateGenesisConfigToShanghai(minerNode4, shanghaiTime);
     startNode(minerNode4);
   }
 
