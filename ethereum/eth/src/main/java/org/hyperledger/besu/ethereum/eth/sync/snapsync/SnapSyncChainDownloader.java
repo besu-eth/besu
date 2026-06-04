@@ -74,7 +74,7 @@ public class SnapSyncChainDownloader
 
   private final SnapSyncChainDownloadPipelineFactory pipelineFactory;
 
-  @SuppressWarnings("unused") // used in commented-out stub code; remove annotation when implemented
+  @SuppressWarnings("unused") // reserved for Cases C/D continuation threshold logic
   private final SynchronizerConfiguration syncConfig;
 
   private final ProtocolSchedule protocolSchedule;
@@ -308,43 +308,36 @@ public class SnapSyncChainDownloader
                 initialPivotHeader, loadedState.headersDownloadComplete());
         chainSyncStateStorage.storeState(stateToUse);
 
-      } else {
-        // TODO(Cases B/C/D): implement crash-recovery logic for the remaining cases:
-        //  - headersDownloadComplete=true: restart Stage 1 from new pivot down to existing floor
-        //  - headerDownloadProgress!=null: continue with loadedState if above threshold; else
-        // restart
-        //  - otherwise: restart Stage 1 with new pivot
-        // For now fall through to stateToUse=loadedState (set above as the default).
-      }
+      } else if (loadedState.headersDownloadComplete()) {
+        // Case B: Stage 2 (bodies/receipts) crashed in a previous session. All headers from the
+        // old pivot down to blockDownloadAnchor are on our canonical chain. Restart Stage 1 from
+        // the new pivot using the old pivot as the stop anchor (it is already canonical), then
+        // run Stage 2.
+        final BlockHeader bodiesAnchor;
+        if (initialPivotHeader.getNumber() > loadedState.pivotBlockHeader().getNumber()) {
+          // Forward: chain head is a genuine ancestor of new pivot — reuse progress.
+          final BlockHeader chainHead = blockchain.getChainHeadHeader();
+          bodiesAnchor = isOnOurChain(chainHead) ? chainHead : loadedState.blockDownloadAnchor();
+        } else {
+          // Reorg: blockDownloadAnchor was already set to canonical common ancestor by Stage 1
+          // recovery.
+          bodiesAnchor = loadedState.blockDownloadAnchor();
+        }
+        stateToUse =
+            new ChainSyncState(
+                initialPivotHeader,
+                bodiesAnchor,
+                loadedState
+                    .pivotBlockHeader(), // Stage 1 stop anchor = old pivot (already on chain)
+                false,
+                null);
+        chainSyncStateStorage.storeState(stateToUse);
 
-      //      else if (initialPivotHeader.getNumber() - loadedState.pivotBlockHeader().getNumber()
-      //          < syncConfig.getChainSyncContinuationThresholdBlocks()) {
-      //        // Case B: restart Stage 1 from the new pivot down to the existing floor, with the
-      // completion flag
-      //        // explicitly reset because we haven't made more than the threshold number of blocks
-      // progress.
-      //        stateToUse = loadedState.withReplacedPivot(initialPivotHeader, false);
-      //        chainSyncStateStorage.storeState(stateToUse);
-      //        LOG.info(
-      //            "Initial pivot {} is within continuation threshold of persisted pivot {};
-      // restarting header download from new pivot",
-      //            initialPivotHeader.getNumber(),
-      //            loadedState.pivotBlockHeader().getNumber());
-      //
-      //      } else {
-      //        // Case C: the new pivot is further than the threshold ahead. Don't throw away the
-      //        // headers already downloaded — finish the current cycle against the persisted
-      // pivot,
-      //        // then let the existing pivot-update plumbing transition to the new pivot via
-      //        // continueToNewPivot.
-      //        stateToUse = loadedState;
-      //        LOG.info(
-      //            "Initial pivot {} is more than continuation threshold ahead of persisted pivot
-      // {}; finishing current cycle then continuing to new pivot",
-      //            initialPivotHeader.getNumber(),
-      //            loadedState.pivotBlockHeader().getNumber());
-      //        onPivotUpdated(initialPivotHeader);
-      //      }
+      } else {
+        // Cases C and D (stubs): restart Stage 1 with the new pivot.
+        stateToUse = loadedState.withReplacedPivot(initialPivotHeader, false);
+        chainSyncStateStorage.storeState(stateToUse);
+      }
 
       chainSyncState.set(stateToUse);
       return CompletableFuture.completedFuture(stateToUse);
