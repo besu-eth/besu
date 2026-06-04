@@ -140,8 +140,10 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
     // Set to something new
     simpleStorageContract.set(BigInteger.valueOf(101)).send();
 
-    // Save this block height to check on the archive node at the end of the test
-    BigInteger archiveChainHeight = minerNode1.execute(ethTransactions.blockNumber());
+    // archiveChainHeight will be captured just before set(201) where value is verified 101.
+    // Using a block near the London upgrade is more reliable than a very early block because
+    // the archive migration is guaranteed to have processed it by the time we query.
+    BigInteger archiveChainHeight = BigInteger.ZERO;
 
     // Check the state of the contract has updated correctly. We'll set & get this several times
     // during the test
@@ -247,6 +249,9 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
     LOG.info("Updating the value in the smart contract from 101 to 201");
     // Update our smart contract before upgrading from berlin to london
     assertThat(simpleStorageContract.get().send()).isEqualTo(BigInteger.valueOf(101));
+    // Capture archiveChainHeight here: value is verified 101, and this recent block is well
+    // within the archive migration window by the time the archive check runs at the end of the test
+    archiveChainHeight = minerNode1.execute(ethTransactions.blockNumber());
     simpleStorageContract.set(BigInteger.valueOf(201)).send();
     assertThat(simpleStorageContract.get().send()).isEqualTo(BigInteger.valueOf(201));
 
