@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.BonsaiContext;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.CodeStorageStrategy;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage.NearestKeyValueScanner;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 
 import java.nio.charset.StandardCharsets;
@@ -60,6 +61,27 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
 
   public static final byte[] DELETED_ACCOUNT_VALUE = new byte[0];
   public static final byte[] DELETED_STORAGE_VALUE = new byte[0];
+
+  private static final ThreadLocal<NearestKeyValueScanner> threadLocalAccountScanner =
+      new ThreadLocal<>();
+  private static final ThreadLocal<NearestKeyValueScanner> threadLocalStorageScanner =
+      new ThreadLocal<>();
+
+  /**
+   * Activates reusable RocksDB iterators for archive lookups on the calling thread. Must be paired
+   * with {@link #deactivateScanners()} in a finally block.
+   */
+  public void activateScanners(
+      final NearestKeyValueScanner accountScanner, final NearestKeyValueScanner storageScanner) {
+    threadLocalAccountScanner.set(accountScanner);
+    threadLocalStorageScanner.set(storageScanner);
+  }
+
+  /** Removes the thread-local scanners set by {@link #activateScanners}. */
+  public void deactivateScanners() {
+    threadLocalAccountScanner.remove();
+    threadLocalStorageScanner.remove();
+  }
 
   public Long getTrieNodeCheckpointInterval() {
     return trieNodeCheckpointInterval;
@@ -104,9 +126,11 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
             accountHash.getBytes().toArrayUnsafe());
 
     // Find the nearest account state for this address and block context
-    Optional<SegmentedKeyValueStorage.NearestKeyValue> accountFound =
-        storage
-            .getNearestBefore(ACCOUNT_INFO_STATE_ARCHIVE, keyNearest)
+    final NearestKeyValueScanner activeScanner = threadLocalAccountScanner.get();
+    final Optional<SegmentedKeyValueStorage.NearestKeyValue> accountFound =
+        (activeScanner != null
+                ? activeScanner.seekBefore(keyNearest)
+                : storage.getNearestBefore(ACCOUNT_INFO_STATE_ARCHIVE, keyNearest))
             .filter(
                 found ->
                     accountHash.getBytes().commonPrefixLength(found.key())
@@ -331,9 +355,11 @@ public class BonsaiArchiveFlatDbStrategy extends BonsaiFullFlatDbStrategy {
             BonsaiArchiveKeyUtil.getStateArchiveContextForRead(storage), naturalKey);
 
     // Find the nearest storage for this address, slot key hash, and block context
-    Optional<SegmentedKeyValueStorage.NearestKeyValue> storageFound =
-        storage
-            .getNearestBefore(ACCOUNT_STORAGE_ARCHIVE, keyNearest)
+    final NearestKeyValueScanner activeScanner = threadLocalStorageScanner.get();
+    final Optional<SegmentedKeyValueStorage.NearestKeyValue> storageFound =
+        (activeScanner != null
+                ? activeScanner.seekBefore(keyNearest)
+                : storage.getNearestBefore(ACCOUNT_STORAGE_ARCHIVE, keyNearest))
             .filter(
                 found -> Bytes.of(naturalKey).commonPrefixLength(found.key()) >= naturalKey.length);
 

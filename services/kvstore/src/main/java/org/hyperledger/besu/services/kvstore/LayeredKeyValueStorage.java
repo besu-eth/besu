@@ -151,6 +151,38 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
         false);
   }
 
+  private Optional<NearestKeyValue> inMemoryGetNearestBefore(
+      final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
+    return super.getNearestBefore(segmentIdentifier, key);
+  }
+
+  @Override
+  public NearestKeyValueScanner openNearestBeforeScanner(
+      final SegmentIdentifier segmentIdentifier) {
+    throwIfClosed();
+    final NearestKeyValueScanner parentScanner = parent.openNearestBeforeScanner(segmentIdentifier);
+    return new NearestKeyValueScanner() {
+      @Override
+      public Optional<NearestKeyValue> seekBefore(final Bytes key) throws StorageException {
+        final Optional<NearestKeyValue> ourNearest =
+            inMemoryGetNearestBefore(segmentIdentifier, key);
+        final Optional<NearestKeyValue> parentNearest = parentScanner.seekBefore(key);
+        if (ourNearest.isPresent() && parentNearest.isPresent()) {
+          return compareNearest(ourNearest, parentNearest, key, false);
+        } else if (ourNearest.isPresent()) {
+          return ourNearest;
+        } else {
+          return parentNearest;
+        }
+      }
+
+      @Override
+      public void close() {
+        parentScanner.close();
+      }
+    };
+  }
+
   @Override
   public Optional<NearestKeyValue> getNearestBeforeMatchLength(
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {

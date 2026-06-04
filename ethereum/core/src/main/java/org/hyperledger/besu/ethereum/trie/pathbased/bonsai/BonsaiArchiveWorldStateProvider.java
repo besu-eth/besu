@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai;
 
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.ARCHIVE_PROOF_BLOCK_NUMBER_KEY;
 
@@ -25,6 +27,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMer
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiArchiveWorldStateLayerStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveReadFlatDbStrategyProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiTrieNodeStrategy;
@@ -40,6 +43,7 @@ import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
@@ -230,9 +234,29 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final PathBasedWorldStateUpdateAccumulator<?> diffBasedUpdater =
           (PathBasedWorldStateUpdateAccumulator<?>) mutableState.updater();
       try {
-        for (final TrieLog rollBack : rollBacks) {
-          LOG.debug("Attempting rollback of {}", rollBack.getBlockHash());
-          diffBasedUpdater.rollBack(rollBack);
+        if (mutableState.getWorldStateStorage().getFlatDbStrategy()
+            instanceof BonsaiArchiveFlatDbStrategy archiveStrategy) {
+          final SegmentedKeyValueStorage composedStorage =
+              mutableState.getWorldStateStorage().getComposedWorldStateStorage();
+          try (final SegmentedKeyValueStorage.NearestKeyValueScanner accountScanner =
+                  composedStorage.openNearestBeforeScanner(ACCOUNT_INFO_STATE_ARCHIVE);
+              final SegmentedKeyValueStorage.NearestKeyValueScanner storageScanner =
+                  composedStorage.openNearestBeforeScanner(ACCOUNT_STORAGE_ARCHIVE)) {
+            archiveStrategy.activateScanners(accountScanner, storageScanner);
+            try {
+              for (final TrieLog rollBack : rollBacks) {
+                LOG.debug("Attempting rollback of {}", rollBack.getBlockHash());
+                diffBasedUpdater.rollBack(rollBack);
+              }
+            } finally {
+              archiveStrategy.deactivateScanners();
+            }
+          }
+        } else {
+          for (final TrieLog rollBack : rollBacks) {
+            LOG.debug("Attempting rollback of {}", rollBack.getBlockHash());
+            diffBasedUpdater.rollBack(rollBack);
+          }
         }
         // After rolling back N blocks, each account's storageRoot has been updated to the
         // target block's value. But persist() needs to build the storage trie starting from
