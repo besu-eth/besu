@@ -116,7 +116,7 @@ public class StorageRangeDataRequest extends SnapDataRequest {
                           accountHash, Hash.wrap(key), Bytes32.leftPad(RLP.decodeValue(value))));
         });
 
-    stackTrie.commit(flatDatabaseUpdater.get(), nodeUpdater);
+    stackTrie.commit(flatDatabaseUpdater.get(), nodeUpdater, false);
 
     downloadState.getMetricsManager().notifySlotsDownloaded(stackTrie.getElementsCount().get());
 
@@ -155,6 +155,8 @@ public class StorageRangeDataRequest extends SnapDataRequest {
 
   @Override
   public boolean isResponseReceived() {
+    // TODO: If isResponseReceived() == true, the task is marked completed, but
+    // not enqueued for healing in v2
     return isProofValid.isPresent();
   }
 

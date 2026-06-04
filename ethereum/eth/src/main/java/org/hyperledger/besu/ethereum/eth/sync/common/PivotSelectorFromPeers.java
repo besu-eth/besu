@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.eth.sync.PivotBlockSelector;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerLimiter;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 
 import java.util.List;
@@ -38,18 +39,23 @@ public class PivotSelectorFromPeers implements PivotBlockSelector {
   protected final EthContext ethContext;
   protected final SynchronizerConfiguration syncConfig;
   private final SyncState syncState;
+  private final int pivotBlockWindowValidity;
+
+  private volatile long lastReturnedPivotNumber = -1;
 
   public PivotSelectorFromPeers(
       final EthContext ethContext,
       final SynchronizerConfiguration syncConfig,
-      final SyncState syncState) {
+      final SyncState syncState,
+      final int pivotBlockWindowValidity) {
     this.ethContext = ethContext;
     this.syncConfig = syncConfig;
     this.syncState = syncState;
+    this.pivotBlockWindowValidity = pivotBlockWindowValidity;
   }
 
   @Override
-  public CompletableFuture<PivotSyncState> selectNewPivotBlock() {
+  public CompletableFuture<SnapSyncProcessState> selectNewPivotBlock() {
     return selectBestPeer()
         .map(this::fromPeer)
         .orElse(
@@ -79,17 +85,32 @@ public class PivotSelectorFromPeers implements PivotBlockSelector {
     return syncState.bestChainHeight();
   }
 
-  protected CompletableFuture<PivotSyncState> fromPeer(final EthPeer peer) {
-    final long pivotBlockNumber =
-        peer.chainState().getEstimatedHeight() - syncConfig.getSyncPivotDistance();
+  protected CompletableFuture<SnapSyncProcessState> fromPeer(final EthPeer peer) {
+    final long bestPeerHeight = peer.chainState().getEstimatedHeight();
+
+    // Reuse the previously selected pivot while the best peer's head is still within the
+    // snap-serving window — avoids rotating the pivot on every check.
+    if (lastReturnedPivotNumber > 0
+        && bestPeerHeight - lastReturnedPivotNumber < pivotBlockWindowValidity) {
+      LOG.debug(
+          "Reusing pivot {} — best peer height {} within {} block window",
+          lastReturnedPivotNumber,
+          bestPeerHeight,
+          pivotBlockWindowValidity);
+      return CompletableFuture.completedFuture(
+          new SnapSyncProcessState(lastReturnedPivotNumber, false));
+    }
+
+    final long pivotBlockNumber = bestPeerHeight - syncConfig.getSyncPivotDistance();
     if (pivotBlockNumber <= BlockHeader.GENESIS_BLOCK_NUMBER) {
       // Peer's chain isn't long enough, return an empty value, so we can try again.
       LOG.info("Waiting for peers with sufficient chain height");
       return CompletableFuture.failedFuture(
           new RuntimeException("No peers with sufficient height"));
     }
+    lastReturnedPivotNumber = pivotBlockNumber;
     LOG.info("Selecting block number {} as fast sync pivot block.", pivotBlockNumber);
-    return CompletableFuture.completedFuture(new PivotSyncState(pivotBlockNumber, false));
+    return CompletableFuture.completedFuture(new SnapSyncProcessState(pivotBlockNumber, false));
   }
 
   protected Optional<EthPeer> selectBestPeer() {
