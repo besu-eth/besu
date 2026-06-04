@@ -46,7 +46,7 @@ public class ReadinessCheckTest {
     when(p2pNetwork.getPeerCount()).thenReturn(1);
     when(synchronizer.getSyncStatus()).thenReturn(Optional.empty());
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isTrue();
+    assertThat(readinessCheck.check(paramSource)).isEqualTo(HealthCheckResult.HEALTHY);
   }
 
   @Test
@@ -55,7 +55,7 @@ public class ReadinessCheckTest {
     when(p2pNetwork.getPeerCount()).thenReturn(0);
     when(synchronizer.getSyncStatus()).thenReturn(Optional.empty());
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isTrue();
+    assertThat(readinessCheck.check(paramSource)).isEqualTo(HealthCheckResult.HEALTHY);
   }
 
   @Test
@@ -66,7 +66,7 @@ public class ReadinessCheckTest {
 
     params.put(MIN_PEERS_PARAM, "0");
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isTrue();
+    assertThat(readinessCheck.check(paramSource)).isEqualTo(HealthCheckResult.HEALTHY);
   }
 
   @Test
@@ -77,18 +77,18 @@ public class ReadinessCheckTest {
 
     params.put(MIN_PEERS_PARAM, "10");
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isFalse();
+    assertThat(readinessCheck.check(paramSource)).isEqualTo(HealthCheckResult.UNHEALTHY);
   }
 
   @Test
-  public void shouldNotBeReadyWhenMinimumPeersParamIsInvalid() {
+  public void shouldReturnBadRequestWhenMinimumPeersParamIsInvalid() {
     when(p2pNetwork.isP2pEnabled()).thenReturn(true);
     when(p2pNetwork.getPeerCount()).thenReturn(500);
     when(synchronizer.getSyncStatus()).thenReturn(Optional.empty());
 
     params.put(MIN_PEERS_PARAM, "abc");
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isFalse();
+    assertThat(readinessCheck.check(paramSource)).isEqualTo(HealthCheckResult.BAD_REQUEST);
   }
 
   @Test
@@ -97,16 +97,16 @@ public class ReadinessCheckTest {
     when(p2pNetwork.getPeerCount()).thenReturn(5);
     when(synchronizer.getSyncStatus()).thenReturn(createSyncStatus(1000, 1002));
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isTrue();
+    assertThat(readinessCheck.check(paramSource)).isEqualTo(HealthCheckResult.HEALTHY);
   }
 
   @Test
-  public void shouldNotBeReadyWhenLessThanDefaultMaxBlocksBehind() {
+  public void shouldNotBeReadyWhenMoreThanDefaultMaxBlocksBehind() {
     when(p2pNetwork.isP2pEnabled()).thenReturn(true);
     when(p2pNetwork.getPeerCount()).thenReturn(5);
     when(synchronizer.getSyncStatus()).thenReturn(createSyncStatus(1000, 1003));
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isFalse();
+    assertThat(readinessCheck.check(paramSource)).isEqualTo(HealthCheckResult.UNHEALTHY);
   }
 
   @Test
@@ -117,7 +117,7 @@ public class ReadinessCheckTest {
 
     params.put("maxBlocksBehind", "100");
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isTrue();
+    assertThat(readinessCheck.check(paramSource)).isEqualTo(HealthCheckResult.HEALTHY);
   }
 
   @Test
@@ -128,18 +128,40 @@ public class ReadinessCheckTest {
 
     params.put("maxBlocksBehind", "100");
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isFalse();
+    assertThat(readinessCheck.check(paramSource)).isEqualTo(HealthCheckResult.UNHEALTHY);
   }
 
   @Test
-  public void shouldNotBeReadyWhenCustomMaxBlocksBehindIsInvalid() {
+  public void shouldReturnBadRequestWhenCustomMaxBlocksBehindIsInvalid() {
     when(p2pNetwork.isP2pEnabled()).thenReturn(true);
     when(p2pNetwork.getPeerCount()).thenReturn(5);
     when(synchronizer.getSyncStatus()).thenReturn(createSyncStatus(500, 500));
 
     params.put("maxBlocksBehind", "abc");
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isFalse();
+    assertThat(readinessCheck.check(paramSource)).isEqualTo(HealthCheckResult.BAD_REQUEST);
+  }
+
+  @Test
+  public void shouldReturnBadRequestWhenMinPeersIsNegative() {
+    when(p2pNetwork.isP2pEnabled()).thenReturn(true);
+    when(p2pNetwork.getPeerCount()).thenReturn(5);
+    when(synchronizer.getSyncStatus()).thenReturn(Optional.empty());
+
+    params.put(MIN_PEERS_PARAM, "-1");
+
+    assertThat(readinessCheck.check(paramSource)).isEqualTo(HealthCheckResult.BAD_REQUEST);
+  }
+
+  @Test
+  public void shouldReturnBadRequestWhenMaxBlocksBehindIsNegative() {
+    when(p2pNetwork.isP2pEnabled()).thenReturn(true);
+    when(p2pNetwork.getPeerCount()).thenReturn(5);
+    when(synchronizer.getSyncStatus()).thenReturn(createSyncStatus(1000, 1000));
+
+    params.put("maxBlocksBehind", "-1");
+
+    assertThat(readinessCheck.check(paramSource)).isEqualTo(HealthCheckResult.BAD_REQUEST);
   }
 
   private Optional<SyncStatus> createSyncStatus(final int currentBlock, final int highestBlock) {
@@ -147,3 +169,4 @@ public class ReadinessCheckTest {
         new DefaultSyncStatus(0, currentBlock, highestBlock, Optional.empty(), Optional.empty()));
   }
 }
+

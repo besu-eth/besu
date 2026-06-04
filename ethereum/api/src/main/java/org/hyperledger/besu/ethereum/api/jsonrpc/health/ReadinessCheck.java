@@ -34,21 +34,23 @@ public class ReadinessCheck implements HealthService.HealthCheck {
   }
 
   @Override
-  public boolean isHealthy(final HealthService.ParamSource params) {
+  public HealthCheckResult check(final HealthService.ParamSource params) {
     LOG.debug("Invoking readiness check.");
     if (p2pNetwork.isP2pEnabled()) {
       final int peerCount = p2pNetwork.getPeerCount();
-      if (!hasMinimumPeers(params, peerCount)) {
-        return false;
+      final HealthCheckResult peersResult = checkMinimumPeers(params, peerCount);
+      if (peersResult != HealthCheckResult.HEALTHY) {
+        return peersResult;
       }
     }
     return synchronizer
         .getSyncStatus()
-        .map(syncStatus -> isInSync(syncStatus, params))
-        .orElse(true);
+        .map(syncStatus -> checkInSync(syncStatus, params))
+        .orElse(HealthCheckResult.HEALTHY);
   }
 
-  private boolean isInSync(final SyncStatus syncStatus, final HealthService.ParamSource params) {
+  private HealthCheckResult checkInSync(
+      final SyncStatus syncStatus, final HealthService.ParamSource params) {
     final String maxBlocksBehindParam = params.getParam("maxBlocksBehind");
     final long maxBlocksBehind;
     if (maxBlocksBehindParam == null) {
@@ -57,14 +59,21 @@ public class ReadinessCheck implements HealthService.HealthCheck {
       try {
         maxBlocksBehind = Long.parseLong(maxBlocksBehindParam);
       } catch (final NumberFormatException e) {
-        LOG.debug("Invalid maxBlocksBehind: {}. Reporting as not ready.", maxBlocksBehindParam);
-        return false;
+        LOG.debug("Invalid maxBlocksBehind: {}. Bad request.", maxBlocksBehindParam);
+        return HealthCheckResult.BAD_REQUEST;
+      }
+      if (maxBlocksBehind < 0) {
+        LOG.debug("Negative maxBlocksBehind: {}. Bad request.", maxBlocksBehindParam);
+        return HealthCheckResult.BAD_REQUEST;
       }
     }
-    return syncStatus.getHighestBlock() - syncStatus.getCurrentBlock() <= maxBlocksBehind;
+    return syncStatus.getHighestBlock() - syncStatus.getCurrentBlock() <= maxBlocksBehind
+        ? HealthCheckResult.HEALTHY
+        : HealthCheckResult.UNHEALTHY;
   }
 
-  private boolean hasMinimumPeers(final HealthService.ParamSource params, final int peerCount) {
+  private HealthCheckResult checkMinimumPeers(
+      final HealthService.ParamSource params, final int peerCount) {
     final int minimumPeers;
     final String peersParam = params.getParam("minPeers");
     if (peersParam == null) {
@@ -73,10 +82,17 @@ public class ReadinessCheck implements HealthService.HealthCheck {
       try {
         minimumPeers = Integer.parseInt(peersParam);
       } catch (final NumberFormatException e) {
-        LOG.debug("Invalid minPeers: {}. Reporting as not ready.", peersParam);
-        return false;
+        LOG.debug("Invalid minPeers: {}. Bad request.", peersParam);
+        return HealthCheckResult.BAD_REQUEST;
+      }
+      if (minimumPeers < 0) {
+        LOG.debug("Negative minPeers: {}. Bad request.", peersParam);
+        return HealthCheckResult.BAD_REQUEST;
       }
     }
-    return peerCount >= minimumPeers;
+    return peerCount >= minimumPeers
+        ? HealthCheckResult.HEALTHY
+        : HealthCheckResult.UNHEALTHY;
   }
 }
+

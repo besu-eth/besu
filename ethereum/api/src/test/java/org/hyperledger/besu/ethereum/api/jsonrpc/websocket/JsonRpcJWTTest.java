@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.EngineJsonRpcService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcConfiguration;
 import org.hyperledger.besu.ethereum.api.jsonrpc.authentication.AuthenticationService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.authentication.EngineAuthService;
+import org.hyperledger.besu.ethereum.api.jsonrpc.health.HealthCheckResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.health.HealthService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.health.HealthService.HealthCheck;
 import org.hyperledger.besu.ethereum.api.jsonrpc.health.HealthService.ParamSource;
@@ -115,8 +116,8 @@ public class JsonRpcJWTTest {
         new HealthService(
             new HealthCheck() {
               @Override
-              public boolean isHealthy(final ParamSource paramSource) {
-                return true;
+              public HealthCheckResult check(final ParamSource paramSource) {
+                return HealthCheckResult.HEALTHY;
               }
             });
 
