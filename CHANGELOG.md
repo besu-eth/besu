@@ -19,7 +19,7 @@
 
 ### Additions and Improvements
 - Add `eth_getTransactionBySenderAndNonce` JSON-RPC method to look up a transaction by sender address and nonce (pending or mined).
-  - Mined transaction lookup uses a sender+nonce index, enabled by default (`--tx-sender-nonce-index-enabled=false` to disable). Nodes performing a FULL sync from scratch may want to disable this to avoid the storage overhead of indexing historical transactions. [#10501](https://github.com/besu-eth/besu/issues/10501)
+  - Mined transaction lookup uses a sender+nonce index, enabled by default (`--tx-sender-nonce-index-enabled=false` to disable). Nodes performing a FULL sync from scratch may want to disable this to avoid the storage overhead of indexing historical transactions. [#10501](https://github.com/besu-eth/besu/pull/10501)
 
 ## 26.6.0
 
