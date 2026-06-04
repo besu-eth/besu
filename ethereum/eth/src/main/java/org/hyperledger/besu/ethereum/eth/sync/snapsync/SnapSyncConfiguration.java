@@ -19,9 +19,19 @@ import org.immutables.value.Value;
 @Value.Immutable
 public class SnapSyncConfiguration {
 
-  // we use 126 and not the max value (128) to avoid sending requests that will be refused
-  public static final int DEFAULT_PIVOT_BLOCK_WINDOW_VALIDITY = 126;
+  /**
+   * Maximum distance (in blocks) the pivot can lag behind the chain head before {@code
+   * PivotSelectorFromSafeBlock} selects a new one. 120 = 128 (snap-serving window) − 8 (≈ 1.5 min
+   * buffer at 12 s/slot), so the pivot is replaced while it still has ~1.5 minutes left in the
+   * snap-serving window.
+   */
+  public static final int DEFAULT_PIVOT_BLOCK_WINDOW_VALIDITY = 120;
+
+  /** Retained as a named constant for the deprecated CLI flag. */
   public static final int DEFAULT_PIVOT_BLOCK_DISTANCE_BEFORE_CACHING = 60;
+
+  /** How often {@code DynamicPivotBlockSelector} re-evaluates whether to refresh the pivot. */
+  public static final long DEFAULT_PIVOT_CHECK_INTERVAL_MILLIS = 60_000L;
 
   public static final int DEFAULT_STORAGE_COUNT_PER_REQUEST =
       384; // The default number of storage entries to download from peers per request.
@@ -49,11 +59,6 @@ public class SnapSyncConfiguration {
   @Value.Default
   public int getPivotBlockWindowValidity() {
     return DEFAULT_PIVOT_BLOCK_WINDOW_VALIDITY;
-  }
-
-  @Value.Default
-  public int getPivotBlockDistanceBeforeCaching() {
-    return DEFAULT_PIVOT_BLOCK_DISTANCE_BEFORE_CACHING;
   }
 
   @Value.Default

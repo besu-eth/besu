@@ -94,6 +94,9 @@ testing {
             if (System.getProperty('acctests.consensusType')) {
               systemProperty 'acctests.consensusType', System.getProperty('acctests.consensusType')
             }
+            if (System.getProperty('root.log.level')) {
+              systemProperty 'root.log.level', System.getProperty('root.log.level')
+            }
             def javaProjects = rootProject.subprojects - project(':platform')
             mustRunAfter javaProjects.test
             description = 'Runs ALL Besu acceptance tests (excluding bftsoak).'

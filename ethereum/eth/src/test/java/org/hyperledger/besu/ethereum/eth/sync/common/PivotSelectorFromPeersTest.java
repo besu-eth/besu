@@ -54,7 +54,7 @@ public class PivotSelectorFromPeersTest {
     SynchronizerConfiguration syncConfig =
         SynchronizerConfiguration.builder().syncMinimumPeerCount(2).syncPivotDistance(1).build();
 
-    selector = new PivotSelectorFromPeers(ethContext, syncConfig, syncState);
+    selector = new PivotSelectorFromPeers(ethContext, syncConfig, syncState, 120);
   }
 
   @Test
@@ -70,6 +70,69 @@ public class PivotSelectorFromPeersTest {
     try {
       SnapSyncProcessState result = selector.selectNewPivotBlock().get();
       Assertions.assertEquals(9, result.getPivotBlockNumber().getAsLong());
+    } catch (Exception e) {
+      Assertions.fail("Unexpected exception thrown", e);
+    }
+  }
+
+  @Test
+  public void reusesPreviousPivotWhileHeadIsWithinWindow() {
+    // Cycle 1: best peer at height 10 → pivot = 10 - pivotDistance(1) = 9
+    // Cycle 2: best peer at height 100 → 100 - 9 = 91 < 120, must reuse 9
+    final EthPeerImmutableAttributes peer10a =
+        EthPeerImmutableAttributes.from(mockPeer(true, 10, true));
+    final EthPeerImmutableAttributes peer10b =
+        EthPeerImmutableAttributes.from(mockPeer(true, 10, true));
+    final EthPeerImmutableAttributes peer100 =
+        EthPeerImmutableAttributes.from(mockPeer(true, 100, true));
+    final EthPeerImmutableAttributes peer99 =
+        EthPeerImmutableAttributes.from(mockPeer(true, 99, true));
+
+    Mockito.when(ethContext.getEthPeers()).thenReturn(ethPeers);
+    Mockito.when(ethPeers.streamAvailablePeers())
+        .thenReturn(Stream.of(peer10a, peer10b))
+        .thenReturn(Stream.of(peer100, peer99));
+    Mockito.when(ethPeers.getBestPeerComparator())
+        .thenReturn(
+            (left, right) ->
+                Long.compare(left.estimatedChainHeight(), right.estimatedChainHeight()));
+
+    try {
+      Assertions.assertEquals(
+          9, selector.selectNewPivotBlock().get().getPivotBlockNumber().getAsLong());
+      Assertions.assertEquals(
+          9, selector.selectNewPivotBlock().get().getPivotBlockNumber().getAsLong());
+    } catch (Exception e) {
+      Assertions.fail("Unexpected exception thrown", e);
+    }
+  }
+
+  @Test
+  public void rotatesPivotOnceHeadHasAdvancedBeyondWindow() {
+    // Cycle 1: pivot = 9. Cycle 2: best peer at 200 → 200 - 9 = 191 >= 120 → rotate to 199.
+    final EthPeerImmutableAttributes peer10a =
+        EthPeerImmutableAttributes.from(mockPeer(true, 10, true));
+    final EthPeerImmutableAttributes peer10b =
+        EthPeerImmutableAttributes.from(mockPeer(true, 10, true));
+    final EthPeerImmutableAttributes peer200 =
+        EthPeerImmutableAttributes.from(mockPeer(true, 200, true));
+    final EthPeerImmutableAttributes peer199 =
+        EthPeerImmutableAttributes.from(mockPeer(true, 199, true));
+
+    Mockito.when(ethContext.getEthPeers()).thenReturn(ethPeers);
+    Mockito.when(ethPeers.streamAvailablePeers())
+        .thenReturn(Stream.of(peer10a, peer10b))
+        .thenReturn(Stream.of(peer200, peer199));
+    Mockito.when(ethPeers.getBestPeerComparator())
+        .thenReturn(
+            (left, right) ->
+                Long.compare(left.estimatedChainHeight(), right.estimatedChainHeight()));
+
+    try {
+      Assertions.assertEquals(
+          9, selector.selectNewPivotBlock().get().getPivotBlockNumber().getAsLong());
+      Assertions.assertEquals(
+          199, selector.selectNewPivotBlock().get().getPivotBlockNumber().getAsLong());
     } catch (Exception e) {
       Assertions.fail("Unexpected exception thrown", e);
     }

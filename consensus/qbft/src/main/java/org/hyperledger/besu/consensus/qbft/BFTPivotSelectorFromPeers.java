@@ -60,6 +60,7 @@ public class BFTPivotSelectorFromPeers extends PivotSelectorFromPeers {
    * @param protocolContext the protocol context
    * @param nodeKey the node key
    * @param blockHeader the block header
+   * @param pivotBlockWindowValidity max distance the pivot can lag behind the head before refresh
    */
   public BFTPivotSelectorFromPeers(
       final EthContext ethContext,
@@ -67,8 +68,9 @@ public class BFTPivotSelectorFromPeers extends PivotSelectorFromPeers {
       final SyncState syncState,
       final ProtocolContext protocolContext,
       final NodeKey nodeKey,
-      final BlockHeader blockHeader) {
-    super(ethContext, syncConfig, syncState);
+      final BlockHeader blockHeader,
+      final int pivotBlockWindowValidity) {
+    super(ethContext, syncConfig, syncState, pivotBlockWindowValidity);
     this.protocolContext = protocolContext;
     this.blockHeader = blockHeader;
     this.nodeKey = nodeKey;
