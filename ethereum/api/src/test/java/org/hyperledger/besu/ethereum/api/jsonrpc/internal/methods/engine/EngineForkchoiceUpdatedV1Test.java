@@ -100,7 +100,7 @@ public class EngineForkchoiceUpdatedV1Test {
   /** Returns the method factory for the version under test. Overridden by each subclass. */
   protected EngineForkchoiceUpdatedV1<?> createMethodInstance() {
     return new EngineForkchoiceUpdatedV1<>(
-        vertx, protocolSchedule, protocolContext, mergeCoordinator, engineCallListener, null, null);
+        protocolSchedule, protocolContext, vertx, engineCallListener, mergeCoordinator, null, null);
   }
 
   protected final void createMethod() {

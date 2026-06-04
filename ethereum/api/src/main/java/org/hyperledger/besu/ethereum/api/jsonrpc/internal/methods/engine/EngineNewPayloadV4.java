@@ -51,22 +51,22 @@ public sealed class EngineNewPayloadV4<
   private static final Logger LOG = LoggerFactory.getLogger(EngineNewPayloadV4.class);
 
   public EngineNewPayloadV4(
-      final Vertx vertx,
       final ProtocolSchedule timestampSchedule,
       final ProtocolContext protocolContext,
+      final Vertx vertx,
+      final EngineCallListener engineCallListener,
       final MergeMiningCoordinator mergeCoordinator,
       final EthPeers ethPeers,
-      final EngineCallListener engineCallListener,
       final MetricsSystem metricsSystem,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
     super(
-        vertx,
         timestampSchedule,
         protocolContext,
+        vertx,
+        engineCallListener,
         mergeCoordinator,
         ethPeers,
-        engineCallListener,
         metricsSystem,
         minSupportedFork,
         firstUnsupportedFork);
@@ -111,9 +111,7 @@ public sealed class EngineNewPayloadV4<
       final NewPayloadRequestParametersV3<? extends EP> requestParameters) {
     final var payloadParameter = requestParameters.payloadParameter();
     if (!getRequestsValidator(
-            protocolSchedule.get(),
-            payloadParameter.getTimestamp(),
-            payloadParameter.getBlockNumber())
+            protocolSchedule, payloadParameter.getTimestamp(), payloadParameter.getBlockNumber())
         .validate(Optional.of(requestParameters.executionRequests()))) {
       return ValidationResult.invalid(RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS);
     }

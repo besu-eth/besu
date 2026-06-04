@@ -43,22 +43,22 @@ public final class EngineNewPayloadV5<
     extends EngineNewPayloadV4<EP, NPRP> {
 
   public EngineNewPayloadV5(
-      final Vertx vertx,
       final ProtocolSchedule timestampSchedule,
       final ProtocolContext protocolContext,
+      final Vertx vertx,
+      final EngineCallListener engineCallListener,
       final MergeMiningCoordinator mergeCoordinator,
       final EthPeers ethPeers,
-      final EngineCallListener engineCallListener,
       final MetricsSystem metricsSystem,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
     super(
-        vertx,
         timestampSchedule,
         protocolContext,
+        vertx,
+        engineCallListener,
         mergeCoordinator,
         ethPeers,
-        engineCallListener,
         metricsSystem,
         minSupportedFork,
         firstUnsupportedFork);

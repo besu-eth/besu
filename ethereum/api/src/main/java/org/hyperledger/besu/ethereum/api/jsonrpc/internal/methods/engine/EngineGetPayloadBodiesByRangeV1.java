@@ -19,31 +19,40 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadBodiesResultV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ExecutionPayloadBodiesV1;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.BlockBody;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
-import java.util.stream.Collectors;
+import java.util.List;
 import java.util.stream.LongStream;
 
 import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class EngineGetPayloadBodiesByRangeV1 extends AbstractEngineGetPayloadBodies {
+public sealed class EngineGetPayloadBodiesByRangeV1<EPB extends ExecutionPayloadBodiesV1>
+    extends ExecutionEngineJsonRpcMethod permits EngineGetPayloadBodiesByRangeV2 {
   private static final Logger LOG = LoggerFactory.getLogger(EngineGetPayloadBodiesByRangeV1.class);
+  private final int maxRequestBlocks;
+  protected final Blockchain blockchain;
 
   public EngineGetPayloadBodiesByRangeV1(
-      final Vertx vertx,
+      final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
-      final BlockResultFactory blockResultFactory,
-      final EngineCallListener engineCallListener) {
-    super(vertx, protocolContext, blockResultFactory, engineCallListener);
+      final Vertx vertx,
+      final EngineCallListener engineCallListener,
+      final int maxRequestBlocks) {
+    super(protocolSchedule, protocolContext, vertx, engineCallListener);
+    this.maxRequestBlocks = maxRequestBlocks;
+    this.blockchain = protocolContext.getBlockchain();
   }
 
   @Override
@@ -52,26 +61,19 @@ public class EngineGetPayloadBodiesByRangeV1 extends AbstractEngineGetPayloadBod
   }
 
   @Override
-  public JsonRpcResponse syncResponse(final JsonRpcRequestContext request) {
+  public final JsonRpcResponse syncResponse(final JsonRpcRequestContext request) {
     engineCallListener.executionEngineCalled();
-
-    final long startBlockNumber;
-    try {
-      startBlockNumber = request.getRequiredParameter(0, UnsignedLongParameter.class).getValue();
-    } catch (JsonRpcParameterException e) {
-      throw new InvalidJsonRpcParameters(
-          "Invalid start block number parameter (index 0)",
-          RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS,
-          e);
-    }
-    final long count;
-    try {
-      count = request.getRequiredParameter(1, UnsignedLongParameter.class).getValue();
-    } catch (JsonRpcParameterException e) {
-      throw new InvalidJsonRpcParameters(
-          "Invalid block count params (index 1)", RpcErrorType.INVALID_BLOCK_COUNT_PARAMS, e);
-    }
     final Object reqId = request.getRequest().getId();
+    try {
+      return new JsonRpcSuccessResponse(reqId, collectExecutionPayloadBodiesByRange(request));
+    } catch (final InvalidJsonRpcParameters e) {
+      return new JsonRpcErrorResponse(reqId, e.getRpcErrorType());
+    }
+  }
+
+  private List<EPB> collectExecutionPayloadBodiesByRange(final JsonRpcRequestContext request) {
+    final long startBlockNumber = getStartBlockNumber(request);
+    final long count = getCount(request);
 
     LOG.atTrace()
         .setMessage("{} parameters: start block number {} count {}")
@@ -80,40 +82,68 @@ public class EngineGetPayloadBodiesByRangeV1 extends AbstractEngineGetPayloadBod
         .addArgument(count)
         .log();
 
-    if (startBlockNumber < 1 || count < 1) {
-      return new JsonRpcErrorResponse(reqId, RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS);
+    if (startBlockNumber < 1) {
+      throw new InvalidJsonRpcParameters(
+          "start block number %d < 1".formatted(startBlockNumber),
+          RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS);
     }
 
-    if (count > getMaxRequestBlocks()) {
-      return new JsonRpcErrorResponse(reqId, RpcErrorType.INVALID_RANGE_REQUEST_TOO_LARGE);
+    if (count < 1) {
+      throw new InvalidJsonRpcParameters(
+          "count %d < 1".formatted(startBlockNumber), RpcErrorType.INVALID_BLOCK_COUNT_PARAMS);
     }
 
-    final Blockchain blockchain = protocolContext.getBlockchain();
+    if (count > maxRequestBlocks) {
+      throw new InvalidJsonRpcParameters(
+          "count %d > %d ".formatted(count, maxRequestBlocks),
+          RpcErrorType.INVALID_RANGE_REQUEST_TOO_LARGE);
+    }
+
     final long chainHeadBlockNumber = blockchain.getChainHeadBlockNumber();
 
-    // request startBlockNumber is beyond head of chain
     if (chainHeadBlockNumber < startBlockNumber) {
-      // Empty List of payloadBodies
-      return new JsonRpcSuccessResponse(reqId, new EngineGetPayloadBodiesResultV1());
+      return List.of();
     }
 
     final long upperBound = startBlockNumber + count;
-
-    // if we've received request from blocks beyond the head we exclude those from the query
     final long endExclusiveBlockNumber =
         chainHeadBlockNumber < upperBound ? chainHeadBlockNumber + 1 : upperBound;
 
-    EngineGetPayloadBodiesResultV1 engineGetPayloadBodiesResultV1 =
-        blockResultFactory.payloadBodiesCompleteV1(
-            LongStream.range(startBlockNumber, endExclusiveBlockNumber)
-                .parallel()
-                .mapToObj(
-                    blockNumber ->
-                        blockchain
-                            .getBlockHashByNumber(blockNumber)
-                            .flatMap(blockchain::getBlockBody))
-                .collect(Collectors.toList()));
+    return LongStream.range(startBlockNumber, endExclusiveBlockNumber)
+        .parallel()
+        .mapToObj(
+            blockNumber ->
+                blockchain
+                    .getBlockByNumber(blockNumber)
+                    .map(this::fetchExecutionPayloadBody)
+                    .orElse(null))
+        .toList();
+  }
 
-    return new JsonRpcSuccessResponse(reqId, engineGetPayloadBodiesResultV1);
+  @SuppressWarnings("unchecked")
+  protected EPB fetchExecutionPayloadBody(final Block block) {
+    final BlockBody body = block.getBody();
+    return (EPB)
+        new ExecutionPayloadBodiesV1(body.getTransactions(), body.getWithdrawals().orElse(null));
+  }
+
+  private long getStartBlockNumber(final JsonRpcRequestContext request) {
+    try {
+      return request.getRequiredParameter(0, UnsignedLongParameter.class).getValue();
+    } catch (JsonRpcParameter.JsonRpcParameterException e) {
+      throw new InvalidJsonRpcParameters(
+          "Invalid start block number parameter (index 0)",
+          RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS,
+          e);
+    }
+  }
+
+  private long getCount(final JsonRpcRequestContext request) {
+    try {
+      return request.getRequiredParameter(1, UnsignedLongParameter.class).getValue();
+    } catch (JsonRpcParameter.JsonRpcParameterException e) {
+      throw new InvalidJsonRpcParameters(
+          "Invalid block count params (index 1)", RpcErrorType.INVALID_BLOCK_COUNT_PARAMS, e);
+    }
   }
 }

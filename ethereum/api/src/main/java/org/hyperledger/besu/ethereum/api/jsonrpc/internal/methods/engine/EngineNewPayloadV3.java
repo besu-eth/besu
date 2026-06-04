@@ -57,22 +57,22 @@ public sealed class EngineNewPayloadV3<
     extends EngineNewPayloadV2<EP, NPRP> permits EngineNewPayloadV4 {
 
   public EngineNewPayloadV3(
-      final Vertx vertx,
       final ProtocolSchedule timestampSchedule,
       final ProtocolContext protocolContext,
+      final Vertx vertx,
+      final EngineCallListener engineCallListener,
       final MergeMiningCoordinator mergeCoordinator,
       final EthPeers ethPeers,
-      final EngineCallListener engineCallListener,
       final MetricsSystem metricsSystem,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
     super(
-        vertx,
         timestampSchedule,
         protocolContext,
+        vertx,
+        engineCallListener,
         mergeCoordinator,
         ethPeers,
-        engineCallListener,
         metricsSystem,
         minSupportedFork,
         firstUnsupportedFork);

@@ -55,12 +55,12 @@ public class EngineGetPayloadV2Test extends EngineGetPayloadV1Test {
   @Override
   protected EngineGetPayloadV1 createMethodInstance() {
     return new EngineGetPayloadV2(
-        vertx,
         protocolSchedule,
         protocolContext,
+        vertx,
+        engineCallListener,
         mergeMiningCoordinator,
         factory,
-        engineCallListener,
         null,
         CANCUN);
   }

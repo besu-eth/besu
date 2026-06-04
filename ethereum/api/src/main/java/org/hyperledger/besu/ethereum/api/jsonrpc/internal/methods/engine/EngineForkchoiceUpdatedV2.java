@@ -44,19 +44,19 @@ public sealed class EngineForkchoiceUpdatedV2<PA extends PayloadAttributesV2>
   private final Optional<Long> shanghaiTimestamp;
 
   public EngineForkchoiceUpdatedV2(
-      final Vertx vertx,
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
-      final MergeMiningCoordinator mergeCoordinator,
+      final Vertx vertx,
       final EngineCallListener engineCallListener,
+      final MergeMiningCoordinator mergeCoordinator,
       final HardforkId minFork,
       final HardforkId maxFork) {
     super(
-        vertx,
         protocolSchedule,
         protocolContext,
-        mergeCoordinator,
+        vertx,
         engineCallListener,
+        mergeCoordinator,
         minFork,
         maxFork);
     shanghaiTimestamp = protocolSchedule.milestoneFor(HardforkId.MainnetHardforkId.SHANGHAI);
@@ -104,7 +104,7 @@ public sealed class EngineForkchoiceUpdatedV2<PA extends PayloadAttributesV2>
       }
     }
     return WithdrawalsValidatorProvider.getWithdrawalsValidator(
-                protocolSchedule.get(), newHead, attrs.getTimestamp())
+                protocolSchedule, newHead, attrs.getTimestamp())
             .validateWithdrawals(Optional.ofNullable(attrs.getWithdrawals()))
         ? ValidationResult.valid()
         : ValidationResult.invalid(getInvalidPayloadAttributesError(), "Invalid withdrawals");

@@ -39,19 +39,19 @@ public sealed class EngineForkchoiceUpdatedV3<PA extends PayloadAttributesV3>
     extends EngineForkchoiceUpdatedV2<PA> permits EngineForkchoiceUpdatedV4 {
 
   public EngineForkchoiceUpdatedV3(
-      final Vertx vertx,
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
-      final MergeMiningCoordinator mergeCoordinator,
+      final Vertx vertx,
       final EngineCallListener engineCallListener,
+      final MergeMiningCoordinator mergeCoordinator,
       final HardforkId minFork,
       final HardforkId maxFork) {
     super(
-        vertx,
         protocolSchedule,
         protocolContext,
-        mergeCoordinator,
+        vertx,
         engineCallListener,
+        mergeCoordinator,
         minFork,
         maxFork);
   }

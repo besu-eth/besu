@@ -20,7 +20,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPa
 import org.hyperledger.besu.ethereum.api.query.BlockWithMetadata;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.core.Block;
-import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.util.HexUtils;
@@ -30,7 +29,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.TextNode;
@@ -219,36 +217,4 @@ public class BlockResultFactory {
   }
 
   // endregion EngineGetPayloadResult
-
-  // region EngineGetPayloadBodiesResult
-
-  public EngineGetPayloadBodiesResultV1 payloadBodiesCompleteV1(
-      final List<Optional<BlockBody>> blockBodies) {
-    final List<EngineGetPayloadBodiesResultV1.PayloadBody> payloadBodies =
-        blockBodies.stream()
-            .map(
-                maybeBody ->
-                    maybeBody.map(EngineGetPayloadBodiesResultV1.PayloadBody::new).orElse(null))
-            .collect(Collectors.toList());
-    return new EngineGetPayloadBodiesResultV1(payloadBodies);
-  }
-
-  public EngineGetPayloadBodiesResultV2 payloadBodiesCompleteV2(
-      final List<Optional<BlockBody>> blockBodies, final List<Optional<String>> blockAccessLists) {
-    final List<EngineGetPayloadBodiesResultV2.PayloadBody> payloadBodies =
-        IntStream.range(0, blockBodies.size())
-            .mapToObj(
-                index ->
-                    blockBodies
-                        .get(index)
-                        .map(
-                            body ->
-                                new EngineGetPayloadBodiesResultV2.PayloadBody(
-                                    body, blockAccessLists.get(index).orElse(null)))
-                        .orElse(null))
-            .collect(Collectors.toList());
-    return new EngineGetPayloadBodiesResultV2(payloadBodies);
-  }
-
-  // endregion EngineGetPayloadBodiesResult
 }

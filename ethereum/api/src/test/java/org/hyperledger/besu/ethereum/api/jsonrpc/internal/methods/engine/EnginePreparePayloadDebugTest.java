@@ -65,7 +65,7 @@ public class EnginePreparePayloadDebugTest {
     method =
         spy(
             new EnginePreparePayloadDebug(
-                vertx, protocolContext, engineCallListener, mergeCoordinator));
+                null, protocolContext, vertx, engineCallListener, mergeCoordinator));
   }
 
   @Test

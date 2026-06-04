@@ -107,9 +107,9 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
 
     method =
         new EngineGetBlobsV3(
-            mock(Vertx.class),
-            protocolContext,
             protocolSchedule,
+            protocolContext,
+            mock(Vertx.class),
             mock(EngineCallListener.class),
             transactionPool,
             metricsSystem);

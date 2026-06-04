@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngin
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetClientVersionResultV1;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
 import java.util.Collections;
 import java.util.List;
@@ -35,12 +36,13 @@ public class EngineGetClientVersionV1 extends ExecutionEngineJsonRpcMethod {
   private final String commit;
 
   public EngineGetClientVersionV1(
-      final Vertx vertx,
+      final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
+      final Vertx vertx,
       final EngineCallListener engineCallListener,
       final String clientVersion,
       final String commit) {
-    super(vertx, protocolContext, engineCallListener);
+    super(protocolSchedule, protocolContext, vertx, engineCallListener);
     this.clientVersion = clientVersion;
     this.commit = commit;
   }

@@ -100,7 +100,7 @@ public class EngineGetBlobsV1Test extends AbstractScheduledApiTest {
     this.method =
         spy(
             new EngineGetBlobsV1(
-                vertx, protocolContext, protocolSchedule, engineCallListener, transactionPool));
+                protocolSchedule, protocolContext, vertx, engineCallListener, transactionPool));
   }
 
   @Test

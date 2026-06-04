@@ -55,15 +55,15 @@ public sealed class EngineGetPayloadV1 extends ExecutionEngineJsonRpcMethod
   private final HardforkId firstUnsupportedFork;
 
   public EngineGetPayloadV1(
-      final Vertx vertx,
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
+      final Vertx vertx,
+      final EngineCallListener engineCallListener,
       final MergeMiningCoordinator mergeMiningCoordinator,
       final BlockResultFactory blockResultFactory,
-      final EngineCallListener engineCallListener,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
-    super(vertx, protocolSchedule, protocolContext, engineCallListener);
+    super(protocolSchedule, protocolContext, vertx, engineCallListener);
     this.mergeMiningCoordinator = mergeMiningCoordinator;
     this.blockResultFactory = blockResultFactory;
     this.minSupportedFork = minSupportedFork;

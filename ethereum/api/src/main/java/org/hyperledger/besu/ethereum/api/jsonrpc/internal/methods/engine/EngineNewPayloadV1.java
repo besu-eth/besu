@@ -90,16 +90,16 @@ public sealed class EngineNewPayloadV1<
   private final HardforkId firstUnsupportedFork;
 
   public EngineNewPayloadV1(
-      final Vertx vertx,
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
+      final Vertx vertx,
+      final EngineCallListener engineCallListener,
       final MergeMiningCoordinator mergeCoordinator,
       final EthPeers ethPeers,
-      final EngineCallListener engineCallListener,
       final MetricsSystem metricsSystem,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
-    super(vertx, protocolSchedule, protocolContext, engineCallListener);
+    super(protocolSchedule, protocolContext, vertx, engineCallListener);
     this.mergeCoordinator = mergeCoordinator;
     this.ethPeers = ethPeers;
     this.minSupportedFork = minSupportedFork;
@@ -216,7 +216,7 @@ public sealed class EngineNewPayloadV1<
       mergeCoordinator.appendNewPayloadToSync(unvalidatedBlock);
     }
 
-    final ProtocolSpec protocolSpec = protocolSchedule.get().getByBlockHeader(newBlockHeader);
+    final ProtocolSpec protocolSpec = protocolSchedule.getByBlockHeader(newBlockHeader);
     final var maybeLatestValidAncestor = mergeCoordinator.getLatestValidAncestor(newBlockHeader);
 
     // 4. Client software MUST validate the payload if it extends the canonical chain, and requisite

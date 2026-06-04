@@ -27,21 +27,21 @@ import io.vertx.core.Vertx;
 public sealed class EngineGetPayloadV3 extends EngineGetPayloadV2 permits EngineGetPayloadV4 {
 
   public EngineGetPayloadV3(
-      final Vertx vertx,
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
+      final Vertx vertx,
+      final EngineCallListener engineCallListener,
       final MergeMiningCoordinator mergeMiningCoordinator,
       final BlockResultFactory blockResultFactory,
-      final EngineCallListener engineCallListener,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
     super(
-        vertx,
         protocolSchedule,
         protocolContext,
+        vertx,
+        engineCallListener,
         mergeMiningCoordinator,
         blockResultFactory,
-        engineCallListener,
         minSupportedFork,
         firstUnsupportedFork);
   }

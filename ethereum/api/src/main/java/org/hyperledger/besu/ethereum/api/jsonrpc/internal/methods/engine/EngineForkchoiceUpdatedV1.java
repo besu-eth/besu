@@ -74,14 +74,14 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
   private final HardforkId firstUnsupportedFork;
 
   public EngineForkchoiceUpdatedV1(
-      final Vertx vertx,
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
-      final MergeMiningCoordinator mergeCoordinator,
+      final Vertx vertx,
       final EngineCallListener engineCallListener,
+      final MergeMiningCoordinator mergeCoordinator,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
-    super(vertx, protocolSchedule, protocolContext, engineCallListener);
+    super(protocolSchedule, protocolContext, vertx, engineCallListener);
     this.mergeCoordinator = mergeCoordinator;
     this.minSupportedFork = minSupportedFork;
     this.firstUnsupportedFork = firstUnsupportedFork;

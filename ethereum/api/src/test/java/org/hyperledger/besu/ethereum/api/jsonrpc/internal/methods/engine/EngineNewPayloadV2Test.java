@@ -57,12 +57,12 @@ public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
   @Override
   protected EngineNewPayloadV1<?, ?> createMethodInstance() {
     return new EngineNewPayloadV2<>(
-        vertx,
         protocolSchedule,
         protocolContext,
+        vertx,
+        engineCallListener,
         mergeCoordinator,
         ethPeers,
-        engineCallListener,
         new NoOpMetricsSystem(),
         null,
         CANCUN);

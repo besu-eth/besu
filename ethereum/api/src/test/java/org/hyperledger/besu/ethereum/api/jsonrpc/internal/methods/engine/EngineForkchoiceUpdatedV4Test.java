@@ -51,11 +51,11 @@ public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test
   protected EngineForkchoiceUpdatedV1<?> createMethodInstance() {
     // V4 has no upper bound (null maxFork = open-ended).
     return new EngineForkchoiceUpdatedV4<>(
-        vertx,
         protocolSchedule,
         protocolContext,
-        mergeCoordinator,
+        vertx,
         engineCallListener,
+        mergeCoordinator,
         AMSTERDAM,
         null);
   }

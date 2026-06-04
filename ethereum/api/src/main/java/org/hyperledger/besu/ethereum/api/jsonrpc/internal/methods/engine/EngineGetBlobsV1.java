@@ -73,12 +73,12 @@ public class EngineGetBlobsV1 extends ExecutionEngineJsonRpcMethod {
   private final Optional<Long> osakaMilestone;
 
   public EngineGetBlobsV1(
-      final Vertx vertx,
-      final ProtocolContext protocolContext,
       final ProtocolSchedule protocolSchedule,
+      final ProtocolContext protocolContext,
+      final Vertx vertx,
       final EngineCallListener engineCallListener,
       final TransactionPool transactionPool) {
-    super(vertx, protocolContext, engineCallListener);
+    super(protocolSchedule, protocolContext, vertx, engineCallListener);
     this.transactionPool = transactionPool;
     this.cancunMilestone = protocolSchedule.milestoneFor(CANCUN);
     this.osakaMilestone = protocolSchedule.milestoneFor(OSAKA);

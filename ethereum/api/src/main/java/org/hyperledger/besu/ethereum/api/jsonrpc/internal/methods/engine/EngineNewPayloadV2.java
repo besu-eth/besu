@@ -48,22 +48,22 @@ public sealed class EngineNewPayloadV2<
   private final Optional<Long> shanghaiTimestamp;
 
   public EngineNewPayloadV2(
-      final Vertx vertx,
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
+      final Vertx vertx,
+      final EngineCallListener engineCallListener,
       final MergeMiningCoordinator mergeCoordinator,
       final EthPeers ethPeers,
-      final EngineCallListener engineCallListener,
       final MetricsSystem metricsSystem,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
     super(
-        vertx,
         protocolSchedule,
         protocolContext,
+        vertx,
+        engineCallListener,
         mergeCoordinator,
         ethPeers,
-        engineCallListener,
         metricsSystem,
         minSupportedFork,
         firstUnsupportedFork);

@@ -61,29 +61,17 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
   private static final Logger LOG = LoggerFactory.getLogger(ExecutionEngineJsonRpcMethod.class);
   protected final Optional<MergeContext> mergeContextOptional;
   protected final Supplier<MergeContext> mergeContext;
-  protected final Optional<ProtocolSchedule> protocolSchedule;
+  protected final ProtocolSchedule protocolSchedule;
   protected final ProtocolContext protocolContext;
   protected final EngineCallListener engineCallListener;
 
   protected ExecutionEngineJsonRpcMethod(
-      final Vertx vertx,
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
-      final EngineCallListener engineCallListener) {
-    this.syncVertx = vertx;
-    this.protocolSchedule = Optional.of(protocolSchedule);
-    this.protocolContext = protocolContext;
-    this.mergeContextOptional = protocolContext.safeConsensusContext(MergeContext.class);
-    this.mergeContext = mergeContextOptional::orElseThrow;
-    this.engineCallListener = engineCallListener;
-  }
-
-  protected ExecutionEngineJsonRpcMethod(
       final Vertx vertx,
-      final ProtocolContext protocolContext,
       final EngineCallListener engineCallListener) {
     this.syncVertx = vertx;
-    this.protocolSchedule = Optional.empty();
+    this.protocolSchedule = protocolSchedule;
     this.protocolContext = protocolContext;
     this.mergeContextOptional = protocolContext.safeConsensusContext(MergeContext.class);
     this.mergeContext = mergeContextOptional::orElseThrow;

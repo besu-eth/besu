@@ -70,12 +70,12 @@ public class EngineGetPayloadV3Test extends EngineGetPayloadV2Test {
   @Override
   protected EngineGetPayloadV1 createMethodInstance() {
     return new EngineGetPayloadV3(
-        vertx,
         protocolSchedule,
         protocolContext,
+        vertx,
+        engineCallListener,
         mergeMiningCoordinator,
         factory,
-        engineCallListener,
         CANCUN,
         PRAGUE);
   }

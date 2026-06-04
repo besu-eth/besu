@@ -132,12 +132,12 @@ public class EngineGetPayloadV1Test extends AbstractScheduledApiTest {
 
   protected EngineGetPayloadV1 createMethodInstance() {
     return new EngineGetPayloadV1(
-        vertx,
         protocolSchedule,
         protocolContext,
+        vertx,
+        engineCallListener,
         mergeMiningCoordinator,
         factory,
-        engineCallListener,
         null,
         SHANGHAI);
   }

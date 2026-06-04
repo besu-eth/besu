@@ -53,11 +53,11 @@ public class EngineForkchoiceUpdatedV3Test extends EngineForkchoiceUpdatedV2Test
   @Override
   protected EngineForkchoiceUpdatedV1<?> createMethodInstance() {
     return new EngineForkchoiceUpdatedV3<>(
-        vertx,
         protocolSchedule,
         protocolContext,
-        mergeCoordinator,
+        vertx,
         engineCallListener,
+        mergeCoordinator,
         CANCUN,
         AMSTERDAM);
   }
