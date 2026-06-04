@@ -46,6 +46,7 @@ import org.hyperledger.besu.ethereum.eth.sync.common.WrongChainException;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
 import org.hyperledger.besu.services.pipeline.Pipeline;
 
@@ -70,6 +71,7 @@ public class SnapSyncChainDownloaderTest {
 
   @Mock private SnapSyncChainDownloadPipelineFactory pipelineFactory;
   @Mock private ProtocolSchedule protocolSchedule;
+  @Mock private ProtocolSpec protocolSpec;
   @Mock private ProtocolContext protocolContext;
   @Mock private EthContext ethContext;
   @Mock private EthPeers ethPeers;
@@ -102,6 +104,12 @@ public class SnapSyncChainDownloaderTest {
         .when(blockchain.getGenesisBlockHeader())
         .thenReturn(new BlockHeaderTestFixture().number(0).buildHeader());
     lenient().when(syncState.getCheckpoint()).thenReturn(Optional.empty());
+    // Allow ScheduleBasedBlockHeaderFunctions (used when loading state from storage) to hash
+    // headers by delegating to MainnetBlockHeaderFunctions via the mocked protocol schedule.
+    lenient().when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
+    lenient()
+        .when(protocolSpec.getBlockHeaderFunctions())
+        .thenReturn(new MainnetBlockHeaderFunctions());
   }
 
   @Test
@@ -605,6 +613,146 @@ public class SnapSyncChainDownloaderTest {
     // had returned true for WrongChainException, the downloader would have re-attempted via
     // scheduler.scheduleFutureTask and the factory would have been called again.
     verify(pipelineFactory, times(1)).createBackwardHeaderDownloadPipeline(any());
+  }
+
+  // ── Case C: Stage 1 in progress ──────────────────────────────────────────────────────────
+
+  @Test
+  public void caseCAboveThresholdShouldFinishOldPivotThenTransitionToNewPivot() throws Exception {
+    // 200 headers downloaded, threshold = 100 → above threshold.
+    // First Stage 1 runs with old pivot; second Stage 1 runs with new pivot after pivot-update.
+    final SynchronizerConfiguration lowThresholdConfig =
+        SynchronizerConfiguration.builder().chainSyncContinuationThresholdBlocks(100L).build();
+
+    final BlockHeader oldPivot = new BlockHeaderTestFixture().number(1000).buildHeader();
+    final BlockHeader progress = new BlockHeaderTestFixture().number(800).buildHeader(); // 200 done
+    final BlockHeader bodyAnchor = new BlockHeaderTestFixture().number(500).buildHeader();
+    final BlockHeader newPivot = new BlockHeaderTestFixture().number(1100).buildHeader();
+
+    // headersDownloadComplete=false, progress != null → Case C
+    final ChainSyncState loadedState =
+        new ChainSyncState(oldPivot, bodyAnchor, null, false, progress);
+    chainSyncStateStorage.storeState(loadedState);
+
+    when(blockchain.blockIsOnCanonicalChain(newPivot.getHash())).thenReturn(false);
+
+    setupSuccessfulPipelineMocks();
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            lowThresholdConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            newPivot,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    // Fire world-state-heal before start so the pivot-update loop exits after two cycles.
+    downloader.onWorldStateHealFinished();
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    final ArgumentCaptor<ChainSyncState> captor = ArgumentCaptor.forClass(ChainSyncState.class);
+    verify(pipelineFactory, times(2)).createBackwardHeaderDownloadPipeline(captor.capture());
+
+    final ChainSyncState firstCycleState = captor.getAllValues().get(0);
+    assertThat(firstCycleState.pivotBlockHeader().getNumber()).isEqualTo(oldPivot.getNumber());
+    assertThat(firstCycleState.headerDownloadProgress().getNumber())
+        .isEqualTo(progress.getNumber());
+
+    final ChainSyncState secondCycleState = captor.getAllValues().get(1);
+    assertThat(secondCycleState.pivotBlockHeader().getNumber()).isEqualTo(newPivot.getNumber());
+    // Second cycle uses continueToNewPivot: body anchor = old pivot, no header anchor
+    assertThat(secondCycleState.blockDownloadAnchor().getNumber()).isEqualTo(oldPivot.getNumber());
+    assertThat(secondCycleState.headerDownloadAnchor()).isNull();
+  }
+
+  @Test
+  public void caseCBelowThresholdShouldReplaceWithNewPivot() throws Exception {
+    // 50 headers downloaded, threshold = 100 → below threshold. Restart with new pivot.
+    final SynchronizerConfiguration lowThresholdConfig =
+        SynchronizerConfiguration.builder().chainSyncContinuationThresholdBlocks(100L).build();
+
+    final BlockHeader oldPivot = new BlockHeaderTestFixture().number(1000).buildHeader();
+    final BlockHeader progress = new BlockHeaderTestFixture().number(950).buildHeader(); // 50 done
+    final BlockHeader bodyAnchor = new BlockHeaderTestFixture().number(500).buildHeader();
+    final BlockHeader newPivot = new BlockHeaderTestFixture().number(1100).buildHeader();
+
+    final ChainSyncState loadedState =
+        new ChainSyncState(oldPivot, bodyAnchor, null, false, progress);
+    chainSyncStateStorage.storeState(loadedState);
+
+    when(blockchain.blockIsOnCanonicalChain(newPivot.getHash())).thenReturn(false);
+
+    setupSuccessfulPipelineMocks();
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            lowThresholdConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            newPivot,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    downloader.onWorldStateHealFinished();
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    final ArgumentCaptor<ChainSyncState> captor = ArgumentCaptor.forClass(ChainSyncState.class);
+    verify(pipelineFactory, times(1)).createBackwardHeaderDownloadPipeline(captor.capture());
+
+    final ChainSyncState stage1State = captor.getValue();
+    assertThat(stage1State.pivotBlockHeader().getNumber()).isEqualTo(newPivot.getNumber());
+    assertThat(stage1State.blockDownloadAnchor().getNumber()).isEqualTo(bodyAnchor.getNumber());
+  }
+
+  // ── Case D: Stage 1 not started ──────────────────────────────────────────────────────────
+
+  @Test
+  public void caseDNoProgressShouldReplaceWithNewPivot() throws Exception {
+    final BlockHeader oldPivot = new BlockHeaderTestFixture().number(1000).buildHeader();
+    final BlockHeader bodyAnchor = new BlockHeaderTestFixture().number(500).buildHeader();
+    final BlockHeader newPivot = new BlockHeaderTestFixture().number(1100).buildHeader();
+
+    // headersDownloadComplete=false, headerDownloadProgress=null → Case D
+    final ChainSyncState loadedState = new ChainSyncState(oldPivot, bodyAnchor, null, false, null);
+    chainSyncStateStorage.storeState(loadedState);
+
+    when(blockchain.blockIsOnCanonicalChain(newPivot.getHash())).thenReturn(false);
+
+    setupSuccessfulPipelineMocks();
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            newPivot,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    downloader.onWorldStateHealFinished();
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    final ArgumentCaptor<ChainSyncState> captor = ArgumentCaptor.forClass(ChainSyncState.class);
+    verify(pipelineFactory, times(1)).createBackwardHeaderDownloadPipeline(captor.capture());
+
+    final ChainSyncState stage1State = captor.getValue();
+    assertThat(stage1State.pivotBlockHeader().getNumber()).isEqualTo(newPivot.getNumber());
+    assertThat(stage1State.blockDownloadAnchor().getNumber()).isEqualTo(bodyAnchor.getNumber());
+    assertThat(stage1State.headersDownloadComplete()).isFalse();
+    assertThat(stage1State.headerDownloadProgress()).isNull();
   }
 
   @SuppressWarnings("unchecked")

@@ -74,7 +74,6 @@ public class SnapSyncChainDownloader
 
   private final SnapSyncChainDownloadPipelineFactory pipelineFactory;
 
-  @SuppressWarnings("unused") // reserved for Cases C/D continuation threshold logic
   private final SynchronizerConfiguration syncConfig;
 
   private final ProtocolSchedule protocolSchedule;
@@ -333,8 +332,24 @@ public class SnapSyncChainDownloader
                 null);
         chainSyncStateStorage.storeState(stateToUse);
 
+      } else if (loadedState.headerDownloadProgress() != null) {
+        // Case C: Stage 1 is in progress. Decide whether to continue or restart.
+        final long headersDownloaded =
+            loadedState.pivotBlockHeader().getNumber()
+                - loadedState.headerDownloadProgress().getNumber();
+        if (headersDownloaded >= syncConfig.getChainSyncContinuationThresholdBlocks()) {
+          // Above threshold: keep the old state and finish the current cycle first.
+          // Queue the new pivot so it takes effect after this cycle completes.
+          stateToUse = loadedState;
+          onPivotUpdated(initialPivotHeader);
+        } else {
+          // Below threshold: discard the small amount of partial work and restart fresh.
+          stateToUse = loadedState.withReplacedPivot(initialPivotHeader, false);
+          chainSyncStateStorage.storeState(stateToUse);
+        }
+
       } else {
-        // Cases C and D (stubs): restart Stage 1 with the new pivot.
+        // Case D: Stage 1 has not started yet. Replace pivot and start fresh.
         stateToUse = loadedState.withReplacedPivot(initialPivotHeader, false);
         chainSyncStateStorage.storeState(stateToUse);
       }
