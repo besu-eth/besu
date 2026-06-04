@@ -444,29 +444,6 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   }
 
   @Override
-  public NearestKeyValueScanner openNearestBeforeScanner(
-      final SegmentIdentifier segmentIdentifier) {
-    final RocksIterator rocksIterator = getDB().newIterator(safeColumnHandle(segmentIdentifier));
-    return new NearestKeyValueScanner() {
-      @Override
-      public Optional<NearestKeyValue> seekBefore(final Bytes key) {
-        rocksIterator.seekForPrev(key.toArrayUnsafe());
-        if (rocksIterator.isValid()) {
-          return Optional.of(
-              new NearestKeyValue(
-                  Bytes.of(rocksIterator.key()), Optional.of(rocksIterator.value())));
-        }
-        return Optional.empty();
-      }
-
-      @Override
-      public void close() {
-        rocksIterator.close();
-      }
-    };
-  }
-
-  @Override
   public Optional<NearestKeyValue> getNearestBeforeMatchLength(
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
 

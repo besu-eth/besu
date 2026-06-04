@@ -225,49 +225,4 @@ public interface SegmentedKeyValueStorage extends Closeable {
       return value.map(Bytes::wrap);
     }
   }
-
-  /**
-   * A reusable cursor for repeated {@link #getNearestBefore} lookups within one segment.
-   * Implementations may keep a persistent storage cursor open across calls to avoid re-opening it
-   * for every seek. Callers must close the scanner when done to release underlying resources.
-   */
-  interface NearestKeyValueScanner extends AutoCloseable {
-    /**
-     * Position the cursor at the nearest key before (or equal to) {@code key} and return the
-     * result.
-     *
-     * @param key the key to seek before
-     * @return the nearest key-value pair, or empty if none exists
-     * @throws StorageException if the underlying storage fails
-     */
-    Optional<NearestKeyValue> seekBefore(Bytes key) throws StorageException;
-
-    /** Releases any resources held by this scanner. Does not throw checked exceptions. */
-    @Override
-    void close();
-  }
-
-  /**
-   * Opens a reusable scanner for sequential {@link #getNearestBefore} lookups in the given segment.
-   * Callers that perform many consecutive lookups should prefer this over repeated per-call
-   * invocations; implementations may keep a persistent cursor open to avoid re-seeking from scratch
-   * for each lookup.
-   *
-   * <p>The default implementation is a thin wrapper around {@link #getNearestBefore(
-   * SegmentIdentifier, Bytes)} with no cursor reuse.
-   *
-   * @param segment the segment to scan
-   * @return a scanner that must be closed by the caller
-   */
-  default NearestKeyValueScanner openNearestBeforeScanner(final SegmentIdentifier segment) {
-    return new NearestKeyValueScanner() {
-      @Override
-      public Optional<NearestKeyValue> seekBefore(final Bytes key) throws StorageException {
-        return getNearestBefore(segment, key);
-      }
-
-      @Override
-      public void close() {}
-    };
-  }
 }
