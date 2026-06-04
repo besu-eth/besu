@@ -216,7 +216,8 @@ public class WebSocketMessageHandler {
               } catch (IOException ex) {
                 promise.fail(ex);
               }
-            })
+            },
+            false)
         .onFailure(ex -> LOG.error("Error streaming JSON-RPC response", ex));
   }
 
