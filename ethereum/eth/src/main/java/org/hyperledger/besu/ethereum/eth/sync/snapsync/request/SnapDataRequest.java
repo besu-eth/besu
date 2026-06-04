@@ -18,7 +18,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.RequestType;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapWorldDownloadState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.AccountFlatDatabaseHealingRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.AccountTrieNodeHealingRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.StorageFlatDatabaseHealingRangeRequest;
@@ -56,8 +55,17 @@ public abstract class SnapDataRequest implements TasksPriorityProvider {
   }
 
   public static AccountRangeDataRequest createAccountRangeDataRequest(
-      final Hash rootHash, final Bytes32 startKeyHash, final Bytes32 endKeyHash) {
-    return new AccountRangeDataRequest(rootHash, startKeyHash, endKeyHash);
+      final Hash rootHash,
+      final Bytes32 startKeyHash,
+      final Bytes32 endKeyHash,
+      final boolean persistIncompleteTrieNodes) {
+    return new AccountRangeDataRequest(
+        rootHash,
+        startKeyHash,
+        endKeyHash,
+        Optional.empty(),
+        Optional.empty(),
+        persistIncompleteTrieNodes);
   }
 
   public static AccountFlatDatabaseHealingRangeRequest createAccountFlatHealingRangeRequest(
@@ -89,8 +97,19 @@ public abstract class SnapDataRequest implements TasksPriorityProvider {
       final Bytes32 storageRoot,
       final Bytes32 startKeyHash,
       final Bytes32 endKeyHash) {
+    return createStorageRangeDataRequest(
+        rootHash, accountHash, storageRoot, startKeyHash, endKeyHash, false);
+  }
+
+  public static StorageRangeDataRequest createStorageRangeDataRequest(
+      final Hash rootHash,
+      final Bytes32 accountHash,
+      final Bytes32 storageRoot,
+      final Bytes32 startKeyHash,
+      final Bytes32 endKeyHash,
+      final boolean persistIncompleteTrieNodes) {
     return new StorageRangeDataRequest(
-        rootHash, accountHash, storageRoot, startKeyHash, endKeyHash);
+        rootHash, accountHash, storageRoot, startKeyHash, endKeyHash, persistIncompleteTrieNodes);
   }
 
   public static AccountTrieNodeHealingRequest createAccountTrieNodeDataRequest(
@@ -119,7 +138,7 @@ public abstract class SnapDataRequest implements TasksPriorityProvider {
   public int persist(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
-      final SnapWorldDownloadState downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
     return doPersist(
@@ -129,7 +148,7 @@ public abstract class SnapDataRequest implements TasksPriorityProvider {
   protected abstract int doPersist(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
-      final SnapWorldDownloadState downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration);
 
@@ -140,7 +159,7 @@ public abstract class SnapDataRequest implements TasksPriorityProvider {
   }
 
   public abstract Stream<SnapDataRequest> getChildRequests(
-      final SnapWorldDownloadState downloadState,
+      final SnapRequestContext downloadState,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncProcessState snapSyncState);
 
@@ -160,7 +179,7 @@ public abstract class SnapDataRequest implements TasksPriorityProvider {
   protected int saveParent(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final WorldStateKeyValueStorage.Updater updater,
-      final SnapWorldDownloadState downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncProcessState snapSyncState,
       final SnapSyncConfiguration snapSyncConfiguration) {
     if (pendingChildren.decrementAndGet() == 0) {

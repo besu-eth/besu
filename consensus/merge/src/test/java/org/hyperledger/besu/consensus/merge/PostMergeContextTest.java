@@ -330,4 +330,29 @@ public class PostMergeContextTest {
       stateChanges.clear();
     }
   }
+
+  @Test
+  public void fireNewPayloadEventDeliversToSubscribedListeners() {
+    final List<BlockHeader> received = new ArrayList<>();
+    postMergeContext.addNewPayloadListener(received::add);
+
+    final BlockHeader header = mock(BlockHeader.class);
+    postMergeContext.fireNewPayloadEvent(header);
+
+    assertThat(received).containsExactly(header);
+  }
+
+  @Test
+  public void removeNewPayloadListenerStopsDelivery() {
+    final List<BlockHeader> received = new ArrayList<>();
+    final long id = postMergeContext.addNewPayloadListener(received::add);
+
+    postMergeContext.fireNewPayloadEvent(mock(BlockHeader.class));
+    assertThat(received).hasSize(1);
+
+    postMergeContext.removeNewPayloadListener(id);
+    postMergeContext.fireNewPayloadEvent(mock(BlockHeader.class));
+
+    assertThat(received).hasSize(1);
+  }
 }

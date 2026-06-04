@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.encoding.receipt.SyncTransactionReceiptEncoder;
@@ -29,7 +28,6 @@ import org.hyperledger.besu.ethereum.eth.sync.common.DownloadBackwardHeadersStep
 import org.hyperledger.besu.ethereum.eth.sync.common.DownloadSyncReceiptsStep;
 import org.hyperledger.besu.ethereum.eth.sync.common.ImportHeadersStep;
 import org.hyperledger.besu.ethereum.eth.sync.common.ImportSyncBlocksStep;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.rlp.SimpleNoCopyRlpEncoder;
@@ -56,7 +54,7 @@ public class SnapSyncChainDownloadPipelineFactory {
   protected final ProtocolSchedule protocolSchedule;
   protected final ProtocolContext protocolContext;
   protected final EthContext ethContext;
-  protected final PivotSyncState fastSyncState;
+  protected final SnapSyncProcessState fastSyncState;
   protected final MetricsSystem metricsSystem;
 
   public SnapSyncChainDownloadPipelineFactory(
@@ -64,7 +62,7 @@ public class SnapSyncChainDownloadPipelineFactory {
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final EthContext ethContext,
-      final PivotSyncState fastSyncState,
+      final SnapSyncProcessState fastSyncState,
       final MetricsSystem metricsSystem) {
     this.syncConfig = syncConfig;
     this.protocolSchedule = protocolSchedule;
@@ -187,13 +185,6 @@ public class SnapSyncChainDownloadPipelineFactory {
             new SyncTransactionReceiptEncoder(new SimpleNoCopyRlpEncoder()),
             Duration.ofMillis(syncConfig.getForwardDownloadStepTimeoutMillis()));
 
-    final DownloadAndPersistBlockAccessListsStep downloadAndPersistBlockAccessListsStep =
-        new DownloadAndPersistBlockAccessListsStep(
-            ethContext,
-            metricsSystem,
-            (DefaultBlockchain) blockchain,
-            Duration.ofMillis(syncConfig.getForwardDownloadStepTimeoutMillis()));
-
     final ImportSyncBlocksStep importBlocksStep =
         new ImportSyncBlocksStep(
             protocolContext,
@@ -217,10 +208,6 @@ public class SnapSyncChainDownloadPipelineFactory {
             "forwardBodiesReceipts")
         .thenProcessAsyncOrdered("downloadBodies", downloadBodiesStep, downloaderParallelism)
         .thenProcessAsyncOrdered("downloadReceipts", downloadReceiptsStep, downloaderParallelism)
-        .thenProcessAsyncOrdered(
-            "downloadAndPersistBlockAccessLists",
-            downloadAndPersistBlockAccessListsStep,
-            downloaderParallelism)
         .andFinishWith("importBlocks", importBlocksStep);
   }
 }

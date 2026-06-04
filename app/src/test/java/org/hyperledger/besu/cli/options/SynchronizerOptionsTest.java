@@ -70,14 +70,13 @@ public class SynchronizerOptionsTest
             ImmutableSnapSyncConfiguration.builder()
                 .pivotBlockWindowValidity(
                     SnapSyncConfiguration.DEFAULT_PIVOT_BLOCK_WINDOW_VALIDITY + 2)
-                .pivotBlockDistanceBeforeCaching(
-                    SnapSyncConfiguration.DEFAULT_PIVOT_BLOCK_DISTANCE_BEFORE_CACHING - 2)
                 .trienodeCountPerRequest(
                     SnapSyncConfiguration.DEFAULT_TRIENODE_COUNT_PER_REQUEST + 2)
                 .storageCountPerRequest(SnapSyncConfiguration.DEFAULT_STORAGE_COUNT_PER_REQUEST + 2)
                 .bytecodeCountPerRequest(
                     SnapSyncConfiguration.DEFAULT_BYTECODE_COUNT_PER_REQUEST + 2)
                 .isSnapServerEnabled(Boolean.TRUE)
+                .isSnap2Enabled(Boolean.TRUE)
                 .isSnapSyncTransactionIndexingEnabled(Boolean.TRUE)
                 .build())
         .snapSyncSavePreCheckpointHeadersOnlyEnabled(

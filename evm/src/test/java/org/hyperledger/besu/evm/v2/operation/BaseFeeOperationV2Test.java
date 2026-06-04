@@ -31,10 +31,13 @@ import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 
-class BaseFeeOperationV2Test {
+class BaseFeeOperationV2Test extends NullaryOperationV2Test {
 
   private final GasCalculator gasCalculator = new BerlinGasCalculator();
-  private final BaseFeeOperationV2 operation = new BaseFeeOperationV2(gasCalculator);
+
+  public BaseFeeOperationV2Test() {
+    super(new BaseFeeOperationV2(new BerlinGasCalculator()));
+  }
 
   @Test
   void shouldReturnGasCost() {
@@ -77,34 +80,11 @@ class BaseFeeOperationV2Test {
   }
 
   @Test
-  void shouldTriggerIvalidOperationEvenStackOverflow() {
+  void shouldTriggerInvalidOperationEvenStackOverflow() {
     final MessageFrame frame = createFrame(100, Optional.empty());
     frame.setTopV2(MessageFrame.DEFAULT_MAX_STACK_SIZE);
     final OperationResult result = operation.execute(frame, null);
     assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INVALID_OPERATION);
-  }
-
-  @Test
-  void shouldHaltOnInsufficientGas() {
-    final MessageFrame frame = createFrame(1, Optional.of(Wei.of(5L)));
-    final OperationResult result = operation.execute(frame, null);
-    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
-  }
-
-  @Test
-  void shouldHaltOnInsufficientGasEvenStackOverflow() {
-    final MessageFrame frame = createFrame(1, Optional.of(Wei.of(5L)));
-    frame.setTopV2(MessageFrame.DEFAULT_MAX_STACK_SIZE);
-    final OperationResult result = operation.execute(frame, null);
-    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.INSUFFICIENT_GAS);
-  }
-
-  @Test
-  void shouldHaltOnStackOverflow() {
-    final MessageFrame frame = createFrame(100, Optional.of(Wei.of(5L)));
-    frame.setTopV2(MessageFrame.DEFAULT_MAX_STACK_SIZE);
-    final OperationResult result = operation.execute(frame, null);
-    assertThat(result.getHaltReason()).isEqualTo(ExceptionalHaltReason.TOO_MANY_STACK_ITEMS);
   }
 
   private MessageFrame createFrame(final long initialGas, final Optional<Wei> baseFee) {
