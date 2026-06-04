@@ -41,11 +41,16 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
+import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 
 import java.math.BigInteger;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
@@ -181,6 +186,43 @@ class GetBlockAccessListsFromPeerTaskTest {
         .containsExactly(syncBal(firstBal), syncBal(secondBal), syncBal(thirdBal));
   }
 
+  // This exercises the production retry loop by feeding one synthetic response per retry attempt.
+  // The first response is valid but incomplete: it includes one BAL, one unavailable placeholder,
+  // and is truncated before the remaining requested BALs. Each later response returns exactly one
+  // still-pending BAL. The request count is greater than MAX_RETRIES, so completion proves that
+  // incomplete valid responses are retryable and that each partial progress response resets the
+  // retry counter before the next loop iteration. The recorded requested indexes prove that retries
+  // are re-entered with only the BALs still pending after each partial response.
+  @Test
+  void shouldRetryTruncatedAndUnavailableResponsesThroughRetryLoop() {
+    final int blockAccessListCount = RetryingGetBlockAccessListsFromPeerTask.MAX_RETRIES + 2;
+    final List<BlockHeader> headers = new ArrayList<>();
+    final List<SyncBlockAccessList> expectedBlockAccessLists = new ArrayList<>();
+
+    for (int i = 0; i < blockAccessListCount; i++) {
+      final BlockAccessList blockAccessList = dataGenerator.blockAccessList();
+      headers.add(headerForBal(i + 1L, blockAccessList));
+      expectedBlockAccessLists.add(syncBal(blockAccessList));
+    }
+
+    final List<List<SyncBlockAccessList>> responses = new ArrayList<>();
+    responses.add(List.of(expectedBlockAccessLists.getFirst(), unavailableBal()));
+    for (int i = 1; i < blockAccessListCount; i++) {
+      responses.add(List.of(expectedBlockAccessLists.get(i)));
+    }
+
+    final EthContext ethContext = mock(EthContext.class);
+    when(ethContext.getScheduler()).thenReturn(new DeterministicEthScheduler());
+    final StubRetryingGetBlockAccessListsFromPeerTask task =
+        new StubRetryingGetBlockAccessListsFromPeerTask(ethContext, headers, responses);
+
+    assertThat(task.run().join()).containsExactlyElementsOf(expectedBlockAccessLists);
+    assertThat(task.requestedIndexes).hasSize(blockAccessListCount);
+    assertThat(task.requestedIndexes.getFirst()).hasSize(blockAccessListCount);
+    assertThat(task.requestedIndexes.get(1).getFirst()).isEqualTo(1);
+    assertThat(task.requestedIndexes.getLast()).containsExactly(blockAccessListCount - 1);
+  }
+
   @Test
   void shouldRequestBlockAccessListsFromSelectedSwitchingPeer() {
     final BlockAccessList blockAccessList = dataGenerator.blockAccessList();
@@ -247,6 +289,39 @@ class GetBlockAccessListsFromPeerTaskTest {
 
   private SyncBlockAccessList unavailableBal() {
     return new SyncBlockAccessList(RLP.NULL);
+  }
+
+  private static class StubRetryingGetBlockAccessListsFromPeerTask
+      extends RetryingGetBlockAccessListsFromPeerTask {
+
+    private final EthPeer peer = mock(EthPeer.class);
+    private final Queue<List<SyncBlockAccessList>> responses;
+    private final List<List<Integer>> requestedIndexes = new ArrayList<>();
+
+    private StubRetryingGetBlockAccessListsFromPeerTask(
+        final EthContext ethContext,
+        final List<BlockHeader> blockHeaders,
+        final List<List<SyncBlockAccessList>> responses) {
+      super(ethContext, blockHeaders, new NoOpMetricsSystem());
+      this.responses = new ArrayDeque<>(responses);
+    }
+
+    @Override
+    public boolean assignPeer(final EthPeer peer) {
+      return true;
+    }
+
+    @Override
+    protected Optional<EthPeer> nextPeerToTry() {
+      return Optional.of(peer);
+    }
+
+    @Override
+    protected CompletableFuture<List<SyncBlockAccessList>> requestBlockAccessListsFromPeer(
+        final EthPeer peer, final List<Integer> requestedIndexes) {
+      this.requestedIndexes.add(requestedIndexes);
+      return CompletableFuture.completedFuture(responses.remove());
+    }
   }
 
   private EthPeerImmutableAttributes peerAttributes(
