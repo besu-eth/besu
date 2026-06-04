@@ -3,6 +3,19 @@
 ## Unreleased
 
 ### Breaking Changes
+
+### Upcoming Breaking Changes
+- `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` is deprecated and will be removed in a future release; the flag is now a silent no-op.
+
+### Bug fixes
+
+### Additions and Improvements
+- Add `eth_getTransactionBySenderAndNonce` JSON-RPC method to look up a transaction by sender address and nonce (pending or mined).
+  - Mined transaction lookup uses a sender+nonce index, enabled by default (`--tx-sender-nonce-index-enabled=false` to disable). Nodes performing a FULL sync from scratch may want to disable this to avoid the storage overhead of indexing historical transactions. [#10501](https://github.com/besu-eth/besu/issues/10501)
+
+## 26.6.0
+
+### Breaking Changes
 - Besu now requires JDK 25 to build and run.
 - RPC changes to enhance compatibility with other ELs
   - Block number parameter in RPCs now only supports hex values. Non-hex (decimal) block number parameters are now rejected. Affected RPCs including but not limited to: `admin_logsRemoveCache`, `admin_generateLogBloomCache`, `eth_estimateGas`, `eth_getBlockByNumber`, `eth_getBlockTransactionCountByNumber`, `eth_getTransactionByBlockNumberAndIndex`, `eth_getUncleByBlockNumberAndIndex`, `eth_getUncleCountByBlockNumber`, `eth_feeHistory`, `eth_getProof`, `trace_block`, `trace_call`, `trace_callMany`, `trace_replayBlockTransactions`, `debug_traceBlockByNumber`, `debug_traceCall`, `debug_replayBlock`, `debug_getRawBlock`, `debug_getRawHeader`, and `debug_getRawReceipts` [#10515](https://github.com/besu-eth/besu/pull/10515), [#10240](https://github.com/besu-eth/besu/pull/10240)
@@ -17,7 +30,6 @@
 - `--Xmax-tracked-seen-txs-per-peer` renamed to `--Xmax-tracked-seen-txs` (old name kept as deprecated alias will be removed in a future release)
 - BFT option `xemptyblockperiodseconds` has been taken out of experimental and been renamed `emptyblockperiodseconds`. The old config option is deprecated and will be removed in a future release.
 - `--Xbft-legacy-protocol-encoding` will be removed once Besu 25.x is no longer supported. [#10499](https://github.com/besu-eth/besu/pull/10499)
-- `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` is deprecated and will be removed in a future release; the flag is now a silent no-op.
 
 ### Performance
 - Parallelize block body lookups in `engine_getPayloadBodiesByHashV1`, `engine_getPayloadBodiesByHashV2`, `engine_getPayloadBodiesByRangeV1`, and `engine_getPayloadBodiesByRangeV2` to reduce latency when fetching up to 1024 block bodies from RocksDB. [#10532](https://github.com/besu-eth/besu/pull/10532)
@@ -39,8 +51,6 @@
 - Cache successfully validated engine JWT token so that the same token is only checked once per minute [#10559](https://github.com/besu-eth/besu/pull/10559) 
 
 ### Additions and Improvements
-- Add `eth_getTransactionBySenderAndNonce` JSON-RPC method to look up a transaction by sender address and nonce (pending or mined). 
-  - Mined transaction lookup uses a sender+nonce index, enabled by default (`--tx-sender-nonce-index-enabled=false` to disable). Nodes performing a FULL sync from scratch may want to disable this to avoid the storage overhead of indexing historical transactions. [#10501](https://github.com/besu-eth/besu/issues/10501)
 - Add `eth_baseFee` JSON-RPC method, returning the calculated base fee of the next block [#10457](https://github.com/besu-eth/besu/pull/10457)
 - Add `eth_getStorageValues` JSON-RPC method for batched reads of multiple storage slots across multiple accounts in a single call [#10259](https://github.com/besu-eth/besu/pull/10259)
 - Add `enableReturnData` parameter to `debug_traceTransaction` and `debug_traceBlockByNumber`, and include `returnData` in `StructLog` when captured; the field is omitted when return data is empty or not captured. [#10172](https://github.com/besu-eth/besu/pull/10172)
