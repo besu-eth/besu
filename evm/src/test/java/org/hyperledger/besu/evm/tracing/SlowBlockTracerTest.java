@@ -24,6 +24,6 @@ class SlowBlockTracerTest {
   public void shouldLog() {
     SlowBlockTracer slowBlockTracer = new SlowBlockTracer();
     slowBlockTracer.traceStartBlock();
-    slowBlockTracer.traceEndBlock(20_000_001L, Hash.EMPTY, 60_000_000L);
+    slowBlockTracer.traceEndBlockPersist(20_000_001L, Hash.EMPTY, 60_000_000L);
   }
 }

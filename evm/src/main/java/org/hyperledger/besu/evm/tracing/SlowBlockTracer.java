@@ -78,15 +78,18 @@ public class SlowBlockTracer implements OperationTracer {
   }
 
   /**
-   * Completes the slow block metrics and triggers a log event. The callsite differs from other
-   * block-aware tracers as it includes state persistence, i.e., this is called after
-   * MutableWorldState.persist()
+   * Completes the slow block metrics and triggers a log event.
+   *
+   * <p>Whereas BlockAwareOperationTracer.traceEndBlock() is called before worldState.persist(),
+   * this callsite is after worldState.persist() so we capture persist and state hash calculation
+   * metrics.
    *
    * @param blockNumber the block number
    * @param blockHash the block hash
    * @param gasUsed the gas used at the end of the block (after refunds)
    */
-  public void traceEndBlock(final long blockNumber, final Hash blockHash, final long gasUsed) {
+  public void traceEndBlockPersist(
+      final long blockNumber, final Hash blockHash, final long gasUsed) {
     totalTimeNanos = System.nanoTime() - totalStartNanos;
     logSlowBlock(blockNumber, blockHash, gasUsed);
   }
