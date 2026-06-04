@@ -338,6 +338,26 @@ public class MainnetTransactionProcessor {
                     transaction.getGasLimit())));
       }
 
+      // EIP-8037/EIP-7825: max(intrinsic_regular, calldata_floor) must not exceed the
+      // regular transaction gas limit cap (TX_MAX_GAS_LIMIT; Long.MAX_VALUE pre-Amsterdam).
+      // The runtime enforcement below only bounds regular gas CONSUMED during execution,
+      // and the validation-time tx.gas cap is disabled under EIP-8037 - but the calldata
+      // floor is an intrinsic minimum that must also respect the cap. Without this, a tx
+      // whose calldata floor exceeds the cap yet is <= tx.gas slips past the sufficiency
+      // check above and is wrongly executed (bal-devnet-7 consensus divergence: besu
+      // executed it while geth/nethermind/ethrex/revm/eels rejected).
+      final long calldataFloorGas = gasCalculator.transactionFloorCost(transaction);
+      final long regularGasLimitCap = stateGasCalc.transactionRegularGasLimit();
+      if (Long.compareUnsigned(Math.max(intrinsicRegularGas, calldataFloorGas), regularGasLimitCap)
+          > 0) {
+        return TransactionProcessingResult.invalid(
+            ValidationResult.invalid(
+                TransactionInvalidReason.EXCEEDS_TRANSACTION_GAS_LIMIT,
+                String.format(
+                    "max(intrinsic regular %d, calldata floor %d) exceeds transaction gas limit cap %d",
+                    intrinsicRegularGas, calldataFloorGas, regularGasLimitCap)));
+      }
+
       final long gasAvailable = transaction.getGasLimit() - intrinsicRegularGas;
       LOG.trace(
           "Gas available for execution {} = {} - {} (limit - intrinsic)",
