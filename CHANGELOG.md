@@ -18,6 +18,7 @@
 - BFT option `xemptyblockperiodseconds` has been taken out of experimental and been renamed `emptyblockperiodseconds`. The old config option is deprecated and will be removed in a future release.
 
 ### Bug fixes
+- Reject transactions whose EIP-7976 calldata floor (or regular intrinsic) exceeds the EIP-7825 transaction gas-limit cap (`TX_MAX_GAS_LIMIT`, 2^24) under Amsterdam/EIP-8037. Previously a transaction whose floor exceeded the cap but was at or below `tx.gas` (which EIP-8037 permits to exceed the cap, to fund the state-gas reservoir) was executed instead of rejected, diverging from geth/nethermind/erigon/ethrex and the execution-spec reference.
 
 ### Additions and Improvements
 - The option to set a different block period for empty BFT blocks (`emptyblockperiodseconds`) is no longer experimental. The experimental flag `xemptyblockperiodseconds` will be removed in a future release.

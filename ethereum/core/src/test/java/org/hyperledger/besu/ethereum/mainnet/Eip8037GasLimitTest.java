@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.mainnet;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -94,8 +95,8 @@ class Eip8037GasLimitTest {
     when(transaction.getType()).thenReturn(TransactionType.EIP1559);
     when(transaction.getPayload()).thenReturn(Bytes.EMPTY);
     when(transaction.getSender()).thenReturn(senderAddress);
-    when(transaction.getValue()).thenReturn(Wei.ZERO);
-    when(transaction.getTo()).thenReturn(Optional.of(toAddress));
+    lenient().when(transaction.getValue()).thenReturn(Wei.ZERO);
+    lenient().when(transaction.getTo()).thenReturn(Optional.of(toAddress));
     when(transaction.getGasLimit()).thenReturn(gasLimit);
 
     when(transactionValidatorFactory.get().validate(any(), any(), any(), any()))
@@ -103,7 +104,7 @@ class Eip8037GasLimitTest {
     when(transactionValidatorFactory.get().validateForSender(any(), any(), any()))
         .thenReturn(ValidationResult.valid());
     when(worldState.getOrCreateSenderAccount(any())).thenReturn(senderAccount);
-    when(worldState.updater()).thenReturn(worldState);
+    lenient().when(worldState.updater()).thenReturn(worldState);
   }
 
   @Test
@@ -221,5 +222,34 @@ class Eip8037GasLimitTest {
     // Total gas exceeds TX_MAX_GAS_LIMIT but only regular gas is checked
     assertThat(result.isSuccessful()).isTrue();
     assertThat(result.getStateGasUsed()).isEqualTo(5_000_000L);
+  }
+
+  @Test
+  void calldataFloorExceedingTxMaxGasLimitIsRejected() {
+    // ~262 KB of non-zero calldata gives an EIP-7976 calldata floor of
+    // 21000 + 262000 * 4 * 16 = 16,789,000 gas, which exceeds TX_MAX_GAS_LIMIT
+    // (2^24 = 16,777,216), while the regular intrinsic (4,213,000) stays below it.
+    // tx.gas is set above the floor (allowed under EIP-8037, which relaxes the cap
+    // on tx.gas itself), so the sufficiency check passes - only the
+    // max(intrinsic_regular, calldata_floor) <= cap rule can reject it.
+    setupCommonMocks(30_000_000L);
+    final byte[] calldata = new byte[262_000];
+    java.util.Arrays.fill(calldata, (byte) 0x01);
+    when(transaction.getPayload()).thenReturn(Bytes.wrap(calldata));
+
+    final TransactionProcessingResult result =
+        createProcessor()
+            .processTransaction(
+                worldState,
+                blockHeader,
+                transaction,
+                Address.fromHexString("0x4242424242424242424242424242424242424242"),
+                blockHashLookup,
+                ImmutableTransactionValidationParams.builder().build(),
+                Wei.ZERO);
+
+    assertThat(result.isSuccessful()).isFalse();
+    assertThat(result.getValidationResult().getInvalidReason())
+        .isEqualTo(TransactionInvalidReason.EXCEEDS_TRANSACTION_GAS_LIMIT);
   }
 }
