@@ -92,7 +92,7 @@ public class SnapSyncDownloader implements SnapSyncController {
     return exceptionallyCompose(
         CompletableFuture.completedFuture(fastSyncState)
             .thenCompose(fastSyncActions::selectPivotBlock)
-            .thenCompose(fastSyncActions::downloadPivotBlockHeader)
+            .thenCompose(fastSyncActions::resolvePivotBlockHeader)
             .thenApply(this::updateMaxTrailingPeers)
             .thenApply(this::storeState)
             .thenCompose(onNewPivotBlock),

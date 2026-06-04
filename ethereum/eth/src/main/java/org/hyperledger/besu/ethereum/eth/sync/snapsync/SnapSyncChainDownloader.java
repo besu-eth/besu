@@ -73,8 +73,10 @@ public class SnapSyncChainDownloader
   private static final int MAX_SAME_STATE_RETRIES = 20;
 
   private final SnapSyncChainDownloadPipelineFactory pipelineFactory;
+
   @SuppressWarnings("unused") // used in commented-out stub code; remove annotation when implemented
   private final SynchronizerConfiguration syncConfig;
+
   private final ProtocolSchedule protocolSchedule;
   private final ProtocolContext protocolContext;
   private final MutableBlockchain blockchain;
@@ -309,34 +311,40 @@ public class SnapSyncChainDownloader
       } else {
         // TODO(Cases B/C/D): implement crash-recovery logic for the remaining cases:
         //  - headersDownloadComplete=true: restart Stage 1 from new pivot down to existing floor
-        //  - headerDownloadProgress!=null: continue with loadedState if above threshold; else restart
+        //  - headerDownloadProgress!=null: continue with loadedState if above threshold; else
+        // restart
         //  - otherwise: restart Stage 1 with new pivot
         // For now fall through to stateToUse=loadedState (set above as the default).
       }
 
-//      else if (initialPivotHeader.getNumber() - loadedState.pivotBlockHeader().getNumber()
-//          < syncConfig.getChainSyncContinuationThresholdBlocks()) {
-//        // Case B: restart Stage 1 from the new pivot down to the existing floor, with the completion flag
-//        // explicitly reset because we haven't made more than the threshold number of blocks progress.
-//        stateToUse = loadedState.withReplacedPivot(initialPivotHeader, false);
-//        chainSyncStateStorage.storeState(stateToUse);
-//        LOG.info(
-//            "Initial pivot {} is within continuation threshold of persisted pivot {}; restarting header download from new pivot",
-//            initialPivotHeader.getNumber(),
-//            loadedState.pivotBlockHeader().getNumber());
-//
-//      } else {
-//        // Case C: the new pivot is further than the threshold ahead. Don't throw away the
-//        // headers already downloaded — finish the current cycle against the persisted pivot,
-//        // then let the existing pivot-update plumbing transition to the new pivot via
-//        // continueToNewPivot.
-//        stateToUse = loadedState;
-//        LOG.info(
-//            "Initial pivot {} is more than continuation threshold ahead of persisted pivot {}; finishing current cycle then continuing to new pivot",
-//            initialPivotHeader.getNumber(),
-//            loadedState.pivotBlockHeader().getNumber());
-//        onPivotUpdated(initialPivotHeader);
-//      }
+      //      else if (initialPivotHeader.getNumber() - loadedState.pivotBlockHeader().getNumber()
+      //          < syncConfig.getChainSyncContinuationThresholdBlocks()) {
+      //        // Case B: restart Stage 1 from the new pivot down to the existing floor, with the
+      // completion flag
+      //        // explicitly reset because we haven't made more than the threshold number of blocks
+      // progress.
+      //        stateToUse = loadedState.withReplacedPivot(initialPivotHeader, false);
+      //        chainSyncStateStorage.storeState(stateToUse);
+      //        LOG.info(
+      //            "Initial pivot {} is within continuation threshold of persisted pivot {};
+      // restarting header download from new pivot",
+      //            initialPivotHeader.getNumber(),
+      //            loadedState.pivotBlockHeader().getNumber());
+      //
+      //      } else {
+      //        // Case C: the new pivot is further than the threshold ahead. Don't throw away the
+      //        // headers already downloaded — finish the current cycle against the persisted
+      // pivot,
+      //        // then let the existing pivot-update plumbing transition to the new pivot via
+      //        // continueToNewPivot.
+      //        stateToUse = loadedState;
+      //        LOG.info(
+      //            "Initial pivot {} is more than continuation threshold ahead of persisted pivot
+      // {}; finishing current cycle then continuing to new pivot",
+      //            initialPivotHeader.getNumber(),
+      //            loadedState.pivotBlockHeader().getNumber());
+      //        onPivotUpdated(initialPivotHeader);
+      //      }
 
       chainSyncState.set(stateToUse);
       return CompletableFuture.completedFuture(stateToUse);

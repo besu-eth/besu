@@ -154,7 +154,7 @@ public class PivotBlockRetrieverTest {
 
     assertThat(future)
         .isCompletedWithValue(
-            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get(), false));
+            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get()));
   }
 
   @ParameterizedTest
@@ -204,7 +204,7 @@ public class PivotBlockRetrieverTest {
 
     assertThat(future)
         .isCompletedWithValue(
-            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get(), false));
+            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get()));
   }
 
   @ParameterizedTest
@@ -264,7 +264,7 @@ public class PivotBlockRetrieverTest {
 
     assertThat(future)
         .isCompletedWithValue(
-            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get(), false));
+            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get()));
   }
 
   @ParameterizedTest
@@ -324,8 +324,7 @@ public class PivotBlockRetrieverTest {
 
     assertThat(future)
         .isCompletedWithValue(
-            new SnapSyncProcessState(
-                blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER - 1).get(), false));
+            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER - 1).get()));
   }
 
   @ParameterizedTest

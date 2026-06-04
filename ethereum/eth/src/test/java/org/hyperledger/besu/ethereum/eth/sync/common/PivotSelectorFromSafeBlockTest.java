@@ -56,7 +56,6 @@ public class PivotSelectorFromSafeBlockTest {
   private final MutableBlockchain blockchain = mock(MutableBlockchain.class);
   private final Clock clock = mock(Clock.class);
 
-
   private PivotSelectorFromSafeBlock selector;
 
   @BeforeEach

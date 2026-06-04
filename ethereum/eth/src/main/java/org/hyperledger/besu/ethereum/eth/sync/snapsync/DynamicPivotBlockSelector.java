@@ -79,7 +79,7 @@ public class DynamicPivotBlockSelector {
                       .log();
                   return CompletableFuture.completedFuture(null);
                 }
-                return downloadNewPivotBlock(fss);
+                return resolveNewPivotBlockHeader(fss);
               })
           .get();
       cycleSucceeded = true;
@@ -91,9 +91,9 @@ public class DynamicPivotBlockSelector {
     scheduleNextCheck(cycleSucceeded);
   }
 
-  private CompletableFuture<Void> downloadNewPivotBlock(final SnapSyncProcessState fss) {
+  private CompletableFuture<Void> resolveNewPivotBlockHeader(final SnapSyncProcessState fss) {
     return syncActions
-        .downloadPivotBlockHeader(fss)
+        .resolvePivotBlockHeader(fss)
         .thenAccept(
             fssWithHeader -> {
               lastPivotBlockFound = fssWithHeader.getPivotBlockHeader();

@@ -139,7 +139,7 @@ public class PivotSyncActionsTest {
     }
     final CompletableFuture<SnapSyncProcessState> result =
         pivotSyncActions.selectPivotBlock(new SnapSyncProcessState());
-    assertThat(result).isCompletedWithValue(new SnapSyncProcessState(5, false));
+    assertThat(result).isCompletedWithValue(new SnapSyncProcessState(5));
   }
 
   @ParameterizedTest
@@ -147,7 +147,7 @@ public class PivotSyncActionsTest {
   public void returnTheSamePivotBlockIfAlreadySelected(final DataStorageFormat storageFormat) {
     setUp(storageFormat);
     final BlockHeader pivotHeader = new BlockHeaderTestFixture().number(1024).buildHeader();
-    final SnapSyncProcessState fastSyncState = new SnapSyncProcessState(pivotHeader, false);
+    final SnapSyncProcessState fastSyncState = new SnapSyncProcessState(pivotHeader);
     final CompletableFuture<SnapSyncProcessState> result =
         pivotSyncActions.selectPivotBlock(fastSyncState);
     assertThat(result).isDone();
@@ -163,8 +163,8 @@ public class PivotSyncActionsTest {
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 5000);
 
     final CompletableFuture<SnapSyncProcessState> result =
-        pivotSyncActions.selectPivotBlock(new SnapSyncProcessState(pivotHeader, false));
-    final SnapSyncProcessState expected = new SnapSyncProcessState(pivotHeader, false);
+        pivotSyncActions.selectPivotBlock(new SnapSyncProcessState(pivotHeader));
+    final SnapSyncProcessState expected = new SnapSyncProcessState(pivotHeader);
     assertThat(result).isCompletedWithValue(expected);
   }
 
@@ -187,7 +187,7 @@ public class PivotSyncActionsTest {
 
     final CompletableFuture<SnapSyncProcessState> result =
         pivotSyncActions.selectPivotBlock(new SnapSyncProcessState());
-    final SnapSyncProcessState expected = new SnapSyncProcessState(4000, false);
+    final SnapSyncProcessState expected = new SnapSyncProcessState(4000);
     assertThat(result).isCompletedWithValue(expected);
   }
 
@@ -210,7 +210,7 @@ public class PivotSyncActionsTest {
 
     final CompletableFuture<SnapSyncProcessState> result =
         pivotSyncActions.selectPivotBlock(new SnapSyncProcessState());
-    final SnapSyncProcessState expected = new SnapSyncProcessState(3000, false);
+    final SnapSyncProcessState expected = new SnapSyncProcessState(3000);
     assertThat(result).isCompletedWithValue(expected);
   }
 
@@ -241,7 +241,7 @@ public class PivotSyncActionsTest {
 
     // Second peer meets min peer threshold, we should select the pivot
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 5000);
-    final SnapSyncProcessState expected = new SnapSyncProcessState(4000, false);
+    final SnapSyncProcessState expected = new SnapSyncProcessState(4000);
     EthProtocolManagerTestUtil.runPendingFutures(ethProtocolManager);
     assertThat(result).isCompletedWithValue(expected);
   }
@@ -255,7 +255,7 @@ public class PivotSyncActionsTest {
     PivotBlockSelector pivotBlockSelector = mock(PivotBlockSelector.class);
     pivotSyncActions = createPivotSyncActions(syncConfig, pivotBlockSelector);
 
-    SnapSyncProcessState expectedResult = new SnapSyncProcessState(123, false);
+    SnapSyncProcessState expectedResult = new SnapSyncProcessState(123);
 
     when(pivotBlockSelector.selectNewPivotBlock())
         .thenReturn(
@@ -341,8 +341,7 @@ public class PivotSyncActionsTest {
     final long expectedBestChainHeight =
         peers.get(1).getEthPeer().chainState().getEstimatedHeight();
     final SnapSyncProcessState expected =
-        new SnapSyncProcessState(
-            expectedBestChainHeight - syncConfig.getSyncPivotDistance(), false);
+        new SnapSyncProcessState(expectedBestChainHeight - syncConfig.getSyncPivotDistance());
     EthProtocolManagerTestUtil.runPendingFutures(ethProtocolManager);
     assertThat(result).isCompletedWithValue(expected);
   }
@@ -373,7 +372,7 @@ public class PivotSyncActionsTest {
 
     final long validHeight = pivotDistance + 1;
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager, validHeight);
-    final SnapSyncProcessState expected = new SnapSyncProcessState(1, false);
+    final SnapSyncProcessState expected = new SnapSyncProcessState(1);
     EthProtocolManagerTestUtil.runPendingFutures(ethProtocolManager);
     assertThat(result).isCompletedWithValue(expected);
   }
@@ -398,24 +397,24 @@ public class PivotSyncActionsTest {
 
     final long validHeight = pivotDistance + 1;
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager, validHeight);
-    final SnapSyncProcessState expected = new SnapSyncProcessState(1, false);
+    final SnapSyncProcessState expected = new SnapSyncProcessState(1);
     EthProtocolManagerTestUtil.runPendingFutures(ethProtocolManager);
     assertThat(result).isCompletedWithValue(expected);
   }
 
   @ParameterizedTest
   @ArgumentsSource(PivotSyncActionsTest.PivotSyncActionsTestArguments.class)
-  public void downloadPivotBlockHeaderShouldUseExistingPivotBlockHeaderIfPresent(
+  public void resolvePivotBlockHeaderShouldUseExistingPivotBlockHeaderIfPresent(
       final DataStorageFormat storageFormat) {
     setUp(storageFormat);
     final BlockHeader pivotHeader = new BlockHeaderTestFixture().number(1024).buildHeader();
-    final SnapSyncProcessState expected = new SnapSyncProcessState(pivotHeader, false);
-    assertThat(pivotSyncActions.downloadPivotBlockHeader(expected)).isCompletedWithValue(expected);
+    final SnapSyncProcessState expected = new SnapSyncProcessState(pivotHeader);
+    assertThat(pivotSyncActions.resolvePivotBlockHeader(expected)).isCompletedWithValue(expected);
   }
 
   @ParameterizedTest
   @ArgumentsSource(PivotSyncActionsTest.PivotSyncActionsTestArguments.class)
-  public void downloadPivotBlockHeaderShouldRetrievePivotBlockHeader(
+  public void resolvePivotBlockHeaderShouldRetrievePivotBlockHeader(
       final DataStorageFormat storageFormat) {
     setUp(storageFormat, Optional.of(1));
     pivotSyncActions =
@@ -438,14 +437,14 @@ public class PivotSyncActionsTest {
 
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 1001);
     final CompletableFuture<SnapSyncProcessState> result =
-        pivotSyncActions.downloadPivotBlockHeader(new SnapSyncProcessState(1, false));
+        pivotSyncActions.resolvePivotBlockHeader(new SnapSyncProcessState(1));
 
-    assertThat(result).isCompletedWithValue(new SnapSyncProcessState(expectedHeader, false));
+    assertThat(result).isCompletedWithValue(new SnapSyncProcessState(expectedHeader));
   }
 
   @ParameterizedTest
   @ArgumentsSource(PivotSyncActionsTest.PivotSyncActionsTestArguments.class)
-  public void downloadPivotBlockHeaderShouldRetrievePivotBlockHash(
+  public void resolvePivotBlockHeaderShouldRetrievePivotBlockHash(
       final DataStorageFormat storageFormat) {
     setUp(storageFormat, Optional.of(1));
     GenesisConfigOptions genesisConfig = mock(GenesisConfigOptions.class);
@@ -484,10 +483,10 @@ public class PivotSyncActionsTest {
 
     EthProtocolManagerTestUtil.createPeer(ethProtocolManager, 1001);
     final CompletableFuture<SnapSyncProcessState> result =
-        pivotSyncActions.downloadPivotBlockHeader(
-            new SnapSyncProcessState(finalizedEvent.get().getSafeBlockHash(), false));
+        pivotSyncActions.resolvePivotBlockHeader(
+            new SnapSyncProcessState(finalizedEvent.get().getSafeBlockHash()));
 
-    assertThat(result).isCompletedWithValue(new SnapSyncProcessState(expectedHeader, false));
+    assertThat(result).isCompletedWithValue(new SnapSyncProcessState(expectedHeader));
   }
 
   private PivotSyncActions createPivotSyncActions(

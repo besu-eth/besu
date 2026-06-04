@@ -17,7 +17,6 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.SealableBlockHeader;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSelectorFromSafeBlock;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 
 import java.util.Objects;
@@ -37,7 +36,6 @@ public class SnapSyncProcessState {
   private OptionalLong pivotBlockNumber;
   private Optional<Hash> pivotBlockHash;
   private Optional<BlockHeader> pivotBlockHeader;
-  private boolean sourceIsTrusted = false;
   private boolean isHealTrieInProgress;
   private boolean isHealFlatDatabaseInProgress;
   private boolean isWaitingBlockchain;
@@ -48,31 +46,28 @@ public class SnapSyncProcessState {
     pivotBlockHeader = Optional.empty();
   }
 
-  public SnapSyncProcessState(final long pivotBlockNumber, final boolean sourceIsTrusted) {
-    this(OptionalLong.of(pivotBlockNumber), Optional.empty(), Optional.empty(), sourceIsTrusted);
+  public SnapSyncProcessState(final long pivotBlockNumber) {
+    this(OptionalLong.of(pivotBlockNumber), Optional.empty(), Optional.empty());
   }
 
-  public SnapSyncProcessState(final Hash pivotBlockHash, final boolean sourceIsTrusted) {
-    this(OptionalLong.empty(), Optional.of(pivotBlockHash), Optional.empty(), sourceIsTrusted);
+  public SnapSyncProcessState(final Hash pivotBlockHash) {
+    this(OptionalLong.empty(), Optional.of(pivotBlockHash), Optional.empty());
   }
 
-  public SnapSyncProcessState(final BlockHeader pivotBlockHeader, final boolean sourceIsTrusted) {
+  public SnapSyncProcessState(final BlockHeader pivotBlockHeader) {
     this(
         OptionalLong.of(pivotBlockHeader.getNumber()),
         Optional.of(pivotBlockHeader.getHash()),
-        Optional.of(pivotBlockHeader),
-        sourceIsTrusted);
+        Optional.of(pivotBlockHeader));
   }
 
   private SnapSyncProcessState(
       final OptionalLong pivotBlockNumber,
       final Optional<Hash> pivotBlockHash,
-      final Optional<BlockHeader> pivotBlockHeader,
-      final boolean sourceIsTrusted) {
+      final Optional<BlockHeader> pivotBlockHeader) {
     this.pivotBlockNumber = pivotBlockNumber;
     this.pivotBlockHash = pivotBlockHash;
     this.pivotBlockHeader = pivotBlockHeader;
-    this.sourceIsTrusted = sourceIsTrusted;
   }
 
   public OptionalLong getPivotBlockNumber() {
@@ -93,17 +88,6 @@ public class SnapSyncProcessState {
 
   public boolean hasPivotBlockHash() {
     return pivotBlockHash.isPresent();
-  }
-
-  /**
-   * Returns true if the source of the pivot block is fully trusted. In practice this means that it
-   * comes from the Consensus client through the engine API and the {@link
-   * PivotSelectorFromSafeBlock} is used for the pivot.
-   *
-   * @return true if the source is fully trusted, false otherwise
-   */
-  public boolean isSourceTrusted() {
-    return sourceIsTrusted;
   }
 
   void setCurrentHeader(final BlockHeader header) {
@@ -149,15 +133,14 @@ public class SnapSyncProcessState {
     if (this == o) return true;
     if (o == null || getClass() != o.getClass()) return false;
     SnapSyncProcessState that = (SnapSyncProcessState) o;
-    return sourceIsTrusted == that.sourceIsTrusted
-        && Objects.equals(pivotBlockNumber, that.pivotBlockNumber)
+    return Objects.equals(pivotBlockNumber, that.pivotBlockNumber)
         && Objects.equals(pivotBlockHash, that.pivotBlockHash)
         && Objects.equals(pivotBlockHeader, that.pivotBlockHeader);
   }
 
   @Override
   public int hashCode() {
-    return Objects.hash(pivotBlockNumber, pivotBlockHash, pivotBlockHeader, sourceIsTrusted);
+    return Objects.hash(pivotBlockNumber, pivotBlockHash, pivotBlockHeader);
   }
 
   @Override
@@ -169,8 +152,6 @@ public class SnapSyncProcessState {
         + pivotBlockHash
         + ", pivotBlockHeader="
         + pivotBlockHeader
-        + ", sourceIsTrusted="
-        + sourceIsTrusted
         + '}';
   }
 }
