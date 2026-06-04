@@ -85,8 +85,8 @@ jobs:
             exit 1
           fi
 
-          # Download into the workspace; gh release lookup requires a git
-          # remote, and a fresh mktemp dir has none.
+          workdir=$(mktemp -d)
+          cd "$workdir"
           for f in "${expected[@]}"; do
             gh release download "$RELEASE_VERSION" --pattern "$f"
           done
