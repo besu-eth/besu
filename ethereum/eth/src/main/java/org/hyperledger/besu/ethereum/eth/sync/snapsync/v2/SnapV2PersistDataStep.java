@@ -130,19 +130,19 @@ public class SnapV2PersistDataStep {
       final SnapV2AccountRangeRequest accountRequest, final List<SnapDataRequest> children) {
     final Bytes32 rangeStart = accountRequest.getRangeStart();
 
-    final long continuationCount =
-        children.stream().filter(c -> c instanceof SnapV2AccountRangeRequest).count();
-    if (continuationCount > 1) {
-      throw new IllegalStateException(
-          "Expected at most one SnapV2AccountRangeRequest continuation, got " + continuationCount);
+    int continuationCount = 0;
+    SnapV2AccountRangeRequest continuation = null;
+    for (final SnapDataRequest child : children) {
+      if (child instanceof SnapV2AccountRangeRequest accountRangeContinuation) {
+        continuationCount++;
+        if (continuationCount > 1) {
+          throw new IllegalStateException(
+              "Expected at most one SnapV2AccountRangeRequest continuation, got "
+                  + continuationCount);
+        }
+        continuation = accountRangeContinuation;
+      }
     }
-
-    final SnapV2AccountRangeRequest continuation =
-        (SnapV2AccountRangeRequest)
-            children.stream()
-                .filter(c -> c instanceof SnapV2AccountRangeRequest)
-                .findFirst()
-                .orElse(null);
 
     final Bytes32 coveredEnd;
     if (continuation != null) {
@@ -166,7 +166,7 @@ public class SnapV2PersistDataStep {
       coveredEnd = accountRequest.getEndKeyHash();
     }
 
-    final int childCount = children.size() - (int) continuationCount;
+    final int childCount = children.size() - continuationCount;
 
     rangeTracker.registerPending(rangeStart, coveredEnd, childCount);
   }
