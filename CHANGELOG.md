@@ -19,6 +19,7 @@
 
 ### Bug fixes
 - Fix WebSocket RPC event-loop stall caused by slow clients filling the TCP write queue. [#10354](https://github.com/besu-eth/besu/pull/10354)
+- Return `SYNCING` from `engine_newPayload` when the parent block's world state is not immediately available in the Bonsai cache, preventing worker thread blocking during CL backfill or post-restart catch-up. [#10600](https://github.com/besu-eth/besu/pull/10600)
 
 ### Additions and Improvements
 - Add `eth_getTransactionBySenderAndNonce` JSON-RPC method to look up a transaction by sender address and nonce (pending or mined).
