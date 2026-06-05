@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.core;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import org.hyperledger.besu.datatypes.RequestType;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
@@ -24,15 +26,14 @@ public record Request(RequestType type, Bytes data)
 
   @JsonCreator
   public static Request fromBytes(final Bytes bytes) {
-    if (bytes.isEmpty()) {
-      throw new IllegalArgumentException("Request cannot be empty");
-    }
+    checkArgument(!bytes.isEmpty(), "Request cannot be empty");
 
-    if (bytes.size() == 1) {
-      throw new IllegalArgumentException("Request must be at least 1 byte");
-    }
+    final RequestType type = RequestType.of(bytes.get(0));
+    final Bytes data = bytes.slice(1);
 
-    return new Request(RequestType.of(bytes.get(0)), bytes.slice(1));
+    checkArgument(!bytes.isEmpty(), "Request must be at least 1 byte");
+
+    return new Request(type, data);
   }
 
   @Override

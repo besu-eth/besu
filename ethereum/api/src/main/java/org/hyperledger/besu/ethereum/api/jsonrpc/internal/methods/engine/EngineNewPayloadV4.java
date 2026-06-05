@@ -39,6 +39,7 @@ import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 import io.vertx.core.Vertx;
@@ -155,7 +156,7 @@ public sealed class EngineNewPayloadV4<
           reqId,
           ValidationResult.invalid(
               RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS,
-              "Failed to decode execution requests parameter (" + e.getMessage() + ")"));
+              Objects.requireNonNullElse(e.getCause(), e).getMessage()));
     }
     return super.processParametersParsingException(reqId, e);
   }

@@ -14,6 +14,14 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
+import org.hyperledger.besu.datatypes.BlobType;
+import org.hyperledger.besu.datatypes.KZGProof;
+import org.hyperledger.besu.ethereum.core.kzg.Blob;
+import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
+
+import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 /**
@@ -21,22 +29,35 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
  * BlobAndProofV1 contains the blob data and the kzg proof for the blob.
  */
 @JsonPropertyOrder({"blob", "proof"})
-public class BlobAndProofV1 {
+public sealed class BlobAndProofV1 permits BlobAndProofV2 {
 
-  private final String blob;
+  private final Blob blob;
 
-  private final String proof;
+  private final KZGProof proof;
 
-  public BlobAndProofV1(final String blob, final String proof) {
+  public BlobAndProofV1(final Blob blob) {
+    this(blob, null);
+  }
+
+  public BlobAndProofV1(final BlobProofBundle blobProofBundle) {
+    checkArgument(
+        blobProofBundle.getBlobType() == BlobType.KZG_PROOF,
+        "Blob type must be KZG_PROOF for BlobAndProofV1");
+    this(blobProofBundle.getBlob(), blobProofBundle.getKzgProof().getFirst());
+  }
+
+  public BlobAndProofV1(final Blob blob, final KZGProof proof) {
     this.blob = blob;
     this.proof = proof;
   }
 
-  public String getProof() {
-    return proof;
+  @JsonGetter("blob")
+  public Blob getBlob() {
+    return blob;
   }
 
-  public String getBlob() {
-    return blob;
+  @JsonGetter("proof")
+  public KZGProof getProof() {
+    return proof;
   }
 }

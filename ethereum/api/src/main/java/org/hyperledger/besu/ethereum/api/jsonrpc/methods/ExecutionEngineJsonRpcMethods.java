@@ -167,6 +167,15 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
               GET_PAYLOAD_BODIES_MAX_REQUEST_SIZE));
 
       executionEngineApisSupported.addAll(
+          createGetBlobsMethods(
+              consensusEngineServer,
+              protocolSchedule,
+              protocolContext,
+              engineQosTimer,
+              transactionPool,
+              metricsSystem));
+
+      executionEngineApisSupported.addAll(
           Arrays.asList(
               new EngineExchangeCapabilities(
                   protocolSchedule, protocolContext, consensusEngineServer, engineQosTimer),
@@ -182,32 +191,7 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
                   consensusEngineServer,
                   engineQosTimer,
                   clientVersion,
-                  commit),
-              new EngineGetBlobsV1(
-                  protocolSchedule,
-                  protocolContext,
-                  consensusEngineServer,
-                  engineQosTimer,
-                  transactionPool)));
-
-      if (protocolSchedule.milestoneFor(OSAKA).isPresent()) {
-        executionEngineApisSupported.add(
-            new EngineGetBlobsV2(
-                protocolSchedule,
-                protocolContext,
-                consensusEngineServer,
-                engineQosTimer,
-                transactionPool,
-                metricsSystem));
-        executionEngineApisSupported.add(
-            new EngineGetBlobsV3(
-                protocolSchedule,
-                protocolContext,
-                consensusEngineServer,
-                engineQosTimer,
-                transactionPool,
-                metricsSystem));
-      }
+                  commit)));
 
       return mapOf(executionEngineApisSupported);
     } else {
@@ -331,16 +315,41 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
             maxRequestSize);
   }
 
+  @SuppressWarnings("unchecked")
+  private Collection<? extends JsonRpcMethod> createGetBlobsMethods(
+      final Vertx consensusEngineServer,
+      final ProtocolSchedule protocolSchedule,
+      final ProtocolContext protocolContext,
+      final EngineQosTimer engineQosTimer,
+      final TransactionPool transactionPool,
+      final MetricsSystem metricsSystem) {
+
+    return VersionScheduler.startsFrom(CANCUN, EngineGetBlobsV1.class)
+        .thenFrom(OSAKA, EngineGetBlobsV2.class, EngineGetBlobsV3.class)
+        .build(
+            protocolSchedule,
+            protocolContext,
+            consensusEngineServer,
+            engineQosTimer,
+            transactionPool,
+            metricsSystem);
+  }
+
   private static class VersionScheduler {
     final List<MethodVersionBuildData> readyMethods = new ArrayList<>();
     List<MethodVersionBuildData> pendingMethods = new ArrayList<>();
-    boolean firstSet = false;
 
     static VersionScheduler startsFromBeginningUntil(
         final Class<? extends ExecutionEngineJsonRpcMethod> firstVersion, final HardforkId to) {
       final VersionScheduler vs = new VersionScheduler();
       vs.readyMethods.add(new MethodVersionBuildData(firstVersion, false, null, to));
-      vs.firstSet = true;
+      return vs;
+    }
+
+    static VersionScheduler startsFrom(
+        final HardforkId from, final Class<? extends ExecutionEngineJsonRpcMethod> firstVersion) {
+      final VersionScheduler vs = new VersionScheduler();
+      vs.pendingMethods.add(new MethodVersionBuildData(firstVersion, false, from, null));
       return vs;
     }
 
@@ -350,7 +359,6 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       final VersionScheduler vs = new VersionScheduler();
       Arrays.stream(methods)
           .forEach(mvbd -> vs.readyMethods.add(MethodVersionBuildData.alwaysActive(mvbd)));
-      vs.firstSet = true;
       return vs;
     }
 
@@ -363,13 +371,16 @@ public class ExecutionEngineJsonRpcMethods extends ApiGroupJsonRpcMethods {
       return this;
     }
 
-    VersionScheduler thenFrom(
+    @SafeVarargs
+    final VersionScheduler thenFrom(
         final HardforkId hardforkId,
-        final Class<? extends ExecutionEngineJsonRpcMethod> nextVersion) {
-      checkState(firstSet, "Must set initial method first");
+        final Class<? extends ExecutionEngineJsonRpcMethod>... methods) {
       pendingMethods.forEach(mvbd -> readyMethods.add(mvbd.withTo(hardforkId)));
       pendingMethods = new ArrayList<>();
-      pendingMethods.add(new MethodVersionBuildData(nextVersion, false, hardforkId, null));
+      Arrays.stream(methods)
+          .forEach(
+              method ->
+                  pendingMethods.add(new MethodVersionBuildData(method, false, hardforkId, null)));
       return this;
     }
 

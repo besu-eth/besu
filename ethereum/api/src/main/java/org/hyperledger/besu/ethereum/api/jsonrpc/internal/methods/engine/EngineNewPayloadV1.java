@@ -156,7 +156,7 @@ public sealed class EngineNewPayloadV1<
         validateParameters(requestParameters);
 
     if (!parameterValidationResult.isValid()) {
-      return new JsonRpcErrorResponse(reqId, parameterValidationResult);
+      return new JsonRpcErrorResponse(reqId, parameterValidationResult.getInvalidReason());
     }
 
     if (mergeContext.get().isSyncing()) {
@@ -238,13 +238,6 @@ public sealed class EngineNewPayloadV1<
     // block is now valid and can be processed
     final Block block = unvalidatedBlock;
 
-    if (needsSync) {
-      // 6. Client software MUST respond to this method call in the following way:
-      // {status: SYNCING, latestValidHash: null, validationError: null} if requisite data for the
-      // payload's acceptance or validation is missing
-      return respondWith(reqId, blockParam, null, SYNCING);
-    }
-
     // do we already have this payload?
     if (protocolContext.getBlockchain().getBlockByHash(block.getHash()).isPresent()) {
       LOG.atDebug()
@@ -252,6 +245,13 @@ public sealed class EngineNewPayloadV1<
           .addArgument(newBlockHeader::toLogString)
           .log();
       return respondWith(reqId, blockParam, block.getHash(), VALID);
+    }
+
+    if (needsSync) {
+      // 6. Client software MUST respond to this method call in the following way:
+      // {status: SYNCING, latestValidHash: null, validationError: null} if requisite data for the
+      // payload's acceptance or validation is missing
+      return respondWith(reqId, blockParam, null, SYNCING);
     }
 
     // 6. Client software MUST respond to this method call in the following way:

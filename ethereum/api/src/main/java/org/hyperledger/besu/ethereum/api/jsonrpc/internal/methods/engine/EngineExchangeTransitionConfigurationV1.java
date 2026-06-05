@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod.ENGINE_EXCHANGE_TRANSITION_CONFIGURATION;
 
 import org.hyperledger.besu.consensus.merge.MergeContext;
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -24,6 +25,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TransitionConfigurationV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -31,6 +33,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineExchange
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 
 import java.util.Optional;
 import java.util.function.Supplier;
@@ -53,12 +56,30 @@ public class EngineExchangeTransitionConfigurationV1 extends ExecutionEngineJson
 
   private static final Supplier<ObjectMapper> mapperSupplier = Suppliers.memoize(ObjectMapper::new);
 
+  private final Optional<Long> minForkTimestamp;
+  private final Optional<Long> maxForkTimestamp;
+
+  private final HardforkId minSupportedFork;
+  private final HardforkId firstUnsupportedFork;
+
   public EngineExchangeTransitionConfigurationV1(
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final Vertx vertx,
-      final EngineCallListener engineCallListener) {
+      final EngineCallListener engineCallListener,
+      final HardforkId minSupportedFork,
+      final HardforkId firstUnsupportedFork) {
     super(protocolSchedule, protocolContext, vertx, engineCallListener);
+    this.minSupportedFork = minSupportedFork;
+    this.firstUnsupportedFork = firstUnsupportedFork;
+    this.minForkTimestamp =
+        minSupportedFork != null
+            ? protocolSchedule.milestoneFor(minSupportedFork)
+            : Optional.empty();
+    this.maxForkTimestamp =
+        firstUnsupportedFork != null
+            ? protocolSchedule.milestoneFor(firstUnsupportedFork)
+            : Optional.empty();
   }
 
   @Override
@@ -93,6 +114,12 @@ public class EngineExchangeTransitionConfigurationV1 extends ExecutionEngineJson
               }
             })
         .log();
+
+    final long timestamp = protocolContext.getBlockchain().getChainHeadHeader().getTimestamp();
+    ValidationResult<RpcErrorType> forkValidationResult = validateForkRange(timestamp);
+    if (!forkValidationResult.isValid()) {
+      return new JsonRpcErrorResponse(requestContext.getRequest().getId(), forkValidationResult);
+    }
 
     final Optional<BlockHeader> maybeTerminalPoWBlockHeader =
         mergeContextOptional.flatMap(MergeContext::getTerminalPoWBlock);
@@ -138,5 +165,10 @@ public class EngineExchangeTransitionConfigurationV1 extends ExecutionEngineJson
       final Object requestId,
       final EngineExchangeTransitionConfigurationResult transitionConfiguration) {
     return new JsonRpcSuccessResponse(requestId, transitionConfiguration);
+  }
+
+  private ValidationResult<RpcErrorType> validateForkRange(final long timestamp) {
+    return ForkSupportHelper.validateForkSupported(
+        minSupportedFork, minForkTimestamp, firstUnsupportedFork, maxForkTimestamp, timestamp);
   }
 }

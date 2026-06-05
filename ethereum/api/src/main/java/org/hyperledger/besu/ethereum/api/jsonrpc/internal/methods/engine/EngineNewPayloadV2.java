@@ -106,13 +106,14 @@ public sealed class EngineNewPayloadV2<
     if (executionPayload.getTimestamp() < shanghaiTimestamp.orElse(0L)) {
       if (executionPayload.getWithdrawals() != null) {
         return ValidationResult.invalid(
-            RpcErrorType.INVALID_PARAMS,
+            RpcErrorType.INVALID_WITHDRAWALS_PARAMS,
             "Withdrawals must not be present before Shanghai hardfork");
       }
     } else {
       if (executionPayload.getWithdrawals() == null) {
         return ValidationResult.invalid(
-            RpcErrorType.INVALID_PARAMS, "Withdrawals must be present after Shanghai hardfork");
+            RpcErrorType.INVALID_WITHDRAWALS_PARAMS,
+            "Withdrawals must be present after Shanghai hardfork");
       }
     }
     return ValidationResult.valid();

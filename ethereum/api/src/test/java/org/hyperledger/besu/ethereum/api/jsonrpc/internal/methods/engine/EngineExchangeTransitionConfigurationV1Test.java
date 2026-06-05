@@ -15,6 +15,8 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -32,6 +34,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TransitionC
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineExchangeTransitionConfigurationResult;
+import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
@@ -53,27 +56,32 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 @ExtendWith(MockitoExtension.class)
-public class EngineExchangeTransitionConfigurationV1Test {
+@MockitoSettings(strictness = Strictness.LENIENT)
+public class EngineExchangeTransitionConfigurationV1Test extends AbstractScheduledApiTest {
   private EngineExchangeTransitionConfigurationV1 method;
   private static final Vertx vertx = Vertx.vertx();
 
   @Mock private ProtocolContext protocolContext;
-
   @Mock private MergeContext mergeContext;
-
+  @Mock protected MutableBlockchain blockchain;
   @Mock private EngineCallListener engineCallListener;
+  @Mock private BlockHeader blockHeader;
 
   @BeforeEach
   public void setUp() {
-    when(protocolContext.safeConsensusContext(Mockito.any())).thenReturn(Optional.of(mergeContext));
+    when(protocolContext.safeConsensusContext(any())).thenReturn(Optional.of(mergeContext));
+    when(protocolContext.getBlockchain()).thenReturn(blockchain);
+    when(blockHeader.getTimestamp()).thenReturn(parisHardfork.milestone());
+    when(blockchain.getChainHeadHeader()).thenReturn(blockHeader);
 
     this.method =
         new EngineExchangeTransitionConfigurationV1(
-            null, protocolContext, vertx, engineCallListener);
+            protocolSchedule, protocolContext, vertx, engineCallListener, null, CANCUN);
   }
 
   @Test

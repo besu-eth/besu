@@ -20,6 +20,8 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.LogsBloomFilter;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.core.kzg.Blob;
+import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import com.fasterxml.jackson.databind.module.SimpleModule;
@@ -61,5 +63,11 @@ public final class BesuJsonModule extends SimpleModule {
 
     addSerializer(BlockAccessList.class, new BlockAccessListJson.Serializer());
     addDeserializer(BlockAccessList.class, new BlockAccessListJson.Deserializer());
+
+    addSerializer(Blob.class, new BlobJson.Serializer());
+    addDeserializer(Blob.class, new BlobJson.Deserializer());
+
+    addSerializer(KZGProof.class, new KZGProofJson.Serializer());
+    addDeserializer(KZGProof.class, new KZGProofJson.Deserializer());
   }
 }

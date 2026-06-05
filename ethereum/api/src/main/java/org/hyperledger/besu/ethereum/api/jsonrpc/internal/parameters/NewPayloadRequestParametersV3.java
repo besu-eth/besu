@@ -29,12 +29,6 @@ public final class NewPayloadRequestParametersV3<EP extends ExecutionPayloadV3>
     this.executionRequests = executionRequests;
   }
 
-  public NewPayloadRequestParametersV3(
-      final NewPayloadRequestParametersV3<? extends EP> requestParameters) {
-    super(requestParameters);
-    this.executionRequests = requestParameters.executionRequests();
-  }
-
   public List<Request> executionRequests() {
     return executionRequests;
   }
