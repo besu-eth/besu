@@ -43,7 +43,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
@@ -61,14 +60,14 @@ public class SnapV2AccountRangeRequest extends SnapV2DataRequest {
   private final Bytes32 startKeyHash;
   private final Bytes32 endKeyHash;
   private final StackTrie stackTrie;
-  private Optional<Boolean> isProofValid;
+  private ResponseProofStatus responseProofStatus;
 
   public SnapV2AccountRangeRequest(
       final BlockHeader pivotBlockHeader, final Bytes32 startKeyHash, final Bytes32 endKeyHash) {
     super(ACCOUNT_RANGE, pivotBlockHeader, startKeyHash);
     this.startKeyHash = startKeyHash;
     this.endKeyHash = endKeyHash;
-    this.isProofValid = Optional.empty();
+    this.responseProofStatus = ResponseProofStatus.PENDING;
     this.stackTrie = new StackTrie(pivotBlockHeader.getStateRoot(), startKeyHash);
   }
 
@@ -117,10 +116,10 @@ public class SnapV2AccountRangeRequest extends SnapV2DataRequest {
     if (!accounts.isEmpty() || !proofs.isEmpty()) {
       if (!worldStateProofProvider.isValidRangeProof(
           startKeyHash, endKeyHash, Bytes32.wrap(getRootHash().getBytes()), proofs, accounts)) {
-        isProofValid = Optional.of(false);
+        responseProofStatus = ResponseProofStatus.INVALID;
       } else {
         stackTrie.addElement(startKeyHash, proofs, accounts);
-        isProofValid = Optional.of(true);
+        responseProofStatus = ResponseProofStatus.VALID;
         LOG.atDebug()
             .setMessage("{} accounts received during sync for account range {} {}")
             .addArgument(accounts.size())
@@ -133,7 +132,11 @@ public class SnapV2AccountRangeRequest extends SnapV2DataRequest {
 
   @Override
   public boolean isResponseReceived() {
-    return isProofValid.orElse(false);
+    return responseProofStatus == ResponseProofStatus.VALID;
+  }
+
+  ResponseProofStatus getResponseProofStatus() {
+    return responseProofStatus;
   }
 
   @Override
@@ -141,6 +144,10 @@ public class SnapV2AccountRangeRequest extends SnapV2DataRequest {
       final SnapRequestContext downloadState,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncProcessState snapSyncState) {
+    if (responseProofStatus != ResponseProofStatus.VALID) {
+      return Stream.empty();
+    }
+
     final List<SnapDataRequest> childRequests = new ArrayList<>();
     final StackTrie.TaskElement taskElement = stackTrie.getElement(startKeyHash);
 
@@ -209,6 +216,6 @@ public class SnapV2AccountRangeRequest extends SnapV2DataRequest {
   @Override
   public void clear() {
     stackTrie.clear();
-    isProofValid = Optional.of(false);
+    responseProofStatus = ResponseProofStatus.PENDING;
   }
 }

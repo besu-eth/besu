@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.eth.manager.snap.RetryingGetBytecodeFromPee
 import org.hyperledger.besu.ethereum.eth.manager.snap.RetryingGetStorageRangeFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.task.EthTask;
 import org.hyperledger.besu.ethereum.eth.messages.snap.AccountRangeMessage;
-import org.hyperledger.besu.ethereum.eth.messages.snap.StorageRangeMessage;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
@@ -128,7 +127,7 @@ public class SnapV2RequestDataStep {
         accountHashes.stream()
             .map(hash -> Bytes32.wrap(hash.getBytes()))
             .collect(Collectors.toList());
-    final EthTask<StorageRangeMessage.SlotRangeData> getStorageRangeTask =
+    final RetryingGetStorageRangeFromPeerTask getStorageRangeTask =
         RetryingGetStorageRangeFromPeerTask.forStorageRange(
             ethContext, accountHashesAsBytes32, minRange, maxRange, blockHeader, metricsSystem);
     downloadState.addOutstandingTask(getStorageRangeTask);
@@ -140,6 +139,7 @@ public class SnapV2RequestDataStep {
               downloadState.removeOutstandingTask(getStorageRangeTask);
               if (response != null) {
                 final ArrayDeque<NavigableMap<Bytes32, Bytes>> slots = new ArrayDeque<>();
+                boolean invalidProofReceived = false;
                 try {
                   final boolean isEmptyRange =
                       (response.slots().isEmpty() || response.slots().get(0).isEmpty())
@@ -158,6 +158,22 @@ public class SnapV2RequestDataStep {
                         worldStateProofProvider,
                         slots.get(i),
                         i < slots.size() - 1 ? new ArrayDeque<>() : response.proofs());
+                    if (request.hasInvalidProof()) {
+                      invalidProofReceived = true;
+                    }
+                  }
+                  if (invalidProofReceived) {
+                    getStorageRangeTask
+                        .getAssignedPeer()
+                        .ifPresent(
+                            peer -> {
+                              LOG.atDebug()
+                                  .setMessage(
+                                      "Invalid snap/2 storage range proof received from peer {}")
+                                  .addArgument(peer::getLoggableId)
+                                  .log();
+                              peer.recordUselessResponse("invalid snap/2 storage range proof");
+                            });
                   }
                 } catch (final Exception e) {
                   LOG.error("Error while processing storage range response", e);
