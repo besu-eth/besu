@@ -378,4 +378,18 @@ public class LayeredKeyValueStorageTest {
     assertArrayEquals(key3, resultList.get(2).getKey());
     assertArrayEquals(value3, resultList.get(2).getValue());
   }
+
+  @Test
+  void chainDepthShouldReflectNumberOfLayeredLayers() {
+    // depth 1: single layer wrapping a non-layered parent
+    assertEquals(1, layeredKeyValueStorage.chainDepth());
+
+    // depth 2: layer on top of the first layer
+    LayeredKeyValueStorage layer2 = new LayeredKeyValueStorage(layeredKeyValueStorage);
+    assertEquals(2, layer2.chainDepth());
+
+    // depth 3: one more on top
+    LayeredKeyValueStorage layer3 = new LayeredKeyValueStorage(layer2);
+    assertEquals(3, layer3.chainDepth());
+  }
 }

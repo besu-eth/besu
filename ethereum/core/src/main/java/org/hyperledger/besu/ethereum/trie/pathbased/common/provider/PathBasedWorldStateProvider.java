@@ -243,7 +243,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
                         blockchain.getBlockHeader(blockHeaderHash).map(BlockHeader.class::cast)))
         .flatMap(
             worldState -> {
-              LOG.atInfo()
+              LOG.atDebug()
                   .setMessage(
                       "[LAYER_DEPTH] rollFullWorldStateToBlockHash start: worldState.block={} target={}")
                   .addArgument(worldState.blockHash())
@@ -253,7 +253,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
             })
         .map(
             worldState -> {
-              LOG.atInfo()
+              LOG.atDebug()
                   .setMessage("[LAYER_DEPTH] rollFullWorldStateToBlockHash done: target={}")
                   .addArgument(blockHeader::getBlockHash)
                   .log();

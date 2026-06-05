@@ -149,9 +149,9 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
               cached -> {
                 final var layeredStorage =
                     createLayeredKeyValueStorage(cached.getWorldStateStorage());
-                LOG.atInfo()
+                LOG.atDebug()
                     .setMessage("[LAYER_DEPTH] getWorldState cache hit for {} layerDepth={}")
-                    .addArgument(blockHash.getBytes().toShortHexString())
+                    .addArgument(() -> blockHash.getBytes().toShortHexString())
                     .addArgument(
                         () ->
                             layeredStorage instanceof PathBasedLayeredWorldStateKeyValueStorage lkv
@@ -198,7 +198,7 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
         .map(
             storage -> {
               final var layeredStorage = createLayeredKeyValueStorage(storage);
-              LOG.atInfo()
+              LOG.atDebug()
                   .setMessage("[LAYER_DEPTH] getNearestWorldState for #{} layerDepth={}")
                   .addArgument(blockHeader.getNumber())
                   .addArgument(
