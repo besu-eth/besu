@@ -119,7 +119,7 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     try {
       return cf.get(ENGINE_API_RESPONSE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
     } catch (TimeoutException e) {
-      LOG.warn(
+      LOG.debug(
           "Timeout waiting for engine API response for {}, releasing worker thread",
           this.getName());
       return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.TIMEOUT_ERROR);
