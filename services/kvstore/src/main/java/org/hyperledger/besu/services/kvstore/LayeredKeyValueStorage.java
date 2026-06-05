@@ -84,6 +84,8 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
   /**
    * Returns the number of {@link LayeredKeyValueStorage} layers in this chain (including this
    * layer). Used for instrumentation to detect unbounded chain growth.
+   *
+   * @return the chain depth, always &gt;= 1
    */
   public int chainDepth() {
     return 1 + (parent instanceof LayeredKeyValueStorage lkv ? lkv.chainDepth() : 0);
