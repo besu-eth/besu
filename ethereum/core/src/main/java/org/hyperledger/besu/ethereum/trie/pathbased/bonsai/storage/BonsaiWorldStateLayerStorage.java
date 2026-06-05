@@ -147,4 +147,9 @@ public class BonsaiWorldStateLayerStorage extends BonsaiSnapshotWorldStateKeyVal
   public LayeredKeyValueStorage getComposedWorldStateStorage() {
     return (LayeredKeyValueStorage) super.getComposedWorldStateStorage();
   }
+
+  @Override
+  public int layerDepth() {
+    return getComposedWorldStateStorage().chainDepth();
+  }
 }

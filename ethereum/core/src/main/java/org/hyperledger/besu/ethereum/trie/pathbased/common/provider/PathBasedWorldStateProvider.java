@@ -242,8 +242,23 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
                     blockHeaderHash ->
                         blockchain.getBlockHeader(blockHeaderHash).map(BlockHeader.class::cast)))
         .flatMap(
-            worldState -> rollFullWorldStateToBlockHash(worldState, blockHeader.getBlockHash()))
-        .map(MutableWorldState::freezeStorage);
+            worldState -> {
+              LOG.atInfo()
+                  .setMessage(
+                      "[LAYER_DEPTH] rollFullWorldStateToBlockHash start: worldState.block={} target={}")
+                  .addArgument(worldState.blockHash())
+                  .addArgument(blockHeader::getBlockHash)
+                  .log();
+              return rollFullWorldStateToBlockHash(worldState, blockHeader.getBlockHash());
+            })
+        .map(
+            worldState -> {
+              LOG.atInfo()
+                  .setMessage("[LAYER_DEPTH] rollFullWorldStateToBlockHash done: target={}")
+                  .addArgument(blockHeader::getBlockHash)
+                  .log();
+              return worldState.freezeStorage();
+            });
   }
 
   private Optional<MutableWorldState> rollFullWorldStateToBlockHash(

@@ -104,13 +104,22 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
             new PathBasedCachedWorldView(
                 blockHeader, createSnapshotKeyValueStorage(forWorldState.getWorldStateStorage())));
       } else {
-        // otherwise, add the layer to the cache
-        cachedWorldStatesByHash.put(
-            blockHeader.getBlockHash(),
-            new PathBasedCachedWorldView(
-                blockHeader,
-                ((PathBasedLayeredWorldStateKeyValueStorage) forWorldState.getWorldStateStorage())
-                    .clone()));
+        // only cache if the layer chain is shallow; deep chains indicate a backlog of
+        // engine_newPayload calls without FCU — caching would accumulate memory unboundedly
+        final PathBasedLayeredWorldStateKeyValueStorage layerStorage =
+            (PathBasedLayeredWorldStateKeyValueStorage) forWorldState.getWorldStateStorage();
+        if (layerStorage.layerDepth() <= 1) {
+          cachedWorldStatesByHash.put(
+              blockHeader.getBlockHash(),
+              new PathBasedCachedWorldView(blockHeader, layerStorage.clone()));
+        } else {
+          LOG.atDebug()
+              .setMessage(
+                  "Skipping cache for block {} (layerDepth={}) to prevent unbounded layer accumulation")
+              .addArgument(blockHeader::toLogString)
+              .addArgument(layerStorage::layerDepth)
+              .log();
+        }
       }
       // add stateroot -> blockHeader cache entry
       stateRootToBlockHeaderCache.put(blockHeader.getStateRoot(), blockHeader);
@@ -137,11 +146,20 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
       // return a new worldstate using worldstate storage and an isolated copy of the updater
       return Optional.ofNullable(cachedWorldStatesByHash.get(blockHash))
           .map(
-              cached ->
-                  createWorldState(
-                      archive,
-                      createLayeredKeyValueStorage(cached.getWorldStateStorage()),
-                      evmConfiguration));
+              cached -> {
+                final var layeredStorage =
+                    createLayeredKeyValueStorage(cached.getWorldStateStorage());
+                LOG.atInfo()
+                    .setMessage("[LAYER_DEPTH] getWorldState cache hit for {} layerDepth={}")
+                    .addArgument(blockHash.getBytes().toShortHexString())
+                    .addArgument(
+                        () ->
+                            layeredStorage instanceof PathBasedLayeredWorldStateKeyValueStorage lkv
+                                ? lkv.layerDepth()
+                                : -1)
+                    .log();
+                return createWorldState(archive, layeredStorage, evmConfiguration);
+              });
     }
     LOG.atDebug()
         .setMessage("did not find worldstate in cache for {}")
@@ -178,9 +196,20 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
                   .findFirst();
             })
         .map(
-            storage ->
-                createWorldState( // wrap the state in a layered worldstate
-                    archive, createLayeredKeyValueStorage(storage), evmConfiguration));
+            storage -> {
+              final var layeredStorage = createLayeredKeyValueStorage(storage);
+              LOG.atInfo()
+                  .setMessage("[LAYER_DEPTH] getNearestWorldState for #{} layerDepth={}")
+                  .addArgument(blockHeader.getNumber())
+                  .addArgument(
+                      () ->
+                          layeredStorage instanceof PathBasedLayeredWorldStateKeyValueStorage lkv
+                              ? lkv.layerDepth()
+                              : -1)
+                  .log();
+              return createWorldState( // wrap the state in a layered worldstate
+                  archive, layeredStorage, evmConfiguration);
+            });
   }
 
   public Optional<PathBasedWorldState> getHeadWorldState(

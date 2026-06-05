@@ -22,4 +22,9 @@ public interface PathBasedLayeredWorldStateKeyValueStorage
   PathBasedWorldStateKeyValueStorage clone();
 
   void mergeTo(final SegmentedKeyValueStorageTransaction transaction);
+
+  /** Returns the depth of the underlying LayeredKeyValueStorage chain, or -1 if not applicable. */
+  default int layerDepth() {
+    return -1;
+  }
 }
