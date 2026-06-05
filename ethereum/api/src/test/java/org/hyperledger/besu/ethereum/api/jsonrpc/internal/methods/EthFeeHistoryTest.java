@@ -63,7 +63,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -297,6 +297,29 @@ public class EthFeeHistoryTest {
     assertThat(rewards).isEqualTo(expectedBoundedRewards);
   }
 
+  @Test
+  public void throwsWhenReceiptCountDiffersFromTransactionCount() {
+    // A receipt count differing from the body's transaction count means corrupted local storage;
+    // the reward computation must fail loudly instead of truncating to the shorter list.
+    Block block = mock(Block.class);
+    Blockchain blockchain = mockBlockchainTransactionsWithPriorityFee(block);
+    // Re-stub the receipts with fewer entries than the block's transactions.
+    when(blockchain.getTxReceipts(any()))
+        .thenReturn(Optional.of(List.of(mock(TransactionReceipt.class))));
+
+    final var blockchainQueries = mockBlockchainQueries(blockchain, Wei.of(7));
+    EthFeeHistory ethFeeHistory =
+        new EthFeeHistory(
+            null,
+            blockchainQueries,
+            miningCoordinator,
+            ImmutableApiConfiguration.builder().build());
+
+    assertThatThrownBy(() -> ethFeeHistory.computeRewards(List.of(50.0), block, Wei.of(7)))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("receipts/body storage mismatch");
+  }
+
   private Blockchain mockBlockchainTransactionsWithPriorityFee(final Block block) {
     final Blockchain blockchain = mock(Blockchain.class);
 
@@ -397,8 +420,13 @@ public class EthFeeHistoryTest {
 
   @Test
   public void correctlyHandlesForkBlock() {
+    // This spec now serves every next-block resolution in the request (result-cache key, blob
+    // fees and next base fee all use the chain head timestamp), so it needs the full stubbing.
     final ProtocolSpec londonSpec = mock(ProtocolSpec.class);
+    when(londonSpec.getGasCalculator()).thenReturn(new LondonGasCalculator());
     when(londonSpec.getFeeMarket()).thenReturn(FeeMarket.london(11));
+    when(londonSpec.getGasLimitCalculator()).thenReturn(mock(GasLimitCalculator.class));
+    when(londonSpec.getHardforkId()).thenReturn(LONDON);
     when(protocolSchedule.getForNextBlockHeader(
             eq(blockchain.getChainHeadHeader()),
             eq(blockchain.getChainHeadHeader().getTimestamp())))
@@ -412,18 +440,13 @@ public class EthFeeHistoryTest {
 
   @Test
   public void allZeroPercentilesForZeroBlock() {
-    final ProtocolSpec londonSpec = mock(ProtocolSpec.class);
-    when(londonSpec.getFeeMarket()).thenReturn(FeeMarket.london(5));
+    // setUp's mockFork() already resolves every next-block lookup to a fully stubbed London spec.
     final BlockDataGenerator.BlockOptions blockOptions = BlockDataGenerator.BlockOptions.create();
     blockOptions.hasTransactions(false);
     blockOptions.setParentHash(blockchain.getChainHeadHash());
     blockOptions.setBlockNumber(11);
     final Block emptyBlock = gen.block(blockOptions);
     blockchain.appendBlock(emptyBlock, gen.receipts(emptyBlock));
-    when(protocolSchedule.getForNextBlockHeader(
-            eq(blockchain.getChainHeadHeader()),
-            eq(blockchain.getChainHeadHeader().getTimestamp())))
-        .thenReturn(londonSpec);
     final FeeHistory.FeeHistoryResult result =
         (FeeHistory.FeeHistoryResult)
             ((JsonRpcSuccessResponse) feeHistoryRequest("0x1", "latest", new double[] {100.0}))
@@ -433,18 +456,13 @@ public class EthFeeHistoryTest {
 
   @Test
   public void assertMaximumPercentilesArraySize() {
-    final ProtocolSpec londonSpec = mock(ProtocolSpec.class);
-    when(londonSpec.getFeeMarket()).thenReturn(FeeMarket.london(5));
+    // setUp's mockFork() already resolves every next-block lookup to a fully stubbed London spec.
     final BlockDataGenerator.BlockOptions blockOptions = BlockDataGenerator.BlockOptions.create();
     blockOptions.hasTransactions(false);
     blockOptions.setParentHash(blockchain.getChainHeadHash());
     blockOptions.setBlockNumber(11);
     final Block emptyBlock = gen.block(blockOptions);
     blockchain.appendBlock(emptyBlock, gen.receipts(emptyBlock));
-    when(protocolSchedule.getForNextBlockHeader(
-            eq(blockchain.getChainHeadHeader()),
-            eq(blockchain.getChainHeadHeader().getTimestamp())))
-        .thenReturn(londonSpec);
 
     double[] biglist = new double[500];
     Arrays.fill(biglist, 1d);
@@ -518,19 +536,15 @@ public class EthFeeHistoryTest {
     when(cancunSpec.getHardforkId()).thenReturn(CANCUN);
 
     when(protocolSchedule.getByBlockHeader(any())).thenReturn(londonSpec);
-    final long chainHeadTimestamp = blockchain.getChainHeadHeader().getTimestamp();
-    final AtomicInteger latestProtocolCalls = new AtomicInteger();
+    // With chain-time fork resolution, the next-block spec for a fixed head only changes when the
+    // schedule itself does (e.g. a config update scheduling a fork). Flip the resolved spec
+    // between two identical requests: the second must miss the result cache and recompute.
+    final AtomicReference<ProtocolSpec> nextBlockSpec = new AtomicReference<>(londonSpec);
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong()))
-        .thenAnswer(
-            invocation -> {
-              final long timestamp = invocation.getArgument(1, Long.class);
-              if (timestamp == chainHeadTimestamp) {
-                return londonSpec;
-              }
-              return latestProtocolCalls.getAndIncrement() == 0 ? londonSpec : cancunSpec;
-            });
+        .thenAnswer(invocation -> nextBlockSpec.get());
 
     assertBlobBaseFee(List.of(Wei.ZERO, Wei.ZERO));
+    nextBlockSpec.set(cancunSpec);
     assertBlobBaseFee(List.of(Wei.ZERO, Wei.ONE));
   }
 

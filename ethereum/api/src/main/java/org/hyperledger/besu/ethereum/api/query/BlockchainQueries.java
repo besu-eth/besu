@@ -64,7 +64,6 @@ import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
-import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -163,9 +162,7 @@ public class BlockchainQueries {
   // current mining configuration, preserving the original race-free behaviour of
   // miner_setMinGasPrice / miner_setMinPriorityFee.
   private record FeeOracleSnapshot(
-      Hash headHash,
-      Optional<Wei> rawGasPriceSample,
-      Optional<Wei> rawPrioritySample) {}
+      Hash headHash, Optional<Wei> rawGasPriceSample, Optional<Wei> rawPrioritySample) {}
 
   private final AtomicReference<FeeOracleSnapshot> feeOracleRef = new AtomicReference<>();
 
@@ -189,10 +186,10 @@ public class BlockchainQueries {
         maybeSnapshot.ifPresent(feeOracleRef::set);
       }
       // If the head changed away and back while this task was queued, a stale write is still safe:
-      // the snapshot is keyed by head hash and stale entries are dropped by getOrCompute... on read.
+      // the snapshot is keyed by head hash and stale entries are dropped by getOrCompute... on
+      // read.
     } catch (RuntimeException e) {
-      LOG.warn(
-          "Failed to precompute fee oracle for new head {}", chainHeadHeader.toLogString(), e);
+      LOG.warn("Failed to precompute fee oracle for new head {}", chainHeadHeader.toLogString(), e);
     }
   }
 
@@ -203,7 +200,8 @@ public class BlockchainQueries {
     return Optional.of(
         OrderStatistics.selectKthInPlace(
             samples,
-            Math.min(samples.length - 1, (int) (samples.length * apiConfig.getGasPriceFraction()))));
+            Math.min(
+                samples.length - 1, (int) (samples.length * apiConfig.getGasPriceFraction()))));
   }
 
   public Blockchain getBlockchain() {
@@ -1131,9 +1129,11 @@ public class BlockchainQueries {
 
   public Wei gasPrice() {
     final BlockHeader chainHeadHeader = blockchain.getChainHeadHeader();
+    // Resolve next-block specs from chain time, not the wall clock: the system clock is not a
+    // trusted time source (and its milliseconds would activate future timestamp forks early).
     final FeeMarket nextBlockFeeMarket =
         protocolSchedule
-            .getForNextBlockHeader(chainHeadHeader, System.currentTimeMillis())
+            .getForNextBlockHeader(chainHeadHeader, chainHeadHeader.getTimestamp())
             .getFeeMarket();
 
     final Optional<Wei> rawSample = getOrComputeGasPriceSample(chainHeadHeader);
@@ -1156,7 +1156,7 @@ public class BlockchainQueries {
   public Wei gasPriceLowerBound() {
     final var chainHeadHeader = blockchain.getChainHeadHeader();
     final var nextBlockProtocolSpec =
-        protocolSchedule.getForNextBlockHeader(chainHeadHeader, System.currentTimeMillis());
+        protocolSchedule.getForNextBlockHeader(chainHeadHeader, chainHeadHeader.getTimestamp());
     final var nextBlockFeeMarket = nextBlockProtocolSpec.getFeeMarket();
     return gasPriceLowerBound(chainHeadHeader, nextBlockFeeMarket);
   }
@@ -1185,10 +1185,10 @@ public class BlockchainQueries {
 
   /**
    * Returns the raw percentile gas-price sample for the current chain head, hitting the
-   * pre-computed snapshot when the head matches. On miss (startup, or a request that arrives
-   * after a head change but before the BlockAddedObserver has refreshed the snapshot) it
-   * computes both samples live and seeds the snapshot for subsequent callers — this is what
-   * makes the cold path self-healing: only one request per head change pays the scan cost.
+   * pre-computed snapshot when the head matches. On miss (startup, or a request that arrives after
+   * a head change but before the BlockAddedObserver has refreshed the snapshot) it computes both
+   * samples live and seeds the snapshot for subsequent callers — this is what makes the cold path
+   * self-healing: only one request per head change pays the scan cost.
    */
   private Optional<Wei> getOrComputeGasPriceSample(final BlockHeader chainHeadHeader) {
     return getOrComputeFeeOracleSample(chainHeadHeader, FeeOracleSnapshot::rawGasPriceSample);
@@ -1258,7 +1258,7 @@ public class BlockchainQueries {
   public Optional<Wei> getNextBlockBaseFee() {
     final var chainHeadHeader = blockchain.getChainHeadHeader();
     final var nextBlockProtocolSpec =
-        protocolSchedule.getForNextBlockHeader(chainHeadHeader, System.currentTimeMillis());
+        protocolSchedule.getForNextBlockHeader(chainHeadHeader, chainHeadHeader.getTimestamp());
     final var nextBlockFeeMarket = nextBlockProtocolSpec.getFeeMarket();
     return nextBlockFeeMarket.implementsBaseFee()
         ? Optional.of(getNextBlockBaseFee(chainHeadHeader, (BaseFeeMarket) nextBlockFeeMarket))
