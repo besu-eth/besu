@@ -18,7 +18,6 @@ import org.hyperledger.besu.ethereum.chain.BlockchainStorage;
 import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
-import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.snap.RetryingGetBlockAccessListsFromPeerTask;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -32,8 +31,7 @@ import java.util.function.Function;
 import com.google.common.annotations.VisibleForTesting;
 
 public class DownloadAndPersistBlockAccessListsStep
-    implements Function<
-        List<SyncBlockWithReceipts>, CompletableFuture<List<SyncBlockWithReceipts>>> {
+    implements Function<List<BlockHeader>, CompletableFuture<List<BlockHeader>>> {
 
   private final DefaultBlockchain blockchain;
   private final Duration timeoutDuration;
@@ -66,14 +64,11 @@ public class DownloadAndPersistBlockAccessListsStep
   }
 
   @Override
-  public CompletableFuture<List<SyncBlockWithReceipts>> apply(
-      final List<SyncBlockWithReceipts> syncBlocksWithReceipts) {
-    final List<BlockHeader> headers =
-        syncBlocksWithReceipts.stream().map(SyncBlockWithReceipts::getHeader).toList();
+  public CompletableFuture<List<BlockHeader>> apply(final List<BlockHeader> headers) {
     validateAllHeadersBalEnabled(headers);
 
     if (headers.isEmpty()) {
-      return CompletableFuture.completedFuture(syncBlocksWithReceipts);
+      return CompletableFuture.completedFuture(headers);
     }
 
     final CompletableFuture<List<SyncBlockAccessList>> downloadFuture =
@@ -85,7 +80,7 @@ public class DownloadAndPersistBlockAccessListsStep
         blockAccessLists -> {
           validateRequiredBlockAccessLists(headers, blockAccessLists);
           persistBlockAccessLists(headers, blockAccessLists);
-          return syncBlocksWithReceipts;
+          return headers;
         });
   }
 

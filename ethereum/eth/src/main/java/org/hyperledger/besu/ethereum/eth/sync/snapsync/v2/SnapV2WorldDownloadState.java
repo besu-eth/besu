@@ -278,12 +278,6 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
    * not yet dequeued account ranges are not persisted yet, so a catch-up coordinator can retarget
    * them to the next pivot after the safe point is reached.
    */
-  public synchronized void pauseAccountRangeRequestsForPivotCatchup() {
-    accountRangeRequestsPausedForPivotCatchup = true;
-    maybeCompletePivotCatchupSafePoint();
-    notifyAll();
-  }
-
   public synchronized CompletableFuture<Void> pauseAccountRangeRequestsAndWaitForSafePoint() {
     accountRangeRequestsPausedForPivotCatchup = true;
     pivotCatchupSafePointFuture = new CompletableFuture<>();
