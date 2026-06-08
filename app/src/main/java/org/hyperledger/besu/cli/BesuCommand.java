@@ -158,9 +158,12 @@ import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.metrics.vertx.VertxMetricsAdapterFactory;
 import org.hyperledger.besu.nat.NatMethod;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
+import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
+import org.hyperledger.besu.plugin.services.health.LivenessCheckPlugin;
+import org.hyperledger.besu.plugin.services.health.ReadinessCheckPlugin;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModule;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBPlugin;
@@ -343,6 +346,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       Suppliers.memoize(this::getApiConfiguration);
 
   private RocksDBPlugin rocksDBPlugin;
+  private LivenessCheckPlugin livenessCheckPlugin;
+  private ReadinessCheckPlugin readinessCheckPlugin;
 
   private int maxPeers;
   private int maxRemoteInitiatedPeers;
@@ -639,13 +644,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       names = {"--cache-last-block-headers-preload-enabled"},
       description = "Enable preloading of the block header cache (default: ${DEFAULT-VALUE})")
   private final Boolean isCacheLastBlockHeadersPreloadEnabled = false;
-
-  @CommandLine.Option(
-      names = {"--tx-sender-nonce-index-enabled"},
-      description =
-          "Enable indexing of mined transactions by sender address and nonce, to support"
-              + " eth_getTransactionBySenderAndNonce. (default: ${DEFAULT-VALUE})")
-  private final Boolean txSenderNonceIndexEnabled = true;
 
   @CommandLine.Option(
       names = {"--cache-precompiles"},
@@ -1275,6 +1273,22 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     rocksDBPlugin = new RocksDBPlugin();
     rocksDBPlugin.register(besuPluginContext);
     new InMemoryStoragePlugin().register(besuPluginContext);
+    livenessCheckPlugin = new LivenessCheckPlugin();
+    readinessCheckPlugin = new ReadinessCheckPlugin();
+
+    // Only register built-in health checks if endpoints are not already registered
+    // This allows external plugins to provide custom implementations
+    besuPluginContext
+        .getService(HealthCheckService.class)
+        .ifPresent(
+            healthCheckService -> {
+              if (!healthCheckService.getHealthCheck("/liveness").isPresent()) {
+                livenessCheckPlugin.register(besuPluginContext);
+              }
+              if (!healthCheckService.getHealthCheck("/readiness").isPresent()) {
+                readinessCheckPlugin.register(besuPluginContext);
+              }
+            });
 
     // register default security module
     securityModuleService.register(
@@ -1338,6 +1352,20 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         miningParametersSupplier.get());
 
     besuPluginContext.startPlugins();
+    if (livenessCheckPlugin != null) {
+      try {
+        livenessCheckPlugin.start();
+      } catch (final Exception e) {
+        logger.warn("Failed to start livenessCheckPlugin", e);
+      }
+    }
+    if (readinessCheckPlugin != null) {
+      try {
+        readinessCheckPlugin.start();
+      } catch (final Exception e) {
+        logger.warn("Failed to start readinessCheckPlugin", e);
+      }
+    }
   }
 
   private void setReleaseMetrics() {
@@ -2075,7 +2103,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .cacheLastBlocks(numberOfBlocksToCache)
             .cacheLastBlockHeaders(numberOfBlockHeadersToCache)
             .isCacheLastBlockHeadersPreloadEnabled(isCacheLastBlockHeadersPreloadEnabled)
-            .senderNonceIndexingEnabled(txSenderNonceIndexEnabled)
             .genesisStateHashCacheEnabled(genesisStateHashCacheEnabled)
             .apiConfiguration(apiConfiguration)
             .balConfiguration(balConfiguration)
@@ -2409,6 +2436,20 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             new Thread(
                 () -> {
                   try {
+                    if (readinessCheckPlugin != null) {
+                      try {
+                        readinessCheckPlugin.stop();
+                      } catch (final Exception e) {
+                        logger.warn("Failed to stop readinessCheckPlugin", e);
+                      }
+                    }
+                    if (livenessCheckPlugin != null) {
+                      try {
+                        livenessCheckPlugin.stop();
+                      } catch (final Exception e) {
+                        logger.warn("Failed to stop livenessCheckPlugin", e);
+                      }
+                    }
                     besuPluginContext.stopPlugins();
                     runner.close();
                     LogConfigurator.shutdown();
