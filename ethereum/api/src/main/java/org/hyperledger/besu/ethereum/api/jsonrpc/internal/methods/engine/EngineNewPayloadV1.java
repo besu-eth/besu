@@ -159,11 +159,6 @@ public sealed class EngineNewPayloadV1<
       return new JsonRpcErrorResponse(reqId, parameterValidationResult.getInvalidReason());
     }
 
-    if (mergeContext.get().isSyncing()) {
-      LOG.debug("We are syncing");
-      return respondWith(reqId, blockParam, null, SYNCING);
-    }
-
     // 2. Client software MUST validate blockHash value as being equivalent to
     // Keccak256(RLP(ExecutionBlockHeader)), where ExecutionBlockHeader is the execution layer block
     // header (the former PoW block header structure). Fields of this object are set to the
@@ -238,6 +233,8 @@ public sealed class EngineNewPayloadV1<
     // block is now valid and can be processed
     final Block block = unvalidatedBlock;
 
+    mergeContext.get().fireNewPayloadEvent(newBlockHeader);
+
     // do we already have this payload?
     if (protocolContext.getBlockchain().getBlockByHash(block.getHash()).isPresent()) {
       LOG.atDebug()
@@ -251,6 +248,11 @@ public sealed class EngineNewPayloadV1<
       // 6. Client software MUST respond to this method call in the following way:
       // {status: SYNCING, latestValidHash: null, validationError: null} if requisite data for the
       // payload's acceptance or validation is missing
+      return respondWith(reqId, blockParam, null, SYNCING);
+    }
+
+    if (mergeContext.get().isSyncing()) {
+      LOG.debug("We are syncing");
       return respondWith(reqId, blockParam, null, SYNCING);
     }
 

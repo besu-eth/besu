@@ -28,8 +28,7 @@
     "id": 67,
     "error": {
       "code": -32602,
-      "message": "Invalid withdrawals",
-      "data": "Withdrawals must be present after Shanghai hardfork"
+      "message": "Invalid withdrawals"
     }
   },
   "statusCode": 200
