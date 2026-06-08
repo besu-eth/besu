@@ -302,7 +302,6 @@ public class SyncState implements NewPayloadListener {
   @Override
   public void onNewPayload(final BlockHeader header) {
     lastPayloadBlockNumber = header.getNumber();
-    // Set the latch last so any reader that observes it also observes lastPayloadBlockNumber.
     payloadReceived = true;
   }
 

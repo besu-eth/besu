@@ -768,8 +768,6 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     final boolean fullSyncDisabled = syncConfig.getSyncMode() != SyncMode.FULL;
     final SyncState syncState = new SyncState(blockchain, ethPeers, fullSyncDisabled, checkpoint);
 
-    // In PoS the consensus layer is the authority on the chain head. Subscribe SyncState to
-    // engine_newPayload events so bestChainHeight reflects the CL head once payloads arrive.
     protocolContext
         .safeConsensusContext(MergeContext.class)
         .ifPresent(mergeContext -> mergeContext.addNewPayloadListener(syncState));
