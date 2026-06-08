@@ -18,6 +18,7 @@ import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordina
 
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.common.WorldStateHealFinishedListener;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedAccountRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncMetricsManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePersistenceManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
@@ -38,7 +39,6 @@ import org.hyperledger.besu.services.tasks.Task;
 import org.hyperledger.besu.services.tasks.TaskCollection;
 
 import java.time.Clock;
-import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 import java.util.stream.Stream;
@@ -67,8 +67,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   private final SnapSyncMetricsManager metricsManager;
   private final AtomicBoolean worldStateFinishedNotified = new AtomicBoolean(false);
   private final WorldStateHealFinishedListener worldStateHealFinishedListener;
-  private final ConcurrentSkipListMap<Bytes32, Bytes32> completedRanges =
-      new ConcurrentSkipListMap<>();
+  private final DownloadedAccountRangeTracker rangeTracker = new DownloadedAccountRangeTracker();
 
   public SnapV2WorldDownloadState(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
@@ -125,7 +124,14 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
             BesuMetricCategory.SYNCHRONIZER,
             "snap_v2_world_state_completed_ranges_current",
             "Number of completed account ranges for snap/2 world state download",
-            completedRanges::size);
+            rangeTracker::completedRangeCount);
+    metricsManager
+        .getMetricsSystem()
+        .createLongGauge(
+            BesuMetricCategory.SYNCHRONIZER,
+            "snap_v2_world_state_pending_ranges_current",
+            "Number of pending account ranges for snap/2 world state download",
+            rangeTracker::pendingRangeCount);
     syncDurationMetrics.startTimer(
         SyncDurationMetrics.Labels.SNAP_INITIAL_WORLD_STATE_DOWNLOAD_DURATION);
   }
@@ -136,7 +142,8 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
         && pendingAccountRequests.allTasksCompleted()
         && pendingCodeRequests.allTasksCompleted()
         && pendingStorageRequests.allTasksCompleted()
-        && pendingLargeStorageRequests.allTasksCompleted()) {
+        && pendingLargeStorageRequests.allTasksCompleted()
+        && rangeTracker.pendingRangeCount() == 0) {
       persistWorldStateRoot(header);
       notifyWorldStateFinished();
       syncDurationMetrics.stopTimer(
@@ -190,7 +197,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     pendingStorageRequests.clear();
     pendingLargeStorageRequests.clear();
     pendingCodeRequests.clear();
-    completedRanges.clear();
+    rangeTracker.clear();
   }
 
   @Override
@@ -287,9 +294,13 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     LOG.debug("Ignoring snap/2 healing marker for account {}", account);
   }
 
+  public DownloadedAccountRangeTracker getRangeTracker() {
+    return rangeTracker;
+  }
+
   @Override
   public void markAccountRangeComplete(final Bytes32 startKeyHash, final Bytes32 endKeyHash) {
-    completedRanges.put(startKeyHash, endKeyHash);
+    rangeTracker.registerPending(startKeyHash, endKeyHash, 0);
     LOG.atDebug()
         .setMessage("Marked account range complete: {} -> {}")
         .addArgument(startKeyHash)
