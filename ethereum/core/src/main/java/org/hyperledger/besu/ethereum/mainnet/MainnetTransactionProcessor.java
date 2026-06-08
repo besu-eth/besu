@@ -268,27 +268,6 @@ public class MainnetTransactionProcessor {
         }
       }
 
-      long codeDelegationRefund = 0L;
-      long alreadyExistingDelegators = 0L;
-      long authBaseRefundCount = 0L;
-      if (transaction.getType().equals(TransactionType.DELEGATE_CODE)) {
-        if (maybeCodeDelegationProcessor.isEmpty()) {
-          throw new RuntimeException("Code delegation processor is required for 7702 transactions");
-        }
-
-        final WorldUpdater delegationUpdater = worldState.updater();
-        final CodeDelegationResult codeDelegationResult =
-            maybeCodeDelegationProcessor
-                .get()
-                .process(delegationUpdater, transaction, accessLocationTracker);
-        eip2930WarmAddressList.addAll(codeDelegationResult.accessedDelegatorAddresses());
-        alreadyExistingDelegators = codeDelegationResult.alreadyExistingDelegators();
-        authBaseRefundCount = codeDelegationResult.authBaseRefundCount();
-        codeDelegationRefund =
-            gasCalculator.calculateDelegateCodeGasRefund(alreadyExistingDelegators);
-        delegationUpdater.commit();
-      }
-
       final List<AccessListEntry> eip2930AccessListEntries =
           transaction.getAccessList().orElse(List.of());
       // we need to keep a separate hash set of addresses in case they specify no storage.
@@ -335,6 +314,27 @@ public class MainnetTransactionProcessor {
                     intrinsicRegularGas,
                     intrinsicStateGas,
                     transaction.getGasLimit())));
+      }
+
+      long codeDelegationRefund = 0L;
+      long alreadyExistingDelegators = 0L;
+      long authBaseRefundCount = 0L;
+      if (transaction.getType().equals(TransactionType.DELEGATE_CODE)) {
+        if (maybeCodeDelegationProcessor.isEmpty()) {
+          throw new RuntimeException("Code delegation processor is required for 7702 transactions");
+        }
+
+        final WorldUpdater delegationUpdater = worldState.updater();
+        final CodeDelegationResult codeDelegationResult =
+            maybeCodeDelegationProcessor
+                .get()
+                .process(delegationUpdater, transaction, accessLocationTracker);
+        eip2930WarmAddressList.addAll(codeDelegationResult.accessedDelegatorAddresses());
+        alreadyExistingDelegators = codeDelegationResult.alreadyExistingDelegators();
+        authBaseRefundCount = codeDelegationResult.authBaseRefundCount();
+        codeDelegationRefund =
+            gasCalculator.calculateDelegateCodeGasRefund(alreadyExistingDelegators);
+        delegationUpdater.commit();
       }
 
       final long gasAvailable = transaction.getGasLimit() - intrinsicRegularGas;
