@@ -148,6 +148,7 @@ import graphql.GraphQL;
 import inet.ipaddr.IPAddress;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
+import io.vertx.core.json.JsonObject;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
@@ -1516,6 +1517,8 @@ public class RunnerBuilder {
 
   private HealthService.HealthCheck adaptProvider(
       final HealthCheckService.HealthCheckProvider provider) {
-    return healthServiceParams -> provider.isHealthy(healthServiceParams::getParam);
+    return healthServiceParams ->
+        new HealthService.HealthCheckResult(
+            provider.isHealthy(healthServiceParams::getParam), new JsonObject());
   }
 }
