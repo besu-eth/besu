@@ -94,13 +94,13 @@ public record ChainSyncState(
   /**
    * Creates a new state when we restart the sync from the current chain head.
    *
-   * @param chainHeadHeader the current head of our local chain
+   * @param blockDownloadAnchor the current head of our local chain
    * @return new ChainSyncState instance
    */
-  public ChainSyncState fromHead(final BlockHeader chainHeadHeader) {
+  public ChainSyncState withBlockDownloadAnchor(final BlockHeader blockDownloadAnchor) {
     return new ChainSyncState(
         this.pivotBlockHeader,
-        chainHeadHeader,
+        blockDownloadAnchor,
         this.headerDownloadAnchor,
         this.headersDownloadComplete,
         this.headerDownloadProgress);
