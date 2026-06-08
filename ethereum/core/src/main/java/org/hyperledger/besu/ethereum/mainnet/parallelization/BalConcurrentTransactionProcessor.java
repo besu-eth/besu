@@ -153,7 +153,10 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
           return Optional.empty();
         }
 
-        applyWritesFromPartialBlockAccessView(maybePartialBlockAccessView.get(), blockAccumulator);
+        applyWritesFromPartialBlockAccessView(
+            maybePartialBlockAccessView.get(),
+            blockAccumulator,
+            transactionProcessor.getClearEmptyAccounts());
 
         confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
         result.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
@@ -177,14 +180,17 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
   private void applyWritesFromPartialBlockAccessView(
       final PartialBlockAccessView partialBlockAccessView,
-      final PathBasedWorldStateUpdateAccumulator<?> worldStateUpdater) {
+      final PathBasedWorldStateUpdateAccumulator<?> worldStateUpdater,
+      final boolean clearEmptyAccounts) {
     for (var accountChanges : partialBlockAccessView.accountChanges()) {
       MutableAccount account = null;
+      boolean shouldCheckForEmptyAccount = false;
 
       final Optional<Wei> postBalance = accountChanges.getPostBalance();
       if (postBalance.isPresent()) {
         account = worldStateUpdater.getOrCreate(accountChanges.getAddress());
         account.setBalance(postBalance.get());
+        shouldCheckForEmptyAccount = clearEmptyAccounts && postBalance.get().isZero();
       }
 
       final Optional<Long> nonceChange = accountChanges.getNonceChange();
@@ -193,6 +199,8 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
           account = worldStateUpdater.getOrCreate(accountChanges.getAddress());
         }
         account.setNonce(nonceChange.get());
+        shouldCheckForEmptyAccount =
+            shouldCheckForEmptyAccount || (clearEmptyAccounts && nonceChange.get() == 0L);
       }
 
       final Optional<Bytes> newCode = accountChanges.getNewCode();
@@ -201,6 +209,8 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
           account = worldStateUpdater.getOrCreate(accountChanges.getAddress());
         }
         account.setCode(newCode.get());
+        shouldCheckForEmptyAccount =
+            shouldCheckForEmptyAccount || (clearEmptyAccounts && newCode.get().isEmpty());
       }
 
       for (var slotChange : accountChanges.getStorageChanges()) {
@@ -211,6 +221,10 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
         account.setStorageValue(
             slot.getSlotKey().orElseThrow(),
             slotChange.newValue() != null ? slotChange.newValue() : UInt256.ZERO);
+      }
+
+      if (shouldCheckForEmptyAccount && account != null && account.isEmpty()) {
+        worldStateUpdater.deleteAccount(accountChanges.getAddress());
       }
     }
   }
