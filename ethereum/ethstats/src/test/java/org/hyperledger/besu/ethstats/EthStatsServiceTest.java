@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethstats;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.times;
@@ -42,6 +43,7 @@ import org.hyperledger.besu.ethstats.request.EthStatsRequest;
 import org.hyperledger.besu.ethstats.util.EthStatsConnectOptions;
 import org.hyperledger.besu.ethstats.util.ImmutableEthStatsConnectOptions;
 
+import java.lang.reflect.Field;
 import java.math.BigInteger;
 import java.time.Duration;
 import java.util.List;
@@ -58,6 +60,7 @@ import io.vertx.core.http.WebSocket;
 import io.vertx.core.http.WebSocketClient;
 import io.vertx.core.http.WebSocketClientOptions;
 import io.vertx.core.http.WebSocketConnectOptions;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -115,6 +118,18 @@ public class EthStatsServiceTest {
     when(genesisConfigOptions.getChainId()).thenReturn(Optional.of(BigInteger.ONE));
     when(ethProtocolManager.getSupportedCapabilities())
         .thenReturn(List.of(Capability.create("eth64", 1)));
+    ethStatsService =
+        new EthStatsService(
+            ethStatsConnectOptions,
+            blockchainQueries,
+            ethProtocolManager,
+            transactionPool,
+            miningCoordinator,
+            syncState,
+            vertx,
+            "clientVersion",
+            genesisConfigOptions,
+            p2PNetwork);
   }
 
   @Test
@@ -159,7 +174,7 @@ public class EthStatsServiceTest {
 
     verify(webSocketClient, times(1))
         .connect(any(WebSocketConnectOptions.class), webSocketCaptor.capture());
-    webSocketCaptor.getValue().handle(succeededWebSocketEvent(Optional.of(webSocket)));
+    webSocketCaptor.getValue().handle(succeededWebSocketEvent(webSocket));
 
     final ArgumentCaptor<String> helloMessageCaptor = ArgumentCaptor.forClass(String.class);
     verify(webSocket, times(1)).writeTextMessage(helloMessageCaptor.capture(), any(Handler.class));
@@ -191,12 +206,14 @@ public class EthStatsServiceTest {
         ArgumentCaptor.forClass(Handler.class);
     verify(webSocketClient, times(1))
         .connect(any(WebSocketConnectOptions.class), webSocketCaptor.capture());
-    webSocketCaptor.getValue().handle(succeededWebSocketEvent(Optional.of(webSocket)));
+    webSocketCaptor.getValue().handle(succeededWebSocketEvent(webSocket));
 
     final ArgumentCaptor<Handler<AsyncResult<Void>>> helloMessageCaptor =
         ArgumentCaptor.forClass(Handler.class);
     verify(webSocket, times(1)).writeTextMessage(anyString(), helloMessageCaptor.capture());
-    helloMessageCaptor.getValue().handle(failedWebSocketEvent(Optional.empty()));
+    helloMessageCaptor
+        .getValue()
+        .handle(failedWebSocketEvent(new RuntimeException("test failure")));
 
     verify(ethScheduler, times(1)).scheduleFutureTask(any(Runnable.class), any(Duration.class));
   }
@@ -224,7 +241,7 @@ public class EthStatsServiceTest {
 
     verify(webSocketClient, times(1))
         .connect(any(WebSocketConnectOptions.class), webSocketCaptor.capture());
-    webSocketCaptor.getValue().handle(succeededWebSocketEvent(Optional.of(webSocket)));
+    webSocketCaptor.getValue().handle(succeededWebSocketEvent(webSocket));
 
     final ArgumentCaptor<Handler<String>> textMessageHandlerCaptor =
         ArgumentCaptor.forClass(Handler.class);
@@ -271,7 +288,7 @@ public class EthStatsServiceTest {
 
     verify(webSocketClient, times(1))
         .connect(any(WebSocketConnectOptions.class), webSocketCaptor.capture());
-    webSocketCaptor.getValue().handle(succeededWebSocketEvent(Optional.of(webSocket)));
+    webSocketCaptor.getValue().handle(succeededWebSocketEvent(webSocket));
 
     // send block message
     ethStatsService.sendBlockReport();
@@ -296,15 +313,37 @@ public class EthStatsServiceTest {
     assertThat(blockDataNode).isEqualTo(expectedBlockResultNode);
   }
 
-  private <T> AsyncResult<T> succeededWebSocketEvent(final Optional<T> object) {
+  @Test
+  public void shouldThrowWhenSendBlockReportCalledBeforeConnect() {
+    assertThatThrownBy(() -> ethStatsService.sendBlockReport())
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("WebSocket connection is required but is not available.");
+  }
+
+  @Test
+  public void shouldThrowWhenSendBlockReportCalledBeforeEnodeInitialized() throws Exception {
+    setPrivateField("webSocket", webSocket);
+
+    assertThatThrownBy(() -> ethStatsService.sendBlockReport())
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessage("Local enode URL has not been initialized yet.");
+  }
+
+  private void setPrivateField(final String fieldName, final Object value) throws Exception {
+    final Field field = EthStatsService.class.getDeclaredField(fieldName);
+    field.setAccessible(true);
+    field.set(ethStatsService, value);
+  }
+
+  private <T> AsyncResult<T> succeededWebSocketEvent(final T object) {
     return new AsyncResult<>() {
       @Override
       public T result() {
-        return object.orElse(null);
+        return object;
       }
 
       @Override
-      public Throwable cause() {
+      public @Nullable Throwable cause() {
         return null;
       }
 
@@ -320,7 +359,7 @@ public class EthStatsServiceTest {
     };
   }
 
-  private AsyncResult<Void> failedWebSocketEvent(final Optional<Throwable> cause) {
+  private AsyncResult<Void> failedWebSocketEvent(final Throwable cause) {
     return new AsyncResult<>() {
       @Override
       public Void result() {
@@ -329,7 +368,7 @@ public class EthStatsServiceTest {
 
       @Override
       public Throwable cause() {
-        return cause.orElse(null);
+        return cause;
       }
 
       @Override
@@ -378,7 +417,7 @@ public class EthStatsServiceTest {
 
     verify(webSocketClient, times(1))
         .connect(any(WebSocketConnectOptions.class), webSocketCaptor.capture());
-    webSocketCaptor.getValue().handle(succeededWebSocketEvent(Optional.of(webSocket)));
+    webSocketCaptor.getValue().handle(succeededWebSocketEvent(webSocket));
 
     final ArgumentCaptor<Handler<String>> textMessageHandlerCaptor =
         ArgumentCaptor.forClass(Handler.class);
@@ -423,7 +462,7 @@ public class EthStatsServiceTest {
 
     verify(webSocketClient, times(1))
         .connect(any(WebSocketConnectOptions.class), webSocketCaptor.capture());
-    webSocketCaptor.getValue().handle(succeededWebSocketEvent(Optional.of(webSocket)));
+    webSocketCaptor.getValue().handle(succeededWebSocketEvent(webSocket));
 
     final ArgumentCaptor<Handler<String>> textMessageHandlerCaptor =
         ArgumentCaptor.forClass(Handler.class);

@@ -19,7 +19,6 @@ import static org.hyperledger.besu.evm.operation.Shift256Operations.isShiftOverf
 import static org.hyperledger.besu.evm.operation.Shift256Operations.putLong;
 import static org.hyperledger.besu.evm.operation.Shift256Operations.shiftRight;
 
-import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
@@ -47,8 +46,7 @@ public class ShrOperationOptimized extends AbstractFixedCostOperation {
   }
 
   @Override
-  public Operation.OperationResult executeFixedCostOperation(
-      final MessageFrame frame, final EVM evm) {
+  public Operation.OperationResult executeFixedCostOperation(final MessageFrame frame) {
     return staticOperation(frame);
   }
 

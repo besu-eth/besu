@@ -13,7 +13,7 @@
     "id": 28,
     "error": {
       "code": -32602,
-      "message": "Invalid block number params"
+      "message": "Invalid block param (block not found)"
     }
   },
   "statusCode": 200

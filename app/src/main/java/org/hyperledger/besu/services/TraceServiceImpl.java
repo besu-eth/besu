@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.Unstable;
 import org.hyperledger.besu.plugin.data.BlockTraceResult;
@@ -227,7 +228,7 @@ public class TraceServiceImpl implements TraceService {
                       header,
                       transaction,
                       protocolSpec.getMiningBeneficiaryCalculator().calculateBeneficiary(header),
-                      tracer,
+                      !tracer.isEnabled() ? OperationTracer.NO_TRACING : tracer,
                       protocolSpec
                           .getPreExecutionProcessor()
                           .createBlockHashLookup(blockchain, header),

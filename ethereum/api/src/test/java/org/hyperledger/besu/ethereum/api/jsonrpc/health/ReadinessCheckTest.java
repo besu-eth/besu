@@ -27,6 +27,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
+import io.vertx.core.json.JsonObject;
 import org.junit.jupiter.api.Test;
 
 public class ReadinessCheckTest {
@@ -46,7 +47,7 @@ public class ReadinessCheckTest {
     when(p2pNetwork.getPeerCount()).thenReturn(1);
     when(synchronizer.getSyncStatus()).thenReturn(Optional.empty());
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isTrue();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isTrue();
   }
 
   @Test
@@ -55,7 +56,7 @@ public class ReadinessCheckTest {
     when(p2pNetwork.getPeerCount()).thenReturn(0);
     when(synchronizer.getSyncStatus()).thenReturn(Optional.empty());
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isTrue();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isTrue();
   }
 
   @Test
@@ -66,7 +67,7 @@ public class ReadinessCheckTest {
 
     params.put(MIN_PEERS_PARAM, "0");
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isTrue();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isTrue();
   }
 
   @Test
@@ -77,7 +78,7 @@ public class ReadinessCheckTest {
 
     params.put(MIN_PEERS_PARAM, "10");
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isFalse();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isFalse();
   }
 
   @Test
@@ -88,7 +89,7 @@ public class ReadinessCheckTest {
 
     params.put(MIN_PEERS_PARAM, "abc");
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isFalse();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isFalse();
   }
 
   @Test
@@ -97,7 +98,7 @@ public class ReadinessCheckTest {
     when(p2pNetwork.getPeerCount()).thenReturn(5);
     when(synchronizer.getSyncStatus()).thenReturn(createSyncStatus(1000, 1002));
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isTrue();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isTrue();
   }
 
   @Test
@@ -106,7 +107,7 @@ public class ReadinessCheckTest {
     when(p2pNetwork.getPeerCount()).thenReturn(5);
     when(synchronizer.getSyncStatus()).thenReturn(createSyncStatus(1000, 1003));
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isFalse();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isFalse();
   }
 
   @Test
@@ -117,7 +118,7 @@ public class ReadinessCheckTest {
 
     params.put("maxBlocksBehind", "100");
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isTrue();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isTrue();
   }
 
   @Test
@@ -128,7 +129,7 @@ public class ReadinessCheckTest {
 
     params.put("maxBlocksBehind", "100");
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isFalse();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isFalse();
   }
 
   @Test
@@ -139,7 +140,48 @@ public class ReadinessCheckTest {
 
     params.put("maxBlocksBehind", "abc");
 
-    assertThat(readinessCheck.isHealthy(paramSource)).isFalse();
+    assertThat(readinessCheck.checkHealth(paramSource).isHealthy()).isFalse();
+  }
+
+  @Test
+  public void checkHealthShouldIncludePeerDiagnostics() {
+    when(p2pNetwork.isP2pEnabled()).thenReturn(true);
+    when(p2pNetwork.getPeerCount()).thenReturn(5);
+    when(synchronizer.getSyncStatus()).thenReturn(Optional.empty());
+
+    final HealthService.HealthCheckResult result = readinessCheck.checkHealth(paramSource);
+
+    assertThat(result.isHealthy()).isTrue();
+    final JsonObject peers = result.getDetails().getJsonObject("peers");
+    assertThat(peers.getBoolean("status")).isTrue();
+    assertThat(peers.getInteger("currentPeers")).isEqualTo(5);
+    assertThat(peers.getInteger("requiredPeers")).isEqualTo(1);
+  }
+
+  @Test
+  public void checkHealthShouldIncludeSyncDiagnostics() {
+    when(p2pNetwork.isP2pEnabled()).thenReturn(true);
+    when(p2pNetwork.getPeerCount()).thenReturn(5);
+    when(synchronizer.getSyncStatus()).thenReturn(createSyncStatus(1000, 1150));
+
+    final HealthService.HealthCheckResult result = readinessCheck.checkHealth(paramSource);
+
+    assertThat(result.isHealthy()).isFalse();
+    final JsonObject sync = result.getDetails().getJsonObject("sync");
+    assertThat(sync.getBoolean("status")).isFalse();
+    assertThat(sync.getLong("blocksBehind")).isEqualTo(150L);
+    assertThat(sync.getLong("maxBlocksBehind")).isEqualTo(2L);
+  }
+
+  @Test
+  public void checkHealthShouldOmitPeersWhenP2pDisabled() {
+    when(p2pNetwork.isP2pEnabled()).thenReturn(false);
+    when(synchronizer.getSyncStatus()).thenReturn(Optional.empty());
+
+    final HealthService.HealthCheckResult result = readinessCheck.checkHealth(paramSource);
+
+    assertThat(result.isHealthy()).isTrue();
+    assertThat(result.getDetails().containsKey("peers")).isFalse();
   }
 
   private Optional<SyncStatus> createSyncStatus(final int currentBlock, final int highestBlock) {

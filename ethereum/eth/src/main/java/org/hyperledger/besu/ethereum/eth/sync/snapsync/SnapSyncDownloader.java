@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import static org.hyperledger.besu.util.FutureUtils.exceptionallyCompose;
 
-import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.MaxRetriesReachedException;
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.NoAvailablePeersException;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
@@ -24,7 +23,6 @@ import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredException;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredState;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotUpdateListener;
 import org.hyperledger.besu.ethereum.eth.sync.common.SyncException;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.StalledDownloadException;
@@ -46,7 +44,7 @@ import com.google.common.io.RecursiveDeleteOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class SnapSyncDownloader {
+public class SnapSyncDownloader implements SnapSyncController {
 
   private static final Duration FAST_SYNC_RETRY_DELAY = Duration.ofSeconds(5);
   private static final Logger LOG = LoggerFactory.getLogger(SnapSyncDownloader.class);
@@ -57,13 +55,13 @@ public class SnapSyncDownloader {
   private final SyncDurationMetrics syncDurationMetrics;
   private volatile Optional<TrailingPeerRequirements> trailingPeerRequirements = Optional.empty();
   private final AtomicBoolean running = new AtomicBoolean(false);
-  private PivotSyncState initialPivotSyncState;
+  private SnapSyncProcessState initialPivotSyncState;
 
   public SnapSyncDownloader(
       final PivotSyncActions fastSyncActions,
       final WorldStateDownloader worldStateDownloader,
       final Path fastSyncDataDirectory,
-      final PivotSyncState initialPivotSyncState,
+      final SnapSyncProcessState initialPivotSyncState,
       final SyncDurationMetrics syncDurationMetrics) {
     this.fastSyncActions = fastSyncActions;
     this.worldStateDownloader = worldStateDownloader;
@@ -72,7 +70,8 @@ public class SnapSyncDownloader {
     this.syncDurationMetrics = syncDurationMetrics;
   }
 
-  public CompletableFuture<PivotSyncState> start() {
+  @Override
+  public CompletableFuture<SnapSyncProcessState> start() {
     if (!running.compareAndSet(false, true)) {
       throw new IllegalStateException("SyncDownloader already running");
     }
@@ -81,14 +80,15 @@ public class SnapSyncDownloader {
     return start(initialPivotSyncState);
   }
 
-  private CompletableFuture<PivotSyncState> start(final PivotSyncState fastSyncState) {
+  private CompletableFuture<SnapSyncProcessState> start(final SnapSyncProcessState fastSyncState) {
     LOG.debug("Start snap sync with initial sync state {}", fastSyncState);
     return findPivotBlock(fastSyncState, this::downloadChainAndWorldState);
   }
 
-  private CompletableFuture<PivotSyncState> findPivotBlock(
-      final PivotSyncState fastSyncState,
-      final Function<PivotSyncState, CompletableFuture<PivotSyncState>> onNewPivotBlock) {
+  private CompletableFuture<SnapSyncProcessState> findPivotBlock(
+      final SnapSyncProcessState fastSyncState,
+      final Function<SnapSyncProcessState, CompletableFuture<SnapSyncProcessState>>
+          onNewPivotBlock) {
     return exceptionallyCompose(
         CompletableFuture.completedFuture(fastSyncState)
             .thenCompose(fastSyncActions::selectPivotBlock)
@@ -99,7 +99,7 @@ public class SnapSyncDownloader {
         this::handleFailure);
   }
 
-  private CompletableFuture<PivotSyncState> handleFailure(final Throwable error) {
+  private CompletableFuture<SnapSyncProcessState> handleFailure(final Throwable error) {
     trailingPeerRequirements = Optional.empty();
     Throwable rootCause = ExceptionUtils.rootCause(error);
     if (rootCause instanceof NoSyncRequiredException) {
@@ -108,19 +108,19 @@ public class SnapSyncDownloader {
       return CompletableFuture.failedFuture(error);
     } else if (rootCause instanceof StalledDownloadException) {
       LOG.debug("Stalled sync re-pivoting to newer block.");
-      return start(PivotSyncState.EMPTY_SYNC_STATE);
+      return start(new SnapSyncProcessState());
     } else if (rootCause instanceof CancellationException) {
       return CompletableFuture.failedFuture(error);
     } else if (rootCause instanceof MaxRetriesReachedException) {
       LOG.debug(
           "A download operation reached the max number of retries, re-pivoting to newer block");
-      return start(PivotSyncState.EMPTY_SYNC_STATE);
+      return start(new SnapSyncProcessState());
     } else if (rootCause instanceof NoAvailablePeersException) {
       LOG.debug(
           "No peers available for sync. Restarting sync in {} seconds",
           FAST_SYNC_RETRY_DELAY.toSeconds());
       return fastSyncActions.scheduleFutureTask(
-          () -> start(PivotSyncState.EMPTY_SYNC_STATE), FAST_SYNC_RETRY_DELAY);
+          () -> start(new SnapSyncProcessState()), FAST_SYNC_RETRY_DELAY);
     } else {
       LOG.error(
           "Encountered an unexpected error during sync. Restarting sync in "
@@ -128,10 +128,11 @@ public class SnapSyncDownloader {
               + " seconds.",
           error);
       return fastSyncActions.scheduleFutureTask(
-          () -> start(PivotSyncState.EMPTY_SYNC_STATE), FAST_SYNC_RETRY_DELAY);
+          () -> start(new SnapSyncProcessState()), FAST_SYNC_RETRY_DELAY);
     }
   }
 
+  @Override
   public void stop() {
     synchronized (this) {
       if (running.compareAndSet(true, false)) {
@@ -142,6 +143,7 @@ public class SnapSyncDownloader {
     }
   }
 
+  @Override
   public void deletePivotSyncState() {
     // Make sure downloader is stopped before we start cleaning up its dependencies
     worldStateDownloader.cancel();
@@ -155,7 +157,7 @@ public class SnapSyncDownloader {
     }
   }
 
-  private PivotSyncState updateMaxTrailingPeers(final PivotSyncState state) {
+  private SnapSyncProcessState updateMaxTrailingPeers(final SnapSyncProcessState state) {
     if (state.getPivotBlockNumber().isPresent()) {
       trailingPeerRequirements =
           Optional.of(new TrailingPeerRequirements(state.getPivotBlockNumber().getAsLong(), 0));
@@ -181,17 +183,13 @@ public class SnapSyncDownloader {
     worldStateDownloader.setChainDownloader(chainDownloader);
   }
 
-  private PivotSyncState storeState(final PivotSyncState fastSyncState) {
-    final Optional<BlockHeader> firstPivotBlockHeader =
-        initialPivotSyncState instanceof SnapSyncProcessState snapSyncState
-            ? snapSyncState.getFirstPivotBlockHeader().or(fastSyncState::getPivotBlockHeader)
-            : fastSyncState.getPivotBlockHeader();
+  private SnapSyncProcessState storeState(final SnapSyncProcessState fastSyncState) {
     initialPivotSyncState = fastSyncState;
-    return new SnapSyncProcessState(fastSyncState, firstPivotBlockHeader);
+    return fastSyncState;
   }
 
-  private CompletableFuture<PivotSyncState> downloadChainAndWorldState(
-      final PivotSyncState currentState) {
+  private CompletableFuture<SnapSyncProcessState> downloadChainAndWorldState(
+      final SnapSyncProcessState currentState) {
     // Synchronized ensures that stop isn't called while we're in the process of starting a
     // world state and chain download. If it did we might wind up starting a new download
     // after the stop method had called cancel.
@@ -232,6 +230,7 @@ public class SnapSyncDownloader {
     }
   }
 
+  @Override
   public Optional<TrailingPeerRequirements> calculateTrailingPeerRequirements() {
     return trailingPeerRequirements;
   }

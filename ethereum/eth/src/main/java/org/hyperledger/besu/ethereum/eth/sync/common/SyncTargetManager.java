@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.sync.AbstractSyncTargetManager;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -52,7 +53,7 @@ public class SyncTargetManager extends AbstractSyncTargetManager {
   private final ProtocolSchedule protocolSchedule;
   private final ProtocolContext protocolContext;
   private final EthContext ethContext;
-  private final PivotSyncState fastSyncState;
+  private final SnapSyncProcessState fastSyncState;
   private final AtomicBoolean logDebug = new AtomicBoolean(true);
   private final AtomicBoolean logInfo = new AtomicBoolean(true);
 
@@ -63,7 +64,7 @@ public class SyncTargetManager extends AbstractSyncTargetManager {
       final ProtocolContext protocolContext,
       final EthContext ethContext,
       final MetricsSystem metricsSystem,
-      final PivotSyncState fastSyncState) {
+      final SnapSyncProcessState fastSyncState) {
     super(config, protocolSchedule, protocolContext, ethContext, metricsSystem);
     this.config = config;
     this.worldStateStorageCoordinator = worldStateStorageCoordinator;
