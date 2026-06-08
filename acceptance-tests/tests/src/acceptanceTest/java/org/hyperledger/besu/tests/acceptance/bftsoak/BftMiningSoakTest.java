@@ -472,10 +472,6 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
       final ObjectNode genesisConfigNode =
           JsonUtil.objectNodeFromString(minerNode.getGenesisConfig().get());
       final ObjectNode config = (ObjectNode) genesisConfigNode.get("config");
-      // Osaka is cumulative: cancunTime and pragueTime must accompany osakaTime.
-      // shanghaiTime is already set from the prior Shanghai upgrade step.
-      config.put("cancunTime", blockTimestamp);
-      config.put("pragueTime", blockTimestamp);
       config.put("osakaTime", blockTimestamp);
       minerNode.setGenesisConfig(genesisConfigNode.toString());
     }
