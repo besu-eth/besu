@@ -27,13 +27,12 @@ import org.web3j.protocol.core.methods.response.TransactionReceipt;
 /**
  * Acceptance test for QBFT blocks that contain transactions reading block.prevrandao.
  *
- * <p>In BFT consensus the block proposer executes transactions using a ProcessableBlockHeader
- * whose mixHashOrPrevRandao field is Bytes32.ZERO, then overwrites the final block header's
- * mixHash with BftHelpers.EXPECTED_MIX_HASH. Validator nodes receive the final block and
- * re-execute transactions using EXPECTED_MIX_HASH as the PREVRANDAO value. When a contract
- * emits an indexed log whose value is block.prevrandao the log topics differ between proposer
- * and validator, causing a bloom-filter / receipts-root mismatch that causes validators to
- * reject the block and the chain to stall.
+ * <p>In BFT consensus the block proposer executes transactions using a ProcessableBlockHeader whose
+ * mixHashOrPrevRandao field is Bytes32.ZERO, then overwrites the final block header's mixHash with
+ * BftHelpers.EXPECTED_MIX_HASH. Validator nodes receive the final block and re-execute transactions
+ * using EXPECTED_MIX_HASH as the PREVRANDAO value. When a contract emits an indexed log whose value
+ * is block.prevrandao the log topics differ between proposer and validator, causing a bloom-filter
+ * / receipts-root mismatch that causes validators to reject the block and the chain to stall.
  */
 public class PrevRandaoContractAcceptanceTest extends AcceptanceTestBase {
 
