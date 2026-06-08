@@ -104,10 +104,7 @@ public abstract class BaseBftProtocolScheduleBuilder {
     final BftProtocolSchedule bftSchedule =
         new BftProtocolSchedule((DefaultProtocolSchedule) protocolSchedule);
 
-    // Once we have the schedule we can update the fork schedule with the type of each milestone.
-    // Long.MAX_VALUE is passed as the current block number so that any TIMESTAMP EVM spec in the
-    // schedule is validated regardless of actual chain state (most conservative default).
-    forksSchedule.applyMilestoneTypes(bftSchedule, Long.MAX_VALUE);
+    forksSchedule.applyMilestoneTypes(bftSchedule);
 
     return bftSchedule;
   }

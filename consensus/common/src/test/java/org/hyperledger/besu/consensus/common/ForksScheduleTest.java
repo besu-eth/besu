@@ -130,7 +130,7 @@ public class ForksScheduleTest {
         .thenReturn(ForkSpec.ForkScheduleType.TIME);
     when(mockSchedule.getScheduledProtocolSpecs()).thenReturn(List.of());
 
-    assertThatThrownBy(() -> schedule.applyMilestoneTypes(mockSchedule, Long.MAX_VALUE))
+    assertThatThrownBy(() -> schedule.applyMilestoneTypes(mockSchedule))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("TIMESTAMP")
         .hasMessageContaining("1672531200");
@@ -146,8 +146,7 @@ public class ForksScheduleTest {
         .thenReturn(ForkSpec.ForkScheduleType.TIME);
     when(mockSchedule.getScheduledProtocolSpecs()).thenReturn(List.of());
 
-    assertThatCode(() -> schedule.applyMilestoneTypes(mockSchedule, Long.MAX_VALUE))
-        .doesNotThrowAnyException();
+    assertThatCode(() -> schedule.applyMilestoneTypes(mockSchedule)).doesNotThrowAnyException();
   }
 
   @Test
@@ -160,8 +159,7 @@ public class ForksScheduleTest {
         .thenReturn(ForkSpec.ForkScheduleType.BLOCK);
     when(mockSchedule.getScheduledProtocolSpecs()).thenReturn(List.of());
 
-    assertThatCode(() -> schedule.applyMilestoneTypes(mockSchedule, Long.MAX_VALUE))
-        .doesNotThrowAnyException();
+    assertThatCode(() -> schedule.applyMilestoneTypes(mockSchedule)).doesNotThrowAnyException();
   }
 
   @Test
@@ -182,7 +180,7 @@ public class ForksScheduleTest {
     when(mockTimestampSpec.fork()).thenReturn(new ScheduledProtocolSpec.Hardfork("test", 800L));
     when(mockSchedule.getScheduledProtocolSpecs()).thenReturn(List.of(mockTimestampSpec));
 
-    assertThatThrownBy(() -> schedule.applyMilestoneTypes(mockSchedule, currentBlockNumber))
+    assertThatThrownBy(() -> schedule.applyMilestoneTypes(mockSchedule))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("TIMESTAMP")
         .hasMessageContaining("1672531200");
@@ -203,8 +201,7 @@ public class ForksScheduleTest {
     when(mockTimestampSpec.fork()).thenReturn(new ScheduledProtocolSpec.Hardfork("test", 800L));
     when(mockSchedule.getScheduledProtocolSpecs()).thenReturn(List.of(mockTimestampSpec));
 
-    assertThatCode(() -> schedule.applyMilestoneTypes(mockSchedule, currentBlockNumber))
-        .doesNotThrowAnyException();
+    assertThatCode(() -> schedule.applyMilestoneTypes(mockSchedule)).doesNotThrowAnyException();
   }
 
   @Test
@@ -225,8 +222,7 @@ public class ForksScheduleTest {
         .thenReturn(new ScheduledProtocolSpec.Hardfork("test", 1_672_531_200L));
     when(mockSchedule.getScheduledProtocolSpecs()).thenReturn(List.of(mockTimestampSpec));
 
-    assertThatCode(() -> schedule.applyMilestoneTypes(mockSchedule, Long.MAX_VALUE))
-        .doesNotThrowAnyException();
+    assertThatCode(() -> schedule.applyMilestoneTypes(mockSchedule)).doesNotThrowAnyException();
   }
 
   private ForkSpec<BftConfigOptions> createForkSpecWithMiningBeneficiary(

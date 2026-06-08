@@ -15,16 +15,17 @@
 package org.hyperledger.besu.consensus.common;
 
 import org.hyperledger.besu.consensus.common.bft.BftProtocolSchedule;
-import org.hyperledger.besu.ethereum.mainnet.ScheduledProtocolSpec;
 
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.NavigableSet;
-import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.Function;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The Forks schedule.
@@ -33,8 +34,10 @@ import java.util.function.Function;
  */
 public class ForksSchedule<C> {
 
-  // Earliest permitted timestamp for TIME-based forks (1st January 2023 00:00:00 UTC)
-  private static final long MIN_TIMESTAMP_FORK_EPOCH_SECONDS = 1_672_531_200L;
+  private static final Logger LOG = LoggerFactory.getLogger(ForksSchedule.class);
+
+  // Earliest permitted timestamp for TIME-based forks - shanghai epoch
+  private static final long MIN_TIMESTAMP_FORK_EPOCH_SECONDS =  1_681_338_455L;
 
   private final NavigableSet<ForkSpec<C>> forks =
       new TreeSet<>(
@@ -54,43 +57,29 @@ public class ForksSchedule<C> {
    * validates that no TIMESTAMP-type fork (BFT or EVM) has a value before 1st January 2023.
    *
    * @param protocolSchedule the protocol schedule
-   * @param currentBlockNumber the chain's current head block number, used to determine whether the
-   *     active EVM spec is timestamp-based; callers without access to the chain head should pass
-   *     {@link Long#MAX_VALUE} to apply the most conservative validation
    */
-  public void applyMilestoneTypes(
-      final BftProtocolSchedule protocolSchedule, final long currentBlockNumber) {
-    forks.forEach(
-        f -> {
-          f.setForkType(
-              protocolSchedule.getSpecTypeByBlockNumberOrTimestamp(f.getBlock(), f.getBlock()));
-          if (f.getForkType() == ForkSpec.ForkScheduleType.TIME
-              && f.getBlock() < MIN_TIMESTAMP_FORK_EPOCH_SECONDS) {
-            throw new IllegalArgumentException(
-                String.format(
-                    "Fork of type TIMESTAMP has block value %d which is before 1st January 2023"
-                        + " (epoch seconds %d); timestamp-based forks earlier than this are not supported.",
-                    f.getBlock(), MIN_TIMESTAMP_FORK_EPOCH_SECONDS));
-          }
-        });
+  public void applyMilestoneTypes(final BftProtocolSchedule protocolSchedule) {
 
-    final ForkSpec.ForkScheduleType currentEvmSpecType =
-        protocolSchedule.getSpecTypeByBlockNumberOrTimestamp(
-            currentBlockNumber, currentBlockNumber);
-    if (currentEvmSpecType == ForkSpec.ForkScheduleType.TIME) {
-      final Optional<ScheduledProtocolSpec> invalidEvmSpec =
-          protocolSchedule.getScheduledProtocolSpecs().stream()
-              .filter(s -> s instanceof ScheduledProtocolSpec.TimestampProtocolSpec)
-              .filter(s -> s.fork().milestone() < MIN_TIMESTAMP_FORK_EPOCH_SECONDS)
-              .findFirst();
-      if (invalidEvmSpec.isPresent()) {
-        throw new IllegalArgumentException(
-            String.format(
-                "Fork of type TIMESTAMP has block value %d which is before 1st January 2023"
-                    + " (epoch seconds %d); timestamp-based forks earlier than this are not supported.",
-                invalidEvmSpec.get().fork().milestone(), MIN_TIMESTAMP_FORK_EPOCH_SECONDS));
-      }
-    }
+    // Validate transition forks, ignoring the last entry which is never a transition
+    forks
+        .headSet(forks.last())
+        .forEach(
+            f -> {
+              f.setForkType(
+                  protocolSchedule.getSpecTypeByBlockNumberOrTimestamp(f.getBlock(), f.getBlock()));
+              LOG.debug("Validating fork: block {} type {}", f.getBlock(), f.getForkType());
+              if (f.getForkType() == ForkSpec.ForkScheduleType.TIME
+                  && f.getBlock() < MIN_TIMESTAMP_FORK_EPOCH_SECONDS) {
+                throw new IllegalArgumentException(
+                    String.format(
+                        "Fork of type TIMESTAMP has block value %d which is before the shanghai epoch "
+                            + " (%d); timestamp-based forks earlier than this are not valid.",
+                        f.getBlock(), MIN_TIMESTAMP_FORK_EPOCH_SECONDS));
+              }
+            });
+
+    // Set the fork type for the last fork we skipped during validation
+    forks.last().setForkType(protocolSchedule.getSpecTypeByBlockNumberOrTimestamp(forks.last().getBlock(), forks.last().getBlock()));
   }
 
   /**
