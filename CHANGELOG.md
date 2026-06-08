@@ -3,7 +3,9 @@
 ## Unreleased
 
 ### Breaking Changes
-
+- RPC changes to enhance compatibility with other ELs
+  - The block parameter is now optional on `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getTransactionCount`, `eth_getProof`, and `eth_getStorageValues`; when omitted it now defaults to `latest`, matching other ELs. Previously a missing block parameter was rejected. [#10587](https://github.com/besu-eth/besu/pull/10587)
+    
 ### Upcoming Breaking Changes
 - Sunsetting features - for more context on the reasoning behind the deprecation of these features, including alternative options, read [this blog post](https://www.lfdecentralizedtrust.org/blog/sunsetting-tessera-and-simplifying-hyperledger-besu)
   - Proof of Work consensus (PoW)
@@ -16,6 +18,7 @@
 - `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` is deprecated and will be removed in a future release; the flag is now a silent no-op.
 
 ### Bug fixes
+- Fix WebSocket RPC event-loop stall caused by slow clients filling the TCP write queue. [#10354](https://github.com/besu-eth/besu/pull/10354)
 
 ### Additions and Improvements
 - Add `eth_getTransactionBySenderAndNonce` JSON-RPC method to look up a transaction by sender address and nonce (pending or mined).
@@ -66,6 +69,7 @@
 - Improve native memory handling in RocksDB storage: `LRUCache`, `ColumnFamilyOptions`, and temporary options-file loading objects are now explicitly closed [#10456](https://github.com/besu-eth/besu/pull/10456)
 - `eth_capabilities`: `state` and `stateproofs` now report `disabled: true` when genesis world state is unavailable (e.g. SNAP sync nodes) [#10377](https://github.com/besu-eth/besu/pull/10377)
 - Auto-discover the advertised IPv6 host in the ENR from DiscV5 peer consensus when `--p2p-interface-ipv6` is set without `--p2p-host-ipv6`. [#10468](https://github.com/besu-eth/besu/pull/10468)
+- Enrich `/readiness` health endpoint with diagnostic details (peer count, sync status) in the response body [#10412](https://github.com/besu-eth/besu/pull/10412)
 
 ## 26.5.0
 
