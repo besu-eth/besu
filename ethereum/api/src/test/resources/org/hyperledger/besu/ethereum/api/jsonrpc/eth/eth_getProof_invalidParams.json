@@ -10,7 +10,7 @@
     "id": 28,
     "error" : {
       "code" : -32602,
-      "message" : "Invalid block param (block not found)"
+      "message" : "Invalid address params"
     }
   },
   "statusCode": 200

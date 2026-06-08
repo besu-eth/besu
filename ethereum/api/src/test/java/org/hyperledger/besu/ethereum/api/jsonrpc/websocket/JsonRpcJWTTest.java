@@ -115,8 +115,9 @@ public class JsonRpcJWTTest {
         new HealthService(
             new HealthCheck() {
               @Override
-              public boolean isHealthy(final ParamSource paramSource) {
-                return true;
+              public HealthService.HealthCheckResult checkHealth(final ParamSource paramSource) {
+                return new HealthService.HealthCheckResult(
+                    true, new io.vertx.core.json.JsonObject());
               }
             });
 
