@@ -44,6 +44,7 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.tracing.SlowBlockTracer;
@@ -259,6 +260,13 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             "SlowBlockTracer is not compatible with other tracers. Please disable other tracers to enable SlowBlockTracer.");
       }
       effectiveTracer = maybeSlowBlockTracer = new SlowBlockTracer();
+    }
+
+    // Wire state-access tracking on the serial path only (NoPreprocessing = no parallel tx).
+    if (maybeSlowBlockTracer != null
+        && preprocessingBlockFunction instanceof NoPreprocessing
+        && worldState instanceof PathBasedWorldState pbws) {
+      pbws.getAccumulator().setStateAccessTracer(maybeSlowBlockTracer);
     }
 
     final Address miningBeneficiary = miningBeneficiaryCalculator.calculateBeneficiary(blockHeader);

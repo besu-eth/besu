@@ -48,7 +48,7 @@ import org.slf4j.LoggerFactory;
  * <p>The tracer uses a dedicated "SlowBlock" logger, allowing operators to route slow block output
  * to a separate file/sink via logback configuration.
  */
-public class SlowBlockTracer implements OperationTracer {
+public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
 
   /** default constructor */
   public SlowBlockTracer() {}
@@ -71,6 +71,17 @@ public class SlowBlockTracer implements OperationTracer {
   private final Set<Address> uniqueAccountsTouched = new HashSet<>();
   private final Set<StorageSlotKey> uniqueStorageSlots = new HashSet<>();
   private final Set<Address> uniqueContractsExecuted = new HashSet<>();
+  // State read cache counters (accumulator in-block cache for accounts/storage; CodeCache for code)
+  private int accountCacheHits;
+  private int accountCacheMisses;
+  private int storageCacheHits;
+  private int storageCacheMisses;
+  private int codeCacheHits;
+  private int codeCacheMisses;
+  // State write counters (net unique changes per block, set via addStateWriteCounts)
+  private int accountWrites;
+  private int storageWrites;
+  private int codeWrites;
 
   /** Supports slow block timing metrics, distinct from BlockAwareOperationTracer */
   public void traceStartBlock() {
@@ -167,6 +178,47 @@ public class SlowBlockTracer implements OperationTracer {
     commitTimeNanos = timeNanos;
   }
 
+  /**
+   * Records the net per-block state write counts, called from {@code PathBasedWorldState.persist()}
+   * before the accumulator is reset.
+   *
+   * @param accounts number of account entries that changed (including deletions)
+   * @param storageSlots number of storage slot entries that changed (including deletions)
+   * @param code number of code entries that changed (including deletions)
+   */
+  public void addStateWriteCounts(final int accounts, final int storageSlots, final int code) {
+    accountWrites = accounts;
+    storageWrites = storageSlots;
+    codeWrites = code;
+  }
+
+  @Override
+  public void traceAccountRead(final boolean cacheHit) {
+    if (cacheHit) {
+      accountCacheHits++;
+    } else {
+      accountCacheMisses++;
+    }
+  }
+
+  @Override
+  public void traceStorageRead(final boolean cacheHit) {
+    if (cacheHit) {
+      storageCacheHits++;
+    } else {
+      storageCacheMisses++;
+    }
+  }
+
+  @Override
+  public void traceCodeRead(final boolean cacheHit) {
+    if (cacheHit) {
+      codeCacheHits++;
+    } else {
+      codeCacheMisses++;
+    }
+  }
+
   private void logSlowBlock(final long blockNumber, final Hash blockHash, final long gasUsed) {
     String formattedMGasPerSecond = String.format("%.2f", calculateMGasPerSecond(gasUsed));
     long executionTimeNanos = totalTimeNanos - stateHashTimeNanos - commitTimeNanos;
@@ -200,6 +252,27 @@ public class SlowBlockTracer implements OperationTracer {
       evmNode.put("sstore", sstoreCount);
       evmNode.put("calls", callCount);
       evmNode.put("creates", createCount);
+
+      final ObjectNode stateReadsNode = json.putObject("state_reads");
+      stateReadsNode.put("accounts", accountCacheHits + accountCacheMisses);
+      stateReadsNode.put("storage_slots", storageCacheHits + storageCacheMisses);
+      stateReadsNode.put("code", codeCacheHits + codeCacheMisses);
+
+      final ObjectNode stateWritesNode = json.putObject("state_writes");
+      stateWritesNode.put("accounts", accountWrites);
+      stateWritesNode.put("storage_slots", storageWrites);
+      stateWritesNode.put("code", codeWrites);
+
+      final ObjectNode cacheNode = json.putObject("cache");
+      final ObjectNode accountCacheNode = cacheNode.putObject("account");
+      accountCacheNode.put("hits", accountCacheHits);
+      accountCacheNode.put("misses", accountCacheMisses);
+      final ObjectNode storageCacheNode = cacheNode.putObject("storage");
+      storageCacheNode.put("hits", storageCacheHits);
+      storageCacheNode.put("misses", storageCacheMisses);
+      final ObjectNode codeCacheNode = cacheNode.putObject("code");
+      codeCacheNode.put("hits", codeCacheHits);
+      codeCacheNode.put("misses", codeCacheMisses);
 
       SLOW_BLOCK_LOG.warn(JSON_MAPPER.writeValueAsString(json));
     } catch (JsonProcessingException e) {
