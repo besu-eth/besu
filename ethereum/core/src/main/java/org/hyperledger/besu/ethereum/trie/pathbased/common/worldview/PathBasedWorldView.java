@@ -20,6 +20,7 @@ import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
+import org.hyperledger.besu.evm.tracing.StateAccessTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.evm.worldstate.WorldView;
 
@@ -59,6 +60,15 @@ public interface PathBasedWorldView extends WorldView {
   boolean isModifyingHeadWorldState();
 
   PathBasedWorldStateKeyValueStorage getWorldStateStorage();
+
+  /**
+   * Returns the per-block {@link StateAccessTracer} active for this view, or {@code null} if none
+   * is set. The block-level accumulator overrides this to expose its tracker field; all other
+   * implementations return {@code null}.
+   */
+  default StateAccessTracer getStateAccessTracer() {
+    return null;
+  }
 
   WorldUpdater updater();
 

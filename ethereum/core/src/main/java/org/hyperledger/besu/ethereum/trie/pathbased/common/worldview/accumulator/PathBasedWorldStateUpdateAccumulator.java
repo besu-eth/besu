@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
+import org.hyperledger.besu.evm.tracing.StateAccessTracer;
 import org.hyperledger.besu.evm.worldstate.AbstractWorldUpdater;
 import org.hyperledger.besu.evm.worldstate.UpdateTrackingAccount;
 import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
@@ -77,6 +78,12 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
 
   private final Map<UInt256, Hash> storageKeyHashLookup = new ConcurrentHashMap<>();
   protected boolean isAccumulatorStateChanged;
+
+  /** Per-block state-access tracker; null when not in a traced serial block. */
+  protected StateAccessTracer stateAccessTracer;
+
+  /** Write counts returned by {@link #computeBlockWriteCounts()}. */
+  public record StateWriteCounts(int accounts, int storageSlots, int code) {}
 
   public PathBasedWorldStateUpdateAccumulator(
       final PathBasedWorldView world,
@@ -227,6 +234,48 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     return evmConfiguration;
   }
 
+  public void setStateAccessTracer(final StateAccessTracer tracer) {
+    this.stateAccessTracer = tracer;
+  }
+
+  @Override
+  public StateAccessTracer getStateAccessTracer() {
+    return stateAccessTracer;
+  }
+
+  /**
+   * Computes the net per-block state write counts from the current accumulator maps. Must be called
+   * before {@link #reset()}. Only invoked when a {@link StateAccessTracer} is active.
+   */
+  public StateWriteCounts computeBlockWriteCounts() {
+    int accountCount = 0;
+    for (final PathBasedValue<?> v : accountsToUpdate.values()) {
+      if (!v.isUnchanged()) accountCount++;
+    }
+
+    int storageCount = 0;
+    for (final Map<StorageSlotKey, PathBasedValue<UInt256>> slots : storageToUpdate.values()) {
+      for (final PathBasedValue<UInt256> v : slots.values()) {
+        if (!v.isUnchanged()) storageCount++;
+      }
+    }
+
+    int codeCount = 0;
+    for (final PathBasedValue<Bytes> v : codeToUpdate.values()) {
+      final Bytes prior = v.getPrior();
+      final Bytes updated = v.getUpdated();
+      if (!Objects.equals(prior, updated) && !(isCodeEmpty(prior) && isCodeEmpty(updated))) {
+        codeCount++;
+      }
+    }
+
+    return new StateWriteCounts(accountCount, storageCount, codeCount);
+  }
+
+  private static boolean isCodeEmpty(final Bytes code) {
+    return code == null || code.isEmpty();
+  }
+
   @Override
   public Account get(final Address address) {
     return super.get(address);
@@ -325,8 +374,12 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         final Optional<ACCOUNT> fromParent =
             loadAccountFromParentAccumulator(address, accountFunction);
         if (fromParent.isPresent()) {
+          // cache hit: account already loaded into this block's accumulator
+          if (stateAccessTracer != null) stateAccessTracer.traceAccountRead(true);
           return fromParent.get();
         }
+        // cache miss: not found in this accumulator, fetched from world state
+        if (stateAccessTracer != null) stateAccessTracer.traceAccountRead(false);
         final Account account = wrappedWorldView().get(address);
         if (account instanceof PathBasedAccount pathBasedAccount) {
           final ACCOUNT updatedAccount = copyAccount((ACCOUNT) pathBasedAccount, this, true);
@@ -345,6 +398,8 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         accountsToUpdate.put(address, accountValue);
         return accountFunction.apply(accountValue);
       }
+      // cache hit: account already loaded into this block's accumulator
+      if (stateAccessTracer != null) stateAccessTracer.traceAccountRead(true);
       return accountFunction.apply(pathBasedValue);
     } catch (MerkleTrieException e) {
       // need to throw to trigger the heal
@@ -556,6 +611,8 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     if (localAccountStorage != null) {
       final PathBasedValue<UInt256> value = localAccountStorage.get(storageSlotKey);
       if (value != null) {
+        // cache hit: slot already loaded into this block's accumulator
+        if (stateAccessTracer != null) stateAccessTracer.traceStorageRead(true);
         return Optional.ofNullable(value.getUpdated());
       }
     }
@@ -573,6 +630,8 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       final PathBasedValue<UInt256> storageValue = PathBasedValue.withLazy(loader, loader);
       onStorageValueLoaded(address, storageSlotKey, storageValue);
 
+      // cache miss: slot not in accumulator, fetched from world state
+      if (stateAccessTracer != null) stateAccessTracer.traceStorageRead(false);
       storageToUpdate
           .computeIfAbsent(
               address,

@@ -257,6 +257,10 @@ public abstract class PathBasedWorldState
 
         if (maybeSlowBlockTracer != null) {
           maybeSlowBlockTracer.addCommitTime(System.nanoTime() - commitStartNanos);
+          // push net write counts before the accumulator is reset
+          final var writeCounts = accumulator.computeBlockWriteCounts();
+          maybeSlowBlockTracer.addStateWriteCounts(
+              writeCounts.accounts(), writeCounts.storageSlots(), writeCounts.code());
         }
 
         accumulator.reset();
@@ -264,6 +268,8 @@ public abstract class PathBasedWorldState
         stateUpdater.rollback();
         accumulator.reset();
       }
+      // clear the read tracker so it doesn't leak across blocks on the reused head world state
+      accumulator.setStateAccessTracer(null);
     }
   }
 

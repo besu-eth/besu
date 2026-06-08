@@ -24,6 +24,7 @@ import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.ModificationNotAllowedException;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.internal.CodeCache;
+import org.hyperledger.besu.evm.tracing.StateAccessTracer;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -186,7 +187,7 @@ public abstract class PathBasedAccount implements MutableAccount, AccountValue {
 
   @Override
   public Code getOrCreateCachedCode() {
-    // always prefer the local copy to avoid unnecessary cache lookups
+    // always prefer the local copy to avoid unnecessary cache lookups (not counted in metrics)
     if (code != null) {
       return code;
     }
@@ -195,16 +196,20 @@ public abstract class PathBasedAccount implements MutableAccount, AccountValue {
     final Code cachedCode =
         Optional.ofNullable(codeCache).map(c -> c.getIfPresent(codeHash)).orElse(null);
 
+    final StateAccessTracer codeTracer = context.getStateAccessTracer();
+
     // cache hit, overwrite code and return it
     if (cachedCode != null) {
       code = cachedCode;
+      if (codeTracer != null) codeTracer.traceCodeRead(true);
       return code;
     }
 
-    // cache miss get the code from the disk, set it and put it in the cache
+    // cache miss: get the code from the disk, set it and put it in the cache
     final Bytes byteCode = context.getCode(address, codeHash).orElse(Bytes.EMPTY);
     code = new Code(byteCode, codeHash);
     Optional.ofNullable(codeCache).ifPresent(c -> c.put(codeHash, code));
+    if (codeTracer != null) codeTracer.traceCodeRead(false);
 
     return code;
   }

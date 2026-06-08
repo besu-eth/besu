@@ -46,6 +46,7 @@ public interface MutableWorldState extends WorldState, MutableWorldView {
    * @param maybeSlowBlockTracer An optional {@link SlowBlockTracer} to record persistence timings.
    *     Nullable instead of Optional for hotpath performance.
    */
+  // TODO SLD avoid leaking slow block tracer here?
   default void persist(
       final BlockHeader blockHeader,
       final StateRootCommitter committer,
