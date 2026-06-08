@@ -40,7 +40,6 @@ import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Optional;
 
 import io.vertx.core.Vertx;
 import jakarta.validation.constraints.NotNull;
@@ -81,11 +80,6 @@ public sealed class EngineGetBlobsV1<BAP extends BlobAndProofV1>
   private final LabelledMetric<Counter> unsupportedCounter;
   private final LabelledMetric<Counter> fullCounter;
   private final LabelledMetric<Counter> emptyCounter;
-  private final Optional<Long> minForkTimestamp;
-  private final Optional<Long> maxForkTimestamp;
-
-  private final HardforkId minSupportedFork;
-  private final HardforkId firstUnsupportedFork;
 
   public EngineGetBlobsV1(
       final ProtocolSchedule protocolSchedule,
@@ -96,7 +90,13 @@ public sealed class EngineGetBlobsV1<BAP extends BlobAndProofV1>
       final MetricsSystem metricsSystem,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
-    super(protocolSchedule, protocolContext, vertx, engineCallListener);
+    super(
+        protocolSchedule,
+        protocolContext,
+        vertx,
+        engineCallListener,
+        minSupportedFork,
+        firstUnsupportedFork);
     this.transactionPool = transactionPool;
 
     // create counters
@@ -137,16 +137,6 @@ public sealed class EngineGetBlobsV1<BAP extends BlobAndProofV1>
             "execution_engine_getblobs_empty_total",
             "Number of calls to engine_getBlobsV* that returned zero blobs",
             "version");
-    this.minSupportedFork = minSupportedFork;
-    this.firstUnsupportedFork = firstUnsupportedFork;
-    this.minForkTimestamp =
-        minSupportedFork != null
-            ? protocolSchedule.milestoneFor(minSupportedFork)
-            : Optional.empty();
-    this.maxForkTimestamp =
-        firstUnsupportedFork != null
-            ? protocolSchedule.milestoneFor(firstUnsupportedFork)
-            : Optional.empty();
   }
 
   @Override
@@ -178,7 +168,7 @@ public sealed class EngineGetBlobsV1<BAP extends BlobAndProofV1>
     }
 
     final long timestamp = protocolContext.getBlockchain().getChainHeadHeader().getTimestamp();
-    ValidationResult<RpcErrorType> forkValidationResult = validateForkRange(timestamp);
+    ValidationResult<RpcErrorType> forkValidationResult = validateForkSupported(timestamp);
     if (!forkValidationResult.isValid()) {
       return new JsonRpcErrorResponse(requestContext.getRequest().getId(), forkValidationResult);
     }
@@ -258,11 +248,6 @@ public sealed class EngineGetBlobsV1<BAP extends BlobAndProofV1>
 
   protected boolean isSupportedBlob(final BlobProofBundle blobProofBundle) {
     return blobProofBundle.getBlobType() == BlobType.KZG_CELL_PROOFS;
-  }
-
-  private ValidationResult<RpcErrorType> validateForkRange(final long timestamp) {
-    return ForkSupportHelper.validateForkSupported(
-        minSupportedFork, minForkTimestamp, firstUnsupportedFork, maxForkTimestamp, timestamp);
   }
 
   protected record FetchedBlobsData(List<BlobProofBundle> blobProofBundles, boolean partial) {}

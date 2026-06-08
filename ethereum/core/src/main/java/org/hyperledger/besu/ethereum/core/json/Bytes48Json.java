@@ -14,8 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.core.json;
 
-import org.hyperledger.besu.datatypes.Hash;
-
 import java.io.IOException;
 
 import com.fasterxml.jackson.core.JsonGenerator;
@@ -24,26 +22,27 @@ import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
 import com.fasterxml.jackson.databind.ser.std.StdSerializer;
+import org.apache.tuweni.bytes.Bytes48;
 
-public final class HashJson {
+public final class Bytes48Json {
 
-  private HashJson() {}
+  private Bytes48Json() {}
 
-  public static class Serializer extends StdSerializer<Hash> {
+  public static class Serializer extends StdSerializer<Bytes48> {
 
     public Serializer() {
-      super(Hash.class);
+      super(Bytes48.class);
     }
 
     @Override
     public void serialize(
-        final Hash value, final JsonGenerator gen, final SerializerProvider provider)
+        final Bytes48 value, final JsonGenerator gen, final SerializerProvider provider)
         throws IOException {
-      gen.writeString(value.toString());
+      gen.writeString(value.toHexString());
     }
   }
 
-  public static class Deserializer extends StdDeserializer<Hash> {
+  public static class Deserializer extends StdDeserializer<Bytes48> {
 
     public Deserializer() {
       this(null);
@@ -54,14 +53,9 @@ public final class HashJson {
     }
 
     @Override
-    public Hash deserialize(final JsonParser jsonParser, final DeserializationContext context)
+    public Bytes48 deserialize(final JsonParser jsonParser, final DeserializationContext context)
         throws IOException {
-      final String value = jsonParser.getCodec().readValue(jsonParser, String.class);
-      if (!value.startsWith("0x") && !value.startsWith("0X")) {
-        throw new IllegalArgumentException(
-            "Invalid hash: must be a hex string with 0x prefix, got: " + value);
-      }
-      return Hash.fromHexString(value);
+      return Bytes48.fromHexString(jsonParser.getCodec().readValue(jsonParser, String.class));
     }
   }
 }

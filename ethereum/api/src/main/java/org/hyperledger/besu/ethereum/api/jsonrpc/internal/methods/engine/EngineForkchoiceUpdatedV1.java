@@ -67,12 +67,6 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
 
   protected final MergeMiningCoordinator mergeCoordinator;
 
-  private final Optional<Long> minForkTimestamp;
-  private final Optional<Long> maxForkTimestamp;
-
-  private final HardforkId minSupportedFork;
-  private final HardforkId firstUnsupportedFork;
-
   public EngineForkchoiceUpdatedV1(
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
@@ -81,18 +75,14 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
       final MergeMiningCoordinator mergeCoordinator,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
-    super(protocolSchedule, protocolContext, vertx, engineCallListener);
+    super(
+        protocolSchedule,
+        protocolContext,
+        vertx,
+        engineCallListener,
+        minSupportedFork,
+        firstUnsupportedFork);
     this.mergeCoordinator = mergeCoordinator;
-    this.minSupportedFork = minSupportedFork;
-    this.firstUnsupportedFork = firstUnsupportedFork;
-    this.minForkTimestamp =
-        minSupportedFork != null
-            ? protocolSchedule.milestoneFor(minSupportedFork)
-            : Optional.empty();
-    this.maxForkTimestamp =
-        firstUnsupportedFork != null
-            ? protocolSchedule.milestoneFor(firstUnsupportedFork)
-            : Optional.empty();
   }
 
   @Override
@@ -252,7 +242,7 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
 
       // Fork-range check (-38005) is owned here; concrete versions never call
       // ForkSupportHelper directly.
-      final ValidationResult<RpcErrorType> forkResult = validateForkRange(attrs.getTimestamp());
+      final ValidationResult<RpcErrorType> forkResult = validateForkSupported(attrs.getTimestamp());
       if (!forkResult.isValid()) {
         return new JsonRpcErrorResponse(requestId, forkResult);
       }
@@ -328,11 +318,6 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
       return ValidationResult.invalid(RpcErrorType.INVALID_PARAMS, "Missing finalizedBlockHash");
     }
     return ValidationResult.valid();
-  }
-
-  private ValidationResult<RpcErrorType> validateForkRange(final long timestamp) {
-    return ForkSupportHelper.validateForkSupported(
-        minSupportedFork, minForkTimestamp, firstUnsupportedFork, maxForkTimestamp, timestamp);
   }
 
   private boolean isValidForkchoiceState(

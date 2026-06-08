@@ -49,11 +49,6 @@ public sealed class EngineGetPayloadV1 extends ExecutionEngineJsonRpcMethod
   private final MergeMiningCoordinator mergeMiningCoordinator;
   protected final BlockResultFactory blockResultFactory;
 
-  private final Optional<Long> minForkTimestamp;
-  private final Optional<Long> maxForkTimestamp;
-  private final HardforkId minSupportedFork;
-  private final HardforkId firstUnsupportedFork;
-
   public EngineGetPayloadV1(
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
@@ -63,19 +58,15 @@ public sealed class EngineGetPayloadV1 extends ExecutionEngineJsonRpcMethod
       final BlockResultFactory blockResultFactory,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
-    super(protocolSchedule, protocolContext, vertx, engineCallListener);
+    super(
+        protocolSchedule,
+        protocolContext,
+        vertx,
+        engineCallListener,
+        minSupportedFork,
+        firstUnsupportedFork);
     this.mergeMiningCoordinator = mergeMiningCoordinator;
     this.blockResultFactory = blockResultFactory;
-    this.minSupportedFork = minSupportedFork;
-    this.firstUnsupportedFork = firstUnsupportedFork;
-    this.minForkTimestamp =
-        minSupportedFork != null
-            ? protocolSchedule.milestoneFor(minSupportedFork)
-            : Optional.empty();
-    this.maxForkTimestamp =
-        firstUnsupportedFork != null
-            ? protocolSchedule.milestoneFor(firstUnsupportedFork)
-            : Optional.empty();
   }
 
   @Override
@@ -158,11 +149,5 @@ public sealed class EngineGetPayloadV1 extends ExecutionEngineJsonRpcMethod
 
   protected Object createResponsePayload(final PayloadWrapper payload) {
     return blockResultFactory.payloadTransactionCompleteV1(payload.blockWithReceipts().getBlock());
-  }
-
-  @Override
-  protected final ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    return ForkSupportHelper.validateForkSupported(
-        minSupportedFork, minForkTimestamp, firstUnsupportedFork, maxForkTimestamp, blockTimestamp);
   }
 }

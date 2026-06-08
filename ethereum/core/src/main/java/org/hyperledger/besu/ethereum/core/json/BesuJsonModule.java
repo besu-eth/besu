@@ -14,19 +14,16 @@
  */
 package org.hyperledger.besu.ethereum.core.json;
 
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.BlobGas;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.LogsBloomFilter;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
-import org.hyperledger.besu.ethereum.core.kzg.Blob;
-import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.bytes.Bytes48;
 import org.apache.tuweni.units.bigints.UInt64;
 
 public final class BesuJsonModule extends SimpleModule {
@@ -34,17 +31,14 @@ public final class BesuJsonModule extends SimpleModule {
   public BesuJsonModule() {
     super("besu-json");
 
-    addSerializer(Address.class, new AddressJson.Serializer());
-    addDeserializer(Address.class, new AddressJson.Deserializer());
-
-    addSerializer(Hash.class, new HashJson.Serializer());
-    addDeserializer(Hash.class, new HashJson.Deserializer());
-
     addSerializer(Bytes.class, new BytesJson.Serializer());
     addDeserializer(Bytes.class, new BytesJson.Deserializer());
 
     addSerializer(Bytes32.class, new Bytes32Json.Serializer());
     addDeserializer(Bytes32.class, new Bytes32Json.Deserializer());
+
+    addSerializer(Bytes48.class, new Bytes48Json.Serializer());
+    addDeserializer(Bytes48.class, new Bytes48Json.Deserializer());
 
     addSerializer(UInt64.class, new UInt64Json.Serializer());
     addDeserializer(UInt64.class, new UInt64Json.Deserializer());
@@ -63,11 +57,5 @@ public final class BesuJsonModule extends SimpleModule {
 
     addSerializer(BlockAccessList.class, new BlockAccessListJson.Serializer());
     addDeserializer(BlockAccessList.class, new BlockAccessListJson.Deserializer());
-
-    addSerializer(Blob.class, new BlobJson.Serializer());
-    addDeserializer(Blob.class, new BlobJson.Deserializer());
-
-    addSerializer(KZGProof.class, new KZGProofJson.Serializer());
-    addDeserializer(KZGProof.class, new KZGProofJson.Deserializer());
   }
 }

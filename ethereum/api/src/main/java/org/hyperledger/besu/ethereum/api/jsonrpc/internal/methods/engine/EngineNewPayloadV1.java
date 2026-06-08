@@ -83,12 +83,6 @@ public sealed class EngineNewPayloadV1<
   private long lastInvalidWarn = 0L;
   protected final MergeMiningCoordinator mergeCoordinator;
 
-  private final Optional<Long> minForkTimestamp;
-  private final Optional<Long> maxForkTimestamp;
-
-  private final HardforkId minSupportedFork;
-  private final HardforkId firstUnsupportedFork;
-
   public EngineNewPayloadV1(
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
@@ -99,19 +93,16 @@ public sealed class EngineNewPayloadV1<
       final MetricsSystem metricsSystem,
       final HardforkId minSupportedFork,
       final HardforkId firstUnsupportedFork) {
-    super(protocolSchedule, protocolContext, vertx, engineCallListener);
+    super(
+        protocolSchedule,
+        protocolContext,
+        vertx,
+        engineCallListener,
+        minSupportedFork,
+        firstUnsupportedFork);
     this.mergeCoordinator = mergeCoordinator;
     this.ethPeers = ethPeers;
-    this.minSupportedFork = minSupportedFork;
-    this.firstUnsupportedFork = firstUnsupportedFork;
-    this.minForkTimestamp =
-        minSupportedFork != null
-            ? protocolSchedule.milestoneFor(minSupportedFork)
-            : Optional.empty();
-    this.maxForkTimestamp =
-        firstUnsupportedFork != null
-            ? protocolSchedule.milestoneFor(firstUnsupportedFork)
-            : Optional.empty();
+
     metricsSystem.createLongGauge(
         BLOCK_PROCESSING,
         "execution_time_head",
@@ -534,12 +525,6 @@ public sealed class EngineNewPayloadV1<
 
   private long getLastExecutionTime() {
     return this.lastExecutionTimeInNs;
-  }
-
-  @Override
-  protected final ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    return ForkSupportHelper.validateForkSupported(
-        minSupportedFork, minForkTimestamp, firstUnsupportedFork, maxForkTimestamp, blockTimestamp);
   }
 
   protected JsonRpcResponse processParametersParsingException(

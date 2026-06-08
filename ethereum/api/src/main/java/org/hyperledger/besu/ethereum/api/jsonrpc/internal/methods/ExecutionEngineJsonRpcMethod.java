@@ -15,9 +15,11 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 
 import org.hyperledger.besu.consensus.merge.MergeContext;
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineCallListener;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.ForkSupportHelper;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -37,14 +39,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
-  protected static Optional<String> extractJsonPath(final JsonMappingException fieldEx) {
-
-    if (fieldEx.getPath().isEmpty()) {
-      return Optional.empty();
-    }
-    return Optional.ofNullable(fieldEx.getPath().getFirst().getFieldName());
-  }
-
   public enum EngineStatus {
     VALID,
     INVALID,
@@ -65,17 +59,43 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
   protected final ProtocolContext protocolContext;
   protected final EngineCallListener engineCallListener;
 
+  private final Optional<Long> minForkTimestamp;
+  private final Optional<Long> maxForkTimestamp;
+
+  private final HardforkId minSupportedFork;
+  private final HardforkId firstUnsupportedFork;
+
   protected ExecutionEngineJsonRpcMethod(
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final Vertx vertx,
       final EngineCallListener engineCallListener) {
+    this(protocolSchedule, protocolContext, vertx, engineCallListener, null, null);
+  }
+
+  protected ExecutionEngineJsonRpcMethod(
+      final ProtocolSchedule protocolSchedule,
+      final ProtocolContext protocolContext,
+      final Vertx vertx,
+      final EngineCallListener engineCallListener,
+      final HardforkId minSupportedFork,
+      final HardforkId firstUnsupportedFork) {
     this.syncVertx = vertx;
     this.protocolSchedule = protocolSchedule;
     this.protocolContext = protocolContext;
     this.mergeContextOptional = protocolContext.safeConsensusContext(MergeContext.class);
     this.mergeContext = mergeContextOptional::orElseThrow;
     this.engineCallListener = engineCallListener;
+    this.minSupportedFork = minSupportedFork;
+    this.firstUnsupportedFork = firstUnsupportedFork;
+    this.minForkTimestamp =
+        minSupportedFork != null
+            ? protocolSchedule.milestoneFor(minSupportedFork)
+            : Optional.empty();
+    this.maxForkTimestamp =
+        firstUnsupportedFork != null
+            ? protocolSchedule.milestoneFor(firstUnsupportedFork)
+            : Optional.empty();
   }
 
   @Override
@@ -136,8 +156,9 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
     return engineCallListener;
   }
 
-  protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    return ValidationResult.valid();
+  protected final ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
+    return ForkSupportHelper.validateForkSupported(
+        minSupportedFork, minForkTimestamp, firstUnsupportedFork, maxForkTimestamp, blockTimestamp);
   }
 
   protected static <T> Optional<T> extractCauseByType(
@@ -150,5 +171,13 @@ public abstract class ExecutionEngineJsonRpcMethod implements JsonRpcMethod {
       cause = cause.getCause();
     }
     return Optional.empty();
+  }
+
+  protected static Optional<String> extractJsonPath(final JsonMappingException fieldEx) {
+
+    if (fieldEx.getPath().isEmpty()) {
+      return Optional.empty();
+    }
+    return Optional.ofNullable(fieldEx.getPath().getFirst().getFieldName());
   }
 }
