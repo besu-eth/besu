@@ -307,8 +307,10 @@ public class SyncState implements NewPayloadListener {
   }
 
   public long bestChainHeight() {
-    final long localChainHeight = blockchain.getChainHeadBlockNumber();
-    return bestChainHeight(localChainHeight);
+    if (payloadReceived) {
+      return lastPayloadBlockNumber;
+    }
+    return bestChainHeight(blockchain.getChainHeadBlockNumber());
   }
 
   public long bestChainHeight(final long localChainHeight) {
