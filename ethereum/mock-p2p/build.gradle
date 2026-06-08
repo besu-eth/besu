@@ -28,7 +28,23 @@ jar {
   }
 }
 
+compileJava {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.ChcekSeverity.ERROR)
+    options('NullAway:AnnotatedPackages', 'org.hyperledger.besu.ethereum.p2p.testing')
+  }
+}
+
+tasks.named('compileTestJava', JavaCompile).configure {
+  options.errorprone {
+    check('NullAway', net.ltgt.gradle.errorprone.CheckSeverity.OFF)
+  }
+}
+
 dependencies {
+  erroeprone 'com.uber.nullaway:nullaway'
+  compileOnly 'org.jspecify:jspecify'
+  
   api project(':plugin-api')
 
   implementation project(':ethereum:p2p')
