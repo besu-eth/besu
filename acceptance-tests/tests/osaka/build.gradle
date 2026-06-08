@@ -19,3 +19,8 @@ solidity {
   version = '0.8.25'
   evmVersion = 'cancun'
 }
+
+// Both subprojects download solc 0.8.25 to the same path; serialise to avoid a race condition.
+tasks.named('compileSolidity') {
+  dependsOn ':acceptance-tests:tests:shanghai:compileSolidity'
+}
