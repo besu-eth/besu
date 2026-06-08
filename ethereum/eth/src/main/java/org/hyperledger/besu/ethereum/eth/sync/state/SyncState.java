@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.state;
 
+import org.hyperledger.besu.consensus.merge.NewPayloadListener;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.chain.ChainHead;
@@ -38,7 +39,7 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class SyncState {
+public class SyncState implements NewPayloadListener {
 
   private final Blockchain blockchain;
   private final EthPeers ethPeers;
@@ -60,6 +61,9 @@ public class SyncState {
   private volatile boolean isInitialSyncPhaseDone;
 
   private volatile boolean isResyncNeeded;
+
+  private volatile long lastPayloadBlockNumber = 0L;
+  private volatile boolean payloadReceived = false;
 
   private Optional<Address> maybeAccountToRepair = Optional.empty();
 
@@ -288,12 +292,29 @@ public class SyncState {
     return blockchain.getChainHeadBlockNumber();
   }
 
+  /**
+   * Notified for each {@code engine_newPayload} received from the consensus layer. Once the first
+   * payload arrives this node is being driven by a CL, so the payload head becomes the
+   * authoritative best chain height.
+   *
+   * @param header the header reconstructed from the payload
+   */
+  @Override
+  public void onNewPayload(final BlockHeader header) {
+    lastPayloadBlockNumber = header.getNumber();
+    // Set the latch last so any reader that observes it also observes lastPayloadBlockNumber.
+    payloadReceived = true;
+  }
+
   public long bestChainHeight() {
     final long localChainHeight = blockchain.getChainHeadBlockNumber();
     return bestChainHeight(localChainHeight);
   }
 
   public long bestChainHeight(final long localChainHeight) {
+    if (payloadReceived) {
+      return lastPayloadBlockNumber;
+    }
     return Math.max(
         localChainHeight,
         ethPeers
