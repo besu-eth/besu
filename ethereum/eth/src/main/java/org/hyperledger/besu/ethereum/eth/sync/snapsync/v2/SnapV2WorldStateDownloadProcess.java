@@ -141,7 +141,11 @@ public class SnapV2WorldStateDownloadProcess implements WorldStateDownloadProces
             ethContext, worldStateStorageCoordinator, snapSyncState, downloadState, metricsSystem);
     final SnapV2PersistDataStep persistDataStep =
         new SnapV2PersistDataStep(
-            snapSyncState, worldStateStorageCoordinator, downloadState, snapSyncConfiguration);
+            snapSyncState,
+            worldStateStorageCoordinator,
+            downloadState,
+            snapSyncConfiguration,
+            downloadState.getRangeTracker());
     final SnapV2CompleteTaskStep completeTaskStep =
         new SnapV2CompleteTaskStep(snapSyncState, metricsSystem);
 

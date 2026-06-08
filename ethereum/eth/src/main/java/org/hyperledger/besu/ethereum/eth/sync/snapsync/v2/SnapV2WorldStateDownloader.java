@@ -161,7 +161,7 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
       ranges.forEach(
           (key, value) ->
               newDownloadState.enqueueRequest(
-                  new SnapV2AccountRangeRequest(stateRoot, key, value, key)));
+                  new SnapV2AccountRangeRequest(stateRoot, key, value)));
 
       final SnapV2WorldStateDownloadProcess downloadProcess =
           SnapV2WorldStateDownloadProcess.create(
