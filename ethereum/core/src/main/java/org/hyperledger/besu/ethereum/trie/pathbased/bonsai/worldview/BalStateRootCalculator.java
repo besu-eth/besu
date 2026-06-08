@@ -26,6 +26,8 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWo
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.plugin.data.BlockHeader;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriority;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriorityContext;
 
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -50,12 +52,16 @@ public class BalStateRootCalculator {
       final BlockAccessList bal,
       final Executor executor) {
     return CompletableFuture.supplyAsync(
-        () -> {
-          try (BonsaiWorldState ws = openParentWorldState(protocolContext, blockHeader)) {
-            applyBalChanges(ws.getAccumulator(), bal);
-            return computeRoot(ws);
-          }
-        },
+        () ->
+            StorageReadPriorityContext.withPriority(
+                StorageReadPriority.HIGH,
+                "bal-state-root",
+                () -> {
+                  try (BonsaiWorldState ws = openParentWorldState(protocolContext, blockHeader)) {
+                    applyBalChanges(ws.getAccumulator(), bal);
+                    return computeRoot(ws);
+                  }
+                }),
         executor);
   }
 

@@ -58,6 +58,44 @@ public class BalConfigurationOptions {
       description = "Log the constructed and block's BAL when they differ.")
   boolean balLogBalsOnMismatch = false;
 
+  @CommandLine.Option(
+      names = {"--Xbal-prefetch-reading-enabled"},
+      hidden = true,
+      description = "Enable prefetching of state data based on BAL read operations.")
+  boolean balPrefetchReadingEnabled = false;
+
+  @CommandLine.Option(
+      names = {"--Xbal-prefetch-sorting-enabled"},
+      hidden = true,
+      description =
+          "Enable key sorting during BAL prefetch operations (default: ${DEFAULT-VALUE}).")
+  boolean balPrefetchSortingEnabled = true;
+
+  @CommandLine.Option(
+      names = {"--Xbal-prefetch-batch-size"},
+      hidden = true,
+      paramLabel = "<INTEGER>",
+      description =
+          "BAL prefetch batch size. A value of 0 or lower fetches each segment in one batch (default: ${DEFAULT-VALUE}).")
+  int balPrefetchBatchSize = BalConfiguration.DEFAULT_BAL_PREFETCH_BATCH_SIZE;
+
+  @CommandLine.Option(
+      names = {"--Xbal-prefetch-concurrency"},
+      hidden = true,
+      paramLabel = "<INTEGER>",
+      description =
+          "Maximum number of concurrent BAL prefetch fetch workers (default: ${DEFAULT-VALUE}).")
+  int balPrefetchConcurrency = BalConfiguration.DEFAULT_BAL_PREFETCH_CONCURRENCY;
+
+  /**
+   * Returns whether BAL prefetching has been enabled from CLI options.
+   *
+   * @return true when BAL prefetch reads are enabled
+   */
+  public boolean isBalPrefetchReadingEnabled() {
+    return balPrefetchReadingEnabled;
+  }
+
   /**
    * Builds the immutable {@link BalConfiguration} corresponding to the parsed CLI options.
    *
@@ -70,6 +108,10 @@ public class BalConfigurationOptions {
         .isBalLenientOnStateRootMismatch(balLenientOnStateRootMismatch)
         .isBalStateRootTrusted(balTrustStateRoot)
         .isBalStateRootEnabled(balStateRootEnabled)
+        .isBalPrefetchReadingEnabled(balPrefetchReadingEnabled)
+        .isBalPrefetchSortingEnabled(balPrefetchSortingEnabled)
+        .balPrefetchBatchSize(balPrefetchBatchSize)
+        .balPrefetchConcurrency(balPrefetchConcurrency)
         .build();
   }
 }

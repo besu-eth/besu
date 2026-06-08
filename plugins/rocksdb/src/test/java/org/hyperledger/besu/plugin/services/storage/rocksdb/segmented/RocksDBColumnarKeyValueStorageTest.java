@@ -113,6 +113,50 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
   }
 
   @Test
+  public void multigetPreservesInputOrderAndMissingValues() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+
+    final SegmentedKeyValueStorageTransaction tx = store.startTransaction();
+    tx.put(TestSegment.FOO, bytesOf(1), bytesOf(10));
+    tx.put(TestSegment.FOO, bytesOf(3), bytesOf(30));
+    tx.put(TestSegment.BAR, bytesOf(2), bytesOf(20));
+    tx.commit();
+
+    final List<Optional<byte[]>> values =
+        store.multiget(TestSegment.FOO, List.of(bytesOf(3), bytesOf(2), bytesOf(1)));
+    assertThat(values).hasSize(3);
+    assertThat(values.get(0)).isPresent();
+    assertThat(values.get(0).get()).isEqualTo(bytesOf(30));
+    assertThat(values.get(1)).isEmpty();
+    assertThat(values.get(2)).isPresent();
+    assertThat(values.get(2).get()).isEqualTo(bytesOf(10));
+
+    store.close();
+  }
+
+  @Test
+  public void multigetPreservesDuplicateKeysAndHandlesEmptyInput() throws Exception {
+    final SegmentedKeyValueStorage store = createSegmentedStore();
+
+    assertThat(store.multiget(TestSegment.FOO, List.of())).isEmpty();
+
+    final SegmentedKeyValueStorageTransaction tx = store.startTransaction();
+    tx.put(TestSegment.FOO, bytesOf(1), bytesOf(10));
+    tx.commit();
+
+    final List<Optional<byte[]>> values =
+        store.multiget(TestSegment.FOO, List.of(bytesOf(1), bytesOf(1)));
+
+    assertThat(values).hasSize(2);
+    assertThat(values.get(0)).isPresent();
+    assertThat(values.get(0).get()).isEqualTo(bytesOf(10));
+    assertThat(values.get(1)).isPresent();
+    assertThat(values.get(1).get()).isEqualTo(bytesOf(10));
+
+    store.close();
+  }
+
+  @Test
   public void canRemoveThroughSegmentIteration() throws Exception {
     // we're looping this in order to catch intermittent failures when rocksdb objects are not close
     // properly

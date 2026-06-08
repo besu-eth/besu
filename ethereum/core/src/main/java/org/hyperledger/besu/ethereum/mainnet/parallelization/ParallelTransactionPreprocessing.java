@@ -34,15 +34,25 @@ import java.util.concurrent.Executor;
 public class ParallelTransactionPreprocessing implements PreprocessingFunction {
 
   private final MainnetTransactionProcessor transactionProcessor;
-  private final Executor executor;
+  private final Executor transactionExecutor;
+  private final Executor prefetchExecutor;
   private final BalConfiguration balConfiguration;
 
   public ParallelTransactionPreprocessing(
       final MainnetTransactionProcessor transactionProcessor,
       final Executor executor,
       final BalConfiguration balConfiguration) {
+    this(transactionProcessor, executor, balConfiguration, executor);
+  }
+
+  public ParallelTransactionPreprocessing(
+      final MainnetTransactionProcessor transactionProcessor,
+      final Executor transactionExecutor,
+      final BalConfiguration balConfiguration,
+      final Executor prefetchExecutor) {
     this.transactionProcessor = transactionProcessor;
-    this.executor = executor;
+    this.transactionExecutor = transactionExecutor;
+    this.prefetchExecutor = prefetchExecutor;
     this.balConfiguration = balConfiguration;
   }
 
@@ -65,7 +75,8 @@ public class ParallelTransactionPreprocessing implements PreprocessingFunction {
 
     if (balConfiguration.isPerfectParallelizationEnabled() && maybeBlockBal.isPresent()) {
       parallelProcessor =
-          new BalConcurrentTransactionProcessor(transactionProcessor, maybeBlockBal.get());
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, maybeBlockBal.get(), balConfiguration, prefetchExecutor);
     } else {
       parallelProcessor = new ParallelizedConcurrentTransactionProcessor(transactionProcessor);
     }
@@ -77,7 +88,7 @@ public class ParallelTransactionPreprocessing implements PreprocessingFunction {
         miningBeneficiary,
         blockHashLookup,
         blobGasPrice,
-        executor,
+        transactionExecutor,
         blockAccessListBuilder,
         maybeParentHeader);
 

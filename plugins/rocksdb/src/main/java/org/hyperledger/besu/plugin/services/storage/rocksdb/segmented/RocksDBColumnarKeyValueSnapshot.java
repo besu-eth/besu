@@ -22,10 +22,15 @@ import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.SnappedKeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriority;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriorityContext;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetrics;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBReadController;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbIterator;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -53,6 +58,7 @@ public class RocksDBColumnarKeyValueSnapshot
     implements SegmentedKeyValueStorage, SnappedKeyValueStorage {
 
   private static final Logger LOG = LoggerFactory.getLogger(RocksDBColumnarKeyValueSnapshot.class);
+  private static final RocksDBReadController READ_CONTROLLER = RocksDBReadController.global();
 
   // Cache to store read results during snapshot access.
   // We use Optional<byte[]> as the value type to distinguish between:
@@ -70,6 +76,7 @@ public class RocksDBColumnarKeyValueSnapshot
   private final RocksDBMetrics metrics;
   private final Function<SegmentIdentifier, ColumnFamilyHandle> columnFamilyMapper;
   private final ReadOptions readOptions;
+  private final ReadOptions lowPriorityReadOptions;
 
   /**
    * Instantiates a new RocksDb columnar key value snapshot.
@@ -88,7 +95,17 @@ public class RocksDBColumnarKeyValueSnapshot
     this.columnFamilyMapper = columnFamilyMapper;
     this.snapshot = new RocksDBSnapshot(db);
     this.readOptions =
-        new ReadOptions().setVerifyChecksums(false).setSnapshot(snapshot.getSnapshot());
+        new ReadOptions()
+            .setAsyncIo(true)
+            .setVerifyChecksums(false)
+            .setFillCache(true)
+            .setSnapshot(snapshot.getSnapshot());
+    this.lowPriorityReadOptions =
+        new ReadOptions()
+            .setAsyncIo(true)
+            .setVerifyChecksums(false)
+            .setFillCache(false)
+            .setSnapshot(snapshot.getSnapshot());
     if (isReadCacheEnabledForSnapshots) {
       maybeCache =
           Optional.of(
@@ -108,11 +125,52 @@ public class RocksDBColumnarKeyValueSnapshot
       if (isReadCacheEnabledForSnapshots && segment.isEligibleToHighSpecFlag()) {
         return getFromCacheOrRead(segment.getId(), key, handle, maybeCache.get());
       } else {
-        return Optional.ofNullable(snapshot.get(handle, readOptions, key));
+        return READ_CONTROLLER.execute(() -> readSnapshotKey(handle, key));
       }
     } catch (final RocksDBException e) {
       throw new StorageException(e);
     }
+  }
+
+  @Override
+  public List<Optional<byte[]>> multiget(final SegmentIdentifier segment, final List<byte[]> keys)
+      throws StorageException {
+    throwIfClosed();
+    if (keys.isEmpty()) {
+      return List.of();
+    }
+
+    try (final OperationTimer.TimingContext ignored = metrics.getReadLatency().startTimer()) {
+      final ColumnFamilyHandle handle = columnFamilyMapper.apply(segment);
+      final RocksDBMultiGetPlan readPlan = createMultiGetPlan(keys);
+      final List<byte[]> values = READ_CONTROLLER.execute(() -> readSnapshotKeys(handle, readPlan));
+      return readPlan.restoreInputOrder(values);
+    } catch (final RocksDBException e) {
+      throw new StorageException(e);
+    }
+  }
+
+  private Optional<byte[]> readSnapshotKey(final ColumnFamilyHandle handle, final byte[] key)
+      throws RocksDBException {
+    return Optional.ofNullable(snapshot.get(handle, readOptionsForCurrentPriority(), key));
+  }
+
+  private List<byte[]> readSnapshotKeys(
+      final ColumnFamilyHandle handle, final RocksDBMultiGetPlan readPlan) throws RocksDBException {
+    return db.multiGetAsList(
+        readOptionsForCurrentPriority(),
+        Collections.nCopies(readPlan.keys().size(), handle),
+        readPlan.keys());
+  }
+
+  private ReadOptions readOptionsForCurrentPriority() {
+    return StorageReadPriorityContext.currentPriority() == StorageReadPriority.LOW
+        ? lowPriorityReadOptions
+        : readOptions;
+  }
+
+  private static RocksDBMultiGetPlan createMultiGetPlan(final List<byte[]> keys) {
+    return RocksDBMultiGetPlan.preserveInputOrder(keys);
   }
 
   private Optional<byte[]> getFromCacheOrRead(
@@ -124,7 +182,8 @@ public class RocksDBColumnarKeyValueSnapshot
     final Bytes cacheKey = makeCacheKey(segmentId, key);
     Optional<byte[]> cached = cache.getIfPresent(cacheKey);
     if (cached == null) {
-      final byte[] value = snapshot.get(handle, readOptions, key);
+      final byte[] value =
+          READ_CONTROLLER.execute(() -> snapshot.get(handle, readOptionsForCurrentPriority(), key));
       cached = Optional.ofNullable(value);
       cache.put(cacheKey, cached);
     }
@@ -142,24 +201,40 @@ public class RocksDBColumnarKeyValueSnapshot
   public Optional<NearestKeyValue> getNearestBefore(
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
 
-    try (final RocksIterator rocksIterator =
-        db.newIterator(columnFamilyMapper.apply(segmentIdentifier), readOptions)) {
-      rocksIterator.seekForPrev(key.toArrayUnsafe());
-      return Optional.of(rocksIterator)
-          .filter(AbstractRocksIterator::isValid)
-          .map(it -> new NearestKeyValue(Bytes.of(it.key()), Optional.of(it.value())));
+    try {
+      return READ_CONTROLLER.execute(
+          () -> {
+            try (final RocksIterator rocksIterator =
+                db.newIterator(
+                    columnFamilyMapper.apply(segmentIdentifier), readOptionsForCurrentPriority())) {
+              rocksIterator.seekForPrev(key.toArrayUnsafe());
+              return Optional.of(rocksIterator)
+                  .filter(AbstractRocksIterator::isValid)
+                  .map(it -> new NearestKeyValue(Bytes.of(it.key()), Optional.of(it.value())));
+            }
+          });
+    } catch (final RocksDBException e) {
+      throw new StorageException(e);
     }
   }
 
   @Override
   public Optional<NearestKeyValue> getNearestAfter(
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
-    try (final RocksIterator rocksIterator =
-        db.newIterator(columnFamilyMapper.apply(segmentIdentifier), readOptions)) {
-      rocksIterator.seek(key.toArrayUnsafe());
-      return Optional.of(rocksIterator)
-          .filter(AbstractRocksIterator::isValid)
-          .map(it -> new NearestKeyValue(Bytes.of(it.key()), Optional.of(it.value())));
+    try {
+      return READ_CONTROLLER.execute(
+          () -> {
+            try (final RocksIterator rocksIterator =
+                db.newIterator(
+                    columnFamilyMapper.apply(segmentIdentifier), readOptionsForCurrentPriority())) {
+              rocksIterator.seek(key.toArrayUnsafe());
+              return Optional.of(rocksIterator)
+                  .filter(AbstractRocksIterator::isValid)
+                  .map(it -> new NearestKeyValue(Bytes.of(it.key()), Optional.of(it.value())));
+            }
+          });
+    } catch (final RocksDBException e) {
+      throw new StorageException(e);
     }
   }
 
@@ -167,8 +242,14 @@ public class RocksDBColumnarKeyValueSnapshot
   public Stream<Pair<byte[], byte[]>> stream(final SegmentIdentifier segment) {
     throwIfClosed();
     final RocksIterator rocksIterator =
-        db.newIterator(columnFamilyMapper.apply(segment), readOptions);
-    rocksIterator.seekToFirst();
+        READ_CONTROLLER.executeUnchecked(
+            () ->
+                db.newIterator(columnFamilyMapper.apply(segment), readOptionsForCurrentPriority()));
+    READ_CONTROLLER.executeUnchecked(
+        () -> {
+          rocksIterator.seekToFirst();
+          return null;
+        });
     return RocksDbIterator.create(rocksIterator).toStream();
   }
 
@@ -178,8 +259,14 @@ public class RocksDBColumnarKeyValueSnapshot
     throwIfClosed();
 
     final RocksIterator rocksIterator =
-        db.newIterator(columnFamilyMapper.apply(segment), readOptions);
-    rocksIterator.seek(startKey);
+        READ_CONTROLLER.executeUnchecked(
+            () ->
+                db.newIterator(columnFamilyMapper.apply(segment), readOptionsForCurrentPriority()));
+    READ_CONTROLLER.executeUnchecked(
+        () -> {
+          rocksIterator.seek(startKey);
+          return null;
+        });
     return RocksDbIterator.create(rocksIterator).toStream();
   }
 
@@ -190,8 +277,14 @@ public class RocksDBColumnarKeyValueSnapshot
     final Bytes endKeyBytes = Bytes.wrap(endKey);
 
     final RocksIterator rocksIterator =
-        db.newIterator(columnFamilyMapper.apply(segment), readOptions);
-    rocksIterator.seek(startKey);
+        READ_CONTROLLER.executeUnchecked(
+            () ->
+                db.newIterator(columnFamilyMapper.apply(segment), readOptionsForCurrentPriority()));
+    READ_CONTROLLER.executeUnchecked(
+        () -> {
+          rocksIterator.seek(startKey);
+          return null;
+        });
     return RocksDbIterator.create(rocksIterator)
         .toStream()
         .takeWhile(e -> endKeyBytes.compareTo(Bytes.wrap(e.getKey())) >= 0);
@@ -202,8 +295,14 @@ public class RocksDBColumnarKeyValueSnapshot
     throwIfClosed();
 
     final RocksIterator rocksIterator =
-        db.newIterator(columnFamilyMapper.apply(segment), readOptions);
-    rocksIterator.seekToFirst();
+        READ_CONTROLLER.executeUnchecked(
+            () ->
+                db.newIterator(columnFamilyMapper.apply(segment), readOptionsForCurrentPriority()));
+    READ_CONTROLLER.executeUnchecked(
+        () -> {
+          rocksIterator.seekToFirst();
+          return null;
+        });
     return RocksDbIterator.create(rocksIterator).toStreamKeys();
   }
 
@@ -257,6 +356,7 @@ public class RocksDBColumnarKeyValueSnapshot
     if (closed.compareAndSet(false, true)) {
       closed.set(true);
       readOptions.close();
+      lowPriorityReadOptions.close();
       snapshot.close();
     }
   }

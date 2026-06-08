@@ -22,8 +22,11 @@ import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriority;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriorityContext;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetrics;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetricsFactory;
+import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBReadController;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbIterator;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbSegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbUtil;
@@ -32,6 +35,7 @@ import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksD
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -73,6 +77,7 @@ import org.slf4j.LoggerFactory;
 public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValueStorage {
 
   private static final Logger LOG = LoggerFactory.getLogger(RocksDBColumnarKeyValueStorage.class);
+  private static final RocksDBReadController READ_CONTROLLER = RocksDBReadController.global();
   private static final int ROCKSDB_FORMAT_VERSION = 5;
   private static final long ROCKSDB_BLOCK_SIZE = 32768;
 
@@ -100,7 +105,10 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   private final WriteOptions tryDeleteOptions =
       new WriteOptions().setNoSlowdown(true).setIgnoreMissingColumnFamilies(true);
-  private final ReadOptions readOptions = new ReadOptions().setVerifyChecksums(false);
+  private final ReadOptions readOptions =
+      new ReadOptions().setAsyncIo(true).setVerifyChecksums(false).setFillCache(true);
+  private final ReadOptions lowPriorityReadOptions =
+      new ReadOptions().setAsyncIo(true).setVerifyChecksums(false).setFillCache(false);
   private final MetricsSystem metricsSystem;
   private final RocksDBMetricsFactory rocksDBMetricsFactory;
 
@@ -423,23 +431,76 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       throws StorageException {
     throwIfClosed();
 
+    final ColumnFamilyHandle columnHandle = safeColumnHandle(segment);
     try (final OperationTimer.TimingContext ignored = metrics.getReadLatency().startTimer()) {
-      return Optional.ofNullable(getDB().get(safeColumnHandle(segment), readOptions, key));
+      return READ_CONTROLLER.execute(() -> readKey(columnHandle, key));
     } catch (final RocksDBException e) {
       throw new StorageException(e);
     }
   }
 
   @Override
+  public List<Optional<byte[]>> multiget(final SegmentIdentifier segment, final List<byte[]> keys)
+      throws StorageException {
+    throwIfClosed();
+    if (keys.isEmpty()) {
+      return List.of();
+    }
+
+    final ColumnFamilyHandle columnHandle = safeColumnHandle(segment);
+    final RocksDBMultiGetPlan readPlan = createMultiGetPlan(keys);
+    try (final OperationTimer.TimingContext ignored = metrics.getReadLatency().startTimer()) {
+      final List<byte[]> values = READ_CONTROLLER.execute(() -> readKeys(columnHandle, readPlan));
+      return readPlan.restoreInputOrder(values);
+    } catch (final RocksDBException e) {
+      throw new StorageException(e);
+    }
+  }
+
+  private Optional<byte[]> readKey(final ColumnFamilyHandle columnHandle, final byte[] key)
+      throws RocksDBException {
+    return Optional.ofNullable(getDB().get(columnHandle, readOptionsForCurrentPriority(), key));
+  }
+
+  private List<byte[]> readKeys(
+      final ColumnFamilyHandle columnHandle, final RocksDBMultiGetPlan readPlan)
+      throws RocksDBException {
+    return getDB()
+        .multiGetAsList(
+            readOptionsForCurrentPriority(),
+            Collections.nCopies(readPlan.keys().size(), columnHandle),
+            readPlan.keys());
+  }
+
+  private ReadOptions readOptionsForCurrentPriority() {
+    return StorageReadPriorityContext.currentPriority() == StorageReadPriority.LOW
+        ? lowPriorityReadOptions
+        : readOptions;
+  }
+
+  private static RocksDBMultiGetPlan createMultiGetPlan(final List<byte[]> keys) {
+    return RocksDBMultiGetPlan.preserveInputOrder(keys);
+  }
+
+  @Override
   public Optional<NearestKeyValue> getNearestBefore(
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
 
-    try (final RocksIterator rocksIterator =
-        getDB().newIterator(safeColumnHandle(segmentIdentifier))) {
-      rocksIterator.seekForPrev(key.toArrayUnsafe());
-      return Optional.of(rocksIterator)
-          .filter(AbstractRocksIterator::isValid)
-          .map(it -> new NearestKeyValue(Bytes.of(it.key()), Optional.of(it.value())));
+    try {
+      return READ_CONTROLLER.execute(
+          () -> {
+            try (final RocksIterator rocksIterator =
+                getDB()
+                    .newIterator(
+                        safeColumnHandle(segmentIdentifier), readOptionsForCurrentPriority())) {
+              rocksIterator.seekForPrev(key.toArrayUnsafe());
+              return Optional.of(rocksIterator)
+                  .filter(AbstractRocksIterator::isValid)
+                  .map(it -> new NearestKeyValue(Bytes.of(it.key()), Optional.of(it.value())));
+            }
+          });
+    } catch (final RocksDBException e) {
+      throw new StorageException(e);
     }
   }
 
@@ -447,27 +508,54 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   public Optional<NearestKeyValue> getNearestAfter(
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
 
-    try (final RocksIterator rocksIterator =
-        getDB().newIterator(safeColumnHandle(segmentIdentifier))) {
-      rocksIterator.seek(key.toArrayUnsafe());
-      return Optional.of(rocksIterator)
-          .filter(AbstractRocksIterator::isValid)
-          .map(it -> new NearestKeyValue(Bytes.of(it.key()), Optional.of(it.value())));
+    try {
+      return READ_CONTROLLER.execute(
+          () -> {
+            try (final RocksIterator rocksIterator =
+                getDB()
+                    .newIterator(
+                        safeColumnHandle(segmentIdentifier), readOptionsForCurrentPriority())) {
+              rocksIterator.seek(key.toArrayUnsafe());
+              return Optional.of(rocksIterator)
+                  .filter(AbstractRocksIterator::isValid)
+                  .map(it -> new NearestKeyValue(Bytes.of(it.key()), Optional.of(it.value())));
+            }
+          });
+    } catch (final RocksDBException e) {
+      throw new StorageException(e);
     }
   }
 
   @Override
   public Stream<Pair<byte[], byte[]>> stream(final SegmentIdentifier segmentIdentifier) {
-    final RocksIterator rocksIterator = getDB().newIterator(safeColumnHandle(segmentIdentifier));
-    rocksIterator.seekToFirst();
+    final RocksIterator rocksIterator =
+        READ_CONTROLLER.executeUnchecked(
+            () ->
+                getDB()
+                    .newIterator(
+                        safeColumnHandle(segmentIdentifier), readOptionsForCurrentPriority()));
+    READ_CONTROLLER.executeUnchecked(
+        () -> {
+          rocksIterator.seekToFirst();
+          return null;
+        });
     return RocksDbIterator.create(rocksIterator).toStream();
   }
 
   @Override
   public Stream<Pair<byte[], byte[]>> streamFromKey(
       final SegmentIdentifier segmentIdentifier, final byte[] startKey) {
-    final RocksIterator rocksIterator = getDB().newIterator(safeColumnHandle(segmentIdentifier));
-    rocksIterator.seek(startKey);
+    final RocksIterator rocksIterator =
+        READ_CONTROLLER.executeUnchecked(
+            () ->
+                getDB()
+                    .newIterator(
+                        safeColumnHandle(segmentIdentifier), readOptionsForCurrentPriority()));
+    READ_CONTROLLER.executeUnchecked(
+        () -> {
+          rocksIterator.seek(startKey);
+          return null;
+        });
     return RocksDbIterator.create(rocksIterator).toStream();
   }
 
@@ -475,8 +563,17 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   public Stream<Pair<byte[], byte[]>> streamFromKey(
       final SegmentIdentifier segmentIdentifier, final byte[] startKey, final byte[] endKey) {
     final Bytes endKeyBytes = Bytes.wrap(endKey);
-    final RocksIterator rocksIterator = getDB().newIterator(safeColumnHandle(segmentIdentifier));
-    rocksIterator.seek(startKey);
+    final RocksIterator rocksIterator =
+        READ_CONTROLLER.executeUnchecked(
+            () ->
+                getDB()
+                    .newIterator(
+                        safeColumnHandle(segmentIdentifier), readOptionsForCurrentPriority()));
+    READ_CONTROLLER.executeUnchecked(
+        () -> {
+          rocksIterator.seek(startKey);
+          return null;
+        });
     return RocksDbIterator.create(rocksIterator)
         .toStream()
         .takeWhile(e -> endKeyBytes.compareTo(Bytes.wrap(e.getKey())) >= 0);
@@ -484,8 +581,17 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
 
   @Override
   public Stream<byte[]> streamKeys(final SegmentIdentifier segmentIdentifier) {
-    final RocksIterator rocksIterator = getDB().newIterator(safeColumnHandle(segmentIdentifier));
-    rocksIterator.seekToFirst();
+    final RocksIterator rocksIterator =
+        READ_CONTROLLER.executeUnchecked(
+            () ->
+                getDB()
+                    .newIterator(
+                        safeColumnHandle(segmentIdentifier), readOptionsForCurrentPriority()));
+    READ_CONTROLLER.executeUnchecked(
+        () -> {
+          rocksIterator.seekToFirst();
+          return null;
+        });
     return RocksDbIterator.create(rocksIterator).toStreamKeys();
   }
 
@@ -532,6 +638,8 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     if (closed.compareAndSet(false, true)) {
       txOptions.close();
       tryDeleteOptions.close();
+      readOptions.close();
+      lowPriorityReadOptions.close();
       columnHandlesBySegmentIdentifier.values().stream()
           .map(RocksDbSegmentIdentifier::get)
           .forEach(ColumnFamilyHandle::close);

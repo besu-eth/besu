@@ -25,6 +25,7 @@ import org.hyperledger.besu.plugin.services.storage.SnappableKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SnappedKeyValueStorage;
 
 import java.io.PrintStream;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
@@ -143,6 +144,25 @@ public class SegmentedInMemoryKeyValueStorage
       return hashValueStore
           .computeIfAbsent(segmentIdentifier, s -> newSegmentMap())
           .getOrDefault(Bytes.wrap(key), Optional.empty());
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  @Override
+  public List<Optional<byte[]>> multiget(
+      final SegmentIdentifier segmentIdentifier, final List<byte[]> keys) throws StorageException {
+    final List<Optional<byte[]>> result = new ArrayList<>(keys.size());
+
+    final Lock lock = rwLock.readLock();
+    lock.lock();
+    try {
+      final NavigableMap<Bytes, Optional<byte[]>> segmentMap =
+          hashValueStore.computeIfAbsent(segmentIdentifier, s -> newSegmentMap());
+      for (final byte[] key : keys) {
+        result.add(segmentMap.getOrDefault(Bytes.wrap(key), Optional.empty()));
+      }
+      return result;
     } finally {
       lock.unlock();
     }

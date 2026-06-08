@@ -14,10 +14,13 @@
  */
 package org.hyperledger.besu.plugin.services.storage.rocksdb.segmented;
 
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetricsFactory;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBConfigurationBuilder;
 
@@ -25,13 +28,46 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 public class OptimisticTransactionDBRocksDBColumnarKeyValueStorageTest
     extends RocksDBColumnarKeyValueStorageTest {
+
+  @Test
+  public void snapshotMultigetReadsStableSnapshotState() throws Exception {
+    final OptimisticRocksDBColumnarKeyValueStorage store =
+        (OptimisticRocksDBColumnarKeyValueStorage) createSegmentedStore();
+
+    final SegmentedKeyValueStorageTransaction initialTx = store.startTransaction();
+    initialTx.put(TestSegment.FOO, bytesOf(1), bytesOf(10));
+    initialTx.commit();
+
+    final RocksDBColumnarKeyValueSnapshot snapshot = store.takeSnapshot();
+    try {
+      final SegmentedKeyValueStorageTransaction updateTx = store.startTransaction();
+      updateTx.put(TestSegment.FOO, bytesOf(1), bytesOf(11));
+      updateTx.put(TestSegment.FOO, bytesOf(2), bytesOf(20));
+      updateTx.commit();
+
+      final List<Optional<byte[]>> values =
+          snapshot.multiget(TestSegment.FOO, List.of(bytesOf(1), bytesOf(2), bytesOf(1)));
+
+      assertThat(values).hasSize(3);
+      assertThat(values.get(0)).isPresent();
+      assertThat(values.get(0).get()).isEqualTo(bytesOf(10));
+      assertThat(values.get(1)).isEmpty();
+      assertThat(values.get(2)).isPresent();
+      assertThat(values.get(2).get()).isEqualTo(bytesOf(10));
+    } finally {
+      snapshot.close();
+      store.close();
+    }
+  }
 
   @Override
   protected SegmentedKeyValueStorage createSegmentedStore() throws Exception {

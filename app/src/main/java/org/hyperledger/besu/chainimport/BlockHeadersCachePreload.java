@@ -17,6 +17,8 @@ package org.hyperledger.besu.chainimport;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriority;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriorityContext;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -128,7 +130,10 @@ public class BlockHeadersCachePreload {
               .scheduleServiceTask(
                   () -> {
                     try {
-                      blockchain.getBlockHeader(currentBlockNumber);
+                      StorageReadPriorityContext.withPriority(
+                          StorageReadPriority.LOW,
+                          "block-header-preload",
+                          () -> blockchain.getBlockHeader(currentBlockNumber));
                     } catch (Exception e) {
                       LOG.warn(
                           "Failed to preload block header {}: {}",

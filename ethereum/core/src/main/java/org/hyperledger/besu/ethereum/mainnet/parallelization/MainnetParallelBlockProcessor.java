@@ -42,8 +42,15 @@ import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Optional;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.RejectedExecutionHandler;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,9 +61,16 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
 
   private final Optional<Counter> confirmedParallelizedTransactionCounter;
   private final Optional<Counter> conflictingButCachedTransactionCounter;
+  private final Executor transactionExecutor;
+  private final Executor balPrefetchExecutor;
 
   private static final int NCPU = Runtime.getRuntime().availableProcessors();
-  private static final Executor executor = Executors.newFixedThreadPool(NCPU);
+  private static final int BAL_PREFETCH_IO_THREADS = Math.max(1, Math.min(4, NCPU));
+  private static final int BAL_PREFETCH_QUEUE_CAPACITY = BAL_PREFETCH_IO_THREADS * 16;
+  private static final Executor TRANSACTION_EXECUTOR = Executors.newFixedThreadPool(NCPU);
+  private static final ExecutorService BAL_PREFETCH_EXECUTOR =
+      createBoundedDaemonExecutor(
+          "bal-prefetch-io", BAL_PREFETCH_IO_THREADS, BAL_PREFETCH_QUEUE_CAPACITY);
 
   public MainnetParallelBlockProcessor(
       final MainnetTransactionProcessor transactionProcessor,
@@ -76,6 +90,8 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
         protocolSchedule,
         balConfiguration,
         metricsSystem);
+    this.transactionExecutor = TRANSACTION_EXECUTOR;
+    this.balPrefetchExecutor = BAL_PREFETCH_EXECUTOR;
     this.confirmedParallelizedTransactionCounter =
         Optional.of(
             metricsSystem.createCounter(
@@ -150,7 +166,8 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
             worldState,
             block,
             blockAccessList,
-            new ParallelTransactionPreprocessing(transactionProcessor, executor, balConfiguration));
+            new ParallelTransactionPreprocessing(
+                transactionProcessor, transactionExecutor, balConfiguration, balPrefetchExecutor));
     if (blockProcessingResult.isFailed()) {
       // Fallback to non-parallel processing if there is a block processing exception .
       LOG.info(
@@ -192,6 +209,43 @@ public class MainnetParallelBlockProcessor extends MainnetBlockProcessor {
           protocolSchedule,
           balConfiguration,
           metricsSystem);
+    }
+  }
+
+  private static ExecutorService createBoundedDaemonExecutor(
+      final String threadNamePrefix, final int threadCount, final int queueCapacity) {
+    final AtomicInteger threadCounter = new AtomicInteger();
+    final ThreadPoolExecutor threadPoolExecutor =
+        new ThreadPoolExecutor(
+            threadCount,
+            threadCount,
+            60L,
+            TimeUnit.SECONDS,
+            new ArrayBlockingQueue<>(queueCapacity),
+            runnable -> {
+              final Thread thread =
+                  new Thread(runnable, threadNamePrefix + "-" + threadCounter.incrementAndGet());
+              thread.setDaemon(true);
+              return thread;
+            },
+            new BlockingRejectedExecutionHandler());
+    threadPoolExecutor.allowCoreThreadTimeOut(true);
+    return threadPoolExecutor;
+  }
+
+  private static class BlockingRejectedExecutionHandler implements RejectedExecutionHandler {
+    @Override
+    public void rejectedExecution(final Runnable runnable, final ThreadPoolExecutor executor) {
+      if (executor.isShutdown()) {
+        throw new RejectedExecutionException("Executor is shut down");
+      }
+      try {
+        executor.getQueue().put(runnable);
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new RejectedExecutionException(
+            "Interrupted while waiting for BAL prefetch executor capacity", e);
+      }
     }
   }
 }

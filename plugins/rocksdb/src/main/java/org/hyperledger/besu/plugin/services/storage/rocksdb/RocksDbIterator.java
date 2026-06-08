@@ -33,6 +33,7 @@ import org.slf4j.LoggerFactory;
 /** The Rocks db iterator. */
 public class RocksDbIterator implements Iterator<Pair<byte[], byte[]>>, AutoCloseable {
   private static final Logger LOG = LoggerFactory.getLogger(RocksDbIterator.class);
+  private static final RocksDBReadController READ_CONTROLLER = RocksDBReadController.global();
 
   private final RocksIterator rocksIterator;
   private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -59,14 +60,21 @@ public class RocksDbIterator implements Iterator<Pair<byte[], byte[]>>, AutoClos
 
   @Override
   public Pair<byte[], byte[]> next() {
+    return READ_CONTROLLER.executeUnchecked(this::readNext);
+  }
+
+  /**
+   * Next key.
+   *
+   * @return the byte [ ]
+   */
+  public byte[] nextKey() {
+    return READ_CONTROLLER.executeUnchecked(this::readNextKey);
+  }
+
+  private Pair<byte[], byte[]> readNext() {
     assertOpen();
-    try {
-      rocksIterator.status();
-    } catch (final RocksDBException e) {
-      LOG.error(
-          String.format("%s encountered a problem while iterating.", getClass().getSimpleName()),
-          e);
-    }
+    checkStatus();
     if (!hasNext()) {
       throw new NoSuchElementException();
     }
@@ -76,13 +84,18 @@ public class RocksDbIterator implements Iterator<Pair<byte[], byte[]>>, AutoClos
     return Pair.of(key, value);
   }
 
-  /**
-   * Next key.
-   *
-   * @return the byte [ ]
-   */
-  public byte[] nextKey() {
+  private byte[] readNextKey() {
     assertOpen();
+    checkStatus();
+    if (!hasNext()) {
+      throw new NoSuchElementException();
+    }
+    final byte[] key = rocksIterator.key();
+    rocksIterator.next();
+    return key;
+  }
+
+  private void checkStatus() {
     try {
       rocksIterator.status();
     } catch (final RocksDBException e) {
@@ -90,12 +103,6 @@ public class RocksDbIterator implements Iterator<Pair<byte[], byte[]>>, AutoClos
           String.format("%s encountered a problem while iterating.", getClass().getSimpleName()),
           e);
     }
-    if (!hasNext()) {
-      throw new NoSuchElementException();
-    }
-    final byte[] key = rocksIterator.key();
-    rocksIterator.next();
-    return key;
   }
 
   /**

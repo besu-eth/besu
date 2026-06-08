@@ -36,6 +36,8 @@ import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.KeyValueStorageTransaction;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTransaction;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriority;
+import org.hyperledger.besu.plugin.services.storage.StorageReadPriorityContext;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
@@ -261,10 +263,16 @@ public abstract class PathBasedWorldState
             .setMessage("Unsafe state root verification for block header {}")
             .addArgument(blockHeader)
             .log();
-        calculateRootHash(updaterForTrie, accumulator);
+        StorageReadPriorityContext.withPriority(
+            StorageReadPriority.HIGH,
+            "state-root",
+            () -> calculateRootHash(updaterForTrie, accumulator));
         return blockHeader.getStateRoot();
       }
-      return calculateRootHash(updaterForTrie, accumulator);
+      return StorageReadPriorityContext.withPriority(
+          StorageReadPriority.HIGH,
+          "state-root",
+          () -> calculateRootHash(updaterForTrie, accumulator));
     };
   }
 
