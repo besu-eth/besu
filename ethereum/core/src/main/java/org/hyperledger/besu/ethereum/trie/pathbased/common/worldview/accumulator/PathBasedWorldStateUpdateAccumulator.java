@@ -378,9 +378,13 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
           if (stateAccessTracer != null) stateAccessTracer.traceAccountRead(true);
           return fromParent.get();
         }
-        // cache miss: not found in this accumulator, fetched from world state
-        if (stateAccessTracer != null) stateAccessTracer.traceAccountRead(false);
+        long startReadNs = System.nanoTime();
         final Account account = wrappedWorldView().get(address);
+        // cache miss: not found in this accumulator, fetched from world state
+        if (stateAccessTracer != null) {
+          stateAccessTracer.addStateReadTime(System.nanoTime() - startReadNs);
+          stateAccessTracer.traceAccountRead(false);
+        }
         if (account instanceof PathBasedAccount pathBasedAccount) {
           final ACCOUNT updatedAccount = copyAccount((ACCOUNT) pathBasedAccount, this, true);
           final PathBasedValue<ACCOUNT> accountValue =
@@ -617,6 +621,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       }
     }
     try {
+      long startReadNs = System.nanoTime();
       final Supplier<UInt256> loader =
           Suppliers.memoize(
               () ->
@@ -631,7 +636,10 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       onStorageValueLoaded(address, storageSlotKey, storageValue);
 
       // cache miss: slot not in accumulator, fetched from world state
-      if (stateAccessTracer != null) stateAccessTracer.traceStorageRead(false);
+      if (stateAccessTracer != null) {
+        stateAccessTracer.addStateReadTime(System.nanoTime() - startReadNs);
+        stateAccessTracer.traceStorageRead(false);
+      }
       storageToUpdate
           .computeIfAbsent(
               address,

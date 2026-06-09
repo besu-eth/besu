@@ -58,6 +58,7 @@ public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
 
   private int transactionCount;
   // Timing
+  private long stateReadTimeNanos;
   private long stateHashTimeNanos;
   private long commitTimeNanos;
   private long totalStartNanos;
@@ -202,6 +203,11 @@ public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
   }
 
   @Override
+  public void addStateReadTime(final long timeNs) {
+    stateReadTimeNanos += timeNs;
+  }
+
+  @Override
   public void traceStorageRead(final boolean cacheHit) {
     if (cacheHit) {
       storageCacheHits++;
@@ -235,6 +241,7 @@ public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
 
       final ObjectNode timingNode = json.putObject("timing");
       timingNode.put("execution_ms", executionTimeNanos / 1_000_000);
+      timingNode.put("state_read_ms", stateReadTimeNanos / 1_000_000);
       timingNode.put("state_hash_ms", stateHashTimeNanos / 1_000_000);
       timingNode.put("commit_ms", commitTimeNanos / 1_000_000);
       timingNode.put("total_ms", totalTimeNanos / 1_000_000);
