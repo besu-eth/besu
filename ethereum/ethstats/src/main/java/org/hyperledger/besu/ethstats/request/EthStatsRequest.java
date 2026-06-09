@@ -15,7 +15,6 @@
 package org.hyperledger.besu.ethstats.request;
 
 import java.util.List;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -37,7 +36,7 @@ public class EthStatsRequest {
   public static final String EMIT_FIELD = "emit";
 
   @JsonProperty(EMIT_FIELD)
-  private List<Object> emit;
+  private List<Object> emit = List.of();
 
   private EthStatsRequest() {}
 
@@ -48,8 +47,7 @@ public class EthStatsRequest {
    * @param parameters the parameters of the request
    */
   public EthStatsRequest(final Type type, final Object... parameters) {
-    this.emit =
-        Stream.concat(Stream.of(type.value), Stream.of(parameters)).collect(Collectors.toList());
+    this.emit = Stream.concat(Stream.of(type.value), Stream.of(parameters)).toList();
   }
 
   /**

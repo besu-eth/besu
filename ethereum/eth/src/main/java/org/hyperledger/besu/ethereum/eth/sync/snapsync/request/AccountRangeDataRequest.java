@@ -121,6 +121,9 @@ public class AccountRangeDataRequest extends SnapDataRequest {
     final AtomicInteger nbNodesSaved = new AtomicInteger();
     final NodeUpdater nodeUpdater =
         (location, hash, value) -> {
+          if (location.isEmpty()) {
+            downloadState.setRootNodeData(value);
+          }
           applyForStrategy(
               updater,
               onBonsai -> {
@@ -145,7 +148,7 @@ public class AccountRangeDataRequest extends SnapDataRequest {
                       .putAccountInfoState(Hash.wrap(key), value));
         });
 
-    stackTrie.commit(flatDatabaseUpdater.get(), nodeUpdater);
+    stackTrie.commit(flatDatabaseUpdater.get(), nodeUpdater, false);
 
     downloadState.getMetricsManager().notifyAccountsDownloaded(stackTrie.getElementsCount().get());
 
