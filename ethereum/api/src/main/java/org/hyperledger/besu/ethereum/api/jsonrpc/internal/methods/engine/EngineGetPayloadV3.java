@@ -19,7 +19,11 @@ import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlobsBundleV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResultV3;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
+import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
 import io.vertx.core.Vertx;
@@ -53,6 +57,15 @@ public sealed class EngineGetPayloadV3 extends EngineGetPayloadV2 permits Engine
 
   @Override
   protected Object createResponsePayload(final PayloadWrapper payload) {
-    return blockResultFactory.payloadTransactionCompleteV3(payload);
+    final var blockWithReceipts = payload.blockWithReceipts();
+    final Block block = blockWithReceipts.getBlock();
+
+    final BlobsBundleV1 blobsBundleV1 = new BlobsBundleV1(block.getBody().getTransactions());
+    return new EngineGetPayloadResultV3(
+        blockWithReceipts.getHeader(),
+        block.getBody().getTransactions(),
+        block.getBody().getWithdrawals().orElseThrow(),
+        Quantity.create(payload.blockValue()),
+        blobsBundleV1);
   }
 }

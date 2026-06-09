@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
@@ -148,6 +149,7 @@ public sealed class EngineGetPayloadV1 extends ExecutionEngineJsonRpcMethod
   }
 
   protected Object createResponsePayload(final PayloadWrapper payload) {
-    return blockResultFactory.payloadTransactionCompleteV1(payload.blockWithReceipts().getBlock());
+    final Block block = payload.blockWithReceipts().getBlock();
+    return new ExecutionPayloadV1(block.getHeader(), block.getBody().getTransactions());
   }
 }

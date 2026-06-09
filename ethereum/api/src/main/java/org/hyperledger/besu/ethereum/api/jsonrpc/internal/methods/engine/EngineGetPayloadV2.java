@@ -20,6 +20,8 @@ import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResultV2;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
@@ -54,7 +56,14 @@ public sealed class EngineGetPayloadV2 extends EngineGetPayloadV1 permits Engine
 
   @Override
   protected Object createResponsePayload(final PayloadWrapper payload) {
-    return blockResultFactory.payloadTransactionCompleteV2(payload);
+    final var blockWithReceipts = payload.blockWithReceipts();
+    final Block block = blockWithReceipts.getBlock();
+
+    return new EngineGetPayloadResultV2(
+        blockWithReceipts.getHeader(),
+        block.getBody().getTransactions(),
+        block.getBody().getWithdrawals(),
+        Quantity.create(payload.blockValue()));
   }
 
   @Override

@@ -19,8 +19,18 @@ import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlobsBundleV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResultV4;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
+import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
+import org.hyperledger.besu.util.HexUtils;
+
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
 
 import io.vertx.core.Vertx;
 
@@ -53,6 +63,30 @@ public sealed class EngineGetPayloadV4 extends EngineGetPayloadV3 permits Engine
 
   @Override
   protected Object createResponsePayload(final PayloadWrapper payload) {
-    return blockResultFactory.payloadTransactionCompleteV4(payload);
+    final var blockWithReceipts = payload.blockWithReceipts();
+    final Block block = blockWithReceipts.getBlock();
+    final Optional<List<String>> requestsWithoutRequestId = requestsAsHex(payload);
+
+    final BlobsBundleV1 blobsBundleV1 = new BlobsBundleV1(block.getBody().getTransactions());
+    return new EngineGetPayloadResultV4(
+        blockWithReceipts.getHeader(),
+        block.getBody().getTransactions(),
+        block.getBody().getWithdrawals().orElseThrow(),
+        requestsWithoutRequestId,
+        Quantity.create(payload.blockValue()),
+        blobsBundleV1);
+  }
+
+  protected static Optional<List<String>> requestsAsHex(final PayloadWrapper payload) {
+    return payload
+        .requests()
+        .map(
+            rqs ->
+                rqs.stream()
+                    .sorted(Comparator.comparing(Request::getType))
+                    .filter(r -> !r.getData().isEmpty())
+                    .map(Request::getEncodedRequest)
+                    .map(b -> HexUtils.toFastHex(b, true))
+                    .toList());
   }
 }

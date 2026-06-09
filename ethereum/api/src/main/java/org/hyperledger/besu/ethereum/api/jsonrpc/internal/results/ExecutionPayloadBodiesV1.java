@@ -16,11 +16,13 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.core.json.TransactionJson;
 
 import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
 
 @JsonPropertyOrder({
   "transactions",
@@ -37,6 +39,7 @@ public sealed class ExecutionPayloadBodiesV1 permits ExecutionPayloadBodiesV2 {
   }
 
   @JsonGetter(value = "transactions")
+  @JsonSerialize(contentUsing = TransactionJson.BlockBodySerializer.class)
   public List<Transaction> getTransactions() {
     return transactions;
   }
