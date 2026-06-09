@@ -48,4 +48,11 @@ public interface StateAccessTracer {
    *     false} if it had to be fetched from storage.
    */
   void traceCodeRead(boolean cacheHit);
+
+  /**
+   * Called to measure each uncached account, storage or code read
+   *
+   * @param timeNs time spent accessing state excluding cache
+   */
+  void addStateReadTime(long timeNs);
 }
