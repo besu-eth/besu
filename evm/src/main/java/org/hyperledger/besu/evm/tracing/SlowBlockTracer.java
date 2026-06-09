@@ -79,6 +79,7 @@ public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
   private int storageCacheMisses;
   private int codeCacheHits;
   private int codeCacheMisses;
+  private int codeBytesRead;
   // State write counters (net unique changes per block, set via addStateWriteCounts)
   private int accountWrites;
   private int storageWrites;
@@ -225,6 +226,11 @@ public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
     }
   }
 
+  @Override
+  public void addCodeBytesRead(final int size) {
+    codeBytesRead += size;
+  }
+
   private void logSlowBlock(final long blockNumber, final Hash blockHash, final long gasUsed) {
     String formattedMGasPerSecond = String.format("%.2f", calculateMGasPerSecond(gasUsed));
     long executionTimeNanos = totalTimeNanos - stateHashTimeNanos - commitTimeNanos;
@@ -264,6 +270,7 @@ public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
       stateReadsNode.put("accounts", accountCacheHits + accountCacheMisses);
       stateReadsNode.put("storage_slots", storageCacheHits + storageCacheMisses);
       stateReadsNode.put("code", codeCacheHits + codeCacheMisses);
+      stateReadsNode.put("code_bytes", codeBytesRead);
 
       final ObjectNode stateWritesNode = json.putObject("state_writes");
       stateWritesNode.put("accounts", accountWrites);

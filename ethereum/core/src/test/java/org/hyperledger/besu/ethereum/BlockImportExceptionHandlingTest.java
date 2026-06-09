@@ -141,7 +141,9 @@ class BlockImportExceptionHandlingTest {
   @Test
   void shouldNotBadBlockWhenInternalErrorDuringPersisting() {
 
-    Mockito.doThrow(new StorageException("database problem")).when(persisted).persist(any(), any(), any());
+    Mockito.doThrow(new StorageException("database problem"))
+        .when(persisted)
+        .persist(any(), any(), any());
     Mockito.doReturn(persisted).when(worldStateArchive).getWorldState();
     Mockito.doReturn(Optional.of(persisted)).when(worldStateArchive).getWorldState(any());
 

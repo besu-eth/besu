@@ -55,4 +55,11 @@ public interface StateAccessTracer {
    * @param timeNs time spent accessing state excluding cache
    */
   void addStateReadTime(long timeNs);
+
+  /**
+   * Records code size whether cached or not
+   *
+   * @param size of code in bytes
+   */
+  void addCodeBytesRead(int size);
 }

@@ -201,7 +201,10 @@ public abstract class PathBasedAccount implements MutableAccount, AccountValue {
     // cache hit, overwrite code and return it
     if (cachedCode != null) {
       code = cachedCode;
-      if (codeTracer != null) codeTracer.traceCodeRead(true);
+      if (codeTracer != null) {
+        codeTracer.traceCodeRead(true);
+        codeTracer.addCodeBytesRead(code.getSize());
+      }
       return code;
     }
 
@@ -213,6 +216,7 @@ public abstract class PathBasedAccount implements MutableAccount, AccountValue {
     if (codeTracer != null) {
       codeTracer.addStateReadTime(System.nanoTime() - startReadNs);
       codeTracer.traceCodeRead(false);
+      codeTracer.addCodeBytesRead(code.getSize());
     }
 
     return code;
