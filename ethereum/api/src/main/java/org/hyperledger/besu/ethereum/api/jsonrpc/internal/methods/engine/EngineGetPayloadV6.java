@@ -19,15 +19,12 @@ import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator
 import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlobsBundleV2;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResultV6;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
-
-import java.util.List;
-import java.util.Optional;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import io.vertx.core.Vertx;
 
@@ -59,20 +56,31 @@ public final class EngineGetPayloadV6 extends EngineGetPayloadV5 {
   }
 
   @Override
-  protected Object createResponsePayload(final PayloadWrapper payload) {
-    final var blockWithReceipts = payload.blockWithReceipts();
-    final Block block = blockWithReceipts.getBlock();
-    final Optional<List<String>> requestsWithoutRequestId = requestsAsHex(payload);
-
-    final BlobsBundleV2 blobsBundleV2 = new BlobsBundleV2(block.getBody().getTransactions());
-
+  protected Object createResponse(final PayloadWrapper payload) {
     return new EngineGetPayloadResultV6(
-        blockWithReceipts.getHeader(),
+        createExecutionPayload(payload),
+        payload.blockValue(),
+        createBlobsBundle(payload.blockWithReceipts().getBlock().getBody().getTransactions()),
+        prepareRequests(payload));
+  }
+
+  @Override
+  protected ExecutionPayloadV4 createExecutionPayload(final PayloadWrapper payload) {
+    final Block block = payload.blockWithReceipts().getBlock();
+
+    return new ExecutionPayloadV4(
+        block.getHeader(),
         block.getBody().getTransactions(),
-        block.getBody().getWithdrawals().orElseThrow(),
-        requestsWithoutRequestId.orElseThrow(),
-        Quantity.create(payload.blockValue()),
-        blobsBundleV2,
-        payload.blockAccessList().orElseThrow());
+        getWithdrawals(block.getBody()),
+        getBlockAccessList(payload));
+  }
+
+  private BlockAccessList getBlockAccessList(final PayloadWrapper payload) {
+    return payload
+        .blockAccessList()
+        .orElseThrow(
+            () ->
+                new IllegalStateException(
+                    "Block access list must be present after Amsterdam hardfork"));
   }
 }

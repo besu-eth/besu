@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadAttributesParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
@@ -32,7 +33,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlobsBundleV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResultV6;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.api.util.DomainObjectDecodeUtils;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationResult;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
@@ -49,7 +49,6 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
-import org.hyperledger.besu.util.HexUtils;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -248,7 +247,7 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
 
       final Block block = result.getBlock();
 
-      final Optional<List<String>> executionRequests = getExecutionRequests(result);
+      final Optional<List<Request>> executionRequests = getExecutionRequests(result);
 
       final BlobsBundleV2 blobsBundle = new BlobsBundleV2(block.getBody().getTransactions());
 
@@ -258,13 +257,14 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
 
       final EngineGetPayloadResultV6 responsePayload =
           new EngineGetPayloadResultV6(
-              block.getHeader(),
-              block.getBody().getTransactions(),
-              block.getBody().getWithdrawals().orElseThrow(),
-              executionRequests.orElseThrow(),
-              Quantity.create(blockValue),
+              new ExecutionPayloadV4(
+                  block.getHeader(),
+                  block.getBody().getTransactions(),
+                  block.getBody().getWithdrawals().orElseThrow(),
+                  result.getBlockAccessList().orElseThrow()),
+              blockValue,
               blobsBundle,
-              result.getBlockAccessList().orElseThrow());
+              executionRequests.orElseThrow());
 
       return new JsonRpcSuccessResponse(requestId, responsePayload);
 
@@ -293,7 +293,7 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
     return ValidationResult.valid();
   }
 
-  private Optional<List<String>> getExecutionRequests(final BlockCreationResult result) {
+  private Optional<List<Request>> getExecutionRequests(final BlockCreationResult result) {
     return result
         .getRequests()
         .map(
@@ -301,8 +301,6 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
                 requests.stream()
                     .sorted(Comparator.comparing(Request::getType))
                     .filter(r -> !r.getData().isEmpty())
-                    .map(Request::getEncodedRequest)
-                    .map(b -> HexUtils.toFastHex(b, true))
                     .toList());
   }
 }

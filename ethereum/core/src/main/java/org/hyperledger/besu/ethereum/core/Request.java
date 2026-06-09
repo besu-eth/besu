@@ -19,6 +19,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import org.hyperledger.besu.datatypes.RequestType;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
 import org.apache.tuweni.bytes.Bytes;
 
 public record Request(RequestType type, Bytes data)
@@ -51,6 +52,7 @@ public record Request(RequestType type, Bytes data)
    *
    * @return the serialized request as a byte.
    */
+  @JsonValue
   public Bytes getEncodedRequest() {
     return Bytes.concatenate(Bytes.of(getType().ordinal()), getData());
   }

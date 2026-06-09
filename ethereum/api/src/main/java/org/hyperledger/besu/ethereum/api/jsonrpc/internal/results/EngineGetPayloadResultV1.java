@@ -12,24 +12,21 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
+package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
-import org.hyperledger.besu.ethereum.core.Request;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
 
-import java.util.List;
+import com.fasterxml.jackson.annotation.JsonValue;
 
-public final class NewPayloadRequestParametersV3<EP extends ExecutionPayloadV3>
-    extends NewPayloadRequestParametersV2<EP> {
-  private final List<Request> executionRequests;
+public sealed class EngineGetPayloadResultV1 permits EngineGetPayloadResultV2 {
+  protected final ExecutionPayloadV1 executionPayload;
 
-  public NewPayloadRequestParametersV3(
-      final NewPayloadRequestParametersV2<? extends EP> requestParameters,
-      final List<Request> executionRequests) {
-    super(requestParameters);
-    this.executionRequests = executionRequests;
+  public EngineGetPayloadResultV1(final ExecutionPayloadV1 executionPayload) {
+    this.executionPayload = executionPayload;
   }
 
-  public List<Request> executionRequests() {
-    return executionRequests;
+  @JsonValue
+  public ExecutionPayloadV1 getExecutionPayload() {
+    return executionPayload;
   }
 }

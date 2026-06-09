@@ -22,12 +22,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlobsBundleV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResultV5;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
-import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
 import java.util.List;
-import java.util.Optional;
 
 import io.vertx.core.Vertx;
 
@@ -59,18 +57,16 @@ public sealed class EngineGetPayloadV5 extends EngineGetPayloadV4 permits Engine
   }
 
   @Override
-  protected Object createResponsePayload(final PayloadWrapper payload) {
-    final var blockWithReceipts = payload.blockWithReceipts();
-    final Block block = blockWithReceipts.getBlock();
-    final Optional<List<String>> requestsWithoutRequestId = requestsAsHex(payload);
-
-    final BlobsBundleV2 blobsBundleV2 = new BlobsBundleV2(block.getBody().getTransactions());
+  protected Object createResponse(final PayloadWrapper payload) {
     return new EngineGetPayloadResultV5(
-        blockWithReceipts.getHeader(),
-        block.getBody().getTransactions(),
-        block.getBody().getWithdrawals().orElseThrow(),
-        requestsWithoutRequestId,
-        Quantity.create(payload.blockValue()),
-        blobsBundleV2);
+        createExecutionPayload(payload),
+        payload.blockValue(),
+        createBlobsBundle(payload.blockWithReceipts().getBlock().getBody().getTransactions()),
+        prepareRequests(payload));
+  }
+
+  @Override
+  protected BlobsBundleV2 createBlobsBundle(final List<Transaction> transactions) {
+    return new BlobsBundleV2(transactions);
   }
 }

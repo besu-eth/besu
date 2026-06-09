@@ -247,7 +247,7 @@ public class EngineGetPayloadV4Test extends EngineGetPayloadV3Test {
             });
   }
 
-  protected List<String> getExecutionRequests(final Object result) {
+  protected List<Request> getExecutionRequests(final Object result) {
     assertThat(result).isInstanceOf(EngineGetPayloadResultV4.class);
     return ((EngineGetPayloadResultV4) result).getExecutionRequests();
   }

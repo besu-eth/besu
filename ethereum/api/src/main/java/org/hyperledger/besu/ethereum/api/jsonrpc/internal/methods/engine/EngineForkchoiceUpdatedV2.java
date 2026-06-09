@@ -90,7 +90,7 @@ public sealed class EngineForkchoiceUpdatedV2<PA extends PayloadAttributesV2>
     // Shanghai timestamp,
     // PayloadAttributesV2 MUST be used to build a payload with the timestamp value greater or equal
     // to the Shanghai timestamp,
-    if (attrs.getTimestamp() < shanghaiTimestamp.orElse(0L)) {
+    if (shanghaiTimestamp.isEmpty() || attrs.getTimestamp() < shanghaiTimestamp.get()) {
       if (attrs.getWithdrawals() != null) {
         return ValidationResult.invalid(
             RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES,

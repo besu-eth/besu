@@ -14,13 +14,11 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV3;
-import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.core.Request;
 
 import java.util.List;
-import java.util.Optional;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
@@ -32,49 +30,21 @@ import com.fasterxml.jackson.annotation.JsonPropertyOrder;
   "shouldOverrideBuilder",
   "executionRequests"
 })
-public class EngineGetPayloadResultV4 {
-  protected final ExecutionPayloadV3 executionPayload;
-  private final String blockValue;
-  private final BlobsBundleV1 blobsBundle;
-  private final boolean shouldOverrideBuilder;
-  private final List<String> executionRequests;
+public sealed class EngineGetPayloadResultV4 extends EngineGetPayloadResultV3
+    permits EngineGetPayloadResultV5 {
+  private final List<Request> executionRequests;
 
   public EngineGetPayloadResultV4(
-      final BlockHeader header,
-      final List<Transaction> transactions,
-      final List<Withdrawal> withdrawals,
-      final Optional<List<String>> executionRequests,
-      final String blockValue,
-      final BlobsBundleV1 blobsBundle) {
-    this.executionPayload = new ExecutionPayloadV3(header, transactions, withdrawals);
-    this.blockValue = blockValue;
-    this.blobsBundle = blobsBundle;
-    this.shouldOverrideBuilder = false;
-    this.executionRequests = executionRequests.orElse(null);
-  }
-
-  @JsonGetter(value = "executionPayload")
-  public ExecutionPayloadV3 getExecutionPayload() {
-    return executionPayload;
-  }
-
-  @JsonGetter(value = "blockValue")
-  public String getBlockValue() {
-    return blockValue;
-  }
-
-  @JsonGetter(value = "blobsBundle")
-  public BlobsBundleV1 getBlobsBundle() {
-    return blobsBundle;
-  }
-
-  @JsonGetter(value = "shouldOverrideBuilder")
-  public boolean shouldOverrideBuilder() {
-    return shouldOverrideBuilder;
+      final ExecutionPayloadV3 executionPayload,
+      final Wei blockValue,
+      final BlobsBundleV1 blobsBundle,
+      final List<Request> executionRequests) {
+    super(executionPayload, blockValue, blobsBundle);
+    this.executionRequests = executionRequests;
   }
 
   @JsonGetter(value = "executionRequests")
-  public List<String> getExecutionRequests() {
+  public List<Request> getExecutionRequests() {
     return executionRequests;
   }
 }

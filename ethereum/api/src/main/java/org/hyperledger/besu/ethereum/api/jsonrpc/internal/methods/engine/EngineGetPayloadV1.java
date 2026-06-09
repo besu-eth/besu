@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResultV1;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreationTiming;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockWithReceipts;
@@ -112,7 +113,7 @@ public sealed class EngineGetPayloadV1 extends ExecutionEngineJsonRpcMethod
           payload.blockWithReceipts().getBlock(),
           payload.getBlockCreationTimings(),
           payload.payloadIdentifier());
-      return createResponse(request, payload);
+      return new JsonRpcSuccessResponse(request.getRequest().getId(), createResponse(payload));
     }
     return new JsonRpcErrorResponse(request.getRequest().getId(), RpcErrorType.UNKNOWN_PAYLOAD);
   }
@@ -143,12 +144,11 @@ public sealed class EngineGetPayloadV1 extends ExecutionEngineJsonRpcMethod
     return "";
   }
 
-  protected JsonRpcResponse createResponse(
-      final JsonRpcRequestContext request, final PayloadWrapper payload) {
-    return new JsonRpcSuccessResponse(request.getRequest().getId(), createResponsePayload(payload));
+  protected Object createResponse(final PayloadWrapper payload) {
+    return new EngineGetPayloadResultV1(createExecutionPayload(payload));
   }
 
-  protected Object createResponsePayload(final PayloadWrapper payload) {
+  protected ExecutionPayloadV1 createExecutionPayload(final PayloadWrapper payload) {
     final Block block = payload.blockWithReceipts().getBlock();
     return new ExecutionPayloadV1(block.getHeader(), block.getBody().getTransactions());
   }

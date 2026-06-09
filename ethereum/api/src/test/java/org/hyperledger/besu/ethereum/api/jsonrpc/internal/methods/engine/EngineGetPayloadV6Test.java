@@ -236,7 +236,7 @@ public class EngineGetPayloadV6Test extends EngineGetPayloadV5Test {
   }
 
   @Override
-  protected List<String> getExecutionRequests(final Object result) {
+  protected List<Request> getExecutionRequests(final Object result) {
     assertThat(result).isInstanceOf(EngineGetPayloadResultV6.class);
     return ((EngineGetPayloadResultV6) result).getExecutionRequests();
   }

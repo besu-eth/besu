@@ -14,45 +14,35 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV2;
-import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.core.Withdrawal;
-
-import java.util.List;
-import java.util.Optional;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import com.fasterxml.jackson.annotation.JsonValue;
 
 @JsonPropertyOrder({
   "executionPayload",
   "blockValue",
 })
-public class EngineGetPayloadResultV2 {
-  protected final ExecutionPayloadV1 executionPayload;
-  private final String blockValue;
+public sealed class EngineGetPayloadResultV2 extends EngineGetPayloadResultV1
+    permits EngineGetPayloadResultV3 {
+  private final Wei blockValue;
 
-  public EngineGetPayloadResultV2(
-      final BlockHeader header,
-      final List<Transaction> transactions,
-      final Optional<List<Withdrawal>> withdrawals,
-      final String blockValue) {
-    this.executionPayload =
-        withdrawals.isPresent()
-            ? new ExecutionPayloadV2(header, transactions, withdrawals.get())
-            : new ExecutionPayloadV1(header, transactions);
+  public EngineGetPayloadResultV2(final ExecutionPayloadV1 executionPayload, final Wei blockValue) {
+    super(executionPayload);
     this.blockValue = blockValue;
   }
 
+  @Override
+  @JsonValue(false)
   @JsonGetter(value = "executionPayload")
   public ExecutionPayloadV1 getExecutionPayload() {
     return executionPayload;
   }
 
   @JsonGetter(value = "blockValue")
-  public String getBlockValue() {
+  public Wei getBlockValue() {
     return blockValue;
   }
 }

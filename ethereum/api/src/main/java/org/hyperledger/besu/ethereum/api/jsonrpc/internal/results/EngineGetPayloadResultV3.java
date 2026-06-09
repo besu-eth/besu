@@ -14,43 +14,32 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
+import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV3;
-import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.core.Withdrawal;
-
-import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 @JsonPropertyOrder({"executionPayload", "blockValue", "blobsBundle", "shouldOverrideBuilder"})
-public class EngineGetPayloadResultV3 {
-  protected final ExecutionPayloadV3 executionPayload;
-  private final String blockValue;
-  private final BlobsBundleV1 blobsBundle;
+public sealed class EngineGetPayloadResultV3 extends EngineGetPayloadResultV2
+    permits EngineGetPayloadResultV4 {
+  protected final BlobsBundleV1 blobsBundle;
   private final boolean shouldOverrideBuilder;
 
   public EngineGetPayloadResultV3(
-      final BlockHeader header,
-      final List<Transaction> transactions,
-      final List<Withdrawal> withdrawals,
-      final String blockValue,
+      final ExecutionPayloadV1 executionPayload,
+      final Wei blockValue,
       final BlobsBundleV1 blobsBundle) {
-    this.executionPayload = new ExecutionPayloadV3(header, transactions, withdrawals);
-    this.blockValue = blockValue;
+    super(executionPayload, blockValue);
     this.blobsBundle = blobsBundle;
     this.shouldOverrideBuilder = false;
   }
 
+  @Override
   @JsonGetter(value = "executionPayload")
   public ExecutionPayloadV3 getExecutionPayload() {
-    return executionPayload;
-  }
-
-  @JsonGetter(value = "blockValue")
-  public String getBlockValue() {
-    return blockValue;
+    return (ExecutionPayloadV3) executionPayload;
   }
 
   @JsonGetter(value = "blobsBundle")
