@@ -75,7 +75,6 @@ public class PrevRandaoContractIbft2AcceptanceTest extends AcceptanceTestBase {
         .isTrue();
 
     // Verify the chain continues to produce blocks beyond the one containing the transaction.
-    cluster.verify(
-        blockchain.reachesHeight(validator1, receipt.getBlockNumber().intValue() + 1, 30));
+    cluster.verify(blockchain.minimumHeight(receipt.getBlockNumber().longValue() + 1, 30));
   }
 }
