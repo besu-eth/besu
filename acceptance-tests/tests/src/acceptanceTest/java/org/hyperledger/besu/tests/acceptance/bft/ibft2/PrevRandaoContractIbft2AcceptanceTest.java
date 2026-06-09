@@ -51,13 +51,8 @@ public class PrevRandaoContractIbft2AcceptanceTest extends AcceptanceTestBase {
 
   /**
    * Deploys PrevRandaoContract on a 3-node IBFT2 cluster and calls logPrevRandao(), which emits
-   * PrevRandaoValue(block.prevrandao) as an indexed event. The test verifies that all validators
-   * accept the block (receipts root matches) and the chain continues to produce blocks.
-   *
-   * <p>Before the fix in BftBlockCreator this test stalls: the proposer executes with
-   * prevrandao=Bytes32.ZERO while validators re-execute with prevrandao=EXPECTED_MIX_HASH,
-   * producing different log topics, different bloom filters, and ultimately a receipts-root
-   * mismatch that causes every validator to reject every proposed block indefinitely.
+   * PrevRandaoValue(block.prevrandao) as an indexed event. The test verifies that a contract which
+   * uses block.prevrandao doesn't create a block which fails to validate.
    */
   @Test
   public void blockWithPrevRandaoLogShouldBeAcceptedByAllValidators() throws Exception {
