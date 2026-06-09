@@ -16,6 +16,7 @@ package org.hyperledger.besu.consensus.qbft.core.messagewrappers;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.common.bft.ConsensusRoundIdentifier;
@@ -33,12 +34,15 @@ import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.ethereum.core.Util;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
 import java.util.List;
 import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -62,7 +66,23 @@ public class ProposalTest {
   }
 
   private void testRoundTripProposal(final Optional<BlockAccessList> blockAccessList) {
-    when(blockEncoder.readFrom(any())).thenReturn(BLOCK);
+    // Stub the mock codec to round-trip a single byte for the block. Without writing real bytes
+    // for the block the encoded RLP would be off by one top-level item (mock writeTo is a no-op),
+    // which makes the legacy/current item-count discrimination in readFrom misclassify the input.
+    final Bytes blockPlaceholder = Bytes.of(0xAB);
+    when(blockEncoder.readFrom(any()))
+        .thenAnswer(
+            inv -> {
+              inv.getArgument(0, RLPInput.class).readBytes();
+              return BLOCK;
+            });
+    doAnswer(
+            inv -> {
+              inv.getArgument(1, RLPOutput.class).writeBytes(blockPlaceholder);
+              return null;
+            })
+        .when(blockEncoder)
+        .writeTo(any(QbftBlock.class), any(RLPOutput.class));
 
     final NodeKey nodeKey = NodeKeyUtils.generate();
     final Address addr = Util.publicKeyToAddress(nodeKey.getPublicKey());
@@ -178,5 +198,35 @@ public class ProposalTest {
       assertThat(decodedProposal.getBlockAccessList()).isPresent();
       assertThat(decodedProposal.getSignedPayload().getPayload().getBlockAccessList()).isPresent();
     }
+  }
+
+  @Test
+  public void defaultProposalPayloadEncodingEmitsCurrentThreeFieldWireFormat() {
+    // Default useLegacyEncoding=false: ProposalPayload.writeTo emits 3 fields
+    // [roundIdentifier, block, BAL-or-null] - required for interop with Besu 26.1.0 - 26.5.0
+    // peers whose decoder expects the BAL slot.
+    final ProposalPayload payload =
+        new ProposalPayload(new ConsensusRoundIdentifier(1, 1), BLOCK, blockEncoder);
+
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    payload.writeTo(out);
+
+    final RLPInput rlpIn = RLP.input(out.encoded());
+    assertThat(rlpIn.enterList()).isEqualTo(3);
+  }
+
+  @Test
+  public void legacyProposalPayloadEncodingOmitsBlockAccessListSlot() {
+    // useLegacyEncoding=true: ProposalPayload.writeTo emits 2 fields - the BAL slot is omitted
+    // when absent. Required for interop with Besu 25.x peers during rolling upgrade.
+    final ProposalPayload payload =
+        ProposalPayload.withLegacyEncoding(
+            new ConsensusRoundIdentifier(1, 1), BLOCK, blockEncoder, Optional.empty());
+
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    payload.writeTo(out);
+
+    final RLPInput rlpIn = RLP.input(out.encoded());
+    assertThat(rlpIn.enterList()).isEqualTo(2);
   }
 }

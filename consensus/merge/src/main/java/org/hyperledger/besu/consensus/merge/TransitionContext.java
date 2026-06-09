@@ -100,6 +100,21 @@ public class TransitionContext implements MergeContext {
   }
 
   @Override
+  public long addNewPayloadListener(final NewPayloadListener newPayloadListener) {
+    return postMergeContext.addNewPayloadListener(newPayloadListener);
+  }
+
+  @Override
+  public void removeNewPayloadListener(final long subscriberId) {
+    postMergeContext.removeNewPayloadListener(subscriberId);
+  }
+
+  @Override
+  public void fireNewPayloadEvent(final BlockHeader header) {
+    postMergeContext.fireNewPayloadEvent(header);
+  }
+
+  @Override
   public Difficulty getTerminalTotalDifficulty() {
     return postMergeContext.getTerminalTotalDifficulty();
   }

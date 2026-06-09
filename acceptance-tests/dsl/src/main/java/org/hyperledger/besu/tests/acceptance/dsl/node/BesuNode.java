@@ -351,7 +351,7 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
   private String getRuntimeP2pPort() {
     final String port = portsProperties.getProperty("p2p");
     if (port == null) {
-      throw new IllegalStateException("Requested p2p port before ports properties was written");
+      throw new IllegalStateException(portsMissingMessage("p2p"));
     }
     return port;
   }
@@ -359,10 +359,25 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
   private String getDiscoveryPort() {
     final String port = portsProperties.getProperty("discovery");
     if (port == null) {
-      throw new IllegalStateException(
-          "Requested discovery port before ports properties was written");
+      throw new IllegalStateException(portsMissingMessage("discovery"));
     }
     return port;
+  }
+
+  private String portsMissingMessage(final String portName) {
+    return exitCode
+        .map(
+            code ->
+                "Requested "
+                    + portName
+                    + " port but Besu process for node '"
+                    + name
+                    + "' exited with code "
+                    + code
+                    + " before writing ports properties."
+                    + " Re-run with --info or check the HTML test report for the startup error"
+                    + " (e.g. UnsupportedClassVersionError, port conflict, bad config).")
+        .orElse("Requested " + portName + " port before ports properties was written");
   }
 
   public Optional<String> jsonRpcBaseUrl() {

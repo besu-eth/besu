@@ -20,7 +20,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -95,7 +95,7 @@ class TraceServiceImplTest {
 
     final long blockNumber = 2;
 
-    final BlockAwareOperationTracer opTracer = mock(BlockAwareOperationTracer.class);
+    final BlockAwareOperationTracer opTracer = spy(new BlockAwareOperationTracer() {});
 
     traceService.trace(
         blockNumber,
@@ -141,7 +141,7 @@ class TraceServiceImplTest {
 
     final long startBlock = 1;
     final long endBlock = 32;
-    final BlockAwareOperationTracer opTracer = mock(BlockAwareOperationTracer.class);
+    final BlockAwareOperationTracer opTracer = spy(new BlockAwareOperationTracer() {});
 
     traceService.trace(
         startBlock,

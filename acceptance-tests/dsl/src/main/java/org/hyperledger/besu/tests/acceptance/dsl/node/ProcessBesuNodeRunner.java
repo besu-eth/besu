@@ -165,6 +165,12 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
       params.add(Integer.toString(node.getSynchronizerConfiguration().getSyncMinimumPeerCount()));
       params.add("--Xsynchronizer-pivot-distance");
       params.add(Integer.toString(node.getSynchronizerConfiguration().getSyncPivotDistance()));
+      params.add("--Xsnapsync-synchronizer-pivot-block-window-validity");
+      params.add(
+          Integer.toString(
+              node.getSynchronizerConfiguration()
+                  .getSnapSyncConfiguration()
+                  .getPivotBlockWindowValidity()));
     } else {
       params.add("--sync-mode");
       params.add("FULL");

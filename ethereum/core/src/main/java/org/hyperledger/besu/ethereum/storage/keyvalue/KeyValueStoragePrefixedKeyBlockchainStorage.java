@@ -20,6 +20,7 @@ import static org.hyperledger.besu.ethereum.chain.VariablesStorage.Keys.FORK_HEA
 import static org.hyperledger.besu.ethereum.chain.VariablesStorage.Keys.SAFE_BLOCK_HASH;
 import static org.hyperledger.besu.ethereum.chain.VariablesStorage.Keys.SEQ_NO_STORE;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.BlockchainStorage;
 import org.hyperledger.besu.ethereum.chain.TransactionLocation;
@@ -68,6 +69,7 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
   private static final Bytes TOTAL_DIFFICULTY_PREFIX = Bytes.of(6);
   private static final Bytes TRANSACTION_LOCATION_PREFIX = Bytes.of(7);
   private static final Bytes BLOCK_ACCESS_LIST_PREFIX = Bytes.of(8);
+  private static final Bytes SENDER_NONCE_TO_TX_HASH_PREFIX = Bytes.of(9);
   private static final SimpleNoCopyRlpEncoder NO_COPY_RLP_ENCODER = new SimpleNoCopyRlpEncoder();
 
   final KeyValueStorage blockchainStorage;
@@ -176,6 +178,16 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
   public Optional<TransactionLocation> getTransactionLocation(final Hash transactionHash) {
     return get(TRANSACTION_LOCATION_PREFIX, transactionHash.getBytes())
         .map(bytes -> TransactionLocation.readFrom(RLP.input(bytes)));
+  }
+
+  @Override
+  public Optional<Hash> getTransactionHashBySenderAndNonce(final Address sender, final long nonce) {
+    return get(SENDER_NONCE_TO_TX_HASH_PREFIX, senderNonceKey(sender, nonce))
+        .map(bytes -> Hash.wrap(Bytes32.wrap(bytes, 0)));
+  }
+
+  private static Bytes senderNonceKey(final Address sender, final long nonce) {
+    return Bytes.concatenate(sender.getBytes(), Bytes.ofUnsignedLong(nonce));
   }
 
   @Override
@@ -435,6 +447,20 @@ public class KeyValueStoragePrefixedKeyBlockchainStorage implements BlockchainSt
     @Override
     public void removeTransactionLocation(final Hash transactionHash) {
       remove(TRANSACTION_LOCATION_PREFIX, transactionHash.getBytes());
+    }
+
+    @Override
+    public void putTransactionHashBySenderAndNonce(
+        final Address sender, final long nonce, final Hash transactionHash) {
+      set(
+          SENDER_NONCE_TO_TX_HASH_PREFIX,
+          senderNonceKey(sender, nonce),
+          transactionHash.getBytes());
+    }
+
+    @Override
+    public void removeTransactionHashBySenderAndNonce(final Address sender, final long nonce) {
+      remove(SENDER_NONCE_TO_TX_HASH_PREFIX, senderNonceKey(sender, nonce));
     }
 
     @Override
