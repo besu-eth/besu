@@ -113,7 +113,11 @@ public class BftMiningSoakTest extends ParameterizedBftTestBase {
         .validTransactionReceipt("0x42699a7612a82f1d9c36148af9c77354759b210b")
         .verify(simpleStorageContract);
 
-    // Before upgrading to newer forks, try creating a shanghai-evm contract and check that
+    // Pre-EVM-upgrade tests
+    // Note we don't test every single fork, partly to keep the test from being to long, and partly
+    // to exercise a few real-world upgrade paths that enterprises might follow
+
+    // Before upgrading to shanghai, try creating a shanghai-evm contract and check that
     // the transaction fails
     try {
       minerNode1.execute(contractTransactions.createSmartContract(SimpleStorageShanghai.class));

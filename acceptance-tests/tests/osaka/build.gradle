@@ -17,6 +17,8 @@ sourceSets.main.solidity.srcDirs = [
 solidity {
   resolvePackages = false
   version = '0.8.25'
+  // 'cancun' is intentional - the osaka contracts currently only use tstore/tload (EIP-1153, introduced in Cancun)
+  // and 0.8.25 doesn't support osaka
   evmVersion = 'cancun'
 }
 
