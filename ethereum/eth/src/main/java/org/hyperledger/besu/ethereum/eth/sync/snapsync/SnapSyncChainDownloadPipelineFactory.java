@@ -195,8 +195,7 @@ public class SnapSyncChainDownloadPipelineFactory {
             pivotHeader.getNumber(),
             syncConfig.getSnapSyncConfiguration().isSnapSyncTransactionIndexingEnabled());
 
-    var pipelineBuilder =
-        PipelineBuilder.createPipelineFrom(
+    return PipelineBuilder.createPipelineFrom(
             "forwardHeaderSource",
             headerSource,
             downloaderParallelism,
@@ -207,23 +206,65 @@ public class SnapSyncChainDownloadPipelineFactory {
                 "step",
                 "action"),
             true,
-            "forwardBodiesReceipts");
-
-    if (Boolean.TRUE.equals(syncConfig.getSnapSyncConfiguration().isSnap2Enabled())) {
-      final DownloadAndPersistBlockAccessListsStep downloadBlockAccessListsStep =
-          new DownloadAndPersistBlockAccessListsStep(
-              ethContext,
-              metricsSystem,
-              (DefaultBlockchain) blockchain,
-              Duration.ofMillis(syncConfig.getForwardDownloadStepTimeoutMillis()));
-      pipelineBuilder =
-          pipelineBuilder.thenProcessAsyncOrdered(
-              "downloadBlockAccessLists", downloadBlockAccessListsStep, downloaderParallelism);
-    }
-
-    return pipelineBuilder
+            "forwardBodiesReceipts")
         .thenProcessAsyncOrdered("downloadBodies", downloadBodiesStep, downloaderParallelism)
         .thenProcessAsyncOrdered("downloadReceipts", downloadReceiptsStep, downloaderParallelism)
         .andFinishWith("importBlocks", importBlocksStep);
+  }
+
+  /**
+   * Forward block-access-list (BAL) download from start block to end block. Used for snap/2 to
+   * download BALs after headers are available.
+   *
+   * @param anchorBlock the block to start from
+   * @param pivotHeader the block to end at
+   * @return the forward BAL download pipeline
+   */
+  public Pipeline<List<BlockHeader>> createBlockAccessListDownloadPipeline(
+      final long anchorBlock, final BlockHeader pivotHeader) {
+
+    long pivotHeaderNumber = pivotHeader.getNumber();
+
+    final int downloaderParallelism = syncConfig.getDownloaderParallelism();
+    final int bodiesRequestSize = syncConfig.getDownloaderBodiesRequestSize();
+
+    final MutableBlockchain blockchain = protocolContext.getBlockchain();
+
+    LOG.trace(
+        "Creating forward BAL download pipeline: anchorBlock={}, pivotHeaderNumber={}, parallelism={}, batchSize={}",
+        anchorBlock,
+        pivotHeaderNumber,
+        downloaderParallelism,
+        bodiesRequestSize);
+
+    final BlockHeaderSource headerSource =
+        new BlockHeaderSource(blockchain, anchorBlock, pivotHeaderNumber, bodiesRequestSize);
+
+    final DownloadAndPersistBlockAccessListsStep downloadBlockAccessListsStep =
+        new DownloadAndPersistBlockAccessListsStep(
+            ethContext,
+            metricsSystem,
+            (DefaultBlockchain) blockchain,
+            Duration.ofMillis(syncConfig.getForwardDownloadStepTimeoutMillis()));
+
+    return PipelineBuilder.createPipelineFrom(
+            "forwardHeaderSource",
+            headerSource,
+            downloaderParallelism,
+            metricsSystem.createLabelledCounter(
+                BesuMetricCategory.SYNCHRONIZER,
+                "forward_bal_pipeline_processed_total",
+                "Number of entries processed by each forward BAL pipeline stage",
+                "step",
+                "action"),
+            true,
+            "forwardBal")
+        .thenProcessAsyncOrdered(
+            "downloadBlockAccessLists", downloadBlockAccessListsStep, downloaderParallelism)
+        .andFinishWith("finishBal", headers -> {});
+  }
+
+  public boolean isSnap2Enabled() {
+    return Boolean.TRUE.equals(syncConfig.getSnapSyncConfiguration().isSnap2Enabled());
   }
 }

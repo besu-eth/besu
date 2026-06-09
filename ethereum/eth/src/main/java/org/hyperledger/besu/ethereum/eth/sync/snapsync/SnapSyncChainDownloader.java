@@ -441,6 +441,43 @@ public class SnapSyncChainDownloader
             });
   }
 
+  private CompletableFuture<Void> runBlockAccessListDownload(final ChainSyncState state) {
+    final BlockHeader pivotBlockHeader = state.pivotBlockHeader();
+    final long pivotBlockNumber = pivotBlockHeader.getNumber();
+
+    final long anchorNumber = state.blockDownloadAnchor().getNumber();
+
+    if (anchorNumber >= pivotBlockNumber) {
+      LOG.debug(
+          "Snap/2 BAL download: anchor ({}) already at or past pivot ({}). Nothing to download.",
+          anchorNumber,
+          pivotBlockNumber);
+      return CompletableFuture.completedFuture(null);
+    }
+
+    LOG.debug(
+        "Snap/2 BAL download: downloading BALs from {} to pivot {}",
+        anchorNumber,
+        pivotBlockNumber);
+
+    final Instant balStartTime = Instant.now();
+
+    final Pipeline<List<BlockHeader>> balPipeline =
+        pipelineFactory.createBlockAccessListDownloadPipeline(anchorNumber, pivotBlockHeader);
+    currentPipeline = balPipeline;
+
+    return ethContext
+        .getScheduler()
+        .startPipeline(balPipeline)
+        .thenApply(
+            ignore -> {
+              final Duration balDuration = Duration.between(balStartTime, Instant.now());
+              LOG.debug("Snap/2 BAL download finished in {} seconds", balDuration.toSeconds());
+              completeSnapV2PivotCatchupIfNeeded(pivotBlockHeader);
+              return null;
+            });
+  }
+
   private CompletableFuture<Void> runStage2ForwardBodiesAndReceipts(final ChainSyncState state) {
     // Always start from current blockchain head (handles fresh start and restart cases)
     final long blockchainHead = protocolContext.getBlockchain().getChainHeadBlockNumber();
@@ -571,6 +608,16 @@ public class SnapSyncChainDownloader
     final ChainSyncState currentState = chainSyncState.get();
 
     return runStage1Download(currentState)
+        .thenCompose(
+            ignore -> {
+              if (cancelled.get()) {
+                return CompletableFuture.failedFuture(new CancellationException());
+              }
+              if (pipelineFactory.isSnap2Enabled()) {
+                return runBlockAccessListDownload(currentState);
+              }
+              return CompletableFuture.completedFuture(null);
+            })
         .thenCompose(
             ignore -> {
               if (cancelled.get()) {
