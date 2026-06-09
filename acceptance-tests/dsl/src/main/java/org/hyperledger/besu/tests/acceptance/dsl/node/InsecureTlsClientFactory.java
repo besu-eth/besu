@@ -1,5 +1,5 @@
 /*
- * Copyright ConsenSys AG.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -53,8 +53,7 @@ final class InsecureTlsClientFactory {
     return client;
   }
 
-  static WebSocketClient insecureWebSocketClient(
-      final URI uri, final Map<String, String> headers) {
+  static WebSocketClient insecureWebSocketClient(final URI uri, final Map<String, String> headers) {
     final WebSocketClient client = new InsecureWebSocketClient(uri, headers);
     client.setSocketFactory(insecureSocketFactory());
     return client;
