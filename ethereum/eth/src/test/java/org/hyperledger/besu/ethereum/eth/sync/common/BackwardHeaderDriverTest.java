@@ -89,9 +89,8 @@ public class BackwardHeaderDriverTest {
         BATCH_SIZE,
         anchorHeader,
         pivotHeader,
-        blockchain,
-        NO_OP_RECOVERY_COUNTER,
-        BackwardHeaderDriverTest::noOpDepthSetter);
+        blockchain
+    );
 
     verify(blockchain).storeBlockHeaders(headersCaptor.capture());
     final List<BlockHeader> storedHeaders = headersCaptor.getValue();
@@ -106,9 +105,8 @@ public class BackwardHeaderDriverTest {
             BATCH_SIZE,
             anchorHeader,
             pivotHeader,
-            blockchain,
-            NO_OP_RECOVERY_COUNTER,
-            BackwardHeaderDriverTest::noOpDepthSetter);
+            blockchain
+        );
 
     // Import in batches going backward, verifying state updates between batches
     final List<BlockHeader> batch1 = getHeaders(99, 98, 97, 96);
@@ -134,9 +132,8 @@ public class BackwardHeaderDriverTest {
             BATCH_SIZE,
             anchorHeader,
             pivotHeader,
-            blockchain,
-            NO_OP_RECOVERY_COUNTER,
-            BackwardHeaderDriverTest::noOpDepthSetter);
+            blockchain
+        );
 
     // Initially the lowest imported header is the pivot
     assertThat(driver.getLowestImportedHeader()).isEqualTo(pivotHeader);
@@ -157,9 +154,8 @@ public class BackwardHeaderDriverTest {
             BATCH_SIZE,
             anchorHeader,
             pivotHeader,
-            blockchain,
-            NO_OP_RECOVERY_COUNTER,
-            BackwardHeaderDriverTest::noOpDepthSetter);
+            blockchain
+        );
 
     // Import all headers down to block 1 (lowestHeaderToImport)
     driver.accept(getHeadersRange(99, 1));
@@ -175,9 +171,8 @@ public class BackwardHeaderDriverTest {
             BATCH_SIZE,
             anchorHeader,
             pivotHeader,
-            blockchain,
-            NO_OP_RECOVERY_COUNTER,
-            BackwardHeaderDriverTest::noOpDepthSetter);
+            blockchain
+        );
 
     // Create headers that don't link properly to pivot (skipping blocks)
     final List<BlockHeader> invalidHeaders = getHeaders(50, 51, 52);
@@ -202,9 +197,8 @@ public class BackwardHeaderDriverTest {
             BATCH_SIZE,
             anchorAt50,
             pivotHeader,
-            blockchain,
-            NO_OP_RECOVERY_COUNTER,
-            BackwardHeaderDriverTest::noOpDepthSetter);
+            blockchain
+        );
 
     // Mid-walk batches from 99 down to 55 (each entirely above the boundary).
     for (int top = 99; top >= 55; top -= BATCH_SIZE) {
@@ -242,9 +236,8 @@ public class BackwardHeaderDriverTest {
             BATCH_SIZE,
             reorgedAnchor,
             wrongPivot,
-            blockchain,
-            NO_OP_RECOVERY_COUNTER,
-            BackwardHeaderDriverTest::noOpDepthSetter);
+            blockchain
+        );
 
     // First batch [51..99]: triggers boundary detection, starts recovery.
     final List<BlockHeader> batch1 = new ArrayList<>();
@@ -286,9 +279,8 @@ public class BackwardHeaderDriverTest {
             BATCH_SIZE,
             reorgedAnchor,
             pivotHeader,
-            blockchain,
-            NO_OP_RECOVERY_COUNTER,
-            BackwardHeaderDriverTest::noOpDepthSetter);
+            blockchain
+        );
 
     // First batch: boundary fires, anchor mismatch, recovery starts.
     driver.accept(getHeadersRange(99, 51));
@@ -315,9 +307,8 @@ public class BackwardHeaderDriverTest {
             BATCH_SIZE,
             reorgedAnchor,
             pivotHeader,
-            blockchain,
-            NO_OP_RECOVERY_COUNTER,
-            BackwardHeaderDriverTest::noOpDepthSetter);
+            blockchain
+        );
 
     // Feed a single batch that reaches block 1 — the original anchor boundary.
     driver.accept(getHeadersRange(99, 1));
@@ -357,12 +348,7 @@ public class BackwardHeaderDriverTest {
 
     final BackwardHeaderDriver driver =
         new BackwardHeaderDriver(
-            BATCH_SIZE,
-            reorgedAnchor,
-            pivotHeader,
-            blockchain,
-            recoveryCounter,
-            observedDepth::set);
+            BATCH_SIZE, reorgedAnchor, pivotHeader, blockchain);
 
     driver.accept(getHeadersRange(99, 51));
     driver.accept(getHeadersRange(50, 47));
@@ -381,9 +367,8 @@ public class BackwardHeaderDriverTest {
             BATCH_SIZE,
             anchorHeader,
             pivotHeader,
-            blockchain,
-            NO_OP_RECOVERY_COUNTER,
-            BackwardHeaderDriverTest::noOpDepthSetter);
+            blockchain
+        );
 
     // Build the expected sequence: starting at 99, decrement by 4, while >= 1.
     final List<Long> expected = new ArrayList<>();
@@ -409,9 +394,8 @@ public class BackwardHeaderDriverTest {
             BATCH_SIZE,
             anchorHeader,
             pivotHeader,
-            blockchain,
-            NO_OP_RECOVERY_COUNTER,
-            BackwardHeaderDriverTest::noOpDepthSetter);
+            blockchain
+        );
 
     // Drive the iterator through its natural emissions (99, 95, ..., 3) by calling next() the
     // expected number of times. After this, the next next() call falls below stopBlock and
@@ -431,9 +415,8 @@ public class BackwardHeaderDriverTest {
             BATCH_SIZE,
             anchorHeader,
             pivotHeader,
-            blockchain,
-            NO_OP_RECOVERY_COUNTER,
-            BackwardHeaderDriverTest::noOpDepthSetter);
+            blockchain
+        );
 
     // Feed the whole range as one logical sequence from 99 down to 1.
     driver.accept(getHeadersRange(99, 1));
@@ -451,9 +434,8 @@ public class BackwardHeaderDriverTest {
             BATCH_SIZE,
             anchorHeader,
             pivotHeader,
-            blockchain,
-            NO_OP_RECOVERY_COUNTER,
-            BackwardHeaderDriverTest::noOpDepthSetter);
+            blockchain
+        );
 
     assertThat(driver.getMatchedAncestor()).isEqualTo(Optional.empty());
   }

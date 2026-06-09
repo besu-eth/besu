@@ -18,8 +18,6 @@ package org.hyperledger.besu.ethereum.eth.sync.common;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.plugin.services.metrics.Counter;
-import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.util.log.LogUtil;
 
 import java.util.Iterator;
@@ -57,8 +55,6 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   private final Hash anchorHash;
   private final long totalHeaders;
   private final AtomicBoolean isTimeToLog = new AtomicBoolean(true);
-  private final LabelledMetric<Counter> recoveryEventCounter;
-  private final LongConsumer recoveryDepthSetter;
   private volatile BlockHeader lowestImportedHeader;
 
   private final BlockingQueue<Boolean> decisions = new LinkedBlockingQueue<>();
@@ -72,26 +68,18 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
    * Creates a new BackwardHeaderDriver. Stores the pivot header synchronously as the first imported
    * header.
    *
-   * @param batchSize the number of blocks per batch
+   * @param batchSize    the number of blocks per batch
    * @param anchorHeader the anchor (checkpoint) header
-   * @param pivotHeader the pivot header at the top of the range to import
-   * @param blockchain the blockchain to which headers will be stored
-   * @param recoveryEventCounter labeled counter for anchor-mismatch recovery events (label: {@code
-   *     result} ∈ {started, succeeded})
-   * @param recoveryDepthSetter setter for the "last recovery depth" gauge value; receives the
-   *     number of extra batches walked below the original anchor when recovery succeeds
+   * @param pivotHeader  the pivot header at the top of the range to import
+   * @param blockchain   the blockchain to which headers will be stored
    */
   public BackwardHeaderDriver(
       final int batchSize,
       final BlockHeader anchorHeader,
       final BlockHeader pivotHeader,
-      final MutableBlockchain blockchain,
-      final LabelledMetric<Counter> recoveryEventCounter,
-      final LongConsumer recoveryDepthSetter) {
+      final MutableBlockchain blockchain) {
     this.batchSize = batchSize;
     this.blockchainStorage = blockchain;
-    this.recoveryEventCounter = recoveryEventCounter;
-    this.recoveryDepthSetter = recoveryDepthSetter;
 
     final long anchorNumber = anchorHeader.getNumber();
     final long pivotNumber = pivotHeader.getNumber();
@@ -247,7 +235,6 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         boundaryHeader.getNumber(),
         anchorHash,
         boundaryHeader.getParentHash());
-    recoveryEventCounter.labels("started").inc();
   }
 
   private void emitRecoveryMilestoneLog(final int extras) {
@@ -271,8 +258,6 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         ancestor.getHash(),
         ancestor.getNumber(),
         delta);
-    recoveryEventCounter.labels("succeeded").inc();
-    recoveryDepthSetter.accept(extraBatchesRequested);
   }
 
   /**

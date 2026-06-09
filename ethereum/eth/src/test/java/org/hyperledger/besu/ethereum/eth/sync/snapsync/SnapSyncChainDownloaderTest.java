@@ -32,6 +32,7 @@ import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
+import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
@@ -460,6 +461,8 @@ public class SnapSyncChainDownloaderTest {
     downloader.onWorldStateHealFinished();
     downloader.start().get(5, TimeUnit.SECONDS);
 
+    // Stage 1 initializes with the stored body anchor (500); the chain-head advancement
+    // to 800 happens later, in Stage 2's recovery check.
     final ArgumentCaptor<ChainSyncState> captor = ArgumentCaptor.forClass(ChainSyncState.class);
     verify(pipelineFactory).createBackwardHeaderDownloadPipeline(captor.capture());
     final ChainSyncState stage1State = captor.getValue();
@@ -467,9 +470,14 @@ public class SnapSyncChainDownloaderTest {
     assertThat(stage1State.pivotBlockHeader().getNumber()).isEqualTo(newPivot.getNumber());
     assertThat(stage1State.headerDownloadAnchor().getNumber()).isEqualTo(oldPivot.getNumber());
     assertThat(stage1State.blockDownloadAnchor().getNumber())
-        .isEqualTo(chainHeadAtCrash.getNumber());
+        .isEqualTo(storedBodyAnchor.getNumber());
     assertThat(stage1State.headersDownloadComplete()).isFalse();
     assertThat(stage1State.headerDownloadProgress()).isNull();
+
+    // Stage 2 recovery detects the chain head (800) is canonical and advances the anchor.
+    verify(pipelineFactory)
+        .createForwardBodiesAndReceiptsDownloadPipeline(
+            eq(chainHeadAtCrash.getNumber()), any(), any());
   }
 
   @Test
@@ -519,20 +527,24 @@ public class SnapSyncChainDownloaderTest {
   @Test
   public void caseBReorgShouldUseStoredBodiesAnchorDirectly() throws Exception {
     // New pivot is LOWER than old pivot (reorg case).
-    // blockDownloadAnchor in loadedState was already set to canonical common ancestor by Stage 1
-    // recovery.
-    // blockchain.getChainHeadHeader() must NOT be called in this path.
+    // blockDownloadAnchor in loadedState was set to canonical common ancestor by a previous
+    // Stage 1 recovery run. Stage 2 recovery checks the chain head but finds it at the anchor
+    // level (no progress since the anchor was set), so no advancement happens.
     final BlockHeader newPivot = new BlockHeaderTestFixture().number(900).buildHeader();
     final BlockHeader oldPivot = new BlockHeaderTestFixture().number(1000).buildHeader();
     final BlockHeader storedBodyAnchor = new BlockHeaderTestFixture().number(500).buildHeader();
+    final BlockHeader headerAt899 = new BlockHeaderTestFixture().number(899).buildHeader();
 
     final ChainSyncState loadedState =
         new ChainSyncState(oldPivot, storedBodyAnchor, null, true, null);
     chainSyncStateStorage.storeState(loadedState);
 
     when(blockchain.blockIsOnCanonicalChain(newPivot.getHash())).thenReturn(false);
-    // unsafeStripCanonicalIndexRange is a void method — no mock needed (Mockito no-ops void
-    // methods)
+    // Case B reorg: initialPivotHeader.number (900) < oldPivot.number (1000) →
+    // headerAnchor = blockchain.getBlockHeader(899)
+    when(blockchain.getBlockHeader(899L)).thenReturn(Optional.of(headerAt899));
+    // Stage 2 recovery check: chain head is at storedBodyAnchor level → no advancement.
+    when(blockchain.getChainHeadHeader()).thenReturn(storedBodyAnchor);
 
     setupSuccessfulPipelineMocks();
 
@@ -557,11 +569,15 @@ public class SnapSyncChainDownloaderTest {
     final ChainSyncState stage1State = captor.getValue();
 
     assertThat(stage1State.pivotBlockHeader().getNumber()).isEqualTo(newPivot.getNumber());
-    assertThat(stage1State.headerDownloadAnchor().getNumber()).isEqualTo(oldPivot.getNumber());
+    // In the reorg case headerAnchor = getBlockHeader(newPivot - 1) = block 899, not oldPivot.
+    assertThat(stage1State.headerDownloadAnchor().getNumber()).isEqualTo(headerAt899.getNumber());
     assertThat(stage1State.blockDownloadAnchor().getNumber())
         .isEqualTo(storedBodyAnchor.getNumber());
     assertThat(stage1State.headersDownloadComplete()).isFalse();
-    verify(blockchain, never()).getChainHeadHeader();
+    // Stage 2 starts from the stored anchor; chain head was at anchor level so no advancement.
+    verify(pipelineFactory)
+        .createForwardBodiesAndReceiptsDownloadPipeline(
+            eq(storedBodyAnchor.getNumber()), any(), any());
   }
 
   @Test
@@ -753,6 +769,183 @@ public class SnapSyncChainDownloaderTest {
     assertThat(stage1State.blockDownloadAnchor().getNumber()).isEqualTo(bodyAnchor.getNumber());
     assertThat(stage1State.headersDownloadComplete()).isFalse();
     assertThat(stage1State.headerDownloadProgress()).isNull();
+  }
+
+  // ── Stage 2 anchor recovery after restart ────────────────────────────────────────────
+
+  @Test
+  public void stage2RecoveryAdvancesAnchorWhenChainHeadIsCanonical() throws Exception {
+    // Case B: headers complete, new pivot not on canonical chain → stage2RecoveryCheckNeeded=true.
+    // The previous session downloaded bodies up to block 800 before the process was killed.
+    // On restart the chain head (800) is still canonical, so Stage 2 must resume from 800.
+    final BlockHeader oldPivot = new BlockHeaderTestFixture().number(1000).buildHeader();
+    final BlockHeader storedBodyAnchor = new BlockHeaderTestFixture().number(500).buildHeader();
+    final BlockHeader chainHeadAtCrash = new BlockHeaderTestFixture().number(800).buildHeader();
+    final BlockHeader newPivot = new BlockHeaderTestFixture().number(1100).buildHeader();
+
+    final ChainSyncState loadedState =
+        new ChainSyncState(oldPivot, storedBodyAnchor, null, true, null);
+    chainSyncStateStorage.storeState(loadedState);
+
+    when(blockchain.blockIsOnCanonicalChain(newPivot.getHash())).thenReturn(false);
+    when(blockchain.blockIsOnCanonicalChain(chainHeadAtCrash.getHash())).thenReturn(true);
+    when(blockchain.getChainHeadHeader()).thenReturn(chainHeadAtCrash);
+
+    setupSuccessfulPipelineMocks();
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            newPivot,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    downloader.onWorldStateHealFinished();
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    // Stage 2 must start from the chain head (800), not the stale persisted anchor (500).
+    verify(pipelineFactory).createForwardBodiesAndReceiptsDownloadPipeline(eq(800L), any(), any());
+  }
+
+  @Test
+  public void stage2RecoverySkipsAdvancementWhenChainHeadEqualsAnchor() throws Exception {
+    // Case B, but the chain head equals the persisted anchor — nothing was downloaded in
+    // Stage 2 before the crash, so no advancement should happen.
+    final BlockHeader oldPivot = new BlockHeaderTestFixture().number(1000).buildHeader();
+    final BlockHeader storedBodyAnchor = new BlockHeaderTestFixture().number(500).buildHeader();
+    final BlockHeader newPivot = new BlockHeaderTestFixture().number(1100).buildHeader();
+
+    final ChainSyncState loadedState =
+        new ChainSyncState(oldPivot, storedBodyAnchor, null, true, null);
+    chainSyncStateStorage.storeState(loadedState);
+
+    when(blockchain.blockIsOnCanonicalChain(newPivot.getHash())).thenReturn(false);
+    when(blockchain.getChainHeadHeader()).thenReturn(storedBodyAnchor);
+
+    setupSuccessfulPipelineMocks();
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            newPivot,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    downloader.onWorldStateHealFinished();
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    verify(pipelineFactory).createForwardBodiesAndReceiptsDownloadPipeline(eq(500L), any(), any());
+  }
+
+  @Test
+  public void stage2RecoveryBinarySearchFindsHighestBodyBlockWhenChainHeadNotCanonical()
+      throws Exception {
+    // Case B: after Stage 1 re-ran with a new pivot, canonical headers above block 502 changed.
+    // Chain head (503) is no longer canonical. Binary search finds 502 as the highest block
+    // whose canonical header still has a body stored.
+    //
+    // Search with anchor=500, head=503:
+    //   round 1: mid=502 — body present  → best=502, low=503
+    //   round 2: mid=503 — no body       → high=502; exit
+    final BlockHeader oldPivot = new BlockHeaderTestFixture().number(1000).buildHeader();
+    final BlockHeader header500 = new BlockHeaderTestFixture().number(500).buildHeader();
+    final BlockHeader header502 = new BlockHeaderTestFixture().number(502).buildHeader();
+    final BlockHeader header503 = new BlockHeaderTestFixture().number(503).buildHeader();
+    final BlockHeader newPivot = new BlockHeaderTestFixture().number(1100).buildHeader();
+
+    final ChainSyncState loadedState = new ChainSyncState(oldPivot, header500, null, true, null);
+    chainSyncStateStorage.storeState(loadedState);
+
+    when(blockchain.blockIsOnCanonicalChain(newPivot.getHash())).thenReturn(false);
+    when(blockchain.blockIsOnCanonicalChain(header503.getHash())).thenReturn(false);
+    when(blockchain.getChainHeadHeader()).thenReturn(header503);
+
+    // Lenient: Mockito's strict tracker doesn't always correlate the seed lookup with the
+    // binary-search loop when called through a default interface method on a mocked type.
+    lenient().when(blockchain.getBlockHeader(500L)).thenReturn(Optional.of(header500));
+    lenient().when(blockchain.getBlockHeader(502L)).thenReturn(Optional.of(header502));
+    when(blockchain.getBlockBody(header502.getHash()))
+        .thenReturn(Optional.of(mock(BlockBody.class)));
+    lenient().when(blockchain.getBlockHeader(503L)).thenReturn(Optional.of(header503));
+    // No stub needed for getBlockBody(header503): Mockito returns Optional.empty() by default.
+
+    setupSuccessfulPipelineMocks();
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            newPivot,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    downloader.onWorldStateHealFinished();
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    verify(pipelineFactory).createForwardBodiesAndReceiptsDownloadPipeline(eq(502L), any(), any());
+  }
+
+  @Test
+  public void stage2RecoveryBinarySearchFallsBackToAnchorWhenNoBodiesPresent() throws Exception {
+    // Case B: chain head (502) not on canonical chain; no blocks between anchor and chain head
+    // have bodies on the new canonical chain. Binary search returns the anchor itself.
+    //
+    // Search with anchor=500, head=502:
+    //   round 1: mid=501 — no body → high=500; exit
+    final BlockHeader oldPivot = new BlockHeaderTestFixture().number(1000).buildHeader();
+    final BlockHeader header500 = new BlockHeaderTestFixture().number(500).buildHeader();
+    final BlockHeader header501 = new BlockHeaderTestFixture().number(501).buildHeader();
+    final BlockHeader header502 = new BlockHeaderTestFixture().number(502).buildHeader();
+    final BlockHeader newPivot = new BlockHeaderTestFixture().number(1100).buildHeader();
+
+    final ChainSyncState loadedState = new ChainSyncState(oldPivot, header500, null, true, null);
+    chainSyncStateStorage.storeState(loadedState);
+
+    when(blockchain.blockIsOnCanonicalChain(newPivot.getHash())).thenReturn(false);
+    when(blockchain.blockIsOnCanonicalChain(header502.getHash())).thenReturn(false);
+    when(blockchain.getChainHeadHeader()).thenReturn(header502);
+
+    lenient().when(blockchain.getBlockHeader(500L)).thenReturn(Optional.of(header500));
+    lenient().when(blockchain.getBlockHeader(501L)).thenReturn(Optional.of(header501));
+    // No stub needed for getBlockBody(header501): Mockito returns Optional.empty() by default.
+
+    setupSuccessfulPipelineMocks();
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            newPivot,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    downloader.onWorldStateHealFinished();
+    downloader.start().get(5, TimeUnit.SECONDS);
+
+    // No bodies found above anchor: Stage 2 falls back to the stored anchor (500).
+    verify(pipelineFactory).createForwardBodiesAndReceiptsDownloadPipeline(eq(500L), any(), any());
   }
 
   @SuppressWarnings("unchecked")

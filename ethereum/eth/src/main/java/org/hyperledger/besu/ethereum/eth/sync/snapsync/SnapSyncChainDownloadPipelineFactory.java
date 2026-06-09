@@ -32,14 +32,11 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.rlp.SimpleNoCopyRlpEncoder;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
-import org.hyperledger.besu.plugin.services.metrics.Counter;
-import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.services.pipeline.Pipeline;
 import org.hyperledger.besu.services.pipeline.PipelineBuilder;
 
 import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,12 +55,6 @@ public class SnapSyncChainDownloadPipelineFactory {
   protected final SnapSyncProcessState fastSyncState;
   protected final MetricsSystem metricsSystem;
 
-  // Anchor-recovery metrics (Task D2). Registered once per factory instance so we do not leak
-  // metric registrations across pipeline cycles. The driver receives accessors (counter handle +
-  // depth setter) that mutate the shared state.
-  private final LabelledMetric<Counter> recoveryEventCounter;
-  private final AtomicLong lastRecoveryDepthBatches = new AtomicLong(0);
-
   public SnapSyncChainDownloadPipelineFactory(
       final SynchronizerConfiguration syncConfig,
       final ProtocolSchedule protocolSchedule,
@@ -77,18 +68,6 @@ public class SnapSyncChainDownloadPipelineFactory {
     this.ethContext = ethContext;
     this.fastSyncState = fastSyncState;
     this.metricsSystem = metricsSystem;
-
-    this.recoveryEventCounter =
-        metricsSystem.createLabelledCounter(
-            BesuMetricCategory.SYNCHRONIZER,
-            "anchor_mismatch_recovery_total",
-            "Anchor recovery events during backward header download, labelled by outcome",
-            "result");
-    metricsSystem.createLongGauge(
-        BesuMetricCategory.SYNCHRONIZER,
-        "anchor_mismatch_recovery_last_depth_batches",
-        "Extra batches walked below the original anchor on the most recent anchor recovery (0 if no recovery has happened or last cycle did not recover)",
-        lastRecoveryDepthBatches::get);
   }
 
   /**
@@ -130,9 +109,8 @@ public class SnapSyncChainDownloadPipelineFactory {
             headerRequestSize,
             lowerAnchor,
             upperBound,
-            protocolContext.getBlockchain(),
-            recoveryEventCounter,
-            lastRecoveryDepthBatches::set);
+            protocolContext.getBlockchain()
+        );
 
     // Genesis floor (0L) so the download step accepts requests below the original anchor — this
     // is what lets the recovery walk extend past the boundary when a previously-stored anchor

@@ -142,8 +142,7 @@ public class BackwardHeaderDriverRecoveryIntegrationTest {
     final BlockHeader pivot = bChain.get(15); // B15
 
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(
-            BATCH_SIZE, anchor, pivot, blockchain, RECOVERY_COUNTER, ignored -> {});
+        new BackwardHeaderDriver(BATCH_SIZE, anchor, pivot, blockchain);
 
     final long lowestHeaderToImport = anchor.getNumber() + 1; // 11
     driveToCompletion(driver, lowestHeaderToImport);
@@ -176,8 +175,7 @@ public class BackwardHeaderDriverRecoveryIntegrationTest {
     final BlockHeader pivot = bChain.get(15); // B15
 
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(
-            BATCH_SIZE, anchor, pivot, blockchain, RECOVERY_COUNTER, ignored -> {});
+        new BackwardHeaderDriver(BATCH_SIZE, anchor, pivot, blockchain);
 
     final long lowestHeaderToImport = anchor.getNumber() + 1; // 6
     driveToCompletion(driver, lowestHeaderToImport);

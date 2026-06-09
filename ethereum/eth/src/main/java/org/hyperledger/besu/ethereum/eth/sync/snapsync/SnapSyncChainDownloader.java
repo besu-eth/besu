@@ -310,7 +310,7 @@ public class SnapSyncChainDownloader
         // state header) or with the anchor being the header on our canonical chain that is one
         // block lower than the new pivot (new pivot is lower than loaded state header).
         BlockHeader headerAnchor;
-        if (initialPivotHeader.getNumber() > loadedState.pivotBlockHeader().getNumber()) {
+        if (newPivotNumber > oldPivotNumber) {
           headerAnchor = loadedState.pivotBlockHeader();
         } else {
           headerAnchor = blockchain.getBlockHeader(newPivotNumber - 1).orElseThrow();
@@ -326,8 +326,7 @@ public class SnapSyncChainDownloader
         // the headers from the new pivot. If we just continue we have to make sure that we are
         // continuing to the new pivot once we have finished this round.
         final long headersDownloaded =
-            loadedState.pivotBlockHeader().getNumber()
-                - loadedState.headerDownloadProgress().getNumber();
+            oldPivotNumber - loadedState.headerDownloadProgress().getNumber();
         if (headersDownloaded >= syncConfig.getChainSyncContinuationThresholdBlocks()) {
           // Above threshold: keep the old state and finish the current cycle first.
           // Queue the new pivot so it takes effect after this cycle completes.
@@ -825,7 +824,8 @@ public class SnapSyncChainDownloader
             "The pivot block number has not increased, even though onPivotUpdated() has been called. previous pivot: {}, updated pivot: {}",
             previousPivot.getNumber(),
             updatedPivot != null ? updatedPivot.getNumber() : "null");
-        throw new IllegalStateException("The pivot block number has not increased");
+        return CompletableFuture.failedFuture(
+            new IllegalStateException("The pivot block number has not increased"));
       }
     }
 
