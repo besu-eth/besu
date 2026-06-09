@@ -58,25 +58,20 @@ public class SnapV2AccountRangeRequest extends SnapDataRequest {
 
   private final Bytes32 startKeyHash;
   private final Bytes32 endKeyHash;
-  private final Bytes32 rangeStart;
   private final StackTrie stackTrie;
   private Optional<Boolean> isProofValid;
 
   public SnapV2AccountRangeRequest(
-      final Hash rootHash,
-      final Bytes32 startKeyHash,
-      final Bytes32 endKeyHash,
-      final Bytes32 rangeStart) {
+      final Hash rootHash, final Bytes32 startKeyHash, final Bytes32 endKeyHash) {
     super(ACCOUNT_RANGE, rootHash);
     this.startKeyHash = startKeyHash;
     this.endKeyHash = endKeyHash;
-    this.rangeStart = rangeStart;
     this.isProofValid = Optional.empty();
     this.stackTrie = new StackTrie(rootHash, startKeyHash);
   }
 
   public Bytes32 getRangeStart() {
-    return rangeStart;
+    return startKeyHash;
   }
 
   @Override
@@ -163,8 +158,7 @@ public class SnapV2AccountRangeRequest extends SnapDataRequest {
                   .notifyRangeProgress(
                       SnapSyncMetricsManager.Step.DOWNLOAD, missingRightElement, endKeyHash);
               childRequests.add(
-                  new SnapV2AccountRangeRequest(
-                      getRootHash(), missingRightElement, endKeyHash, rangeStart));
+                  new SnapV2AccountRangeRequest(getRootHash(), missingRightElement, endKeyHash));
             },
             () ->
                 downloadState
@@ -183,7 +177,7 @@ public class SnapV2AccountRangeRequest extends SnapDataRequest {
                 Bytes32.wrap(accountValue.getStorageRoot().getBytes()),
                 MIN_RANGE,
                 MAX_RANGE,
-                rangeStart));
+                startKeyHash));
       }
       if (!accountValue.getCodeHash().equals(Hash.EMPTY)) {
         childRequests.add(
@@ -191,7 +185,7 @@ public class SnapV2AccountRangeRequest extends SnapDataRequest {
                 getRootHash(),
                 account.getKey(),
                 Bytes32.wrap(accountValue.getCodeHash().getBytes()),
-                rangeStart));
+                startKeyHash));
       }
     }
     return childRequests.stream();
