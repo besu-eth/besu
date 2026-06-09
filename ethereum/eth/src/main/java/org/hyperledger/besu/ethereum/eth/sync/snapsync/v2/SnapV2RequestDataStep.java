@@ -56,7 +56,6 @@ public class SnapV2RequestDataStep {
 
   private final EthContext ethContext;
   private final WorldStateProofProvider worldStateProofProvider;
-  private final SnapSyncProcessState fastSyncState;
   private final SnapRequestContext downloadState;
   private final MetricsSystem metricsSystem;
 
@@ -68,15 +67,14 @@ public class SnapV2RequestDataStep {
       final MetricsSystem metricsSystem) {
     this.ethContext = ethContext;
     this.worldStateProofProvider = new WorldStateProofProvider(worldStateStorageCoordinator);
-    this.fastSyncState = fastSyncState;
     this.downloadState = downloadState;
     this.metricsSystem = metricsSystem;
   }
 
   public CompletableFuture<Task<SnapDataRequest>> requestAccount(
       final Task<SnapDataRequest> requestTask) {
-    final BlockHeader blockHeader = fastSyncState.getPivotBlockHeader().get();
     final SnapV2AccountRangeRequest request = (SnapV2AccountRangeRequest) requestTask.getData();
+    final BlockHeader blockHeader = request.getPivotBlockHeader();
     final EthTask<AccountRangeMessage.AccountRangeData> getAccountTask =
         RetryingGetAccountRangeFromPeerTask.forAccountRange(
             ethContext,
@@ -116,7 +114,8 @@ public class SnapV2RequestDataStep {
             .map(SnapV2StorageRangeRequest.class::cast)
             .map(SnapV2StorageRangeRequest::getAccountHash)
             .collect(Collectors.toList());
-    final BlockHeader blockHeader = fastSyncState.getPivotBlockHeader().get();
+    final BlockHeader blockHeader =
+        ((SnapV2StorageRangeRequest) requestTasks.getFirst().getData()).getPivotBlockHeader();
     final Bytes32 minRange =
         requestTasks.size() == 1
             ? ((SnapV2StorageRangeRequest) requestTasks.get(0).getData()).getStartKeyHash()
@@ -183,7 +182,8 @@ public class SnapV2RequestDataStep {
             .map(SnapV2BytecodeRequest::getCodeHash)
             .distinct()
             .collect(Collectors.toList());
-    final BlockHeader blockHeader = fastSyncState.getPivotBlockHeader().get();
+    final BlockHeader blockHeader =
+        ((SnapV2BytecodeRequest) requestTasks.getFirst().getData()).getPivotBlockHeader();
     final EthTask<Map<Bytes32, Bytes>> getByteCodeTask =
         RetryingGetBytecodeFromPeerTask.forByteCode(
             ethContext, codeHashes, blockHeader, metricsSystem);

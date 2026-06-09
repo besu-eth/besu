@@ -22,12 +22,14 @@ import static org.hyperledger.besu.ethereum.trie.RangeManager.findNewBeginElemen
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator.applyForStrategy;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncMetricsManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.StackTrie;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.SnapV2DataRequest;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
@@ -52,7 +54,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Snap/2 account range data request. Commits all trie nodes including incomplete ones. */
-public class SnapV2AccountRangeRequest extends SnapDataRequest {
+public class SnapV2AccountRangeRequest extends SnapV2DataRequest {
 
   private static final Logger LOG = LoggerFactory.getLogger(SnapV2AccountRangeRequest.class);
 
@@ -62,16 +64,12 @@ public class SnapV2AccountRangeRequest extends SnapDataRequest {
   private Optional<Boolean> isProofValid;
 
   public SnapV2AccountRangeRequest(
-      final Hash rootHash, final Bytes32 startKeyHash, final Bytes32 endKeyHash) {
-    super(ACCOUNT_RANGE, rootHash);
+      final BlockHeader pivotBlockHeader, final Bytes32 startKeyHash, final Bytes32 endKeyHash) {
+    super(ACCOUNT_RANGE, pivotBlockHeader, startKeyHash);
     this.startKeyHash = startKeyHash;
     this.endKeyHash = endKeyHash;
     this.isProofValid = Optional.empty();
-    this.stackTrie = new StackTrie(rootHash, startKeyHash);
-  }
-
-  public Bytes32 getRangeStart() {
-    return startKeyHash;
+    this.stackTrie = new StackTrie(pivotBlockHeader.getStateRoot(), startKeyHash);
   }
 
   @Override
@@ -158,7 +156,8 @@ public class SnapV2AccountRangeRequest extends SnapDataRequest {
                   .notifyRangeProgress(
                       SnapSyncMetricsManager.Step.DOWNLOAD, missingRightElement, endKeyHash);
               childRequests.add(
-                  new SnapV2AccountRangeRequest(getRootHash(), missingRightElement, endKeyHash));
+                  new SnapV2AccountRangeRequest(
+                      getPivotBlockHeader(), missingRightElement, endKeyHash));
             },
             () ->
                 downloadState
@@ -172,7 +171,7 @@ public class SnapV2AccountRangeRequest extends SnapDataRequest {
       if (!accountValue.getStorageRoot().equals(Hash.EMPTY_TRIE_HASH)) {
         childRequests.add(
             new SnapV2StorageRangeRequest(
-                getRootHash(),
+                getPivotBlockHeader(),
                 account.getKey(),
                 Bytes32.wrap(accountValue.getStorageRoot().getBytes()),
                 MIN_RANGE,
@@ -182,7 +181,7 @@ public class SnapV2AccountRangeRequest extends SnapDataRequest {
       if (!accountValue.getCodeHash().equals(Hash.EMPTY)) {
         childRequests.add(
             new SnapV2BytecodeRequest(
-                getRootHash(),
+                getPivotBlockHeader(),
                 account.getKey(),
                 Bytes32.wrap(accountValue.getCodeHash().getBytes()),
                 startKeyHash));
@@ -201,6 +200,10 @@ public class SnapV2AccountRangeRequest extends SnapDataRequest {
 
   public NavigableMap<Bytes32, Bytes> getAccounts() {
     return stackTrie.getElement(startKeyHash).keys();
+  }
+
+  public SnapV2AccountRangeRequest retarget(final BlockHeader newPivotBlockHeader) {
+    return new SnapV2AccountRangeRequest(newPivotBlockHeader, startKeyHash, endKeyHash);
   }
 
   @Override
