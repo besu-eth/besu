@@ -24,11 +24,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.authentication.AuthenticationSe
 import org.hyperledger.besu.ethereum.api.jsonrpc.authentication.AuthenticationUtils;
 import org.hyperledger.besu.ethereum.api.jsonrpc.authentication.DefaultAuthenticationService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.execution.AuthenticatedJsonRpcProcessor;
-import org.hyperledger.besu.ethereum.api.jsonrpc.execution.BaseJsonRpcProcessor;
+import org.hyperledger.besu.ethereum.api.jsonrpc.execution.CombinedJsonRpcProcessor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.execution.JsonRpcExecutor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.execution.JsonRpcProcessor;
-import org.hyperledger.besu.ethereum.api.jsonrpc.execution.TimedJsonRpcProcessor;
-import org.hyperledger.besu.ethereum.api.jsonrpc.execution.TracedJsonRpcProcessor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.health.HealthService;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.Logging403ErrorHandler;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
@@ -39,7 +37,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.Subscrip
 import org.hyperledger.besu.ethereum.api.tls.TlsClientAuthConfiguration;
 import org.hyperledger.besu.ethereum.api.tls.TlsConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
-import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.opentelemetry.OpenTelemetrySystem;
 import org.hyperledger.besu.nat.NatMethod;
 import org.hyperledger.besu.nat.NatService;
@@ -47,8 +44,6 @@ import org.hyperledger.besu.nat.core.domain.NatServiceType;
 import org.hyperledger.besu.nat.core.domain.NetworkProtocol;
 import org.hyperledger.besu.nat.upnp.UpnpNatManager;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
-import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
-import org.hyperledger.besu.plugin.services.metrics.OperationTimer;
 import org.hyperledger.besu.util.ExceptionUtils;
 import org.hyperledger.besu.util.NetworkUtility;
 
@@ -135,7 +130,6 @@ public class EngineJsonRpcService {
   private final Map<String, JsonRpcMethod> rpcMethods;
   private final NatService natService;
   private final Path dataDir;
-  private final LabelledMetric<OperationTimer> requestTimer;
   private TracerProvider tracerProvider;
   private Tracer tracer;
   private final int maxActiveConnections;
@@ -180,13 +174,7 @@ public class EngineJsonRpcService {
       final HealthService livenessService,
       final HealthService readinessService) {
     this.dataDir = dataDir;
-    this.requestTimer =
-        metricsSystem.createLabelledTimer(
-            BesuMetricCategory.RPC,
-            "request_time",
-            "Time taken to process a JSON-RPC request",
-            "methodName");
-    JsonRpcProcessor jsonRpcProcessor = new BaseJsonRpcProcessor();
+    JsonRpcProcessor jsonRpcProcessor = new CombinedJsonRpcProcessor(metricsSystem);
     if (metricsSystem instanceof OpenTelemetrySystem) {
       this.tracerProvider = ((OpenTelemetrySystem) metricsSystem).getTracerProvider();
     }
@@ -467,9 +455,7 @@ public class EngineJsonRpcService {
           HandlerFactory.jsonRpcExecutor(
               new JsonRpcExecutor(
                   new AuthenticatedJsonRpcProcessor(
-                      new TimedJsonRpcProcessor(
-                          new TracedJsonRpcProcessor(new BaseJsonRpcProcessor(), metricsSystem),
-                          requestTimer),
+                      new CombinedJsonRpcProcessor(metricsSystem),
                       authenticationService.get(),
                       config.getNoAuthRpcApis()),
                   rpcMethods),
@@ -479,11 +465,7 @@ public class EngineJsonRpcService {
     } else {
       mainRoute.blockingHandler(
           HandlerFactory.jsonRpcExecutor(
-              new JsonRpcExecutor(
-                  new TimedJsonRpcProcessor(
-                      new TracedJsonRpcProcessor(new BaseJsonRpcProcessor(), metricsSystem),
-                      requestTimer),
-                  rpcMethods),
+              new JsonRpcExecutor(new CombinedJsonRpcProcessor(metricsSystem), rpcMethods),
               tracer,
               config),
           false);
