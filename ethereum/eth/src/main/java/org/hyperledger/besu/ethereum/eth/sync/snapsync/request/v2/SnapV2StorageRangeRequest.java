@@ -21,11 +21,13 @@ import static org.hyperledger.besu.ethereum.trie.RangeManager.getRangeCount;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator.applyForStrategy;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.StackTrie;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.SnapV2DataRequest;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
@@ -47,35 +49,29 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 /** Snap/2 storage range data request. Commits all trie nodes including incomplete ones. */
-public class SnapV2StorageRangeRequest extends SnapDataRequest {
+public class SnapV2StorageRangeRequest extends SnapV2DataRequest {
 
   private final Hash accountHash;
   private final Bytes32 storageRoot;
   private final Bytes32 startKeyHash;
   private final Bytes32 endKeyHash;
-  private final Bytes32 rangeStart;
   private final StackTrie stackTrie;
   private Optional<Boolean> isProofValid;
 
   public SnapV2StorageRangeRequest(
-      final Hash rootHash,
+      final BlockHeader pivotBlockHeader,
       final Bytes32 accountHash,
       final Bytes32 storageRoot,
       final Bytes32 startKeyHash,
       final Bytes32 endKeyHash,
       final Bytes32 rangeStart) {
-    super(STORAGE_RANGE, rootHash);
+    super(STORAGE_RANGE, pivotBlockHeader, rangeStart);
     this.accountHash = Hash.wrap(accountHash);
     this.storageRoot = storageRoot;
     this.startKeyHash = startKeyHash;
     this.endKeyHash = endKeyHash;
-    this.rangeStart = rangeStart;
     this.isProofValid = Optional.empty();
     this.stackTrie = new StackTrie(Hash.wrap(getStorageRoot()), startKeyHash);
-  }
-
-  public Bytes32 getRangeStart() {
-    return rangeStart;
   }
 
   @Override
@@ -158,12 +154,12 @@ public class SnapV2StorageRangeRequest extends SnapDataRequest {
                       (key, value) -> {
                         childRequests.add(
                             new SnapV2StorageRangeRequest(
-                                getRootHash(),
+                                getPivotBlockHeader(),
                                 Bytes32.wrap(accountHash.getBytes()),
                                 storageRoot,
                                 key,
                                 value,
-                                rangeStart));
+                                getRangeStart()));
                       });
             });
 

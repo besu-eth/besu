@@ -19,6 +19,7 @@
 
 ### Bug fixes
 - Fix WebSocket RPC event-loop stall caused by slow clients filling the TCP write queue. [#10354](https://github.com/besu-eth/besu/pull/10354)
+- Fix handshake-resend hive test failure by updating the DiscV5 library ([Consensys/discovery#236](https://github.com/Consensys/discovery/pull/236)). [#10612](https://github.com/besu-eth/besu/pull/10612)
 - Fix QBFT/IBFT2 block creation for contracts that use `block.prevrandao`. [#10611](https://github.com/besu-eth/besu/pull/10611)
 
 ### Additions and Improvements
