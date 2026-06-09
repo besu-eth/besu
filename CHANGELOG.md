@@ -18,6 +18,7 @@
 - `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` is deprecated and will be removed in a future release; the flag is now a silent no-op.
 
 ### Bug fixes
+- Demote `ClosedChannelException` in JSON-RPC handler from `ERROR` to `WARN` — this exception indicates the remote client closed the connection before the response was written, not an internal Besu error. [#10616](https://github.com/besu-eth/besu/pull/10616)
 - Fix WebSocket RPC event-loop stall caused by slow clients filling the TCP write queue. [#10354](https://github.com/besu-eth/besu/pull/10354)
 
 ### Additions and Improvements

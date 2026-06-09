@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.execution.JsonRpcExecutor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 
 import java.io.IOException;
+import java.nio.channels.ClosedChannelException;
 import java.util.Optional;
 
 import io.opentelemetry.api.trace.Tracer;
@@ -71,14 +72,23 @@ public class JsonRpcExecutorHandler {
                     executor.execute();
                   } catch (IOException e) {
                     final String method = executor.getRpcMethodName(ctx);
-                    final String requestBodyAsJson =
-                        ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name()).toString();
-                    LOG.error("{} - Error streaming JSON-RPC response", method, e);
-                    LOG.atTrace()
-                        .setMessage("{} - Error streaming JSON-RPC response")
-                        .addArgument(requestBodyAsJson)
-                        .log();
-                    handleErrorAndEndResponse(ctx, null, RpcErrorType.INTERNAL_ERROR);
+                    if (e instanceof ClosedChannelException) {
+                      // The remote end closed the connection before we finished writing — not an
+                      // internal error. No point trying to send an error response on a closed
+                      // channel.
+                      LOG.warn(
+                          "{} - Connection closed before JSON-RPC response could be written",
+                          method);
+                    } else {
+                      final String requestBodyAsJson =
+                          ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name()).toString();
+                      LOG.error("{} - Error streaming JSON-RPC response", method, e);
+                      LOG.atTrace()
+                          .setMessage("{} - Error streaming JSON-RPC response")
+                          .addArgument(requestBodyAsJson)
+                          .log();
+                      handleErrorAndEndResponse(ctx, null, RpcErrorType.INTERNAL_ERROR);
+                    }
                   } finally {
                     cancelTimer(ctx);
                   }
