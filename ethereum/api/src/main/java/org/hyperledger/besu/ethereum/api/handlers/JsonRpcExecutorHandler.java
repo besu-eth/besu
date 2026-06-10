@@ -83,9 +83,7 @@ public class JsonRpcExecutorHandler {
                       LOG.error("{} - Error streaming JSON-RPC response", method, e);
                       LOG.atTrace()
                           .setMessage("{} - Error streaming JSON-RPC response")
-                          .addArgument(
-                              () ->
-                                  ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name()).toString())
+                          .addArgument(() -> getRequestBodyAsString(ctx))
                           .log();
                       handleErrorAndEndResponse(ctx, null, RpcErrorType.INTERNAL_ERROR);
                     }
@@ -98,8 +96,7 @@ public class JsonRpcExecutorHandler {
                   cancelTimer(ctx);
                 });
       } catch (final RuntimeException e) {
-        final String requestBodyAsJson =
-            ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name()).toString();
+        final String requestBodyAsJson = getRequestBodyAsString(ctx);
         LOG.error(
             "Unhandled exception in JSON-RPC executor for method {}",
             getShortLogString(requestBodyAsJson),
@@ -112,6 +109,13 @@ public class JsonRpcExecutorHandler {
         cancelTimer(ctx);
       }
     };
+  }
+
+  private static String getRequestBodyAsString(final RoutingContext ctx) {
+    final Object obj = ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name());
+    if (obj != null) return obj.toString();
+    final Object arr = ctx.get(ContextKey.REQUEST_BODY_AS_JSON_ARRAY.name());
+    return arr != null ? arr.toString() : null;
   }
 
   private static Object getShortLogString(final String requestBodyAsJson) {
