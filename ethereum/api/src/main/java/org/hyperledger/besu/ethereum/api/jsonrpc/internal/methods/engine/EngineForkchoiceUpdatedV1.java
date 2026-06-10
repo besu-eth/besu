@@ -218,7 +218,7 @@ public sealed class EngineForkchoiceUpdatedV1<PA extends PayloadAttributesV1>
     // forkchoiceState.headBlockHash and forkchoiceState.finalizedBlockHash are VALID. The update is
     // specified as follows:
     final MergeMiningCoordinator.ForkchoiceResult forkchoiceResult =
-        mergeCoordinator.updateForkChoiceWithoutLegacySkip(
+        mergeCoordinator.updateForkChoice(
             newHead, forkChoice.getFinalizedBlockHash(), forkChoice.getSafeBlockHash());
 
     // 8. Client software MUST process provided payloadAttributes after successfully applying the

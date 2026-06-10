@@ -700,23 +700,6 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   @Override
   public ForkchoiceResult updateForkChoice(
       final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash) {
-    MutableBlockchain blockchain = protocolContext.getBlockchain();
-
-    if (newHead.getNumber() < blockchain.getChainHeadBlockNumber()
-        && isDescendantOf(newHead, blockchain.getChainHeadHeader())) {
-      LOG.atDebug()
-          .setMessage("Ignoring update to old head {}")
-          .addArgument(newHead::toLogString)
-          .log();
-      return ForkchoiceResult.withIgnoreUpdateToOldHead(newHead);
-    }
-
-    return applyForkChoice(newHead, finalizedBlockHash, safeBlockHash);
-  }
-
-  @Override
-  public ForkchoiceResult updateForkChoiceWithoutLegacySkip(
-      final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash) {
     return applyForkChoice(newHead, finalizedBlockHash, safeBlockHash);
   }
 

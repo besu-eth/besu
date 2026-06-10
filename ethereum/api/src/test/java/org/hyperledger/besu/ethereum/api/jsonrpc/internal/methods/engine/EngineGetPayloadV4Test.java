@@ -38,7 +38,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResultV4;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreationTiming;
 import org.hyperledger.besu.ethereum.core.BlobTestFixture;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -88,9 +87,8 @@ public class EngineGetPayloadV4Test extends EngineGetPayloadV3Test {
 
   @Test
   public void shouldReturnUnsupportedForkIfBlockTimestampIsBeforeForkWindow() {
-    assumeTrue(getMinSupportedTimestamp().isPresent());
 
-    PayloadIdentifier cancunPayload = setupPayload(getMinSupportedTimestamp().getAsLong() - 1);
+    PayloadIdentifier cancunPayload = setupPayload(getMinSupportedTimestamp() - 1);
     final var resp = resp(getMethodName(), cancunPayload);
     assertThat(resp).isInstanceOf(JsonRpcErrorResponse.class);
     assertThat(((JsonRpcErrorResponse) resp).getErrorType())
@@ -177,12 +175,8 @@ public class EngineGetPayloadV4Test extends EngineGetPayloadV3Test {
 
     final var resp = resp(getMethodName(), payloadIdentifier);
     assertThat(resp).isInstanceOf(JsonRpcSuccessResponse.class);
-    final List<String> requestsWithoutRequestId =
-        requests.stream()
-            .sorted(Comparator.comparing(Request::getType))
-            .map(Request::getEncodedRequest)
-            .map(Bytes::toHexString)
-            .toList();
+    final List<Request> requestsWithoutRequestId =
+        requests.stream().sorted(Comparator.comparing(Request::getType)).toList();
     Optional.of(resp)
         .map(JsonRpcSuccessResponse.class::cast)
         .ifPresent(
@@ -192,9 +186,10 @@ public class EngineGetPayloadV4Test extends EngineGetPayloadV3Test {
               assertThat(res.getExecutionPayload()).isInstanceOf(ExecutionPayloadV3.class);
               assertThat(res.getExecutionPayload().getWithdrawals()).isNotNull();
               assertThat(res.getExecutionPayload().getBlockHash()).isEqualTo(header.getHash());
-              assertThat(res.getBlockValue()).isEqualTo(Quantity.create(0));
+              assertThat(res.getBlockValue()).isEqualTo(Wei.ZERO);
               assertThat(res.getExecutionPayload().getPrevRandao())
                   .isEqualTo(header.getPrevRandao().orElse(null));
+
               assertThat(res.getExecutionPayload().getExcessBlobGas()).isEqualTo(BlobGas.of(10L));
               assertThat(res.getExecutionRequests()).isNotEmpty();
               assertThat(res.getExecutionRequests()).isEqualTo(requestsWithoutRequestId);
@@ -233,17 +228,14 @@ public class EngineGetPayloadV4Test extends EngineGetPayloadV3Test {
     final var resp = resp(getMethodName(), payloadIdentifier);
     assertThat(resp).isInstanceOf(JsonRpcSuccessResponse.class);
 
-    final List<String> expectedRequests =
-        List.of(
-            Bytes.concatenate(Bytes.of(RequestType.DEPOSIT.getSerializedType()), Bytes.of(1))
-                .toHexString(),
-            Bytes.concatenate(Bytes.of(RequestType.CONSOLIDATION.getSerializedType()), Bytes.of(1))
-                .toHexString());
     Optional.of(resp)
         .map(JsonRpcSuccessResponse.class::cast)
         .ifPresent(
             r -> {
-              assertThat(getExecutionRequests(r.getResult())).isEqualTo(expectedRequests);
+              assertThat(getExecutionRequests(r.getResult()))
+                  .contains(
+                      new Request(RequestType.CONSOLIDATION, Bytes.of(1)),
+                      new Request(RequestType.DEPOSIT, Bytes.of(1)));
             });
   }
 
@@ -258,13 +250,8 @@ public class EngineGetPayloadV4Test extends EngineGetPayloadV3Test {
   }
 
   @Override
-  protected long getValidPayloadTimestamp() {
-    return 55L;
-  }
-
-  @Override
-  protected OptionalLong getMinSupportedTimestamp() {
-    return OptionalLong.of(pragueHardfork.milestone());
+  protected long getMinSupportedTimestamp() {
+    return pragueHardfork.milestone();
   }
 
   @Override

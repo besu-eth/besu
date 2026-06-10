@@ -14,9 +14,11 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
+import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PARIS;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
@@ -29,11 +31,13 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ForkchoiceS
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpdatedResultV1;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.WithdrawalsValidator;
 
-import java.util.Collections;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,7 +48,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test {
 
-  static final long CANCUN_MILESTONE = 1_000_000L;
+  private final long withdrawalsEnabledTimestamp = shanghaiHardfork.milestone();
 
   @Override
   protected EngineForkchoiceUpdatedV1<?> createMethodInstance() {
@@ -54,7 +58,7 @@ public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test
         vertx,
         engineCallListener,
         mergeCoordinator,
-        SHANGHAI,
+        PARIS,
         CANCUN);
   }
 
@@ -62,12 +66,19 @@ public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test
   @BeforeEach
   public void before() {
     super.before();
-    // CANCUN upper bound; stub after super.before() for LIFO precedence.
-    // AllowedWithdrawals needed so inherited "valid with payload" tests pass.
-    when(protocolSchedule.milestoneFor(CANCUN)).thenReturn(Optional.of(CANCUN_MILESTONE));
     when(protocolSpec.getWithdrawalsValidator())
         .thenReturn(new WithdrawalsValidator.AllowedWithdrawals());
-    createMethod();
+    blockHeaderBuilder.timestamp(withdrawalsEnabledTimestamp);
+  }
+
+  @Override
+  protected long getMinSupportedTimestamp() {
+    return parisHardfork.milestone();
+  }
+
+  @Override
+  protected OptionalLong getMaxSupportedTimestamp() {
+    return OptionalLong.of(cancunHardfork.milestone() - 1);
   }
 
   @Override
@@ -83,11 +94,21 @@ public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test
 
   @Override
   protected Object validPayloadAttributesForBlock(final BlockHeader head) {
+    // if called with a timestamp before, Shanghai should behave like V1
+    if (head.getTimestamp() < withdrawalsEnabledTimestamp) {
+      when(protocolSpec.getWithdrawalsValidator())
+          .thenReturn(new WithdrawalsValidator.ProhibitedWithdrawals());
+      return super.validPayloadAttributesForBlock(head);
+    }
+    return validPayloadAttributesForBlockV2(head);
+  }
+
+  private PayloadAttributesV2 validPayloadAttributesForBlockV2(final BlockHeader head) {
     return new PayloadAttributesV2(
         String.valueOf(head.getTimestamp() + 1),
         Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
         Address.ECREC.toString(),
-        Collections.emptyList());
+        emptyList());
   }
 
   @Override
@@ -96,56 +117,68 @@ public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test
         String.valueOf(head.getTimestamp()),
         Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
         Address.ECREC.toString(),
-        Collections.emptyList());
+        emptyList());
   }
 
   // ---- V2-specific tests ----
 
   @Test
-  public void shouldReturnUnsupportedForkIfBlockTimestampIsAfterCancunMilestone() {
-    // head.timestamp = CANCUN_MILESTONE so payload = CANCUN_MILESTONE+1 (> head)
-    // and CANCUN_MILESTONE+1 >= CANCUN_MILESTONE triggers UNSUPPORTED_FORK for V2
-    final BlockHeader mockHeader = blockHeaderBuilder.timestamp(CANCUN_MILESTONE).buildHeader();
-    setupValidForkchoiceUpdate(mockHeader);
-
-    final JsonRpcResponse resp =
-        resp(
-            new ForkchoiceStateV1(mockHeader.getBlockHash(), Hash.ZERO, Hash.ZERO),
-            Optional.of(validPayloadAttributesForBlock(mockHeader)));
-
-    assertInvalidForkchoiceState(resp, RpcErrorType.UNSUPPORTED_FORK);
-  }
-
-  @Test
   public void shouldReturnInvalidIfWithdrawalsIsNotNull_WhenWithdrawalsProhibited() {
-    // Override AllowedWithdrawals (from before()) back to ProhibitedWithdrawals for this test.
-    when(protocolSpec.getWithdrawalsValidator())
-        .thenReturn(new WithdrawalsValidator.ProhibitedWithdrawals());
+    if (getMinSupportedTimestamp() < withdrawalsEnabledTimestamp) {
+      // Override AllowedWithdrawals (from before()) back to ProhibitedWithdrawals for this test.
+      when(protocolSpec.getWithdrawalsValidator())
+          .thenReturn(new WithdrawalsValidator.ProhibitedWithdrawals());
 
-    final BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
-    setupValidForkchoiceUpdate(mockHeader);
+      final BlockHeader mockHeader =
+          setupValidForkchoiceUpdate(bhb -> bhb.timestamp(withdrawalsEnabledTimestamp / 2));
 
-    // validPayloadAttributesForBlock returns non-null withdrawals (emptyList) — prohibited
-    final JsonRpcResponse resp =
-        resp(
-            new ForkchoiceStateV1(mockHeader.getHash(), Hash.ZERO, Hash.ZERO),
-            Optional.of(validPayloadAttributesForBlock(mockHeader)));
+      final JsonRpcResponse resp =
+          resp(
+              new ForkchoiceStateV1(mockHeader.getHash(), Hash.ZERO, Hash.ZERO),
+              // validPayloadAttributesForBlockV2 returns non-null withdrawals (emptyList) —
+              // prohibited
+              Optional.of(validPayloadAttributesForBlockV2(mockHeader)));
 
-    assertInvalidForkchoiceState(resp, RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES);
+      assertInvalidForkchoiceState(resp, RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES);
+    }
   }
 
   @Test
   public void shouldReturnValidIfWithdrawalsIsEmpty_WhenWithdrawalsAllowed() {
     // AllowedWithdrawals already set in before(); validPayloadAttributesForBlock returns emptyList
-    final BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
-    setupValidForkchoiceUpdate(mockHeader);
+    final BlockHeader mockHeader = setupValidForkchoiceUpdate(_ -> {});
     when(mergeCoordinator.preparePayload(any())).thenReturn(new PayloadIdentifier(1337L));
 
     assertSuccessWithPayloadForForkchoiceResult(
         new ForkchoiceStateV1(mockHeader.getHash(), Hash.ZERO, Hash.ZERO),
         Optional.of(validPayloadAttributesForBlock(mockHeader)),
         ForkchoiceResult.withResult(Optional.empty(), Optional.of(mockHeader)),
-        org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod
-            .EngineStatus.VALID);
+        VALID);
+  }
+
+  @Test
+  public void shouldReturnValidIfWithdrawalsIsNotNull_WhenWithdrawalsAllowed() {
+    final BlockHeader mockHeader = setupValidForkchoiceUpdate();
+
+    final ForkchoiceUpdatedResultV1 resp =
+        assertSuccessWithPayloadForForkchoiceResult(
+            new ForkchoiceStateV1(mockHeader.getHash(), Hash.ZERO, Hash.ZERO),
+            Optional.of(validPayloadAttributesForBlock(mockHeader)),
+            ForkchoiceResult.withResult(Optional.empty(), Optional.of(mockHeader)),
+            VALID);
+
+    assertThat(resp.getPayloadId()).isNotNull();
+  }
+
+  @Override
+  protected void defaultBlockHeaderCustomization(
+      final BlockHeaderTestFixture blockHeaderTestFixture) {
+    super.defaultBlockHeaderCustomization(blockHeaderTestFixture);
+    blockHeaderTestFixture.timestamp(withdrawalsEnabledTimestamp);
+  }
+
+  @Override
+  protected long getDefaultTimestamp() {
+    return withdrawalsEnabledTimestamp;
   }
 }

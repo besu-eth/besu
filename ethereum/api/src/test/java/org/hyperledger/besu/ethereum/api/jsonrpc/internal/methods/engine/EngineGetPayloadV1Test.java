@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -40,6 +41,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorR
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.BlockResultFactory;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResultV1;
 import org.hyperledger.besu.ethereum.blockcreation.BlockCreationTiming;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
@@ -47,6 +49,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.Request;
+import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import java.util.Collections;
@@ -64,7 +67,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InOrder;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -83,35 +85,8 @@ public class EngineGetPayloadV1Test extends AbstractScheduledApiTest {
   protected static final Vertx vertx = Vertx.vertx();
   protected static final BlockResultFactory factory = new BlockResultFactory();
   protected static final PayloadIdentifier mockPid = new PayloadIdentifier(1337L);
-  protected static final BlockHeader mockHeader =
+  protected BlockHeader mockHeader =
       new BlockHeaderTestFixture().prevRandao(Bytes32.random()).buildHeader();
-  private static final Block mockBlock =
-      new Block(mockHeader, new BlockBody(Collections.emptyList(), Collections.emptyList()));
-  protected static final BlockWithReceipts mockBlockWithReceipts =
-      new BlockWithReceipts(mockBlock, Collections.emptyList());
-  protected static final PayloadWrapper mockPayload =
-      new PayloadWrapper(
-          mockPid,
-          mockBlockWithReceipts,
-          Optional.empty(),
-          Optional.empty(),
-          BlockCreationTiming.EMPTY);
-  private static final Block mockBlockWithWithdrawals =
-      new Block(
-          mockHeader,
-          new BlockBody(
-              Collections.emptyList(),
-              Collections.emptyList(),
-              Optional.of(Collections.emptyList())));
-  protected static final BlockWithReceipts mockBlockWithReceiptsAndWithdrawals =
-      new BlockWithReceipts(mockBlockWithWithdrawals, Collections.emptyList());
-  protected static final PayloadWrapper mockPayloadWithWithdrawals =
-      new PayloadWrapper(
-          mockPid,
-          mockBlockWithReceiptsAndWithdrawals,
-          Optional.empty(),
-          Optional.empty(),
-          BlockCreationTiming.EMPTY);
 
   @Mock protected ProtocolContext protocolContext;
   @Mock protected MergeContext mergeContext;
@@ -122,10 +97,19 @@ public class EngineGetPayloadV1Test extends AbstractScheduledApiTest {
   @Override
   public void before() {
     super.before();
-    when(mergeContext.retrievePayloadById(mockPid)).thenReturn(Optional.of(mockPayload));
-    when(protocolContext.safeConsensusContext(Mockito.any())).thenReturn(Optional.of(mergeContext));
+    when(mergeContext.retrievePayloadById(mockPid))
+        .thenReturn(Optional.of(createPayloadWrapper(Optional.empty())));
+    when(protocolContext.safeConsensusContext(any())).thenReturn(Optional.of(mergeContext));
     setupVersionSpecificMocks();
     createMethod();
+  }
+
+  protected long getMinSupportedTimestamp() {
+    return parisHardfork.milestone();
+  }
+
+  protected OptionalLong getFirstUnsupportedTimestamp() {
+    return OptionalLong.of(shanghaiHardfork.milestone());
   }
 
   protected void setupVersionSpecificMocks() {}
@@ -159,10 +143,9 @@ public class EngineGetPayloadV1Test extends AbstractScheduledApiTest {
         .map(JsonRpcSuccessResponse.class::cast)
         .ifPresent(
             r -> {
-              assertThat(r.getResult()).isInstanceOf(ExecutionPayloadV1.class);
-              final ExecutionPayloadV1 res = (ExecutionPayloadV1) r.getResult();
-              assertThat(res.getBlockHash()).isEqualTo(mockHeader.getHash());
-              assertThat(res.getPrevRandao()).isEqualTo(mockHeader.getPrevRandao().orElse(null));
+              assertThat(r.getResult()).isInstanceOf(EngineGetPayloadResultV1.class);
+              final ExecutionPayloadV1 res =
+                  ((EngineGetPayloadResultV1) r.getResult()).getExecutionPayload();
 
               final Map<String, Object> wirePayload =
                   OBJECT_MAPPER.convertValue(res, new TypeReference<>() {});
@@ -195,15 +178,7 @@ public class EngineGetPayloadV1Test extends AbstractScheduledApiTest {
   }
 
   protected long getValidPayloadTimestamp() {
-    return 15L;
-  }
-
-  protected OptionalLong getMinSupportedTimestamp() {
-    return OptionalLong.empty();
-  }
-
-  protected OptionalLong getFirstUnsupportedTimestamp() {
-    return OptionalLong.of(shanghaiHardfork.milestone());
+    return getMinSupportedTimestamp();
   }
 
   protected JsonRpcResponse resp(final String methodName, final PayloadIdentifier pid) {
@@ -310,5 +285,25 @@ public class EngineGetPayloadV1Test extends AbstractScheduledApiTest {
     inOrder.verify(mergeMiningCoordinator).awaitCurrentBuildCompletion(testPid);
 
     assertThat(response).isNotInstanceOf(JsonRpcErrorResponse.class);
+  }
+
+  protected PayloadWrapper createPayloadWrapper(final Optional<List<Withdrawal>> maybeWithdrawals) {
+    this.mockHeader =
+        new BlockHeaderTestFixture()
+            .timestamp(getValidPayloadTimestamp())
+            .prevRandao(Bytes32.random())
+            .buildHeader();
+    final Block mockBlock =
+        new Block(
+            mockHeader,
+            new BlockBody(Collections.emptyList(), Collections.emptyList(), maybeWithdrawals));
+    final BlockWithReceipts mockBlockWithReceipts =
+        new BlockWithReceipts(mockBlock, Collections.emptyList());
+    return new PayloadWrapper(
+        mockPid,
+        mockBlockWithReceipts,
+        Optional.empty(),
+        Optional.empty(),
+        BlockCreationTiming.EMPTY);
   }
 }

@@ -20,6 +20,8 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_BLOB_GAS_USED_PARAMS;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_EXCESS_BLOB_GAS_PARAMS;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_PARAMS;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.UNSUPPORTED_FORK;
 import static org.mockito.Mockito.lenient;
@@ -198,8 +200,10 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
                 mockEnginePayloadParam(blockHeader, emptyList(), excessBlobGas, blobGasUsed)));
 
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
-    assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
-    assertThat(jsonRpcError.getData()).isEqualTo("Missing blob gas used field");
+    assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_BLOB_GAS_USED_PARAMS.getCode());
+    assertThat(jsonRpcError.getMessage())
+        .isEqualTo("Invalid blob gas used param (missing or invalid)");
+
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
@@ -222,8 +226,9 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
                 mockEnginePayloadParam(blockHeader, emptyList(), excessBlobGas, blobGasUsed)));
 
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
-    assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
-    assertThat(jsonRpcError.getData()).isEqualTo("Missing excess blob gas field");
+    assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_EXCESS_BLOB_GAS_PARAMS.getCode());
+    assertThat(jsonRpcError.getMessage())
+        .isEqualTo("Invalid excess blob gas params (missing or invalid)");
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 

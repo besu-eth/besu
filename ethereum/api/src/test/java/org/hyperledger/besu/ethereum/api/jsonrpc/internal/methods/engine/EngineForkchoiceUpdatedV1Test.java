@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.SYNCING;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
@@ -48,12 +49,12 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.ForkchoiceUpda
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 import io.vertx.core.Vertx;
@@ -62,15 +63,14 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
-public class EngineForkchoiceUpdatedV1Test {
-
+public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
+  protected static final Consumer<BlockHeaderTestFixture> NO_OP = bhb -> {};
   protected EngineForkchoiceUpdatedV1<?> method;
 
   protected static final Vertx vertx = Vertx.vertx();
@@ -83,28 +83,45 @@ public class EngineForkchoiceUpdatedV1Test {
       new BlockHeaderTestFixture().baseFeePerGas(Wei.ONE);
 
   @Mock protected ProtocolSpec protocolSpec;
-  @Mock protected ProtocolSchedule protocolSchedule;
   @Mock protected ProtocolContext protocolContext;
   @Mock protected MergeContext mergeContext;
   @Mock protected MergeMiningCoordinator mergeCoordinator;
   @Mock protected MutableBlockchain blockchain;
   @Mock protected EngineCallListener engineCallListener;
 
+  @Override
   @BeforeEach
   public void before() {
-    when(protocolContext.safeConsensusContext(Mockito.any())).thenReturn(Optional.of(mergeContext));
+    super.before();
+    when(protocolContext.safeConsensusContext(any())).thenReturn(Optional.of(mergeContext));
     when(protocolContext.getBlockchain()).thenReturn(blockchain);
     when(protocolSchedule.getForNextBlockHeader(any(), anyLong())).thenReturn(protocolSpec);
+    when(mergeCoordinator.preparePayload(any())).thenReturn(new PayloadIdentifier(1337L));
+    createMethod();
   }
 
   /** Returns the method factory for the version under test. Overridden by each subclass. */
   protected EngineForkchoiceUpdatedV1<?> createMethodInstance() {
     return new EngineForkchoiceUpdatedV1<>(
-        protocolSchedule, protocolContext, vertx, engineCallListener, mergeCoordinator, null, null);
+        protocolSchedule,
+        protocolContext,
+        vertx,
+        engineCallListener,
+        mergeCoordinator,
+        null,
+        SHANGHAI);
   }
 
-  protected final void createMethod() {
+  private void createMethod() {
     this.method = createMethodInstance();
+  }
+
+  protected long getMinSupportedTimestamp() {
+    return parisHardfork.milestone();
+  }
+
+  protected OptionalLong getMaxSupportedTimestamp() {
+    return OptionalLong.of(shanghaiHardfork.milestone() - 1);
   }
 
   @Test
@@ -131,6 +148,23 @@ public class EngineForkchoiceUpdatedV1Test {
   }
 
   // ---- shared tests ----
+
+  @Test
+  public void shouldReturnUnsupportedForkIfBlockTimestampIsAfterSupportedForkWindow() {
+    getMaxSupportedTimestamp()
+        .ifPresent(
+            timestamp -> {
+              final BlockHeader mockHeader =
+                  setupValidForkchoiceUpdate(bhb -> bhb.timestamp(timestamp + 1));
+
+              final JsonRpcResponse resp =
+                  resp(
+                      new ForkchoiceStateV1(mockHeader.getBlockHash(), Hash.ZERO, Hash.ZERO),
+                      Optional.of(validPayloadAttributesForBlock(mockHeader)));
+
+              assertInvalidForkchoiceState(resp, RpcErrorType.UNSUPPORTED_FORK);
+            });
+  }
 
   @Test
   public void shouldReturnSyncingIfForwardSync() {
@@ -195,8 +229,7 @@ public class EngineForkchoiceUpdatedV1Test {
   public void shouldReturnValidWithNewHeadAndFinalizedNoPayload() {
     final BlockHeader mockParent = blockHeaderBuilder.number(9L).buildHeader();
     final BlockHeader mockHeader =
-        blockHeaderBuilder.number(10L).parentHash(mockParent.getHash()).buildHeader();
-    setupValidForkchoiceUpdate(mockHeader);
+        setupValidForkchoiceUpdate(bhb -> bhb.number(10L).parentHash(mockParent.getHash()));
 
     assertSuccessWithPayloadForForkchoiceResult(
         new ForkchoiceStateV1(mockHeader.getHash(), mockParent.getHash(), Hash.ZERO),
@@ -350,11 +383,9 @@ public class EngineForkchoiceUpdatedV1Test {
   public void shouldReturnInvalidWhenForkchoiceResultIsInvalid() {
     final BlockHeader mockParent = blockHeaderBuilder.number(9L).buildHeader();
     final BlockHeader mockHeader =
-        blockHeaderBuilder.number(10L).parentHash(mockParent.getHash()).buildHeader();
-    setupValidForkchoiceUpdate(mockHeader);
+        setupValidForkchoiceUpdate(bhb -> bhb.number(10L).parentHash(mockParent.getHash()));
 
-    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(
-            mockHeader, mockParent.getHash(), mockParent.getHash()))
+    when(mergeCoordinator.updateForkChoice(mockHeader, mockParent.getHash(), mockParent.getHash()))
         .thenReturn(
             ForkchoiceResult.withFailure(
                 ForkchoiceResult.Status.INVALID,
@@ -378,10 +409,10 @@ public class EngineForkchoiceUpdatedV1Test {
 
   @Test
   public void shouldReturnValidWithoutFinalizedWithPayload() {
-    final BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
+    final BlockHeader mockHeader =
+        blockHeaderBuilder.timestamp(getMinSupportedTimestamp()).buildHeader();
     when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))
         .thenReturn(Optional.of(mockHeader));
-    when(mergeCoordinator.preparePayload(any())).thenReturn(new PayloadIdentifier(1337L));
 
     final var res =
         assertSuccessWithPayloadForForkchoiceResult(
@@ -395,10 +426,10 @@ public class EngineForkchoiceUpdatedV1Test {
 
   @Test
   public void shouldReturnInvalidIfPayloadTimestampNotGreaterThanHead() {
-    final BlockHeader mockParent = blockHeaderBuilder.timestamp(99).number(9L).buildHeader();
+    final BlockHeader mockParent =
+        blockHeaderBuilder.timestamp(getMinSupportedTimestamp()).number(9L).buildHeader();
     final BlockHeader mockHeader =
-        blockHeaderBuilder.number(10L).parentHash(mockParent.getHash()).buildHeader();
-    setupValidForkchoiceUpdate(mockHeader);
+        setupValidForkchoiceUpdate(bhb -> bhb.number(10L).parentHash(mockParent.getHash()));
 
     final JsonRpcResponse resp =
         resp(
@@ -429,7 +460,7 @@ public class EngineForkchoiceUpdatedV1Test {
         .isEqualTo(head.getHash().toHexString());
     assertThat(result.getPayloadId()).isNull();
 
-    verify(mergeCoordinator, never()).updateForkChoiceWithoutLegacySkip(any(), any(), any());
+    verify(mergeCoordinator, never()).updateForkChoice(any(), any(), any());
   }
 
   @Test
@@ -439,8 +470,7 @@ public class EngineForkchoiceUpdatedV1Test {
 
     setupValidForkchoiceState(head, finalized);
     when(mergeCoordinator.isAncestorOfFinalized(head)).thenReturn(false);
-    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(
-            head, finalized.getHash(), finalized.getHash()))
+    when(mergeCoordinator.updateForkChoice(head, finalized.getHash(), finalized.getHash()))
         .thenReturn(ForkchoiceResult.withResult(Optional.of(finalized), Optional.of(head)));
 
     final JsonRpcResponse resp =
@@ -450,7 +480,7 @@ public class EngineForkchoiceUpdatedV1Test {
 
     assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
     verify(mergeCoordinator, times(1))
-        .updateForkChoiceWithoutLegacySkip(head, finalized.getHash(), finalized.getHash());
+        .updateForkChoice(head, finalized.getHash(), finalized.getHash());
   }
 
   @Test
@@ -461,15 +491,14 @@ public class EngineForkchoiceUpdatedV1Test {
         .thenReturn(Optional.of(head));
     when(mergeCoordinator.computeReorgDepth(head)).thenReturn(OptionalLong.empty());
     when(mergeCoordinator.isAncestorOfFinalized(head)).thenReturn(false);
-    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(head, Hash.ZERO, Hash.ZERO))
+    when(mergeCoordinator.updateForkChoice(head, Hash.ZERO, Hash.ZERO))
         .thenReturn(ForkchoiceResult.withResult(Optional.empty(), Optional.of(head)));
 
     final JsonRpcResponse resp =
         resp(new ForkchoiceStateV1(head.getHash(), Hash.ZERO, Hash.ZERO), Optional.empty());
 
     assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
-    verify(mergeCoordinator, times(1))
-        .updateForkChoiceWithoutLegacySkip(head, Hash.ZERO, Hash.ZERO);
+    verify(mergeCoordinator, times(1)).updateForkChoice(head, Hash.ZERO, Hash.ZERO);
   }
 
   @Test
@@ -487,7 +516,7 @@ public class EngineForkchoiceUpdatedV1Test {
     final JsonRpcErrorResponse errorResp = (JsonRpcErrorResponse) resp;
     assertThat(errorResp.getErrorType()).isEqualTo(RpcErrorType.TOO_DEEP_REORG);
 
-    verify(mergeCoordinator, never()).updateForkChoiceWithoutLegacySkip(any(), any(), any());
+    verify(mergeCoordinator, never()).updateForkChoice(any(), any(), any());
   }
 
   @Test
@@ -497,15 +526,14 @@ public class EngineForkchoiceUpdatedV1Test {
         .thenReturn(Optional.of(head));
     when(mergeCoordinator.computeReorgDepth(head))
         .thenReturn(OptionalLong.of(MergeMiningCoordinator.MAX_REORG_DEPTH));
-    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(head, Hash.ZERO, Hash.ZERO))
+    when(mergeCoordinator.updateForkChoice(head, Hash.ZERO, Hash.ZERO))
         .thenReturn(ForkchoiceResult.withResult(Optional.empty(), Optional.of(head)));
 
     final JsonRpcResponse resp =
         resp(new ForkchoiceStateV1(head.getHash(), Hash.ZERO, Hash.ZERO), Optional.empty());
 
     assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
-    verify(mergeCoordinator, times(1))
-        .updateForkChoiceWithoutLegacySkip(head, Hash.ZERO, Hash.ZERO);
+    verify(mergeCoordinator, times(1)).updateForkChoice(head, Hash.ZERO, Hash.ZERO);
   }
 
   @Test
@@ -514,27 +542,44 @@ public class EngineForkchoiceUpdatedV1Test {
     when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), Hash.ZERO))
         .thenReturn(Optional.of(head));
     when(mergeCoordinator.computeReorgDepth(head)).thenReturn(OptionalLong.empty());
-    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(head, Hash.ZERO, Hash.ZERO))
+    when(mergeCoordinator.updateForkChoice(head, Hash.ZERO, Hash.ZERO))
         .thenReturn(ForkchoiceResult.withResult(Optional.empty(), Optional.of(head)));
 
     final JsonRpcResponse resp =
         resp(new ForkchoiceStateV1(head.getHash(), Hash.ZERO, Hash.ZERO), Optional.empty());
 
     assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
-    verify(mergeCoordinator, times(1))
-        .updateForkChoiceWithoutLegacySkip(head, Hash.ZERO, Hash.ZERO);
+    verify(mergeCoordinator, times(1)).updateForkChoice(head, Hash.ZERO, Hash.ZERO);
   }
 
   // ---- helpers ----
 
-  protected void setupValidForkchoiceUpdate(final BlockHeader mockHeader) {
+  protected BlockHeader setupValidForkchoiceUpdate() {
+    return setupValidForkchoiceUpdate(NO_OP);
+  }
+
+  protected BlockHeader setupValidForkchoiceUpdate(
+      final Consumer<BlockHeaderTestFixture> blockHeaderCustomizer) {
+    defaultBlockHeaderCustomization(blockHeaderBuilder);
+    blockHeaderCustomizer.accept(blockHeaderBuilder);
+    final BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
     when(blockchain.getBlockHeader(any())).thenReturn(Optional.of(mockHeader));
     when(mergeCoordinator.getOrSyncHeadByHash(eq(mockHeader.getHash()), any()))
         .thenReturn(Optional.of(mockHeader));
     when(mergeCoordinator.isDescendantOf(any(), any())).thenReturn(true);
     when(mergeCoordinator.computeReorgDepth(mockHeader)).thenReturn(OptionalLong.empty());
-    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(any(), any(), any()))
+    when(mergeCoordinator.updateForkChoice(any(), any(), any()))
         .thenReturn(mock(ForkchoiceResult.class));
+    return mockHeader;
+  }
+
+  protected void defaultBlockHeaderCustomization(
+      final BlockHeaderTestFixture blockHeaderTestFixture) {
+    blockHeaderTestFixture.timestamp(getDefaultTimestamp());
+  }
+
+  protected long getDefaultTimestamp() {
+    return getMinSupportedTimestamp();
   }
 
   protected void setupValidForkchoiceState(final BlockHeader head, final BlockHeader finalized) {
@@ -561,7 +606,7 @@ public class EngineForkchoiceUpdatedV1Test {
       final EngineStatus expectedStatus,
       final Optional<Hash> maybeLatestValidHash) {
 
-    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(
+    when(mergeCoordinator.updateForkChoice(
             any(BlockHeader.class), any(Hash.class), any(Hash.class)))
         .thenReturn(forkchoiceResult);
 

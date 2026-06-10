@@ -101,17 +101,6 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
   BlockProcessingResult validateBlock(final Block block);
 
   /**
-   * Update fork choice.
-   *
-   * @param newHead the new head
-   * @param finalizedBlockHash the finalized block hash
-   * @param safeBlockHash the safe block hash
-   * @return the forkchoice result
-   */
-  ForkchoiceResult updateForkChoice(
-      final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash);
-
-  /**
    * Update fork choice without applying the legacy "ignore update to old head" optimization that
    * skips when the new head is an ancestor of the canonical chain head. Used by the post
    * execution-apis #786 forkchoiceUpdated flow, where the narrowed skip (ancestor of finalized) is
@@ -122,7 +111,7 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    * @param safeBlockHash the safe block hash
    * @return the forkchoice result
    */
-  ForkchoiceResult updateForkChoiceWithoutLegacySkip(
+  ForkchoiceResult updateForkChoice(
       final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash);
 
   /**

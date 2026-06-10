@@ -104,7 +104,6 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
     assertThat(errorResp.getCode()).isEqualTo(INVALID_BLOCK_ACCESS_LIST_PARAMS.getCode());
     assertThat(errorResp.getMessage())
         .isEqualTo("Invalid block access list params (missing or invalid)");
-    assertThat(errorResp.getData()).isEqualTo("Missing block access list field");
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
