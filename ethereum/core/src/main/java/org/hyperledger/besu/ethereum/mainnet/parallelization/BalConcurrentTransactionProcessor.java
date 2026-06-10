@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -24,6 +25,7 @@ import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
@@ -39,6 +41,7 @@ import java.util.Collection;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -110,11 +113,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
               blobGasPrice,
               txTracker);
 
-      txUpdater.commit();
-      blockUpdater.commit();
-
-      // TODO: We should pass transaction accumulator
-      ctxBuilder.transactionAccumulator(blockUpdater).transactionProcessingResult(result);
+      ctxBuilder.transactionProcessingResult(result);
 
       return ctxBuilder.build();
     } finally {
@@ -132,7 +131,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final Optional<Counter> confirmedParallelizedTransactionCounter,
       final Optional<Counter> conflictingButCachedTransactionCounter) {
 
-    final CompletableFuture<ParallelizedTransactionContext> future = futures[txIndex];
+    final CompletableFuture<ParallelizedTransactionContext> future = removeFuture(txIndex);
     if (future != null) {
       try {
         final ParallelizedTransactionContext ctx = future.get();
@@ -146,16 +145,28 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
         final PathBasedWorldStateUpdateAccumulator blockAccumulator =
             (PathBasedWorldStateUpdateAccumulator) pathWs.updater();
 
-        final PathBasedWorldStateUpdateAccumulator<?> txAccumulator = ctx.transactionAccumulator();
         final TransactionProcessingResult result = ctx.transactionProcessingResult();
+        final Optional<PartialBlockAccessView> maybePartialBlockAccessView =
+            result.getPartialBlockAccessView();
+        if (maybePartialBlockAccessView.isEmpty()) {
+          LOG.trace("Partial block access view for transaction {} is empty.", txIndex);
+          return Optional.empty();
+        }
 
-        blockAccumulator.importStateChangesFromSource(txAccumulator);
+        applyWritesFromPartialBlockAccessView(
+            maybePartialBlockAccessView.get(),
+            blockAccumulator,
+            transactionProcessor.getClearEmptyAccounts());
 
         confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
         result.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
-        result.accumulator = txAccumulator;
 
         return Optional.of(result);
+      } catch (final InterruptedException e) {
+        future.cancel(true);
+        Thread.currentThread().interrupt();
+        LOG.error("Interrupted while waiting for transaction {} processing result.", txIndex, e);
+        return Optional.empty();
       } catch (final Exception e) {
         LOG.error(
             "Error integrating transaction processing result for transaction {}.", txIndex, e);
@@ -165,6 +176,58 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
     LOG.error("No future found for transaction {}.", txIndex);
     return Optional.empty();
+  }
+
+  private void applyWritesFromPartialBlockAccessView(
+      final PartialBlockAccessView partialBlockAccessView,
+      final PathBasedWorldStateUpdateAccumulator<?> worldStateUpdater,
+      final boolean clearEmptyAccounts) {
+    for (var accountChanges : partialBlockAccessView.accountChanges()) {
+      MutableAccount account = null;
+      boolean shouldCheckForEmptyAccount = false;
+
+      final Optional<Wei> postBalance = accountChanges.getPostBalance();
+      if (postBalance.isPresent()) {
+        account = worldStateUpdater.getOrCreate(accountChanges.getAddress());
+        final Wei balance = postBalance.get();
+        account.setBalance(balance);
+        shouldCheckForEmptyAccount = clearEmptyAccounts && balance.isZero();
+      }
+
+      final Optional<Long> nonceChange = accountChanges.getNonceChange();
+      if (nonceChange.isPresent()) {
+        if (account == null) {
+          account = worldStateUpdater.getOrCreate(accountChanges.getAddress());
+        }
+        final long nonce = nonceChange.get();
+        account.setNonce(nonce);
+        shouldCheckForEmptyAccount |= clearEmptyAccounts && nonce == 0L;
+      }
+
+      final Optional<Bytes> newCode = accountChanges.getNewCode();
+      if (newCode.isPresent()) {
+        if (account == null) {
+          account = worldStateUpdater.getOrCreate(accountChanges.getAddress());
+        }
+        final Bytes code = newCode.get();
+        account.setCode(code);
+        shouldCheckForEmptyAccount |= clearEmptyAccounts && code.isEmpty();
+      }
+
+      for (var slotChange : accountChanges.getStorageChanges()) {
+        final StorageSlotKey slot = slotChange.slot();
+        if (account == null) {
+          account = worldStateUpdater.getOrCreate(accountChanges.getAddress());
+        }
+        account.setStorageValue(
+            slot.getSlotKey().orElseThrow(),
+            slotChange.newValue() != null ? slotChange.newValue() : UInt256.ZERO);
+      }
+
+      if (shouldCheckForEmptyAccount && account != null && account.isEmpty()) {
+        worldStateUpdater.deleteAccount(accountChanges.getAddress());
+      }
+    }
   }
 
   private void applyWritesFromPriorTransactions(
