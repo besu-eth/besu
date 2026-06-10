@@ -773,6 +773,14 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
     if (!jsonRpcConfiguration.getRpcApis().contains("ADMIN")) {
       jsonRpcConfiguration.addRpcApi("ADMIN");
     }
+    // When auth is enabled, exempt admin_nodeInfo so the cluster harness can fetch
+    // bootnode addresses without needing credentials.
+    if (jsonRpcConfiguration.isAuthenticationEnabled()
+        && !jsonRpcConfiguration.getNoAuthRpcApis().contains("admin_nodeInfo")) {
+      final List<String> noAuth = new ArrayList<>(jsonRpcConfiguration.getNoAuthRpcApis());
+      noAuth.add("admin_nodeInfo");
+      jsonRpcConfiguration.setNoAuthRpcApis(noAuth);
+    }
   }
 
   public Map<String, Object> fetchBootnodeInfo() {
