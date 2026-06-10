@@ -106,8 +106,7 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     // Create committer in trusted mode
-    final BalConfiguration balConfig =
-        BalConfiguration.DEFAULT;
+    final BalConfiguration balConfig = BalConfiguration.DEFAULT;
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
@@ -156,8 +155,7 @@ class BalStateRootCommitterFactoryTest {
             .stateRoot(wrongRoot)
             .buildHeader();
 
-    final BalConfiguration balConfig =
-        BalConfiguration.DEFAULT;
+    final BalConfiguration balConfig = BalConfiguration.DEFAULT;
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
@@ -204,8 +202,7 @@ class BalStateRootCommitterFactoryTest {
             .stateRoot(expectedRoot)
             .buildHeader();
 
-    final BalConfiguration balConfig =
-        BalConfiguration.DEFAULT;
+    final BalConfiguration balConfig = BalConfiguration.DEFAULT;
 
     final StateRootCommitterFactory factory =
         new BalStateRootCommitterFactory(balConfig, BAL_ASYNC_BLOCKED_FOR_CANCEL_TESTS);
@@ -235,8 +232,7 @@ class BalStateRootCommitterFactoryTest {
             .number(chainHeadHeader.getNumber() + 1L)
             .buildHeader();
 
-    final BalConfiguration balConfig =
-        BalConfiguration.DEFAULT;
+    final BalConfiguration balConfig = BalConfiguration.DEFAULT;
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
 
@@ -329,8 +325,7 @@ class BalStateRootCommitterFactoryTest {
             .stateRoot(expectedRoot)
             .buildHeader();
 
-    final BalConfiguration balConfig =
-        BalConfiguration.DEFAULT;
+    final BalConfiguration balConfig = BalConfiguration.DEFAULT;
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
@@ -369,8 +364,7 @@ class BalStateRootCommitterFactoryTest {
             .stateRoot(expectedRoot)
             .buildHeader();
 
-    final BalConfiguration balConfig =
-        BalConfiguration.DEFAULT;
+    final BalConfiguration balConfig = BalConfiguration.DEFAULT;
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
@@ -412,8 +406,7 @@ class BalStateRootCommitterFactoryTest {
             .stateRoot(expectedRoot)
             .buildHeader();
 
-    final BalConfiguration balConfig =
-        BalConfiguration.DEFAULT;
+    final BalConfiguration balConfig = BalConfiguration.DEFAULT;
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
@@ -461,8 +454,7 @@ class BalStateRootCommitterFactoryTest {
             .stateRoot(expectedRoot)
             .buildHeader();
 
-    final BalConfiguration balConfig =
-        BalConfiguration.DEFAULT;
+    final BalConfiguration balConfig = BalConfiguration.DEFAULT;
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
@@ -533,8 +525,7 @@ class BalStateRootCommitterFactoryTest {
             .stateRoot(expectedRoot)
             .buildHeader();
 
-    final BalConfiguration balConfig =
-        BalConfiguration.DEFAULT;
+    final BalConfiguration balConfig = BalConfiguration.DEFAULT;
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
@@ -597,8 +588,7 @@ class BalStateRootCommitterFactoryTest {
             .stateRoot(expectedRoot)
             .buildHeader();
 
-    final BalConfiguration balConfig =
-        BalConfiguration.DEFAULT;
+    final BalConfiguration balConfig = BalConfiguration.DEFAULT;
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
@@ -676,8 +666,7 @@ class BalStateRootCommitterFactoryTest {
             .stateRoot(expectedRoot)
             .buildHeader();
 
-    final BalConfiguration balConfig =
-        BalConfiguration.DEFAULT;
+    final BalConfiguration balConfig = BalConfiguration.DEFAULT;
 
     final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
     final StateRootCommitter committer =
