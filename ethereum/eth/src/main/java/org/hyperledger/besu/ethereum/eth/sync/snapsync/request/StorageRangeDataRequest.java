@@ -155,8 +155,6 @@ public class StorageRangeDataRequest extends SnapDataRequest {
 
   @Override
   public boolean isResponseReceived() {
-    // TODO: If isResponseReceived() == true, the task is marked completed, but
-    // not enqueued for healing in v2
     return isProofValid.isPresent();
   }
 
