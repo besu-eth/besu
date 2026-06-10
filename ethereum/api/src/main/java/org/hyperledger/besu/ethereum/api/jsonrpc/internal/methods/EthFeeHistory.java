@@ -62,10 +62,8 @@ public class EthFeeHistory implements JsonRpcMethod {
   private final Blockchain blockchain;
   private final MiningCoordinator miningCoordinator;
   private final ApiConfiguration apiConfiguration;
-  // Per-block raw reward percentiles, keyed by (block hash, sorted percentile list).
   private final MemoryBoundCache<RewardCacheKey, List<Wei>> perBlockRewardsCache;
-  // Full results for "latest" requests, keyed on head hash + request shape; historical queries
-  // are not cached.
+  // Full results for "latest" requests; historical queries are not cached.
   private final MemoryBoundCache<ResultCacheKey, FeeHistory.FeeHistoryResult> resultCache;
   // Entry size varies with percentile count and block range, so both caches are byte-bounded.
   private static final long PER_BLOCK_REWARDS_CACHE_MAX_BYTES = 32L * 1024 * 1024;
@@ -86,13 +84,11 @@ public class EthFeeHistory implements JsonRpcMethod {
       HardforkId nextBlockHardforkId) {}
 
   private static int perBlockRewardsEntryWeight(final RewardCacheKey key, final List<Wei> rewards) {
-    // Approximate retained bytes.
     return 128 + 32 * key.rewardPercentiles().size() + 80 * rewards.size();
   }
 
   private static int resultEntryWeight(
       final ResultCacheKey key, final FeeHistory.FeeHistoryResult result) {
-    // Approximate retained bytes; the reward matrix (blockCount × percentiles) dominates.
     int weight =
         256
             + 32 * key.sortedRewardPercentiles().map(List::size).orElse(0)
@@ -173,8 +169,6 @@ public class EthFeeHistory implements JsonRpcMethod {
             .filter(list -> list.size() <= MAXIMUM_QUERY_PERCENTILES)
             .map(percentiles -> percentiles.stream().sorted().toList());
 
-    // Only "latest" lookups are cached; historic queries would flood the cache with single-use
-    // entries.
     final boolean isLatestRequest = highestBlockNumber == chainHeadBlockNumber;
     final Optional<RewardBounds> rewardBounds =
         sortedRewardPercentiles.isPresent() && apiConfiguration.isGasAndPriorityFeeLimitingEnabled()
@@ -479,8 +473,6 @@ public class EthFeeHistory implements JsonRpcMethod {
   }
 
   private List<BlockHeader> getBlockHeaders(final long oldestBlock, final long lastBlock) {
-    // Bulk API: one number→hash translation at the high end, then walk parent hashes (each an
-    // in-memory header-cache hit). Replaces the per-block number→hash translation.
     final int count = (int) (lastBlock - oldestBlock);
     if (count <= 0) {
       return List.of();

@@ -1176,9 +1176,6 @@ public class BlockchainQueries {
     return UInt256s.max(miningConfiguration.getMinPriorityFeePerGas(), rawSample.get());
   }
 
-  // Returns the raw gas-price sample for the chain head from the snapshot, or computes and seeds
-  // it on miss (startup / before the observer refreshes), so only one request per head pays the
-  // scan.
   private Optional<Wei> getOrComputeGasPriceSample(final BlockHeader chainHeadHeader) {
     return getOrComputeFeeOracleSample(chainHeadHeader, FeeOracleSnapshot::rawGasPriceSample);
   }
