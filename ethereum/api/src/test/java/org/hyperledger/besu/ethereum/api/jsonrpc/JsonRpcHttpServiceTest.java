@@ -1994,9 +1994,7 @@ public class JsonRpcHttpServiceTest extends JsonRpcHttpServiceTestBase {
                 + address
                 + "\",\""
                 + UInt256.ZERO
-                + "\",\""
-                + 0L
-                + "\"]}",
+                + "\",\"0x0\"]}",
             JSON);
 
     try (final Response resp = client.newCall(buildPostRequest(body)).execute()) {

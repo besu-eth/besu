@@ -17,18 +17,15 @@ package org.hyperledger.besu.ethereum.eth.messages;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.AbstractMessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
 import java.util.Collection;
-import java.util.List;
 
 import org.apache.tuweni.bytes.Bytes;
 
 public final class GetPooledTransactionsMessage extends AbstractMessageData {
 
   private static final int MESSAGE_CODE = EthProtocolMessages.GET_POOLED_TRANSACTIONS;
-  private List<Hash> pooledTransactions;
 
   private GetPooledTransactionsMessage(final Bytes rlp) {
     super(rlp);
@@ -59,11 +56,7 @@ public final class GetPooledTransactionsMessage extends AbstractMessageData {
     return new GetPooledTransactionsMessage(message.getData());
   }
 
-  public List<Hash> pooledTransactions() {
-    if (pooledTransactions == null) {
-      final BytesValueRLPInput in = new BytesValueRLPInput(getData(), false);
-      pooledTransactions = in.readList(rlp -> Hash.wrap(rlp.readBytes32()));
-    }
-    return pooledTransactions;
+  public Iterable<Hash> pooledTransactions() {
+    return LazyHashListDecoder.decode(getData());
   }
 }

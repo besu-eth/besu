@@ -359,6 +359,16 @@ public class EthPeers implements PeerSelector {
     return activeConnections.values().stream().map(EthPeerImmutableAttributes::from);
   }
 
+  /**
+   * Returns a stream of all EthPeer objects that currently have an active connection, including
+   * peers in the incomplete (pre-validation) state. Used for tracker cleanup to avoid incorrectly
+   * evicting peers that are connected but not yet in activeConnections.
+   */
+  public Stream<EthPeer> streamAllConnectedPeers() {
+    return Stream.concat(
+        activeConnections.values().stream(), incompleteConnections.asMap().values().stream());
+  }
+
   private void removeDisconnectedPeers() {
     activeConnections
         .values()
@@ -639,7 +649,8 @@ public class EthPeers implements PeerSelector {
   }
 
   private void checkIsSnapServer(final EthPeer peer, final BlockHeader peersHeadBlockHeader) {
-    if (peer.getAgreedCapabilities().contains(SnapProtocol.SNAP1)) {
+    if (peer.getAgreedCapabilities().contains(SnapProtocol.SNAP1)
+        || peer.getAgreedCapabilities().contains(SnapProtocol.SNAP2)) {
       if (snapServerChecker != null) {
         // set that peer is a snap server for doing the test
         peer.setIsServingSnap(true);

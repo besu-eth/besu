@@ -18,7 +18,6 @@ import org.hyperledger.besu.ethereum.chain.BlockchainStorage;
 import org.hyperledger.besu.ethereum.chain.DefaultBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.SyncBlockAccessList;
-import org.hyperledger.besu.ethereum.core.SyncBlockWithReceipts;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.snap.RetryingGetBlockAccessListsFromPeerTask;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -30,15 +29,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
 import com.google.common.annotations.VisibleForTesting;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class DownloadAndPersistBlockAccessListsStep
-    implements Function<
-        List<SyncBlockWithReceipts>, CompletableFuture<List<SyncBlockWithReceipts>>> {
-
-  private static final Logger LOG =
-      LoggerFactory.getLogger(DownloadAndPersistBlockAccessListsStep.class);
+    implements Function<List<BlockHeader>, CompletableFuture<List<BlockHeader>>> {
 
   private final DefaultBlockchain blockchain;
   private final Duration timeoutDuration;
@@ -54,7 +47,7 @@ public class DownloadAndPersistBlockAccessListsStep
         blockchain,
         timeoutDuration,
         balEnabledHeaders ->
-            RetryingGetBlockAccessListsFromPeerTask.forBlockAccessLists(
+            new RetryingGetBlockAccessListsFromPeerTask(
                     ethContext, balEnabledHeaders, metricsSystem)
                 .run());
   }
@@ -71,64 +64,83 @@ public class DownloadAndPersistBlockAccessListsStep
   }
 
   @Override
-  public CompletableFuture<List<SyncBlockWithReceipts>> apply(
-      final List<SyncBlockWithReceipts> syncBlocksWithReceipts) {
-    final List<BlockHeader> balEnabledHeaders =
-        syncBlocksWithReceipts.stream()
-            .map(SyncBlockWithReceipts::getHeader)
-            .filter(header -> header.getBalHash().isPresent())
-            .toList();
+  public CompletableFuture<List<BlockHeader>> apply(final List<BlockHeader> headers) {
+    validateAllHeadersBalEnabled(headers);
 
-    if (balEnabledHeaders.isEmpty()) {
-      return CompletableFuture.completedFuture(syncBlocksWithReceipts);
+    if (headers.isEmpty()) {
+      return CompletableFuture.completedFuture(headers);
     }
 
-    return blockAccessListDownloader
-        .apply(balEnabledHeaders)
-        .orTimeout(timeoutDuration.toMillis(), TimeUnit.MILLISECONDS)
-        .handle(
-            (blockAccessLists, error) -> {
-              if (error != null) {
-                LOG.warn(
-                    "Failed to download block access lists for {} headers; proceeding without them",
-                    balEnabledHeaders.size(),
-                    error);
-                return syncBlocksWithReceipts;
-              }
-              if (blockAccessLists == null) {
-                LOG.warn(
-                    "Received null block access list response for {} headers; proceeding without them",
-                    balEnabledHeaders.size());
-                return syncBlocksWithReceipts;
-              }
-              persistBlockAccessLists(balEnabledHeaders, blockAccessLists);
-              return syncBlocksWithReceipts;
-            });
+    final CompletableFuture<List<SyncBlockAccessList>> downloadFuture =
+        blockAccessListDownloader
+            .apply(headers)
+            .orTimeout(timeoutDuration.toMillis(), TimeUnit.MILLISECONDS);
+
+    return downloadFuture.thenApply(
+        blockAccessLists -> {
+          validateRequiredBlockAccessLists(headers, blockAccessLists);
+          persistBlockAccessLists(headers, blockAccessLists);
+          return headers;
+        });
+  }
+
+  private void validateAllHeadersBalEnabled(final List<BlockHeader> headers) {
+    final long missingBalHashCount =
+        headers.stream().filter(header -> header.getBalHash().isEmpty()).count();
+    if (missingBalHashCount == 0) {
+      return;
+    }
+
+    final BlockHeader firstMissingBalHashHeader =
+        headers.stream().filter(header -> header.getBalHash().isEmpty()).findFirst().orElseThrow();
+    throw new IllegalArgumentException(
+        "Expected all supplied headers to be BAL-enabled, but "
+            + missingBalHashCount
+            + " of "
+            + headers.size()
+            + " headers are missing BAL hashes. First missing header: block "
+            + firstMissingBalHashHeader.getNumber()
+            + " ("
+            + firstMissingBalHashHeader.getHash()
+            + ")");
+  }
+
+  private void validateRequiredBlockAccessLists(
+      final List<BlockHeader> balEnabledHeaders,
+      final List<SyncBlockAccessList> syncBlockAccessLists) {
+    if (syncBlockAccessLists == null) {
+      throw new IllegalStateException(
+          "Missing block access lists for " + balEnabledHeaders.size() + " BAL-enabled headers");
+    }
+    if (syncBlockAccessLists.size() < balEnabledHeaders.size()) {
+      throw new IllegalStateException(
+          "Downloaded "
+              + syncBlockAccessLists.size()
+              + " block access lists for "
+              + balEnabledHeaders.size()
+              + " BAL-enabled headers");
+    }
+    for (int i = 0; i < balEnabledHeaders.size(); i++) {
+      final SyncBlockAccessList syncBlockAccessList = syncBlockAccessLists.get(i);
+      if (syncBlockAccessList == null || syncBlockAccessList.isUnavailable()) {
+        throw new IllegalStateException(
+            "Missing required block access list for block "
+                + balEnabledHeaders.get(i).getNumber()
+                + " ("
+                + balEnabledHeaders.get(i).getHash()
+                + ")");
+      }
+    }
   }
 
   private void persistBlockAccessLists(
       final List<BlockHeader> balEnabledHeaders,
       final List<SyncBlockAccessList> syncBlockAccessLists) {
-    final int persistedCount = Math.min(balEnabledHeaders.size(), syncBlockAccessLists.size());
-    if (persistedCount != balEnabledHeaders.size()) {
-      LOG.warn(
-          "Downloaded {} block access lists for {} BAL-enabled headers; persisting available subset",
-          syncBlockAccessLists.size(),
-          balEnabledHeaders.size());
-    }
     final BlockchainStorage.Updater updater = blockchain.getBlockchainStorage().updater();
-    for (int i = 0; i < persistedCount; i++) {
+    for (int i = 0; i < balEnabledHeaders.size(); i++) {
       final BlockHeader header = balEnabledHeaders.get(i);
       final SyncBlockAccessList syncBlockAccessList = syncBlockAccessLists.get(i);
-      try {
-        updater.putSyncBlockAccessList(header.getHash(), syncBlockAccessList);
-      } catch (final Exception exception) {
-        LOG.warn(
-            "Failed to persist block access list for block {} ({}); continuing with remaining BALs",
-            header.getNumber(),
-            header.getHash(),
-            exception);
-      }
+      updater.putSyncBlockAccessList(header.getHash(), syncBlockAccessList);
     }
     updater.commit();
   }

@@ -18,7 +18,6 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.internal.Words;
@@ -63,7 +62,7 @@ class CountLeadingZerosOperationTest {
 
     when(frame.popStackItem()).thenReturn(input);
 
-    operation.executeFixedCostOperation(frame, mock(EVM.class));
+    operation.executeFixedCostOperation(frame);
     verify(frame).pushStackItem(expected);
   }
 }

@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
+import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
@@ -133,7 +134,7 @@ public class BlockchainReferenceTestTools {
     public static void executeTest(final String name, final BlockchainReferenceTestCaseSpec spec) {
       final MutableBlockchain blockchain = spec.buildBlockchain();
       final BlockHeader genesisBlockHeader = spec.getGenesisBlockHeader();
-        final ProtocolContext protocolContext = spec.buildProtocolContext(blockchain);
+        final ProtocolContext protocolContext = spec.buildProtocolContext(DataStorageConfiguration.DEFAULT_BONSAI_CONFIG, blockchain);
         final WorldStateArchive worldStateArchive = protocolContext.getWorldStateArchive();
         final MutableWorldState worldState =
                 worldStateArchive
@@ -230,7 +231,7 @@ public class BlockchainReferenceTestTools {
             }
         }
 
-        Assertions.assertThat(blockchain.getChainHeadHash()).isEqualTo(spec.getLastBlockHash());
+        assertThat(blockchain.getChainHeadHash()).isEqualTo(spec.getLastBlockHash());
 
   }
 

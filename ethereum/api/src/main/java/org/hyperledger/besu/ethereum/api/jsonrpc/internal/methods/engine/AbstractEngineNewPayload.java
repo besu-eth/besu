@@ -215,7 +215,7 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
           blockParam,
           mergeCoordinator.getLatestValidAncestor(blockParam.getParentHash()).orElse(null),
           INVALID,
-          "Invalid execution requests");
+          "Invalid execution requests: unknown request type");
     } catch (Exception ex) {
       return new JsonRpcErrorResponse(reqId, RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS);
     }
@@ -238,11 +238,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
           e.getMessage());
     }
 
-    if (mergeContext.get().isSyncing()) {
-      LOG.debug("We are syncing");
-      return respondWith(reqId, blockParam, null, SYNCING);
-    }
-
     final List<Transaction> transactions;
     try {
       transactions =
@@ -250,7 +245,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
               .map(Bytes::fromHexString)
               .map(in -> TransactionDecoder.decodeOpaqueBytes(in, EncodingContext.BLOCK_BODY))
               .toList();
-      precomputeSenders(transactions);
     } catch (final RLPException | IllegalArgumentException e) {
       return respondWithInvalid(
           reqId,
@@ -308,6 +302,15 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
       LOG.debug(errorMessage);
       return respondWithInvalid(reqId, blockParam, null, getInvalidBlockHashStatus(), errorMessage);
     }
+
+    mergeContext.get().fireNewPayloadEvent(newBlockHeader);
+
+    if (mergeContext.get().isSyncing()) {
+      LOG.debug("We are syncing");
+      return respondWith(reqId, blockParam, null, SYNCING);
+    }
+
+    precomputeSenders(transactions);
 
     final var blobTransactions =
         transactions.stream().filter(transaction -> transaction.getType().supportsBlob()).toList();

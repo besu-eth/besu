@@ -100,6 +100,7 @@ json-pretty-print-enabled=false
 cache-last-blocks=512
 cache-last-block-headers=5000
 cache-last-block-headers-preload-enabled=true
+tx-sender-nonce-index-enabled=false
 cache-precompiles=true
 rpc-gas-cap = 50000000
 rpc-max-trace-filter-range=100
@@ -228,6 +229,9 @@ bonsai-trie-logs-pruning-window-size=100_000
 receipt-compaction-enabled=true
 bonsai-parallel-tx-processing-enabled=false
 bonsai-parallel-state-root-computation-enabled=false
+Xbonsai-cross-block-cache-enabled=false
+Xbonsai-cross-block-cache-account-max-size=100
+Xbonsai-cross-block-cache-storage-max-size=100
 
 # feature flags
 Xsecp256k1-native-enabled=false

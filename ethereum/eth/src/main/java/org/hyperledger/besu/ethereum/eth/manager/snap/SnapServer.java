@@ -18,7 +18,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Synchronizer;
-import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
 import org.hyperledger.besu.ethereum.eth.manager.EthMessages;
 import org.hyperledger.besu.ethereum.eth.messages.snap.AccountRangeMessage;
 import org.hyperledger.besu.ethereum.eth.messages.snap.BlockAccessListsMessage;
@@ -109,6 +108,23 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final ProtocolContext protocolContext,
       final Synchronizer synchronizer) {
+    this(
+        snapConfig,
+        snapMessages,
+        worldStateStorageCoordinator,
+        protocolContext,
+        synchronizer,
+        ResponseSizePredicate.DEFAULT_MAX_MILLIS_PER_REQUEST);
+  }
+
+  @VisibleForTesting
+  SnapServer(
+      final SnapSyncConfiguration snapConfig,
+      final EthMessages snapMessages,
+      final WorldStateStorageCoordinator worldStateStorageCoordinator,
+      final ProtocolContext protocolContext,
+      final Synchronizer synchronizer,
+      final long maxMillisPerRequest) {
     this.snapServerEnabled =
         Optional.ofNullable(snapConfig)
             .map(SnapSyncConfiguration::isSnapServerEnabled)
@@ -116,7 +132,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
     this.snapMessages = snapMessages;
     this.worldStateStorageCoordinator = worldStateStorageCoordinator;
     this.protocolContext = Optional.of(protocolContext);
-    this.maxMillisPerRequest = ResponseSizePredicate.DEFAULT_MAX_MILLIS_PER_REQUEST;
+    this.maxMillisPerRequest = maxMillisPerRequest;
     registerResponseConstructors();
 
     // subscribe to initial sync completed events to start/stop snap server,
@@ -242,45 +258,40 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
     final GetBlockAccessListsMessage getBlockAccessLists =
         GetBlockAccessListsMessage.readFrom(message);
     final Iterable<Hash> blockHashes = getBlockAccessLists.blockHashes(true);
+    final int maxResponseBytes =
+        Math.min(getBlockAccessLists.responseBytes(true).intValue(), MAX_RESPONSE_SIZE);
 
-    int responseSizeEstimate = RLP.MAX_PREFIX_SIZE;
-    final BytesValueRLPOutput rlp = new BytesValueRLPOutput();
-    rlp.startList();
+    final StopWatch stopWatch = StopWatch.createStarted();
+    final List<Optional<BlockAccessList>> blockAccessLists = new ArrayList<>();
 
     final Optional<Blockchain> maybeBlockchain =
         protocolContext.map(ProtocolContext::getBlockchain);
 
     if (maybeBlockchain.isPresent()) {
       final var blockchain = maybeBlockchain.get();
-      int count = 0;
+      final ExceedingPredicate<Optional<BlockAccessList>> blockAccessListsResponseSizePredicate =
+          new ExceedingPredicate<>(
+              new ResponseSizePredicate<>(
+                  "block access lists",
+                  stopWatch,
+                  maxResponseBytes,
+                  maxMillisPerRequest,
+                  SnapServer::calculateBlockAccessListEncodedSize));
       for (final Hash blockHash : blockHashes) {
-        if (count >= MAX_ENTRIES_PER_REQUEST) {
-          break;
-        }
-        count++;
-
         final Optional<BlockAccessList> maybeBlockAccessList =
             blockchain.getBlockAccessList(blockHash);
-        final BytesValueRLPOutput balOutput = new BytesValueRLPOutput();
-        if (maybeBlockAccessList.isPresent()) {
-          BlockAccessListEncoder.encode(maybeBlockAccessList.get(), balOutput);
-        } else {
-          // Empty lists are returned for blocks where the BAL is unavailable.
-          balOutput.startList();
-          balOutput.endList();
+
+        if (blockAccessListsResponseSizePredicate.test(maybeBlockAccessList)) {
+          blockAccessLists.add(maybeBlockAccessList);
         }
 
-        final int encodedSize = balOutput.encodedSize();
-        if (responseSizeEstimate + encodedSize > MAX_RESPONSE_SIZE) {
+        if (!blockAccessListsResponseSizePredicate.shouldGetMore()) {
           break;
         }
-        responseSizeEstimate += encodedSize;
-        rlp.writeRaw(balOutput.encoded());
       }
     }
-    rlp.endList();
 
-    return BlockAccessListsMessage.createUnsafe(rlp.encoded());
+    return BlockAccessListsMessage.create(blockAccessLists);
   }
 
   MessageData constructGetAccountRangeResponse(final MessageData message) {
@@ -802,5 +813,18 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
   private static String asLogHash(final Bytes32 hash) {
     var str = hash.toHexString();
     return str.substring(0, 4) + ".." + str.substring(59, 63);
+  }
+
+  private static int calculateBlockAccessListEncodedSize(
+      final Optional<BlockAccessList> maybeBlockAccessList) {
+    if (maybeBlockAccessList.isEmpty()) {
+      return 1;
+    }
+    final BlockAccessList blockAccessList = maybeBlockAccessList.get();
+    if (blockAccessList.rawRlp().isPresent()) {
+      return blockAccessList.rawRlp().get().size();
+    } else {
+      throw new IllegalStateException("Expected BAL read from storage to contain RLP bytes");
+    }
   }
 }

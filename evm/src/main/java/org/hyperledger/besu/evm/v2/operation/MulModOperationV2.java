@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.evm.v2.operation;
 
-import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.UInt256;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -35,8 +34,7 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
   }
 
   @Override
-  public Operation.OperationResult executeFixedCostOperation(
-      final MessageFrame frame, final EVM evm) {
+  public Operation.OperationResult executeFixedCostOperation(final MessageFrame frame) {
     return staticOperation(frame);
   }
 
@@ -51,9 +49,9 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
   public static OperationResult staticOperation(final MessageFrame frame) {
     if (!frame.stackHasItemsV2(3)) return UNDERFLOW_RESPONSE;
     int top = frame.stackTopV2();
-    final int aOffset = (--top) << 2;
-    final int bOffset = (--top) << 2;
-    final int mOffset = (--top) << 2;
+    final int aOffset = (top - 1) << 2;
+    final int bOffset = (top - 2) << 2;
+    final int mOffset = (top - 3) << 2;
 
     final long[] stack = frame.stackDataV2();
     final UInt256 valueA =
@@ -70,7 +68,7 @@ public class MulModOperationV2 extends AbstractFixedCostOperationV2 {
     stack[mOffset + 2] = r.u1();
     stack[mOffset + 3] = r.u0();
 
-    frame.setTopV2(++top);
+    frame.setTopV2(top - 2);
     return MUL_MOD_SUCCESS;
   }
 }
