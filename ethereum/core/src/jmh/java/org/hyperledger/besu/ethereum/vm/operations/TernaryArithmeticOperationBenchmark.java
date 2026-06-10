@@ -23,14 +23,25 @@ import org.openjdk.jmh.annotations.Setup;
 public abstract class TernaryArithmeticOperationBenchmark extends TernaryOperationBenchmark {
 
   private static class Case {
+    /** Marker value for {@link #cSizeBytes} when the modulus is a known power of two. */
+    static final int C_POWER_OF_TWO = -2;
+
     final int aSizeBytes;
     final int bSizeBytes;
     final int cSizeBytes;
 
+    /** Set when {@link #cSizeBytes} == {@link #C_POWER_OF_TWO}; the bit position N for 2^N. */
+    final int cPow2Bit;
+
     private Case(final int aSize, final int bSize, final int cSize) {
+      this(aSize, bSize, cSize, -1);
+    }
+
+    private Case(final int aSize, final int bSize, final int cSize, final int cPow2Bit) {
       this.aSizeBytes = aSize;
       this.bSizeBytes = bSize;
       this.cSizeBytes = cSize;
+      this.cPow2Bit = cPow2Bit;
     }
 
     static Case fromString(final String opcodeName, final String caseName) {
@@ -39,6 +50,15 @@ public abstract class TernaryArithmeticOperationBenchmark extends TernaryOperati
         if (splitString.length < 4 || !opcodeName.equalsIgnoreCase(splitString[0])) {
           throw new IllegalArgumentException();
         }
+        // `<opcode>_<aSize>_<bSize>_POW2_<N>` builds the modulus as 2^N (e.g. address mask 2^160).
+        if (splitString[3].startsWith("POW2_")) {
+          int bit = Integer.parseInt(splitString[3].substring(5));
+          if (bit < 1 || bit > 255) {
+            throw new IllegalArgumentException("POW2 bit position must be in [1, 255]");
+          }
+          return new Case(
+              parseSizeBytes(splitString[1]), parseSizeBytes(splitString[2]), C_POWER_OF_TWO, bit);
+        }
         return new Case(
             parseSizeBytes(splitString[1]),
             parseSizeBytes(splitString[2]),
@@ -46,8 +66,9 @@ public abstract class TernaryArithmeticOperationBenchmark extends TernaryOperati
       } catch (IllegalArgumentException t) {
         throw new IllegalArgumentException(
             String.format(
-                "%s must have the format [%s_size_size_size] where size is #bits",
-                caseName, opcodeName));
+                "%s must have the format [%s_size_size_size] or [%s_size_size_POW2_N],"
+                    + " where size is #bits and N is a bit position in [1, 255]",
+                caseName, opcodeName, opcodeName));
       }
     }
 
@@ -89,7 +110,21 @@ public abstract class TernaryArithmeticOperationBenchmark extends TernaryOperati
       bPool[i] = Bytes.wrap(b);
       cPool[i] = Bytes.wrap(c);
     }
+
+    // Replace random c values with the chosen 2^N modulus. setUp is not on the measured path.
+    if (scenario.cSizeBytes == Case.C_POWER_OF_TWO) {
+      final Bytes pow2Modulus = pow2(scenario.cPow2Bit);
+      for (int i = 0; i < cPool.length; i++) {
+        cPool[i] = pow2Modulus;
+      }
+    }
     index = 0;
+  }
+
+  private static Bytes pow2(final int n) {
+    final byte[] bytes = new byte[32];
+    bytes[31 - (n >>> 3)] = (byte) (1 << (n & 7));
+    return Bytes.wrap(bytes);
   }
 
   /**
