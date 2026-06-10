@@ -185,6 +185,17 @@ public class SnapV2StorageRangeRequest extends SnapV2DataRequest {
     return stackTrie.getElement(startKeyHash).keys();
   }
 
+  public SnapV2StorageRangeRequest retarget(
+      final BlockHeader newPivotBlockHeader, final Bytes32 newStorageRoot) {
+    return new SnapV2StorageRangeRequest(
+        newPivotBlockHeader,
+        Bytes32.wrap(accountHash.getBytes()),
+        newStorageRoot,
+        startKeyHash,
+        endKeyHash,
+        getRangeStart());
+  }
+
   public Bytes32 getStartKeyHash() {
     return startKeyHash;
   }
