@@ -63,7 +63,14 @@ public class AddModOperationBenchmark extends TernaryArithmeticOperationBenchmar
     "ADDMOD_64_64_128",
     "ADDMOD_192_192_256",
     "ADDMOD_128_256_0",
-    "ADDMOD_RANDOM_RANDOM_RANDOM"
+    "ADDMOD_RANDOM_RANDOM_RANDOM",
+    // Power-of-two moduli (2^N): exercises each UInt256.addMod dispatch branch.
+    "ADDMOD_256_256_POW2_8",
+    "ADDMOD_256_256_POW2_64",
+    "ADDMOD_256_256_POW2_128",
+    "ADDMOD_256_256_POW2_160",
+    "ADDMOD_256_256_POW2_192",
+    "ADDMOD_256_256_POW2_240"
   })
   private String caseName;
 
