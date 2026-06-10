@@ -267,7 +267,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       final Bytes updated = v.getUpdated();
       if (!Objects.equals(prior, updated) && !(isCodeEmpty(prior) && isCodeEmpty(updated))) {
         codeCount++;
-        codeBytesWritten += updated.size();
+        if (updated != null) codeBytesWritten += updated.size();
       }
     }
 
