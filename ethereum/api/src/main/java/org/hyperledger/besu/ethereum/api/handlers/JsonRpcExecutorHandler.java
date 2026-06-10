@@ -80,12 +80,12 @@ public class JsonRpcExecutorHandler {
                           "{} - Connection closed before JSON-RPC response could be written",
                           method);
                     } else {
-                      final String requestBodyAsJson =
-                          ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name()).toString();
                       LOG.error("{} - Error streaming JSON-RPC response", method, e);
                       LOG.atTrace()
                           .setMessage("{} - Error streaming JSON-RPC response")
-                          .addArgument(requestBodyAsJson)
+                          .addArgument(
+                              () ->
+                                  ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name()).toString())
                           .log();
                       handleErrorAndEndResponse(ctx, null, RpcErrorType.INTERNAL_ERROR);
                     }
