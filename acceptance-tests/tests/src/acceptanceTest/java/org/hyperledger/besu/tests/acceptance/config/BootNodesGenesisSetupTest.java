@@ -69,7 +69,7 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
   @AfterEach
   @Override
   public void tearDownAcceptanceTestBase() {
-    noDiscoveryCluster.stop();
+    noDiscoveryCluster.close();
     super.tearDownAcceptanceTestBase();
   }
 
@@ -187,6 +187,7 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
                         "{\"config\":{\"ethash\":{},%s},\"gasLimit\":\"0x1\",\"difficulty\":\"0x1\"}",
                         discoverySection)))
         .bootnodeEligible(false)
+        .discoveryV5Enabled(true)
         .jsonRpcEnabled()
         .jsonRpcAdmin();
   }
