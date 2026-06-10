@@ -36,7 +36,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.lang.ProcessBuilder.Redirect;
-import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -205,7 +204,7 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
 
     if (!node.getBootnodes().isEmpty()) {
       params.add("--bootnodes");
-      params.add(node.getBootnodes().stream().map(URI::toString).collect(Collectors.joining(",")));
+      params.add(String.join(",", node.getBootnodes()));
     }
 
     if (node.hasStaticNodes()) {
