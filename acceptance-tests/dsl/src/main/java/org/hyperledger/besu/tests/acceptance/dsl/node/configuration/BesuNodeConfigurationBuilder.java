@@ -84,7 +84,7 @@ public class BesuNodeConfigurationBuilder {
   private Boolean p2pEnabled = true;
   private int p2pPort = 0;
   private boolean discoveryEnabled = true;
-  private boolean discoveryV5Enabled = true;
+  private boolean discoveryV5Enabled = false;
   private boolean bootnodeEligible = true;
   private boolean revertReasonEnabled = false;
   private NetworkDefinition network = null;

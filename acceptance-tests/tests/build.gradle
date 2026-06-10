@@ -53,7 +53,6 @@ testing {
 
         implementation 'commons-io:commons-io'
         implementation 'com.google.guava:guava'
-        implementation 'io.consensys.protocols:discovery'
         implementation 'com.google.protobuf:protobuf-java'
         implementation 'io.grpc:grpc-all'
         implementation 'io.netty:netty-handler'

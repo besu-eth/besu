@@ -14,12 +14,12 @@
  */
 package org.hyperledger.besu.tests.acceptance.config;
 
-import org.hyperledger.besu.crypto.Hash;
+import static org.assertj.core.api.Assertions.assertThat;
+
 import org.hyperledger.besu.crypto.KeyPair;
 import org.hyperledger.besu.crypto.SECPPrivateKey;
 import org.hyperledger.besu.crypto.SECPPublicKey;
 import org.hyperledger.besu.crypto.SignatureAlgorithm;
-import org.hyperledger.besu.crypto.SignatureAlgorithmFactory;
 import org.hyperledger.besu.tests.acceptance.dsl.AcceptanceTestBase;
 import org.hyperledger.besu.tests.acceptance.dsl.node.Node;
 import org.hyperledger.besu.tests.acceptance.dsl.node.cluster.Cluster;
@@ -27,20 +27,13 @@ import org.hyperledger.besu.tests.acceptance.dsl.node.cluster.ClusterConfigurati
 import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.BesuNodeConfigurationBuilder;
 
 import java.net.ServerSocket;
-import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
-import com.google.common.net.InetAddresses;
-import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.apache.tuweni.units.bigints.UInt64;
 import org.bouncycastle.asn1.sec.SECNamedCurves;
 import org.bouncycastle.asn1.x9.X9ECParameters;
 import org.bouncycastle.crypto.params.ECDomainParameters;
-import org.ethereum.beacon.discovery.schema.EnrField;
-import org.ethereum.beacon.discovery.schema.IdentitySchema;
-import org.ethereum.beacon.discovery.schema.NodeRecord;
-import org.ethereum.beacon.discovery.schema.NodeRecordFactory;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -129,14 +122,20 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
             Bytes32.fromHexString(
                 "0xc87509a1c067bbde78beb793e6fa76530b6382a4c0241e5e4a9ec0a0f44dc0d3"));
 
-    final String nodeAEnr = buildBootnodeEnr(nodeAKeyPair, nodeAPort, nodeAPort);
-
+    // Start nodeA first with no genesis bootnodes — it just listens for incoming connections
     final Node nodeA =
         besu.createNode("nodeA", b -> configureV5Node(b, nodeAPort, nodeAKeyPair, null));
+    noDiscoveryCluster.addNode(nodeA);
+
+    // Get nodeA's actual ENR from the running node so we use the exact ENR Besu generated
+    final Map<String, Object> nodeAInfo = nodeA.execute(admin.nodeInfo());
+    final String nodeAEnr = (String) nodeAInfo.get("enr");
+    assertThat(nodeAEnr).isNotNull().startsWith("enr:");
+
+    // Start nodeB with nodeA's real ENR as the genesis V5 bootnode
     final Node nodeB =
         besu.createNode("nodeB", b -> configureV5Node(b, nodeBPort, nodeBKeyPair, nodeAEnr));
-
-    noDiscoveryCluster.start(nodeA, nodeB);
+    noDiscoveryCluster.addNode(nodeB);
 
     nodeA.verify(net.awaitPeerCount(1));
     nodeA.verify(admin.hasPeer(nodeB));
@@ -190,23 +189,5 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
         .discoveryV5Enabled(true)
         .jsonRpcEnabled()
         .jsonRpcAdmin();
-  }
-
-  private String buildBootnodeEnr(final KeyPair keyPair, final int udpPort, final int tcpPort) {
-    final SignatureAlgorithm algo = SignatureAlgorithmFactory.getInstance();
-    final List<EnrField> fields =
-        List.of(
-            new EnrField(EnrField.ID, IdentitySchema.V4),
-            new EnrField(algo.getCurveName(), algo.compressPublicKey(keyPair.getPublicKey())),
-            new EnrField(
-                EnrField.IP_V4, Bytes.of(InetAddresses.forString("127.0.0.1").getAddress())),
-            new EnrField(EnrField.TCP, tcpPort),
-            new EnrField(EnrField.UDP, udpPort));
-    final NodeRecord record = NodeRecordFactory.DEFAULT.createFromValues(UInt64.ONE, fields);
-    record.setSignature(
-        algo.sign(Hash.keccak256(record.serializeNoSignature()), keyPair)
-            .encodedBytes()
-            .slice(0, 64));
-    return record.asEnr();
   }
 }
