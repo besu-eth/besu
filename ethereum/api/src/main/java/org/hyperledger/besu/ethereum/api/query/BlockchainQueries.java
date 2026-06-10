@@ -149,17 +149,14 @@ public class BlockchainQueries {
             : Optional.empty();
     this.apiConfig = apiConfig;
     this.miningConfiguration = miningConfiguration;
-    // Warm the fee oracle off the block-import thread when a scheduler is available. The
-    // request-time path below still self-heals on cold miss, so constructors without a scheduler
-    // avoid adding an observer that wakes up on every imported block.
+    // Warm the fee oracle off the block-import thread when a scheduler is available; the
+    // request-time path still self-heals on cold miss.
     ethScheduler.ifPresent(ignored -> blockchain.observeBlockAdded(this::refreshFeeOracleSnapshot));
   }
 
-  // Pre-computed at block-import time so eth_gasPrice and eth_maxPriorityFeePerGas don't have to
-  // re-scan the last 100 blocks per request. Keyed on the head's block hash so any stale read
-  // (e.g. mid-reorg) falls through to a live recompute instead of returning the wrong value.
-  // Only the RAW percentile sample is stored — bounds are re-applied on every read using the
-  // current mining configuration, preserving the original race-free behaviour of
+  // Per-head raw percentile samples for eth_gasPrice / eth_maxPriorityFeePerGas, keyed on the
+  // head hash so a stale read (e.g. mid-reorg) falls through to a live recompute. Bounds are
+  // re-applied per read from the current mining config, preserving the race-free behaviour of
   // miner_setMinGasPrice / miner_setMinPriorityFee.
   private record FeeOracleSnapshot(
       Hash headHash, Optional<Wei> rawGasPriceSample, Optional<Wei> rawPrioritySample) {}
@@ -185,9 +182,7 @@ public class BlockchainQueries {
       if (blockchain.getChainHeadHash().equals(headHash)) {
         maybeSnapshot.ifPresent(feeOracleRef::set);
       }
-      // If the head changed away and back while this task was queued, a stale write is still safe:
-      // the snapshot is keyed by head hash and stale entries are dropped by getOrCompute... on
-      // read.
+      // A stale write is safe: the snapshot is head-hash-keyed and dropped on read if stale.
     } catch (RuntimeException e) {
       LOG.warn("Failed to precompute fee oracle for new head {}", chainHeadHeader.toLogString(), e);
     }
@@ -1129,8 +1124,6 @@ public class BlockchainQueries {
 
   public Wei gasPrice() {
     final BlockHeader chainHeadHeader = blockchain.getChainHeadHeader();
-    // Resolve next-block specs from chain time, not the wall clock: the system clock is not a
-    // trusted time source (and its milliseconds would activate future timestamp forks early).
     final FeeMarket nextBlockFeeMarket =
         protocolSchedule
             .getForNextBlockHeader(chainHeadHeader, chainHeadHeader.getTimestamp())
@@ -1183,13 +1176,9 @@ public class BlockchainQueries {
     return UInt256s.max(miningConfiguration.getMinPriorityFeePerGas(), rawSample.get());
   }
 
-  /**
-   * Returns the raw percentile gas-price sample for the current chain head, hitting the
-   * pre-computed snapshot when the head matches. On miss (startup, or a request that arrives after
-   * a head change but before the BlockAddedObserver has refreshed the snapshot) it computes both
-   * samples live and seeds the snapshot for subsequent callers — this is what makes the cold path
-   * self-healing: only one request per head change pays the scan cost.
-   */
+  // Returns the raw gas-price sample for the chain head from the snapshot, or computes and seeds
+  // it on miss (startup / before the observer refreshes), so only one request per head pays the
+  // scan.
   private Optional<Wei> getOrComputeGasPriceSample(final BlockHeader chainHeadHeader) {
     return getOrComputeFeeOracleSample(chainHeadHeader, FeeOracleSnapshot::rawGasPriceSample);
   }
@@ -1209,12 +1198,9 @@ public class BlockchainQueries {
     return computeAndCacheSnapshot(chainHeadHeader).flatMap(sampleSelector);
   }
 
-  /**
-   * Computes both fee oracle samples for the given chain head in a single body scan and publishes
-   * them to the snapshot. Multiple concurrent callers may all run this on a cold miss; that just
-   * wastes a few duplicate scans (the last writer wins on the AtomicReference set), it doesn't race
-   * — each result is the deterministic function of an immutable block hash.
-   */
+  // Computes both samples in one body scan and publishes them. Concurrent cold-miss callers only
+  // waste duplicate scans (last writer wins); they don't race, as each result is a function of the
+  // immutable head hash.
   private Optional<FeeOracleSnapshot> computeAndCacheSnapshot(final BlockHeader chainHeadHeader) {
     final Optional<FeeOracleSnapshot> snap = computeSnapshot(chainHeadHeader);
     snap.ifPresent(feeOracleRef::set);
@@ -1231,8 +1217,8 @@ public class BlockchainQueries {
     for (final BlockHeader header : headers) {
       final Optional<BlockBody> maybeBody = blockchain.getBlockBody(header.getBlockHash());
       if (maybeBody.isEmpty()) {
-        // A partial window would bias the percentile. Prefer no snapshot so callers fall back to
-        // configured lower bounds instead of returning a misleading estimate or surfacing a 500.
+        // A partial window would bias the percentile; return no snapshot so callers fall back to
+        // the configured lower bound.
         return Optional.empty();
       }
       final BlockBody body = maybeBody.get();

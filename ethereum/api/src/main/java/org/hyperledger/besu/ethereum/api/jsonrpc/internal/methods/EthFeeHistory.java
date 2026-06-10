@@ -64,22 +64,18 @@ public class EthFeeHistory implements JsonRpcMethod {
   private final ApiConfiguration apiConfiguration;
   // Per-block raw reward percentiles, keyed by (block hash, sorted percentile list).
   private final MemoryBoundCache<RewardCacheKey, List<Wei>> perBlockRewardsCache;
-  // Result cache for the common "latest, N blocks, fixed percentile set" pattern. Keyed on the
-  // chain head hash plus the normalized request shape, so a head advance or reorg cleanly
-  // obsoletes old-head entries. Only "latest" requests use it; historical queries recompute.
+  // Full results for "latest" requests, keyed on head hash + request shape; historical queries
+  // are not cached.
   private final MemoryBoundCache<ResultCacheKey, FeeHistory.FeeHistoryResult> resultCache;
-  // Entry sizes vary with percentile-list length and block range, so both caches are bounded by
-  // an approximate-bytes weigher (key + value) rather than an entry count.
+  // Entry size varies with percentile count and block range, so both caches are byte-bounded.
   private static final long PER_BLOCK_REWARDS_CACHE_MAX_BYTES = 32L * 1024 * 1024;
-  // Keeps the hot "latest" request shapes for a few heads without becoming a historical cache.
   private static final long RESULT_CACHE_MAX_BYTES = 16L * 1024 * 1024;
   private static final int MAXIMUM_QUERY_PERCENTILES = 100;
 
   record RewardCacheKey(Hash blockHash, List<Double> rewardPercentiles) {}
 
-  // Captures the live mining-config snapshot (miner_setMinGasPrice / miner_setMinPriorityFee)
-  // once per request; including it in the cache key keeps cached results race-free against
-  // mid-flight config changes.
+  // Per-request mining-config snapshot; part of the cache key so a mid-flight
+  // miner_setMinGasPrice / miner_setMinPriorityFee can't leak a stale bounded result.
   record RewardBounds(Wei lowerBoundGasPrice, Wei minPriorityFee) {}
 
   record ResultCacheKey(
@@ -90,15 +86,13 @@ public class EthFeeHistory implements JsonRpcMethod {
       HardforkId nextBlockHardforkId) {}
 
   private static int perBlockRewardsEntryWeight(final RewardCacheKey key, final List<Wei> rewards) {
-    // Approximate retained bytes: block hash + record/list headers, one boxed Double per key
-    // percentile, one Wei per reward.
+    // Approximate retained bytes.
     return 128 + 32 * key.rewardPercentiles().size() + 80 * rewards.size();
   }
 
   private static int resultEntryWeight(
       final ResultCacheKey key, final FeeHistory.FeeHistoryResult result) {
-    // Approximate retained bytes: ~64B per hex quantity string, ~32B per boxed double; the reward
-    // matrix (blockCount × percentiles) dominates. The fixed 256 covers the key and list headers.
+    // Approximate retained bytes; the reward matrix (blockCount × percentiles) dominates.
     int weight =
         256
             + 32 * key.sortedRewardPercentiles().map(List::size).orElse(0)
@@ -179,8 +173,8 @@ public class EthFeeHistory implements JsonRpcMethod {
             .filter(list -> list.size() <= MAXIMUM_QUERY_PERCENTILES)
             .map(percentiles -> percentiles.stream().sorted().toList());
 
-    // Only cache "latest" lookups. Historic block queries are rare and would flood the cache
-    // with single-use entries — better to recompute them.
+    // Only "latest" lookups are cached; historic queries would flood the cache with single-use
+    // entries.
     final boolean isLatestRequest = highestBlockNumber == chainHeadBlockNumber;
     final Optional<RewardBounds> rewardBounds =
         sortedRewardPercentiles.isPresent() && apiConfiguration.isGasAndPriorityFeeLimitingEnabled()
@@ -189,8 +183,6 @@ public class EthFeeHistory implements JsonRpcMethod {
                     blockchainQueries.gasPriceLowerBound(),
                     miningCoordinator.getMinPriorityFeePerGas()))
             : Optional.empty();
-    // Resolve the next block's spec from chain time, not the wall clock: the system clock is not
-    // a trusted time source (and its milliseconds would activate future timestamp forks early).
     final ProtocolSpec nextBlockProtocolSpec =
         protocolSchedule.getForNextBlockHeader(chainHeadHeader, chainHeadHeader.getTimestamp());
     final ResultCacheKey resultCacheKey =
@@ -268,10 +260,8 @@ public class EthFeeHistory implements JsonRpcMethod {
       final List<Wei> explicitlyRequestedBaseFees,
       final List<BlockHeader> blockHeaders) {
     final long nextBlockNumber = resolvedHighestBlockNumber + 1;
-    // When the highestBlock argument is "latest" (the overwhelming common case) nextBlockNumber
-    // is strictly greater than chainHead — the block doesn't exist yet, so skip the RocksDB
-    // round-trip and go straight to compute. Only the rare "feeHistory at a historical block"
-    // path needs the storage read.
+    // For "latest" (the common case) nextBlockNumber > chainHead, so the block doesn't exist yet:
+    // compute directly and skip the storage read. Only historical-block queries need the lookup.
     if (nextBlockNumber > chainHeadHeader.getNumber()) {
       return computeNextBaseFee(
           nextBlockNumber, chainHeadHeader, explicitlyRequestedBaseFees, blockHeaders);
@@ -326,10 +316,9 @@ public class EthFeeHistory implements JsonRpcMethod {
   private Optional<List<Wei>> calculateBlockHeaderReward(
       final List<Double> sortedPercentiles, final BlockHeader blockHeader) {
 
-    // Cache only the unbounded rewards. Request-specific bounding (which depends on the live
-    // miner_setMinGasPrice / miner_setMinPriorityFee snapshot) is applied by the caller via
-    // boundRewardsWithSnapshot — this keeps the cache entry pure (function of immutable block
-    // state) and lets miner-config changes take effect on the next request without invalidation.
+    // Cache only unbounded rewards (a pure function of immutable block state); the caller applies
+    // request-specific bounds via boundRewardsWithSnapshot, so miner-config changes need no
+    // invalidation.
     final RewardCacheKey key = new RewardCacheKey(blockHeader.getBlockHash(), sortedPercentiles);
 
     return Optional.ofNullable(perBlockRewardsCache.getIfPresent(key))
@@ -471,9 +460,8 @@ public class EthFeeHistory implements JsonRpcMethod {
       final List<Transaction> transactions,
       final long[] transactionsGasUsed,
       final Optional<Wei> baseFee) {
-    // Build a TransactionInfo[] directly and sort with a direct comparator instead of
-    // Streams.zip + Comparator.comparing — drops the stream-pipeline boxing on the hot path
-    // when feeHistory carries reward percentiles for big block ranges.
+    // Direct array + comparator instead of Streams.zip + Comparator.comparing: avoids
+    // stream-pipeline boxing on the hot path for large reward-percentile ranges.
     final int n = transactions.size();
     final TransactionInfo[] info = new TransactionInfo[n];
     for (int i = 0; i < n; i++) {
@@ -491,10 +479,8 @@ public class EthFeeHistory implements JsonRpcMethod {
   }
 
   private List<BlockHeader> getBlockHeaders(final long oldestBlock, final long lastBlock) {
-    // Use the bulk Blockchain API: one number→hash translation at the high end, then walk
-    // parent hashes for the remaining headers. With the in-memory header cache each step is
-    // a microsecond cache hit. Replaces the per-block number→hash translation that the
-    // parallel LongStream did.
+    // Bulk API: one number→hash translation at the high end, then walk parent hashes (each an
+    // in-memory header-cache hit). Replaces the per-block number→hash translation.
     final int count = (int) (lastBlock - oldestBlock);
     if (count <= 0) {
       return List.of();
@@ -514,12 +500,9 @@ public class EthFeeHistory implements JsonRpcMethod {
       // Keep return mutability consistent for Error Prone's MixedMutabilityReturnType check.
       return new ArrayList<>();
     }
-    // The requested headers arrive sorted from oldest to newest, so the parent of
-    // blockHeaders[i+1] is exactly blockHeaders[i]. Reuse the in-memory previous header
-    // instead of issuing one parent-hash storage read per block — that one optimization
-    // eliminates `blockHeaders.size()-1` redundant RocksDB lookups per request (255 on
-    // feeHistory-256). The first header still needs a real parent lookup since its parent
-    // isn't part of the requested range.
+    // Headers are sorted oldest→newest, so blockHeaders[i] is the parent of blockHeaders[i+1].
+    // Reuse it instead of a per-block parent-hash storage read; only the first header needs a
+    // real parent lookup.
     final List<Wei> baseFeesPerBlobGas = new ArrayList<>(blockHeaders.size() + 1);
     BlockHeader previous = null;
     for (final BlockHeader header : blockHeaders) {
