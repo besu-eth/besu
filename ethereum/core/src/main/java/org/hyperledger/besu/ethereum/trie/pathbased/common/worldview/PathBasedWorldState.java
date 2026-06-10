@@ -260,7 +260,10 @@ public abstract class PathBasedWorldState
           // push net write counts before the accumulator is reset
           final var writeCounts = accumulator.computeBlockWriteCounts();
           maybeSlowBlockTracer.addStateWriteCounts(
-              writeCounts.accounts(), writeCounts.storageSlots(), writeCounts.code());
+              writeCounts.accounts(),
+              writeCounts.storageSlots(),
+              writeCounts.code(),
+              writeCounts.codeBytes());
         }
 
         accumulator.reset();

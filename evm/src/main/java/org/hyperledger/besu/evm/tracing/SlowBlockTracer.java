@@ -84,6 +84,7 @@ public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
   private int accountWrites;
   private int storageWrites;
   private int codeWrites;
+  private int codeBytesWritten;
 
   /** Supports slow block timing metrics, distinct from BlockAwareOperationTracer */
   public void traceStartBlock() {
@@ -187,11 +188,14 @@ public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
    * @param accounts number of account entries that changed (including deletions)
    * @param storageSlots number of storage slot entries that changed (including deletions)
    * @param code number of code entries that changed (including deletions)
+   * @param codeBytes number of bytes of code written
    */
-  public void addStateWriteCounts(final int accounts, final int storageSlots, final int code) {
+  public void addStateWriteCounts(
+      final int accounts, final int storageSlots, final int code, final int codeBytes) {
     accountWrites = accounts;
     storageWrites = storageSlots;
     codeWrites = code;
+    codeBytesWritten = codeBytes;
   }
 
   @Override
@@ -276,6 +280,7 @@ public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
       stateWritesNode.put("accounts", accountWrites);
       stateWritesNode.put("storage_slots", storageWrites);
       stateWritesNode.put("code", codeWrites);
+      stateWritesNode.put("code_bytes", codeBytesWritten);
 
       final ObjectNode cacheNode = json.putObject("cache");
       final ObjectNode accountCacheNode = cacheNode.putObject("account");

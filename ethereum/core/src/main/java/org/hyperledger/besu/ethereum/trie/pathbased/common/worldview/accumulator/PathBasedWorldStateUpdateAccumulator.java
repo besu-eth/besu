@@ -83,7 +83,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
   protected StateAccessTracer stateAccessTracer;
 
   /** Write counts returned by {@link #computeBlockWriteCounts()}. */
-  public record StateWriteCounts(int accounts, int storageSlots, int code) {}
+  public record StateWriteCounts(int accounts, int storageSlots, int code, int codeBytes) {}
 
   public PathBasedWorldStateUpdateAccumulator(
       final PathBasedWorldView world,
@@ -261,15 +261,17 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     }
 
     int codeCount = 0;
+    int codeBytesWritten = 0;
     for (final PathBasedValue<Bytes> v : codeToUpdate.values()) {
       final Bytes prior = v.getPrior();
       final Bytes updated = v.getUpdated();
       if (!Objects.equals(prior, updated) && !(isCodeEmpty(prior) && isCodeEmpty(updated))) {
         codeCount++;
+        codeBytesWritten += updated.size();
       }
     }
 
-    return new StateWriteCounts(accountCount, storageCount, codeCount);
+    return new StateWriteCounts(accountCount, storageCount, codeCount, codeBytesWritten);
   }
 
   private static boolean isCodeEmpty(final Bytes code) {
