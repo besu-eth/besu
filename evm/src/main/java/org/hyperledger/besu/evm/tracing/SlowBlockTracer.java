@@ -286,12 +286,15 @@ public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
       final ObjectNode accountCacheNode = cacheNode.putObject("account");
       accountCacheNode.put("hits", accountCacheHits);
       accountCacheNode.put("misses", accountCacheMisses);
+      accountCacheNode.put("hit_rate", calculateHitRate(accountCacheHits, accountCacheMisses));
       final ObjectNode storageCacheNode = cacheNode.putObject("storage");
       storageCacheNode.put("hits", storageCacheHits);
       storageCacheNode.put("misses", storageCacheMisses);
+      storageCacheNode.put("hit_rate", calculateHitRate(storageCacheHits, storageCacheMisses));
       final ObjectNode codeCacheNode = cacheNode.putObject("code");
       codeCacheNode.put("hits", codeCacheHits);
       codeCacheNode.put("misses", codeCacheMisses);
+      codeCacheNode.put("hit_rate", calculateHitRate(codeCacheHits, codeCacheMisses));
 
       SLOW_BLOCK_LOG.warn(JSON_MAPPER.writeValueAsString(json));
     } catch (JsonProcessingException e) {
@@ -314,5 +317,20 @@ public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
       return 0.00;
     }
     return (gasUsed / 1_000_000.0) / (totalTimeNanos / 1_000_000_000.0);
+  }
+
+  /**
+   * Calculates the cache hit rate as a percentage.
+   *
+   * @param hits the number of cache hits
+   * @param misses the number of cache misses
+   * @return the hit rate as a percentage (0-100)
+   */
+  private static double calculateHitRate(final long hits, final long misses) {
+    final long total = hits + misses;
+    if (total > 0) {
+      return Math.round((hits * 100.0) / total * 100.0) / 100.0;
+    }
+    return 0.0;
   }
 }
