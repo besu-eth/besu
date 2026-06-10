@@ -274,8 +274,16 @@ public class WebSocketConfiguration {
     this.keyStorePasswordFile = Optional.ofNullable(keyStorePasswordFile);
   }
 
+  public Optional<String> getKeyStorePasswordFile() {
+    return keyStorePasswordFile;
+  }
+
   public void setTrustStorePasswordFile(final String trustStorePasswordFile) {
     this.trustStorePasswordFile = Optional.ofNullable(trustStorePasswordFile);
+  }
+
+  public Optional<String> getTrustStorePasswordFile() {
+    return trustStorePasswordFile;
   }
 
   private String loadPasswordFromFile(final String passwordFile) throws IOException {

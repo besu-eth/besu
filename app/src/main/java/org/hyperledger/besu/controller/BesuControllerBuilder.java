@@ -768,6 +768,10 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     final boolean fullSyncDisabled = syncConfig.getSyncMode() != SyncMode.FULL;
     final SyncState syncState = new SyncState(blockchain, ethPeers, fullSyncDisabled, checkpoint);
 
+    protocolContext
+        .safeConsensusContext(MergeContext.class)
+        .ifPresent(mergeContext -> mergeContext.addNewPayloadListener(syncState));
+
     final ChainPruningStrategy pruningMode = chainPrunerConfiguration.pruningMode();
     final boolean preMergeEnabled = dataStorageConfiguration.getHistoryExpiryPruneEnabled();
 
