@@ -68,8 +68,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * Verifies EIP-7928 BAL checks wired in {@link AbstractBlockProcessor}: post-build item-size budget,
- * hash, and related validation.
+ * Verifies EIP-7928 BAL checks wired in {@link AbstractBlockProcessor}: post-build item-size
+ * budget, hash, and related validation.
  */
 @ExtendWith(MockitoExtension.class)
 class AbstractBlockProcessorBalValidationTest {
