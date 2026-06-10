@@ -189,8 +189,9 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final Optional<Wei> postBalance = accountChanges.getPostBalance();
       if (postBalance.isPresent()) {
         account = worldStateUpdater.getOrCreate(accountChanges.getAddress());
-        account.setBalance(postBalance.get());
-        shouldCheckForEmptyAccount = clearEmptyAccounts && postBalance.get().isZero();
+        final Wei balance = postBalance.get();
+        account.setBalance(balance);
+        shouldCheckForEmptyAccount = clearEmptyAccounts && balance.isZero();
       }
 
       final Optional<Long> nonceChange = accountChanges.getNonceChange();
@@ -198,9 +199,9 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
         if (account == null) {
           account = worldStateUpdater.getOrCreate(accountChanges.getAddress());
         }
-        account.setNonce(nonceChange.get());
-        shouldCheckForEmptyAccount =
-            shouldCheckForEmptyAccount || (clearEmptyAccounts && nonceChange.get() == 0L);
+        final long nonce = nonceChange.get();
+        account.setNonce(nonce);
+        shouldCheckForEmptyAccount |= clearEmptyAccounts && nonce == 0L;
       }
 
       final Optional<Bytes> newCode = accountChanges.getNewCode();
@@ -208,9 +209,9 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
         if (account == null) {
           account = worldStateUpdater.getOrCreate(accountChanges.getAddress());
         }
-        account.setCode(newCode.get());
-        shouldCheckForEmptyAccount =
-            shouldCheckForEmptyAccount || (clearEmptyAccounts && newCode.get().isEmpty());
+        final Bytes code = newCode.get();
+        account.setCode(code);
+        shouldCheckForEmptyAccount |= clearEmptyAccounts && code.isEmpty();
       }
 
       for (var slotChange : accountChanges.getStorageChanges()) {
