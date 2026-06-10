@@ -2,7 +2,7 @@
   "config": {
     "chainId": 4,
     "berlinBlock": 0,
-    "londonBlock": 0,
+    "londonBlock": 2,
     "qbft": {
       "blockperiodseconds": 1,
       "epochlength": 30000,
