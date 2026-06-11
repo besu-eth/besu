@@ -67,6 +67,7 @@ public class PostMergeContextTest {
   @Test
   public void switchFromPoWToPoSStopSyncAndCallsSubscribers() {
     when(mockSyncState.hasReachedTerminalDifficulty()).thenReturn(Optional.of(Boolean.TRUE));
+    when(mockSyncState.isInSync()).thenReturn(Boolean.TRUE);
 
     postMergeContext.setIsPostMerge(Difficulty.of(10L));
 
@@ -275,10 +276,11 @@ public class PostMergeContextTest {
     when(mockSyncState.hasReachedTerminalDifficulty()).thenReturn(Optional.of(Boolean.FALSE));
     assertThat(postMergeContext.isSyncing()).isTrue();
 
+    // TTD reached but not yet in sync with peers (e.g. full sync still in progress) → syncing
     when(mockSyncState.hasReachedTerminalDifficulty()).thenReturn(Optional.of(Boolean.TRUE));
-    assertThat(postMergeContext.isSyncing()).isFalse();
+    assertThat(postMergeContext.isSyncing()).isTrue();
 
-    // if we're in sync reached ttd does not matter anymore
+    // TTD reached and in sync with peers → not syncing
     when(mockSyncState.isInSync()).thenReturn(Boolean.TRUE);
     assertThat(postMergeContext.isSyncing()).isFalse();
   }
@@ -329,6 +331,18 @@ public class PostMergeContextTest {
     public void reset() {
       stateChanges.clear();
     }
+  }
+
+  @Test
+  public void isSyncingReturnsTrueWhenFullSyncingOnPostMergeNetwork() {
+    // Regression test for https://github.com/besu-eth/besu/issues/10589
+    // On post-merge networks (e.g. Hoodi), reachedTerminalDifficulty is always true.
+    // During full sync, markInitialSyncPhaseAsDone() is called before downloading begins,
+    // so isInSync() reflects actual peer sync state. The node is syncing but not yet in sync.
+    when(mockSyncState.hasReachedTerminalDifficulty()).thenReturn(Optional.of(Boolean.TRUE));
+    when(mockSyncState.isInSync()).thenReturn(Boolean.FALSE);
+
+    assertThat(postMergeContext.isSyncing()).isTrue();
   }
 
   @Test

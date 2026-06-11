@@ -90,6 +90,7 @@ import org.hyperledger.besu.util.io.OutputStreamFactory;
 import org.hyperledger.besu.util.snappy.SnappyFactory;
 
 import java.io.File;
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.HashMap;
@@ -144,7 +145,10 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
     final ObservableMetricsSystem metricsSystem =
         (ObservableMetricsSystem) component.getMetricsSystem();
     final List<EnodeURLImpl> bootnodes =
-        node.getConfiguration().getBootnodes().stream().map(EnodeURLImpl::fromURI).toList();
+        node.getConfiguration().getBootnodes().stream()
+            .filter(b -> b.startsWith("enode://"))
+            .map(b -> EnodeURLImpl.fromURI(URI.create(b)))
+            .toList();
 
     final EthNetworkConfig.Builder networkConfigBuilder = component.ethNetworkConfigBuilder();
     networkConfigBuilder.setEnodeBootNodes(bootnodes);

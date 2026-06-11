@@ -18,10 +18,12 @@ import static org.hyperledger.besu.ethereum.eth.sync.snapsync.RequestType.BYTECO
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator.applyForStrategy;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.SnapV2DataRequest;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
@@ -31,27 +33,21 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 /** Snap/2 bytecode data request. */
-public class SnapV2BytecodeRequest extends SnapDataRequest {
+public class SnapV2BytecodeRequest extends SnapV2DataRequest {
 
   private final Bytes32 accountHash;
   private final Bytes32 codeHash;
-  private final Bytes32 rangeStart;
   private Bytes code;
 
   public SnapV2BytecodeRequest(
-      final Hash rootHash,
+      final BlockHeader pivotBlockHeader,
       final Bytes32 accountHash,
       final Bytes32 codeHash,
       final Bytes32 rangeStart) {
-    super(BYTECODES, rootHash);
+    super(BYTECODES, pivotBlockHeader, rangeStart);
     this.accountHash = accountHash;
     this.codeHash = codeHash;
-    this.rangeStart = rangeStart;
     this.code = Bytes.EMPTY;
-  }
-
-  public Bytes32 getRangeStart() {
-    return rangeStart;
   }
 
   @Override

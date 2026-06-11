@@ -1,5 +1,5 @@
 /*
- * Copyright ConsenSys AG.
+ * Copyright contributors to Hyperledger Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -12,21 +12,15 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.tests.acceptance.dsl.transaction.admin;
+package org.hyperledger.besu.ethereum.eth.sync.snapsync.v2;
 
-import java.net.URI;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 
-public class AdminTransactions {
+import java.util.concurrent.CompletableFuture;
 
-  public AddPeerTransaction addPeer(final URI peer) {
-    return new AddPeerTransaction(peer);
-  }
+/** Listener used by snap/2 world-state download to request chain-side pivot catch-up. */
+public interface SnapV2PivotCatchupListener {
 
-  public AdminPeersTransaction listPeers() {
-    return new AdminPeersTransaction();
-  }
-
-  public AdminNodeInfoTransaction nodeInfo() {
-    return new AdminNodeInfoTransaction();
-  }
+  CompletableFuture<Void> preparePivotCatchup(
+      final BlockHeader currentPivotBlockHeader, final BlockHeader newPivotBlockHeader);
 }

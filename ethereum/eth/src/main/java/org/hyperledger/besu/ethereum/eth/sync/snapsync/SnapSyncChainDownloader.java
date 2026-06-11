@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader
 import org.hyperledger.besu.ethereum.eth.sync.common.WorldStateHealFinishedListener;
 import org.hyperledger.besu.ethereum.eth.sync.common.WrongChainException;
 import org.hyperledger.besu.ethereum.eth.sync.common.checkpoint.Checkpoint;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.SnapV2PivotCatchupListener;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.StalledDownloadException;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
@@ -66,7 +67,10 @@ import org.slf4j.LoggerFactory;
  * avoiding re-downloading already synced data.
  */
 public class SnapSyncChainDownloader
-    implements ChainDownloader, PivotUpdateListener, WorldStateHealFinishedListener {
+    implements ChainDownloader,
+        PivotUpdateListener,
+        WorldStateHealFinishedListener,
+        SnapV2PivotCatchupListener {
   private static final Logger LOG = LoggerFactory.getLogger(SnapSyncChainDownloader.class);
   public static final int SMALL_DELAY_MILLISECONDS = 100;
   static final int NO_PEER_RETRY_DELAY_MILLISECONDS = 5_000;
@@ -89,6 +93,8 @@ public class SnapSyncChainDownloader
   private final AtomicBoolean cancelled = new AtomicBoolean(false);
   private final AtomicReference<ChainSyncState> chainSyncState = new AtomicReference<>(null);
   private final AtomicReference<BlockHeader> pendingPivotUpdate = new AtomicReference<>(null);
+  private final AtomicReference<SnapV2PivotCatchupRequest> pendingSnapV2PivotCatchup =
+      new AtomicReference<>(null);
   private CompletableFuture<Void> pivotUpdateFuture = new CompletableFuture<>();
   private final CompletableFuture<Void> worldStateHealFinishedFuture = new CompletableFuture<>();
   private volatile SnapWorldDownloadState worldDownloadState;
@@ -101,6 +107,11 @@ public class SnapSyncChainDownloader
   private volatile Pipeline<?> currentPipeline;
   private volatile BackwardHeaderDriver currentDriver;
   private Instant overallStartTime;
+
+  private record SnapV2PivotCatchupRequest(
+      BlockHeader currentPivotBlockHeader,
+      BlockHeader newPivotBlockHeader,
+      CompletableFuture<Void> completionFuture) {}
 
   /**
    * Creates a new TwoStageFastSyncChainDownloader. The first stage is to download all headers from
@@ -207,6 +218,38 @@ public class SnapSyncChainDownloader
   }
 
   @Override
+  public CompletableFuture<Void> preparePivotCatchup(
+      final BlockHeader currentPivotBlockHeader, final BlockHeader newPivotBlockHeader) {
+    if (newPivotBlockHeader.getNumber() <= currentPivotBlockHeader.getNumber()) {
+      return CompletableFuture.failedFuture(
+          new IllegalArgumentException(
+              "Snap/2 pivot catch-up requires an increasing pivot number"));
+    }
+
+    final CompletableFuture<Void> completionFuture = new CompletableFuture<>();
+    final SnapV2PivotCatchupRequest request =
+        new SnapV2PivotCatchupRequest(
+            currentPivotBlockHeader, newPivotBlockHeader, completionFuture);
+
+    synchronized (this) {
+      final SnapV2PivotCatchupRequest previousRequest = pendingSnapV2PivotCatchup.get();
+      if (previousRequest != null && !previousRequest.completionFuture().isDone()) {
+        return CompletableFuture.failedFuture(
+            new IllegalStateException("Snap/2 pivot catch-up is already in progress"));
+      }
+      pendingSnapV2PivotCatchup.set(request);
+      pendingPivotUpdate.getAndSet(newPivotBlockHeader);
+      pivotUpdateFuture.complete(null); // Wake up chain download
+    }
+
+    LOG.info(
+        "Preparing snap/2 pivot catch-up from block {} to {}",
+        currentPivotBlockHeader.getNumber(),
+        newPivotBlockHeader.getNumber());
+    return completionFuture;
+  }
+
+  @Override
   public void onWorldStateHealFinished() {
     LOG.info("World state download is stable, no more pivot updates expected");
     worldStateHealFinishedFuture.complete(null);
@@ -296,7 +339,7 @@ public class SnapSyncChainDownloader
       }
 
       if (headerIsOnCanonicalChain(initialPivotHeader)) {
-        stateToUse = loadedState.withNewPivotSkippingStage1(initialPivotHeader);
+        stateToUse = loadedState.withCanonicalPivot(initialPivotHeader);
       } else if (loadedState.headersDownloadComplete()) {
         BlockHeader headerAnchor;
         if (newPivotNumber > oldPivotNumber) {
@@ -506,6 +549,46 @@ public class SnapSyncChainDownloader
             });
   }
 
+  private CompletableFuture<Void> runBlockAccessListDownload(final ChainSyncState state) {
+    final BlockHeader pivotBlockHeader = state.pivotBlockHeader();
+    final long pivotBlockNumber = pivotBlockHeader.getNumber();
+
+    final BlockHeader chainHead = blockchain.getChainHeadHeader();
+    final long anchorNumber = blockchain.getBlockBody(chainHead.getHash()).isPresent()
+            ? chainHead.getNumber()
+            : highestCanonicalBody(state.bodyCheckpoint(), chainHead.getNumber()).getNumber();
+
+    if (anchorNumber >= pivotBlockNumber) {
+      LOG.debug(
+          "Snap/2 BAL download: anchor ({}) already at or past pivot ({}). Nothing to download.",
+          anchorNumber,
+          pivotBlockNumber);
+      return CompletableFuture.completedFuture(null);
+    }
+
+    LOG.debug(
+        "Snap/2 BAL download: downloading BALs from {} to pivot {}",
+        anchorNumber,
+        pivotBlockNumber);
+
+    final Instant balStartTime = Instant.now();
+
+    final Pipeline<List<BlockHeader>> balPipeline =
+        pipelineFactory.createBlockAccessListDownloadPipeline(anchorNumber, pivotBlockHeader);
+    currentPipeline = balPipeline;
+
+    return ethContext
+        .getScheduler()
+        .startPipeline(balPipeline)
+        .thenApply(
+            ignore -> {
+              final Duration balDuration = Duration.between(balStartTime, Instant.now());
+              LOG.debug("Snap/2 BAL download finished in {} seconds", balDuration.toSeconds());
+              completeSnapV2PivotCatchupIfNeeded(pivotBlockHeader);
+              return null;
+            });
+  }
+
   private CompletableFuture<Void> runStage2ForwardBodiesAndReceipts(final ChainSyncState state) {
 
     final BlockHeader chainHead = blockchain.getChainHeadHeader();
@@ -652,13 +735,46 @@ public class SnapSyncChainDownloader
    */
   private CompletableFuture<Void> performSingleDownloadCycle() {
     return runStage1Download(chainSyncState.get())
-        .thenCompose(
-            ignore -> {
-              if (cancelled.get()) {
-                return CompletableFuture.failedFuture(new CancellationException());
-              }
-              return runStage2ForwardBodiesAndReceipts(chainSyncState.get());
-            });
+            .thenCompose(
+                    ignore -> {
+                      if (cancelled.get()) {
+                        return CompletableFuture.failedFuture(new CancellationException());
+                      }
+                      if (pipelineFactory.isSnap2Enabled()) {
+                        return runBlockAccessListDownload(chainSyncState.get());
+                      }
+                      return CompletableFuture.completedFuture(null);
+                    })
+            .thenCompose(
+                    ignore -> {
+                      if (cancelled.get()) {
+                        return CompletableFuture.failedFuture(new CancellationException());
+                      }
+                      return runStage2ForwardBodiesAndReceipts(chainSyncState.get());
+                    })
+            .thenRun(
+                    () -> {
+                      completeSnapV2PivotCatchupIfNeeded(chainSyncState.get().pivotBlockHeader());
+                    });
+  }
+
+  private void completeSnapV2PivotCatchupIfNeeded(final BlockHeader completedPivotBlockHeader) {
+    final SnapV2PivotCatchupRequest request = pendingSnapV2PivotCatchup.get();
+    if (request != null
+        && request.newPivotBlockHeader().getHash().equals(completedPivotBlockHeader.getHash())
+        && pendingSnapV2PivotCatchup.compareAndSet(request, null)) {
+      LOG.info(
+          "Snap/2 chain catch-up completed for pivot block {}",
+          completedPivotBlockHeader.getNumber());
+      request.completionFuture().complete(null);
+    }
+  }
+
+  private void failSnapV2PivotCatchupIfNeeded(final Throwable error) {
+    final SnapV2PivotCatchupRequest request = pendingSnapV2PivotCatchup.getAndSet(null);
+    if (request != null && !request.completionFuture().isDone()) {
+      request.completionFuture().completeExceptionally(error);
+    }
   }
 
   /**
@@ -704,6 +820,7 @@ public class SnapSyncChainDownloader
     final Optional<Throwable> failWith = shouldRetry(error);
     if (failWith.isPresent()) {
       // Non-retryable error - fail (metrics will be stopped by outer handler)
+      failSnapV2PivotCatchupIfNeeded(failWith.get());
       overallResult.completeExceptionally(failWith.get());
     } else {
       LOG.debug("Chain sync encountered error, will retry from saved state", error);
@@ -750,60 +867,54 @@ public class SnapSyncChainDownloader
    * @return CompletableFuture<Boolean> - true if should continue, false if complete
    */
   private CompletableFuture<Boolean> isAnotherDownloadCycleNeeded() {
-
-    final BlockHeader previousPivot;
-    // Check if there's an immediate pivot update available
-    if (pivotUpdateFuture.isDone()) {
-      final BlockHeader updatedPivot;
-      synchronized (this) {
-        updatedPivot = pendingPivotUpdate.getAndSet(null);
-        pivotUpdateFuture = new CompletableFuture<>();
-      }
-      previousPivot = chainSyncState.get().pivotBlockHeader();
-
-      if (updatedPivot != null && updatedPivot.getNumber() > previousPivot.getNumber()) {
-        LOG.debug(
-            "Pivot block has been updated from {} to {}. Continuing sync to new pivot.",
-            previousPivot.getNumber(),
-            updatedPivot.getNumber());
-
-        // Update chain state to new pivot
-        chainSyncState.updateAndGet(state -> state.continueToNewPivot(updatedPivot, previousPivot));
-        chainSyncStateStorage.storeState(chainSyncState.get());
-
-        return CompletableFuture.completedFuture(true); // Need to continue
-      } else {
-        LOG.error(
-            "The pivot block number has not increased, even though onPivotUpdated() has been called. previous pivot: {}, updated pivot: {}",
-            previousPivot.getNumber(),
-            updatedPivot != null ? updatedPivot.getNumber() : "null");
-        return CompletableFuture.failedFuture(
-            new IllegalStateException("The pivot block number has not increased"));
-      }
-    }
-
-    // Proactively check if world state download is already complete before waiting.
-    // This ensures that if all tasks are complete, the healing process gets triggered
-    // immediately without waiting for the next pipeline cycle.
+    // Proactively check world state completion so healing is triggered without waiting a full cycle.
     if (worldDownloadState != null) {
-      final BlockHeader currentPivot = chainSyncState.get().pivotBlockHeader();
-      worldDownloadState.checkCompletion(currentPivot);
+      worldDownloadState.checkCompletion(chainSyncState.get().pivotBlockHeader());
     }
 
-    LOG.info(
-        "No immediate pivot update detected. Waiting for world state heal to finish or pivot update ...");
+    if (!pivotUpdateFuture.isDone()) {
+      LOG.info(
+              "No immediate pivot update detected. Waiting for world state heal to finish or pivot update ...");
+    }
 
-    // Wait for either a pivot update or world state heal to complete
     return CompletableFuture.anyOf(pivotUpdateFuture, worldStateHealFinishedFuture)
-        .thenApply(
+        .thenCompose(
             ignore -> {
-              if (pivotUpdateFuture.isDone()) {
-                // Recursive check - a pivot update arrived while waiting
-                // We need to check it on the next iteration
-                return true; // Need to continue with another cycle
+              if (!pivotUpdateFuture.isDone()) {
+                return CompletableFuture.completedFuture(false); // world state heal finished
+              }
+
+              final BlockHeader updatedPivot;
+              synchronized (this) {
+                updatedPivot = pendingPivotUpdate.getAndSet(null);
+                pivotUpdateFuture = new CompletableFuture<>();
+              }
+
+              final BlockHeader previousPivot = chainSyncState.get().pivotBlockHeader();
+
+              if (updatedPivot.getNumber() > previousPivot.getNumber()) { // normal case
+                LOG.debug(
+                    "Pivot advanced from #{} to #{}, downloading new range.",
+                    previousPivot.getNumber(), updatedPivot.getNumber());
+                chainSyncState.updateAndGet(s -> s.continueToNewPivot(updatedPivot, previousPivot));
+                chainSyncStateStorage.storeState(chainSyncState.get());
+                return CompletableFuture.completedFuture(true);
               } else {
-                // World state heal finished
-                return false; // All done
+                blockchain.unsafeStripCanonicalIndexRange(updatedPivot.getNumber(), previousPivot.getNumber());
+                if (headerIsOnCanonicalChain(updatedPivot)) {
+                  LOG.debug("Pivot is already canonical at height #{}.", updatedPivot.getNumber());
+                  chainSyncState.updateAndGet(s -> s.withCanonicalPivot(updatedPivot));
+                  chainSyncStateStorage.storeState(chainSyncState.get());
+                  return isAnotherDownloadCycleNeeded();
+                } else {
+                  LOG.debug(
+                      "Pivot rolled back to non-canonical #{}, restarting download.", updatedPivot.getNumber());
+                  final BlockHeader anchor =
+                      blockchain.getBlockHeader(updatedPivot.getNumber() - 1).orElseThrow();
+                  chainSyncState.updateAndGet(s -> s.restartHeaderDownload(updatedPivot, anchor));
+                  chainSyncStateStorage.storeState(chainSyncState.get());
+                  return CompletableFuture.completedFuture(true);
+                }
               }
             });
   }
@@ -817,5 +928,6 @@ public class SnapSyncChainDownloader
     if (pipeline != null) {
       pipeline.abort();
     }
+    failSnapV2PivotCatchupIfNeeded(new CancellationException());
   }
 }
