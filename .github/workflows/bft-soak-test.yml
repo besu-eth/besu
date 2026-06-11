@@ -12,9 +12,9 @@ on:
           - qbft
           - ibft2
       soak-time-mins:
-        description: 'Duration of soak test in minutes (minimum 60)'
+        description: 'Duration of soak test in minutes (minimum 70)'
         required: false
-        default: '60'
+        default: '70'
         type: string
       besu_ref:
         required: true

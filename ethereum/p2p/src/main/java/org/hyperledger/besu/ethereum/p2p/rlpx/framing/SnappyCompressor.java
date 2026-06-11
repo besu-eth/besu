@@ -40,7 +40,7 @@ public class SnappyCompressor {
     checkNotNull(compressed, "input data must not be null");
     try {
       return Snappy.uncompress(compressed);
-    } catch (final IOException e) {
+    } catch (final IOException | RuntimeException e) {
       throw new FramingException("Snappy decompression failed", e);
     }
   }
