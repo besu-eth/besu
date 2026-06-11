@@ -155,8 +155,6 @@ public class StorageRangeDataRequest extends SnapDataRequest {
 
   @Override
   public boolean isResponseReceived() {
-    // TODO: If isResponseReceived() == true, the task is marked completed, but
-    // not enqueued for healing in v2
     return isProofValid.isPresent();
   }
 
@@ -182,7 +180,8 @@ public class StorageRangeDataRequest extends SnapDataRequest {
       return Stream.empty();
     }
 
-    findNewBeginElementInRange(storageRoot, taskElement.proofs(), taskElement.keys(), endKeyHash)
+    findNewBeginElementInRange(
+            storageRoot, taskElement.proofs(), taskElement.keys(), startKeyHash, endKeyHash)
         .ifPresent(
             missingRightElement -> {
               final int nbRanges = getRangeCount(startKeyHash, endKeyHash, taskElement.keys());

@@ -270,7 +270,7 @@ public final class PeerDiscoveryAgentFactoryV5 implements PeerDiscoveryAgentFact
           return peerPermissions.isPermitted(
               localNode, remotePeer, PeerPermissions.Action.DISCOVERY_ALLOW_IN_PEER_TABLE);
         } catch (final RuntimeException e) {
-          LOG.debug("DiscV5: Rejecting peer with malformed NodeRecord", e);
+          LOG.trace("DiscV5: Rejecting peer with malformed NodeRecord", e);
           return false;
         }
       }

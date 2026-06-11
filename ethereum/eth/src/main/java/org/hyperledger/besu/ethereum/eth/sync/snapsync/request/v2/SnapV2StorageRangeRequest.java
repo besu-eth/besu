@@ -21,11 +21,13 @@ import static org.hyperledger.besu.ethereum.trie.RangeManager.getRangeCount;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator.applyForStrategy;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.StackTrie;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.SnapV2DataRequest;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
@@ -37,7 +39,6 @@ import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.NavigableMap;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
@@ -47,35 +48,29 @@ import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 
 /** Snap/2 storage range data request. Commits all trie nodes including incomplete ones. */
-public class SnapV2StorageRangeRequest extends SnapDataRequest {
+public class SnapV2StorageRangeRequest extends SnapV2DataRequest {
 
   private final Hash accountHash;
   private final Bytes32 storageRoot;
   private final Bytes32 startKeyHash;
   private final Bytes32 endKeyHash;
-  private final Bytes32 rangeStart;
   private final StackTrie stackTrie;
-  private Optional<Boolean> isProofValid;
+  private ResponseProofStatus responseProofStatus;
 
   public SnapV2StorageRangeRequest(
-      final Hash rootHash,
+      final BlockHeader pivotBlockHeader,
       final Bytes32 accountHash,
       final Bytes32 storageRoot,
       final Bytes32 startKeyHash,
       final Bytes32 endKeyHash,
       final Bytes32 rangeStart) {
-    super(STORAGE_RANGE, rootHash);
+    super(STORAGE_RANGE, pivotBlockHeader, rangeStart);
     this.accountHash = Hash.wrap(accountHash);
     this.storageRoot = storageRoot;
     this.startKeyHash = startKeyHash;
     this.endKeyHash = endKeyHash;
-    this.rangeStart = rangeStart;
-    this.isProofValid = Optional.empty();
+    this.responseProofStatus = ResponseProofStatus.PENDING;
     this.stackTrie = new StackTrie(Hash.wrap(getStorageRoot()), startKeyHash);
-  }
-
-  public Bytes32 getRangeStart() {
-    return rangeStart;
   }
 
   @Override
@@ -124,17 +119,21 @@ public class SnapV2StorageRangeRequest extends SnapDataRequest {
     if (!slots.isEmpty() || !proofs.isEmpty()) {
       if (!worldStateProofProvider.isValidRangeProof(
           startKeyHash, endKeyHash, storageRoot, proofs, slots)) {
-        isProofValid = Optional.of(false);
+        responseProofStatus = ResponseProofStatus.INVALID;
       } else {
         stackTrie.addElement(startKeyHash, proofs, slots);
-        isProofValid = Optional.of(true);
+        responseProofStatus = ResponseProofStatus.VALID;
       }
     }
   }
 
   @Override
   public boolean isResponseReceived() {
-    return isProofValid.isPresent();
+    return responseProofStatus == ResponseProofStatus.VALID;
+  }
+
+  public boolean hasInvalidProof() {
+    return responseProofStatus == ResponseProofStatus.INVALID;
   }
 
   @Override
@@ -142,6 +141,10 @@ public class SnapV2StorageRangeRequest extends SnapDataRequest {
       final SnapRequestContext downloadState,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncProcessState snapSyncState) {
+    if (responseProofStatus != ResponseProofStatus.VALID) {
+      return Stream.empty();
+    }
+
     final List<SnapDataRequest> childRequests = new ArrayList<>();
     final StackTrie.TaskElement taskElement = stackTrie.getElement(startKeyHash);
 
@@ -158,12 +161,12 @@ public class SnapV2StorageRangeRequest extends SnapDataRequest {
                       (key, value) -> {
                         childRequests.add(
                             new SnapV2StorageRangeRequest(
-                                getRootHash(),
+                                getPivotBlockHeader(),
                                 Bytes32.wrap(accountHash.getBytes()),
                                 storageRoot,
                                 key,
                                 value,
-                                rangeStart));
+                                getRangeStart()));
                       });
             });
 
@@ -192,7 +195,7 @@ public class SnapV2StorageRangeRequest extends SnapDataRequest {
 
   @Override
   public void clear() {
-    this.isProofValid = Optional.of(false);
+    this.responseProofStatus = ResponseProofStatus.PENDING;
     this.stackTrie.removeElement(startKeyHash);
   }
 }

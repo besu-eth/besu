@@ -21,7 +21,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMer
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveReadFlatDbStrategyProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiArchiveWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
@@ -88,11 +88,13 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       LOG.debug(
           "Returning archive state without verifying state root for block {}",
           queryParams.getBlockHeader().getNumber());
-      final BonsaiWorldState archiveWorldState =
-          new BonsaiWorldState(
+      final BonsaiArchiveWorldState archiveWorldState =
+          new BonsaiArchiveWorldState(
               this, archiveReadStorage, evmConfiguration, archiveWorldStateConfig, codeCache);
-      // Freeze before the persisting to ensure that the historical block number which is needed for
-      // Bonsai archive does not affect the database
+      // Freeze before persisting: BonsaiArchiveWorldState.freezeStorage() wraps in
+      // BonsaiArchiveWorldStateLayerStorage, which passes the LayeredKeyValueStorage (holding the
+      // historical WORLD_BLOCK_NUMBER_KEY) to the flat-DB strategy rather than the raw RocksDB
+      // parent, ensuring archive reads use the queried block number, not the current HEAD.
       archiveWorldState.freezeStorage();
       return rollMutableArchiveStateToBlockHash(
           archiveWorldState, queryParams.getBlockHeader().getBlockHash());

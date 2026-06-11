@@ -22,12 +22,14 @@ import static org.hyperledger.besu.ethereum.trie.RangeManager.findNewBeginElemen
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator.applyForStrategy;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncMetricsManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.StackTrie;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.v2.SnapV2DataRequest;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
@@ -41,7 +43,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
-import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
@@ -52,26 +53,22 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /** Snap/2 account range data request. Commits all trie nodes including incomplete ones. */
-public class SnapV2AccountRangeRequest extends SnapDataRequest {
+public class SnapV2AccountRangeRequest extends SnapV2DataRequest {
 
   private static final Logger LOG = LoggerFactory.getLogger(SnapV2AccountRangeRequest.class);
 
   private final Bytes32 startKeyHash;
   private final Bytes32 endKeyHash;
   private final StackTrie stackTrie;
-  private Optional<Boolean> isProofValid;
+  private ResponseProofStatus responseProofStatus;
 
   public SnapV2AccountRangeRequest(
-      final Hash rootHash, final Bytes32 startKeyHash, final Bytes32 endKeyHash) {
-    super(ACCOUNT_RANGE, rootHash);
+      final BlockHeader pivotBlockHeader, final Bytes32 startKeyHash, final Bytes32 endKeyHash) {
+    super(ACCOUNT_RANGE, pivotBlockHeader, startKeyHash);
     this.startKeyHash = startKeyHash;
     this.endKeyHash = endKeyHash;
-    this.isProofValid = Optional.empty();
-    this.stackTrie = new StackTrie(rootHash, startKeyHash);
-  }
-
-  public Bytes32 getRangeStart() {
-    return startKeyHash;
+    this.responseProofStatus = ResponseProofStatus.PENDING;
+    this.stackTrie = new StackTrie(pivotBlockHeader.getStateRoot(), startKeyHash);
   }
 
   @Override
@@ -119,10 +116,10 @@ public class SnapV2AccountRangeRequest extends SnapDataRequest {
     if (!accounts.isEmpty() || !proofs.isEmpty()) {
       if (!worldStateProofProvider.isValidRangeProof(
           startKeyHash, endKeyHash, Bytes32.wrap(getRootHash().getBytes()), proofs, accounts)) {
-        isProofValid = Optional.of(false);
+        responseProofStatus = ResponseProofStatus.INVALID;
       } else {
         stackTrie.addElement(startKeyHash, proofs, accounts);
-        isProofValid = Optional.of(true);
+        responseProofStatus = ResponseProofStatus.VALID;
         LOG.atDebug()
             .setMessage("{} accounts received during sync for account range {} {}")
             .addArgument(accounts.size())
@@ -135,7 +132,11 @@ public class SnapV2AccountRangeRequest extends SnapDataRequest {
 
   @Override
   public boolean isResponseReceived() {
-    return isProofValid.orElse(false);
+    return responseProofStatus == ResponseProofStatus.VALID;
+  }
+
+  public boolean hasInvalidProof() {
+    return responseProofStatus == ResponseProofStatus.INVALID;
   }
 
   @Override
@@ -143,6 +144,10 @@ public class SnapV2AccountRangeRequest extends SnapDataRequest {
       final SnapRequestContext downloadState,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncProcessState snapSyncState) {
+    if (responseProofStatus != ResponseProofStatus.VALID) {
+      return Stream.empty();
+    }
+
     final List<SnapDataRequest> childRequests = new ArrayList<>();
     final StackTrie.TaskElement taskElement = stackTrie.getElement(startKeyHash);
 
@@ -158,7 +163,8 @@ public class SnapV2AccountRangeRequest extends SnapDataRequest {
                   .notifyRangeProgress(
                       SnapSyncMetricsManager.Step.DOWNLOAD, missingRightElement, endKeyHash);
               childRequests.add(
-                  new SnapV2AccountRangeRequest(getRootHash(), missingRightElement, endKeyHash));
+                  new SnapV2AccountRangeRequest(
+                      getPivotBlockHeader(), missingRightElement, endKeyHash));
             },
             () ->
                 downloadState
@@ -172,7 +178,7 @@ public class SnapV2AccountRangeRequest extends SnapDataRequest {
       if (!accountValue.getStorageRoot().equals(Hash.EMPTY_TRIE_HASH)) {
         childRequests.add(
             new SnapV2StorageRangeRequest(
-                getRootHash(),
+                getPivotBlockHeader(),
                 account.getKey(),
                 Bytes32.wrap(accountValue.getStorageRoot().getBytes()),
                 MIN_RANGE,
@@ -182,7 +188,7 @@ public class SnapV2AccountRangeRequest extends SnapDataRequest {
       if (!accountValue.getCodeHash().equals(Hash.EMPTY)) {
         childRequests.add(
             new SnapV2BytecodeRequest(
-                getRootHash(),
+                getPivotBlockHeader(),
                 account.getKey(),
                 Bytes32.wrap(accountValue.getCodeHash().getBytes()),
                 startKeyHash));
@@ -203,9 +209,13 @@ public class SnapV2AccountRangeRequest extends SnapDataRequest {
     return stackTrie.getElement(startKeyHash).keys();
   }
 
+  public SnapV2AccountRangeRequest retarget(final BlockHeader newPivotBlockHeader) {
+    return new SnapV2AccountRangeRequest(newPivotBlockHeader, startKeyHash, endKeyHash);
+  }
+
   @Override
   public void clear() {
     stackTrie.clear();
-    isProofValid = Optional.of(false);
+    responseProofStatus = ResponseProofStatus.PENDING;
   }
 }
