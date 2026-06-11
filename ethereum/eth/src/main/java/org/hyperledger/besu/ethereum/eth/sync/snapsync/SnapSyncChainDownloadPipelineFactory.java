@@ -106,10 +106,6 @@ public class SnapSyncChainDownloadPipelineFactory {
         new BackwardHeaderDriver(
             headerRequestSize, lowerAnchor, upperBound, protocolContext.getBlockchain());
 
-    // Genesis floor (0L) so the download step accepts requests below the original anchor — this
-    // is what lets the recovery walk extend past the boundary when a previously-stored anchor
-    // has been reorged off the canonical chain. The driver's boundary-detection logic in
-    // BackwardHeaderDriver.accept handles batches that span lowestHeaderToImport.
     final DownloadBackwardHeadersStep downloadStep =
         new DownloadBackwardHeadersStep(
             protocolSchedule,

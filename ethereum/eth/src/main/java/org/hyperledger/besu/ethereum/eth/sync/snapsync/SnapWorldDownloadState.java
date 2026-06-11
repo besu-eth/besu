@@ -163,8 +163,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
     final String message =
         "Snap sync world state download stalled — peers stopped serving data after "
             + maxNodeRequestRetries
-            + " requests without progress. The pivot is likely older than peers' snap-serving"
-            + " window. Re-pivoting.";
+            + " requests without progress.";
     LOG.warn(message);
     internalFuture.completeExceptionally(new StalledDownloadException(message));
   }

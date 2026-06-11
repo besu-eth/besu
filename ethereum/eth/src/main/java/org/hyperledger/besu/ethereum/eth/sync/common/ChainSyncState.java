@@ -80,7 +80,8 @@ public record ChainSyncState(
 
   /**
    * Updates the pivot to a header that is already on the local canonical chain, so all headers are
-   * already present. The body checkpoint and header download anchor are preserved; {@code headersDownloadComplete} is set to {@code true}.
+   * already present. The body checkpoint and header download anchor are preserved; {@code
+   * headersDownloadComplete} is set to {@code true}.
    *
    * @param newPivotHeader the new pivot block header, which must be on the local canonical chain
    * @return new ChainSyncState with Stage 1 marked complete for the new pivot
