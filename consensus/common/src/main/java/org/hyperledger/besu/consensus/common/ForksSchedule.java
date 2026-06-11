@@ -59,8 +59,20 @@ public class ForksSchedule<C> {
    * @param protocolSchedule the protocol schedule
    */
   public void applyMilestoneTypes(final BftProtocolSchedule protocolSchedule) {
+    applyMilestoneTypes(protocolSchedule, true);
+  }
 
-    // Validate transition forks, ignoring the last entry which is never a transition
+  /**
+   * Apply the protocol schedule to the forks to assert their fork type - block or timestamp.
+   * Optionally validates that no TIMESTAMP-type fork has a value before 1st January 2023.
+   *
+   * @param protocolSchedule the protocol schedule
+   * @param validateTransitions when false, skips epoch validation but still sets fork types
+   */
+  public void applyMilestoneTypes(
+      final BftProtocolSchedule protocolSchedule, final boolean validateTransitions) {
+
+    // Set fork type for transition forks, ignoring the last entry which is never a transition
     forks
         .headSet(forks.last())
         .forEach(
@@ -68,7 +80,8 @@ public class ForksSchedule<C> {
               f.setForkType(
                   protocolSchedule.getSpecTypeByBlockNumberOrTimestamp(f.getBlock(), f.getBlock()));
               LOG.debug("Validating fork: block {} type {}", f.getBlock(), f.getForkType());
-              if (f.getForkType() == ForkSpec.ForkScheduleType.TIME
+              if (validateTransitions
+                  && f.getForkType() == ForkSpec.ForkScheduleType.TIME
                   && f.getBlock() < MIN_TIMESTAMP_FORK_EPOCH_SECONDS) {
                 throw new IllegalArgumentException(
                     String.format(

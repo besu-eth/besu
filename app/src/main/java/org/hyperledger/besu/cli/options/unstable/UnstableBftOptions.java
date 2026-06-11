@@ -40,6 +40,16 @@ public class UnstableBftOptions {
       hidden = true)
   private boolean legacyProtocolEncoding = false;
 
+  @CommandLine.Option(
+      names = {"--Xbft-validate-transitions"},
+      description =
+          "When false, disables timestamp/block epoch validation of BFT fork transitions. "
+              + "setForkType is still called for each fork. (default: ${DEFAULT-VALUE})",
+      arity = "0..1",
+      fallbackValue = "true",
+      hidden = true)
+  private boolean validateTransitions = true;
+
   /**
    * Whether the BFT encoder should emit the 25.x QBFT/IBFT2 wire format.
    *
@@ -47,5 +57,14 @@ public class UnstableBftOptions {
    */
   public boolean isLegacyProtocolEncodingEnabled() {
     return legacyProtocolEncoding;
+  }
+
+  /**
+   * Whether BFT fork transition validation is enabled.
+   *
+   * @return true if transition validation is enabled
+   */
+  public boolean isBftValidateTransitionsEnabled() {
+    return validateTransitions;
   }
 }

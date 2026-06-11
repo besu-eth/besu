@@ -190,7 +190,6 @@ public class ForksScheduleTest {
   public void applyMilestoneTypesDoesNotThrowForTimestampEvmSpecWhenCurrentSpecIsBlockType() {
     final ForksSchedule<BftConfigOptions> schedule =
         new ForksSchedule<>(List.of(createForkSpec(0, 10)));
-    final long currentBlockNumber = 500L;
 
     final BftProtocolSchedule mockSchedule = mock(BftProtocolSchedule.class);
     when(mockSchedule.getSpecTypeByBlockNumberOrTimestamp(anyLong(), anyLong()))
