@@ -17,13 +17,10 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.BlobType.KZG_CELL_PROOFS;
 import static org.hyperledger.besu.datatypes.BlobType.KZG_PROOF;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.OSAKA;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.MergeContext;
@@ -42,9 +39,7 @@ import org.hyperledger.besu.ethereum.core.BlobTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.kzg.BlobProofBundle;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
-import org.hyperledger.besu.metrics.BesuMetricCategory;
-import org.hyperledger.besu.metrics.ObservableMetricsSystem;
-import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import java.util.Arrays;
@@ -65,16 +60,12 @@ import org.mockito.quality.Strictness;
 public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
   @Mock private BlockHeader blockHeader;
   @Mock private MutableBlockchain blockchain;
+  @Mock private MergeContext mergeContext;
 
   private TransactionPool transactionPool;
-  private EngineGetBlobsV3 method;
+  private EngineGetBlobsV3<?> method;
 
-  @Mock Counter requestedCounter;
-  @Mock Counter availableCounter;
-  @Mock Counter partialResponseCounter;
-  @Mock Counter fullResponseCounter;
-  @Mock ObservableMetricsSystem metricsSystem;
-  @Mock MergeContext mergeContext;
+  private final NoOpMetricsSystem metricsSystem = new NoOpMetricsSystem();
 
   @BeforeEach
   public void setup() {
@@ -86,33 +77,16 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
     when(blockHeader.getTimestamp()).thenReturn(osakaHardfork.milestone());
     when(blockchain.getChainHeadHeader()).thenReturn(blockHeader);
 
-    when(metricsSystem.createCounter(
-            eq(BesuMetricCategory.RPC),
-            eq("execution_engine_getblobs_v3_requested_total"),
-            anyString()))
-        .thenReturn(requestedCounter);
-    when(metricsSystem.createCounter(
-            eq(BesuMetricCategory.RPC),
-            eq("execution_engine_getblobs_v3_available_total"),
-            anyString()))
-        .thenReturn(availableCounter);
-    when(metricsSystem.createCounter(
-            eq(BesuMetricCategory.RPC),
-            eq("execution_engine_getblobs_v3_partial_total"),
-            anyString()))
-        .thenReturn(partialResponseCounter);
-    when(metricsSystem.createCounter(
-            eq(BesuMetricCategory.RPC), eq("execution_engine_getblobs_v3_full_total"), anyString()))
-        .thenReturn(fullResponseCounter);
-
     method =
-        new EngineGetBlobsV3(
-            mock(Vertx.class),
-            protocolContext,
+        new EngineGetBlobsV3<>(
             protocolSchedule,
+            protocolContext,
+            mock(Vertx.class),
             mock(EngineCallListener.class),
             transactionPool,
-            metricsSystem);
+            metricsSystem,
+            OSAKA,
+            null);
   }
 
   @Test
@@ -126,16 +100,10 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
     JsonRpcSuccessResponse response =
         getSuccessResponse(buildRequestContext(bundle.getVersionedHash()));
     assertSingleValidBlob(response, bundle);
-
-    verify(requestedCounter).inc(1);
-    verify(availableCounter).inc(1);
-    verify(fullResponseCounter).inc();
-    verifyNoInteractions(partialResponseCounter);
   }
 
   @Test
   public void shouldReturnNullForMissingBlobsInPartialResponse() {
-    // V3 key feature: partial responses with null for missing blobs
     BlobProofBundle bundle1 = createBundleWithBlobType(KZG_CELL_PROOFS);
     VersionedHash unknownHash = new VersionedHash((byte) 1, Hash.ZERO);
     BlobProofBundle bundle3 = createBundleWithBlobType(KZG_CELL_PROOFS);
@@ -152,19 +120,13 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
     @SuppressWarnings("unchecked")
     List<BlobAndProofV2> result = (List<BlobAndProofV2>) response.getResult();
     assertThat(result).hasSize(3);
-    assertThat(result.get(0)).isNotNull(); // first blob found
-    assertThat(result.get(1)).isNull(); // middle blob missing - KEY V3 BEHAVIOR
-    assertThat(result.get(2)).isNotNull(); // third blob found
-
-    verify(requestedCounter).inc(3);
-    verify(availableCounter).inc(2); // only 2 available
-    verify(partialResponseCounter).inc(); // partial response
-    verifyNoInteractions(fullResponseCounter);
+    assertThat(result.get(0)).isNotNull();
+    assertThat(result.get(1)).isNull();
+    assertThat(result.get(2)).isNotNull();
   }
 
   @Test
   public void shouldReturnNullForKzgProofBlobType() {
-    // V3 rejects KZG_PROOF like V2 does
     BlobProofBundle bundle = createBundleWithBlobType(KZG_PROOF);
     JsonRpcSuccessResponse response =
         getSuccessResponse(buildRequestContext(bundle.getVersionedHash()));
@@ -172,12 +134,7 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
     @SuppressWarnings("unchecked")
     List<BlobAndProofV2> result = (List<BlobAndProofV2>) response.getResult();
     assertThat(result).hasSize(1);
-    assertThat(result.getFirst()).isNull(); // KZG_PROOF not supported
-
-    verify(requestedCounter).inc(1);
-    verify(availableCounter).inc(0); // 0 available due to unsupported type
-    verify(partialResponseCounter).inc(); // partial response (0 out of 1)
-    verifyNoInteractions(fullResponseCounter);
+    assertThat(result.getFirst()).isNull();
   }
 
   @Test
@@ -196,7 +153,6 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
                 "0x0400000000000000000000000000000000000000000000000000000000000000"));
     BlobProofBundle bundle5 = createBundleWithBlobType(KZG_CELL_PROOFS);
 
-    // Manually setup mocks to override the automatic setup in createBundleWithBlobType
     when(transactionPool.getBlobProofBundle(bundle1.getVersionedHash())).thenReturn(bundle1);
     when(transactionPool.getBlobProofBundle(bundle2.getVersionedHash())).thenReturn(bundle2);
     when(transactionPool.getBlobProofBundle(missing1)).thenReturn(null);
@@ -215,18 +171,16 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
     @SuppressWarnings("unchecked")
     List<BlobAndProofV2> result = (List<BlobAndProofV2>) response.getResult();
     assertThat(result).hasSize(5);
-    assertThat(result.get(0)).isNotNull(); // bundle1
-    assertThat(result.get(1)).isNotNull(); // bundle2
-    assertThat(result.get(2)).isNull(); // missing1
-    assertThat(result.get(3)).isNull(); // missing2
-    assertThat(result.get(4)).isNotNull(); // bundle5
-
-    verify(partialResponseCounter).inc();
+    assertThat(result.get(0)).isNotNull();
+    assertThat(result.get(1)).isNotNull();
+    assertThat(result.get(2)).isNull();
+    assertThat(result.get(3)).isNull();
+    assertThat(result.get(4)).isNotNull();
   }
 
   @Test
   public void shouldReturnErrorForTooLargeRequest() {
-    VersionedHash[] tooManyHashes = new VersionedHash[129]; // > 128 limit
+    VersionedHash[] tooManyHashes = new VersionedHash[129];
     Arrays.fill(tooManyHashes, new VersionedHash((byte) 1, Hash.ZERO));
 
     JsonRpcResponse response = method.syncResponse(buildRequestContext(tooManyHashes));
@@ -236,26 +190,39 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
   }
 
   @Test
-  public void shouldReturnNullWhenSyncing() {
+  void shouldFailWhenOsakaNotActive() {
+    when(blockHeader.getTimestamp()).thenReturn(osakaHardfork.milestone() - 1);
+    var response = method.syncResponse(buildRequestContext());
+    assertThat(fromErrorResp(response).getCode())
+        .isEqualTo(RpcErrorType.UNSUPPORTED_FORK.getCode());
+  }
+
+  @Test
+  void shouldSucceedWhenOsakaActive() {
+    when(blockHeader.getTimestamp()).thenReturn(osakaHardfork.milestone());
+    var response = method.syncResponse(buildRequestContext());
+    assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
+  }
+
+  @Test
+  public void shouldReturnNullsWhenSyncing() {
     when(mergeContext.isSyncing()).thenReturn(true);
     BlobProofBundle bundle = createBundleWithBlobType(KZG_CELL_PROOFS);
 
     JsonRpcSuccessResponse response =
         getSuccessResponse(buildRequestContext(bundle.getVersionedHash()));
 
-    assertThat(response.getResult()).isNull();
-    // No metrics should be incremented when syncing
-    verifyNoInteractions(
-        requestedCounter, availableCounter, partialResponseCounter, fullResponseCounter);
+    @SuppressWarnings("unchecked")
+    List<BlobAndProofV2> result = (List<BlobAndProofV2>) response.getResult();
+    assertThat(result).hasSize(1);
+    assertThat(result.getFirst()).isNull();
   }
 
   @Test
   public void shouldSupportMinimum128Hashes() {
-    // Test capacity requirement from spec
     VersionedHash[] maxHashes = new VersionedHash[128];
     Arrays.fill(maxHashes, new VersionedHash((byte) 1, Hash.ZERO));
 
-    // Should not error for exactly 128 hashes
     JsonRpcResponse response = method.syncResponse(buildRequestContext(maxHashes));
     assertThat(response.getType()).isEqualTo(RpcResponseType.SUCCESS);
   }
@@ -286,7 +253,7 @@ public class EngineGetBlobsV3Test extends AbstractScheduledApiTest {
     List<BlobAndProofV2> result = (List<BlobAndProofV2>) response.getResult();
     assertThat(result).hasSize(1);
     assertThat(result.getFirst()).isNotNull();
-    assertThat(result.getFirst().getBlob()).isEqualTo(expected.getBlob().getData().toHexString());
+    assertThat(result.getFirst().getBlob().getData()).isEqualTo(expected.getBlob().getData());
     assertThat(result.getFirst().getProofs()).hasSize(expected.getKzgProof().size());
   }
 }

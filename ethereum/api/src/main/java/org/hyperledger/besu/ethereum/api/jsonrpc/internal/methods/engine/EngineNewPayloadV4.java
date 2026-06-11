@@ -14,45 +14,63 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.RequestValidatorProvider.getRequestsValidator;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.Configuration.FAIL_ON_UNKNOWN_BUT_NULL;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
+import org.hyperledger.besu.datatypes.HardforkId;
+import org.hyperledger.besu.datatypes.RequestType;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV3;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV2;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV3;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
+import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 import io.vertx.core.Vertx;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
-public class EngineNewPayloadV4 extends AbstractEngineNewPayload {
-
-  private final Optional<Long> pragueMilestone;
+public sealed class EngineNewPayloadV4<
+        EP extends ExecutionPayloadV3, NPRP extends NewPayloadRequestParametersV3<? extends EP>>
+    extends EngineNewPayloadV3<EP, NPRP> permits EngineNewPayloadV5 {
+  private static final Logger LOG = LoggerFactory.getLogger(EngineNewPayloadV4.class);
 
   public EngineNewPayloadV4(
-      final Vertx vertx,
       final ProtocolSchedule timestampSchedule,
       final ProtocolContext protocolContext,
+      final Vertx vertx,
+      final EngineCallListener engineCallListener,
       final MergeMiningCoordinator mergeCoordinator,
       final EthPeers ethPeers,
-      final EngineCallListener engineCallListener,
-      final MetricsSystem metricsSystem) {
+      final MetricsSystem metricsSystem,
+      final HardforkId minSupportedFork,
+      final HardforkId firstUnsupportedFork) {
     super(
-        vertx,
         timestampSchedule,
         protocolContext,
+        vertx,
+        engineCallListener,
         mergeCoordinator,
         ethPeers,
-        engineCallListener,
-        metricsSystem);
-    pragueMilestone = timestampSchedule.milestoneFor(PRAGUE);
+        metricsSystem,
+        minSupportedFork,
+        firstUnsupportedFork);
   }
 
   @Override
@@ -61,39 +79,85 @@ public class EngineNewPayloadV4 extends AbstractEngineNewPayload {
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateParameters(
-      final EnginePayloadParameter payloadParameter,
-      final Optional<List<String>> maybeVersionedHashParam,
-      final Optional<String> maybeBeaconBlockRootParam,
-      final Optional<List<String>> maybeRequestsParam) {
-    if (payloadParameter.getBlobGasUsed() == null) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_BLOB_GAS_USED_PARAMS, "Missing blob gas used field");
-    } else if (payloadParameter.getExcessBlobGas() == null) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_EXCESS_BLOB_GAS_PARAMS, "Missing excess blob gas field");
-    } else if (maybeVersionedHashParam == null || maybeVersionedHashParam.isEmpty()) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_VERSIONED_HASH_PARAMS, "Missing versioned hashes field");
-    } else if (maybeBeaconBlockRootParam.isEmpty()) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_PARENT_BEACON_BLOCK_ROOT_PARAMS,
-          "Missing parent beacon block root field");
-    } else if (maybeRequestsParam.isEmpty()) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS, "Missing execution requests field");
-    } else {
-      return ValidationResult.valid();
+  @SuppressWarnings("unchecked")
+  protected NPRP readRequestParameters(final JsonRpcRequestContext requestContext) {
+    final NewPayloadRequestParametersV2<? extends EP> requestParameters =
+        super.readRequestParameters(requestContext);
+    final List<Request> executionRequests;
+    try {
+      executionRequests =
+          requestContext.getRequiredList(3, Request.class, FAIL_ON_UNKNOWN_BUT_NULL);
+    } catch (JsonRpcParameterException e) {
+      throw new InvalidRequestParametersException(
+          requestParameters.payloadParameter(),
+          "Invalid execution request parameters (index 3)",
+          RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS,
+          e);
     }
+    return (NPRP) new NewPayloadRequestParametersV3<>(requestParameters, executionRequests);
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    return ForkSupportHelper.validateForkSupported(
-        PRAGUE,
-        pragueMilestone,
-        AMSTERDAM,
-        protocolSchedule.flatMap(s -> s.milestoneFor(AMSTERDAM)),
-        blockTimestamp);
+  protected int getNumberOfParameters() {
+    return 4;
+  }
+
+  @Override
+  protected ValidationResult<RpcErrorType> validateParameters(final NPRP requestParameters) {
+    final ValidationResult<RpcErrorType> result = super.validateParameters(requestParameters);
+    return result.isValid() ? validateParametersV4(requestParameters) : result;
+  }
+
+  private ValidationResult<RpcErrorType> validateParametersV4(
+      final NewPayloadRequestParametersV3<? extends EP> requestParameters) {
+    final var payloadParameter = requestParameters.payloadParameter();
+    if (!getRequestsValidator(
+            protocolSchedule, payloadParameter.getTimestamp(), payloadParameter.getBlockNumber())
+        .validate(Optional.of(requestParameters.executionRequests()))) {
+      return ValidationResult.invalid(RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS);
+    }
+    return ValidationResult.valid();
+  }
+
+  @Override
+  protected void setBlockHeaderFields(
+      final BlockHeaderBuilder blockHeaderBuilder, final NPRP requestParameters) {
+    super.setBlockHeaderFields(blockHeaderBuilder, requestParameters);
+    blockHeaderBuilder.requestsHash(
+        BodyValidation.requestsHash(requestParameters.executionRequests()));
+  }
+
+  @Override
+  protected JsonRpcResponse processParametersParsingException(
+      final Object reqId, final InvalidRequestParametersException e) {
+
+    final Optional<RequestType.InvalidRequestTypeException> maybeRequestTypeEx =
+        extractCauseByType(e, RequestType.InvalidRequestTypeException.class);
+    if (maybeRequestTypeEx.isPresent()) {
+      if (e.hasPayloadParameter()) {
+        return respondWithInvalid(
+            reqId,
+            e.getPayloadParameter(),
+            mergeCoordinator
+                .getLatestValidAncestor(e.getPayloadParameter().getParentHash())
+                .orElse(null),
+            EngineStatus.INVALID,
+            maybeRequestTypeEx.get().getMessage());
+      } else {
+        // payload parameter should be present in this case, so treat this as an internal error
+        LOG.error(
+            "Internal error: we expected payload parameter to not be null, please report this", e);
+        return new JsonRpcErrorResponse(reqId, RpcErrorType.INTERNAL_ERROR);
+      }
+    }
+
+    if (e.getRpcErrorType() == RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS) {
+      return new JsonRpcErrorResponse(
+          reqId,
+          ValidationResult.invalid(
+              RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS,
+              Objects.requireNonNullElse(e.getCause(), e).getMessage()));
+    }
+    return super.processParametersParsingException(reqId, e);
   }
 }

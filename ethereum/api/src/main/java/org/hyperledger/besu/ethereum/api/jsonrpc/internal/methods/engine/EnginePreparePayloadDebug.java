@@ -35,6 +35,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSucces
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePreparePayloadResult;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
 import java.util.List;
 import java.util.Optional;
@@ -46,11 +47,12 @@ public class EnginePreparePayloadDebug extends ExecutionEngineJsonRpcMethod {
   private final MergeMiningCoordinator mergeCoordinator;
 
   public EnginePreparePayloadDebug(
-      final Vertx vertx,
+      final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
+      final Vertx vertx,
       final EngineCallListener engineCallListener,
       final MergeMiningCoordinator mergeCoordinator) {
-    super(vertx, protocolContext, engineCallListener);
+    super(protocolSchedule, protocolContext, vertx, engineCallListener);
     this.mergeCoordinator = mergeCoordinator;
   }
 
@@ -115,9 +117,8 @@ public class EnginePreparePayloadDebug extends ExecutionEngineJsonRpcMethod {
                         .timestamp(param.getTimestamp().orElse(parentHeader.getTimestamp() + 1L))
                         .prevRandao(param.getPrevRandao())
                         .feeRecipient(param.getFeeRecipient())
-                        .withdrawals(Optional.of(withdrawals))
+                        .withdrawals(withdrawals)
                         .parentBeaconBlockRoot(param.getParentBeaconBlockRoot())
-                        .slotNumber(Optional.empty())
                         .build()));
   }
 }

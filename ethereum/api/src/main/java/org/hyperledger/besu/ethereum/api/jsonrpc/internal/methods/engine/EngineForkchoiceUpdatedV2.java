@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -15,33 +15,51 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
+import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadAttributesParameter;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV2;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 
 import java.util.Optional;
 
 import io.vertx.core.Vertx;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-// TODO Withdrawals use composition instead? Want to make it more obvious that there is no
-// difference between V1/V2 code other than the method name
-public class EngineForkchoiceUpdatedV2 extends AbstractEngineForkchoiceUpdated {
+/**
+ * {@code engine_forkchoiceUpdatedV2} — Shanghai (Withdrawals).
+ *
+ * <p>Extends V1 with {@link PayloadAttributesV2}, introducing the {@code withdrawals} field.
+ * Validates withdrawals presence/absence per fork via {@link WithdrawalsValidatorProvider}, and
+ * passes extracted withdrawals to {@code preparePayload}.
+ *
+ * <p>Parameterized so that V3 can extend this class while narrowing the payload type.
+ */
+public sealed class EngineForkchoiceUpdatedV2<PA extends PayloadAttributesV2>
+    extends EngineForkchoiceUpdatedV1<PA> permits EngineForkchoiceUpdatedV3 {
 
-  private static final Logger LOG = LoggerFactory.getLogger(EngineForkchoiceUpdatedV2.class);
+  private final Optional<Long> shanghaiTimestamp;
 
   public EngineForkchoiceUpdatedV2(
-      final Vertx vertx,
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
+      final Vertx vertx,
+      final EngineCallListener engineCallListener,
       final MergeMiningCoordinator mergeCoordinator,
-      final EngineCallListener engineCallListener) {
-    super(vertx, protocolSchedule, protocolContext, mergeCoordinator, engineCallListener);
+      final HardforkId minFork,
+      final HardforkId maxFork) {
+    super(
+        protocolSchedule,
+        protocolContext,
+        vertx,
+        engineCallListener,
+        mergeCoordinator,
+        minFork,
+        maxFork);
+    shanghaiTimestamp = protocolSchedule.milestoneFor(HardforkId.MainnetHardforkId.SHANGHAI);
   }
 
   @Override
@@ -50,30 +68,53 @@ public class EngineForkchoiceUpdatedV2 extends AbstractEngineForkchoiceUpdated {
   }
 
   @Override
-  protected Optional<JsonRpcErrorResponse> isPayloadAttributesValid(
-      final Object requestId, final EnginePayloadAttributesParameter payloadAttributes) {
-
-    if (payloadAttributes.getParentBeaconBlockRoot() != null) {
-      LOG.error(
-          "Parent beacon block root hash present in payload attributes before Cancun hardfork");
-      return Optional.of(new JsonRpcErrorResponse(requestId, getInvalidPayloadAttributesError()));
-    }
-
-    ValidationResult<RpcErrorType> forkValidationResult =
-        validateForkSupported(payloadAttributes.getTimestamp());
-    if (!forkValidationResult.isValid()) {
-      return Optional.of(new JsonRpcErrorResponse(requestId, forkValidationResult));
-    }
-
-    return Optional.empty();
+  @SuppressWarnings("unchecked")
+  protected Class<PA> getPayloadAttributesClass() {
+    return (Class<PA>) PayloadAttributesV2.class;
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    if (cancunMilestone.isPresent() && blockTimestamp >= cancunMilestone.get()) {
-      return ValidationResult.invalid(RpcErrorType.UNSUPPORTED_FORK);
-    }
+  protected ValidationResult<RpcErrorType> validatePayloadAttributes(
+      final BlockHeader newHead, final PA attrs) {
+    final ValidationResult<RpcErrorType> r = super.validatePayloadAttributes(newHead, attrs);
+    return r.isValid() ? validatePayloadAttributesV2(newHead, attrs) : r;
+  }
 
-    return ValidationResult.valid();
+  private ValidationResult<RpcErrorType> validatePayloadAttributesV2(
+      final BlockHeader newHead, final PayloadAttributesV2 attrs) {
+    // engine_forkchoiceUpdatedV2 is peculiar since it allows 2 different versions of payload
+    // attribute so we need to check the timestamp for withdrawal validation.
+
+    // Spec: payloadAttributes: instance of PayloadAttributesV1 | PayloadAttributesV2, where:
+    // PayloadAttributesV1 MUST be used to build a payload with the timestamp value lower than the
+    // Shanghai timestamp,
+    // PayloadAttributesV2 MUST be used to build a payload with the timestamp value greater or equal
+    // to the Shanghai timestamp,
+    if (shanghaiTimestamp.isEmpty() || attrs.getTimestamp() < shanghaiTimestamp.get()) {
+      if (attrs.getWithdrawals() != null) {
+        return ValidationResult.invalid(
+            RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES,
+            "Withdrawals must be null before Shanghai hardfork");
+      }
+    } else {
+      if (attrs.getWithdrawals() == null) {
+        return ValidationResult.invalid(
+            RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES,
+            "Withdrawals must not be null after Shanghai hardfork");
+      }
+    }
+    return WithdrawalsValidatorProvider.getWithdrawalsValidator(
+                protocolSchedule, newHead, attrs.getTimestamp())
+            .validateWithdrawals(Optional.ofNullable(attrs.getWithdrawals()))
+        ? ValidationResult.valid()
+        : ValidationResult.invalid(getInvalidPayloadAttributesError(), "Invalid withdrawals");
+  }
+
+  @Override
+  protected void setPreparePayloadArgs(
+      final PreparePayloadArgsBuilder preparePayloadArgsBuilder, final PA attrs) {
+    super.setPreparePayloadArgs(preparePayloadArgsBuilder, attrs);
+    if (attrs.getWithdrawals() != null)
+      preparePayloadArgsBuilder.withdrawals(attrs.getWithdrawals());
   }
 }

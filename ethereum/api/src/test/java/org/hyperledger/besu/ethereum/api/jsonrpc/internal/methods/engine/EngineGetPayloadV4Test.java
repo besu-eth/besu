@@ -16,75 +16,49 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.OSAKA;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.consensus.merge.PayloadWrapper;
 import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
+import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
 import org.hyperledger.besu.datatypes.Address;
-import org.hyperledger.besu.datatypes.BlobGas;
-import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.RequestType;
-import org.hyperledger.besu.datatypes.TransactionType;
-import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineGetPayloadResultV4;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.Quantity;
-import org.hyperledger.besu.ethereum.blockcreation.BlockCreationTiming;
-import org.hyperledger.besu.ethereum.core.BlobTestFixture;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.BlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.Request;
-import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.core.TransactionReceipt;
-import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
-import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
 
-import java.math.BigInteger;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith({MockitoExtension.class})
-public class EngineGetPayloadV4Test extends AbstractEngineGetPayloadTest {
+public class EngineGetPayloadV4Test extends EngineGetPayloadV3Test {
 
-  public EngineGetPayloadV4Test() {
-    super();
-  }
-
-  @BeforeEach
   @Override
-  public void before() {
-    super.before();
-    lenient()
-        .when(mergeContext.retrievePayloadById(mockPid))
-        .thenReturn(Optional.of(mockPayloadWithDepositRequests));
-    when(protocolContext.safeConsensusContext(Mockito.any())).thenReturn(Optional.of(mergeContext));
-    this.method =
-        new EngineGetPayloadV4(
-            vertx,
-            protocolContext,
-            mergeMiningCoordinator,
-            factory,
-            engineCallListener,
-            protocolSchedule);
+  protected EngineGetPayloadV1 createMethodInstance() {
+    return new EngineGetPayloadV4(
+        protocolSchedule,
+        protocolContext,
+        vertx,
+        engineCallListener,
+        mergeMiningCoordinator,
+        factory,
+        PRAGUE,
+        OSAKA);
   }
 
   @Override
@@ -93,134 +67,27 @@ public class EngineGetPayloadV4Test extends AbstractEngineGetPayloadTest {
     assertThat(method.getName()).isEqualTo("engine_getPayloadV4");
   }
 
-  @Test
-  public void shouldReturnUnsupportedForkIfBlockTimestampIsBeforePragueMilestone() {
-    PayloadIdentifier cancunPayload = setupPayload(pragueHardfork.milestone() - 1);
-    final var resp = resp(RpcMethod.ENGINE_GET_PAYLOAD_V4.getMethodName(), cancunPayload);
-    assertThat(resp).isInstanceOf(JsonRpcErrorResponse.class);
-    assertThat(((JsonRpcErrorResponse) resp).getErrorType())
-        .isEqualTo(RpcErrorType.UNSUPPORTED_FORK);
-  }
-
-  @Test
-  public void shouldReturnUnsupportedForkIfBlockTimestampIsAtOsakaMilestone() {
-    PayloadIdentifier osakaPayload = setupPayload(osakaHardfork.milestone());
-    final var resp = resp(RpcMethod.ENGINE_GET_PAYLOAD_V4.getMethodName(), osakaPayload);
-    assertThat(resp).isInstanceOf(JsonRpcErrorResponse.class);
-    assertThat(((JsonRpcErrorResponse) resp).getErrorType())
-        .isEqualTo(RpcErrorType.UNSUPPORTED_FORK);
-  }
-
-  @Test
-  public void shouldReturnUnsupportedForkIfBlockTimestampIsAfterOsakaMilestone() {
-    PayloadIdentifier osakaPayload = setupPayload(osakaHardfork.milestone() + 1);
-    final var resp = resp(RpcMethod.ENGINE_GET_PAYLOAD_V4.getMethodName(), osakaPayload);
-    assertThat(resp).isInstanceOf(JsonRpcErrorResponse.class);
-    assertThat(((JsonRpcErrorResponse) resp).getErrorType())
-        .isEqualTo(RpcErrorType.UNSUPPORTED_FORK);
-  }
-
   @Override
-  @Test
-  public void shouldReturnBlockForKnownPayloadId() {
-
-    BlockHeader header =
-        new BlockHeaderTestFixture()
-            .prevRandao(Bytes32.random())
-            .timestamp(pragueHardfork.milestone() + 1)
-            .excessBlobGas(BlobGas.of(10L))
-            .buildHeader();
-    // should return withdrawals, deposits and excessGas for a post-6110 block
-    PayloadIdentifier payloadIdentifier =
-        PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            pragueHardfork.milestone(),
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
-
-    BlobTestFixture blobTestFixture = new BlobTestFixture();
-    BlobsWithCommitments bwc = blobTestFixture.createBlobsWithCommitments(1);
-    Transaction blobTx =
-        new TransactionTestFixture()
-            .to(Optional.of(Address.fromHexString("0xDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF")))
-            .type(TransactionType.BLOB)
-            .chainId(Optional.of(BigInteger.ONE))
-            .maxFeePerGas(Optional.of(Wei.of(15)))
-            .maxFeePerBlobGas(Optional.of(Wei.of(128)))
-            .maxPriorityFeePerGas(Optional.of(Wei.of(1)))
-            .blobsWithCommitments(Optional.of(bwc))
-            .versionedHashes(Optional.of(bwc.getVersionedHashes()))
-            .createTransaction(senderKeys);
-    TransactionReceipt blobReceipt = mock(TransactionReceipt.class);
-    when(blobReceipt.getCumulativeGasUsed()).thenReturn(100L);
-    BlockWithReceipts block =
-        new BlockWithReceipts(
-            new Block(
-                header, new BlockBody(List.of(blobTx), emptyList(), Optional.of(emptyList()))),
-            List.of(blobReceipt));
-    final List<Request> requests =
-        List.of(
-            new Request(RequestType.DEPOSIT, Bytes.of(1)),
-            new Request(RequestType.WITHDRAWAL, Bytes.of(1)),
-            new Request(RequestType.CONSOLIDATION, Bytes.of(1)));
-    PayloadWrapper payload =
-        new PayloadWrapper(
-            payloadIdentifier,
-            block,
-            Optional.empty(),
-            Optional.of(requests),
-            BlockCreationTiming.EMPTY);
-
-    when(mergeContext.retrievePayloadById(payloadIdentifier)).thenReturn(Optional.of(payload));
-
-    final var resp = resp(RpcMethod.ENGINE_GET_PAYLOAD_V4.getMethodName(), payloadIdentifier);
-    assertThat(resp).isInstanceOf(JsonRpcSuccessResponse.class);
-    final List<String> requestsWithoutRequestId =
-        requests.stream()
-            .sorted(Comparator.comparing(Request::getType))
-            .map(Request::getEncodedRequest)
-            .map(Bytes::toHexString)
-            .toList();
-    Optional.of(resp)
-        .map(JsonRpcSuccessResponse.class::cast)
-        .ifPresent(
-            r -> {
-              assertThat(r.getResult()).isInstanceOf(EngineGetPayloadResultV4.class);
-              final EngineGetPayloadResultV4 res = (EngineGetPayloadResultV4) r.getResult();
-              assertThat(res.getExecutionPayload().getWithdrawals()).isNotNull();
-              assertThat(res.getExecutionPayload().getHash())
-                  .isEqualTo(header.getHash().toString());
-              assertThat(res.getBlockValue()).isEqualTo(Quantity.create(0));
-              assertThat(res.getExecutionPayload().getPrevRandao())
-                  .isEqualTo(header.getPrevRandao().map(Bytes32::toString).orElse(""));
-              // excessBlobGas: QUANTITY, 256 bits
-              String expectedQuantityOf10 = Bytes32.leftPad(Bytes.of(10)).toQuantityHexString();
-              assertThat(res.getExecutionPayload().getExcessBlobGas()).isNotEmpty();
-              assertThat(res.getExecutionPayload().getExcessBlobGas())
-                  .isEqualTo(expectedQuantityOf10);
-              assertThat(res.getExecutionRequests()).isNotEmpty();
-              assertThat(res.getExecutionRequests()).isEqualTo(requestsWithoutRequestId);
-            });
-    verify(engineCallListener, times(1)).executionEngineCalled();
+  protected void assertPayloadResult(final Object result) {
+    super.assertPayloadResult(result);
+    assertThat(result).isInstanceOf(EngineGetPayloadResultV4.class);
+    // default requests are already sorted by type and non-empty, so they are returned as is
+    assertThat(getExecutionRequests(result)).isEqualTo(defaultRequests().orElseThrow());
   }
 
   @Test
   public void shouldExcludeEmptyRequestsInRequestsList() {
 
-    BlockHeader header =
-        new BlockHeaderTestFixture().timestamp(pragueHardfork.milestone() + 1).buildHeader();
+    final long validTimestamp = getValidPayloadTimestamp();
+    BlockHeader header = blockHeaderTestFixture().timestamp(validTimestamp).buildHeader();
     PayloadIdentifier payloadIdentifier =
         PayloadIdentifier.forPayloadParams(
-            Hash.ZERO,
-            pragueHardfork.milestone(),
-            Bytes32.random(),
-            Address.fromHexString("0x42"),
-            Optional.empty(),
-            Optional.empty(),
-            Optional.empty());
+            new PreparePayloadArgsBuilder()
+                .parentHeader(new BlockHeaderTestFixture().buildHeader())
+                .timestamp(validTimestamp)
+                .prevRandao(Bytes32.random())
+                .feeRecipient(Address.fromHexString("0x42"))
+                .build());
 
     BlockWithReceipts block =
         new BlockWithReceipts(
@@ -232,32 +99,36 @@ public class EngineGetPayloadV4Test extends AbstractEngineGetPayloadTest {
             new Request(RequestType.DEPOSIT, Bytes.of(1)),
             new Request(RequestType.WITHDRAWAL, Bytes.EMPTY));
     PayloadWrapper payload =
-        new PayloadWrapper(
-            payloadIdentifier,
-            block,
-            Optional.empty(),
-            Optional.of(unorderedRequests),
-            BlockCreationTiming.EMPTY);
+        createPayload(payloadIdentifier, block, Optional.of(unorderedRequests));
 
     when(mergeContext.retrievePayloadById(payloadIdentifier)).thenReturn(Optional.of(payload));
 
-    final var resp = resp(RpcMethod.ENGINE_GET_PAYLOAD_V4.getMethodName(), payloadIdentifier);
+    final var resp = resp(getMethodName(), payloadIdentifier);
     assertThat(resp).isInstanceOf(JsonRpcSuccessResponse.class);
 
-    final List<String> expectedRequests =
-        List.of(
-            Bytes.concatenate(Bytes.of(RequestType.DEPOSIT.getSerializedType()), Bytes.of(1))
-                .toHexString(),
-            Bytes.concatenate(Bytes.of(RequestType.CONSOLIDATION.getSerializedType()), Bytes.of(1))
-                .toHexString());
     Optional.of(resp)
         .map(JsonRpcSuccessResponse.class::cast)
         .ifPresent(
             r -> {
-              assertThat(r.getResult()).isInstanceOf(EngineGetPayloadResultV4.class);
-              final EngineGetPayloadResultV4 res = (EngineGetPayloadResultV4) r.getResult();
-              assertThat(res.getExecutionRequests()).isEqualTo(expectedRequests);
+              assertThat(getExecutionRequests(r.getResult()))
+                  .containsExactly(
+                      new Request(RequestType.DEPOSIT, Bytes.of(1)),
+                      new Request(RequestType.CONSOLIDATION, Bytes.of(1)));
             });
+  }
+
+  protected List<Request> getExecutionRequests(final Object result) {
+    assertThat(result).isInstanceOf(EngineGetPayloadResultV4.class);
+    return ((EngineGetPayloadResultV4) result).getExecutionRequests();
+  }
+
+  @Override
+  protected Optional<List<Request>> defaultRequests() {
+    return Optional.of(
+        List.of(
+            new Request(RequestType.DEPOSIT, Bytes.of(1)),
+            new Request(RequestType.WITHDRAWAL, Bytes.of(1)),
+            new Request(RequestType.CONSOLIDATION, Bytes.of(1))));
   }
 
   @Override
@@ -266,8 +137,12 @@ public class EngineGetPayloadV4Test extends AbstractEngineGetPayloadTest {
   }
 
   @Override
-  protected long getValidPayloadTimestamp() {
-    // V4 works with Prague (>= 50) but must be before Osaka (< 60)
-    return 55L;
+  protected long getMinSupportedTimestamp() {
+    return pragueHardfork.milestone();
+  }
+
+  @Override
+  protected OptionalLong getMaxSupportedTimestamp() {
+    return OptionalLong.of(osakaHardfork.milestone() - 1);
   }
 }

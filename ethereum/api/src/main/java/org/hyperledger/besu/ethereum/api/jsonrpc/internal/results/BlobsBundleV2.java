@@ -16,95 +16,28 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
 import org.hyperledger.besu.datatypes.BlobType;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.core.kzg.Blob;
 import org.hyperledger.besu.ethereum.core.kzg.BlobsWithCommitments;
 import org.hyperledger.besu.ethereum.core.kzg.CKZG4844Helper;
-import org.hyperledger.besu.ethereum.core.kzg.KZGCommitment;
-import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
-import org.hyperledger.besu.util.HexUtils;
 
 import java.util.List;
-import java.util.Optional;
-import java.util.stream.Collectors;
 
-import com.fasterxml.jackson.annotation.JsonGetter;
-import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-@JsonPropertyOrder({"commitments", "proofs", "blobs"})
-public class BlobsBundleV2 {
-
+public final class BlobsBundleV2 extends BlobsBundleV1 {
   private static final Logger LOG = LoggerFactory.getLogger(BlobsBundleV2.class);
-  private final List<String> commitments;
-
-  private final List<String> cellProfs;
-
-  private final List<String> blobs;
 
   public BlobsBundleV2(final List<Transaction> transactions) {
-    final List<BlobsWithCommitments> blobsWithCommitments =
-        transactions.stream()
-            .map(Transaction::getBlobsWithCommitments)
-            .flatMap(Optional::stream)
-            .map(this::mapBlobWithCommitments)
-            .toList();
-
-    this.commitments =
-        blobsWithCommitments.parallelStream()
-            .flatMap(b -> b.getKzgCommitments().stream())
-            .map(KZGCommitment::getData)
-            .map(b -> HexUtils.toFastHex(b, true))
-            .collect(Collectors.toList());
-
-    this.cellProfs =
-        blobsWithCommitments.parallelStream()
-            .flatMap(b -> b.getKzgProofs().stream())
-            .map(KZGProof::getData)
-            .map(b -> HexUtils.toFastHex(b, true))
-            .collect(Collectors.toList());
-
-    this.blobs =
-        blobsWithCommitments.parallelStream()
-            .flatMap(b -> b.getBlobs().stream())
-            .map(Blob::getData)
-            .map(b -> HexUtils.toFastHex(b, true))
-            .collect(Collectors.toList());
-
-    LOG.debug(
-        "BlobsBundleV2: totalTxs: {}, blobTxs: {}, commitments: {}, cell proofs: {}, blobs: {}",
-        transactions.size(),
-        blobsWithCommitments.size(),
-        commitments.size(),
-        cellProfs.size(),
-        blobs.size());
+    super(transactions, BlobsBundleV2::convertBlobType);
   }
 
-  @JsonGetter("commitments")
-  public List<String> getCommitments() {
-    return commitments;
-  }
-
-  @JsonGetter("proofs")
-  public List<String> getCellProofs() {
-    return cellProfs;
-  }
-
-  @JsonGetter("blobs")
-  public List<String> getBlobs() {
-    return blobs;
-  }
-
-  private BlobsWithCommitments mapBlobWithCommitments(
-      final BlobsWithCommitments blobsWithCommitments) {
-    // This may occur during fork transitions when the pool contains outdated blob types.
-    // It should not happen once the pool is refreshed with new transactions.
-    if (blobsWithCommitments.getBlobType() == BlobType.KZG_PROOF) {
+  private static BlobsWithCommitments convertBlobType(final BlobsWithCommitments bwc) {
+    if (bwc.getBlobType() == BlobType.KZG_PROOF) {
       LOG.warn(
           "BlobsWithCommitments {} has a blob type of KZG_PROOF. Converting to KZG_CELL_PROOFS.",
-          blobsWithCommitments.getVersionedHashes());
-      return CKZG4844Helper.convertToVersion1(blobsWithCommitments);
+          bwc.getVersionedHashes());
+      return CKZG4844Helper.convertToVersion1(bwc);
     }
-    return blobsWithCommitments;
+    return bwc;
   }
 }

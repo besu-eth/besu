@@ -15,6 +15,8 @@
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -24,15 +26,15 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.LogsBloomFilter;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.datatypes.parameters.UnsignedLongParameter;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EngineExchangeTransitionConfigurationParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.TransitionConfigurationV1;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EngineExchangeTransitionConfigurationResult;
+import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
@@ -54,26 +56,32 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
-import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 @ExtendWith(MockitoExtension.class)
-public class EngineExchangeTransitionConfigurationTest {
-  private EngineExchangeTransitionConfiguration method;
+@MockitoSettings(strictness = Strictness.LENIENT)
+public class EngineExchangeTransitionConfigurationV1Test extends AbstractScheduledApiTest {
+  private EngineExchangeTransitionConfigurationV1 method;
   private static final Vertx vertx = Vertx.vertx();
 
   @Mock private ProtocolContext protocolContext;
-
   @Mock private MergeContext mergeContext;
-
+  @Mock protected MutableBlockchain blockchain;
   @Mock private EngineCallListener engineCallListener;
+  @Mock private BlockHeader blockHeader;
 
   @BeforeEach
   public void setUp() {
-    when(protocolContext.safeConsensusContext(Mockito.any())).thenReturn(Optional.of(mergeContext));
+    when(protocolContext.safeConsensusContext(any())).thenReturn(Optional.of(mergeContext));
+    when(protocolContext.getBlockchain()).thenReturn(blockchain);
+    when(blockHeader.getTimestamp()).thenReturn(parisHardfork.milestone());
+    when(blockchain.getChainHeadHeader()).thenReturn(blockHeader);
 
     this.method =
-        new EngineExchangeTransitionConfiguration(vertx, protocolContext, engineCallListener);
+        new EngineExchangeTransitionConfigurationV1(
+            protocolSchedule, protocolContext, vertx, engineCallListener, null, CANCUN);
   }
 
   @Test
@@ -89,10 +97,7 @@ public class EngineExchangeTransitionConfigurationTest {
     when(mergeContext.getTerminalPoWBlock()).thenReturn(Optional.of(mockBlockHeader));
     when(mergeContext.getTerminalTotalDifficulty()).thenReturn(Difficulty.of(1337L));
 
-    var response =
-        resp(
-            new EngineExchangeTransitionConfigurationParameter(
-                "0", Hash.ZERO.getBytes().toHexString(), new UnsignedLongParameter(1L)));
+    var response = resp(new TransitionConfigurationV1(Difficulty.ZERO, Hash.ZERO, 1L));
 
     var result = fromSuccessResp(response);
     assertThat(result.getTerminalTotalDifficulty()).isEqualTo(Difficulty.of(1337L));
@@ -106,10 +111,7 @@ public class EngineExchangeTransitionConfigurationTest {
     when(mergeContext.getTerminalPoWBlock()).thenReturn(Optional.empty());
     when(mergeContext.getTerminalTotalDifficulty()).thenReturn(Difficulty.of(1337L));
 
-    var response =
-        resp(
-            new EngineExchangeTransitionConfigurationParameter(
-                "0", Hash.ZERO.getBytes().toHexString(), new UnsignedLongParameter(0L)));
+    var response = resp(new TransitionConfigurationV1(Difficulty.ZERO, Hash.ZERO, 0L));
 
     var result = fromSuccessResp(response);
     assertThat(result.getTerminalTotalDifficulty()).isEqualTo(Difficulty.of(1337L));
@@ -120,10 +122,7 @@ public class EngineExchangeTransitionConfigurationTest {
 
   @Test
   public void shouldReturnDefaultOnNoTerminalTotalDifficultyConfigured() {
-    var response =
-        resp(
-            new EngineExchangeTransitionConfigurationParameter(
-                "0", Hash.ZERO.getBytes().toHexString(), new UnsignedLongParameter(0L)));
+    var response = resp(new TransitionConfigurationV1(Difficulty.ZERO, Hash.ZERO, 0L));
 
     var result = fromSuccessResp(response);
     assertThat(result.getTerminalTotalDifficulty())
@@ -145,10 +144,7 @@ public class EngineExchangeTransitionConfigurationTest {
 
     var response =
         resp(
-            new EngineExchangeTransitionConfigurationParameter(
-                "1",
-                Hash.fromHexStringLenient("0xff").getBytes().toHexString(),
-                new UnsignedLongParameter(0L)));
+            new TransitionConfigurationV1(Difficulty.of(1), Hash.fromHexStringLenient("0xff"), 0L));
 
     var result = fromSuccessResp(response);
     assertThat(result.getTerminalTotalDifficulty()).isEqualTo(Difficulty.of(24));
@@ -165,10 +161,8 @@ public class EngineExchangeTransitionConfigurationTest {
 
     var response =
         resp(
-            new EngineExchangeTransitionConfigurationParameter(
-                "24",
-                Hash.fromHexStringLenient("0x01").getBytes().toHexString(),
-                new UnsignedLongParameter(0)));
+            new TransitionConfigurationV1(
+                Difficulty.of(24), Hash.fromHexStringLenient("0x01"), 0L));
 
     var result = fromSuccessResp(response);
     assertThat(result.getTerminalTotalDifficulty()).isEqualTo(Difficulty.of(24));
@@ -215,7 +209,7 @@ public class EngineExchangeTransitionConfigurationTest {
     assertThat(res.get("terminalTotalDifficulty")).isEqualTo("0x0");
   }
 
-  private JsonRpcResponse resp(final EngineExchangeTransitionConfigurationParameter param) {
+  private JsonRpcResponse resp(final TransitionConfigurationV1 param) {
     return method.response(
         new JsonRpcRequestContext(
             new JsonRpcRequest(

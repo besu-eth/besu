@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -14,36 +14,56 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
-
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
+import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EngineForkchoiceUpdatedParameter;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadAttributesParameter;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV4;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 
-import java.util.Optional;
-
 import io.vertx.core.Vertx;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-/** The EngineForkchoiceUpdatedV4 method for Amsterdam fork with slotNumber support (EIP-7843). */
-public class EngineForkchoiceUpdatedV4 extends AbstractEngineForkchoiceUpdatedV4 {
-
-  private static final Logger LOG = LoggerFactory.getLogger(EngineForkchoiceUpdatedV4.class);
+/**
+ * {@code engine_forkchoiceUpdatedV4} — Amsterdam (EIP-7843 Slot Number).
+ *
+ * <p>Extends V3 with {@link PayloadAttributesV4}, adding the mandatory {@code slotNumber} field.
+ *
+ * <p>Parameterized so that a future V5 can extend this class without modifying it (beyond updating
+ * the upper-bound fork in the public constructor below).
+ *
+ * <h3>Adding V5</h3>
+ *
+ * <ol>
+ *   <li>Create {@code PayloadAttributesV5 extends PayloadAttributesV4} with the new field.
+ *   <li>Create {@code EngineForkchoiceUpdatedV5 extends
+ *       EngineForkchoiceUpdatedV4<PayloadAttributesV5>}.
+ *   <li>Update the public constructor below: change {@code Optional.empty()} to {@code
+ *       Optional.of(V5_FORK)}.
+ * </ol>
+ */
+public final class EngineForkchoiceUpdatedV4<PA extends PayloadAttributesV4>
+    extends EngineForkchoiceUpdatedV3<PA> {
 
   public EngineForkchoiceUpdatedV4(
-      final Vertx vertx,
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
+      final Vertx vertx,
+      final EngineCallListener engineCallListener,
       final MergeMiningCoordinator mergeCoordinator,
-      final EngineCallListener engineCallListener) {
-    super(vertx, protocolSchedule, protocolContext, mergeCoordinator, engineCallListener);
+      final HardforkId minFork,
+      final HardforkId maxFork) {
+    super(
+        protocolSchedule,
+        protocolContext,
+        vertx,
+        engineCallListener,
+        mergeCoordinator,
+        minFork,
+        maxFork);
   }
 
   @Override
@@ -52,63 +72,37 @@ public class EngineForkchoiceUpdatedV4 extends AbstractEngineForkchoiceUpdatedV4
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateParameter(
-      final EngineForkchoiceUpdatedParameter fcuParameter,
-      final Optional<EnginePayloadAttributesParameter> maybePayloadAttributes) {
-    if (fcuParameter.getHeadBlockHash() == null) {
+  @SuppressWarnings("unchecked")
+  protected Class<PA> getPayloadAttributesClass() {
+    return (Class<PA>) PayloadAttributesV4.class;
+  }
+
+  /**
+   * V4 requires {@code slotNumber} in addition to everything V3 requires. Delegates to V3 first
+   * (which checks {@code parentBeaconBlockRoot} and timestamp), then adds its own check.
+   *
+   * <p>{@code PA} is bounded to {@link PayloadAttributesV4}, so {@code getSlotNumber()} is
+   * available without a cast.
+   */
+  @Override
+  protected ValidationResult<RpcErrorType> validatePayloadAttributes(
+      final BlockHeader newHead, final PA attrs) {
+    final ValidationResult<RpcErrorType> r = super.validatePayloadAttributes(newHead, attrs);
+    return r.isValid() ? validatePayloadAttributesV4(attrs) : r;
+  }
+
+  private ValidationResult<RpcErrorType> validatePayloadAttributesV4(final PA attrs) {
+    if (attrs.getSlotNumber() == null || attrs.getSlotNumber() < 0) {
       return ValidationResult.invalid(
-          getInvalidPayloadAttributesError(), "Missing head block hash");
-    } else if (fcuParameter.getSafeBlockHash() == null) {
-      return ValidationResult.invalid(
-          getInvalidPayloadAttributesError(), "Missing safe block hash");
-    } else if (fcuParameter.getFinalizedBlockHash() == null) {
-      return ValidationResult.invalid(
-          getInvalidPayloadAttributesError(), "Missing finalized block hash");
-    }
-    if (maybePayloadAttributes.isPresent()) {
-      if (maybePayloadAttributes.get().getParentBeaconBlockRoot() == null) {
-        return ValidationResult.invalid(
-            getInvalidPayloadAttributesError(), "Missing parent beacon block root hash");
-      }
-      if (maybePayloadAttributes.get().getSlotNumber() == null) {
-        return ValidationResult.invalid(
-            RpcErrorType.INVALID_SLOT_NUMBER_PARAMS, "Missing slot number field");
-      }
+          RpcErrorType.INVALID_SLOT_NUMBER_PARAMS, "Invalid slotNumber");
     }
     return ValidationResult.valid();
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    return ForkSupportHelper.validateForkSupported(AMSTERDAM, amsterdamMilestone, blockTimestamp);
-  }
-
-  @Override
-  protected Optional<JsonRpcErrorResponse> isPayloadAttributesValid(
-      final Object requestId, final EnginePayloadAttributesParameter payloadAttributes) {
-
-    if (payloadAttributes.getParentBeaconBlockRoot() == null) {
-      LOG.error(
-          "Parent beacon block root hash not present in payload attributes after Amsterdam hardfork");
-      return Optional.of(new JsonRpcErrorResponse(requestId, getInvalidPayloadAttributesError()));
-    }
-
-    if (payloadAttributes.getSlotNumber() == null) {
-      LOG.error("Slot number not present in payload attributes after Amsterdam hardfork");
-      return Optional.of(
-          new JsonRpcErrorResponse(requestId, RpcErrorType.INVALID_SLOT_NUMBER_PARAMS));
-    }
-
-    if (payloadAttributes.getTimestamp() == 0) {
-      return Optional.of(new JsonRpcErrorResponse(requestId, getInvalidPayloadAttributesError()));
-    }
-
-    ValidationResult<RpcErrorType> forkValidationResult =
-        validateForkSupported(payloadAttributes.getTimestamp());
-    if (!forkValidationResult.isValid()) {
-      return Optional.of(new JsonRpcErrorResponse(requestId, forkValidationResult));
-    }
-
-    return Optional.empty();
+  protected void setPreparePayloadArgs(
+      final PreparePayloadArgsBuilder preparePayloadArgsBuilder, final PA attrs) {
+    super.setPreparePayloadArgs(preparePayloadArgsBuilder, attrs);
+    preparePayloadArgsBuilder.slotNumber(attrs.getSlotNumber());
   }
 }

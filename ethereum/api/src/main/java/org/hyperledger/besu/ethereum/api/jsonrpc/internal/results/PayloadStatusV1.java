@@ -25,13 +25,13 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
 @JsonPropertyOrder({"status", "latestValidHash", "validationError"})
-public class EnginePayloadStatusResult {
+public class PayloadStatusV1 {
   EngineStatus status;
   Optional<Hash> latestValidHash;
   Optional<String> validationError;
 
   @JsonCreator
-  public EnginePayloadStatusResult(
+  public PayloadStatusV1(
       @JsonProperty("status") final EngineStatus status,
       @JsonProperty("latestValidHash") final Hash latestValidHash,
       @JsonProperty("errorMessage") final Optional<String> validationError) {

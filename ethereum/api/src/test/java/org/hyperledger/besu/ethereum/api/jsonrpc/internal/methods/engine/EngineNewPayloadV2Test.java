@@ -14,37 +14,36 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
+import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.INVALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameterTestFixture.WITHDRAWAL_PARAM_1;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_BLOB_GAS_USED_PARAMS;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_PARAMS;
-import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.UNSUPPORTED_FORK;
-import static org.mockito.Mockito.lenient;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.WithdrawalParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
-import org.hyperledger.besu.ethereum.mainnet.ScheduledProtocolSpec;
+import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.WithdrawalsValidator;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 
-import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
+import java.util.OptionalLong;
+import java.util.function.UnaryOperator;
 
-import org.junit.jupiter.api.BeforeEach;
+import io.vertx.core.json.JsonObject;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -53,27 +52,30 @@ import org.mockito.quality.Strictness;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
-public class EngineNewPayloadV2Test extends AbstractEngineNewPayloadTest {
-
-  protected Set<ScheduledProtocolSpec.Hardfork> supportedHardforks() {
-    return Set.of(shanghaiHardfork);
-  }
-
-  public EngineNewPayloadV2Test() {}
+public class EngineNewPayloadV2Test extends EngineNewPayloadV1Test {
 
   @Override
-  @BeforeEach
-  public void before() {
-    super.before();
-    this.method =
-        new EngineNewPayloadV2(
-            vertx,
-            protocolSchedule,
-            protocolContext,
-            mergeCoordinator,
-            ethPeers,
-            engineCallListener,
-            new NoOpMetricsSystem());
+  protected EngineNewPayloadV1<?, ?> createMethodInstance() {
+    return new EngineNewPayloadV2<>(
+        protocolSchedule,
+        protocolContext,
+        vertx,
+        engineCallListener,
+        mergeCoordinator,
+        ethPeers,
+        new NoOpMetricsSystem(),
+        null,
+        CANCUN);
+  }
+
+  @Override
+  protected long getMinSupportedTimestamp() {
+    return shanghaiHardfork.milestone();
+  }
+
+  @Override
+  protected OptionalLong getMaxSupportedTimestamp() {
+    return OptionalLong.of(cancunHardfork.milestone() - 1);
   }
 
   @Override
@@ -84,122 +86,126 @@ public class EngineNewPayloadV2Test extends AbstractEngineNewPayloadTest {
 
   @Test
   public void shouldReturnValidIfWithdrawalsIsNotNull_WhenWithdrawalsAllowed() {
-    final List<WithdrawalParameter> withdrawalsParam = List.of(WITHDRAWAL_PARAM_1);
     final List<Withdrawal> withdrawals = List.of(WITHDRAWAL_PARAM_1.toWithdrawal());
-    when(protocolSpec.getWithdrawalsValidator())
-        .thenReturn(new WithdrawalsValidator.AllowedWithdrawals());
     BlockHeader mockHeader =
-        setupValidPayload(
+        setupPayloadV2(
+            getMinSupportedTimestamp(),
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
-            Optional.of(withdrawals));
-    lenient()
-        .when(blockchain.getBlockHeader(mockHeader.getParentHash()))
-        .thenReturn(Optional.of(mock(BlockHeader.class)));
-    var resp = resp(mockEnginePayload(mockHeader, Collections.emptyList(), withdrawalsParam));
+            withdrawals);
+    var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
 
     assertValidResponse(mockHeader, resp);
   }
 
   @Test
   public void shouldReturnValidIfWithdrawalsIsNull_WhenWithdrawalsProhibited() {
-    final List<WithdrawalParameter> withdrawals = null;
-    when(protocolSpec.getWithdrawalsValidator())
-        .thenReturn(new WithdrawalsValidator.ProhibitedWithdrawals());
+    final List<Withdrawal> withdrawals = null;
     BlockHeader mockHeader =
-        setupValidPayload(
+        setupPayloadV2(
+            getMinSupportedTimestamp() / 2,
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
-            Optional.empty());
-    lenient()
-        .when(blockchain.getBlockHeader(mockHeader.getParentHash()))
-        .thenReturn(Optional.of(mock(BlockHeader.class)));
-    var resp = resp(mockEnginePayload(mockHeader, Collections.emptyList(), withdrawals));
+            withdrawals);
+    var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
 
     assertValidResponse(mockHeader, resp);
   }
 
   @Test
   public void shouldReturnInvalidIfWithdrawalsIsNotNull_WhenWithdrawalsProhibited() {
-    final List<WithdrawalParameter> withdrawals = List.of();
-    lenient()
-        .when(protocolSpec.getWithdrawalsValidator())
-        .thenReturn(new WithdrawalsValidator.ProhibitedWithdrawals());
-
-    var resp =
-        resp(
-            mockEnginePayload(
-                createBlockHeader(Optional.of(Collections.emptyList())),
-                Collections.emptyList(),
-                withdrawals));
+    final List<Withdrawal> withdrawals = List.of();
+    BlockHeader mockHeader =
+        setupPayloadV2(
+            getMinSupportedTimestamp() / 2,
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            withdrawals);
+    var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
 
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
     assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
-    verify(engineCallListener, times(1)).executionEngineCalled();
-  }
-
-  @Test
-  public void shouldValidateBlobGasUsedCorrectly() {
-    // V2 should return error if non-null blobGasUsed
-    BlockHeader blockHeader =
-        createBlockHeaderFixture(Optional.of(Collections.emptyList()))
-            .blobGasUsed(100L)
-            .buildHeader();
-
-    var resp = resp(mockEnginePayload(blockHeader, Collections.emptyList(), List.of()));
-    final JsonRpcError jsonRpcError = fromErrorResp(resp);
-    assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_BLOB_GAS_USED_PARAMS.getCode());
-    assertThat(jsonRpcError.getData()).isEqualTo("Unexpected blob gas used field present");
-    verify(engineCallListener, times(1)).executionEngineCalled();
-  }
-
-  @Test
-  public void shouldValidateExcessBlobGasCorrectly() {
-    // V2 should return error if non-null ExcessBlobGas
-    BlockHeader blockHeader =
-        createBlockHeaderFixture(Optional.of(Collections.emptyList()))
-            .excessBlobGas(BlobGas.MAX_BLOB_GAS)
-            .buildHeader();
-
-    var resp = resp(mockEnginePayload(blockHeader, Collections.emptyList(), List.of()));
-
-    final JsonRpcError jsonRpcError = fromErrorResp(resp);
-    assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
-    assertThat(jsonRpcError.getData()).isEqualTo("Unexpected excess blob gas field present");
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
   @Test
   public void shouldReturnInvalidIfWithdrawalsIsNull_WhenWithdrawalsAllowed() {
-    final List<WithdrawalParameter> withdrawals = null;
-    when(protocolSpec.getWithdrawalsValidator())
-        .thenReturn(new WithdrawalsValidator.AllowedWithdrawals());
-
-    var resp =
-        resp(
-            mockEnginePayload(
-                createBlockHeader(Optional.empty()), Collections.emptyList(), withdrawals));
+    final List<Withdrawal> withdrawals = null;
+    BlockHeader mockHeader =
+        setupPayloadV2(
+            getMinSupportedTimestamp(),
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            withdrawals);
+    var resp = resp(requestParams(mockEnginePayloadParam(mockHeader, emptyList(), withdrawals)));
 
     assertThat(fromErrorResp(resp).getCode()).isEqualTo(INVALID_PARAMS.getCode());
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
-  @Test
-  public void shouldReturnUnsupportedForkIfBlockTimestampIsAfterCancunMilestone() {
-    // Cancun started at timestamp 30
-    final long blockTimestamp = 31L;
-    BlockHeader blockHeader =
-        createBlockHeaderFixture(Optional.of(Collections.emptyList()))
-            .timestamp(blockTimestamp)
-            .buildHeader();
+  protected Map<String, Object> mockEnginePayloadParam(
+      final BlockHeader header, final List<String> txs, final List<Withdrawal> withdrawals) {
+    var param = super.mockEnginePayloadParam(header, txs);
+    if (withdrawals != null) {
+      param.put(
+          "withdrawals",
+          withdrawals.stream()
+              .map(WithdrawalParameter::fromWithdrawal)
+              .map(WithdrawalParameter::asJsonObject)
+              .map(JsonObject::getMap)
+              .toList());
+    } else {
+      param.remove("withdrawals");
+    }
+    return param;
+  }
 
-    var resp = resp(mockEnginePayload(blockHeader, Collections.emptyList(), List.of()));
-
-    final JsonRpcError jsonRpcError = fromErrorResp(resp);
-    assertThat(jsonRpcError.getCode()).isEqualTo(UNSUPPORTED_FORK.getCode());
-    verify(engineCallListener, times(1)).executionEngineCalled();
+  @Override
+  protected void setDefaultExecutionPayloadFields(
+      final Map<String, Object> payload, final BlockHeader header, final List<String> txs) {
+    super.setDefaultExecutionPayloadFields(payload, header, txs);
+    if (header.getTimestamp() >= shanghaiHardfork.milestone()) {
+      payload.put("withdrawals", List.of());
+    }
   }
 
   @Override
   protected ExecutionEngineJsonRpcMethod.EngineStatus getExpectedInvalidBlockHashStatus() {
     return INVALID;
+  }
+
+  protected BlockHeader setupPayloadV2(
+      final long timestamp, final BlockProcessingResult value, final List<Withdrawal> withdrawals) {
+
+    return setupPayloadV2(timestamp, value, withdrawals, UnaryOperator.identity());
+  }
+
+  protected BlockHeader setupPayloadV2(
+      final long timestamp,
+      final BlockProcessingResult value,
+      final List<Withdrawal> withdrawals,
+      final UnaryOperator<BlockHeaderTestFixture> versionSpecificModifier) {
+
+    return super.setupPayloadV1(
+        timestamp,
+        value,
+        fixture -> versionSpecificModifier.apply(setWithdrawalsRoot(fixture, withdrawals)));
+  }
+
+  private BlockHeaderTestFixture setWithdrawalsRoot(
+      final BlockHeaderTestFixture fixture, final List<Withdrawal> withdrawals) {
+    return fixture.withdrawalsRoot(
+        withdrawals != null ? BodyValidation.withdrawalsRoot(withdrawals) : null);
+  }
+
+  @Override
+  protected BlockHeaderTestFixture versionSpecificBlockHeaderFixture(final long timestamp) {
+    BlockHeaderTestFixture baseFixture = super.versionSpecificBlockHeaderFixture(timestamp);
+    if (timestamp >= shanghaiHardfork.milestone()) {
+      baseFixture.withdrawalsRoot(BodyValidation.withdrawalsRoot(List.of()));
+      when(protocolSpec.getWithdrawalsValidator())
+          .thenReturn(new WithdrawalsValidator.AllowedWithdrawals());
+    } else {
+      baseFixture.withdrawalsRoot(null);
+      when(protocolSpec.getWithdrawalsValidator())
+          .thenReturn(new WithdrawalsValidator.ProhibitedWithdrawals());
+    }
+    return baseFixture;
   }
 }

@@ -44,8 +44,9 @@ class EngineGetClientVersionV1Test {
   void before() {
     getClientVersion =
         new EngineGetClientVersionV1(
-            Mockito.mock(Vertx.class),
+            null,
             Mockito.mock(ProtocolContext.class),
+            Mockito.mock(Vertx.class),
             Mockito.mock(EngineCallListener.class),
             CLIENT_VERSION,
             COMMIT);

@@ -14,45 +14,54 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
-
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
+import org.hyperledger.besu.datatypes.HardforkId;
+import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadParameter;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV1;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.ExecutionPayloadV4;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.NewPayloadRequestParametersV3;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
-import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListDecoder;
+import org.hyperledger.besu.ethereum.core.Block;
+import org.hyperledger.besu.ethereum.core.BlockHeaderBuilder;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
+import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
-import java.util.List;
 import java.util.Optional;
 
+import com.fasterxml.jackson.databind.JsonMappingException;
 import io.vertx.core.Vertx;
-import org.apache.tuweni.bytes.Bytes;
 
-public class EngineNewPayloadV5 extends AbstractEngineNewPayload {
+public final class EngineNewPayloadV5<
+        EP extends ExecutionPayloadV4, NPRP extends NewPayloadRequestParametersV3<? extends EP>>
+    extends EngineNewPayloadV4<EP, NPRP> {
 
   public EngineNewPayloadV5(
-      final Vertx vertx,
       final ProtocolSchedule timestampSchedule,
       final ProtocolContext protocolContext,
+      final Vertx vertx,
+      final EngineCallListener engineCallListener,
       final MergeMiningCoordinator mergeCoordinator,
       final EthPeers ethPeers,
-      final EngineCallListener engineCallListener,
-      final MetricsSystem metricsSystem) {
+      final MetricsSystem metricsSystem,
+      final HardforkId minSupportedFork,
+      final HardforkId firstUnsupportedFork) {
     super(
-        vertx,
         timestampSchedule,
         protocolContext,
+        vertx,
+        engineCallListener,
         mergeCoordinator,
         ethPeers,
-        engineCallListener,
-        metricsSystem);
+        metricsSystem,
+        minSupportedFork,
+        firstUnsupportedFork);
   }
 
   @Override
@@ -61,28 +70,33 @@ public class EngineNewPayloadV5 extends AbstractEngineNewPayload {
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateParameters(
-      final EnginePayloadParameter payloadParameter,
-      final Optional<List<String>> maybeVersionedHashParam,
-      final Optional<String> maybeBeaconBlockRootParam,
-      final Optional<List<String>> maybeRequestsParam) {
-    if (payloadParameter.getBlobGasUsed() == null) {
+  protected Class<? extends ExecutionPayloadV1> getPayloadParameterClass() {
+    return ExecutionPayloadV4.class;
+  }
+
+  @Override
+  protected void setBlockHeaderFields(
+      final BlockHeaderBuilder blockHeaderBuilder, final NPRP requestParameters) {
+    super.setBlockHeaderFields(blockHeaderBuilder, requestParameters);
+    blockHeaderBuilder
+        .balHash(BodyValidation.balHash(requestParameters.payloadParameter().getBlockAccessList()))
+        .slotNumber(requestParameters.payloadParameter().getSlotNumber());
+  }
+
+  @Override
+  protected ValidationResult<RpcErrorType> validateParameters(final NPRP requestParameters) {
+    final ValidationResult<RpcErrorType> result = super.validateParameters(requestParameters);
+    return result.isValid() ? validateParametersV5(requestParameters) : result;
+  }
+
+  private ValidationResult<RpcErrorType> validateParametersV5(
+      final NewPayloadRequestParametersV3<? extends EP> requestParameters) {
+    final ExecutionPayloadV4 executionPayloadV4 = requestParameters.payloadParameter();
+    if (executionPayloadV4.getBlockAccessList() == null) {
       return ValidationResult.invalid(
-          RpcErrorType.INVALID_BLOB_GAS_USED_PARAMS, "Missing blob gas used field");
-    } else if (payloadParameter.getExcessBlobGas() == null) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_EXCESS_BLOB_GAS_PARAMS, "Missing excess blob gas field");
-    } else if (maybeVersionedHashParam == null || maybeVersionedHashParam.isEmpty()) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_VERSIONED_HASH_PARAMS, "Missing versioned hashes field");
-    } else if (maybeBeaconBlockRootParam.isEmpty()) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_PARENT_BEACON_BLOCK_ROOT_PARAMS,
-          "Missing parent beacon block root field");
-    } else if (maybeRequestsParam.isEmpty()) {
-      return ValidationResult.invalid(
-          RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS, "Missing execution requests field");
-    } else if (payloadParameter.getSlotNumber() == null) {
+          RpcErrorType.INVALID_BLOCK_ACCESS_LIST_PARAMS, "Missing block access list field");
+    }
+    if (executionPayloadV4.getSlotNumber() == null) {
       return ValidationResult.invalid(
           RpcErrorType.INVALID_SLOT_NUMBER_PARAMS, "Missing slot number field");
     }
@@ -90,27 +104,36 @@ public class EngineNewPayloadV5 extends AbstractEngineNewPayload {
   }
 
   @Override
-  protected Optional<BlockAccessList> extractBlockAccessList(
-      final EnginePayloadParameter payloadParameter) throws InvalidBlockAccessListException {
-    final String blockAccessList = payloadParameter.getBlockAccessList();
-    if (blockAccessList == null || blockAccessList.isEmpty()) {
-      throw new InvalidBlockAccessListException("Missing block access list field");
-    }
-    final Bytes encoded;
-    try {
-      encoded = Bytes.fromHexString(blockAccessList);
-    } catch (final IllegalArgumentException e) {
-      throw new InvalidBlockAccessListException("Invalid block access list encoding", e);
-    }
-    try {
-      return Optional.of(BlockAccessListDecoder.decode(new BytesValueRLPInput(encoded, false)));
-    } catch (final RuntimeException e) {
-      throw new InvalidBlockAccessListException("Invalid block access list encoding", e);
-    }
+  protected BlockProcessingResult rememberBlock(final Block block, final EP executionPayload) {
+    return mergeCoordinator.rememberBlock(
+        block, Optional.of(executionPayload.getBlockAccessList()));
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    return ForkSupportHelper.validateForkSupported(AMSTERDAM, amsterdamMilestone, blockTimestamp);
+  protected JsonRpcResponse processParametersParsingException(
+      final Object reqId, final InvalidRequestParametersException e) {
+    final Optional<JsonMappingException> maybeFieldEx =
+        extractCauseByType(e, JsonMappingException.class);
+
+    // specific invalid field with custom error response
+    if (maybeFieldEx.isPresent()) {
+      final JsonMappingException fieldEx = maybeFieldEx.get();
+      final Optional<String> maybeJsonPath = extractJsonPath(fieldEx);
+      if (maybeJsonPath.isPresent()) {
+        final String jsonPath = maybeJsonPath.get();
+
+        if (jsonPath.equals("blockAccessList")) {
+          return new JsonRpcErrorResponse(
+              reqId,
+              ValidationResult.invalid(
+                  RpcErrorType.INVALID_BLOCK_ACCESS_LIST_PARAMS,
+                  "Failed to decode block access list payload parameter ("
+                      + fieldEx.getOriginalMessage()
+                      + ")"));
+        }
+      }
+    }
+
+    return super.processParametersParsingException(reqId, e);
   }
 }

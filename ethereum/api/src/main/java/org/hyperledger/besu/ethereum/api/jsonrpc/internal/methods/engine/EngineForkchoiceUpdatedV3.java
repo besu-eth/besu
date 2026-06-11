@@ -1,5 +1,5 @@
 /*
- * Copyright contributors to Hyperledger Besu.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -14,36 +14,46 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
-import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
-
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
+import org.hyperledger.besu.consensus.merge.blockcreation.PreparePayloadArgsBuilder;
+import org.hyperledger.besu.datatypes.HardforkId;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EngineForkchoiceUpdatedParameter;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.EnginePayloadAttributesParameter;
-import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.PayloadAttributesV3;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
+import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 
-import java.util.Optional;
-
 import io.vertx.core.Vertx;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-public class EngineForkchoiceUpdatedV3 extends AbstractEngineForkchoiceUpdated {
-
-  private static final Logger LOG = LoggerFactory.getLogger(EngineForkchoiceUpdatedV3.class);
+/**
+ * {@code engine_forkchoiceUpdatedV3} — Cancun (Beacon Block Root).
+ *
+ * <p>Extends V2 with {@link PayloadAttributesV3}, adding the mandatory {@code
+ * parentBeaconBlockRoot} field.
+ *
+ * <p>Parameterized so that V4 can extend this class while narrowing the payload type.
+ */
+public sealed class EngineForkchoiceUpdatedV3<PA extends PayloadAttributesV3>
+    extends EngineForkchoiceUpdatedV2<PA> permits EngineForkchoiceUpdatedV4 {
 
   public EngineForkchoiceUpdatedV3(
-      final Vertx vertx,
       final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
+      final Vertx vertx,
+      final EngineCallListener engineCallListener,
       final MergeMiningCoordinator mergeCoordinator,
-      final EngineCallListener engineCallListener) {
-    super(vertx, protocolSchedule, protocolContext, mergeCoordinator, engineCallListener);
+      final HardforkId minFork,
+      final HardforkId maxFork) {
+    super(
+        protocolSchedule,
+        protocolContext,
+        vertx,
+        engineCallListener,
+        mergeCoordinator,
+        minFork,
+        maxFork);
   }
 
   @Override
@@ -52,54 +62,37 @@ public class EngineForkchoiceUpdatedV3 extends AbstractEngineForkchoiceUpdated {
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateParameter(
-      final EngineForkchoiceUpdatedParameter fcuParameter,
-      final Optional<EnginePayloadAttributesParameter> maybePayloadAttributes) {
-    if (fcuParameter.getHeadBlockHash() == null) {
+  @SuppressWarnings("unchecked")
+  protected Class<PA> getPayloadAttributesClass() {
+    return (Class<PA>) PayloadAttributesV3.class;
+  }
+
+  /**
+   * V3 requires {@code parentBeaconBlockRoot} to be present. Delegates to V2 for any prior-version
+   * checks, then adds its own.
+   *
+   * <p>{@code PA} is bounded to {@link PayloadAttributesV3}, so {@code getParentBeaconBlockRoot()}
+   * is available without a cast.
+   */
+  @Override
+  protected ValidationResult<RpcErrorType> validatePayloadAttributes(
+      final BlockHeader newHead, final PA attrs) {
+    final ValidationResult<RpcErrorType> r = super.validatePayloadAttributes(newHead, attrs);
+    return r.isValid() ? validatePayloadAttributesV3(attrs) : r;
+  }
+
+  private ValidationResult<RpcErrorType> validatePayloadAttributesV3(final PA attrs) {
+    if (attrs.getParentBeaconBlockRoot() == null || attrs.getParentBeaconBlockRoot().isEmpty()) {
       return ValidationResult.invalid(
-          getInvalidPayloadAttributesError(), "Missing head block hash");
-    } else if (fcuParameter.getSafeBlockHash() == null) {
-      return ValidationResult.invalid(
-          getInvalidPayloadAttributesError(), "Missing safe block hash");
-    } else if (fcuParameter.getFinalizedBlockHash() == null) {
-      return ValidationResult.invalid(
-          getInvalidPayloadAttributesError(), "Missing finalized block hash");
-    }
-    if (maybePayloadAttributes.isPresent()) {
-      if (maybePayloadAttributes.get().getParentBeaconBlockRoot() == null) {
-        return ValidationResult.invalid(
-            getInvalidPayloadAttributesError(), "Missing parent beacon block root hash");
-      }
+          getInvalidPayloadAttributesError(), "Missing parentBeaconBlockRoot");
     }
     return ValidationResult.valid();
   }
 
   @Override
-  protected ValidationResult<RpcErrorType> validateForkSupported(final long blockTimestamp) {
-    return ForkSupportHelper.validateForkSupported(
-        CANCUN, cancunMilestone, AMSTERDAM, amsterdamMilestone, blockTimestamp);
-  }
-
-  @Override
-  protected Optional<JsonRpcErrorResponse> isPayloadAttributesValid(
-      final Object requestId, final EnginePayloadAttributesParameter payloadAttributes) {
-
-    if (payloadAttributes.getParentBeaconBlockRoot() == null) {
-      LOG.error(
-          "Parent beacon block root hash not present in payload attributes after cancun hardfork");
-      return Optional.of(new JsonRpcErrorResponse(requestId, getInvalidPayloadAttributesError()));
-    }
-
-    if (payloadAttributes.getTimestamp() == 0) {
-      return Optional.of(new JsonRpcErrorResponse(requestId, getInvalidPayloadAttributesError()));
-    }
-
-    ValidationResult<RpcErrorType> forkValidationResult =
-        validateForkSupported(payloadAttributes.getTimestamp());
-    if (!forkValidationResult.isValid()) {
-      return Optional.of(new JsonRpcErrorResponse(requestId, forkValidationResult));
-    }
-
-    return Optional.empty();
+  protected void setPreparePayloadArgs(
+      final PreparePayloadArgsBuilder preparePayloadArgsBuilder, final PA attrs) {
+    super.setPreparePayloadArgs(preparePayloadArgsBuilder, attrs);
+    preparePayloadArgsBuilder.parentBeaconBlockRoot(attrs.getParentBeaconBlockRoot());
   }
 }

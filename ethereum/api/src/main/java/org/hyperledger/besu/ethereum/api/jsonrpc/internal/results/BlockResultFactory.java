@@ -14,25 +14,15 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.results;
 
-import org.hyperledger.besu.consensus.merge.PayloadWrapper;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.api.query.BlockWithMetadata;
 import org.hyperledger.besu.ethereum.api.query.TransactionWithMetadata;
 import org.hyperledger.besu.ethereum.core.Block;
-import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.Request;
-import org.hyperledger.besu.ethereum.core.encoding.EncodingContext;
-import org.hyperledger.besu.ethereum.core.encoding.TransactionEncoder;
-import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
-import org.hyperledger.besu.util.HexUtils;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Optional;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.TextNode;
@@ -127,161 +117,4 @@ public class BlockResultFactory {
         includeCoinbase,
         blockWithMetadata.getWithdrawals());
   }
-
-  // endregion BlockResult
-
-  // region EngineGetPayloadResult
-
-  public EngineGetPayloadResultV1 payloadTransactionCompleteV1(final Block block) {
-    final List<String> txs = txsAsHex(block);
-
-    return new EngineGetPayloadResultV1(block.getHeader(), txs);
-  }
-
-  public EngineGetPayloadResultV2 payloadTransactionCompleteV2(final PayloadWrapper payload) {
-    final var blockWithReceipts = payload.blockWithReceipts();
-    final Block block = blockWithReceipts.getBlock();
-    final List<String> txs = txsAsHex(block);
-
-    return new EngineGetPayloadResultV2(
-        blockWithReceipts.getHeader(),
-        txs,
-        block.getBody().getWithdrawals(),
-        Quantity.create(payload.blockValue()));
-  }
-
-  public EngineGetPayloadResultV3 payloadTransactionCompleteV3(final PayloadWrapper payload) {
-    final var blockWithReceipts = payload.blockWithReceipts();
-    final List<String> txs = txsAsHex(blockWithReceipts.getBlock());
-
-    final BlobsBundleV1 blobsBundleV1 =
-        new BlobsBundleV1(blockWithReceipts.getBlock().getBody().getTransactions());
-    return new EngineGetPayloadResultV3(
-        blockWithReceipts.getHeader(),
-        txs,
-        blockWithReceipts.getBlock().getBody().getWithdrawals(),
-        Quantity.create(payload.blockValue()),
-        blobsBundleV1);
-  }
-
-  public EngineGetPayloadResultV4 payloadTransactionCompleteV4(final PayloadWrapper payload) {
-    final var blockWithReceipts = payload.blockWithReceipts();
-    final List<String> txs = txsAsHex(blockWithReceipts.getBlock());
-    final Optional<List<String>> requestsWithoutRequestId = requestsAsHex(payload);
-
-    final BlobsBundleV1 blobsBundleV1 =
-        new BlobsBundleV1(blockWithReceipts.getBlock().getBody().getTransactions());
-    return new EngineGetPayloadResultV4(
-        blockWithReceipts.getHeader(),
-        txs,
-        blockWithReceipts.getBlock().getBody().getWithdrawals(),
-        requestsWithoutRequestId,
-        Quantity.create(payload.blockValue()),
-        blobsBundleV1);
-  }
-
-  public EngineGetPayloadResultV5 payloadTransactionCompleteV5(final PayloadWrapper payload) {
-    final var blockWithReceipts = payload.blockWithReceipts();
-    final List<String> txs = txsAsHex(blockWithReceipts.getBlock());
-    final Optional<List<String>> requestsWithoutRequestId = requestsAsHex(payload);
-
-    final BlobsBundleV2 blobsBundleV2 =
-        new BlobsBundleV2(blockWithReceipts.getBlock().getBody().getTransactions());
-    return new EngineGetPayloadResultV5(
-        blockWithReceipts.getHeader(),
-        txs,
-        blockWithReceipts.getBlock().getBody().getWithdrawals(),
-        requestsWithoutRequestId,
-        Quantity.create(payload.blockValue()),
-        blobsBundleV2);
-  }
-
-  public EngineGetPayloadResultV6 payloadTransactionCompleteV6(final PayloadWrapper payload) {
-    final var blockWithReceipts = payload.blockWithReceipts();
-    final List<String> txs = txsAsHex(blockWithReceipts.getBlock());
-    final Optional<List<String>> requestsWithoutRequestId = requestsAsHex(payload);
-
-    final BlobsBundleV2 blobsBundleV2 =
-        new BlobsBundleV2(blockWithReceipts.getBlock().getBody().getTransactions());
-
-    final String blockAccessList =
-        payload
-            .blockAccessList()
-            .map(
-                bal -> {
-                  final BytesValueRLPOutput output = new BytesValueRLPOutput();
-                  bal.writeTo(output);
-                  return output.encoded().toHexString();
-                })
-            .orElse(null);
-
-    final String slotNumber =
-        blockWithReceipts.getHeader().getOptionalSlotNumber().map(Quantity::create).orElse(null);
-
-    return new EngineGetPayloadResultV6(
-        blockWithReceipts.getHeader(),
-        txs,
-        blockWithReceipts.getBlock().getBody().getWithdrawals(),
-        requestsWithoutRequestId,
-        Quantity.create(payload.blockValue()),
-        blobsBundleV2,
-        blockAccessList,
-        slotNumber);
-  }
-
-  private static List<String> txsAsHex(final Block block) {
-    return block.getBody().getTransactions().stream()
-        .map(
-            transaction ->
-                TransactionEncoder.encodeOpaqueBytes(transaction, EncodingContext.BLOCK_BODY))
-        .map(b -> HexUtils.toFastHex(b, true))
-        .collect(Collectors.toList());
-  }
-
-  private static Optional<List<String>> requestsAsHex(final PayloadWrapper payload) {
-    return payload
-        .requests()
-        .map(
-            rqs ->
-                rqs.stream()
-                    .sorted(Comparator.comparing(Request::getType))
-                    .filter(r -> !r.getData().isEmpty())
-                    .map(Request::getEncodedRequest)
-                    .map(b -> HexUtils.toFastHex(b, true))
-                    .toList());
-  }
-
-  // endregion EngineGetPayloadResult
-
-  // region EngineGetPayloadBodiesResult
-
-  public EngineGetPayloadBodiesResultV1 payloadBodiesCompleteV1(
-      final List<Optional<BlockBody>> blockBodies) {
-    final List<EngineGetPayloadBodiesResultV1.PayloadBody> payloadBodies =
-        blockBodies.stream()
-            .map(
-                maybeBody ->
-                    maybeBody.map(EngineGetPayloadBodiesResultV1.PayloadBody::new).orElse(null))
-            .collect(Collectors.toList());
-    return new EngineGetPayloadBodiesResultV1(payloadBodies);
-  }
-
-  public EngineGetPayloadBodiesResultV2 payloadBodiesCompleteV2(
-      final List<Optional<BlockBody>> blockBodies, final List<Optional<String>> blockAccessLists) {
-    final List<EngineGetPayloadBodiesResultV2.PayloadBody> payloadBodies =
-        IntStream.range(0, blockBodies.size())
-            .mapToObj(
-                index ->
-                    blockBodies
-                        .get(index)
-                        .map(
-                            body ->
-                                new EngineGetPayloadBodiesResultV2.PayloadBody(
-                                    body, blockAccessLists.get(index).orElse(null)))
-                        .orElse(null))
-            .collect(Collectors.toList());
-    return new EngineGetPayloadBodiesResultV2(payloadBodies);
-  }
-
-  // endregion EngineGetPayloadBodiesResult
 }
