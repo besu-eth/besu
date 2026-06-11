@@ -51,9 +51,9 @@ EngineGetPayloadV5Test extends ... V1Test`, so **every version class runs all th
 previous versions plus its own**.
 
 - The V1 test class owns the generic scenarios, written against protected hooks:
-  `createMethodInstance()`, `getMinSupportedTimestamp()` / `getMaxSupportedTimestamp()` (or
-  `getFirstUnsupportedTimestamp()`), payload/attribute builders, fixture customizers, and
-  result-assertion hooks such as `assertPayloadResult(Object)` that each version extends with
+  `createMethodInstance()`, `getMinSupportedTimestamp()` / `getMaxSupportedTimestamp()`,
+  payload/attribute builders, fixture customizers, and result-assertion hooks such as
+  `assertPayloadResult(Object)` that each version extends with
   `super.assertPayloadResult(result); ...` plus its own checks.
 - A version test class contains only: the `createMethodInstance()` override, the method-name test
   override, hook overrides, and tests for behavior introduced in that version.

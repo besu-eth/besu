@@ -104,8 +104,8 @@ public class EngineGetPayloadV2Test extends EngineGetPayloadV1Test {
   }
 
   @Override
-  protected OptionalLong getFirstUnsupportedTimestamp() {
-    return OptionalLong.of(cancunHardfork.milestone());
+  protected OptionalLong getMaxSupportedTimestamp() {
+    return OptionalLong.of(cancunHardfork.milestone() - 1);
   }
 
   protected boolean supportsPreShanghaiPayloads() {

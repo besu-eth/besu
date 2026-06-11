@@ -84,8 +84,8 @@ public class EngineGetPayloadV3Test extends EngineGetPayloadV2Test {
   }
 
   @Override
-  protected OptionalLong getFirstUnsupportedTimestamp() {
-    return OptionalLong.of(pragueHardfork.milestone());
+  protected OptionalLong getMaxSupportedTimestamp() {
+    return OptionalLong.of(pragueHardfork.milestone() - 1);
   }
 
   @Override

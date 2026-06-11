@@ -111,8 +111,8 @@ public class EngineGetPayloadV1Test extends AbstractScheduledApiTest {
     return parisHardfork.milestone();
   }
 
-  protected OptionalLong getFirstUnsupportedTimestamp() {
-    return OptionalLong.of(shanghaiHardfork.milestone());
+  protected OptionalLong getMaxSupportedTimestamp() {
+    return OptionalLong.of(shanghaiHardfork.milestone() - 1);
   }
 
   protected EngineGetPayloadV1 createMethodInstance() {
@@ -167,18 +167,18 @@ public class EngineGetPayloadV1Test extends AbstractScheduledApiTest {
 
   @Test
   public void shouldReturnUnsupportedForkIfBlockTimestampIsAtFirstUnsupportedForkMilestone() {
-    assumeTrue(getFirstUnsupportedTimestamp().isPresent());
+    assumeTrue(getMaxSupportedTimestamp().isPresent());
 
-    final PayloadIdentifier pid = setupPayload(getFirstUnsupportedTimestamp().getAsLong());
+    final PayloadIdentifier pid = setupPayload(getMaxSupportedTimestamp().getAsLong() + 1);
 
     assertUnsupportedFork(resp(getMethodName(), pid));
   }
 
   @Test
   public void shouldReturnUnsupportedForkIfBlockTimestampIsAfterFirstUnsupportedForkMilestone() {
-    assumeTrue(getFirstUnsupportedTimestamp().isPresent());
+    assumeTrue(getMaxSupportedTimestamp().isPresent());
 
-    final PayloadIdentifier pid = setupPayload(getFirstUnsupportedTimestamp().getAsLong() + 1);
+    final PayloadIdentifier pid = setupPayload(getMaxSupportedTimestamp().getAsLong() + 2);
 
     assertUnsupportedFork(resp(getMethodName(), pid));
   }

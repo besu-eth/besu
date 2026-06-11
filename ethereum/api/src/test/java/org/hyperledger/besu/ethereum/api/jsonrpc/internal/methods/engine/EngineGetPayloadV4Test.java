@@ -142,7 +142,7 @@ public class EngineGetPayloadV4Test extends EngineGetPayloadV3Test {
   }
 
   @Override
-  protected OptionalLong getFirstUnsupportedTimestamp() {
-    return OptionalLong.of(osakaHardfork.milestone());
+  protected OptionalLong getMaxSupportedTimestamp() {
+    return OptionalLong.of(osakaHardfork.milestone() - 1);
   }
 }

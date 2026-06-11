@@ -129,7 +129,7 @@ public class EngineGetPayloadV6Test extends EngineGetPayloadV5Test {
   }
 
   @Override
-  protected OptionalLong getFirstUnsupportedTimestamp() {
+  protected OptionalLong getMaxSupportedTimestamp() {
     return OptionalLong.empty();
   }
 

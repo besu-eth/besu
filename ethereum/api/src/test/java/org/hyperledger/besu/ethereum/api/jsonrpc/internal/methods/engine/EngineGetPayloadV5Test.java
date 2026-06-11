@@ -77,7 +77,7 @@ public class EngineGetPayloadV5Test extends EngineGetPayloadV4Test {
   }
 
   @Override
-  protected OptionalLong getFirstUnsupportedTimestamp() {
-    return OptionalLong.of(amsterdamHardfork.milestone());
+  protected OptionalLong getMaxSupportedTimestamp() {
+    return OptionalLong.of(amsterdamHardfork.milestone() - 1);
   }
 }
