@@ -68,8 +68,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * Verifies EIP-7928 BAL checks wired in {@link AbstractBlockProcessor}: per-transaction item budget
- * (fail-fast) and post-build hash + size validation.
+ * Verifies EIP-7928 BAL checks wired in {@link AbstractBlockProcessor}: post-build item-size
+ * budget, hash, and related validation.
  */
 @ExtendWith(MockitoExtension.class)
 class AbstractBlockProcessorBalValidationTest {
@@ -166,13 +166,17 @@ class AbstractBlockProcessorBalValidationTest {
   }
 
   @Test
-  void perTransactionBalSizeFailFastDoesNotRunFollowingTransactions() {
+  void overBudgetBalFailsAfterAllTransactionsAreProcessed() {
     lenient().when(gasCalculator.getBlockAccessListItemCost()).thenReturn(2000L);
     final long gasLimit = 16_000L;
     final int maxItems = 8;
     assertThat(gasLimit / 2000L).isEqualTo(maxItems);
 
-    final BlockHeader header = new BlockHeaderTestFixture().gasLimit(gasLimit).buildHeader();
+    final BlockHeader header =
+        new BlockHeaderTestFixture()
+            .gasLimit(gasLimit)
+            .balHash(Hash.fromHexString("ab".repeat(32)))
+            .buildHeader();
 
     final AtomicInteger txCalls = new AtomicInteger(0);
     final IntFunction<PartialBlockAccessView> partialForIndex =
@@ -208,7 +212,7 @@ class AbstractBlockProcessorBalValidationTest {
 
     assertThat(result.isSuccessful()).isFalse();
     assertThat(result.errorMessage.orElse("")).contains("Block access list size exceeds maximum");
-    assertThat(txCalls).hasValue(5);
+    assertThat(txCalls).hasValue(6);
   }
 
   @Test
