@@ -103,6 +103,16 @@ public class EngineForkchoiceUpdatedV3Test extends EngineForkchoiceUpdatedV2Test
         Bytes32.ZERO.toHexString());
   }
 
+  @Override
+  protected Object payloadAttributesWithNullWithdrawalsForBlock(final BlockHeader head) {
+    return new PayloadAttributesV3(
+        String.valueOf(head.getTimestamp() + 1),
+        Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
+        Address.ECREC.toString(),
+        null,
+        Bytes32.ZERO.toHexString());
+  }
+
   // ---- V3-specific tests ----
 
   @Test

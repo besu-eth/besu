@@ -144,6 +144,27 @@ public class EngineForkchoiceUpdatedV2Test extends EngineForkchoiceUpdatedV1Test
   }
 
   @Test
+  public void shouldReturnInvalidIfWithdrawalsIsNull_WhenWithdrawalsAllowed() {
+    // AllowedWithdrawals already set in before()
+    final BlockHeader mockHeader = setupValidForkchoiceUpdate();
+
+    final JsonRpcResponse resp =
+        resp(
+            new ForkchoiceStateV1(mockHeader.getHash(), Hash.ZERO, Hash.ZERO),
+            Optional.of(payloadAttributesWithNullWithdrawalsForBlock(mockHeader)));
+
+    assertInvalidForkchoiceState(resp, RpcErrorType.INVALID_PAYLOAD_ATTRIBUTES);
+  }
+
+  protected Object payloadAttributesWithNullWithdrawalsForBlock(final BlockHeader head) {
+    return new PayloadAttributesV2(
+        String.valueOf(head.getTimestamp() + 1),
+        Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
+        Address.ECREC.toString(),
+        null);
+  }
+
+  @Test
   public void shouldReturnValidIfWithdrawalsIsEmpty_WhenWithdrawalsAllowed() {
     // AllowedWithdrawals already set in before(); validPayloadAttributesForBlock returns emptyList
     final BlockHeader mockHeader = setupValidForkchoiceUpdate(_ -> {});

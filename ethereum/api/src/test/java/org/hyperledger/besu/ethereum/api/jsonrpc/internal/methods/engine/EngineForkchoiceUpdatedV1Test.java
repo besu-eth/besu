@@ -464,6 +464,28 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractScheduledApiTest {
   }
 
   @Test
+  public void shouldNotPreparePayloadWhenHeadIsAncestorOfFinalized() {
+    final BlockHeader finalized = blockHeaderBuilder.number(100L).buildHeader();
+    final BlockHeader head = blockHeaderBuilder.number(50L).buildHeader();
+    setupValidForkchoiceState(head, finalized);
+    when(mergeCoordinator.isAncestorOfFinalized(head)).thenReturn(true);
+
+    final JsonRpcResponse resp =
+        resp(
+            new ForkchoiceStateV1(head.getHash(), finalized.getHash(), finalized.getHash()),
+            Optional.of(validPayloadAttributesForBlock(head)));
+
+    assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
+    final ForkchoiceUpdatedResultV1 result =
+        (ForkchoiceUpdatedResultV1) ((JsonRpcSuccessResponse) resp).getResult();
+    assertThat(result.getPayloadStatus().getStatus()).isEqualTo(VALID);
+    assertThat(result.getPayloadId()).isNull();
+
+    verify(mergeCoordinator, never()).preparePayload(any());
+    verify(mergeCoordinator, never()).updateForkChoice(any(), any(), any());
+  }
+
+  @Test
   public void shouldNotSkipUpdateWhenHeadIsNotAncestorOfFinalized() {
     final BlockHeader finalized = blockHeaderBuilder.number(100L).buildHeader();
     final BlockHeader head = blockHeaderBuilder.number(150L).buildHeader();

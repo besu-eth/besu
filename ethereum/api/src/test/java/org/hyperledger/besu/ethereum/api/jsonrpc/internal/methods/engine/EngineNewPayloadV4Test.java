@@ -232,21 +232,6 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
-  @Test
-  public void validateVersionedHash_whenListIsPresentAndEmpty() {
-    BlockHeader blockHeader =
-        setupPayloadV4(
-            getMinSupportedTimestamp(),
-            new BlockProcessingResult(
-                Optional.of(new BlockProcessingOutputs(null, List.of(), Optional.of(emptyList())))),
-            emptyList());
-
-    var resp =
-        respV4(mockEnginePayloadParam(blockHeader, emptyList()), requestsAsParam(emptyList()));
-
-    assertValidResponse(blockHeader, resp);
-  }
-
   @Override
   protected Object[] getVersionSpecificDefaultParams() {
     return ArrayUtils.addAll(super.getVersionSpecificDefaultParams(), emptyList());

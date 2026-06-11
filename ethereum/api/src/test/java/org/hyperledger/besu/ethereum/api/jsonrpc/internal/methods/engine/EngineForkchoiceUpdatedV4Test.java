@@ -96,6 +96,17 @@ public class EngineForkchoiceUpdatedV4Test extends EngineForkchoiceUpdatedV3Test
         "0x1");
   }
 
+  @Override
+  protected Object payloadAttributesWithNullWithdrawalsForBlock(final BlockHeader head) {
+    return new PayloadAttributesV4(
+        String.valueOf(head.getTimestamp() + 1),
+        Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
+        Address.ECREC.toString(),
+        null,
+        Bytes32.ZERO.toHexString(),
+        "0x1");
+  }
+
   // ---- V4-specific tests ----
 
   @Test

@@ -158,6 +158,25 @@ public class EngineNewPayloadV3Test extends EngineNewPayloadV2Test {
   }
 
   @Test
+  public void validateVersionedHash_whenListIsPresentAndEmpty() {
+    BlockHeader blockHeader =
+        setupPayloadV3(
+            getMinSupportedTimestamp(),
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            BlobGas.ZERO,
+            0L);
+
+    var resp =
+        resp(
+            requestParams(
+                mockEnginePayloadParam(blockHeader, emptyList()),
+                emptyVersionedHashesParam(),
+                zeroParentBeaconBlockRootParam()));
+
+    assertValidResponse(blockHeader, resp);
+  }
+
+  @Test
   public void shouldInvalidVersionedHash_whenShortVersionedHash() {
     final Bytes shortHash = Bytes.fromHexString("0x" + "69".repeat(31));
 
