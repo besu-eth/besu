@@ -137,16 +137,9 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
         .getMetricsSystem()
         .createLongGauge(
             BesuMetricCategory.SYNCHRONIZER,
-            "snap_v2_world_state_completed_ranges_current",
-            "Number of completed account ranges for snap/2 world state download",
-            accountRangeTracker::completedRangeCount);
-    metricsManager
-        .getMetricsSystem()
-        .createLongGauge(
-            BesuMetricCategory.SYNCHRONIZER,
-            "snap_v2_world_state_pending_ranges_current",
-            "Number of pending account ranges for snap/2 world state download",
-            accountRangeTracker::pendingRangeCount);
+            "snap_v2_world_state_persisted_ranges_current",
+            "Number of persisted account ranges for snap/2 world state download",
+            accountRangeTracker::persistedRangeCount);
     syncDurationMetrics.startTimer(
         SyncDurationMetrics.Labels.SNAP_INITIAL_WORLD_STATE_DOWNLOAD_DURATION);
   }
@@ -158,8 +151,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
         && pendingAccountRequests.allTasksCompleted()
         && pendingCodeRequests.allTasksCompleted()
         && pendingStorageRequests.allTasksCompleted()
-        && pendingLargeStorageRequests.allTasksCompleted()
-        && accountRangeTracker.pendingRangeCount() == 0) {
+        && pendingLargeStorageRequests.allTasksCompleted()) {
       persistWorldStateRoot(header);
       notifyWorldStateFinished();
       syncDurationMetrics.stopTimer(
@@ -378,8 +370,8 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
       }
       applyBlockAccessListsNoop(currentPivotBlockHeader, newPivotBlockHeader);
       retargetQueuedRequests(newPivotBlockHeader);
-      // TODO: Simplify account range tracker and clear both here
       storageRangeTracker.clear();
+      accountRangeTracker.clear();
       snapSyncState.setCurrentHeader(newPivotBlockHeader);
       pivotCatchupFuture = null;
       notifyAll();
@@ -390,11 +382,10 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   private void applyBlockAccessListsNoop(
       final BlockHeader currentPivotBlockHeader, final BlockHeader newPivotBlockHeader) {
     LOG.info(
-        "Snap/2 BAL application placeholder: pivot {} -> {} (completed ranges: {}, pending ranges: {})",
+        "Snap/2 BAL application placeholder: pivot {} -> {} (persisted ranges: {})",
         currentPivotBlockHeader.getNumber(),
         newPivotBlockHeader.getNumber(),
-        accountRangeTracker.completedRangeCount(),
-        accountRangeTracker.pendingRangeCount());
+        accountRangeTracker.persistedRangeCount());
   }
 
   private void retargetQueuedRequests(final BlockHeader newPivotBlockHeader) {

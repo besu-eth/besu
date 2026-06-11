@@ -25,7 +25,6 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2AccountRangeRequest;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2BytecodeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2StorageRangeRequest;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -141,9 +140,7 @@ public class SnapV2PersistDataStep {
     if (request instanceof SnapV2AccountRangeRequest accountRequest) {
       trackAccountRange(accountRequest, children);
     } else if (request instanceof SnapV2StorageRangeRequest storageRequest) {
-      trackStorageRange(storageRequest, children);
-    } else if (request instanceof SnapV2BytecodeRequest codeRequest) {
-      accountRangeTracker.onChildCompleted(codeRequest.getRangeStart());
+      trackStorageRange(storageRequest);
     }
 
     downloadState.enqueueRequests(children.stream());
@@ -153,15 +150,12 @@ public class SnapV2PersistDataStep {
       final SnapV2AccountRangeRequest accountRequest, final List<SnapDataRequest> children) {
     final Bytes32 rangeStart = accountRequest.getRangeStart();
 
-    int continuationCount = 0;
     SnapV2AccountRangeRequest continuation = null;
     for (final SnapDataRequest child : children) {
       if (child instanceof SnapV2AccountRangeRequest accountRangeContinuation) {
-        continuationCount++;
-        if (continuationCount > 1) {
+        if (continuation != null) {
           throw new IllegalStateException(
-              "Expected at most one SnapV2AccountRangeRequest continuation, got "
-                  + continuationCount);
+              "Expected at most one SnapV2AccountRangeRequest continuation, got multiple");
         }
         continuation = accountRangeContinuation;
       }
@@ -189,28 +183,16 @@ public class SnapV2PersistDataStep {
       coveredEnd = accountRequest.getEndKeyHash();
     }
 
-    final int childCount = children.size() - continuationCount;
-
-    accountRangeTracker.registerPending(rangeStart, coveredEnd, childCount);
+    accountRangeTracker.registerPersisted(rangeStart, coveredEnd);
   }
 
-  private void trackStorageRange(
-      final SnapV2StorageRangeRequest storageRequest, final List<SnapDataRequest> children) {
-    final Bytes32 rangeStart = storageRequest.getRangeStart();
-
+  private void trackStorageRange(final SnapV2StorageRangeRequest storageRequest) {
     final NavigableMap<Bytes32, Bytes> slots = storageRequest.getSlots();
     if (!slots.isEmpty()) {
       storageRangeTracker.registerSlotRange(
           Bytes32.wrap(storageRequest.getAccountHash().getBytes()),
           slots.firstKey(),
           slots.lastKey());
-    }
-
-    final int continuationCount = children.size();
-    if (continuationCount == 0) {
-      accountRangeTracker.onChildCompleted(rangeStart);
-    } else {
-      accountRangeTracker.adjustPendingChildren(rangeStart, continuationCount - 1);
     }
   }
 
