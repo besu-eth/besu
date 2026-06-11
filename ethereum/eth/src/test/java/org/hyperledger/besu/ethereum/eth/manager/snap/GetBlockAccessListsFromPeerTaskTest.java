@@ -213,8 +213,8 @@ class GetBlockAccessListsFromPeerTaskTest {
 
     final EthContext ethContext = mock(EthContext.class);
     when(ethContext.getScheduler()).thenReturn(new DeterministicEthScheduler());
-    final StubRetryingGetBlockAccessListsFromPeerTask task =
-        new StubRetryingGetBlockAccessListsFromPeerTask(ethContext, headers, responses);
+    final TestableRetryingGetBlockAccessListsFromPeerTask task =
+        new TestableRetryingGetBlockAccessListsFromPeerTask(ethContext, headers, responses);
 
     assertThat(task.run().join()).containsExactlyElementsOf(expectedBlockAccessLists);
     assertThat(task.requestedIndexes).hasSize(blockAccessListCount);
@@ -291,14 +291,14 @@ class GetBlockAccessListsFromPeerTaskTest {
     return new SyncBlockAccessList(RLP.NULL);
   }
 
-  private static class StubRetryingGetBlockAccessListsFromPeerTask
+  private static class TestableRetryingGetBlockAccessListsFromPeerTask
       extends RetryingGetBlockAccessListsFromPeerTask {
 
     private final EthPeer peer = mock(EthPeer.class);
     private final Queue<List<SyncBlockAccessList>> responses;
     private final List<List<Integer>> requestedIndexes = new ArrayList<>();
 
-    private StubRetryingGetBlockAccessListsFromPeerTask(
+    private TestableRetryingGetBlockAccessListsFromPeerTask(
         final EthContext ethContext,
         final List<BlockHeader> blockHeaders,
         final List<List<SyncBlockAccessList>> responses) {
