@@ -57,6 +57,11 @@ public class TestPicoCLIPlugin implements BesuPlugin {
   private File callbackDir;
 
   @Override
+  public void registerCliOptions(final PicoCLIOptions options) {
+    options.addPicoCLIOptions("test", this);
+  }
+
+  @Override
   public void register(final ServiceManager context) {
     LOG.info("Registering.  Test Option is '{}'", testOption);
     state = "registering";
@@ -65,10 +70,6 @@ public class TestPicoCLIPlugin implements BesuPlugin {
       state = "failregister";
       throw new RuntimeException("I was told to fail at registration");
     }
-
-    context
-        .getService(PicoCLIOptions.class)
-        .ifPresent(picoCLIOptions -> picoCLIOptions.addPicoCLIOptions("test", this));
 
     callbackDir = new File(System.getProperty("besu.plugins.dir", "plugins"));
     writeSignal("registered");

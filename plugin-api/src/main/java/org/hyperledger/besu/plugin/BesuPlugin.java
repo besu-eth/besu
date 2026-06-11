@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.plugin;
 
+import org.hyperledger.besu.plugin.services.PicoCLIOptions;
+
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
@@ -49,6 +51,18 @@ public interface BesuPlugin {
    * @param context the context that provides access to Besu services.
    */
   void register(ServiceManager context);
+
+  /**
+   * Called before {@link #register(ServiceManager)}. Plugins should use this callback to register
+   * any command line options required via the PicoCLIOptions service.
+   *
+   * <p>Options registered in this callback are parsed before {@code register()} is called.
+   *
+   * <p>If not overridden this method does nothing for convenience.
+   *
+   * @param options the service used to register command line options.
+   */
+  default void registerCliOptions(final PicoCLIOptions options) {}
 
   /**
    * Called once when besu has loaded configuration but before external services have been started

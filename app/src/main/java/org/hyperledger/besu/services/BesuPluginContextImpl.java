@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.core.plugins.PluginConfiguration;
 import org.hyperledger.besu.plugin.BesuPlugin;
 import org.hyperledger.besu.plugin.ServiceManager;
 import org.hyperledger.besu.plugin.services.BesuService;
+import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 import org.hyperledger.besu.plugin.services.PluginVersionsProvider;
 
 import java.io.IOException;
@@ -80,6 +81,7 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
   private final Map<Class<?>, ? super BesuService> serviceRegistry = new ConcurrentHashMap<>();
 
   private List<BesuPlugin> detectedPlugins = new ArrayList<>();
+  private boolean pluginsDetected;
   private List<String> requestedPlugins = new ArrayList<>();
 
   private final List<BesuPlugin> registeredPlugins = new ArrayList<>();
@@ -124,7 +126,40 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
         state == Lifecycle.UNINITIALIZED,
         "Besu plugins have already been initialized. Cannot register additional plugins.");
     this.config = config;
+    pluginsDetected = false;
     state = Lifecycle.INITIALIZED;
+  }
+
+  /**
+    * Registers command line options for detected plugins by calling
+    * {@link BesuPlugin#registerCliOptions(PicoCLIOptions)} on each plugin.
+    *
+    * @throws IllegalStateException if the system is not in the INITIALIZED state.
+   */
+  public void registerPluginCliOptions() {
+    checkState(
+        state == Lifecycle.INITIALIZED,
+        "Besu plugins must be in INITIALIZED state to register CLI options.");
+
+    if (config.isExternalPluginsEnabled()) {
+      detectedPlugins = detectPlugins(config);
+      pluginsDetected = true;
+
+      getService(PicoCLIOptions.class)
+          .ifPresent(
+              cliOptions -> {
+                for (final BesuPlugin plugin : detectedPlugins) {
+                  try {
+                    plugin.registerCliOptions(cliOptions);
+                  } catch (final Exception e) {
+                    LOG.error(
+                        "Error registering CLI options for plugin of type {}.",
+                        plugin.getClass().getName(),
+                        e);
+                  }
+                }
+              });
+    }
   }
 
   /**
@@ -141,7 +176,10 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
     state = Lifecycle.REGISTERING;
 
     if (config.isExternalPluginsEnabled()) {
-      detectedPlugins = detectPlugins(config);
+      if (!pluginsDetected) {
+        detectedPlugins = detectPlugins(config);
+        pluginsDetected = true;
+      }
 
       if (config.getRequestedPlugins().isEmpty()) {
         // If no plugins were specified, register all detected plugins
