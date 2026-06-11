@@ -21,7 +21,9 @@ import org.hyperledger.besu.ethereum.core.Request;
 import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonGetter;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 
+@JsonPropertyOrder({"executionPayload", "blockValue", "blobsBundle", "shouldOverrideBuilder"})
 public final class EngineGetPayloadResultV6 extends EngineGetPayloadResultV5 {
 
   public EngineGetPayloadResultV6(
