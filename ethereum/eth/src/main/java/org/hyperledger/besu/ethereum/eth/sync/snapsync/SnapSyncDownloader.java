@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredState;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotUpdateListener;
 import org.hyperledger.besu.ethereum.eth.sync.common.SyncException;
+import org.hyperledger.besu.ethereum.eth.sync.common.WrongChainException;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.StalledDownloadException;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloader;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
@@ -106,6 +107,9 @@ public class SnapSyncDownloader implements SnapSyncController {
       return CompletableFuture.completedFuture(new NoSyncRequiredState());
     } else if (rootCause instanceof SyncException) {
       return CompletableFuture.failedFuture(error);
+    } else if (rootCause instanceof WrongChainException) {
+      LOG.debug("Downloaded chain does not connect to our genesis, re-pivoting.");
+      return start(new SnapSyncProcessState());
     } else if (rootCause instanceof StalledDownloadException) {
       LOG.debug("Stalled sync re-pivoting to newer block.");
       return start(new SnapSyncProcessState());

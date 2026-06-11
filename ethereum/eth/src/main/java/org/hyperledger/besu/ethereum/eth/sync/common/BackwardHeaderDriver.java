@@ -29,7 +29,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
-import java.util.function.LongConsumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,10 +67,10 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
    * Creates a new BackwardHeaderDriver. Stores the pivot header synchronously as the first imported
    * header.
    *
-   * @param batchSize    the number of blocks per batch
+   * @param batchSize the number of blocks per batch
    * @param anchorHeader the anchor (checkpoint) header
-   * @param pivotHeader  the pivot header at the top of the range to import
-   * @param blockchain   the blockchain to which headers will be stored
+   * @param pivotHeader the pivot header at the top of the range to import
+   * @param blockchain the blockchain to which headers will be stored
    */
   public BackwardHeaderDriver(
       final int batchSize,
@@ -159,18 +158,17 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
       throw new IllegalStateException(message);
     }
 
-    blockchainStorage.storeBlockHeaders(blockHeaders);
-
     lowestImportedHeader = blockHeaders.getLast();
     long lowestImportedHeaderNumber = lowestImportedHeader.getNumber();
 
     if (recoveryMode) {
-      // Original anchor hash did not match. Look up the block at the parent's expected height; if
-      // its hash matches the parent hash the downloaded headers connect to the existing chain.
+      // Original anchor hash did not match. Check whether the parent hash of the lowest downloaded
+      // header connects to the existing chain.
       final long parentNumber = lowestImportedHeaderNumber - 1;
       final Optional<BlockHeader> potentialParent = blockchainStorage.getBlockHeader(parentNumber);
       if (potentialParent.isPresent()
           && potentialParent.get().getHash().equals(lowestImportedHeader.getParentHash())) {
+        blockchainStorage.storeBlockHeaders(blockHeaders);
         matchedAncestor = potentialParent.get();
         stopped = true;
         decisions.add(false);
@@ -178,37 +176,44 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         return;
       }
       if (parentNumber == 0) {
-        // Genesis floor reached without a canonical match: The chain from the CL provided pivot
-        // down to the genesis did not connect. Fail with a non-retryable exception.
+        // Genesis floor reached without a canonical match: the pivot's chain does not connect to
+        // our genesis.
+        stopped = true;
+        decisions.add(false);
         LOG.error(
             "Backward header download reached block number 1 with hash {}, but it's parent hash {} is not matching the genesis hash {}.",
             lowestImportedHeader.getBlockHash(),
             lowestImportedHeader.getParentHash(),
-            potentialParent.orElseThrow().getBlockHash());
-        stopped = true;
-        decisions.add(false);
+            potentialParent
+                .map(BlockHeader::getHash)
+                .orElseThrow(() -> new RuntimeException("NO GENESIS HEADER AVAILABLE.")));
         throw new WrongChainException(
             "Backward header download reached genesis without matching parent hash.");
       }
+      blockchainStorage.storeBlockHeaders(blockHeaders);
       startOrExtendRecovery();
       return;
     }
 
-    final long batchTop = blockHeaders.getFirst().getNumber();
+    blockchainStorage.storeBlockHeaders(blockHeaders);
+
     if (lowestImportedHeaderNumber == lowestHeaderToImport) {
       if (lowestImportedHeader.getParentHash().equals(anchorHash)) {
+        LOG.info("Header import progress 100.00%");
         stopped = true;
         decisions.add(false);
       } else {
         emitRecoveryStartLog(lowestImportedHeader);
         recoveryMode = true;
+        currentBlock.set(lowestHeaderToImport - 1);
         startOrExtendRecovery();
       }
       return;
     }
 
     if (!recoveryMode && isTimeToLog.get()) {
-      final long downloadedHeaders = totalHeaders - (batchTop - lowestHeaderToImport);
+      final long downloadedHeaders =
+          totalHeaders - (lowestImportedHeaderNumber - lowestHeaderToImport);
       final double headersPercent = (double) (downloadedHeaders) / totalHeaders * 100;
       LogUtil.throttledLog(
           LOG::info,

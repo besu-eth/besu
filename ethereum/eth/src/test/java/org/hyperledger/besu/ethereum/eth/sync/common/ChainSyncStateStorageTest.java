@@ -66,7 +66,7 @@ public class ChainSyncStateStorageTest {
 
     assertThat(loadedState).isNotNull();
     assertThat(loadedState.pivotBlockHeader()).isEqualTo(pivotBlockHeader);
-    assertThat(loadedState.blockDownloadAnchor()).isEqualTo(checkpointBlockHeader);
+    assertThat(loadedState.bodyCheckpoint()).isEqualTo(checkpointBlockHeader);
     assertThat(loadedState.headerDownloadAnchor()).isNull();
     assertThat(loadedState.headersDownloadComplete()).isFalse();
   }
@@ -84,7 +84,7 @@ public class ChainSyncStateStorageTest {
 
     assertThat(loadedState).isNotNull();
     assertThat(loadedState.pivotBlockHeader()).isEqualTo(pivotBlockHeader);
-    assertThat(loadedState.blockDownloadAnchor()).isEqualTo(checkpointBlockHeader);
+    assertThat(loadedState.bodyCheckpoint()).isEqualTo(checkpointBlockHeader);
     assertThat(loadedState.headerDownloadAnchor()).isEqualTo(headerDownloadAnchor);
     assertThat(loadedState.headersDownloadComplete()).isFalse();
   }
@@ -101,7 +101,7 @@ public class ChainSyncStateStorageTest {
 
     assertThat(loadedState).isNotNull();
     assertThat(loadedState.pivotBlockHeader()).isEqualTo(pivotBlockHeader);
-    assertThat(loadedState.blockDownloadAnchor()).isEqualTo(checkpointBlockHeader);
+    assertThat(loadedState.bodyCheckpoint()).isEqualTo(checkpointBlockHeader);
     assertThat(loadedState.headerDownloadAnchor()).isNull();
     assertThat(loadedState.headersDownloadComplete()).isTrue();
   }
@@ -136,7 +136,7 @@ public class ChainSyncStateStorageTest {
 
     assertThat(loadedState).isNotNull();
     assertThat(loadedState.pivotBlockHeader()).isEqualTo(pivotBlockHeader);
-    assertThat(loadedState.blockDownloadAnchor()).isEqualTo(checkpointBlockHeader);
+    assertThat(loadedState.bodyCheckpoint()).isEqualTo(checkpointBlockHeader);
     assertThat(loadedState.headerDownloadAnchor()).isEqualTo(headerDownloadAnchor);
     assertThat(loadedState.headersDownloadComplete()).isTrue();
   }

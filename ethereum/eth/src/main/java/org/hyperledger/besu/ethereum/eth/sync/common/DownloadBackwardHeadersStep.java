@@ -259,20 +259,22 @@ public class DownloadBackwardHeadersStep
           throw new IllegalStateException("Parent hash of last header does not match first header");
         }
         downloadedHeaders.addAll(resultBlockHeaders);
-        LOG.trace(
-            "[{}:{}] Successfully received {} headers starting from block {}",
-            currTaskId,
-            iteration,
-            requestMaxHeaders,
-            requestStartBlockNumber);
+        LOG.atTrace()
+            .setMessage("[{}:{}] Successfully received {} headers starting from block {}")
+            .addArgument(currTaskId)
+            .addArgument(iteration)
+            .addArgument(requestMaxHeaders)
+            .addArgument(requestStartBlockNumber)
+            .log();
       } else {
-        LOG.trace(
-            "[{}:{}] Failed with {} to retrieve {} headers starting from block {}",
-            currTaskId,
-            iteration,
-            responseCode,
-            requestMaxHeaders,
-            requestStartBlockNumber);
+        LOG.atTrace()
+            .setMessage("[{}:{}] Failed with {} to retrieve {} headers starting from block {}")
+            .addArgument(currTaskId)
+            .addArgument(iteration)
+            .addArgument(responseCode)
+            .addArgument(requestMaxHeaders)
+            .addArgument(requestStartBlockNumber)
+            .log();
         if (responseCode == PeerTaskExecutorResponseCode.INTERNAL_SERVER_ERROR) {
           return CompletableFuture.failedFuture(
               new RuntimeException(
@@ -282,7 +284,12 @@ public class DownloadBackwardHeadersStep
                       + startBlockNumber));
         } else {
 
-          LOG.trace("[{}:{}] Waiting for {} before retrying", currTaskId, iteration, RETRY_DELAY);
+          LOG.atTrace()
+              .setMessage("[{}:{}] Waiting for {} before retrying")
+              .addArgument(currTaskId)
+              .addArgument(iteration)
+              .addArgument(RETRY_DELAY)
+              .log();
           final int passIterations = iteration;
           return ethScheduler.scheduleFutureTask(
               () ->

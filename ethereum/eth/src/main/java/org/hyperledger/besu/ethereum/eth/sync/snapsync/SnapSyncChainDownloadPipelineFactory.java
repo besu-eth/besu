@@ -85,10 +85,7 @@ public class SnapSyncChainDownloadPipelineFactory {
     final int headerRequestSize = syncConfig.getDownloaderHeaderRequestSize();
 
     // Lower anchor: the floor block (already in DB, lowest downloaded header must connect to it)
-    final BlockHeader lowerAnchor =
-        chainState.headerDownloadAnchor() != null
-            ? chainState.headerDownloadAnchor()
-            : chainState.blockDownloadAnchor();
+    final BlockHeader lowerAnchor = chainState.headerDownloadAnchor();
 
     // Upper bound: if we have progress, resume below it; otherwise start from pivot
     final BlockHeader upperBound =
@@ -106,11 +103,7 @@ public class SnapSyncChainDownloadPipelineFactory {
 
     final BackwardHeaderDriver driver =
         new BackwardHeaderDriver(
-            headerRequestSize,
-            lowerAnchor,
-            upperBound,
-            protocolContext.getBlockchain()
-        );
+            headerRequestSize, lowerAnchor, upperBound, protocolContext.getBlockchain());
 
     // Genesis floor (0L) so the download step accepts requests below the original anchor — this
     // is what lets the recovery walk extend past the boundary when a previously-stored anchor

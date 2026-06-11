@@ -59,13 +59,6 @@ import org.junit.jupiter.api.Test;
 public class BackwardHeaderDriverRecoveryIntegrationTest {
 
   private static final int BATCH_SIZE = 4;
-  private static final LabelledMetric<Counter> RECOVERY_COUNTER =
-      new NoOpMetricsSystem()
-          .createLabelledCounter(
-              BesuMetricCategory.SYNCHRONIZER,
-              "test_recovery_counter",
-              "test recovery counter",
-              "result");
 
   /** A-chain: index i == block number i (genesis=0, A1=1, ..., A10=10). */
   private static List<Block> aChain;

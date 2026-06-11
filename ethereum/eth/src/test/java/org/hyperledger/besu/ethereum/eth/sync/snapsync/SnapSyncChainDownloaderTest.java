@@ -263,7 +263,7 @@ public class SnapSyncChainDownloaderTest {
     //   2. Stage 1's thenApply reads it and calls
     //      chainSyncState.updateAndGet(s -> s.withRecoveryMatch(matched.get())).
     //   3. The persisted ChainSyncState (captured before the success-path cleanup) has both
-    //      blockDownloadAnchor() and headerDownloadAnchor() equal to the matched ancestor, and
+    //      bodyCheckpoint() and headerDownloadAnchor() equal to the matched ancestor, and
     //      headersDownloadComplete() == true.
     //
     // Stage 2 is stubbed with a no-op pipeline so the overall download cycle completes
@@ -318,7 +318,7 @@ public class SnapSyncChainDownloaderTest {
     downloader.start().get(5, TimeUnit.SECONDS);
 
     // Capture every storeState() call. After the initial seed (1x), Stage 1 should have written:
-    //   - the recovery-match update (blockDownloadAnchor + headerDownloadAnchor == 400)
+    //   - the recovery-match update (bodyCheckpoint + headerDownloadAnchor == 400)
     //   - the headers-download-complete update (headersDownloadComplete == true)
     final ArgumentCaptor<ChainSyncState> stateCaptor =
         ArgumentCaptor.forClass(ChainSyncState.class);
@@ -330,23 +330,22 @@ public class SnapSyncChainDownloaderTest {
     // (headersComplete
     // reset to false so Stage 1 re-runs from the same pivot). Both have anchor=500.
     assertThat(states).hasSizeGreaterThanOrEqualTo(4);
-    assertThat(states.get(0).blockDownloadAnchor().getNumber()).isEqualTo(500L);
+    assertThat(states.get(0).bodyCheckpoint().getNumber()).isEqualTo(500L);
     assertThat(states.get(0).headersDownloadComplete()).isFalse();
 
     // After Stage 1 recovery: anchors collapsed to the matched ancestor at #400. This is the
     // state immediately after the withRecoveryMatch updateAndGet/storeState pair, before
     // withHeadersDownloadComplete runs. Index 1 is the Case B re-pivot store, so recovery is at 2.
     final ChainSyncState afterRecovery = states.get(2);
-    assertThat(afterRecovery.blockDownloadAnchor().getNumber()).isEqualTo(400L);
+    assertThat(afterRecovery.bodyCheckpoint().getNumber()).isEqualTo(400L);
     assertThat(afterRecovery.headerDownloadAnchor()).isNotNull();
     assertThat(afterRecovery.headerDownloadAnchor().getNumber()).isEqualTo(400L);
     assertThat(afterRecovery.headersDownloadComplete()).isFalse();
 
-    // After withHeadersDownloadComplete: still anchored at #400 (blockDownloadAnchor preserved),
-    // but now marked complete. Note: withHeadersDownloadComplete nulls headerDownloadAnchor
-    // because, once headers are fully downloaded, the lower bound has been reached.
+    // After withHeadersDownloadComplete: still anchored at #400 (bodyCheckpoint preserved),
+    // marked complete; headerDownloadAnchor is preserved.
     final ChainSyncState afterComplete = states.get(3);
-    assertThat(afterComplete.blockDownloadAnchor().getNumber()).isEqualTo(400L);
+    assertThat(afterComplete.bodyCheckpoint().getNumber()).isEqualTo(400L);
     assertThat(afterComplete.headersDownloadComplete()).isTrue();
 
     // Stage 2 must use the post-recovery anchor (400), not the original snapshot (500). This is
@@ -360,7 +359,7 @@ public class SnapSyncChainDownloaderTest {
   public void shouldNotMutateAnchorWhenDriverReportsNoMatch() throws Exception {
     // Companion to shouldApplyRecoveryMatchAndPersistUpdatedAnchorsAfterStage1: when the driver
     // reports no matched ancestor (Optional.empty()), Stage 1's thenApply must NOT call
-    // withRecoveryMatch. The blockDownloadAnchor stays at the original 500. The only Stage 1
+    // withRecoveryMatch. The bodyCheckpoint stays at the original 500. The only Stage 1
     // mutation is withHeadersDownloadComplete.
     final BlockHeader genesisHeader = new BlockHeaderTestFixture().number(0).buildHeader();
     final BlockHeader originalAnchor = new BlockHeaderTestFixture().number(500).buildHeader();
@@ -412,17 +411,17 @@ public class SnapSyncChainDownloaderTest {
     // Seed store + Case B re-pivot store + withHeadersDownloadComplete store = at least 3. There is
     // no withRecoveryMatch store since the driver reported no match.
     assertThat(states).hasSizeGreaterThanOrEqualTo(3);
-    assertThat(states.get(0).blockDownloadAnchor().getNumber()).isEqualTo(500L);
+    assertThat(states.get(0).bodyCheckpoint().getNumber()).isEqualTo(500L);
     assertThat(states.get(0).headersDownloadComplete()).isFalse();
 
     // Case B re-pivot is at index 1 (anchor unchanged, headersComplete reset to false).
     // withHeadersDownloadComplete is at index 2.
     final ChainSyncState afterStage1 = states.get(2);
-    assertThat(afterStage1.blockDownloadAnchor().getNumber()).isEqualTo(500L);
+    assertThat(afterStage1.bodyCheckpoint().getNumber()).isEqualTo(500L);
     assertThat(afterStage1.headersDownloadComplete()).isTrue();
 
     // Stage 2 was invoked with the pre-Stage-1 snapshot anchor (500), confirming Stage 2 reads
-    // from ChainSyncState.blockDownloadAnchor() as designed in C2.
+    // from ChainSyncState.bodyCheckpoint() as designed in C2.
     verify(pipelineFactory).createForwardBodiesAndReceiptsDownloadPipeline(eq(500L), any(), any());
   }
 
@@ -469,8 +468,7 @@ public class SnapSyncChainDownloaderTest {
 
     assertThat(stage1State.pivotBlockHeader().getNumber()).isEqualTo(newPivot.getNumber());
     assertThat(stage1State.headerDownloadAnchor().getNumber()).isEqualTo(oldPivot.getNumber());
-    assertThat(stage1State.blockDownloadAnchor().getNumber())
-        .isEqualTo(storedBodyAnchor.getNumber());
+    assertThat(stage1State.bodyCheckpoint().getNumber()).isEqualTo(storedBodyAnchor.getNumber());
     assertThat(stage1State.headersDownloadComplete()).isFalse();
     assertThat(stage1State.headerDownloadProgress()).isNull();
 
@@ -519,15 +517,14 @@ public class SnapSyncChainDownloaderTest {
 
     assertThat(stage1State.pivotBlockHeader().getNumber()).isEqualTo(newPivot.getNumber());
     assertThat(stage1State.headerDownloadAnchor().getNumber()).isEqualTo(oldPivot.getNumber());
-    assertThat(stage1State.blockDownloadAnchor().getNumber())
-        .isEqualTo(storedBodyAnchor.getNumber());
+    assertThat(stage1State.bodyCheckpoint().getNumber()).isEqualTo(storedBodyAnchor.getNumber());
     assertThat(stage1State.headersDownloadComplete()).isFalse();
   }
 
   @Test
   public void caseBReorgShouldUseStoredBodiesAnchorDirectly() throws Exception {
     // New pivot is LOWER than old pivot (reorg case).
-    // blockDownloadAnchor in loadedState was set to canonical common ancestor by a previous
+    // bodyCheckpoint in loadedState was set to canonical common ancestor by a previous
     // Stage 1 recovery run. Stage 2 recovery checks the chain head but finds it at the anchor
     // level (no progress since the anchor was set), so no advancement happens.
     final BlockHeader newPivot = new BlockHeaderTestFixture().number(900).buildHeader();
@@ -571,8 +568,7 @@ public class SnapSyncChainDownloaderTest {
     assertThat(stage1State.pivotBlockHeader().getNumber()).isEqualTo(newPivot.getNumber());
     // In the reorg case headerAnchor = getBlockHeader(newPivot - 1) = block 899, not oldPivot.
     assertThat(stage1State.headerDownloadAnchor().getNumber()).isEqualTo(headerAt899.getNumber());
-    assertThat(stage1State.blockDownloadAnchor().getNumber())
-        .isEqualTo(storedBodyAnchor.getNumber());
+    assertThat(stage1State.bodyCheckpoint().getNumber()).isEqualTo(storedBodyAnchor.getNumber());
     assertThat(stage1State.headersDownloadComplete()).isFalse();
     // Stage 2 starts from the stored anchor; chain head was at anchor level so no advancement.
     verify(pipelineFactory)
@@ -682,7 +678,7 @@ public class SnapSyncChainDownloaderTest {
     final ChainSyncState secondCycleState = captor.getAllValues().get(1);
     assertThat(secondCycleState.pivotBlockHeader().getNumber()).isEqualTo(newPivot.getNumber());
     // Second cycle uses continueToNewPivot: body anchor = old pivot, no header anchor
-    assertThat(secondCycleState.blockDownloadAnchor().getNumber()).isEqualTo(oldPivot.getNumber());
+    assertThat(secondCycleState.bodyCheckpoint().getNumber()).isEqualTo(oldPivot.getNumber());
     assertThat(secondCycleState.headerDownloadAnchor()).isNull();
   }
 
@@ -726,7 +722,7 @@ public class SnapSyncChainDownloaderTest {
 
     final ChainSyncState stage1State = captor.getValue();
     assertThat(stage1State.pivotBlockHeader().getNumber()).isEqualTo(newPivot.getNumber());
-    assertThat(stage1State.blockDownloadAnchor().getNumber()).isEqualTo(bodyAnchor.getNumber());
+    assertThat(stage1State.bodyCheckpoint().getNumber()).isEqualTo(bodyAnchor.getNumber());
   }
 
   // ── Case D: Stage 1 not started ──────────────────────────────────────────────────────────
@@ -766,7 +762,7 @@ public class SnapSyncChainDownloaderTest {
 
     final ChainSyncState stage1State = captor.getValue();
     assertThat(stage1State.pivotBlockHeader().getNumber()).isEqualTo(newPivot.getNumber());
-    assertThat(stage1State.blockDownloadAnchor().getNumber()).isEqualTo(bodyAnchor.getNumber());
+    assertThat(stage1State.bodyCheckpoint().getNumber()).isEqualTo(bodyAnchor.getNumber());
     assertThat(stage1State.headersDownloadComplete()).isFalse();
     assertThat(stage1State.headerDownloadProgress()).isNull();
   }

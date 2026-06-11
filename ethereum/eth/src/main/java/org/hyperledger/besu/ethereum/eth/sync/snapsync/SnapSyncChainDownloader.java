@@ -95,7 +95,6 @@ public class SnapSyncChainDownloader
 
   private final AtomicBoolean downloadInProgress = new AtomicBoolean(false);
   private final AtomicBoolean initialized = new AtomicBoolean(false);
-  private final AtomicBoolean stage2RecoveryCheckNeeded = new AtomicBoolean(false);
   private final AtomicInteger sameStateRetryCount = new AtomicInteger(0);
   private volatile ChainSyncState lastRetriedState = null;
 
@@ -237,7 +236,7 @@ public class SnapSyncChainDownloader
         .thenCompose(
             state -> {
               final BlockHeader pivotBlockHeader = state.pivotBlockHeader();
-              final BlockHeader checkpointBlockHeader = state.blockDownloadAnchor();
+              final BlockHeader checkpointBlockHeader = state.bodyCheckpoint();
               LOG.info(
                   "Starting two-stage fast sync chain download from pivot block {}, {}, and checkpoint block {}.",
                   pivotBlockHeader.getHash(),
@@ -297,34 +296,17 @@ public class SnapSyncChainDownloader
       }
 
       if (headerIsOnCanonicalChain(initialPivotHeader)) {
-
-        stateToUse =
-            loadedState.withReplacedPivot(
-                initialPivotHeader, loadedState.headersDownloadComplete());
-
+        stateToUse = loadedState.withNewPivotSkippingStage1(initialPivotHeader);
       } else if (loadedState.headersDownloadComplete()) {
-        // The last round that used the loaded state finished the header download. The new pivot can
-        // be higher or lower than the one form the loaded state.
-        // We need to use the new pivot and start stage 1 (header download backwards) with a header
-        // anchor either being the loaded state header anchor (new pivot is greater than loaded
-        // state header) or with the anchor being the header on our canonical chain that is one
-        // block lower than the new pivot (new pivot is lower than loaded state header).
         BlockHeader headerAnchor;
         if (newPivotNumber > oldPivotNumber) {
           headerAnchor = loadedState.pivotBlockHeader();
         } else {
           headerAnchor = blockchain.getBlockHeader(newPivotNumber - 1).orElseThrow();
         }
-        stage2RecoveryCheckNeeded.set(true);
-        stateToUse =
-            new ChainSyncState(
-                initialPivotHeader, loadedState.blockDownloadAnchor(), headerAnchor, false, null);
+        stateToUse = loadedState.restartHeaderDownload(initialPivotHeader, headerAnchor);
+
       } else if (loadedState.headerDownloadProgress() != null) {
-        // We had started the header download. We have to decide whether it is safe to continue the
-        // header download (there might have been a reorg). If the header download has downloaded
-        // more than THRESHOLD headers it is safe to continue, otherwise we just start downlading
-        // the headers from the new pivot. If we just continue we have to make sure that we are
-        // continuing to the new pivot once we have finished this round.
         final long headersDownloaded =
             oldPivotNumber - loadedState.headerDownloadProgress().getNumber();
         if (headersDownloaded >= syncConfig.getChainSyncContinuationThresholdBlocks()) {
@@ -334,12 +316,16 @@ public class SnapSyncChainDownloader
           onPivotUpdated(initialPivotHeader);
         } else {
           // Below threshold: discard the small amount of partial work and restart fresh.
-          stateToUse = loadedState.withReplacedPivot(initialPivotHeader, false);
+          stateToUse =
+              loadedState.restartHeaderDownload(
+                  initialPivotHeader, loadedState.headerDownloadAnchor());
         }
 
       } else {
-        // Stage 1 had not reported header progress. Replace pivot and start fresh.
-        stateToUse = loadedState.withReplacedPivot(initialPivotHeader, false);
+        // Stage 1 had not reported header progress. Restart fresh with the new pivot.
+        stateToUse =
+            loadedState.restartHeaderDownload(
+                initialPivotHeader, loadedState.headerDownloadAnchor());
       }
 
       chainSyncState.set(stateToUse);
@@ -427,7 +413,7 @@ public class SnapSyncChainDownloader
   private Optional<Throwable> shouldRetry(final Throwable error) {
     final Throwable cause = error instanceof CompletionException ? error.getCause() : error;
     if (cause instanceof CancellationException || cause instanceof WrongChainException) {
-      return Optional.of(error);
+      return Optional.of(cause);
     }
 
     // If the chain sync state has not changed since the previous retry, no real progress was made.
@@ -436,7 +422,7 @@ public class SnapSyncChainDownloader
     // StalledDownloadException so PivotSyncDownloader selects a fresh pivot.
     final ChainSyncState currentState = chainSyncState.get();
     if (currentState.equals(lastRetriedState)) {
-      if (sameStateRetryCount.incrementAndGet() > MAX_SAME_STATE_RETRIES) {
+      if (sameStateRetryCount.incrementAndGet() >= MAX_SAME_STATE_RETRIES) {
         LOG.warn(
             "Chain download stalled after {} retries with no progress — escalating to re-pivot",
             sameStateRetryCount.get());
@@ -476,9 +462,7 @@ public class SnapSyncChainDownloader
     LOG.debug(
         "Stage 1: Starting backward header download from pivot {} down to stop block {}, progress={}",
         state.pivotBlockHeader().getNumber(),
-        state.headerDownloadAnchor() != null
-            ? state.headerDownloadAnchor().getNumber()
-            : state.blockDownloadAnchor().getNumber(),
+        state.headerDownloadAnchor().getNumber(),
         state.headerDownloadProgress() != null
             ? state.headerDownloadProgress().getNumber()
             : "none");
@@ -500,15 +484,12 @@ public class SnapSyncChainDownloader
                   "Stage 1 complete: Backward header download finished in {} seconds",
                   stage1Duration.toSeconds());
 
-              // If Stage 1 recovery walked below the original anchor and matched a stored canonical
-              // ancestor, replace blockDownloadAnchor and headerDownloadAnchor with the matched
-              // ancestor so Stage 2 starts there.
               final Optional<BlockHeader> matched = pipelineResult.driver().getMatchedAncestor();
               if (matched.isPresent()) {
                 final ChainSyncState before = chainSyncState.get();
                 LOG.info(
                     "Stage 1 recovery extended anchor: previous anchor at #{}, matched ancestor at #{} ({})",
-                    before.blockDownloadAnchor().getNumber(),
+                    before.bodyCheckpoint().getNumber(),
                     matched.get().getNumber(),
                     matched.get().getHash());
                 chainSyncState.updateAndGet(s -> s.withRecoveryMatch(matched.get()));
@@ -527,38 +508,18 @@ public class SnapSyncChainDownloader
 
   private CompletableFuture<Void> runStage2ForwardBodiesAndReceipts(final ChainSyncState state) {
 
-    ChainSyncState effectiveState = state;
-    if (stage2RecoveryCheckNeeded.compareAndSet(true, false)) {
-      // this can happen if the previous stage 2 was active when the pipeline was restarted
-      final BlockHeader chainHeadHeader = blockchain.getChainHeadHeader();
-      BlockHeader blockDownloadAnchor = state.blockDownloadAnchor();
-      final long anchorNumber = blockDownloadAnchor.getNumber();
-      if (chainHeadHeader.getNumber() > anchorNumber) {
-        final BlockHeader recoveredAnchor =
-            headerIsOnCanonicalChain(chainHeadHeader)
-                ? chainHeadHeader
-                : highestCanonicalBody(blockDownloadAnchor, chainHeadHeader.getNumber());
-        if (recoveredAnchor.getNumber() > anchorNumber) {
-          LOG.info(
-              "Stage 2 recovery: advancing block download anchor from #{} to #{}",
-              anchorNumber,
-              recoveredAnchor.getNumber());
-          effectiveState =
-              chainSyncState.updateAndGet(
-                  chainSyncState -> chainSyncState.withBlockDownloadAnchor(recoveredAnchor));
-          chainSyncStateStorage.storeState(effectiveState);
-        }
-      }
-    }
+    final BlockHeader chainHead = blockchain.getChainHeadHeader();
+    final long stage2StartBlock =
+        blockchain.getBlockBody(chainHead.getHash()).isPresent()
+            ? chainHead.getNumber()
+            : highestCanonicalBody(state.bodyCheckpoint(), chainHead.getNumber()).getNumber();
 
-    final long stage2StartBlock = effectiveState.blockDownloadAnchor().getNumber();
-    final BlockHeader pivotBlockHeader = effectiveState.pivotBlockHeader();
+    final BlockHeader pivotBlockHeader = state.pivotBlockHeader();
     final long pivotBlockNumber = pivotBlockHeader.getNumber();
 
-    // Check if already at or past pivot
     if (stage2StartBlock >= pivotBlockNumber) {
       LOG.debug(
-          "Stage 2: Block download anchor ({}) already at or past pivot ({}). Skipping bodies/receipts download.",
+          "Stage 2: chain head ({}) already at or past pivot ({}). Skipping bodies/receipts download.",
           stage2StartBlock,
           pivotBlockNumber);
       return CompletableFuture.completedFuture(null);
@@ -594,10 +555,10 @@ public class SnapSyncChainDownloader
    * body stored. Returns the anchor header when no higher qualifying block exists.
    */
   private BlockHeader highestCanonicalBody(
-      final BlockHeader blockDownloadAnchor, final long headNumber) {
-    long low = blockDownloadAnchor.getNumber() + 1;
+      final BlockHeader bodyCheckpoint, final long headNumber) {
+    long low = bodyCheckpoint.getNumber();
     long high = headNumber;
-    BlockHeader best = blockDownloadAnchor;
+    BlockHeader best = bodyCheckpoint;
 
     while (low <= high) {
       final long mid = low + (high - low) / 2;
@@ -690,9 +651,6 @@ public class SnapSyncChainDownloader
    * @return CompletableFuture that completes when the cycle is done
    */
   private CompletableFuture<Void> performSingleDownloadCycle() {
-    // Stage 1 reads its own snapshot; Stage 2 must re-read because Stage 1's recovery handoff
-    // (BackwardHeaderDriver.getMatchedAncestor) may have rewritten blockDownloadAnchor via
-    // ChainSyncState.withRecoveryMatch before Stage 2 starts.
     return runStage1Download(chainSyncState.get())
         .thenCompose(
             ignore -> {
@@ -740,13 +698,8 @@ public class SnapSyncChainDownloader
   private void handleDownloadError(
       final Throwable error, final CompletableFuture<Void> overallResult) {
 
-    // Save header download progress if any was made
+    // Save header download progress if any was made.
     saveHeaderProgress();
-
-    // Update chain state to current blockchain head
-    chainSyncState.updateAndGet(
-        state -> state.withBlockDownloadAnchor(blockchain.getChainHeadHeader()));
-    chainSyncStateStorage.storeState(chainSyncState.get());
 
     final Optional<Throwable> failWith = shouldRetry(error);
     if (failWith.isPresent()) {

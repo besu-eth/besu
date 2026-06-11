@@ -31,14 +31,12 @@ public class ChainSyncStateTest {
   private BlockHeader pivotBlockHeader;
   private BlockHeader checkpointBlockHeader;
   private BlockHeader genesisBlockHeader;
-  private BlockHeader chainHeadHeader;
 
   @BeforeEach
   public void setUp() {
     pivotBlockHeader = new BlockHeaderTestFixture().number(1000).buildHeader();
     checkpointBlockHeader = new BlockHeaderTestFixture().number(500).buildHeader();
     genesisBlockHeader = new BlockHeaderTestFixture().number(0).buildHeader();
-    chainHeadHeader = new BlockHeaderTestFixture().number(600).buildHeader();
   }
 
   // Factory Method Tests
@@ -49,7 +47,7 @@ public class ChainSyncStateTest {
         ChainSyncState.initialSync(pivotBlockHeader, checkpointBlockHeader, genesisBlockHeader);
 
     assertThat(state.pivotBlockHeader()).isEqualTo(pivotBlockHeader);
-    assertThat(state.blockDownloadAnchor()).isEqualTo(checkpointBlockHeader);
+    assertThat(state.bodyCheckpoint()).isEqualTo(checkpointBlockHeader);
     assertThat(state.headerDownloadAnchor()).isEqualTo(genesisBlockHeader);
     assertThat(state.headerDownloadProgress()).isNull();
     assertThat(state.headersDownloadComplete()).isFalse();
@@ -64,7 +62,7 @@ public class ChainSyncStateTest {
     ChainSyncState continuedState = initialState.continueToNewPivot(newPivot, pivotBlockHeader);
 
     assertThat(continuedState.pivotBlockHeader()).isEqualTo(newPivot);
-    assertThat(continuedState.blockDownloadAnchor()).isEqualTo(pivotBlockHeader);
+    assertThat(continuedState.bodyCheckpoint()).isEqualTo(pivotBlockHeader);
     assertThat(continuedState.headerDownloadAnchor()).isNull();
     assertThat(continuedState.headerDownloadProgress()).isNull();
     assertThat(continuedState.headersDownloadComplete()).isFalse();
@@ -78,7 +76,7 @@ public class ChainSyncStateTest {
     ChainSyncState completedState = initialState.withHeadersDownloadComplete();
 
     assertThat(completedState.pivotBlockHeader()).isEqualTo(pivotBlockHeader);
-    assertThat(completedState.blockDownloadAnchor()).isEqualTo(checkpointBlockHeader);
+    assertThat(completedState.bodyCheckpoint()).isEqualTo(checkpointBlockHeader);
     assertThat(completedState.headerDownloadAnchor()).isNull();
     assertThat(completedState.headerDownloadProgress()).isNull();
     assertThat(completedState.headersDownloadComplete()).isTrue();
@@ -93,48 +91,10 @@ public class ChainSyncStateTest {
     ChainSyncState updatedState = initialState.withHeaderProgress(progressHeader);
 
     assertThat(updatedState.pivotBlockHeader()).isEqualTo(pivotBlockHeader);
-    assertThat(updatedState.blockDownloadAnchor()).isEqualTo(checkpointBlockHeader);
+    assertThat(updatedState.bodyCheckpoint()).isEqualTo(checkpointBlockHeader);
     assertThat(updatedState.headerDownloadAnchor()).isEqualTo(genesisBlockHeader);
     assertThat(updatedState.headerDownloadProgress()).isEqualTo(progressHeader);
     assertThat(updatedState.headersDownloadComplete()).isFalse();
-  }
-
-  @Test
-  public void withBlockDownloadAnchorShouldPreserveHeaderProgress() {
-    ChainSyncState initialState =
-        ChainSyncState.initialSync(pivotBlockHeader, checkpointBlockHeader, genesisBlockHeader);
-    BlockHeader progressHeader = new BlockHeaderTestFixture().number(800).buildHeader();
-
-    ChainSyncState withProgress = initialState.withHeaderProgress(progressHeader);
-    ChainSyncState restarted = withProgress.withBlockDownloadAnchor(chainHeadHeader);
-
-    assertThat(restarted.headerDownloadAnchor()).isEqualTo(genesisBlockHeader);
-    assertThat(restarted.headerDownloadProgress()).isEqualTo(progressHeader);
-    assertThat(restarted.blockDownloadAnchor()).isEqualTo(chainHeadHeader);
-  }
-
-  @Test
-  public void withBlockDownloadAnchorShouldUpdateBlockDownloadAnchor() {
-    ChainSyncState initialState =
-        ChainSyncState.initialSync(pivotBlockHeader, checkpointBlockHeader, genesisBlockHeader);
-
-    ChainSyncState restartedState = initialState.withBlockDownloadAnchor(chainHeadHeader);
-
-    assertThat(restartedState.pivotBlockHeader()).isEqualTo(pivotBlockHeader);
-    assertThat(restartedState.blockDownloadAnchor()).isEqualTo(chainHeadHeader);
-    assertThat(restartedState.headerDownloadAnchor()).isEqualTo(genesisBlockHeader);
-    assertThat(restartedState.headersDownloadComplete()).isFalse();
-  }
-
-  @Test
-  public void withBlockDownloadAnchorShouldPreserveHeadersDownloadComplete() {
-    ChainSyncState initialState =
-        ChainSyncState.initialSync(pivotBlockHeader, checkpointBlockHeader, genesisBlockHeader);
-    ChainSyncState completedState = initialState.withHeadersDownloadComplete();
-
-    ChainSyncState restartedState = completedState.withBlockDownloadAnchor(chainHeadHeader);
-
-    assertThat(restartedState.headersDownloadComplete()).isTrue();
   }
 
   @Test
@@ -181,13 +141,8 @@ public class ChainSyncStateTest {
     BlockHeader newPivot = new BlockHeaderTestFixture().number(2000).buildHeader();
     ChainSyncState state3 = state2.continueToNewPivot(newPivot, pivotBlockHeader);
     assertThat(state3.pivotBlockHeader()).isEqualTo(newPivot);
-    assertThat(state3.blockDownloadAnchor()).isEqualTo(pivotBlockHeader);
+    assertThat(state3.bodyCheckpoint()).isEqualTo(pivotBlockHeader);
     assertThat(state3.headersDownloadComplete()).isFalse();
-
-    // Restart from head
-    ChainSyncState state4 = state3.withBlockDownloadAnchor(chainHeadHeader);
-    assertThat(state4.blockDownloadAnchor()).isEqualTo(chainHeadHeader);
-    assertThat(state4.pivotBlockHeader()).isEqualTo(newPivot);
   }
 
   // Equality and HashCode Tests
@@ -291,15 +246,14 @@ public class ChainSyncStateTest {
   }
 
   @Test
-  public void toStringShouldHandleNullHeaderDownloadAnchor() {
-    // withHeadersDownloadComplete() sets headerDownloadAnchor to null
+  public void toStringShouldIncludeHeaderDownloadAnchorNumber() {
     ChainSyncState state =
         ChainSyncState.initialSync(pivotBlockHeader, checkpointBlockHeader, genesisBlockHeader)
             .withHeadersDownloadComplete();
 
     String result = state.toString();
 
-    assertThat(result).contains("headerDownloadAnchorNumber=null");
+    assertThat(result).contains("headerDownloadAnchorNumber=" + genesisBlockHeader.getNumber());
     assertThat(result).contains("headersDownloadComplete=true");
   }
 
@@ -308,12 +262,9 @@ public class ChainSyncStateTest {
     ChainSyncState state1 =
         ChainSyncState.initialSync(pivotBlockHeader, checkpointBlockHeader, genesisBlockHeader);
     ChainSyncState state2 = state1.withHeadersDownloadComplete();
-    ChainSyncState state3 = state2.withBlockDownloadAnchor(chainHeadHeader);
 
     // All should be different instances
     assertThat(state1).isNotSameAs(state2);
-    assertThat(state2).isNotSameAs(state3);
-    assertThat(state1).isNotSameAs(state3);
 
     // Original state should be unchanged
     assertThat(state1.headersDownloadComplete()).isFalse();
@@ -332,7 +283,7 @@ public class ChainSyncStateTest {
     ChainSyncState continued2 = continued1.continueToNewPivot(pivot3, pivot2);
 
     assertThat(continued2.pivotBlockHeader()).isEqualTo(pivot3);
-    assertThat(continued2.blockDownloadAnchor()).isEqualTo(pivot2);
+    assertThat(continued2.bodyCheckpoint()).isEqualTo(pivot2);
     assertThat(continued2.headerDownloadAnchor()).isNull();
     assertThat(continued2.headersDownloadComplete()).isFalse();
   }
@@ -342,7 +293,7 @@ public class ChainSyncStateTest {
     ChainSyncState state =
         ChainSyncState.initialSync(pivotBlockHeader, pivotBlockHeader, genesisBlockHeader);
 
-    assertThat(state.pivotBlockHeader()).isEqualTo(state.blockDownloadAnchor());
+    assertThat(state.pivotBlockHeader()).isEqualTo(state.bodyCheckpoint());
   }
 
   @Test
@@ -356,14 +307,14 @@ public class ChainSyncStateTest {
         ChainSyncState.initialSync(largePivot, largeCheckpoint, genesisBlockHeader);
 
     assertThat(state.pivotBlockHeader().getNumber()).isEqualTo(Long.MAX_VALUE - 100);
-    assertThat(state.blockDownloadAnchor().getNumber()).isEqualTo(Long.MAX_VALUE - 500);
+    assertThat(state.bodyCheckpoint().getNumber()).isEqualTo(Long.MAX_VALUE - 500);
   }
 
   @Test
   public void withRecoveryMatchShouldNotRaiseBlockDownloadAnchorAboveCurrentProgress() {
-    // matchedAncestor is ABOVE the existing blockDownloadAnchor. This happens in Case B crash
+    // matchedAncestor is ABOVE the existing bodyCheckpoint. This happens in Case B crash
     // recovery when the body anchor was set to the chain-head (e.g. 300) but recovery found a
-    // canonical match higher up the chain (e.g. 800). blockDownloadAnchor must not be raised.
+    // canonical match higher up the chain (e.g. 800). bodyCheckpoint must not be raised.
     final BlockHeader newPivot = new BlockHeaderTestFixture().number(2000).buildHeader();
     final BlockHeader lowAnchor = new BlockHeaderTestFixture().number(300).buildHeader();
     final BlockHeader matchedAncestor = new BlockHeaderTestFixture().number(800).buildHeader();
@@ -371,7 +322,7 @@ public class ChainSyncStateTest {
     final ChainSyncState before = new ChainSyncState(newPivot, lowAnchor, null, false, null);
     final ChainSyncState after = before.withRecoveryMatch(matchedAncestor);
 
-    assertThat(after.blockDownloadAnchor()).isEqualTo(lowAnchor);
+    assertThat(after.bodyCheckpoint()).isEqualTo(lowAnchor);
     assertThat(after.headerDownloadAnchor()).isEqualTo(matchedAncestor);
     assertThat(after.pivotBlockHeader()).isEqualTo(newPivot);
     assertThat(after.headersDownloadComplete()).isFalse();
@@ -389,7 +340,7 @@ public class ChainSyncStateTest {
     final ChainSyncState after = before.withRecoveryMatch(matchedAncestor);
 
     assertThat(after.pivotBlockHeader()).isEqualTo(newPivot);
-    assertThat(after.blockDownloadAnchor()).isEqualTo(matchedAncestor);
+    assertThat(after.bodyCheckpoint()).isEqualTo(matchedAncestor);
     assertThat(after.headerDownloadAnchor()).isEqualTo(matchedAncestor);
     assertThat(after.headersDownloadComplete()).isFalse();
     assertThat(after.headerDownloadProgress()).isNull();
