@@ -164,14 +164,12 @@ public class EthFeeHistory implements JsonRpcMethod {
       return new JsonRpcErrorResponse(requestId, RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS);
     }
 
-    final Optional<List<Double>> sortedRewardPercentiles =
-        maybeRewardPercentiles
-            .filter(list -> list.size() <= MAXIMUM_QUERY_PERCENTILES)
-            .map(percentiles -> percentiles.stream().sorted().toList());
+    final Optional<List<Double>> rewardPercentiles =
+        maybeRewardPercentiles.filter(list -> list.size() <= MAXIMUM_QUERY_PERCENTILES);
 
     final boolean isLatestRequest = highestBlockNumber == chainHeadBlockNumber;
     final Optional<RewardBounds> rewardBounds =
-        sortedRewardPercentiles.isPresent() && apiConfiguration.isGasAndPriorityFeeLimitingEnabled()
+        rewardPercentiles.isPresent() && apiConfiguration.isGasAndPriorityFeeLimitingEnabled()
             ? Optional.of(
                 new RewardBounds(
                     blockchainQueries.gasPriceLowerBound(),
@@ -179,6 +177,8 @@ public class EthFeeHistory implements JsonRpcMethod {
             : Optional.empty();
     final ProtocolSpec nextBlockProtocolSpec =
         protocolSchedule.getForNextBlockHeader(chainHeadHeader, chainHeadHeader.getTimestamp());
+    final Optional<List<Double>> sortedRewardPercentiles =
+        rewardPercentiles.map(percentiles -> percentiles.stream().sorted().toList());
     final ResultCacheKey resultCacheKey =
         isLatestRequest
             ? new ResultCacheKey(
