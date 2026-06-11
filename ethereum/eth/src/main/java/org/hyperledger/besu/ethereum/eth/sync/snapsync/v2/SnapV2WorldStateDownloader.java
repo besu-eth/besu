@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
 import org.hyperledger.besu.ethereum.eth.sync.common.WorldStateHealFinishedListener;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.DynamicPivotBlockSelector;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncMetricsManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
@@ -64,6 +65,7 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
   private final AtomicReference<SnapV2WorldDownloadState> downloadState = new AtomicReference<>();
   private final SyncDurationMetrics syncDurationMetrics;
   private volatile WorldStateHealFinishedListener worldStateHealFinishedListener;
+  private volatile SnapV2PivotCatchupListener pivotCatchupListener;
 
   public SnapV2WorldStateDownloader(
       final EthContext ethContext,
@@ -114,6 +116,9 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
     if (chainDownloader instanceof WorldStateHealFinishedListener listener) {
       this.worldStateHealFinishedListener = listener;
     }
+    if (chainDownloader instanceof SnapV2PivotCatchupListener listener) {
+      this.pivotCatchupListener = listener;
+    }
   }
 
   @Override
@@ -142,26 +147,27 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
 
       final SnapSyncMetricsManager snapsyncMetricsManager =
           new SnapSyncMetricsManager(metricsSystem, ethContext);
+      final DynamicPivotBlockSelector pivotBlockSelector =
+          new DynamicPivotBlockSelector(ethContext, fastSyncActions, snapSyncState, null);
       final SnapV2WorldDownloadState newDownloadState =
           new SnapV2WorldDownloadState(
               worldStateStorageCoordinator,
               snapContext,
+              snapSyncState,
               snapTaskCollection,
               maxNodeRequestsWithoutProgress,
               minMillisBeforeStalling,
               snapsyncMetricsManager,
               clock,
               syncDurationMetrics,
-              worldStateHealFinishedListener);
+              worldStateHealFinishedListener,
+              pivotCatchupListener);
 
       final Map<Bytes32, Bytes32> ranges = RangeManager.generateAllRanges(16);
       snapsyncMetricsManager.initRange(ranges);
-      // TODO: Replace static-pivot range seeding when snap/2 dynamic pivot advancement and BAL
-      // catch-up are wired in.
       ranges.forEach(
           (key, value) ->
-              newDownloadState.enqueueRequest(
-                  new SnapV2AccountRangeRequest(stateRoot, key, value, key)));
+              newDownloadState.enqueueRequest(new SnapV2AccountRangeRequest(header, key, value)));
 
       final SnapV2WorldStateDownloadProcess downloadProcess =
           SnapV2WorldStateDownloadProcess.create(
@@ -169,6 +175,7 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
               worldStateStorageCoordinator,
               snapSyncState,
               newDownloadState,
+              pivotBlockSelector,
               snapSyncConfiguration,
               maxOutstandingRequests,
               metricsSystem);

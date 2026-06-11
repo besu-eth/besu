@@ -16,6 +16,8 @@ package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -152,6 +154,10 @@ class BalTransactionProcessorUnitTest {
     return blockAccessList;
   }
 
+  private PartialBlockAccessView emptyPartialBlockAccessView(final long txIndex) {
+    return new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(txIndex).build();
+  }
+
   private void stubSuccessfulTransaction() {
     when(transactionProcessor.processTransaction(
             any(), any(), any(), any(), any(), any(), any(), any(), any()))
@@ -161,7 +167,7 @@ class BalTransactionProcessorUnitTest {
                 0,
                 0,
                 Bytes.EMPTY,
-                Optional.empty(),
+                Optional.of(emptyPartialBlockAccessView(0)),
                 ValidationResult.valid()));
   }
 
@@ -265,6 +271,152 @@ class BalTransactionProcessorUnitTest {
 
       assertTrue(result.isPresent(), "Expected processing result to be present");
       assertTrue(result.get().isSuccessful(), "Expected successful result");
+      assertNull(processor.futures[0], "Expected consumed future reference to be cleared");
+    }
+
+    @Test
+    @DisplayName("Partial BAL writes are applied without retaining transaction accumulator")
+    void partialBalWritesAreAppliedWithoutRetainingAccumulator() {
+      final TestEnvironment env = createTestEnvironment();
+      final BlockAccessList blockAccessList = mockEmptyBlockAccessList();
+      final Transaction transaction = mockTransaction();
+
+      final Address writeAddress =
+          Address.fromHexString("0x1000000000000000000000000000000000000001");
+      final Address readOnlyAddress =
+          Address.fromHexString("0x1000000000000000000000000000000000000002");
+      final Wei postBalance = Wei.of(123);
+      final long nonce = 7L;
+      final Bytes code = Bytes.fromHexString("0xAABB");
+      final UInt256 slotOneKey = UInt256.ONE;
+      final UInt256 slotTwoKey = UInt256.valueOf(2);
+      final StorageSlotKey slotOne = new StorageSlotKey(slotOneKey);
+      final StorageSlotKey slotTwo = new StorageSlotKey(slotTwoKey);
+      final StorageSlotKey readOnlySlot = new StorageSlotKey(UInt256.valueOf(3));
+
+      final PartialBlockAccessView.PartialBlockAccessViewBuilder partialBuilder =
+          new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(0);
+      final PartialBlockAccessView.AccountChangesBuilder writeAccount =
+          partialBuilder.getOrCreateAccountBuilder(writeAddress);
+      writeAccount.withPostBalance(postBalance);
+      writeAccount.withNonceChange(nonce);
+      writeAccount.withNewCode(code);
+      writeAccount.addStorageChange(slotOne, UInt256.valueOf(11));
+      writeAccount.addStorageChange(slotTwo, null);
+      partialBuilder.getOrCreateAccountBuilder(readOnlyAddress).addStorageRead(readOnlySlot);
+      final PartialBlockAccessView partialBlockAccessView = partialBuilder.build();
+
+      when(transactionProcessor.processTransaction(
+              any(), any(), any(), any(), any(), any(), any(), any(), any()))
+          .thenReturn(
+              TransactionProcessingResult.successful(
+                  Collections.emptyList(),
+                  0,
+                  0,
+                  Bytes.EMPTY,
+                  Optional.of(partialBlockAccessView),
+                  ValidationResult.valid()));
+
+      final BalConcurrentTransactionProcessor processor =
+          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      assertNull(
+          processor.futures[0].join().transactionAccumulator(),
+          "Expected BAL future context not to retain the transaction accumulator");
+
+      final Optional<TransactionProcessingResult> result =
+          processor.getProcessingResult(
+              env.worldState(),
+              MINING_BENEFICIARY,
+              transaction,
+              0,
+              Optional.empty(),
+              Optional.empty());
+
+      assertTrue(result.isPresent(), "Expected processing result to be present");
+      assertNull(result.get().accumulator, "Expected BAL result not to retain the accumulator");
+
+      final Account account = env.worldState().updater().get(writeAddress);
+      assertNotNull(account, "Expected write account to be created from partial BAL writes");
+      assertEquals(postBalance, account.getBalance(), "Balance should come from partial BAL");
+      assertEquals(nonce, account.getNonce(), "Nonce should come from partial BAL");
+      assertEquals(code, account.getCode(), "Code should come from partial BAL");
+      assertEquals(
+          UInt256.valueOf(11), account.getStorageValue(slotOneKey), "Slot one should be applied");
+      assertEquals(UInt256.ZERO, account.getStorageValue(slotTwoKey), "Null slot clears to zero");
+      assertNull(
+          env.worldState().updater().get(readOnlyAddress),
+          "Read-only partial BAL entries should not create account writes");
+    }
+
+    @Test
+    @DisplayName("Clears accounts made empty by partial BAL view writes")
+    void clearsAccountsMadeEmptyByPartialBalWrites() {
+      final TestEnvironment env = createTestEnvironment();
+      final BlockAccessList blockAccessList = mockEmptyBlockAccessList();
+      final Transaction transaction = mockTransaction();
+      final Address accountAddress =
+          Address.fromHexString("0x1000000000000000000000000000000000000003");
+
+      final WorldUpdater preStateUpdater = env.worldState().updater();
+      preStateUpdater.createAccount(accountAddress, 0L, Wei.ONE);
+      preStateUpdater.commit();
+
+      final PartialBlockAccessView.PartialBlockAccessViewBuilder partialBuilder =
+          new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(0);
+      partialBuilder.getOrCreateAccountBuilder(accountAddress).withPostBalance(Wei.ZERO);
+      final PartialBlockAccessView partialBlockAccessView = partialBuilder.build();
+
+      when(transactionProcessor.processTransaction(
+              any(), any(), any(), any(), any(), any(), any(), any(), any()))
+          .thenReturn(
+              TransactionProcessingResult.successful(
+                  Collections.emptyList(),
+                  0,
+                  0,
+                  Bytes.EMPTY,
+                  Optional.of(partialBlockAccessView),
+                  ValidationResult.valid()));
+      when(transactionProcessor.getClearEmptyAccounts()).thenReturn(true);
+
+      final BalConcurrentTransactionProcessor processor =
+          new BalConcurrentTransactionProcessor(transactionProcessor, blockAccessList);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          EMPTY_BLOCK_HASH_LOOKUP,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      final Optional<TransactionProcessingResult> result =
+          processor.getProcessingResult(
+              env.worldState(),
+              MINING_BENEFICIARY,
+              transaction,
+              0,
+              Optional.empty(),
+              Optional.empty());
+
+      assertTrue(result.isPresent(), "Expected processing result to be present");
+      assertNull(
+          env.worldState().updater().get(accountAddress),
+          "Account zeroed by partial BAL writes should be cleared from the block accumulator");
     }
   }
 
@@ -491,7 +643,7 @@ class BalTransactionProcessorUnitTest {
                     0,
                     0,
                     Bytes.EMPTY,
-                    Optional.empty(),
+                    Optional.of(emptyPartialBlockAccessView(transactionLocation)),
                     ValidationResult.valid());
               });
 
