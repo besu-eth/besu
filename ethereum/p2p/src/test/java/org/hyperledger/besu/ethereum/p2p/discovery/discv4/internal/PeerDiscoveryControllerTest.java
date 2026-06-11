@@ -879,7 +879,9 @@ public class PeerDiscoveryControllerTest {
   }
 
   private PacketData matchPingDataForPeer(final DiscoveryPeerV4 peer) {
-    return argThat((PacketData data) -> ((PingPacketData) data).getTo().equals(peer.getEndpoint()));
+    return argThat(
+        (PacketData data) ->
+            ((PingPacketData) data).getTo().map(peer.getEndpoint()::equals).orElse(false));
   }
 
   private Packet matchPacketOfType(final PacketType type) {

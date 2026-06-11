@@ -35,7 +35,6 @@ import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.neighb
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.neighbors.NeighborsPacketDataRlpReader;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.neighbors.NeighborsPacketDataRlpWriter;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.ping.PingPacketData;
-import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.ping.PingPacketDataFactory;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.ping.PingPacketDataRlpReader;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.ping.PingPacketDataRlpWriter;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.pong.PongPacketData;
@@ -43,7 +42,6 @@ import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.pong.P
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.pong.PongPacketDataRlpReader;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.pong.PongPacketDataRlpWriter;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.validation.DiscoveryPeersValidator;
-import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.validation.EndpointValidator;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.validation.ExpiryValidator;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.validation.NodeRecordValidator;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.validation.RequestHashValidator;
@@ -55,7 +53,6 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.Optional;
 
-import io.vertx.core.buffer.Buffer;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt64;
 import org.ethereum.beacon.discovery.schema.IdentitySchemaInterpreter;
@@ -70,9 +67,7 @@ public class PacketDeserializerTest {
 
   @BeforeEach
   public void beforeTest() {
-    PingPacketDataRlpReader pingPacketDataRlpReader =
-        new PingPacketDataRlpReader(
-            new PingPacketDataFactory(new EndpointValidator(), new ExpiryValidator(clock), clock));
+    PingPacketDataRlpReader pingPacketDataRlpReader = new PingPacketDataRlpReader();
     PongPacketDataRlpReader pongPacketDataRlpReader =
         new PongPacketDataRlpReader(new PongPacketDataFactory(new ExpiryValidator(clock), clock));
     FindNeighborsPacketDataRlpReader findNeighborsPacketDataRlpReader =
@@ -115,12 +110,9 @@ public class PacketDeserializerTest {
 
   @Test
   public void testDecodeForPingPacket() {
-    Buffer buffer = Buffer.buffer();
     String packetHex =
         "0xc68a00f14b2e91d2592005ca4e77247c8e0627fc5a6e6d942bd9e1af41d2f5b9000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020001d105c9840a00000182765f808201c8820315";
-    Bytes.fromHexString(packetHex).appendTo(buffer);
-
-    Packet packet = packetDeserializer.decode(buffer);
+    Packet packet = packetDeserializer.decode(Bytes.fromHexString(packetHex));
 
     Assertions.assertNotNull(packet);
     Assertions.assertEquals(PacketType.PING, packet.getType());
@@ -134,19 +126,16 @@ public class PacketDeserializerTest {
     PingPacketData actualPacketData = packet.getPacketData(PingPacketData.class).orElseThrow();
     Assertions.assertFalse(actualPacketData.getFrom().isPresent());
     Assertions.assertEquals(
-        new Endpoint("10.0.0.1", 30303, Optional.empty()), actualPacketData.getTo());
+        Optional.of(new Endpoint("10.0.0.1", 30303, Optional.empty())), actualPacketData.getTo());
     Assertions.assertEquals(456, actualPacketData.getExpiration());
     Assertions.assertEquals(Optional.of(UInt64.valueOf(789)), actualPacketData.getEnrSeq());
   }
 
   @Test
   public void testDecodeForPongPacket() {
-    Buffer buffer = Buffer.buffer();
     String packetHex =
         "0x21206a30fabe5d8fe7c4896bb25f51a9f2a22260da9164d21645fb482439736c000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020002d3c9840a00000182765f808201238201c8820315";
-    Bytes.fromHexString(packetHex).appendTo(buffer);
-
-    Packet packet = packetDeserializer.decode(buffer);
+    Packet packet = packetDeserializer.decode(Bytes.fromHexString(packetHex));
 
     Assertions.assertNotNull(packet);
     Assertions.assertEquals(PacketType.PONG, packet.getType());
@@ -167,12 +156,9 @@ public class PacketDeserializerTest {
 
   @Test
   public void testDecodeForFindNeighborsPacket() {
-    Buffer buffer = Buffer.buffer();
     String packetHex =
         "0xe51a3c97707983d13de6a7aa7c54cc67e8a8f964145bb86cd0af7ee6dd6a196b000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020003f845b840cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd8201c8";
-    Bytes.fromHexString(packetHex).appendTo(buffer);
-
-    Packet packet = packetDeserializer.decode(buffer);
+    Packet packet = packetDeserializer.decode(Bytes.fromHexString(packetHex));
 
     Assertions.assertNotNull(packet);
     Assertions.assertEquals(PacketType.FIND_NEIGHBORS, packet.getType());
@@ -191,12 +177,9 @@ public class PacketDeserializerTest {
 
   @Test
   public void testDecodeForNeighborsPacket() {
-    Buffer buffer = Buffer.buffer();
     String packetHex =
         "0xc6dce7f54086fb7537a9c2793fd7938b057888442109304ea463017c6265e743000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020004f852f84df84b840a00000182765f80b840989898989898989898989898989898989898989898989898989898989898989898989898989898989898989898989898989898989898989898989898989898988201c8";
-    Bytes.fromHexString(packetHex).appendTo(buffer);
-
-    Packet packet = packetDeserializer.decode(buffer);
+    Packet packet = packetDeserializer.decode(Bytes.fromHexString(packetHex));
 
     Assertions.assertNotNull(packet);
     Assertions.assertEquals(PacketType.NEIGHBORS, packet.getType());
@@ -220,12 +203,9 @@ public class PacketDeserializerTest {
 
   @Test
   public void testDecodeForEnrRequestPacket() {
-    Buffer buffer = Buffer.buffer();
     String packetHex =
         "0xfde48f75a7340fafea894eb45f7badecd9705227902c5b48928ad3c57b1963e7000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020005c38201c8";
-    Bytes.fromHexString(packetHex).appendTo(buffer);
-
-    Packet packet = packetDeserializer.decode(buffer);
+    Packet packet = packetDeserializer.decode(Bytes.fromHexString(packetHex));
 
     Assertions.assertNotNull(packet);
     Assertions.assertEquals(PacketType.ENR_REQUEST, packet.getType());
@@ -243,12 +223,9 @@ public class PacketDeserializerTest {
 
   @Test
   public void testDecodeForEnrResponsePacket() {
-    Buffer buffer = Buffer.buffer();
     String packetHex =
         "0x9d0b57ce920728f26211e7784f626bf9a881e7e942c7243160d535a3760e8848000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020006f870821234f86bb860000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000820237826964827634";
-    Bytes.fromHexString(packetHex).appendTo(buffer);
-
-    Packet packet = packetDeserializer.decode(buffer);
+    Packet packet = packetDeserializer.decode(Bytes.fromHexString(packetHex));
 
     Assertions.assertNotNull(packet);
     Assertions.assertEquals(PacketType.ENR_RESPONSE, packet.getType());

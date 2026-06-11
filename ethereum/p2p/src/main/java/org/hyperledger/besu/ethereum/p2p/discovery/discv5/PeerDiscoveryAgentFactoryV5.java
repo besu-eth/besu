@@ -36,6 +36,7 @@ import org.hyperledger.besu.nat.NatService;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.net.InetSocketAddress;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -71,6 +72,10 @@ public final class PeerDiscoveryAgentFactoryV5 implements PeerDiscoveryAgentFact
   private final PeerPermissions peerPermissions;
   private final ForkIdManager forkIdManager;
   private final MetricsSystem metricsSystem;
+
+  // Non-null when BOTH mode injects pre-bound discovery servers instead of calling builder.listen()
+  private final List<org.ethereum.beacon.discovery.network.NettyDiscoveryServer>
+      customDiscoveryServers;
 
   /**
    * Creates a new DiscV5 peer discovery agent factory.
@@ -109,6 +114,23 @@ public final class PeerDiscoveryAgentFactoryV5 implements PeerDiscoveryAgentFact
       final ForkIdManager forkIdManager,
       final MetricsSystem metricsSystem,
       final NodeRecordManager nodeRecordManager) {
+    this(config, nodeKey, peerPermissions, forkIdManager, metricsSystem, nodeRecordManager, null);
+  }
+
+  /**
+   * Package-private constructor for BOTH mode: injects pre-bound {@link
+   * org.ethereum.beacon.discovery.network.NettyDiscoveryServer} instances instead of calling {@code
+   * builder.listen(...)}.
+   */
+  PeerDiscoveryAgentFactoryV5(
+      final NetworkingConfiguration config,
+      final NodeKey nodeKey,
+      final PeerPermissions peerPermissions,
+      final ForkIdManager forkIdManager,
+      final MetricsSystem metricsSystem,
+      final NodeRecordManager nodeRecordManager,
+      final List<org.ethereum.beacon.discovery.network.NettyDiscoveryServer>
+          customDiscoveryServers) {
     this.config = Objects.requireNonNull(config, "config must not be null");
     this.nodeKey = Objects.requireNonNull(nodeKey, "nodeKey must not be null");
     this.peerPermissions =
@@ -117,6 +139,7 @@ public final class PeerDiscoveryAgentFactoryV5 implements PeerDiscoveryAgentFact
     this.metricsSystem = Objects.requireNonNull(metricsSystem, "metricsSystem must not be null");
     this.nodeRecordManager =
         Objects.requireNonNull(nodeRecordManager, "nodeRecordManager must not be null");
+    this.customDiscoveryServers = customDiscoveryServers;
   }
 
   /**
@@ -142,7 +165,7 @@ public final class PeerDiscoveryAgentFactoryV5 implements PeerDiscoveryAgentFact
         buildDefaultDiscoverySystemFactory());
   }
 
-  /** Creates the default {@link PeerDiscoveryAgentV5.DiscoverySystemFactory}. */
+  /** Creates the {@link PeerDiscoveryAgentV5.DiscoverySystemFactory} for this factory. */
   private PeerDiscoveryAgentV5.DiscoverySystemFactory buildDefaultDiscoverySystemFactory() {
     final DiscoveryConfiguration discoveryConfig = config.discoveryConfiguration();
 
@@ -168,7 +191,12 @@ public final class PeerDiscoveryAgentFactoryV5 implements PeerDiscoveryAgentFact
                       .map(EthereumNodeRecord::nodeRecord)
                       .toList());
 
-      if (discoveryConfig.isDualStackEnabled()) {
+      if (customDiscoveryServers != null && !customDiscoveryServers.isEmpty()) {
+        // BOTH mode: use pre-bound shared channels instead of binding new sockets
+        builder.discoveryServers(
+            customDiscoveryServers.toArray(
+                new org.ethereum.beacon.discovery.network.NettyDiscoveryServer[0]));
+      } else if (discoveryConfig.isDualStackEnabled()) {
         final InetSocketAddress ipv4 =
             new InetSocketAddress(discoveryConfig.getBindHost(), discoveryConfig.getBindPort());
         final InetSocketAddress ipv6 =
@@ -285,7 +313,7 @@ public final class PeerDiscoveryAgentFactoryV5 implements PeerDiscoveryAgentFact
    * An implementation of the {@link Signer} interface that uses the node's {@link NodeKey} for
    * signing and key agreement.
    */
-  private static class NodeKeySigner implements Signer {
+  static class NodeKeySigner implements Signer {
     private final SignatureAlgorithm signatureAlgorithm = SignatureAlgorithmFactory.getInstance();
 
     private final NodeKey nodeKey;

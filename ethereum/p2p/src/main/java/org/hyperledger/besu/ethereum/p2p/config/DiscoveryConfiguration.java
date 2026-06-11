@@ -35,7 +35,6 @@ public class DiscoveryConfiguration {
   private List<EnodeURLImpl> enodeBootnodes = new ArrayList<>();
   private List<EthereumNodeRecord> enrBootnodes = new ArrayList<>();
   private String dnsDiscoveryURL;
-  private boolean discoveryV5Enabled = false;
   private boolean filterOnEnrForkId = NetworkingConfiguration.DEFAULT_FILTER_ON_ENR_FORK_ID;
   private boolean includeBootnodesOnPeerRefresh = true;
   private Optional<String> bindHostIpv6 = Optional.empty();
@@ -113,7 +112,10 @@ public class DiscoveryConfiguration {
   }
 
   public List<? extends NodeIdentifier> getBootnodeIdentifiers() {
-    return discoveryV5Enabled ? enrBootnodes : enodeBootnodes;
+    final List<NodeIdentifier> combined = new ArrayList<>();
+    combined.addAll(enrBootnodes);
+    combined.addAll(enodeBootnodes);
+    return combined;
   }
 
   public boolean getIncludeBootnodesOnPeerRefresh() {
@@ -151,15 +153,6 @@ public class DiscoveryConfiguration {
   public DiscoveryConfiguration setDnsDiscoveryURL(final String dnsDiscoveryURL) {
     this.dnsDiscoveryURL = dnsDiscoveryURL;
     return this;
-  }
-
-  public DiscoveryConfiguration setDiscoveryV5Enabled(final boolean discoveryV5Enabled) {
-    this.discoveryV5Enabled = discoveryV5Enabled;
-    return this;
-  }
-
-  public boolean isDiscoveryV5Enabled() {
-    return discoveryV5Enabled;
   }
 
   public void setFilterOnEnrForkId(final boolean filterOnEnrForkId) {
@@ -300,8 +293,6 @@ public class DiscoveryConfiguration {
         + enrBootnodes
         + ", dnsDiscoveryURL="
         + dnsDiscoveryURL
-        + ", isDiscoveryV5Enabled="
-        + discoveryV5Enabled
         + ", isFilterOnEnrForkIdEnabled="
         + filterOnEnrForkId
         + ", bindHostIpv6="

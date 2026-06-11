@@ -89,7 +89,6 @@ import org.hyperledger.besu.cli.util.ConfigDefaultValueProviderStrategy;
 import org.hyperledger.besu.cli.util.VersionProvider;
 import org.hyperledger.besu.components.BesuComponent;
 import org.hyperledger.besu.config.CheckpointConfigOptions;
-import org.hyperledger.besu.config.DiscoveryOptions;
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.config.JsonUtil;
@@ -2475,10 +2474,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     }
 
     // Resolve bootnodes: CLI --bootnodes overrides genesis defaults.
-    // The discovery protocol version determines the expected format:
-    //   V5 → ENR strings ("enr:..."),  V4 → enode URLs ("enode://...")
-    final boolean isV5 =
-        unstableNetworkingOptions.toDomainObject().discoveryConfiguration().isDiscoveryV5Enabled();
+    // Entries starting with "enr:" feed DiscV5; everything else is treated as an enode URL
+    // and feeds DiscV4. Both lists are always set on the builder so the prior list is not retained.
     List<String> rawBootnodes = null;
     final boolean cliBootnodesProvided = p2PDiscoveryOptions.bootNodes != null;
     if (cliBootnodesProvided) {
@@ -2488,12 +2485,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         throw new ParameterException(commandLine, e.getMessage(), e);
       }
     } else {
-      final DiscoveryOptions discoveryOptions =
-          genesisConfigOptionsSupplier.get().getDiscoveryOptions();
       rawBootnodes =
-          isV5
-              ? discoveryOptions.getV5BootNodes().orElse(null)
-              : discoveryOptions.getBootNodes().orElse(null);
+          genesisConfigOptionsSupplier.get().getDiscoveryOptions().getBootNodes().orElse(null);
     }
 
     if (rawBootnodes != null && !rawBootnodes.isEmpty()) {
@@ -2501,37 +2494,25 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         logger.warn("Discovery disabled: bootnodes will be ignored.");
       }
       try {
-        if (isV5) {
-          builder.setEnrBootNodes(
-              rawBootnodes.stream()
-                  .map(
-                      enr -> {
-                        try {
-                          return EthereumNodeRecord.fromEnr(enr);
-                        } catch (final Exception e) {
-                          throw new ParameterException(
-                              commandLine,
-                              "Invalid ENR bootnode: '"
-                                  + enr
-                                  + "'. ENR bootnodes must start with 'enr:'. Error: "
-                                  + e.getMessage(),
-                              e);
-                        }
-                      })
-                  .toList());
-        } else {
-          final List<EnodeURLImpl> enodes = buildEnodes(rawBootnodes, getEnodeDnsConfiguration());
-          DiscoveryConfiguration.assertValidBootnodes(enodes);
-          builder.setEnodeBootNodes(enodes);
-        }
-        // CLI --bootnodes is a full override: clear the unused protocol's list
-        if (cliBootnodesProvided) {
-          if (isV5) {
-            builder.setEnodeBootNodes(Collections.emptyList());
+        final List<EthereumNodeRecord> enrBootnodes = new ArrayList<>();
+        final List<EnodeURLImpl> enodeBootnodes = new ArrayList<>();
+        for (final String entry : rawBootnodes) {
+          if (entry.startsWith("enr:")) {
+            try {
+              enrBootnodes.add(EthereumNodeRecord.fromEnr(entry));
+            } catch (final Exception e) {
+              throw new ParameterException(
+                  commandLine,
+                  "Invalid ENR bootnode: '" + entry + "'. Error: " + e.getMessage(),
+                  e);
+            }
           } else {
-            builder.setEnrBootNodes(Collections.emptyList());
+            enodeBootnodes.addAll(buildEnodes(List.of(entry), getEnodeDnsConfiguration()));
           }
         }
+        DiscoveryConfiguration.assertValidBootnodes(enodeBootnodes);
+        builder.setEnrBootNodes(enrBootnodes);
+        builder.setEnodeBootNodes(enodeBootnodes);
       } catch (final ParameterException e) {
         throw e; // re-throw ParameterException from ENR parsing as-is
       } catch (final IllegalArgumentException e) {

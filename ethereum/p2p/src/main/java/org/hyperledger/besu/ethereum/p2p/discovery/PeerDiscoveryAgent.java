@@ -27,6 +27,19 @@ import org.ethereum.beacon.discovery.schema.NodeRecord;
 public interface PeerDiscoveryAgent {
 
   /**
+   * Wires the inbound packet handler(s) without starting the transport.
+   *
+   * <p>When multiple agents share a UDP transport (e.g. DiscV4 + DiscV5 in {@code
+   * CompositePeerDiscoveryAgent}), the orchestrator must call this on every sub-agent before
+   * binding the shared channel — otherwise packets arriving immediately after bind, but before the
+   * agent's {@link #start(int)} runs, are silently dropped. Default is a no-op; sub-agents that
+   * need pre-bind handler registration override it.
+   *
+   * <p>Implementations must be idempotent.
+   */
+  default void prepareHandlers() {}
+
+  /**
    * Starts the peer discovery service on the specified TCP port.
    *
    * @param tcpPort The TCP port to start the service on.

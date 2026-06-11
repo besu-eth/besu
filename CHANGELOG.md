@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Breaking Changes
+- Discovery: Besu now runs DiscV4 and DiscV5 concurrently on a shared UDP socket. The experimental `--Xv5-discovery-enabled` flag is removed (no replacement — there is no longer a single-protocol mode). `--bootnodes` accepts a mixed list of `enode://...` and `enr:...` entries; the genesis `v5bootnodes` JSON key is dropped and any prior entries are merged into the unified `bootnodes` array. [#10624](https://github.com/besu-eth/besu/pull/10624)
+
 
 ### Upcoming Breaking Changes
 - Sunsetting features - for more context on the reasoning behind the deprecation of these features, including alternative options, read [this blog post](https://www.lfdecentralizedtrust.org/blog/sunsetting-tessera-and-simplifying-hyperledger-besu)
