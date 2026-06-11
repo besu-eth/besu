@@ -21,7 +21,6 @@ import org.hyperledger.besu.ethereum.eth.manager.snap.RetryingGetAccountRangeFro
 import org.hyperledger.besu.ethereum.eth.manager.snap.RetryingGetBytecodeFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.snap.RetryingGetStorageRangeFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.task.EthTask;
-import org.hyperledger.besu.ethereum.eth.messages.snap.AccountRangeMessage;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
@@ -74,13 +73,14 @@ public class SnapV2RequestDataStep {
       final Task<SnapDataRequest> requestTask) {
     final SnapV2AccountRangeRequest request = (SnapV2AccountRangeRequest) requestTask.getData();
     final BlockHeader blockHeader = request.getPivotBlockHeader();
-    final EthTask<AccountRangeMessage.AccountRangeData> getAccountTask =
-        RetryingGetAccountRangeFromPeerTask.forAccountRange(
-            ethContext,
-            request.getStartKeyHash(),
-            request.getEndKeyHash(),
-            blockHeader,
-            metricsSystem);
+    final RetryingGetAccountRangeFromPeerTask getAccountTask =
+        (RetryingGetAccountRangeFromPeerTask)
+            RetryingGetAccountRangeFromPeerTask.forAccountRange(
+                ethContext,
+                request.getStartKeyHash(),
+                request.getEndKeyHash(),
+                blockHeader,
+                metricsSystem);
     downloadState.addOutstandingTask(getAccountTask);
     return getAccountTask
         .run()
@@ -92,6 +92,19 @@ public class SnapV2RequestDataStep {
                 request.setRootHash(blockHeader.getStateRoot());
                 request.addResponse(
                     worldStateProofProvider, response.accounts(), response.proofs());
+                if (request.hasInvalidProof()) {
+                  getAccountTask
+                      .getAssignedPeer()
+                      .ifPresent(
+                          peer -> {
+                            LOG.atDebug()
+                                .setMessage(
+                                    "Invalid snap/2 account range proof received from peer {}")
+                                .addArgument(peer::getLoggableId)
+                                .log();
+                            peer.recordUselessResponse("invalid snap/2 account range proof");
+                          });
+                }
               }
               if (error != null) {
                 LOG.atDebug()

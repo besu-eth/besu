@@ -135,8 +135,8 @@ public class SnapV2AccountRangeRequest extends SnapV2DataRequest {
     return responseProofStatus == ResponseProofStatus.VALID;
   }
 
-  ResponseProofStatus getResponseProofStatus() {
-    return responseProofStatus;
+  public boolean hasInvalidProof() {
+    return responseProofStatus == ResponseProofStatus.INVALID;
   }
 
   @Override
