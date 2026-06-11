@@ -32,6 +32,7 @@ import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorRespon
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotBlockConfirmer.ContestedPivotBlockException;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -128,12 +129,12 @@ public class PivotBlockConfirmerTest {
                 List.of(respondingPeerB.getEthPeer())));
 
     // Execute task
-    final CompletableFuture<PivotSyncState> future = pivotBlockConfirmer.confirmPivotBlock();
+    final CompletableFuture<SnapSyncProcessState> future = pivotBlockConfirmer.confirmPivotBlock();
 
     future.join();
     assertThat(future)
         .isCompletedWithValue(
-            new PivotSyncState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get(), false));
+            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get(), false));
   }
 
   @ParameterizedTest
@@ -167,11 +168,11 @@ public class PivotBlockConfirmerTest {
                 List.of(peerC.getEthPeer())));
 
     // Execute task
-    final CompletableFuture<PivotSyncState> future = pivotBlockConfirmer.confirmPivotBlock();
+    final CompletableFuture<SnapSyncProcessState> future = pivotBlockConfirmer.confirmPivotBlock();
 
     assertThat(future)
         .isCompletedWithValue(
-            new PivotSyncState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get(), false));
+            new SnapSyncProcessState(blockchain.getBlockHeader(PIVOT_BLOCK_NUMBER).get(), false));
   }
 
   @ParameterizedTest
@@ -211,7 +212,7 @@ public class PivotBlockConfirmerTest {
                 List.of(respondingPeerB.getEthPeer())));
 
     // Execute task and wait for response
-    final CompletableFuture<PivotSyncState> future = pivotBlockConfirmer.confirmPivotBlock();
+    final CompletableFuture<SnapSyncProcessState> future = pivotBlockConfirmer.confirmPivotBlock();
 
     assertThat(future).isCompletedExceptionally();
     assertThatThrownBy(future::get).hasRootCauseInstanceOf(ContestedPivotBlockException.class);

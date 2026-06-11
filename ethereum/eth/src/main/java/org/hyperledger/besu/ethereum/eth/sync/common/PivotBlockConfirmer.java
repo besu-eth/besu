@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResponseCode;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutorResult;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.task.GetHeadersFromPeerTask;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 
 import java.util.Collection;
@@ -58,7 +59,7 @@ class PivotBlockConfirmer {
   // The current pivot block number, gets pushed back if peers disagree on the pivot block
   private final long pivotBlockNumber;
 
-  private final CompletableFuture<PivotSyncState> result = new CompletableFuture<>();
+  private final CompletableFuture<SnapSyncProcessState> result = new CompletableFuture<>();
   private final Collection<CompletableFuture<?>> runningQueries = new ConcurrentLinkedQueue<>();
   private final Map<BlockHeader, AtomicInteger> pivotBlockVotes = new ConcurrentHashMap<>();
   private final Set<EthPeer> peersUsed = Collections.synchronizedSet(new HashSet<>());
@@ -77,7 +78,7 @@ class PivotBlockConfirmer {
     this.numberOfPeersToQuery = numberOfPeersToQuery;
   }
 
-  public CompletableFuture<PivotSyncState> confirmPivotBlock() {
+  public CompletableFuture<SnapSyncProcessState> confirmPivotBlock() {
     if (isStarted.compareAndSet(false, true)) {
       LOG.info(
           "Confirm pivot block {} with at least {} peers.", pivotBlockNumber, numberOfPeersToQuery);
@@ -128,7 +129,7 @@ class PivotBlockConfirmer {
     } else if (votes >= numberOfPeersToQuery) {
       // We've received the required number of votes and have selected our pivot block
       LOG.info("Confirmed pivot block at {}: {}", pivotBlockNumber, blockHeader.getHash());
-      result.complete(new PivotSyncState(blockHeader, false));
+      result.complete(new SnapSyncProcessState(blockHeader, false));
     } else {
       LOG.info(
           "Received {} confirmation(s) for pivot block header {}: {}",

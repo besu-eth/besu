@@ -242,6 +242,10 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
       for (AccountChanges ac : bal.accountChanges()) {
         final AccountBuilder ab = getOrCreateAccountBuilder(ac.address());
         for (SlotChanges sc : ac.storageChanges()) {
+          if (sc.changes().isEmpty()) {
+            throw new IllegalArgumentException(
+                "Block access list slot changes must contain at least one storage change");
+          }
           for (StorageChange change : sc.changes()) {
             ab.addStorageWrite(sc.slot(), change.txIndex(), change.newValue());
           }
@@ -393,6 +397,10 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
         int i = 0;
         for (Map.Entry<StorageSlotKey, List<StorageChange>> e : slotWrites.entrySet()) {
           final List<StorageChange> changes = new ArrayList<>(e.getValue());
+          if (changes.isEmpty()) {
+            throw new IllegalStateException(
+                "Block access list builder cannot emit slot changes without storage changes");
+          }
           changes.sort(Comparator.comparingLong(StorageChange::txIndex));
           entries[i++] =
               new SortableSlotChanges(

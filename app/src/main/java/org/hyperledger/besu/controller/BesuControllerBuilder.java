@@ -21,7 +21,6 @@ import org.hyperledger.besu.components.BesuComponent;
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.consensus.merge.MergeContext;
-import org.hyperledger.besu.consensus.merge.UnverifiedForkchoiceSupplier;
 import org.hyperledger.besu.consensus.qbft.BFTPivotSelectorFromPeers;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.datatypes.Hash;
@@ -210,6 +209,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   private int numberOfBlocksToCache = 0;
   private int numberOfBlockHeadersToCache = 0;
   private boolean isCacheLastBlockHeadersPreloadEnabled;
+  private boolean senderNonceIndexingEnabled = false;
 
   /** whether parallel transaction processing is enabled or not */
   protected boolean isParallelTxProcessingEnabled;
@@ -512,6 +512,18 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   }
 
   /**
+   * Sets whether the sender-nonce → transaction hash index is maintained.
+   *
+   * @param senderNonceIndexingEnabled {@code true} to enable the index (disabled by default)
+   * @return the besu controller builder
+   */
+  public BesuControllerBuilder senderNonceIndexingEnabled(
+      final boolean senderNonceIndexingEnabled) {
+    this.senderNonceIndexingEnabled = senderNonceIndexingEnabled;
+    return this;
+  }
+
+  /**
    * Sets whether the block header cache should be preloaded.
    *
    * @param isCacheLastBlockHeadersPreloadEnabled {@code true} to enable preloading of the block
@@ -658,7 +670,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             reorgLoggingThreshold,
             dataDirectory.toString(),
             numberOfBlocksToCache,
-            numberOfBlockHeadersToCache);
+            numberOfBlockHeadersToCache,
+            senderNonceIndexingEnabled);
 
     if (isCacheLastBlockHeadersPreloadEnabled && numberOfBlockHeadersToCache > 0) {
       LOG.info(
@@ -754,6 +767,10 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
         new EthContext(ethPeers, ethMessages, snapMessages, scheduler, peerTaskExecutor);
     final boolean fullSyncDisabled = syncConfig.getSyncMode() != SyncMode.FULL;
     final SyncState syncState = new SyncState(blockchain, ethPeers, fullSyncDisabled, checkpoint);
+
+    protocolContext
+        .safeConsensusContext(MergeContext.class)
+        .ifPresent(mergeContext -> mergeContext.addNewPayloadListener(syncState));
 
     final ChainPruningStrategy pruningMode = chainPrunerConfiguration.pruningMode();
     final boolean preMergeEnabled = dataStorageConfiguration.getHistoryExpiryPruneEnabled();
@@ -1107,36 +1124,46 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
           syncState,
           protocolContext,
           nodeKey,
-          blockchain.getChainHeadHeader());
+          blockchain.getChainHeadHeader(),
+          syncConfig.getSnapSyncConfiguration().getPivotBlockWindowValidity());
     } else if (genesisConfigOptions.getTerminalTotalDifficulty().isPresent()) {
       LOG.info("TTD difficulty is present, creating initial sync for PoS");
 
       final MergeContext mergeContext = protocolContext.getConsensusContext(MergeContext.class);
-      final UnverifiedForkchoiceSupplier unverifiedForkchoiceSupplier =
-          new UnverifiedForkchoiceSupplier();
-      final long subscriptionId =
-          mergeContext.addNewUnverifiedForkchoiceListener(unverifiedForkchoiceSupplier);
-
-      final Runnable unsubscribeForkchoiceListener =
-          () -> {
-            mergeContext.removeNewUnverifiedForkchoiceListener(subscriptionId);
-            LOG.info("Initial sync done, unsubscribe forkchoice supplier");
-          };
 
       final SingleBlockHeaderDownloader headerDownloader =
           new SingleBlockHeaderDownloader(ethContext, protocolSchedule);
 
-      return new PivotSelectorFromSafeBlock(
-          protocolContext,
-          protocolSchedule,
-          ethContext,
-          genesisConfigOptions,
-          unverifiedForkchoiceSupplier,
-          unsubscribeForkchoiceListener,
-          headerDownloader);
+      final List<Runnable> cleanups = new ArrayList<>();
+
+      final PivotSelectorFromSafeBlock selector =
+          new PivotSelectorFromSafeBlock(
+              protocolContext,
+              genesisConfigOptions,
+              headerDownloader,
+              protocolSchedule,
+              Clock.systemUTC(),
+              syncConfig.getSnapSyncConfiguration().getPivotBlockWindowValidity(),
+              () -> {
+                cleanups.forEach(Runnable::run);
+                LOG.info("Initial sync done, unsubscribing forkchoice + newPayload listeners");
+              });
+
+      final long newPayloadSubscriptionId = mergeContext.addNewPayloadListener(selector);
+      cleanups.add(() -> mergeContext.removeNewPayloadListener(newPayloadSubscriptionId));
+
+      final long selectorSubscriptionId = mergeContext.addNewUnverifiedForkchoiceListener(selector);
+      cleanups.add(
+          () -> mergeContext.removeNewUnverifiedForkchoiceListener(selectorSubscriptionId));
+
+      return selector;
     } else {
       LOG.info("TTD difficulty is not present, creating initial sync phase for PoW");
-      return new PivotSelectorFromPeers(ethContext, syncConfig, syncState);
+      return new PivotSelectorFromPeers(
+          ethContext,
+          syncConfig,
+          syncState,
+          syncConfig.getSnapSyncConfiguration().getPivotBlockWindowValidity());
     }
   }
 

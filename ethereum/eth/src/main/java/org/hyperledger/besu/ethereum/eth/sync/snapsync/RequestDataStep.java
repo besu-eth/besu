@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.eth.messages.snap.StorageRangeMessage;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.AccountRangeDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.BytecodeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.StorageRangeDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.AccountFlatDatabaseHealingRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.StorageFlatDatabaseHealingRangeRequest;
@@ -59,7 +60,7 @@ public class RequestDataStep {
   private static final Logger LOG = LoggerFactory.getLogger(RequestDataStep.class);
   private final WorldStateStorageCoordinator worldStateStorageCoordinator;
   private final SnapSyncProcessState fastSyncState;
-  private final SnapWorldDownloadState downloadState;
+  private final SnapRequestContext downloadState;
   private final SnapSyncConfiguration snapSyncConfiguration;
   private final MetricsSystem metricsSystem;
   private final EthContext ethContext;
@@ -69,7 +70,7 @@ public class RequestDataStep {
       final EthContext ethContext,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncProcessState fastSyncState,
-      final SnapWorldDownloadState downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncConfiguration snapSyncConfiguration,
       final MetricsSystem metricsSystem) {
     this.worldStateStorageCoordinator = worldStateStorageCoordinator;

@@ -16,14 +16,14 @@ package org.hyperledger.besu.ethereum.eth.sync.worldstate;
 
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 
 import java.util.concurrent.CompletableFuture;
 
 public interface WorldStateDownloader extends WorldStateDownloadStatus {
 
   CompletableFuture<Void> run(
-      final PivotSyncActions fastSyncActions, final PivotSyncState fastSyncState);
+      final PivotSyncActions fastSyncActions, final SnapSyncProcessState fastSyncState);
 
   default void setChainDownloader(final ChainDownloader chainDownloader) {}
 
