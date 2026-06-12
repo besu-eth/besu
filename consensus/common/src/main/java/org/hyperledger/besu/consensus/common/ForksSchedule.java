@@ -37,7 +37,7 @@ public class ForksSchedule<C> {
   private static final Logger LOG = LoggerFactory.getLogger(ForksSchedule.class);
 
   // Earliest permitted timestamp for TIME-based forks - shanghai epoch
-  private static final long MIN_TIMESTAMP_FORK_EPOCH_SECONDS =  1_681_338_455L;
+  private static final long MIN_TIMESTAMP_FORK_EPOCH_SECONDS = 1_681_338_455L;
 
   private final NavigableSet<ForkSpec<C>> forks =
       new TreeSet<>(
@@ -92,7 +92,11 @@ public class ForksSchedule<C> {
             });
 
     // Set the fork type for the last fork we skipped during validation
-    forks.last().setForkType(protocolSchedule.getSpecTypeByBlockNumberOrTimestamp(forks.last().getBlock(), forks.last().getBlock()));
+    forks
+        .last()
+        .setForkType(
+            protocolSchedule.getSpecTypeByBlockNumberOrTimestamp(
+                forks.last().getBlock(), forks.last().getBlock()));
   }
 
   /**

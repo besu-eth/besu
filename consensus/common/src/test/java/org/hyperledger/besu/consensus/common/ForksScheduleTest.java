@@ -90,40 +90,41 @@ public class ForksScheduleTest {
   public void retrievesLatestForkByTimestamp() {
     final ForkSpec<BftConfigOptions> genesisForkSpec =
         new ForkSpec<>(0, JsonBftConfigOptions.DEFAULT);
-    final ForkSpec<BftConfigOptions> forkSpec1 = createForkSpec(1_672_531_200L, 10);
-    final ForkSpec<BftConfigOptions> forkSpec2 = createForkSpec(1_672_531_300L, 20);
+    final ForkSpec<BftConfigOptions> forkSpec1 = createForkSpec(1_681_338_455L, 10);
+    final ForkSpec<BftConfigOptions> forkSpec2 = createForkSpec(1_681_338_555L, 20);
     final Optional<Address> miningBeneficiary3 =
         Optional.of(Address.fromHexString("0xdee0519f7c7cb0f9843fa1e93b99255c89507a9c"));
     final ForkSpec<BftConfigOptions> forkSpec3 =
-        createForkSpecWithMiningBeneficiary(1_672_531_400L, miningBeneficiary3);
+        createForkSpecWithMiningBeneficiary(1_681_338_655L, miningBeneficiary3);
     final ForkSpec<BftConfigOptions> forkSpec4 =
-        createForkSpecWithMiningBeneficiary(1_672_531_500L, Optional.empty());
+        createForkSpecWithMiningBeneficiary(1_681_338_755L, Optional.empty());
 
     final ForksSchedule<BftConfigOptions> schedule =
         new ForksSchedule<>(List.of(genesisForkSpec, forkSpec1, forkSpec2, forkSpec3, forkSpec4));
 
     final GenesisConfigOptions genesisMilestones = mock(GenesisConfigOptions.class);
     when(genesisMilestones.getLondonBlockNumber()).thenReturn(OptionalLong.of(50));
-    when(genesisMilestones.getShanghaiTime()).thenReturn(OptionalLong.of(1_672_531_200L));
+    when(genesisMilestones.getShanghaiTime()).thenReturn(OptionalLong.of(1_681_338_455L));
 
     // Create a protocol schedule based on the genesis config, which applies types (block or
     // timestamp) to all of the forks
     createProtocolSchedule(schedule, genesisMilestones);
 
     assertThat(schedule.getFork(0, 0)).isEqualTo(genesisForkSpec);
-    assertThat(schedule.getFork(0, 1_672_531_200L)).isEqualTo(forkSpec1);
-    assertThat(schedule.getFork(0, 1_672_531_300L)).isEqualTo(forkSpec2);
-    assertThat(schedule.getFork(0, 1_672_531_400L)).isEqualTo(forkSpec3);
-    assertThat(schedule.getFork(0, 1_672_531_400L).getValue().getMiningBeneficiary())
+    assertThat(schedule.getFork(0, 1_681_338_455L)).isEqualTo(forkSpec1);
+    assertThat(schedule.getFork(0, 1_681_338_555L)).isEqualTo(forkSpec2);
+    assertThat(schedule.getFork(0, 1_681_338_655L)).isEqualTo(forkSpec3);
+    assertThat(schedule.getFork(0, 1_681_338_655L).getValue().getMiningBeneficiary())
         .isEqualTo(miningBeneficiary3);
-    assertThat(schedule.getFork(0, 1_672_531_500L)).isEqualTo(forkSpec4);
-    assertThat(schedule.getFork(0, 1_672_531_500L).getValue().getMiningBeneficiary()).isEmpty();
+    assertThat(schedule.getFork(0, 1_681_338_755L)).isEqualTo(forkSpec4);
+    assertThat(schedule.getFork(0, 1_681_338_755L).getValue().getMiningBeneficiary()).isEmpty();
   }
 
   @Test
   public void applyMilestoneTypesThrowsForTimestampForkBeforeJan2023() {
+    // Need genesis fork at 0 so the transition fork at 1_672_531_199L lands in headSet
     final ForksSchedule<BftConfigOptions> schedule =
-        new ForksSchedule<>(List.of(createForkSpec(1_672_531_199L, 10)));
+        new ForksSchedule<>(List.of(createForkSpec(0, 10), createForkSpec(1_672_531_199L, 10)));
 
     final BftProtocolSchedule mockSchedule = mock(BftProtocolSchedule.class);
     when(mockSchedule.getSpecTypeByBlockNumberOrTimestamp(anyLong(), anyLong()))
@@ -133,7 +134,7 @@ public class ForksScheduleTest {
     assertThatThrownBy(() -> schedule.applyMilestoneTypes(mockSchedule))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("TIMESTAMP")
-        .hasMessageContaining("1672531200");
+        .hasMessageContaining("1681338455");
   }
 
   @Test
@@ -164,13 +165,16 @@ public class ForksScheduleTest {
 
   @Test
   public void applyMilestoneTypesThrowsForInvalidTimestampEvmSpecWhenInTimeMode() {
+    // Genesis fork at 0 + transition fork at 800 (TIME type, below the minimum epoch)
     final ForksSchedule<BftConfigOptions> schedule =
-        new ForksSchedule<>(List.of(createForkSpec(0, 10)));
+        new ForksSchedule<>(List.of(createForkSpec(0, 10), createForkSpec(800L, 10)));
     final long currentBlockNumber = 1_000_000L;
 
     final BftProtocolSchedule mockSchedule = mock(BftProtocolSchedule.class);
     when(mockSchedule.getSpecTypeByBlockNumberOrTimestamp(eq(0L), eq(0L)))
         .thenReturn(ForkSpec.ForkScheduleType.BLOCK);
+    when(mockSchedule.getSpecTypeByBlockNumberOrTimestamp(eq(800L), eq(800L)))
+        .thenReturn(ForkSpec.ForkScheduleType.TIME);
     when(mockSchedule.getSpecTypeByBlockNumberOrTimestamp(
             eq(currentBlockNumber), eq(currentBlockNumber)))
         .thenReturn(ForkSpec.ForkScheduleType.TIME);
@@ -183,7 +187,7 @@ public class ForksScheduleTest {
     assertThatThrownBy(() -> schedule.applyMilestoneTypes(mockSchedule))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("TIMESTAMP")
-        .hasMessageContaining("1672531200");
+        .hasMessageContaining("1681338455");
   }
 
   @Test

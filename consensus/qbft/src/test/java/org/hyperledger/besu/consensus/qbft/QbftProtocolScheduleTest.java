@@ -163,10 +163,7 @@ public class QbftProtocolScheduleTest {
     // With --Xbft-validate-transitions=false the epoch boundary check is skipped entirely,
     // so QBFT forks at any block value are accepted.  setForkType is still called for each fork.
     final StubGenesisConfigOptions genesisConfig =
-        new StubGenesisConfigOptions()
-            .londonBlock(0)
-            .shanghaiTime(0)
-            .cancunTime(1_681_338_456L);
+        new StubGenesisConfigOptions().londonBlock(0).shanghaiTime(0).cancunTime(1_681_338_456L);
 
     final MutableQbftConfigOptions shortPeriod =
         new MutableQbftConfigOptions(JsonQbftConfigOptions.DEFAULT);
