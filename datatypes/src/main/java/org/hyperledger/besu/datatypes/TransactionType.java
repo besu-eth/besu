@@ -29,7 +29,9 @@ public enum TransactionType {
   /** Blob transaction type. */
   BLOB(0x03),
   /** Eip7702 transaction type. */
-  DELEGATE_CODE(0x04);
+  DELEGATE_CODE(0x04),
+  /** EIP-8141 Frame transaction type. */
+  FRAME(0x06);
 
   private static final Set<TransactionType> ACCESS_LIST_SUPPORTED_TRANSACTION_TYPES =
       EnumSet.of(ACCESS_LIST, EIP1559, BLOB, DELEGATE_CODE);
@@ -48,11 +50,19 @@ public enum TransactionType {
   // that represent such type.
   // Holes in the array represents invalid first byte values, for which there is not (yet)
   // a defined transaction type
+  private static int maxEthSerializedType() {
+    int max = 0;
+    for (TransactionType tt : values()) {
+      max = Math.max(max, Byte.toUnsignedInt(tt.serializedType));
+    }
+    return max;
+  }
+
   private static final TransactionType[] transactionTypeByOpaqueByte =
       new TransactionType[Byte.toUnsignedInt(MAX_LEGACY_TX_OPAQUE_BYTE) + 1];
 
   private static final TransactionType[] transactionTypeByEthSerializedType =
-      new TransactionType[values().length];
+      new TransactionType[maxEthSerializedType() + 1];
 
   static {
     EnumSet.allOf(TransactionType.class).stream()
@@ -63,6 +73,7 @@ public enum TransactionType {
               tt.supportBaseFeeMarket = !LEGACY_FEE_MARKET_TRANSACTION_TYPES.contains(tt);
               tt.supportBlob = tt == BLOB;
               tt.supportDelegatedCode = tt == DELEGATE_CODE;
+              tt.supportFrame = tt == FRAME;
               if (tt == FRONTIER) {
                 for (int i = Byte.toUnsignedInt(MIN_LEGACY_TX_OPAQUE_BYTE);
                     i < Byte.toUnsignedInt(MAX_LEGACY_TX_OPAQUE_BYTE);
@@ -83,6 +94,7 @@ public enum TransactionType {
   boolean supportBaseFeeMarket;
   boolean supportBlob;
   boolean supportDelegatedCode;
+  boolean supportFrame;
 
   TransactionType(final int typeValue, final int serializedType) {
     this.typeValue = (byte) typeValue;
@@ -184,5 +196,14 @@ public enum TransactionType {
    */
   public boolean supportsDelegateCode() {
     return supportDelegatedCode;
+  }
+
+  /**
+   * Does transaction type support frames (EIP-8141).
+   *
+   * @return the boolean
+   */
+  public boolean supportsFrame() {
+    return supportFrame;
   }
 }

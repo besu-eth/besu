@@ -190,6 +190,7 @@ public class BaseTransactionPoolTest extends TrustedSetupClassLoaderExtension {
       case DELEGATE_CODE ->
           createTransaction(
               txType, nonce, maxGasPrice, payloadSize, List.of(CODE_DELEGATION_SENDER_1), keys);
+      case FRAME -> throw new UnsupportedOperationException("FRAME not yet supported");
     };
   }
 
