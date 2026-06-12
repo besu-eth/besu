@@ -25,20 +25,12 @@ import org.hyperledger.besu.tests.acceptance.dsl.node.BesuNode;
 import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.BesuNodeConfigurationBuilder;
 import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.genesis.GenesisConfigurationFactory;
 
-import java.io.IOException;
 import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import okhttp3.MediaType;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.RequestBody;
-import okhttp3.Response;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.web3j.protocol.core.DefaultBlockParameter;
@@ -46,12 +38,6 @@ import org.web3j.protocol.core.methods.response.EthBlock;
 import org.web3j.protocol.core.methods.response.TransactionReceipt;
 
 public class DebugGetModifiedAccountsAcceptanceTest extends AcceptanceTestBase {
-
-  private static final MediaType MEDIA_TYPE_JSON =
-      MediaType.parse("application/json; charset=utf-8");
-
-  private final OkHttpClient httpClient = new OkHttpClient();
-  private final ObjectMapper mapper = new ObjectMapper();
 
   private BesuNode node;
   private Account recipient;
@@ -72,8 +58,15 @@ public class DebugGetModifiedAccountsAcceptanceTest extends AcceptanceTestBase {
     cluster.start(node);
   }
 
+  @AfterEach
+  public void tearDownNode() {
+    if (node != null) {
+      cluster.stopNode(node);
+    }
+  }
+
   @Test
-  public void shouldReturnModifiedAccountsByNumberAndHash() throws IOException {
+  public void shouldReturnModifiedAccountsByNumberAndHash() {
     recipient = accounts.createAccount("modified-recipient");
     final Hash transactionHash = node.execute(accountTransactions.createTransfer(recipient, 1));
 
@@ -86,15 +79,15 @@ public class DebugGetModifiedAccountsAcceptanceTest extends AcceptanceTestBase {
         node.execute(ethTransactions.block(DefaultBlockParameter.valueOf(parentBlockNumber)));
 
     assertModifiedAccounts(
-        callDebug("debug_getModifiedAccountsByNumber", List.of(quantity(blockNumber))));
+        node.execute(debug.getModifiedAccountsByNumber(List.of(quantity(blockNumber)))));
     assertModifiedAccounts(
-        callDebug(
-            "debug_getModifiedAccountsByNumber",
-            List.of(quantity(parentBlockNumber), quantity(blockNumber))));
-    assertModifiedAccounts(callDebug("debug_getModifiedAccountsByHash", List.of(block.getHash())));
+        node.execute(
+            debug.getModifiedAccountsByNumber(
+                List.of(quantity(parentBlockNumber), quantity(blockNumber)))));
+    assertModifiedAccounts(node.execute(debug.getModifiedAccountsByHash(List.of(block.getHash()))));
     assertModifiedAccounts(
-        callDebug(
-            "debug_getModifiedAccountsByHash", List.of(parentBlock.getHash(), block.getHash())));
+        node.execute(
+            debug.getModifiedAccountsByHash(List.of(parentBlock.getHash(), block.getHash()))));
   }
 
   private TransactionReceipt waitForTransactionReceipt(final Hash transactionHash) {
@@ -110,37 +103,11 @@ public class DebugGetModifiedAccountsAcceptanceTest extends AcceptanceTestBase {
     return maybeReceipt.get().orElseThrow();
   }
 
-  private void assertModifiedAccounts(final JsonNode result) {
-    assertThat(result.isArray()).isTrue();
+  private void assertModifiedAccounts(final List<String> result) {
     assertThat(result)
-        .extracting(JsonNode::asText)
         .containsExactlyInAnyOrder(
+            // Bonsai trie logs include the block reward credit to the mining coinbase account.
             recipientAddress(), senderAddress(), node.getAddress().toHexString());
-  }
-
-  private JsonNode callDebug(final String method, final List<String> params) throws IOException {
-    final var requestBody = mapper.createObjectNode();
-    requestBody.put("jsonrpc", "2.0");
-    requestBody.put("method", method);
-    final ArrayNode paramsNode = requestBody.putArray("params");
-    params.forEach(paramsNode::add);
-    requestBody.put("id", 1);
-
-    try (final Response response =
-        httpClient
-            .newCall(
-                new Request.Builder()
-                    .url(node.jsonRpcBaseUrl().orElseThrow())
-                    .post(RequestBody.create(requestBody.toString(), MEDIA_TYPE_JSON))
-                    .build())
-            .execute()) {
-      assertThat(response.code()).isEqualTo(200);
-      final JsonNode responseBody = mapper.readTree(response.body().string());
-      assertThat(responseBody.has("error"))
-          .withFailMessage("Unexpected JSON-RPC error: %s", responseBody)
-          .isFalse();
-      return responseBody.get("result");
-    }
   }
 
   private String recipientAddress() {

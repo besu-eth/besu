@@ -59,6 +59,11 @@ abstract class AbstractDebugGetModifiedAccounts implements JsonRpcMethod {
       return new JsonRpcErrorResponse(
           requestContext.getRequest().getId(), RpcErrorType.INVALID_PARAM_COUNT);
     }
+    final Optional<JsonRpcError> maybeValidationError = validateParameters(requestContext);
+    if (maybeValidationError.isPresent()) {
+      return new JsonRpcErrorResponse(
+          requestContext.getRequest().getId(), maybeValidationError.get());
+    }
 
     final Optional<BlockHeader> maybeStartBlock = startBlock(requestContext);
     final Optional<BlockHeader> maybeEndBlock = endBlock(requestContext);
@@ -136,6 +141,10 @@ abstract class AbstractDebugGetModifiedAccounts implements JsonRpcMethod {
 
   protected BlockchainQueries blockchainQueries() {
     return blockchainQueries.get();
+  }
+
+  protected Optional<JsonRpcError> validateParameters(final JsonRpcRequestContext requestContext) {
+    return Optional.empty();
   }
 
   protected abstract Optional<BlockHeader> startBlock(JsonRpcRequestContext requestContext);

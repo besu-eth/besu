@@ -19,6 +19,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.BlockParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -34,6 +35,19 @@ public class DebugGetModifiedAccountsByNumber extends AbstractDebugGetModifiedAc
   @Override
   public String getName() {
     return RpcMethod.DEBUG_GET_MODIFIED_ACCOUNTS_BY_NUMBER.getMethodName();
+  }
+
+  @Override
+  protected Optional<JsonRpcError> validateParameters(final JsonRpcRequestContext requestContext) {
+    if (requestContext.getRequest().getParamLength() == 1
+        && getBlockNumber(requestContext, 0)
+            .filter(blockNumber -> blockNumber == BlockHeader.GENESIS_BLOCK_NUMBER)
+            .isPresent()) {
+      return Optional.of(
+          new JsonRpcError(
+              RpcErrorType.INVALID_BLOCK_PARAMS, "genesis block has no parent to diff against"));
+    }
+    return Optional.empty();
   }
 
   @Override

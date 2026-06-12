@@ -203,6 +203,14 @@ public class DebugGetModifiedAccountsTest {
   }
 
   @Test
+  public void shouldReturnInvalidBlockParamsWhenSingleNumberParamIsGenesisBlock() {
+    final JsonRpcResponse response = getModifiedAccountsByNumber.response(request("0x0"));
+
+    assertThat(((JsonRpcErrorResponse) response).getErrorType())
+        .isEqualTo(RpcErrorType.INVALID_BLOCK_PARAMS);
+  }
+
+  @Test
   public void shouldReturnInvalidBlockParamsWhenHashRangeIsDisconnected() {
     final Hash orphanParentHash = Hash.hash(Bytes.ofUnsignedLong(10));
     final Hash orphanHash = Hash.hash(Bytes.ofUnsignedLong(11));

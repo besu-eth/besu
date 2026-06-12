@@ -28,6 +28,8 @@ public class DebugRequestFactory {
 
   public static class GetBadBlocksResponse extends Response<List<BadBlock>> {}
 
+  public static class GetModifiedAccountsResponse extends Response<List<String>> {}
+
   private final Web3jService web3jService;
 
   public DebugRequestFactory(final Web3jService web3jService) {
@@ -37,5 +39,18 @@ public class DebugRequestFactory {
   Request<?, GetBadBlocksResponse> getBadBlocks() {
     return new Request<>(
         "debug_getBadBlocks", emptyList(), web3jService, GetBadBlocksResponse.class);
+  }
+
+  Request<?, GetModifiedAccountsResponse> getModifiedAccountsByNumber(final List<String> params) {
+    return new Request<>(
+        "debug_getModifiedAccountsByNumber",
+        params,
+        web3jService,
+        GetModifiedAccountsResponse.class);
+  }
+
+  Request<?, GetModifiedAccountsResponse> getModifiedAccountsByHash(final List<String> params) {
+    return new Request<>(
+        "debug_getModifiedAccountsByHash", params, web3jService, GetModifiedAccountsResponse.class);
   }
 }
