@@ -90,11 +90,11 @@ public interface MerkleTrie<K, V> {
    * Read-modify-write: calls {@code merger} with the current value (or empty if absent), then puts
    * the returned value or removes the key if the merger returns empty.
    *
-   * @param key the key to merge
+   * @param key the key to update
    * @param merger called with the existing value (or empty if absent); returning present updates the
    *     key, returning empty removes it
    */
-  default void putWithMerge(final K key, final UnaryOperator<Optional<V>> merger) {
+  default void putDeferred(final K key, final UnaryOperator<Optional<V>> merger) {
     final Optional<V> merged = merger.apply(get(key));
     merged.ifPresentOrElse(v -> put(key, v), () -> remove(key));
   }

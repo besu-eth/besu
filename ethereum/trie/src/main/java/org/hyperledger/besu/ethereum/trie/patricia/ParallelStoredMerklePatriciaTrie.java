@@ -36,6 +36,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -61,10 +62,42 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
    * Shared ForkJoinPool with 2x cores for I/O-bound operations. This choice was validated by
    * testing, and that ForkJoinPool performed best despite not being an obvious fit.
    */
-  private static final ForkJoinPool FORK_JOIN_POOL = new ForkJoinPool(NCPU * 2);
+  protected static final ForkJoinPool FORK_JOIN_POOL = new ForkJoinPool(NCPU * 2);
 
   /** Pending updates accumulated between commits */
   private final Map<K, Optional<V>> pendingUpdates = new ConcurrentHashMap<>();
+
+  /**
+   * Pending deferred operations: each entry carries a function that is called with the existing
+   * leaf value (or {@link Optional#empty()} if absent) during the commit traversal, returning the
+   * new value or empty to remove the key.
+   */
+  private final Map<K, UnaryOperator<Optional<V>>> pendingDeferredUpdates =
+      new ConcurrentHashMap<>();
+
+  protected boolean hasPendingUpdates() {
+    return !pendingUpdates.isEmpty() || !pendingDeferredUpdates.isEmpty();
+  }
+
+  /**
+   * Stages a deferred operation for the given key. The function is called with the existing value
+   * at that key during the next {@link #commit} or {@link #getRootHash} traversal:
+   *
+   * <ul>
+   *   <li>If the function returns present, the key is updated to that value.
+   *   <li>If the function returns empty, the key is removed.
+   * </ul>
+   *
+   * <p>Unlike {@link #put}, no pre-computed value is required: the trie reads the existing leaf
+   * inline during the write traversal, enabling a single-pass read-modify-write.
+   *
+   * @param key the key to update
+   * @param merger function mapping existing value (or empty) to the new value (or empty to remove)
+   */
+  @Override
+  public void putDeferred(final K key, final UnaryOperator<Optional<V>> merger) {
+    pendingDeferredUpdates.put(key, merger);
+  }
 
   /**
    * Creates a new parallel trie with an empty root.
@@ -167,7 +200,7 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
    */
   @Override
   public Bytes32 getRootHash() {
-    if (pendingUpdates.isEmpty()) {
+    if (pendingUpdates.isEmpty() && pendingDeferredUpdates.isEmpty()) {
       return root.getHash();
     }
     processPendingUpdates(Optional.empty());
@@ -181,7 +214,7 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
    * @param maybeNodeUpdater optional node updater for persisting changes
    */
   private void processPendingUpdates(final Optional<NodeUpdater> maybeNodeUpdater) {
-    if (pendingUpdates.isEmpty()) {
+    if (pendingUpdates.isEmpty() && pendingDeferredUpdates.isEmpty()) {
       return;
     }
 
@@ -189,11 +222,12 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
       // Ensure root is fully loaded (not a lazy StoredNode reference)
       this.root = loadNode(root);
 
-      // Convert pending updates to UpdateEntry objects with nibble paths
-      final List<UpdateEntry<V>> entries =
-          pendingUpdates.entrySet().stream()
-              .map(e -> new UpdateEntry<>(bytesToPath(e.getKey()), e.getValue()))
-              .toList();
+      // Convert pending puts/removes and deferred operations to UpdateEntry objects with nibble paths
+      final List<UpdateEntry<V>> entries = new ArrayList<>();
+      pendingUpdates.forEach(
+          (k, v) -> entries.add(new UpdateEntry<>(bytesToPath(k), v, null)));
+      pendingDeferredUpdates.forEach(
+          (k, merger) -> entries.add(new UpdateEntry<>(bytesToPath(k), Optional.empty(), merger)));
 
       final CommitCache commitCache = new CommitCache();
       final boolean shouldCommit = maybeNodeUpdater.isPresent();
@@ -218,6 +252,7 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
     } finally {
       // Always clear pending updates after processing
       pendingUpdates.clear();
+      pendingDeferredUpdates.clear();
     }
   }
 
@@ -611,7 +646,9 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
     for (UpdateEntry<V> entry : updates) {
       final Bytes remainingPath = entry.path.slice(pathOffset);
       final PathNodeVisitor<V> visitor =
-          entry.value.isPresent() ? getPutVisitor(entry.value.get()) : getRemoveVisitor();
+          entry.isMerge()
+              ? getDeferredPutVisitor(entry.merger())
+              : (entry.value.isPresent() ? getPutVisitor(entry.value.get()) : getRemoveVisitor());
       updatedNode = updatedNode.accept(visitor, remainingPath);
     }
 
@@ -640,7 +677,7 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
    * @param node the node to load
    * @return the loaded node
    */
-  private Node<V> loadNode(final Node<V> node) {
+  protected Node<V> loadNode(final Node<V> node) {
     if (node instanceof StoredNode) {
       return node.accept(
           new PathNodeVisitor<V>() {
@@ -670,18 +707,25 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
   }
 
   /**
-   * Represents a single update operation (put or remove).
+   * Represents a single update operation: a plain put/remove ({@code merger == null}) or a
+   * read-modify-write deferred operation ({@code merger != null}).
    *
    * @param path the full nibble path to the key
-   * @param value optional value (empty for removes, present for puts)
+   * @param value optional value for put/remove entries (ignored for deferred entries)
+   * @param merger non-null for deferred entries; called with the existing leaf value during traversal
    */
-  private record UpdateEntry<V>(Bytes path, Optional<V> value) {
+  private record UpdateEntry<V>(
+      Bytes path, Optional<V> value, UnaryOperator<Optional<V>> merger) {
+    boolean isMerge() {
+      return merger != null;
+    }
+
     byte getNibble(final int index) {
       return index >= path.size() ? 0 : path.get(index);
     }
   }
 
-  private class BranchWrapper {
+  protected class BranchWrapper {
     private final BranchNode<V> originalBranch;
     private final List<Node<V>> pendingChildren;
 

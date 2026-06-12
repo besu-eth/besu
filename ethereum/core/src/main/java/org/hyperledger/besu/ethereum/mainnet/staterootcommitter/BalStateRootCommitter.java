@@ -278,15 +278,12 @@ public final class BalStateRootCommitter implements StateRootCommitter {
                     CompletableFuture.supplyAsync(() -> updateStorageTrie(accountHash, c)));
               });
 
-      // Step 2: for each changed account, read final state via BalWorldUpdater and update the trie.
+      // Step 2: for each changed account, stage a deferred update — the trie passes the existing leaf RLP.
       for (final BlockAccessListChanges.AccountFinalChanges change : changes) {
         final Hash accountHash = change.address().addressHash();
-        final Optional<Bytes> newRlp = resolveAccount(accountHash, change);
-        if (newRlp.isPresent()) {
-          accountTrie.put(accountHash.getBytes(), newRlp.get());
-        } else {
-          accountTrie.remove(accountHash.getBytes());
-        }
+        accountTrie.putDeferred(
+            accountHash.getBytes(),
+            existingRlp -> resolveAccount(accountHash, change, existingRlp));
       }
 
       // Step 3: commit the account trie.
@@ -300,9 +297,13 @@ public final class BalStateRootCommitter implements StateRootCommitter {
      * Resolves the final on-chain account state for {@code change.address()} using the {@link
      * BonsaiBalWorldStateUpdater} for lazy nonce/balance/code-hash reads, and returns the RLP encoding to
      * store in the account trie (or empty to signal account deletion).
+     *
+     * @param existingRlp the current account RLP from the trie leaf (empty for new accounts)
      */
     private Optional<Bytes> resolveAccount(
-        final Hash accountHash, final BlockAccessListChanges.AccountFinalChanges change) {
+        final Hash accountHash,
+        final BlockAccessListChanges.AccountFinalChanges change,
+        final Optional<Bytes> existingRlp) {
 
       // Lazy reads via BalWorldUpdater: BAL-first (O(1)), DB-fallback only when not in BAL.
       final Account account = balUpdater.get(change.address());
@@ -310,15 +311,15 @@ public final class BalStateRootCommitter implements StateRootCommitter {
       final Wei balance = account != null ? account.getBalance() : Wei.ZERO;
       final Hash codeHash = account != null ? account.getCodeHash() : Hash.EMPTY;
 
-      // Storage root: if there are no storage changes, read the prior root node hash from the
-      // raw KV store (one lookup, same approach as updateStorageTrie).
+      // Storage root: if there are no storage changes, parse the prior root from the existing
+      // account RLP passed in by putDeferred (no separate KV lookup needed).
       final Hash newStorageRoot;
       if (change.storageChanges().isEmpty()) {
         newStorageRoot =
-            worldState
-                .getWorldStateStorage()
-                .getTrieNodeUnsafe(accountHash.getBytes())
-                .map(Hash::hash)
+            existingRlp
+                .map(
+                    rlp ->
+                        PmtStateTrieAccountValue.readFrom(RLP.input(rlp)).getStorageRoot())
                 .orElse(Hash.EMPTY_TRIE_HASH);
       } else {
         // Join the pre-launched storage future; by now it is likely already complete.
