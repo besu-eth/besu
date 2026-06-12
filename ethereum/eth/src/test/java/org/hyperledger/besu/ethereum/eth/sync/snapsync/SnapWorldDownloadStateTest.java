@@ -113,6 +113,7 @@ public class SnapWorldDownloadStateTest {
   public void setUp(final DataStorageFormat storageFormat) {
 
     when(metricsManager.getMetricsSystem()).thenReturn(new NoOpMetricsSystem());
+
     if (storageFormat == DataStorageFormat.BONSAI) {
       worldStateKeyValueStorage =
           new BonsaiWorldStateKeyValueStorage(

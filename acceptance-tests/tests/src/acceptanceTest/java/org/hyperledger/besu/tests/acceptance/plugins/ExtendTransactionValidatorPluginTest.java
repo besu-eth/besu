@@ -119,6 +119,9 @@ public class ExtendTransactionValidatorPluginTest extends AcceptanceTestBase {
         Numeric.toHexString(
             SignUtil.signTransaction(eip1559Tx, sender, new SECP256K1(), Optional.empty()));
 
+    // London activates at block 2; wait for it before submitting an EIP-1559 tx
+    waitForBlockHeight(minerNode, 2);
+
     final String eip1559TxHash = minerNode.execute(ethTransactions.sendRawTransaction(rawSigned));
 
     minerNode.verify(eth.expectSuccessfulTransactionReceipt(eip1559TxHash));

@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePers
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.AccountRangeDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.BytecodeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.StorageRangeDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.AccountFlatDatabaseHealingRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.StorageFlatDatabaseHealingRangeRequest;
@@ -50,7 +51,6 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
@@ -62,7 +62,8 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> {
+public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
+    implements SnapRequestContext {
 
   private static final Logger LOG = LoggerFactory.getLogger(SnapWorldDownloadState.class);
 
@@ -88,6 +89,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
 
   private final SnapSyncStatePersistenceManager snapContext;
   private final SnapSyncProcessState snapSyncState;
+
   // blockchain
   private final Blockchain blockchain;
   private final Long blockObserverId;
@@ -98,7 +100,6 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
 
   private final AtomicBoolean trieHealStartedBefore = new AtomicBoolean(false);
   private final AtomicBoolean worldStateHealFinishedNotified = new AtomicBoolean(false);
-  private final AtomicBoolean blockAccessListHealEnqueued = new AtomicBoolean(false);
 
   public SnapWorldDownloadState(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
@@ -199,7 +200,6 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
         if (!snapSyncState.isHealFlatDatabaseInProgress()
             && (worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.FULL)
                 || worldStateStorageCoordinator.isMatchingFlatMode(FlatDbMode.ARCHIVE))) {
-          applyBlockAccessListsForPivotRangeIfRequired();
           startFlatDatabaseHeal(header);
         }
         // If the flat database healing process is in progress or the flat database mode is not FULL
@@ -297,37 +297,6 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
                 createAccountFlatHealingRangeRequest(header.getStateRoot(), key, value)));
   }
 
-  private void applyBlockAccessListsForPivotRangeIfRequired() {
-    if (!blockAccessListHealEnqueued.compareAndSet(false, true)) {
-      return;
-    }
-
-    if (!worldStateStorageCoordinator.getDataStorageFormat().isBonsaiFormat()) {
-      LOG.warn("Skipping BAL apply because world state updater is not Bonsai-compatible");
-      return;
-    }
-
-    final Optional<BlockHeader> maybeFirstPivotHeader = snapSyncState.getFirstPivotBlockHeader();
-    final Optional<BlockHeader> maybeLastPivotHeader = snapSyncState.getPivotBlockHeader();
-
-    LOG.debug("Starting BAL apply attempt");
-
-    if (maybeFirstPivotHeader.isEmpty() || maybeLastPivotHeader.isEmpty()) {
-      LOG.debug(
-          "Skipping BAL apply - firstPivotHeader={}, lastPivotHeader={}",
-          maybeFirstPivotHeader,
-          maybeLastPivotHeader);
-      return;
-    }
-
-    final long fromBlock = maybeFirstPivotHeader.get().getNumber();
-    final long toBlock = maybeLastPivotHeader.get().getNumber();
-
-    LOG.info("Applying block access lists from block {} to {}", fromBlock, toBlock);
-    BlockAccessListFlatDatabaseUpdater.applyFromStoredBlockAccessLists(
-        blockchain, worldStateStorageCoordinator, fromBlock, toBlock);
-  }
-
   @Override
   public synchronized void enqueueRequest(final SnapDataRequest request) {
     if (!internalFuture.isDone()) {
@@ -363,6 +332,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
    *
    * @param account The account to be added for repair.
    */
+  @Override
   public synchronized void addAccountToHealingList(final Bytes account) {
     if (!accountsHealingList.contains(account)) {
       snapContext.addAccountToHealingList(account);
@@ -466,6 +436,7 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest> 
         __ -> {});
   }
 
+  @Override
   public SnapSyncMetricsManager getMetricsManager() {
     return metricsManager;
   }

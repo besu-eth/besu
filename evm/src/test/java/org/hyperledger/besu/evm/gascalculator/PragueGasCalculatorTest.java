@@ -150,20 +150,27 @@ class PragueGasCalculatorTest {
   @Test
   void transactionFloorCostShouldBeAtLeastTransactionBaseCost() {
     // floor cost = 21000 (base cost) + 0
-    AssertionsForClassTypes.assertThat(pragueGasCalculator.transactionFloorCost(Bytes.EMPTY, 0))
+    when(transaction.getPayload()).thenReturn(Bytes.EMPTY);
+    when(transaction.getPayloadZeroBytes()).thenReturn(0L);
+    AssertionsForClassTypes.assertThat(pragueGasCalculator.transactionFloorCost(transaction))
         .isEqualTo(21000);
+
     // floor cost = 21000 (base cost) + 256 (tokensInCallData) * 10 (cost per token)
-    AssertionsForClassTypes.assertThat(
-            pragueGasCalculator.transactionFloorCost(Bytes.repeat((byte) 0x0, 256), 256))
+    when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x0, 256));
+    when(transaction.getPayloadZeroBytes()).thenReturn(256L);
+    AssertionsForClassTypes.assertThat(pragueGasCalculator.transactionFloorCost(transaction))
         .isEqualTo(23560L);
+
     // floor cost = 21000 (base cost) + 256 * 4 (tokensInCallData) * 10 (cost per token)
-    AssertionsForClassTypes.assertThat(
-            pragueGasCalculator.transactionFloorCost(Bytes.repeat((byte) 0x1, 256), 0))
+    when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x1, 256));
+    when(transaction.getPayloadZeroBytes()).thenReturn(0L);
+    AssertionsForClassTypes.assertThat(pragueGasCalculator.transactionFloorCost(transaction))
         .isEqualTo(31240L);
+
     // floor cost = 21000 (base cost) + 5 + (6 * 4) (tokensInCallData) * 10 (cost per token)
-    AssertionsForClassTypes.assertThat(
-            pragueGasCalculator.transactionFloorCost(
-                Bytes.fromHexString("0x0001000100010001000101"), 5))
+    when(transaction.getPayload()).thenReturn(Bytes.fromHexString("0x0001000100010001000101"));
+    when(transaction.getPayloadZeroBytes()).thenReturn(5L);
+    AssertionsForClassTypes.assertThat(pragueGasCalculator.transactionFloorCost(transaction))
         .isEqualTo(21290L);
   }
 }

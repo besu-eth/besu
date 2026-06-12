@@ -17,7 +17,6 @@ package org.hyperledger.besu.evm.v2.operation;
 import static org.hyperledger.besu.evm.v2.operation.StackUtil.pushWei;
 
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.evm.EVM;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
@@ -38,8 +37,7 @@ public class BaseFeeOperationV2 extends AbstractFixedCostOperationV2 {
   }
 
   @Override
-  public Operation.OperationResult executeFixedCostOperation(
-      final MessageFrame frame, final EVM evm) {
+  public Operation.OperationResult executeFixedCostOperation(final MessageFrame frame) {
     final Optional<Wei> maybeBaseFee = frame.getBlockValues().getBaseFee();
     if (maybeBaseFee.isEmpty()) {
       return new Operation.OperationResult(gasCost, ExceptionalHaltReason.INVALID_OPERATION);

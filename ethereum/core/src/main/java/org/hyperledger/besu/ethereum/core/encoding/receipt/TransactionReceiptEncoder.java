@@ -165,7 +165,7 @@ public class TransactionReceiptEncoder {
       final RLPOutput output,
       final TransactionReceiptEncodingConfiguration options) {
     output.startList();
-    output.writeByte(receipt.getTransactionType().getEthSerializedType());
+    output.writeLongScalar(Byte.toUnsignedInt(receipt.getTransactionType().getEthSerializedType()));
     writeStatusOrStateRoot(receipt, output);
     output.writeLongScalar(receipt.getCumulativeGasUsed());
     writeLogs(receipt, output, options);

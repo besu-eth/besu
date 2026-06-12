@@ -64,17 +64,17 @@ public class BufferedGetPooledTransactionsFromPeerFetcher {
   public void requestTransactions() {
     final int taskId = TASK_ID_GENERATOR.incrementAndGet();
     int batch = 0;
-    List<Hash> batchToRequest =
-        toModifiableHashList(
-            transactionTracker.claimAnnouncementsToRequestFromPeer(
-                peer, MAX_HASHES, maxTransactionsMessageSize));
+    List<TransactionAnnouncement> announcementBatch =
+        transactionTracker.claimAnnouncementsToRequestFromPeer(
+            peer, MAX_HASHES, maxTransactionsMessageSize);
+    List<Hash> batchToRequest = toModifiableHashList(announcementBatch);
     while (!batchToRequest.isEmpty()) {
       ++batch;
       final List<Hash> initialBatchContent = List.copyOf(batchToRequest);
       try {
         // retry until this batch is complete, in a best effort way,
         // since loop can be interrupted by a failure or an empty response.
-        retryUntilBatchCompleteOrFailure(batchToRequest, taskId, batch);
+        retryUntilBatchCompleteOrFailure(batchToRequest, announcementBatch, taskId, batch);
       } catch (final Throwable t) {
         LOG.atTrace()
             .setMessage(
@@ -88,15 +88,18 @@ public class BufferedGetPooledTransactionsFromPeerFetcher {
       } finally {
         transactionTracker.consumedAnnouncements(initialBatchContent);
       }
-      batchToRequest =
-          toModifiableHashList(
-              transactionTracker.claimAnnouncementsToRequestFromPeer(
-                  peer, MAX_HASHES, maxTransactionsMessageSize));
+      announcementBatch =
+          transactionTracker.claimAnnouncementsToRequestFromPeer(
+              peer, MAX_HASHES, maxTransactionsMessageSize);
+      batchToRequest = toModifiableHashList(announcementBatch);
     }
   }
 
   private void retryUntilBatchCompleteOrFailure(
-      final List<Hash> batchToRequest, final int taskId, final int batch) {
+      final List<Hash> batchToRequest,
+      final List<TransactionAnnouncement> announcements,
+      final int taskId,
+      final int batch) {
     int iteration = 0;
     while (!batchToRequest.isEmpty()) {
       ++iteration;
@@ -110,7 +113,7 @@ public class BufferedGetPooledTransactionsFromPeerFetcher {
           .log();
 
       final GetPooledTransactionsFromPeerTask task =
-          new GetPooledTransactionsFromPeerTask(batchToRequest);
+          GetPooledTransactionsFromPeerTask.fromAnnouncements(announcements);
 
       final PeerTaskExecutorResult<List<Transaction>> taskResult =
           ethContext.getPeerTaskExecutor().executeAgainstPeer(task, peer);

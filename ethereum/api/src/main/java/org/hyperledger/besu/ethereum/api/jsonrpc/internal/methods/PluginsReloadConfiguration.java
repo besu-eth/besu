@@ -78,6 +78,9 @@ public class PluginsReloadConfiguration implements JsonRpcMethod {
                 asyncReloads.values().toArray(new CompletableFuture<?>[asyncReloads.size()]))
             .get();
       } catch (InterruptedException | ExecutionException e) {
+        if (e instanceof InterruptedException) {
+          Thread.currentThread().interrupt();
+        }
         // fill a detailed error message with the result of each plugin
         final String errMsg =
             asyncReloads.entrySet().stream()

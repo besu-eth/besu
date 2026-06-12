@@ -16,13 +16,18 @@ package org.hyperledger.besu.ethereum.eth.messages.snap;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
+import org.hyperledger.besu.ethereum.core.encoding.BlockAccessListEncoder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
 import java.math.BigInteger;
 import java.util.List;
+import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
 
 public class BlockAccessListsMessageTest {
@@ -31,13 +36,35 @@ public class BlockAccessListsMessageTest {
   public void roundTripWithRequestId() {
     final List<BlockAccessList> expected = List.of(new BlockAccessList(List.of()));
 
-    final BlockAccessListsMessage initialMessage = BlockAccessListsMessage.create(expected);
+    final BlockAccessListsMessage initialMessage =
+        BlockAccessListsMessage.createFromBlockAccessLists(expected);
     final MessageData wrapped = initialMessage.wrapMessageData(BigInteger.valueOf(11));
     final MessageData raw = new RawMessage(SnapV2.BLOCK_ACCESS_LISTS, wrapped.getData());
 
     final BlockAccessListsMessage message = BlockAccessListsMessage.readFrom(raw);
 
-    assertThat(message.blockAccessLists(true)).containsExactlyElementsOf(expected);
+    assertThat(message.blockAccessLists(true)).containsExactly(Optional.of(expected.getFirst()));
+  }
+
+  @Test
+  public void wrapsWithSnap2WireShape() {
+    // [request-id, [access-lists]]
+    final BlockAccessList blockAccessList = new BlockDataGenerator(1).blockAccessList();
+
+    final BlockAccessListsMessage message =
+        BlockAccessListsMessage.create(List.of(Optional.of(blockAccessList), Optional.empty()));
+    final MessageData wrapped = message.wrapMessageData(BigInteger.valueOf(11));
+
+    final BytesValueRLPOutput expected = new BytesValueRLPOutput();
+    expected.startList();
+    expected.writeBigIntegerScalar(BigInteger.valueOf(11));
+    expected.startList();
+    BlockAccessListEncoder.encode(blockAccessList, expected);
+    expected.writeBytes(Bytes.EMPTY);
+    expected.endList();
+    expected.endList();
+
+    assertThat(wrapped.getData()).isEqualTo(expected.encoded());
   }
 
   @Test

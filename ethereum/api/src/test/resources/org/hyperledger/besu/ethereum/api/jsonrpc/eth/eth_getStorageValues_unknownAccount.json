@@ -1,0 +1,24 @@
+{
+  "request": {
+    "id": 341,
+    "jsonrpc": "2.0",
+    "method": "eth_getStorageValues",
+    "params": [
+      {
+        "0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead": ["0x0", "0x1"]
+      },
+      "latest"
+    ]
+  },
+  "response": {
+    "jsonrpc": "2.0",
+    "id": 341,
+    "result": {
+      "0xdeaddeaddeaddeaddeaddeaddeaddeaddeaddead": [
+        "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "0x0000000000000000000000000000000000000000000000000000000000000000"
+      ]
+    }
+  },
+  "statusCode": 200
+}

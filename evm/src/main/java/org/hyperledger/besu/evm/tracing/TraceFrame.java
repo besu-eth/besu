@@ -68,6 +68,7 @@ public class TraceFrame {
 
   private final Optional<SoftFailureReason> softFailureReason;
   private final OptionalLong gasAvailableForChildCall;
+  private final Optional<Bytes> returnData;
 
   /** Private constructor - only accessible through Builder */
   private TraceFrame(final Builder builder) {
@@ -103,6 +104,7 @@ public class TraceFrame {
     this.precompileOutputData = builder.precompileOutputData;
     this.softFailureReason = builder.softFailureReason;
     this.gasAvailableForChildCall = builder.gasAvailableForChildCall;
+    this.returnData = builder.returnData;
   }
 
   /**
@@ -158,6 +160,7 @@ public class TraceFrame {
     private Optional<Bytes> precompileOutputData = Optional.empty();
     private Optional<SoftFailureReason> softFailureReason = Optional.empty();
     private OptionalLong gasAvailableForChildCall = OptionalLong.empty();
+    private Optional<Bytes> returnData = Optional.empty();
 
     /** Default constructor */
     public Builder() {}
@@ -200,6 +203,7 @@ public class TraceFrame {
       this.precompileOutputData = traceFrame.precompileOutputData;
       this.softFailureReason = traceFrame.softFailureReason;
       this.gasAvailableForChildCall = traceFrame.gasAvailableForChildCall;
+      this.returnData = traceFrame.returnData;
     }
 
     /**
@@ -369,9 +373,13 @@ public class TraceFrame {
     }
 
     /**
-     * Sets the storage for this operation.
+     * Sets the storage entry touched by this operation.
      *
-     * @param storage the storage as an optional map of UInt256 keys and values
+     * <p>Per the execution-apis spec, this field is only populated for SLOAD and SSTORE opcodes and
+     * contains solely the single slot accessed or written by that operation.
+     *
+     * @param storage the storage slot touched, as an optional single-entry map of slot key to
+     *     value; empty for all opcodes other than SLOAD and SSTORE
      * @return this builder instance for method chaining
      */
     public Builder setStorage(final Optional<Map<UInt256, UInt256>> storage) {
@@ -576,6 +584,17 @@ public class TraceFrame {
     }
 
     /**
+     * Sets the return data buffer captured after the opcode executed.
+     *
+     * @param returnData the return data buffer contents
+     * @return this builder instance for method chaining
+     */
+    public Builder setReturnData(final Optional<Bytes> returnData) {
+      this.returnData = returnData;
+      return this;
+    }
+
+    /**
      * Builds the TraceFrame instance.
      *
      * @return the constructed TraceFrame
@@ -712,9 +731,13 @@ public class TraceFrame {
   }
 
   /**
-   * data storage slots and values
+   * Returns the storage slot touched by this operation.
    *
-   * @return data storage slots and values
+   * <p>Per the execution-apis spec, this field is only populated for SLOAD and SSTORE opcodes and
+   * contains solely the single slot accessed or written by that operation. Empty for all other
+   * opcodes.
+   *
+   * @return an optional single-entry map of slot key to value, present only for SLOAD/SSTORE
    */
   public Optional<Map<UInt256, UInt256>> getStorage() {
     return storage;
@@ -874,6 +897,15 @@ public class TraceFrame {
     return gasAvailableForChildCall;
   }
 
+  /**
+   * Return data buffer at the time this opcode was traced.
+   *
+   * @return the return data buffer, or empty if not captured
+   */
+  public Optional<Bytes> getReturnData() {
+    return returnData;
+  }
+
   @Override
   public String toString() {
     return MoreObjects.toStringHelper(this)
@@ -886,6 +918,7 @@ public class TraceFrame {
         .add("stack", stack)
         .add("memory", memory)
         .add("storage", storage)
+        .add("returnData", returnData)
         .toString();
   }
 }

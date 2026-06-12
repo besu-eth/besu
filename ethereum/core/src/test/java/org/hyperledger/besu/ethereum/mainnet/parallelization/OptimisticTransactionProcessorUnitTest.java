@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -38,8 +39,8 @@ import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.NoOpBonsaiCachedWorldStorageManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoOpBonsaiCachedWorldStorageManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoopBonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
@@ -48,6 +49,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.NoOpTrieLogMa
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -77,6 +79,20 @@ import org.mockito.quality.Strictness;
 @ExtendWith(MockitoExtension.class)
 class OptimisticTransactionProcessorUnitTest {
 
+  /** Stateless lookup for tests that exercise parallel processors (requires {@code fork}). */
+  private static final BlockHashLookup EMPTY_BLOCK_HASH_LOOKUP =
+      new BlockHashLookup() {
+        @Override
+        public Hash apply(final MessageFrame frame, final Long blockNumber) {
+          return Hash.EMPTY;
+        }
+
+        @Override
+        public BlockHashLookup forkForParallelWorker() {
+          return this;
+        }
+      };
+
   private static final Address MINING_BENEFICIARY = Address.fromHexString("0x1");
   private static final Wei BLOB_GAS_PRICE = Wei.ZERO;
   private final Executor sameThreadExecutor = Runnable::run;
@@ -84,13 +100,13 @@ class OptimisticTransactionProcessorUnitTest {
   @Mock private MainnetTransactionProcessor transactionProcessor;
   @Mock private TransactionCollisionDetector collisionDetector;
 
-  private ParallelizedConcurrentTransactionProcessor processor;
+  private OptimisticConcurrentTransactionProcessor processor;
   private TestEnvironment env;
 
   @BeforeEach
   void setUp() {
     processor =
-        new ParallelizedConcurrentTransactionProcessor(transactionProcessor, collisionDetector);
+        new OptimisticConcurrentTransactionProcessor(transactionProcessor, collisionDetector);
     env = createTestEnvironment();
   }
 
@@ -163,7 +179,7 @@ class OptimisticTransactionProcessorUnitTest {
           env.blockHeader(),
           Collections.singletonList(transaction),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -195,7 +211,7 @@ class OptimisticTransactionProcessorUnitTest {
           env.blockHeader(),
           List.of(tx1, tx2, tx3),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -225,7 +241,7 @@ class OptimisticTransactionProcessorUnitTest {
           blockHeader,
           Collections.singletonList(transaction),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -257,7 +273,7 @@ class OptimisticTransactionProcessorUnitTest {
           env.blockHeader(),
           Collections.singletonList(transaction),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -290,7 +306,7 @@ class OptimisticTransactionProcessorUnitTest {
           env.blockHeader(),
           Collections.singletonList(transaction),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -319,7 +335,7 @@ class OptimisticTransactionProcessorUnitTest {
           env.blockHeader(),
           Collections.singletonList(transaction),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -349,7 +365,7 @@ class OptimisticTransactionProcessorUnitTest {
           env.blockHeader(),
           Collections.singletonList(transaction),
           customBeneficiary,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -376,7 +392,7 @@ class OptimisticTransactionProcessorUnitTest {
           env.blockHeader(),
           List.of(tx1, tx2, tx3),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -413,7 +429,7 @@ class OptimisticTransactionProcessorUnitTest {
           env.blockHeader(),
           Collections.singletonList(transaction),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -447,7 +463,7 @@ class OptimisticTransactionProcessorUnitTest {
           env.blockHeader(),
           Collections.singletonList(transaction),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -478,7 +494,7 @@ class OptimisticTransactionProcessorUnitTest {
           env.blockHeader(),
           Collections.singletonList(transaction),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -495,6 +511,7 @@ class OptimisticTransactionProcessorUnitTest {
 
       assertTrue(result.isPresent(), "Expected result when no collision");
       assertTrue(result.get().isSuccessful(), "Expected successful result");
+      assertNull(processor.futures[0], "Expected consumed future reference to be cleared");
     }
 
     @Test
@@ -509,7 +526,7 @@ class OptimisticTransactionProcessorUnitTest {
           env.blockHeader(),
           List.of(tx1, tx2),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.empty(),
@@ -547,7 +564,7 @@ class OptimisticTransactionProcessorUnitTest {
           env.blockHeader(),
           Collections.singletonList(transaction),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.of(balBuilder),
@@ -583,7 +600,7 @@ class OptimisticTransactionProcessorUnitTest {
           env.blockHeader(),
           Collections.singletonList(transaction),
           MINING_BENEFICIARY,
-          (__, ___) -> Hash.EMPTY,
+          EMPTY_BLOCK_HASH_LOOKUP,
           BLOB_GAS_PRICE,
           sameThreadExecutor,
           Optional.of(balBuilder),

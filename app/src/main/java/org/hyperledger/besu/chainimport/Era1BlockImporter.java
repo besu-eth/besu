@@ -90,55 +90,58 @@ public class Era1BlockImporter implements Closeable {
     final List<Future<BlockBody>> bodiesFutures = new ArrayList<>(ERA1_BLOCK_COUNT_MAX);
     final List<Future<List<TransactionReceipt>>> receiptsFutures =
         new ArrayList<>(ERA1_BLOCK_COUNT_MAX);
-    reader.read(
-        new FileInputStream(path.toFile()),
-        new Era1ReaderListener() {
+    try (FileInputStream fis = new FileInputStream(path.toFile())) {
+      reader.read(
+          fis,
+          new Era1ReaderListener() {
 
-          @Override
-          public void handleExecutionBlockHeader(
-              final Era1ExecutionBlockHeader executionBlockHeader) {
-            headersFutures.add(
-                CompletableFuture.supplyAsync(
-                    () ->
-                        BlockHeader.readFrom(
+            @Override
+            public void handleExecutionBlockHeader(
+                final Era1ExecutionBlockHeader executionBlockHeader) {
+              headersFutures.add(
+                  CompletableFuture.supplyAsync(
+                      () ->
+                          BlockHeader.readFrom(
+                              new BytesValueRLPInput(
+                                  Bytes.wrap(executionBlockHeader.header()), false),
+                              blockHeaderFunctions)));
+            }
+
+            @Override
+            public void handleExecutionBlockBody(final Era1ExecutionBlockBody executionBlockBody) {
+              bodiesFutures.add(
+                  CompletableFuture.supplyAsync(
+                      () ->
+                          BlockBody.readWrappedBodyFrom(
+                              new BytesValueRLPInput(Bytes.wrap(executionBlockBody.block()), false),
+                              blockHeaderFunctions,
+                              true)));
+            }
+
+            @Override
+            public void handleExecutionBlockReceipts(
+                final Era1ExecutionBlockReceipts executionBlockReceipts) {
+              receiptsFutures.add(
+                  CompletableFuture.supplyAsync(
+                      () -> {
+                        RLPInput input =
                             new BytesValueRLPInput(
-                                Bytes.wrap(executionBlockHeader.header()), false),
-                            blockHeaderFunctions)));
-          }
+                                Bytes.wrap(executionBlockReceipts.receipts()), false);
+                        final List<TransactionReceipt> receiptsForBlock = new ArrayList<>();
+                        input.readList(
+                            (in) ->
+                                receiptsForBlock.add(
+                                    TransactionReceiptDecoder.readFrom(in, false)));
+                        return receiptsForBlock;
+                      }));
+            }
 
-          @Override
-          public void handleExecutionBlockBody(final Era1ExecutionBlockBody executionBlockBody) {
-            bodiesFutures.add(
-                CompletableFuture.supplyAsync(
-                    () ->
-                        BlockBody.readWrappedBodyFrom(
-                            new BytesValueRLPInput(Bytes.wrap(executionBlockBody.block()), false),
-                            blockHeaderFunctions,
-                            true)));
-          }
-
-          @Override
-          public void handleExecutionBlockReceipts(
-              final Era1ExecutionBlockReceipts executionBlockReceipts) {
-            receiptsFutures.add(
-                CompletableFuture.supplyAsync(
-                    () -> {
-                      RLPInput input =
-                          new BytesValueRLPInput(
-                              Bytes.wrap(executionBlockReceipts.receipts()), false);
-                      final List<TransactionReceipt> receiptsForBlock = new ArrayList<>();
-                      input.readList(
-                          (in) ->
-                              receiptsForBlock.add(TransactionReceiptDecoder.readFrom(in, false)));
-                      return receiptsForBlock;
-                    }));
-          }
-
-          @Override
-          public void handleBlockIndex(final Era1BlockIndex blockIndex) {
-            // not really necessary, do nothing
-          }
-        });
+            @Override
+            public void handleBlockIndex(final Era1BlockIndex blockIndex) {
+              // not really necessary, do nothing
+            }
+          });
+    }
 
     LOG.info("Read {} blocks, now importing", headersFutures.size());
 

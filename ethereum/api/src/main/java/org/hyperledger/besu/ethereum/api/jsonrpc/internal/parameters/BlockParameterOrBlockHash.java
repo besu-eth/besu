@@ -42,6 +42,25 @@ public class BlockParameterOrBlockHash {
   private final Optional<Hash> blockHash;
   private final boolean requireCanonical;
 
+  /**
+   * A {@link BlockParameterOrBlockHash} representing the "latest" block. Used as the default when
+   * an optional block parameter is omitted from a request (per execution-apis: default 'latest').
+   */
+  public static final BlockParameterOrBlockHash LATEST =
+      new BlockParameterOrBlockHash(
+          BlockParameterType.LATEST, OptionalLong.empty(), Optional.empty(), false);
+
+  private BlockParameterOrBlockHash(
+      final BlockParameterType type,
+      final OptionalLong number,
+      final Optional<Hash> blockHash,
+      final boolean requireCanonical) {
+    this.type = type;
+    this.number = number;
+    this.blockHash = blockHash;
+    this.requireCanonical = requireCanonical;
+  }
+
   @JsonCreator
   public BlockParameterOrBlockHash(final Object value) throws JsonProcessingException {
     if (value instanceof String) {
@@ -79,6 +98,9 @@ public class BlockParameterOrBlockHash {
         requireCanonical = false;
       } else if (normalizedValue.length() > 16) {
         throw new IllegalArgumentException("hex number > 64 bits");
+      } else if (!normalizedValue.startsWith("0x")) {
+        throw new IllegalArgumentException(
+            "Invalid block number: must be a hex string with 0x prefix");
       } else {
         type = BlockParameterType.NUMERIC;
         number = OptionalLong.of(Long.decode(value.toString()));
@@ -97,8 +119,13 @@ public class BlockParameterOrBlockHash {
           requireCanonical = false;
         }
       } else {
+        final String blockNumberText = jsonNode.get("blockNumber").asText();
+        if (!blockNumberText.toLowerCase(Locale.ROOT).startsWith("0x")) {
+          throw new IllegalArgumentException(
+              "Invalid block number: must be a hex string with 0x prefix");
+        }
         type = BlockParameterType.NUMERIC;
-        number = OptionalLong.of(Long.decode(jsonNode.get("blockNumber").asText()));
+        number = OptionalLong.of(Long.decode(blockNumberText));
         blockHash = Optional.empty();
         requireCanonical = false;
       }

@@ -304,10 +304,9 @@ public class BlocksSubCommand implements Runnable {
 
     private void importRlpBlocks(final BesuController controller, final Path path)
         throws IOException {
-      parentCommand
-          .rlpBlockImporter
-          .get()
-          .importBlockchain(path, controller, skipPow, startBlock, endBlock);
+      try (final RlpBlockImporter importer = parentCommand.rlpBlockImporter.get()) {
+        importer.importBlockchain(path, controller, skipPow, startBlock, endBlock);
+      }
     }
 
     private void importEra1Blocks(final BesuController controller, final Path path)

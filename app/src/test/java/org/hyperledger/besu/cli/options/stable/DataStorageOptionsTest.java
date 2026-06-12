@@ -232,6 +232,22 @@ public class DataStorageOptionsTest
         "--receipt-compaction-enabled=false");
   }
 
+  @Test
+  public void revertReasonCanBeEnabled() {
+    internalTestSuccess(
+        dataStorageConfiguration ->
+            assertThat(dataStorageConfiguration.getRevertReasonEnabled()).isTrue(),
+        "--revert-reason-enabled=true");
+  }
+
+  @Test
+  public void revertReasonCanBeDisabled() {
+    internalTestSuccess(
+        dataStorageConfiguration ->
+            assertThat(dataStorageConfiguration.getRevertReasonEnabled()).isFalse(),
+        "--revert-reason-enabled=false");
+  }
+
   @Override
   protected DataStorageConfiguration createDefaultDomainObject() {
     return DataStorageConfiguration.DEFAULT_CONFIG;
@@ -249,6 +265,7 @@ public class DataStorageOptionsTest
                 .parallelTxProcessingEnabled(true)
                 .parallelStateRootComputationEnabled(true)
                 .build())
+        .revertReasonEnabled(true)
         .build();
   }
 

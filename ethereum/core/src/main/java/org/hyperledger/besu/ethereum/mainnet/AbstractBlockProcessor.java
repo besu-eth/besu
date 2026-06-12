@@ -26,7 +26,6 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
@@ -39,7 +38,6 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAcces
 import org.hyperledger.besu.ethereum.mainnet.parallelization.PreprocessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessingContext;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitter;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
@@ -47,6 +45,7 @@ import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.StackedUpdater;
 import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -54,6 +53,8 @@ import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.BlockImportTracerProvider;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.tracer.BlockAwareOperationTracer;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
+import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 
 import java.text.MessageFormat;
 import java.util.ArrayList;
@@ -259,7 +260,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
               worldState,
               protocolSpec,
               blockHashLookup,
-              blockTracer,
+              !blockTracer.isEnabled() ? OperationTracer.NO_TRACING : blockTracer,
               blockAccessListBuilder);
       protocolSpec
           .getPreExecutionProcessor()
@@ -342,23 +343,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
 
         applyPartialBlockAccessView(
             transactionProcessingResult.getPartialBlockAccessView(), blockAccessListBuilder);
-
-        if (blockAccessListBuilder.isPresent()) {
-          final BlockAccessListItemSizeCheck itemSizeCheck =
-              protocolSpec
-                  .getBlockAccessListValidator()
-                  .validateExecutedBlockAccessListItemSize(
-                      blockAccessListBuilder.get().eip7928ItemCount(), blockHeader, protocolSpec);
-          if (itemSizeCheck.isOverBudget()) {
-            final String errorMessage =
-                itemSizeCheck.overBudgetError().orElseThrow().errorMessage();
-            LOG.error(errorMessage);
-            if (worldState instanceof BonsaiWorldState) {
-              ((BonsaiWorldStateUpdateAccumulator) blockUpdater).reset();
-            }
-            return new BlockProcessingResult(Optional.empty(), errorMessage);
-          }
-        }
 
         if (transactionUpdater instanceof StackedUpdater<?, ?>) {
           transactionUpdater.commit();
@@ -556,7 +540,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         RuntimeException rethrown = e;
         throw rethrown;
       } catch (StateRootMismatchException ex) {
-        LOG.error(
+        LOG.info(
             "failed persisting block due to stateroot mismatch; expected {}, actual {}",
             ex.getExpectedRoot().getBytes().toHexString(),
             ex.getActualRoot().getBytes().toHexString());

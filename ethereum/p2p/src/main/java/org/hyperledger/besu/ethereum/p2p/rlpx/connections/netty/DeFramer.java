@@ -62,6 +62,9 @@ final class DeFramer extends ByteToMessageDecoder {
 
   private static final Logger LOG = LoggerFactory.getLogger(DeFramer.class);
 
+  // Maximum size of a HELLO message in bytes
+  static final int MAX_HELLO_MESSAGE_SIZE = 2 * 1024;
+
   private final CompletableFuture<PeerConnection> connectFuture;
 
   private final PeerConnectionEventDispatcher connectionEventDispatcher;
@@ -147,6 +150,18 @@ final class DeFramer extends ByteToMessageDecoder {
         out.add(message);
 
       } else if (message.getCode() == WireMessageCodes.HELLO) {
+
+        if (message.getSize() > MAX_HELLO_MESSAGE_SIZE) {
+          LOG.debug(
+              "Oversized HELLO message received ({} bytes > {} max), disconnecting peer {}",
+              message.getSize(),
+              MAX_HELLO_MESSAGE_SIZE,
+              expectedPeer.map(Peer::getEnodeURLString).orElse("unknown"));
+          connectFuture.completeExceptionally(
+              new BreachOfProtocolException("Oversized HELLO message"));
+          ctx.close();
+          return;
+        }
 
         hellosExchanged = true;
         // Decode first hello and use the payload to modify pipeline
@@ -248,13 +263,15 @@ final class DeFramer extends ByteToMessageDecoder {
       } else {
         // Unexpected message - disconnect
 
-        LOG.debug(
-            "Message received before HELLO's exchanged (BREACH_OF_PROTOCOL), disconnecting.  Peer: {}, Code: {}, Data: {}",
-            expectedPeer.map(Peer::getEnodeURLString).orElse("unknown"),
-            message.getCode(),
-            message instanceof RawMessage raw && raw.getCompressedData() != null
-                ? "snappy compressed data: " + Bytes.wrap(raw.getCompressedData())
-                : message.getData().toString());
+        if (LOG.isDebugEnabled()) {
+          LOG.debug(
+              "Message received before HELLO's exchanged (BREACH_OF_PROTOCOL), disconnecting.  Peer: {}, Code: {}, Data: {}",
+              expectedPeer.map(Peer::getEnodeURLString).orElse("unknown"),
+              message.getCode(),
+              message instanceof RawMessage raw && raw.getCompressedData() != null
+                  ? "snappy compressed data: " + Bytes.wrap(raw.getCompressedData())
+                  : message.getData());
+        }
         ctx.writeAndFlush(
                 new OutboundMessage(
                     null,
