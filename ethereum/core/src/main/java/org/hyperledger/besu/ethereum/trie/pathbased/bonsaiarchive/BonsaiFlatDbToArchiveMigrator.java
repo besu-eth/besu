@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsaiarchive;
 
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE_ARCHIVE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_MIGRATION;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE_ARCHIVE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.ARCHIVE_PROOF_BLOCK_NUMBER_KEY;
@@ -645,7 +646,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
         // Metadata keys only (WORLD_*, ARCHIVE_PROOF_BLOCK_NUMBER_KEY) — kept in-memory so they
         // never touch live HEAD's TRIE_BRANCH_STORAGE.
         inMemoryTx.put(segmentId, key, value);
-      } else if (segmentId == TRIE_BRANCH_STORAGE_ARCHIVE) {
+      } else if (segmentId == TRIE_BRANCH_STORAGE_ARCHIVE || segmentId == TRIE_BRANCH_MIGRATION) {
         realTx.put(segmentId, key, value);
       }
       // flat account/storage writes dropped — processBlock() handles those separately
@@ -655,6 +656,8 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
     public void remove(final SegmentIdentifier segmentId, final byte[] key) {
       if (segmentId == TRIE_BRANCH_STORAGE) {
         inMemoryTx.remove(segmentId, key);
+      } else if (segmentId == TRIE_BRANCH_MIGRATION) {
+        realTx.remove(segmentId, key);
       }
       // archive removes dropped
     }
