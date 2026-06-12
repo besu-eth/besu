@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 
 import java.util.Collections;
@@ -41,6 +42,9 @@ public final class BlockAccessListIndex {
   /** address → (slot → sorted StorageChange list) for O(1) slot-level write lookup. */
   private final Map<Address, Map<StorageSlotKey, List<BlockAccessList.StorageChange>>> slotIndex;
 
+  /** address → precomputed keccak256 hash (avoids repeated Caffeine lookups in hot paths). */
+  private final Map<Address, Hash> hashIndex;
+
   /**
    * Builds index structures over {@code bal}. The {@link BlockAccessList} is not copied.
    *
@@ -53,9 +57,12 @@ public final class BlockAccessListIndex {
     final Map<Address, BlockAccessList.AccountChanges> accountMap = new HashMap<>(n * 2);
     final Map<Address, Map<StorageSlotKey, List<BlockAccessList.StorageChange>>> slotMap =
         new HashMap<>(n * 2);
+    final Map<Address, Hash> hashMap = new HashMap<>(n * 2);
 
     for (final BlockAccessList.AccountChanges ac : bal.accountChanges()) {
-      accountMap.put(ac.address(), ac);
+      final Address addr = ac.address();
+      accountMap.put(addr, ac);
+      hashMap.put(addr, addr.addressHash());
 
       if (!ac.storageChanges().isEmpty()) {
         final Map<StorageSlotKey, List<BlockAccessList.StorageChange>> perSlot =
@@ -63,12 +70,13 @@ public final class BlockAccessListIndex {
         for (final BlockAccessList.SlotChanges sc : ac.storageChanges()) {
           perSlot.put(sc.slot(), sc.changes());
         }
-        slotMap.put(ac.address(), perSlot);
+        slotMap.put(addr, perSlot);
       }
     }
 
     this.accountIndex = Collections.unmodifiableMap(accountMap);
     this.slotIndex = Collections.unmodifiableMap(slotMap);
+    this.hashIndex = Collections.unmodifiableMap(hashMap);
   }
 
   /**
@@ -78,6 +86,19 @@ public final class BlockAccessListIndex {
    */
   public BlockAccessList getBlockAccessList() {
     return bal;
+  }
+
+  /**
+   * O(1) lookup for the precomputed keccak256 hash of {@code address}.
+   *
+   * <p>The hash is computed once at index construction time, avoiding repeated Caffeine lookups in
+   * hot paths such as {@code getForMutation}.
+   *
+   * @param address the account address
+   * @return the precomputed {@link Hash}, or {@code null} if {@code address} is not in the BAL
+   */
+  public Hash findAccountHash(final Address address) {
+    return hashIndex.get(address);
   }
 
   /**

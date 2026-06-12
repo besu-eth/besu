@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListIn
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiBalWorldStateUpdater;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldView;
 import org.hyperledger.besu.evm.Code;
-import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.internal.CodeCache;
 
 import java.util.List;
@@ -80,7 +79,7 @@ public class BonsaiBalAccount extends BonsaiAccount {
     super(
         world,
         address,
-        address.addressHash(),
+        balIndex.findAccountHash(address),
         0L,
         Wei.ZERO,
         Hash.EMPTY_TRIE_HASH,
@@ -109,7 +108,7 @@ public class BonsaiBalAccount extends BonsaiAccount {
     this.parent =
         Suppliers.memoize(
             () -> {
-              final Account a = worldView.get(address);
+              final var a = worldView.get(address);
               return a instanceof BonsaiAccount b ? b : null;
             });
   }
