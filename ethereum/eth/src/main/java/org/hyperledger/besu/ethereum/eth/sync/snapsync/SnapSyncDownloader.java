@@ -105,8 +105,10 @@ public class SnapSyncDownloader implements SnapSyncController {
     Throwable rootCause = ExceptionUtils.rootCause(error);
     if (rootCause instanceof NoSyncRequiredException) {
       return CompletableFuture.completedFuture(new NoSyncRequiredState());
-    } else if (rootCause instanceof SyncException) {
-      return CompletableFuture.failedFuture(error);
+    } else if (rootCause instanceof SyncException syncEx) {
+      // Pivot block header mismatch is caused by bad peers — re-pivot to recover.
+      LOG.debug("Sync error ({}), re-pivoting.", syncEx.getError());
+      return start(new SnapSyncProcessState());
     } else if (rootCause instanceof WrongChainException) {
       LOG.debug("Downloaded chain does not connect to our genesis, re-pivoting.");
       return start(new SnapSyncProcessState());
@@ -114,7 +116,11 @@ public class SnapSyncDownloader implements SnapSyncController {
       LOG.debug("Stalled sync re-pivoting to newer block.");
       return start(new SnapSyncProcessState());
     } else if (rootCause instanceof CancellationException) {
-      return CompletableFuture.failedFuture(error);
+      if (!running.get()) {
+        return CompletableFuture.failedFuture(error);
+      }
+      LOG.debug("Sync cancelled internally, re-pivoting.");
+      return start(new SnapSyncProcessState());
     } else if (rootCause instanceof MaxRetriesReachedException) {
       LOG.debug(
           "A download operation reached the max number of retries, re-pivoting to newer block");
