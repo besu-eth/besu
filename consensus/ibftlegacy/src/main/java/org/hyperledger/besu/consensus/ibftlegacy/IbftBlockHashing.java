@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.consensus.ibftlegacy;
 
-import java.util.Optional;
 import org.hyperledger.besu.consensus.common.bft.BftBlockHeaderFunctions;
 import org.hyperledger.besu.consensus.common.bft.BftExtraData;
 import org.hyperledger.besu.crypto.SECPSignature;
