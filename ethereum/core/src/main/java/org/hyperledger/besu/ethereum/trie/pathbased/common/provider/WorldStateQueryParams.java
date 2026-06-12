@@ -15,42 +15,41 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.common.provider;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAddressView;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldUpdater;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 
 /** Parameters for querying the world state. */
 public class WorldStateQueryParams {
-
-  /**
-   * BAL overlay applied when the world state's accumulator is created (parallel execution).
-   *
-   * @param blockAccessListAddressView per-block address-indexed view of the current block's BAL
-   * @param maxTxIndexExclusive index of the transaction about to execute; overlay includes changes
-   *     with {@code txIndex < maxTxIndexExclusive}
-   */
-  public record BalOverlayQuery(
-      BlockAccessListAddressView blockAccessListAddressView, long maxTxIndexExclusive) {}
 
   private final BlockHeader blockHeader;
   private final boolean shouldWorldStateUpdateHead;
   private final Hash blockHash;
   private final Optional<Hash> stateRoot;
-  private final Optional<BalOverlayQuery> balOverlayQuery;
+  /**
+   * Optional factory for creating a custom world-state updater (e.g. {@code
+   * BonsaiBalWorldStateUpdater} for BAL-backed parallel execution).
+   *
+   * <p>The type parameter is deliberately raw ({@code PathBasedWorldStateUpdateAccumulator<?>}) so
+   * that callers do not need to know the concrete account type.
+   */
+  private final Optional<Function<?, PathBasedWorldUpdater>> updaterFactory;
 
   /**
    * Private constructor to enforce the use of the Builder.
    *
    * @param builder the builder to create an instance of WorldStateQueryParams
    */
+  @SuppressWarnings("rawtypes")
   private WorldStateQueryParams(final Builder builder) {
     this.blockHeader = builder.blockHeader;
     this.shouldWorldStateUpdateHead = builder.shouldWorldStateUpdateHead;
     this.blockHash = builder.blockHash;
     this.stateRoot = builder.stateRoot;
-    this.balOverlayQuery = builder.balOverlayQuery;
+    this.updaterFactory = builder.updaterFactory;
   }
 
   /**
@@ -90,12 +89,14 @@ public class WorldStateQueryParams {
   }
 
   /**
-   * Optional BAL overlay to configure on the new world state's accumulator at creation time.
+   * Optional factory for creating the world state updater.
    *
-   * @return BAL overlay query parameters, if any
+   * @param <W> the concrete world state type accepted by the factory
+   * @return the updater factory, if any
    */
-  public Optional<BalOverlayQuery> getBalOverlayQuery() {
-    return balOverlayQuery;
+  @SuppressWarnings("unchecked")
+  public <W> Optional<Function<W, PathBasedWorldUpdater>> getUpdaterFactory() {
+    return (Optional<Function<W, PathBasedWorldUpdater>>) (Optional<?>) updaterFactory;
   }
 
   /**
@@ -180,13 +181,13 @@ public class WorldStateQueryParams {
         && Objects.equals(blockHeader, that.blockHeader)
         && Objects.equals(blockHash, that.blockHash)
         && Objects.equals(stateRoot, that.stateRoot)
-        && Objects.equals(balOverlayQuery, that.balOverlayQuery);
+        && Objects.equals(updaterFactory, that.updaterFactory);
   }
 
   @Override
   public int hashCode() {
     return Objects.hash(
-        blockHeader, shouldWorldStateUpdateHead, blockHash, stateRoot, balOverlayQuery);
+        blockHeader, shouldWorldStateUpdateHead, blockHash, stateRoot, updaterFactory);
   }
 
   public static class Builder {
@@ -194,7 +195,7 @@ public class WorldStateQueryParams {
     private boolean shouldWorldStateUpdateHead = false;
     private Hash blockHash;
     private Optional<Hash> stateRoot = Optional.empty();
-    private Optional<BalOverlayQuery> balOverlayQuery = Optional.empty();
+    private Optional<Function<?, PathBasedWorldUpdater>> updaterFactory = Optional.empty();
 
     private Builder() {}
 
@@ -246,17 +247,14 @@ public class WorldStateQueryParams {
     }
 
     /**
-     * Applies a BAL overlay when the queried world state's accumulator is created.
+     * Configures a factory for the world state updater.
      *
-     * @param blockAccessListAddressView per-block address-indexed view of the current block's BAL
-     * @param maxTxIndexExclusive index of the transaction about to execute
-     * @return the builder
+     * @param <W> the concrete world state type accepted by the factory
+     * @param factory a function that receives the new world state and returns the updater
+     * @return this builder
      */
-    public Builder withBalOverlay(
-        final BlockAccessListAddressView blockAccessListAddressView,
-        final long maxTxIndexExclusive) {
-      this.balOverlayQuery =
-          Optional.of(new BalOverlayQuery(blockAccessListAddressView, maxTxIndexExclusive));
+    public <W> Builder withUpdaterFactory(final Function<W, PathBasedWorldUpdater> factory) {
+      this.updaterFactory = Optional.of(factory);
       return this;
     }
 
