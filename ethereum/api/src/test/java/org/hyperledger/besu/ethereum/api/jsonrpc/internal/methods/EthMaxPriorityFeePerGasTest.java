@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -138,6 +139,38 @@ public class EthMaxPriorityFeePerGasTest {
     assertThat(actualResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
   }
 
+  @Test
+  public void whenGasPriceBlocksIsZeroReturnConfiguredMinPriorityFee() {
+    final Wei expectedFee = Wei.of(42);
+    miningConfiguration.setMinPriorityFeePerGas(expectedFee);
+    final var methodWithZeroBlocks = createEthMaxPriorityFeePerGasMethod(0L);
+
+    final JsonRpcRequestContext request = requestWithParams();
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(request.getRequest().getId(), expectedFee.toShortHexString());
+
+    assertThat(methodWithZeroBlocks.response(request))
+        .usingRecursiveComparison()
+        .isEqualTo(expectedResponse);
+    verifyNoInteractions(blockchain);
+  }
+
+  @Test
+  public void whenGasPriceBlocksIsZeroAndMinPriorityFeeIsZeroReturnZero() {
+    // minPriorityFeePerGas defaults to Wei.ZERO; blocks=0 should return it without blockchain
+    // access
+    final var methodWithZeroBlocks = createEthMaxPriorityFeePerGasMethod(0L);
+
+    final JsonRpcRequestContext request = requestWithParams();
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(request.getRequest().getId(), Wei.ZERO.toShortHexString());
+
+    assertThat(methodWithZeroBlocks.response(request))
+        .usingRecursiveComparison()
+        .isEqualTo(expectedResponse);
+    verifyNoInteractions(blockchain);
+  }
+
   private JsonRpcRequestContext requestWithParams(final Object... params) {
     return new JsonRpcRequestContext(new JsonRpcRequest(JSON_RPC_VERSION, ETH_METHOD, params));
   }
@@ -229,6 +262,10 @@ public class EthMaxPriorityFeePerGasTest {
   }
 
   private EthMaxPriorityFeePerGas createEthMaxPriorityFeePerGasMethod() {
+    return createEthMaxPriorityFeePerGasMethod(100L);
+  }
+
+  private EthMaxPriorityFeePerGas createEthMaxPriorityFeePerGasMethod(final long gasPriceBlocks) {
     return new EthMaxPriorityFeePerGas(
         new BlockchainQueries(
             protocolSchedule,
@@ -236,7 +273,7 @@ public class EthMaxPriorityFeePerGasTest {
             null,
             Optional.empty(),
             Optional.empty(),
-            ImmutableApiConfiguration.builder().build(),
+            ImmutableApiConfiguration.builder().gasPriceBlocks(gasPriceBlocks).build(),
             miningConfiguration));
   }
 }
