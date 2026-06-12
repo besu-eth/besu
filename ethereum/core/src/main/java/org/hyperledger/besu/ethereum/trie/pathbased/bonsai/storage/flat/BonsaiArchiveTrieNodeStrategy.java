@@ -76,7 +76,7 @@ public class BonsaiArchiveTrieNodeStrategy implements TrieNodeStrategy {
       final Bytes location, final Bytes32 nodeHash, final SegmentedKeyValueStorage storage) {
     Bytes keyNearest =
         BonsaiArchiveKeyUtil.calculateArchiveKeyWithMaxSuffix(
-            BonsaiArchiveKeyUtil.getStateArchiveContextForRead(storage), location.toArrayUnsafe());
+            getStateTrieArchiveContextForRead(storage), location.toArrayUnsafe());
     return storage
         .getNearestBeforeMatchLength(TRIE_BRANCH_STORAGE_ARCHIVE, keyNearest)
         .filter(
@@ -95,8 +95,7 @@ public class BonsaiArchiveTrieNodeStrategy implements TrieNodeStrategy {
     Bytes accountHashLocation = Bytes.concatenate(accountHash.getBytes(), location);
     Bytes keyNearest =
         BonsaiArchiveKeyUtil.calculateArchiveKeyWithMaxSuffix(
-            BonsaiArchiveKeyUtil.getStateArchiveContextForRead(storage),
-            accountHashLocation.toArrayUnsafe());
+            getStateTrieArchiveContextForRead(storage), accountHashLocation.toArrayUnsafe());
     return storage
         .getNearestBeforeMatchLength(TRIE_BRANCH_STORAGE_ARCHIVE, keyNearest)
         .filter(
@@ -170,6 +169,25 @@ public class BonsaiArchiveTrieNodeStrategy implements TrieNodeStrategy {
       final SegmentedKeyValueStorageTransaction transaction,
       final Bytes location) {
     baseStrategy.removeFlatAccountStateTrieNode(storage, transaction, location);
+  }
+
+  /**
+   * Checkpoint block C's trie nodes are archived at the start of the window ending at C ({@code
+   * (C/interval)*interval}). The proof-serving layer pins that window start under {@code
+   * ARCHIVE_PROOF_BLOCK_NUMBER_KEY} so every trie-node read of the proof world state resolves
+   * within the rolled-from checkpoint's window. Without it, reads fall back to {@code
+   * WORLD_BLOCK_NUMBER_KEY} (the target block number), which for a roll-forward target in the
+   * window after C resolves to the next checkpoint's nodes wherever they exist, shadowing
+   * checkpoint C's trie.
+   */
+  private Optional<BonsaiContext> getStateTrieArchiveContextForRead(
+      final SegmentedKeyValueStorage storage) {
+    Optional<byte[]> proofTrieContext =
+        storage.get(TRIE_BRANCH_STORAGE, ARCHIVE_PROOF_BLOCK_NUMBER_KEY);
+    if (proofTrieContext.isPresent()) {
+      return Optional.of(new BonsaiContext(Bytes.wrap(proofTrieContext.get()).toLong()));
+    }
+    return BonsaiArchiveKeyUtil.getStateArchiveContextForRead(storage);
   }
 
   private BonsaiContext getStateTrieArchiveContextForWrite(final SegmentedKeyValueStorage storage) {

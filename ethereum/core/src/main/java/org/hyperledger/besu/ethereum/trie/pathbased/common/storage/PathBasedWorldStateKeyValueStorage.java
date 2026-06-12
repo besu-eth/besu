@@ -63,6 +63,10 @@ public abstract class PathBasedWorldStateKeyValueStorage
   public static final byte[] ARCHIVE_PROOF_CHECKPOINT_INTERVAL_KEY =
       "archiveProofCheckpointInterval".getBytes(StandardCharsets.UTF_8);
 
+  // Written only to the in-memory proof layer: holds the checkpoint's window start
+  // ((checkpoint/interval)*interval) — the suffix the migrator archived the checkpoint's trie
+  // nodes under — used as the archive trie-node read context while serving state proofs. Flat
+  // reads keep using WORLD_BLOCK_NUMBER_KEY (the block number).
   public static final byte[] ARCHIVE_PROOF_BLOCK_NUMBER_KEY =
       "archiveProofBlockNumber".getBytes(StandardCharsets.UTF_8);
 

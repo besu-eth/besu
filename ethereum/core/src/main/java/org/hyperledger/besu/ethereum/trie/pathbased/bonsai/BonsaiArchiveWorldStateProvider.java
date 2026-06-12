@@ -156,9 +156,9 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
    * Builds a world state for archive proof generation, backed by an in-memory {@link
    * BonsaiArchiveWorldStateLayerStorage} layer over the (read-only) archive storage. It is
    * deliberately NOT frozen: the subsequent {@code rollArchiveProofWorldStateToBlockHash} persist
-   * must be able to write the rolled-back trie nodes into the layer (keyed at the target block's
-   * suffix via {@code ARCHIVE_PROOF_BLOCK_NUMBER_KEY}) so the proof can read the historical state.
-   * The writes land only in the discardable in-memory layer, never the persistent archive CF.
+   * must be able to write the rolled trie nodes into the layer (plain trie-branch keys) so the
+   * proof can read the historical state. The writes land only in the discardable in-memory layer,
+   * never the persistent archive CF.
    */
   private BonsaiWorldState newArchiveProofWorldState(final WorldStateConfig config) {
     final BonsaiArchiveWorldStateLayerStorage layerStorage =
@@ -199,6 +199,24 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       final Hash targetBlockHash) {
 
     ((BonsaiWorldState) mutableState).resetWorldStateToCheckpoint(checkpointBlock);
+
+    // The migrator archives checkpoint block C's trie nodes at suffix = the start of the window
+    // that ends at C, i.e. (C / interval) * interval. Pin that suffix as the trie-node read
+    // context under ARCHIVE_PROOF_BLOCK_NUMBER_KEY for the lifetime of this proof world state.
+    // Without it, a roll-forward target in the window after C would read with context = target
+    // block number, which resolves to the NEXT checkpoint's nodes (suffix C+1) wherever they
+    // exist, shadowing checkpoint C's trie and failing proof traversal with "Unable to load trie
+    // node value". WORLD_BLOCK_NUMBER_KEY is left at the block number so flat account/storage
+    // reads keep their per-block semantics.
+    final long checkpointWindowStart =
+        (checkpointBlock.getNumber() / trieNodeCheckpointInterval) * trieNodeCheckpointInterval;
+    final SegmentedKeyValueStorageTransaction trieContextTx =
+        mutableState.getWorldStateStorage().getComposedWorldStateStorage().startTransaction();
+    trieContextTx.put(
+        TRIE_BRANCH_STORAGE,
+        ARCHIVE_PROOF_BLOCK_NUMBER_KEY,
+        Bytes.ofUnsignedLong(checkpointWindowStart).toArrayUnsafe());
+    trieContextTx.commit();
 
     if (targetBlockHash.equals(mutableState.blockHash())) {
       return Optional.of(mutableState);
@@ -277,15 +295,6 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
           bonsaiUpdater.resetStorageRootsToCheckpointForArchiveProof();
         }
         diffBasedUpdater.commit();
-
-        // overrides suffix selection in putFlatAccountTrieNode/putFlatStorageTrieNode
-        final SegmentedKeyValueStorageTransaction tx =
-            mutableState.getWorldStateStorage().getComposedWorldStateStorage().startTransaction();
-        tx.put(
-            TRIE_BRANCH_STORAGE,
-            ARCHIVE_PROOF_BLOCK_NUMBER_KEY,
-            Bytes.ofUnsignedLong(targetHeader.getNumber()).toArrayUnsafe());
-        tx.commit();
 
         mutableState.persist(targetHeader);
 

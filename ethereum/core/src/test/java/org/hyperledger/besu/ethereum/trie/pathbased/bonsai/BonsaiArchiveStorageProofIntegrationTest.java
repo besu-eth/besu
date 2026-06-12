@@ -75,6 +75,12 @@ class BonsaiArchiveStorageProofIntegrationTest {
 
   private static final Address ACCOUNT =
       Address.fromHexString("0x1111111111111111111111111111111111111111");
+  // Created at block 1, untouched until block 6, then modified every block from 6 onwards. Its
+  // account-trie leaf is therefore absent from a 4..5 roll-forward diff but rewritten (at the
+  // next window's suffix) by the block-7 checkpoint, and different again at HEAD.
+  private static final Address STABLE_THEN_CHURNING_ACCOUNT =
+      Address.fromHexString("0x2222222222222222222222222222222222222222");
+  private static final Wei STABLE_BALANCE = Wei.of(500L);
   private static final long INTERVAL = 4L; // trie checkpoint at blocks 3, 7, ...
   private static final long ARCHIVE_BOUNDARY = 4L; // small so early blocks are "historical"
   private static final int NUM_BLOCKS = 10;
@@ -105,6 +111,47 @@ class BonsaiArchiveStorageProofIntegrationTest {
     // Slot 1 was set to the block number, so at block 2 it must prove value 2.
     assertThat(proof.get().getStorageProof(UInt256.ONE)).isNotEmpty();
     assertThat(proof.get().getStorageValue(UInt256.ONE)).isEqualTo(UInt256.valueOf(TARGET_BLOCK));
+  }
+
+  @Test
+  void historicalStorageProof_rollsForwardFromFloorCheckpoint_acrossWindowBoundary()
+      throws Exception {
+    final BonsaiArchiveWorldStateProvider archiveProvider = buildMigratedArchive();
+    // Block 5 sits in the window after the floor checkpoint (block 3, archived at suffix 0) and
+    // equidistant from the ceiling checkpoint (block 7, archived at suffix 4), so the proof world
+    // state rolls FORWARD from checkpoint 3. Trie-node reads must stay pinned to checkpoint 3's
+    // window: a read context of the target block number (5) would resolve to checkpoint 7's
+    // archived nodes (suffix 4), shadowing checkpoint 3's trie and failing the proof traversal
+    // with "Unable to load trie node value".
+    final long target = 5L;
+    final BlockHeader targetHeader = blockchain.getBlockHeader(target).orElseThrow();
+
+    final Optional<WorldStateProof> proof =
+        archiveProvider.getAccountProof(
+            targetHeader, ACCOUNT, List.of(UInt256.ONE), Function.identity());
+
+    assertThat(proof)
+        .withFailMessage("archive proof should be available for historical block %d", target)
+        .isPresent();
+    // Slot 1 was set to the block number, so at block 5 it must prove value 5.
+    assertThat(proof.get().getStorageProof(UInt256.ONE)).isNotEmpty();
+    assertThat(proof.get().getStorageValue(UInt256.ONE)).isEqualTo(UInt256.valueOf(target));
+
+    // The stable account's trie leaf is not part of the 4..5 roll-forward diff, so its proof must
+    // be served from checkpoint 3's archived nodes (suffix 0). Checkpoint 7 rewrote the same
+    // location at suffix 4 with a different balance, and HEAD differs again — both would fail the
+    // node-hash check if the read context were not pinned to the rolled-from checkpoint's window.
+    final Optional<WorldStateProof> stableProof =
+        archiveProvider.getAccountProof(
+            targetHeader, STABLE_THEN_CHURNING_ACCOUNT, List.of(), Function.identity());
+
+    assertThat(stableProof)
+        .withFailMessage(
+            "archive proof for an account outside the roll-forward diff should be available")
+        .isPresent();
+    assertThat(stableProof.get().getStateTrieAccountValue())
+        .isPresent()
+        .hasValueSatisfying(v -> assertThat(v.getBalance()).isEqualByComparingTo(STABLE_BALANCE));
   }
 
   @Test
@@ -275,11 +322,17 @@ class BonsaiArchiveStorageProofIntegrationTest {
     final WorldUpdater updater = state.updater();
     if (blockNumber == 1) {
       updater.createAccount(ACCOUNT, 0, Wei.of(1_000_000L));
+      updater.createAccount(STABLE_THEN_CHURNING_ACCOUNT, 0, STABLE_BALANCE);
     }
     final MutableAccount account = updater.getAccount(ACCOUNT);
     account.setStorageValue(UInt256.ONE, UInt256.valueOf(blockNumber));
     // Touch a rotating slot so the storage trie changes shape across the checkpoint window.
     account.setStorageValue(UInt256.valueOf(100 + blockNumber), UInt256.valueOf(blockNumber * 7L));
+    if (blockNumber >= 6) {
+      updater
+          .getAccount(STABLE_THEN_CHURNING_ACCOUNT)
+          .setBalance(STABLE_BALANCE.add(Wei.of(blockNumber)));
+    }
     updater.commit();
   }
 }
