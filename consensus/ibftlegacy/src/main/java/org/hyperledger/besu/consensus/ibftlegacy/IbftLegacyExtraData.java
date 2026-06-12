@@ -22,11 +22,12 @@ import java.util.Collection;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.jspecify.annotations.Nullable;
 
 /** The Ibft Legacy extra data. */
 public class IbftLegacyExtraData extends BftExtraData {
 
-  private final SECPSignature proposerSeal;
+  private final @Nullable SECPSignature proposerSeal;
 
   /**
    * Instantiates a new Bft extra data.
@@ -39,7 +40,7 @@ public class IbftLegacyExtraData extends BftExtraData {
   public IbftLegacyExtraData(
       final Bytes vanityData,
       final Collection<SECPSignature> seals,
-      final SECPSignature proposerSeal,
+      final @Nullable SECPSignature proposerSeal,
       final Collection<Address> validators) {
     super(vanityData, seals, Optional.empty(), 0, validators);
     this.proposerSeal = proposerSeal;
@@ -50,7 +51,7 @@ public class IbftLegacyExtraData extends BftExtraData {
    *
    * @return the proposer seal
    */
-  public SECPSignature getProposerSeal() {
+  public @Nullable SECPSignature getProposerSeal() {
     return proposerSeal;
   }
 
