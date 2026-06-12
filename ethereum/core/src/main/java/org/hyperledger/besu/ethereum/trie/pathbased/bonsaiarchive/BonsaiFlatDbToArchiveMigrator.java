@@ -548,7 +548,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
     if (isTrieCheckpointBlock(blockNumber)) {
       final long interval = archiveStrategy.getTrieNodeCheckpointInterval();
       final long suffix = (blockNumber / interval) * interval;
-      LOG.info(
+      LOG.debug(
           "Archive trie checkpoint: persisting block {} (window suffix {})", blockNumber, suffix);
       blockchain
           .getBlockHeader(blockNumber)
@@ -559,7 +559,7 @@ public class BonsaiFlatDbToArchiveMigrator implements Closeable {
                 // the next window find this window's nodes immediately — no clearInMemory() wipe
                 // of a read substrate. Only the in-memory metadata keys are refreshed.
                 migrationTrieStorage.seedCheckpoint(header);
-                LOG.info(
+                LOG.debug(
                     "Archive trie checkpoint complete: block {} suffix {} stateRoot {}",
                     blockNumber,
                     suffix,
