@@ -15,15 +15,20 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.WORLD_BLOCK_HASH_KEY;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
+import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy;
@@ -276,6 +281,89 @@ public class BonsaiArchiveWorldStateProviderTest {
     final BonsaiWorldState worldState = (BonsaiWorldState) result.get();
     assertThat(worldState.getWorldStateStorage().getFlatDbStrategy())
         .isInstanceOf(BonsaiArchiveFlatDbStrategy.class);
+  }
+
+  // --- Checkpoint direction selection tests ---
+
+  @Test
+  void proofsEnabled_floorCheckpointCloser_requestsFloorBlockNumber() {
+    // interval=100, target=110: floor=99 (dist=11), ceiling=199 (dist=89) → floor selected
+    final long interval = 100L;
+    final BonsaiArchiveWorldStateProvider proofsProvider =
+        createProviderWithProofs(true, true, interval);
+    proofsProvider.setArchiveMigrationProgressSupplier(() -> CHAIN_HEAD);
+
+    final long targetNumber = 110L;
+    final BlockHeader targetHeader =
+        new BlockHeaderTestFixture().number(targetNumber).buildHeader();
+    final BlockHeader floorHeader = new BlockHeaderTestFixture().number(99L).buildHeader();
+
+    when(blockchain.getBlockHeader(targetHeader.getHash())).thenReturn(Optional.of(targetHeader));
+    when(blockchain.getBlockHeaderSafe(99L)).thenReturn(Optional.of(floorHeader));
+    // ceiling=199 not mocked — returns Optional.empty() by Mockito default
+
+    // getWorldState throws MerkleTrieException in the unit test (no real trie state).
+    // The checkpoint-selection verify below is the assertion under test.
+    assertThatThrownBy(
+            () ->
+                proofsProvider.getWorldState(
+                    WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(targetHeader)))
+        .isInstanceOf(MerkleTrieException.class);
+
+    verify(blockchain, atLeastOnce()).getBlockHeaderSafe(99L); // floor was chosen
+    verify(blockchain, never()).getBlockHeaderSafe(199L); // ceiling was NOT requested
+  }
+
+  @Test
+  void proofsEnabled_ceilingCheckpointCloser_requestsCeilingBlockNumber() {
+    // interval=100, target=180: floor=99 (dist=81), ceiling=199 (dist=19) → ceiling selected
+    final long interval = 100L;
+    final BonsaiArchiveWorldStateProvider proofsProvider =
+        createProviderWithProofs(true, true, interval);
+    proofsProvider.setArchiveMigrationProgressSupplier(() -> CHAIN_HEAD);
+
+    final long targetNumber = 180L;
+    final BlockHeader targetHeader =
+        new BlockHeaderTestFixture().number(targetNumber).buildHeader();
+    final BlockHeader ceilingHeader = new BlockHeaderTestFixture().number(199L).buildHeader();
+
+    when(blockchain.getBlockHeader(targetHeader.getHash())).thenReturn(Optional.of(targetHeader));
+    when(blockchain.getBlockHeaderSafe(199L)).thenReturn(Optional.of(ceilingHeader));
+    // floor=99 not mocked — returns Optional.empty() by Mockito default
+
+    assertThatThrownBy(
+            () ->
+                proofsProvider.getWorldState(
+                    WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(targetHeader)))
+        .isInstanceOf(MerkleTrieException.class);
+
+    verify(blockchain, never()).getBlockHeaderSafe(99L); // floor was NOT requested
+    verify(blockchain, atLeastOnce()).getBlockHeaderSafe(199L); // ceiling was chosen
+  }
+
+  @Test
+  void proofsEnabled_targetInFirstWindow_alwaysRequestsCeiling() {
+    // interval=100, target=50: floor=(-1) does not exist → ceiling=99 always selected
+    final long interval = 100L;
+    final BonsaiArchiveWorldStateProvider proofsProvider =
+        createProviderWithProofs(true, true, interval);
+    proofsProvider.setArchiveMigrationProgressSupplier(() -> CHAIN_HEAD);
+
+    final long targetNumber = 50L;
+    final BlockHeader targetHeader =
+        new BlockHeaderTestFixture().number(targetNumber).buildHeader();
+    final BlockHeader ceilingHeader = new BlockHeaderTestFixture().number(99L).buildHeader();
+
+    when(blockchain.getBlockHeader(targetHeader.getHash())).thenReturn(Optional.of(targetHeader));
+    when(blockchain.getBlockHeaderSafe(99L)).thenReturn(Optional.of(ceilingHeader));
+
+    assertThatThrownBy(
+            () ->
+                proofsProvider.getWorldState(
+                    WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(targetHeader)))
+        .isInstanceOf(MerkleTrieException.class);
+
+    verify(blockchain, atLeastOnce()).getBlockHeaderSafe(99L); // ceiling is the only checkpoint
   }
 
   private BonsaiArchiveWorldStateProvider createProvider(final boolean archiveModeReady) {

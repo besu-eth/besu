@@ -172,12 +172,23 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         .map(BlockHeader::getNumber)
         .flatMap(
             targetNumber -> {
-              long nearestCheckpoint =
+              final long ceilingCheckpoint =
                   (((targetNumber + trieNodeCheckpointInterval) / trieNodeCheckpointInterval)
                           * trieNodeCheckpointInterval)
                       - 1;
+              final long floorCheckpoint =
+                  (targetNumber / trieNodeCheckpointInterval) * trieNodeCheckpointInterval - 1;
+              final long chosenCheckpoint;
+              if (floorCheckpoint >= 0) {
+                final long distanceToCeiling = ceilingCheckpoint - targetNumber;
+                final long distanceToFloor = targetNumber - floorCheckpoint;
+                chosenCheckpoint =
+                    distanceToFloor <= distanceToCeiling ? floorCheckpoint : ceilingCheckpoint;
+              } else {
+                chosenCheckpoint = ceilingCheckpoint;
+              }
               return blockchain
-                  .getBlockHeaderSafe(nearestCheckpoint)
+                  .getBlockHeaderSafe(chosenCheckpoint)
                   .or(() -> blockchain.getBlockHeaderSafe(blockchain.getChainHeadHash()));
             });
   }
@@ -200,46 +211,68 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
               .orElseThrow(
                   () ->
                       new MerkleTrieException("target block header not found: " + targetBlockHash));
-      final Optional<BlockHeader> maybePersistedHeader =
-          blockchain.getBlockHeaderSafe(mutableState.blockHash()).map(BlockHeader.class::cast);
-
-      final List<TrieLog> rollBacks = new ArrayList<>();
-      if (maybePersistedHeader.isEmpty()) {
-        trieLogManager.getTrieLogLayer(mutableState.blockHash()).ifPresent(rollBacks::add);
-      } else {
-        BlockHeader persistedHeader = maybePersistedHeader.get();
-        Hash persistedBlockHash = persistedHeader.getBlockHash();
-        while (persistedHeader.getNumber() > targetHeader.getNumber()) {
-          LOG.debug("Rollback {}", persistedBlockHash);
-          final Hash blockHashForLog = persistedBlockHash;
-          rollBacks.add(
-              trieLogManager
-                  .getTrieLogLayer(persistedBlockHash)
-                  .orElseThrow(
-                      () -> new MerkleTrieException("missing trie log for " + blockHashForLog)));
-          final Hash parentHash = persistedHeader.getParentHash();
-          persistedHeader =
-              blockchain
-                  .getBlockHeaderSafe(parentHash)
-                  .orElseThrow(
-                      () -> new MerkleTrieException("missing parent header for " + parentHash));
-          persistedBlockHash = persistedHeader.getBlockHash();
-        }
-      }
 
       final PathBasedWorldStateUpdateAccumulator<?> diffBasedUpdater =
           (PathBasedWorldStateUpdateAccumulator<?>) mutableState.updater();
       try {
-        for (final TrieLog rollBack : rollBacks) {
-          LOG.debug("Attempting rollback of {}", rollBack.getBlockHash());
-          diffBasedUpdater.rollBack(rollBack);
+        if (checkpointBlock.getNumber() < targetHeader.getNumber()) {
+          // Roll forward: checkpoint is before target; apply each block's trie log in sequence.
+          for (long blockNum = checkpointBlock.getNumber() + 1;
+              blockNum <= targetHeader.getNumber();
+              blockNum++) {
+            final long n = blockNum;
+            final Hash blockHash =
+                blockchain
+                    .getBlockHeader(blockNum)
+                    .orElseThrow(() -> new MerkleTrieException("missing block header at " + n))
+                    .getBlockHash();
+            LOG.debug("Roll forward {}", blockHash);
+            diffBasedUpdater.rollForward(
+                trieLogManager
+                    .getTrieLogLayer(blockHash)
+                    .orElseThrow(
+                        () -> new MerkleTrieException("missing trie log for " + blockHash)));
+          }
+        } else {
+          // Roll backward: checkpoint is after target; existing path.
+          final Optional<BlockHeader> maybePersistedHeader =
+              blockchain.getBlockHeaderSafe(mutableState.blockHash()).map(BlockHeader.class::cast);
+
+          final List<TrieLog> rollBacks = new ArrayList<>();
+          if (maybePersistedHeader.isEmpty()) {
+            trieLogManager.getTrieLogLayer(mutableState.blockHash()).ifPresent(rollBacks::add);
+          } else {
+            BlockHeader persistedHeader = maybePersistedHeader.get();
+            Hash persistedBlockHash = persistedHeader.getBlockHash();
+            while (persistedHeader.getNumber() > targetHeader.getNumber()) {
+              LOG.debug("Rollback {}", persistedBlockHash);
+              final Hash blockHashForLog = persistedBlockHash;
+              rollBacks.add(
+                  trieLogManager
+                      .getTrieLogLayer(persistedBlockHash)
+                      .orElseThrow(
+                          () ->
+                              new MerkleTrieException("missing trie log for " + blockHashForLog)));
+              final Hash parentHash = persistedHeader.getParentHash();
+              persistedHeader =
+                  blockchain
+                      .getBlockHeaderSafe(parentHash)
+                      .orElseThrow(
+                          () -> new MerkleTrieException("missing parent header for " + parentHash));
+              persistedBlockHash = persistedHeader.getBlockHash();
+            }
+          }
+          for (final TrieLog rollBack : rollBacks) {
+            LOG.debug("Attempting rollback of {}", rollBack.getBlockHash());
+            diffBasedUpdater.rollBack(rollBack);
+          }
         }
-        // After rolling back N blocks, each account's storageRoot has been updated to the
-        // target block's value. But persist() needs to build the storage trie starting from
-        // a root whose nodes ARE in the archive CF — i.e. the checkpoint root. Reset each
-        // account's storageRoot to its checkpoint value (getPrior().storageRoot) so persist()
-        // uses the checkpoint's archived nodes as the trie base and derives the target
-        // storageRoot from the slot diffs in storagesToUpdate.
+
+        // After rolling in either direction the accumulator's updated.storageRoot is the
+        // target block's storage root, whose trie nodes are NOT in the archive CF. Reset
+        // each account's storageRoot to its prior (checkpoint) value so persist() rebuilds
+        // the storage trie from the checkpoint's archived nodes and derives the target root
+        // from the slot diffs in storagesToUpdate.
         if (diffBasedUpdater instanceof BonsaiWorldStateUpdateAccumulator bonsaiUpdater) {
           bonsaiUpdater.resetStorageRootsToCheckpointForArchiveProof();
         }
