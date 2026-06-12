@@ -31,6 +31,11 @@ public final class EvmTool {
     LogConfigurator.setLevel("", "OFF");
     final EvmToolCommand evmToolCommand = new EvmToolCommand();
 
-    evmToolCommand.execute(args);
+    final int exitCode = evmToolCommand.execute(args);
+    // Preserve the existing "exit 0 by default" behavior; only force a non-zero exit when a
+    // subcommand (e.g. engine-test) reports failures so CI and gradle can detect them.
+    if (exitCode != 0) {
+      System.exit(exitCode);
+    }
   }
 }

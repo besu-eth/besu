@@ -112,6 +112,70 @@ ExecutionSpecDevnet{Blockchain,State}Test_{hardfork}_{eip_or_topic}_{batch_index
 
 The devnet fixtures are resolved from the same GitHub Ivy repository as stable fixtures. The dependency is declared separately via the `devnetTarConfig` configuration in `ethereum/referencetests/build.gradle`.
 
+## Fast Engine API & State Test Runners (evmtool)
+
+The `referenceTests*` tasks above generate one JUnit test per fixture and exercise the **block-import** and **state-transition** code paths. In addition, `evmtool` provides two much faster runners that consume the execution-spec-tests fixtures directly (no per-fixture code generation), and crucially `engine-test` exercises the **real Engine API path** (`engine_newPayloadVX` + `engine_forkchoiceUpdatedVX`) — the same code hive's `consume-engine` simulator drives, but locally and in seconds instead of hours.
+
+- **`engine-test`** consumes `blockchain_tests_engine` fixtures. These are a **superset of the blockchain tests for every post-merge fork** (same scenarios, via the Engine API), so for a post-merge devnet they cover everything the block-import path does, plus the Engine API validation on top (payload schema, error codes, blob schedule, strict exception matching).
+- **`state-test`** consumes `state_tests` fixtures (the EVM/state-transition-only slice, not covered by `engine-test`).
+
+> There is intentionally no devnet runner for the RLP `blockchain_tests`: on a post-merge devnet `engine-test` already covers those scenarios.
+
+### Gradle tasks
+
+Both tasks **reuse the same devnet fixture download/extract** as `referenceTestsDevnet` (the `extractDevnetFixtures` task — no separate download), run against the extracted fixtures, and **fail the build on any test failure**. By default only failures and a final summary are printed, so the console isn't flooded with per-test output.
+
+```bash
+# Run all devnet engine-API tests (blockchain_tests_engine) through the real Engine API
+./gradlew :ethereum:evmtool:engineTestsDevnet
+
+# Run all devnet state tests
+./gradlew :ethereum:evmtool:stateTestsDevnet
+```
+
+Each task accepts optional `-P` properties:
+
+| Property | Applies to | Meaning |
+|----------|-----------|---------|
+| `-PengineTestWorkers=N` / `-PstateTestWorkers=N` | engine / state | Parallel workers (default: available processors) |
+| `-PengineTestPath=<subdir>` / `-PstateTestPath=<subdir>` | engine / state | Scope to a subdirectory, e.g. `for_amsterdam` |
+| `-PengineTestFilter=<substr>` / `-PstateTestFilter=<substr>` | engine / state | Only run tests whose node id contains `<substr>` (a `*`/`?` glob is treated as a regex) |
+
+```bash
+# Only the Amsterdam-fork engine fixtures
+./gradlew :ethereum:evmtool:engineTestsDevnet -PengineTestPath=for_amsterdam
+
+# Hive consume-engine equivalent of --sim.limit '.*fork_(Amsterdam|BPO2ToAmsterdamAtTime15k|Osaka).*'
+./gradlew :ethereum:evmtool:engineTestsDevnet \
+  -PengineTestFilter='*fork_(Amsterdam|BPO2ToAmsterdamAtTime15k|Osaka)*'
+
+# A subset of state tests, 8 workers
+./gradlew :ethereum:evmtool:stateTestsDevnet -PstateTestPath=for_amsterdam -PstateTestWorkers=8
+```
+
+### Running the evmtool binary directly
+
+For ad-hoc runs against any fixtures directory (not just the pinned devnet set), build the `evm` binary once and invoke the subcommands:
+
+```bash
+./gradlew :ethereum:evmtool:installDist
+EVM=ethereum/evmtool/build/install/evmtool/bin/evmtool
+
+# Engine API tests (file or directory; directories are walked recursively)
+$EVM engine-test --workers 8 <path-to>/blockchain_tests_engine/
+
+# State tests
+$EVM state-test --workers 8 <path-to>/state_tests/
+```
+
+Shared flags: `--workers N`, `--run <substr-or-glob>` (alias `--test-name`), `--verbose` (print a line per test — off by default; only failures and a final summary are printed otherwise), and `--json-array` to emit machine-readable results (`[{name, pass, fork, lastBlockHash|stateRoot, error}]`). Both subcommands exit non-zero if any test fails.
+
+> **Tip:** if a `--verbose` run makes the terminal flicker (Gradle's animated console repainting as output streams), add `--console=plain` to the Gradle invocation.
+
+> The gradle-extracted fixtures used by the tasks above live at
+> `ethereum/referencetests/build/execution-spec-devnet-tests/fixtures/{blockchain_tests_engine,state_tests}/`,
+> so you can point the binary at that directory after running `referenceTestsDevnet` (or `extractDevnetFixtures`) once.
+
 ## Enabling JSON Tracing
 
 Besu supports detailed opcode-level JSON tracing. You can enable it using either a JVM system property or an environment variable.

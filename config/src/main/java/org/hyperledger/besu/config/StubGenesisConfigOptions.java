@@ -74,6 +74,7 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
   private static final DiscoveryOptions DISCOVERY_OPTIONS = DiscoveryOptions.DEFAULT;
   private boolean zeroBaseFee = false;
   private boolean fixedBaseFee = false;
+  private Optional<BlobScheduleOptions> blobScheduleOptions = Optional.empty();
 
   /** Default constructor. */
   public StubGenesisConfigOptions() {
@@ -436,7 +437,18 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
 
   @Override
   public Optional<BlobScheduleOptions> getBlobScheduleOptions() {
-    return Optional.empty();
+    return blobScheduleOptions;
+  }
+
+  /**
+   * Sets the blob schedule options (target/max/baseFeeUpdateFraction per fork).
+   *
+   * @param blobScheduleOptions the blob schedule options
+   * @return this stub, for chaining
+   */
+  public StubGenesisConfigOptions blobSchedule(final BlobScheduleOptions blobScheduleOptions) {
+    this.blobScheduleOptions = Optional.ofNullable(blobScheduleOptions);
+    return this;
   }
 
   /**
