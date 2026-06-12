@@ -24,9 +24,10 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedValue;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedValue;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
 import java.util.HashMap;
@@ -48,7 +49,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class BonsaiWorldStateTest {
-  @Mock BonsaiWorldStateUpdateAccumulator bonsaiWorldStateUpdateAccumulator;
+  @Mock
+  BonsaiWorldStateUpdateAccumulator bonsaiWorldStateUpdateAccumulator;
   @Mock BonsaiWorldStateKeyValueStorage.Updater bonsaiUpdater;
   @Mock Blockchain blockchain;
   @Mock BonsaiWorldStateKeyValueStorage bonsaiWorldStateKeyValueStorage;
@@ -68,7 +70,7 @@ class BonsaiWorldStateTest {
             bonsaiWorldStateKeyValueStorage,
             EvmConfiguration.DEFAULT,
             createStatefulConfigWithTrie(),
-            new CodeCache());
+            new PathBasedCodeCache());
   }
 
   @ParameterizedTest
