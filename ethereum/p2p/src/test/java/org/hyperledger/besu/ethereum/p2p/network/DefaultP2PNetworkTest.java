@@ -109,7 +109,7 @@ public final class DefaultP2PNetworkTest {
     assertThat(network.addMaintainedConnectionPeer(peer)).isTrue();
 
     assertThat(maintainedPeers.contains(peer)).isTrue();
-    verify(rlpxAgent).connect(peer);
+    verify(rlpxAgent).connect(peer, "admin");
     verify(discoveryAgent).addPeer(peer);
   }
 
@@ -121,7 +121,7 @@ public final class DefaultP2PNetworkTest {
 
     assertThat(network.addMaintainedConnectionPeer(peer)).isTrue();
     assertThat(network.addMaintainedConnectionPeer(peer)).isFalse();
-    verify(rlpxAgent, times(2)).connect(peer);
+    verify(rlpxAgent, times(2)).connect(peer, "admin");
     verify(discoveryAgent, times(2)).addPeer(peer);
     assertThat(maintainedPeers.contains(peer)).isTrue();
   }
@@ -136,7 +136,7 @@ public final class DefaultP2PNetworkTest {
     assertThat(network.removeMaintainedConnectionPeer(peer)).isTrue();
 
     assertThat(maintainedPeers.contains(peer)).isFalse();
-    verify(rlpxAgent).connect(peer);
+    verify(rlpxAgent).connect(peer, "admin");
     verify(discoveryAgent).addPeer(peer);
     verify(rlpxAgent).disconnect(peer.getId(), DisconnectReason.REQUESTED);
     verify(discoveryAgent).dropPeer(peer);
@@ -182,7 +182,7 @@ public final class DefaultP2PNetworkTest {
     verify(rlpxAgent, times(0)).connect(peer);
 
     network.checkMaintainedConnectionPeers();
-    verify(rlpxAgent, times(1)).connect(peer);
+    verify(rlpxAgent, times(1)).connect(peer, "maintain");
   }
 
   @Test
@@ -275,7 +275,7 @@ public final class DefaultP2PNetworkTest {
 
     final DefaultP2PNetwork network = network();
     network.attemptPeerConnections();
-    verify(rlpxAgent, times(1)).connect(peerCaptor.capture());
+    verify(rlpxAgent, times(1)).connect(peerCaptor.capture(), eq("maintain"));
 
     assertThat(peerCaptor.getValue()).isEqualTo(discoPeer);
   }
@@ -317,7 +317,7 @@ public final class DefaultP2PNetworkTest {
 
     final DefaultP2PNetwork network = network();
     network.attemptPeerConnections();
-    verify(rlpxAgent, times(3)).connect(any());
+    verify(rlpxAgent, times(3)).connect(any(), eq("maintain"));
   }
 
   @Test

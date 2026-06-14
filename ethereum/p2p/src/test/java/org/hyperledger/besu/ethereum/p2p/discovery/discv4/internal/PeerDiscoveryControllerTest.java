@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
@@ -581,7 +582,7 @@ public class PeerDiscoveryControllerTest {
     // getting in the way of this test.
     final OutboundMessageHandler outboundMessageHandler = mock(OutboundMessageHandler.class);
     RlpxAgent rlpxAgentMock = mock(RlpxAgent.class);
-    when(rlpxAgentMock.connect(any()))
+    when(rlpxAgentMock.connect(any(), anyString()))
         .thenReturn(CompletableFuture.failedFuture(new Exception(new TimeoutException())));
     controller =
         getControllerBuilder()
@@ -627,7 +628,7 @@ public class PeerDiscoveryControllerTest {
 
   private ControllerBuilder getControllerBuilder() {
     final RlpxAgent rlpxAgent = mock(RlpxAgent.class);
-    when(rlpxAgent.connect(any()))
+    when(rlpxAgent.connect(any(), anyString()))
         .thenReturn(CompletableFuture.failedFuture(new RuntimeException()));
     return ControllerBuilder.create()
         .nodeKey(localNodeKey)

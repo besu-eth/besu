@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.p2p.discovery.transport;
 
+import org.hyperledger.besu.plugin.services.metrics.Counter;
+
 import java.net.InetSocketAddress;
 import java.util.Arrays;
 import java.util.function.BiConsumer;
@@ -59,16 +61,26 @@ final class SharedDiscoveryDemuxHandler extends SimpleChannelInboundHandler<Data
   private final Cipher cipher;
   private final SecretKeySpec secretKey;
 
+  private final Counter v4Counter;
+  private final Counter v5Counter;
+  private final Counter droppedCounter;
+
   SharedDiscoveryDemuxHandler(
       final boolean v4Enabled,
       final boolean v5Enabled,
       final byte[] maskingKey,
       final BiConsumer<InetSocketAddress, Bytes> v4Sink,
-      final Consumer<DatagramPacket> v5Sink) {
+      final Consumer<DatagramPacket> v5Sink,
+      final Counter v4Counter,
+      final Counter v5Counter,
+      final Counter droppedCounter) {
     this.v4Enabled = v4Enabled;
     this.v5Enabled = v5Enabled;
     this.v4Sink = v4Sink;
     this.v5Sink = v5Sink;
+    this.v4Counter = v4Counter;
+    this.v5Counter = v5Counter;
+    this.droppedCounter = droppedCounter;
     if (v5Enabled && maskingKey != null) {
       try {
         this.cipher = Cipher.getInstance("AES/CTR/NoPadding");
@@ -91,17 +103,20 @@ final class SharedDiscoveryDemuxHandler extends SimpleChannelInboundHandler<Data
     }
 
     if (v5Enabled && isV5Packet(msg.content())) {
+      v5Counter.inc();
       if (v5Sink != null) {
         msg.retain();
         v5Sink.accept(msg);
       }
     } else if (v4Enabled && size >= MIN_V4_PACKET_SIZE) {
+      v4Counter.inc();
       if (v4Sink != null) {
         final byte[] bytes = new byte[size];
         msg.content().getBytes(msg.content().readerIndex(), bytes);
         v4Sink.accept(msg.sender(), Bytes.wrap(bytes));
       }
     } else {
+      droppedCounter.inc();
       LOG.trace("Dropping unrecognized packet ({} bytes) from {}", size, msg.sender());
     }
   }

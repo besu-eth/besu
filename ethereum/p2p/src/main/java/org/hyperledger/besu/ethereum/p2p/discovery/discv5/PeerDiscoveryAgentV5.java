@@ -443,7 +443,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
                   LOG.warn("DiscV5 peer discovery failed", error);
                   return;
                 }
-                candidatePeers(nodeRecords).forEach(rlpxAgent::connect);
+                candidatePeers(nodeRecords).forEach(p -> rlpxAgent.connect(p, "discv5"));
               } finally {
                 discoveryInProgress.set(false);
               }

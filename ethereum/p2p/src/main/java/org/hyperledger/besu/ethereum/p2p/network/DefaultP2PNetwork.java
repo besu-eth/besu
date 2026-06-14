@@ -344,7 +344,7 @@ public class DefaultP2PNetwork implements P2PNetwork {
     }
     final boolean wasAdded = maintainedPeers.add(peer);
     peerDiscoveryAgent.addPeer(peer);
-    rlpxAgent.connect(peer);
+    rlpxAgent.connect(peer, "admin");
     return wasAdded;
   }
 
@@ -389,7 +389,7 @@ public class DefaultP2PNetwork implements P2PNetwork {
     maintainedPeers
         .streamPeers()
         .filter(p -> !doNotConnectTo.contains(p.getId()))
-        .forEach(rlpxAgent::connect);
+        .forEach(p -> rlpxAgent.connect(p, "maintain"));
   }
 
   @VisibleForTesting
@@ -400,7 +400,7 @@ public class DefaultP2PNetwork implements P2PNetwork {
             .filter(DiscoveryPeer::isReadyForConnections)
             .filter(peerDiscoveryAgent::checkForkId)
             .sorted(Comparator.comparing(DiscoveryPeer::getLastAttemptedConnection));
-    toTry.forEach(rlpxAgent::connect);
+    toTry.forEach(p -> rlpxAgent.connect(p, "maintain"));
   }
 
   @Override

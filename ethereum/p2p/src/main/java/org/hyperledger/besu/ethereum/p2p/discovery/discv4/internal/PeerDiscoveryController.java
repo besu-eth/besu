@@ -237,6 +237,12 @@ public class PeerDiscoveryController {
             "Total number of interaction retries performed",
             "type");
 
+    metricsSystem.createIntegerGauge(
+        BesuMetricCategory.NETWORK,
+        "discv4_known_peers_current",
+        "Current number of peers known to the DiscV4 routing table",
+        () -> (int) peerTable.streamAllPeers().count());
+
     this.cachedEnrRequests =
         maybeCacheForEnrRequests.orElse(
             CacheBuilder.newBuilder().maximumSize(50).expireAfterWrite(10, SECONDS).build());
@@ -489,7 +495,7 @@ public class PeerDiscoveryController {
   }
 
   CompletableFuture<PeerConnection> connectOnRlpxLayer(final DiscoveryPeerV4 peer) {
-    return rlpxAgent.connect(peer);
+    return rlpxAgent.connect(peer, "discv4");
   }
 
   private Optional<PeerInteractionState> matchInteraction(final Packet packet) {
