@@ -114,6 +114,8 @@ dependencies {
 
     api 'io.pkts:pkts-core:3.0.18'
 
+    api 'io.projectreactor:reactor-core:3.6.7'
+
     api 'io.consensys.tuweni:tuweni-bytes:2.7.2'
     api 'io.consensys.tuweni:tuweni-config:2.7.2'
     api 'io.consensys.tuweni:tuweni-concurrent:2.7.2'

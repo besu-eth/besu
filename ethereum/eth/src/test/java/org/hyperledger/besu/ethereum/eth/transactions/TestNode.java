@@ -250,7 +250,6 @@ public class TestNode implements Closeable {
       final EthPeers ethPeers) {
     final PeerDiscoveryAgentFactory peerDiscoveryAgentFactory =
         DefaultPeerDiscoveryAgentFactory.builder()
-            .vertx(vertx)
             .nodeKey(nodeKey)
             .config(networkingConfiguration)
             .peerPermissions(PeerPermissions.noop())

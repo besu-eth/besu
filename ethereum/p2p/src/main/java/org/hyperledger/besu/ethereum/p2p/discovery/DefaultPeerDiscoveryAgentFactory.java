@@ -18,8 +18,7 @@ import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
-import org.hyperledger.besu.ethereum.p2p.discovery.discv4.PeerDiscoveryAgentFactoryV4;
-import org.hyperledger.besu.ethereum.p2p.discovery.discv5.PeerDiscoveryAgentFactoryV5;
+import org.hyperledger.besu.ethereum.p2p.discovery.discv5.CompositePeerDiscoveryAgentFactory;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
@@ -30,14 +29,11 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-import io.vertx.core.Vertx;
-
 public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFactory {
 
   private final PeerDiscoveryAgentFactory delegate;
 
   private DefaultPeerDiscoveryAgentFactory(
-      final Vertx vertx,
       final NodeKey nodeKey,
       final NetworkingConfiguration config,
       final PeerPermissions peerPermissions,
@@ -53,7 +49,6 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
 
     this.delegate =
         createPeerDiscoveryAgentFactory(
-            vertx,
             nodeKey,
             config,
             peerPermissions,
@@ -64,7 +59,6 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
   }
 
   private static PeerDiscoveryAgentFactory createPeerDiscoveryAgentFactory(
-      final Vertx vertx,
       final NodeKey nodeKey,
       final NetworkingConfiguration config,
       final PeerPermissions peerPermissions,
@@ -72,18 +66,7 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
       final MetricsSystem metricsSystem,
       final StorageProvider storageProvider,
       final ForkIdManager forkIdManager) {
-    if (config.discoveryConfiguration().isDiscoveryV5Enabled()) {
-      return new PeerDiscoveryAgentFactoryV5(
-          nodeKey,
-          config,
-          peerPermissions,
-          natService,
-          metricsSystem,
-          storageProvider,
-          forkIdManager);
-    }
-    return new PeerDiscoveryAgentFactoryV4(
-        vertx,
+    return new CompositePeerDiscoveryAgentFactory(
         nodeKey,
         config,
         peerPermissions,
@@ -104,7 +87,6 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
 
   public static final class Builder {
 
-    private Vertx vertx;
     private NodeKey nodeKey;
     private NetworkingConfiguration config;
     private PeerPermissions peerPermissions;
@@ -116,11 +98,6 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
     private List<Long> timestampForks;
 
     private Builder() {}
-
-    public Builder vertx(final Vertx vertx) {
-      this.vertx = vertx;
-      return this;
-    }
 
     public Builder nodeKey(final NodeKey nodeKey) {
       this.nodeKey = nodeKey;
@@ -170,7 +147,6 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
     public DefaultPeerDiscoveryAgentFactory build() {
       validate();
       return new DefaultPeerDiscoveryAgentFactory(
-          vertx,
           nodeKey,
           config,
           peerPermissions,
@@ -183,7 +159,6 @@ public class DefaultPeerDiscoveryAgentFactory implements PeerDiscoveryAgentFacto
     }
 
     private void validate() {
-      Objects.requireNonNull(vertx, "vertx must be set");
       Objects.requireNonNull(nodeKey, "nodeKey must be set");
       Objects.requireNonNull(config, "config must be set");
       Objects.requireNonNull(peerPermissions, "peerPermissions must be set");

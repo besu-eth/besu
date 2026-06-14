@@ -206,7 +206,13 @@ public class Endpoint {
    */
   public static Endpoint decodeStandalone(final RLPInput in) {
     final int size = in.enterList();
-    final Endpoint endpoint = decodeInline(in, size);
+    final Endpoint endpoint;
+    try {
+      endpoint = decodeInline(in, size);
+    } catch (final RuntimeException e) {
+      in.leaveListLenient();
+      throw e;
+    }
     in.leaveList();
     return endpoint;
   }

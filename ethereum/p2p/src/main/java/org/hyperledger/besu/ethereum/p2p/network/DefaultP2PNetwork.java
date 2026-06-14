@@ -19,7 +19,6 @@ import static com.google.common.base.Preconditions.checkState;
 
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.ethereum.core.Util;
-import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.discovery.DiscoveryPeer;
 import org.hyperledger.besu.ethereum.p2p.discovery.DiscoveryPeerFactory;
@@ -200,13 +199,6 @@ public class DefaultP2PNetwork implements P2PNetwork {
     if (!started.compareAndSet(false, true)) {
       LOG.warn("Attempted to start an already started " + getClass().getSimpleName());
       return;
-    }
-
-    if (config.discoveryConfiguration().isDiscoveryV5Enabled()) {
-      LOG.warn(
-          "Discovery Protocol v5 is enabled via --Xv5-discovery-enabled. This is an experimental feature and may not be fully stable.");
-    } else {
-      warnIfIpv6OptionsWithDiscV4();
     }
 
     final String address = config.discoveryConfiguration().getAdvertisedHost();
@@ -477,15 +469,6 @@ public class DefaultP2PNetwork implements P2PNetwork {
       return Optional.empty();
     }
     return Optional.of(localNode.getPeer().getEnodeURL());
-  }
-
-  private void warnIfIpv6OptionsWithDiscV4() {
-    final DiscoveryConfiguration disc = config.discoveryConfiguration();
-    if (disc.getAdvertisedHostIpv6().isPresent() || disc.isDualStackEnabled()) {
-      LOG.warn(
-          "--p2p-host-ipv6 and --p2p-interface-ipv6 are only supported with DiscV5 "
-              + "(--Xv5-discovery-enabled). These options are ignored by DiscV4.");
-    }
   }
 
   private void setLocalNode(
