@@ -102,6 +102,7 @@ public class IbftBlockHashing {
    * @param header the block header that was signed by the proposer seal
    * @param ibftExtraData the parsed IBftExtraData from the header
    * @return the proposer address
+   * @throws NullPointerException if the proposer seal is missing in the IBFT extra data
    */
   public static Address recoverProposerAddress(
       final BlockHeader header, final IbftLegacyExtraData ibftExtraData) {

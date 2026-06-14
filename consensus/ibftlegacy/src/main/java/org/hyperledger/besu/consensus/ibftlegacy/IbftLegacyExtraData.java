@@ -34,8 +34,9 @@ public class IbftLegacyExtraData extends BftExtraData {
    *
    * @param vanityData the vanity data
    * @param seals the seals
+   * @param proposerSeal the proposer seal, or {@code null} when proposer seal is not present (for
+   *     example pre-seal/unsigned header contexts)
    * @param validators the validators
-   * @param proposerSeal the proposer seal
    */
   public IbftLegacyExtraData(
       final Bytes vanityData,
@@ -49,7 +50,8 @@ public class IbftLegacyExtraData extends BftExtraData {
   /**
    * Gets proposer seal.
    *
-   * @return the proposer seal
+   * @return the proposer seal, or {@code null} when the header does not carry a proposer seal (for
+   *     example pre-seal/unsigned header contexts); callers should null-check before use
    */
   public @Nullable SECPSignature getProposerSeal() {
     return proposerSeal;
