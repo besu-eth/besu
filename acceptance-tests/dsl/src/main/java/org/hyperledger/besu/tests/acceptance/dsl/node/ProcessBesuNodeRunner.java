@@ -68,6 +68,7 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
   private boolean capturingConsole;
   private final ByteArrayOutputStream consoleContents = new ByteArrayOutputStream();
   private final PrintStream consoleOut = new PrintStream(consoleContents);
+  private final Map<String, StringBuilder> nodeOutputs = new java.util.concurrent.ConcurrentHashMap<>();
 
   ProcessBesuNodeRunner() {
     Runtime.getRuntime().addShutdownHook(new Thread(this::shutdown));
@@ -124,6 +125,7 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
           "A live process with name: %s, already exists. Cannot create another with the same name as it would orphan the first",
           node.getName());
 
+      nodeOutputs.put(node.getName(), new StringBuilder());
       final Process process = processBuilder.start();
       process.onExit().thenRun(() -> node.setExitCode(process.exitValue()));
       outputProcessorExecutor.execute(() -> printOutput(node, process));
@@ -132,9 +134,13 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
       LOG.error("Error starting BesuNode process", e);
     }
 
-    if (node.getRunCommand().isEmpty()) {
-      waitForFileOrExit(node, "besu.ports");
-      waitForFileOrExit(node, "besu.networks");
+    try {
+      if (node.getRunCommand().isEmpty()) {
+        waitForFileOrExit(node, "besu.ports");
+        waitForFileOrExit(node, "besu.networks");
+      }
+    } finally {
+      nodeOutputs.remove(node.getName());
     }
     MDC.remove("node");
   }
@@ -441,6 +447,12 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
         if (capturingConsole) {
           consoleOut.println(line);
         }
+        final StringBuilder nodeOutput = nodeOutputs.get(node.getName());
+        if (nodeOutput != null) {
+          synchronized (nodeOutput) {
+            nodeOutput.append(line).append(System.lineSeparator());
+          }
+        }
         line = in.readLine();
       }
     } catch (final IOException e) {
@@ -568,11 +580,27 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
             () -> {
               final Process process = besuProcesses.get(node.getName());
               if (!process.isAlive()) {
+                final int exitValue = process.exitValue();
                 LOG.warn(
                     "Besu process for node {} exited with code {} before writing {}",
                     node.getName(),
-                    process.exitValue(),
+                    exitValue,
                     fileName);
+                if (exitValue != 0) {
+                  final StringBuilder output = nodeOutputs.get(node.getName());
+                  final String outputStr;
+                  if (output != null) {
+                    synchronized (output) {
+                      outputStr = output.toString();
+                    }
+                  } else {
+                    outputStr = "<no output captured>";
+                  }
+                  throw new IllegalStateException(
+                      String.format(
+                          "Besu process for node %s exited with code %d before writing %s. Process output:%n%s",
+                          node.getName(), exitValue, fileName, outputStr));
+                }
                 return true;
               }
 
