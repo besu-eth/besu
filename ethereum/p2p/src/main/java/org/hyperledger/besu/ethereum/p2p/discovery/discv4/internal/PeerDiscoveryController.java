@@ -41,6 +41,7 @@ import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.pong.P
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.peers.PeerId;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
+import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectSource;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
@@ -495,7 +496,7 @@ public class PeerDiscoveryController {
   }
 
   CompletableFuture<PeerConnection> connectOnRlpxLayer(final DiscoveryPeerV4 peer) {
-    return rlpxAgent.connect(peer, "discv4");
+    return rlpxAgent.connect(peer, ConnectSource.DISCV4);
   }
 
   private Optional<PeerInteractionState> matchInteraction(final Packet packet) {

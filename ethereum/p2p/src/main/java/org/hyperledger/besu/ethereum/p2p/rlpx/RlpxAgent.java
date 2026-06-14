@@ -230,12 +230,12 @@ public class RlpxAgent {
    * Connect to the peer, recording the originating source for metrics.
    *
    * @param peer The peer to connect to
-   * @param source Label identifying the caller ("discv4", "discv5", "maintain", "admin")
+   * @param source The originating source of this connection attempt
    * @return A future that will resolve to the existing or newly-established connection with this
    *     peer.
    */
-  public CompletableFuture<PeerConnection> connect(final Peer peer, final String source) {
-    connectAttemptCounter.labels(source).inc();
+  public CompletableFuture<PeerConnection> connect(final Peer peer, final ConnectSource source) {
+    connectAttemptCounter.labels(source.label()).inc();
     return connect(peer);
   }
 

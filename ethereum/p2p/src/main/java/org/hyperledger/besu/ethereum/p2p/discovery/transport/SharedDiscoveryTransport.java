@@ -127,9 +127,9 @@ public final class SharedDiscoveryTransport {
               "discovery_demux_packets_total",
               "UDP packets demultiplexed by discovery protocol",
               "protocol");
-      this.demuxV4Counter = demuxCounter.labels("v4");
-      this.demuxV5Counter = demuxCounter.labels("v5");
-      this.demuxDroppedCounter = demuxCounter.labels("dropped");
+      this.demuxV4Counter = demuxCounter.labels(DemuxProtocol.V4.label());
+      this.demuxV5Counter = demuxCounter.labels(DemuxProtocol.V5.label());
+      this.demuxDroppedCounter = demuxCounter.labels(DemuxProtocol.DROPPED.label());
     } else {
       this.demuxV4Counter = NO_OP_COUNTER;
       this.demuxV5Counter = NO_OP_COUNTER;

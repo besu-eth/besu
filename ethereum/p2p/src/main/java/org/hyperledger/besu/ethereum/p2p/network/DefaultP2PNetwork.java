@@ -37,6 +37,7 @@ import org.hyperledger.besu.ethereum.p2p.peers.PeerPrivileges;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissionsDenylist;
 import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectCallback;
+import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectSource;
 import org.hyperledger.besu.ethereum.p2p.rlpx.DisconnectCallback;
 import org.hyperledger.besu.ethereum.p2p.rlpx.MessageCallback;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
@@ -344,7 +345,7 @@ public class DefaultP2PNetwork implements P2PNetwork {
     }
     final boolean wasAdded = maintainedPeers.add(peer);
     peerDiscoveryAgent.addPeer(peer);
-    rlpxAgent.connect(peer, "admin");
+    rlpxAgent.connect(peer, ConnectSource.ADMIN);
     return wasAdded;
   }
 
@@ -389,7 +390,7 @@ public class DefaultP2PNetwork implements P2PNetwork {
     maintainedPeers
         .streamPeers()
         .filter(p -> !doNotConnectTo.contains(p.getId()))
-        .forEach(p -> rlpxAgent.connect(p, "maintain"));
+        .forEach(p -> rlpxAgent.connect(p, ConnectSource.MAINTAIN));
   }
 
   @VisibleForTesting
@@ -400,7 +401,7 @@ public class DefaultP2PNetwork implements P2PNetwork {
             .filter(DiscoveryPeer::isReadyForConnections)
             .filter(peerDiscoveryAgent::checkForkId)
             .sorted(Comparator.comparing(DiscoveryPeer::getLastAttemptedConnection));
-    toTry.forEach(p -> rlpxAgent.connect(p, "maintain"));
+    toTry.forEach(p -> rlpxAgent.connect(p, ConnectSource.MAINTAIN));
   }
 
   @Override
