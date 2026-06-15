@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync.v2;
 
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator.applyForStrategy;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.common.WorldStateHealFinishedListener;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedAccountRangeTracker;
@@ -30,7 +31,9 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2Bytecode
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2StorageRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldDownloadState;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloaderException;
+import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
+import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
@@ -42,6 +45,7 @@ import org.hyperledger.besu.services.tasks.TaskCollection;
 
 import java.time.Clock;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
@@ -77,6 +81,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   private final DownloadedStorageRangeTracker storageRangeTracker =
       new DownloadedStorageRangeTracker();
   private final SnapV2PivotCatchupListener pivotCatchupListener;
+  private final SnapV2BlockAccessListApplier blockAccessListApplier;
   // future that completes once every in-flight (already-dequeued) task has finished
   private CompletableFuture<Void> pivotCatchupFuture; // null unless pivot catchup is in progress
 
@@ -91,7 +96,8 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
       final Clock clock,
       final SyncDurationMetrics syncDurationMetrics,
       final WorldStateHealFinishedListener worldStateHealFinishedListener,
-      final SnapV2PivotCatchupListener pivotCatchupListener) {
+      final SnapV2PivotCatchupListener pivotCatchupListener,
+      final SnapV2BlockAccessListApplier blockAccessListApplier) {
     super(
         worldStateStorageCoordinator,
         pendingRequests,
@@ -104,6 +110,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     this.metricsManager = metricsManager;
     this.worldStateHealFinishedListener = worldStateHealFinishedListener;
     this.pivotCatchupListener = pivotCatchupListener;
+    this.blockAccessListApplier = blockAccessListApplier;
 
     accountRangeTracker.setOnRangeCompleted(
         (rangeStart, rangeEnd) ->
@@ -334,6 +341,23 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
             newPivotBlockHeader.getNumber());
         return;
       }
+
+      if (!blockAccessListApplier.areBothPivotsOnCanonicalChain(
+          currentPivotBlockHeader, newPivotBlockHeader)) {
+        failPivotCatchup(
+            new WorldStateDownloaderException(
+                "Chain reorg detected during snap/2 pivot catch-up: current pivot "
+                    + currentPivotBlockHeader.getNumber()
+                    + " ("
+                    + currentPivotBlockHeader.getHash()
+                    + ") and new pivot "
+                    + newPivotBlockHeader.getNumber()
+                    + " ("
+                    + newPivotBlockHeader.getHash()
+                    + ") are not both on the canonical chain. Sync restart required."));
+        return;
+      }
+
       if (pivotCatchupListener == null) {
         internalFuture.completeExceptionally(
             new WorldStateDownloaderException("Snap/2 pivot catch-up listener is not available"));
@@ -380,7 +404,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
       if (isStateDownloadFinished()) {
         return;
       }
-      applyBlockAccessListsNoop(currentPivotBlockHeader, newPivotBlockHeader);
+      applyBlockAccessLists(currentPivotBlockHeader, newPivotBlockHeader);
       retargetQueuedRequests(newPivotBlockHeader);
       snapSyncState.setCurrentHeader(newPivotBlockHeader);
       pivotCatchupFuture = null;
@@ -389,14 +413,16 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     checkCompletion(newPivotBlockHeader);
   }
 
-  private void applyBlockAccessListsNoop(
+  private void applyBlockAccessLists(
       final BlockHeader currentPivotBlockHeader, final BlockHeader newPivotBlockHeader) {
     LOG.info(
-        "Snap/2 BAL application placeholder: pivot {} -> {} (completed ranges: {}, pending ranges: {})",
+        "Snap/2 applying BALs: pivot {} -> {} (completed ranges: {}, pending ranges: {})",
         currentPivotBlockHeader.getNumber(),
         newPivotBlockHeader.getNumber(),
         accountRangeTracker.completedRangeCount(),
         accountRangeTracker.pendingRangeCount());
+    blockAccessListApplier.applyBlockAccessLists(
+        currentPivotBlockHeader, newPivotBlockHeader, accountRangeTracker, storageRangeTracker);
   }
 
   private void retargetQueuedRequests(final BlockHeader newPivotBlockHeader) {
@@ -438,13 +464,29 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     queue.clearInternalQueue();
     for (final SnapDataRequest request : queuedRequests) {
       if (request instanceof SnapV2StorageRangeRequest storageRequest) {
-        // TODO: Compute new storage root during state root application
-        queue.add(storageRequest.retarget(newPivotBlockHeader, storageRequest.getStorageRoot()));
+        final Bytes32 newRoot = readStorageRoot(storageRequest.getAccountHash());
+        queue.add(storageRequest.retarget(newPivotBlockHeader, newRoot));
       } else {
         throw new IllegalStateException(
             "Unexpected snap/2 storage queue request: " + request.getClass().getSimpleName());
       }
     }
+  }
+
+  private Bytes32 readStorageRoot(final Hash accountHash) {
+    return worldStateStorageCoordinator
+        .applyForStrategy(
+            bonsai -> bonsai.getAccount(accountHash), forest -> Optional.<Bytes>empty())
+        .map(
+            b ->
+                Bytes32.wrap(
+                    PmtStateTrieAccountValue.readFrom(RLP.input(b)).getStorageRoot().getBytes()))
+        .orElseThrow(
+            () ->
+                new WorldStateDownloaderException(
+                    "Storage root not found for account "
+                        + accountHash
+                        + " after BAL application during pivot catch-up"));
   }
 
   private boolean shouldPauseAccountRequests() {

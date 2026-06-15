@@ -136,6 +136,7 @@ public class SnapDownloaderFactory {
           new SnapV2WorldStateDownloader(
               ethContext,
               snapContext,
+              protocolContext.getBlockchain(),
               worldStateStorageCoordinator,
               snapTaskCollection,
               syncConfig.getSnapSyncConfiguration(),

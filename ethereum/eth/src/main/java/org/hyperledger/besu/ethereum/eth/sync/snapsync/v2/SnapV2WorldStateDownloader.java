@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.sync.snapsync.v2;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
@@ -66,10 +67,12 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
   private final SyncDurationMetrics syncDurationMetrics;
   private volatile WorldStateHealFinishedListener worldStateHealFinishedListener;
   private volatile SnapV2PivotCatchupListener pivotCatchupListener;
+  private final SnapV2BlockAccessListApplier blockAccessListApplier;
 
   public SnapV2WorldStateDownloader(
       final EthContext ethContext,
       final SnapSyncStatePersistenceManager snapContext,
+      final MutableBlockchain blockchain,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final InMemoryTasksPriorityQueues<SnapDataRequest> snapTaskCollection,
       final SnapSyncConfiguration snapSyncConfiguration,
@@ -90,6 +93,8 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
     this.clock = clock;
     this.metricsSystem = metricsSystem;
     this.syncDurationMetrics = syncDurationMetrics;
+    this.blockAccessListApplier =
+        new SnapV2BlockAccessListApplier(worldStateStorageCoordinator, blockchain);
 
     metricsSystem.createIntegerGauge(
         BesuMetricCategory.SYNCHRONIZER,
@@ -161,7 +166,8 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
               clock,
               syncDurationMetrics,
               worldStateHealFinishedListener,
-              pivotCatchupListener);
+              pivotCatchupListener,
+              blockAccessListApplier);
 
       final Map<Bytes32, Bytes32> ranges = RangeManager.generateAllRanges(16);
       snapsyncMetricsManager.initRange(ranges);
