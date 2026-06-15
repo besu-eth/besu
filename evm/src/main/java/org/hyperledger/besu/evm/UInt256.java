@@ -420,6 +420,54 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     return new UInt256(z3, z2, z1, z0);
   }
 
+  /**
+   * Multi-limb right-shift; used by the power-of-two fast path in {@link #div(UInt256)}.
+   *
+   * @param n number of bits to shift right; caller guarantees {@code 1 <= n < 256}.
+   * @return {@code this >> n}.
+   */
+  private UInt256 shiftRightWide(final int n) {
+    final int limbShift = n >>> 6;
+    final int bitShift = n & 63;
+    long s0, s1, s2, s3;
+    switch (limbShift) {
+      case 0 -> {
+        s0 = u0;
+        s1 = u1;
+        s2 = u2;
+        s3 = u3;
+      }
+      case 1 -> {
+        s0 = u1;
+        s1 = u2;
+        s2 = u3;
+        s3 = 0;
+      }
+      case 2 -> {
+        s0 = u2;
+        s1 = u3;
+        s2 = 0;
+        s3 = 0;
+      }
+      case 3 -> {
+        s0 = u3;
+        s1 = 0;
+        s2 = 0;
+        s3 = 0;
+      }
+      default -> {
+        return ZERO;
+      }
+    }
+    if (bitShift == 0) return new UInt256(s3, s2, s1, s0);
+    final int inv = 64 - bitShift;
+    return new UInt256(
+        s3 >>> bitShift,
+        (s2 >>> bitShift) | (s3 << inv),
+        (s1 >>> bitShift) | (s2 << inv),
+        (s0 >>> bitShift) | (s1 << inv));
+  }
+
   // --------------------------------------------------------------------------
   // endregion
 
@@ -557,10 +605,28 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    */
   public UInt256 div(final UInt256 divisor) {
     if (isZero()) return ZERO;
-    if (divisor.u3 != 0) return divisor.divReduce(this);
-    if (divisor.u2 != 0) return divisor.asUInt192().divReduce(this);
-    if (divisor.u1 != 0) return divisor.asUInt128().divReduce(this);
+    if (divisor.u3 != 0) {
+      if ((divisor.u3 & (divisor.u3 - 1)) == 0 && (divisor.u2 | divisor.u1 | divisor.u0) == 0) {
+        return shiftRightWide(192 + Long.numberOfTrailingZeros(divisor.u3));
+      }
+      return divisor.divReduce(this);
+    }
+    if (divisor.u2 != 0) {
+      if ((divisor.u2 & (divisor.u2 - 1)) == 0 && (divisor.u1 | divisor.u0) == 0) {
+        return shiftRightWide(128 + Long.numberOfTrailingZeros(divisor.u2));
+      }
+      return divisor.asUInt192().divReduce(this);
+    }
+    if (divisor.u1 != 0) {
+      if ((divisor.u1 & (divisor.u1 - 1)) == 0 && divisor.u0 == 0) {
+        return shiftRightWide(64 + Long.numberOfTrailingZeros(divisor.u1));
+      }
+      return divisor.asUInt128().divReduce(this);
+    }
     if ((divisor.u0 == 0) || (divisor.u0 == 1)) return (divisor.u0 == 1) ? this : ZERO;
+    if ((divisor.u0 & (divisor.u0 - 1)) == 0) {
+      return shiftRightWide(Long.numberOfTrailingZeros(divisor.u0));
+    }
     return divisor.asUInt64().divReduce(this);
   }
 
