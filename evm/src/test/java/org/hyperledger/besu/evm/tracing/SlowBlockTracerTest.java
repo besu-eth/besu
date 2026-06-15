@@ -22,7 +22,7 @@ class SlowBlockTracerTest {
 
   @Test
   public void shouldLog() {
-    SlowBlockTracer slowBlockTracer = new SlowBlockTracer();
+    SlowBlockTracer slowBlockTracer = new SlowBlockTracer(0);
     slowBlockTracer.traceStartBlock();
     slowBlockTracer.traceEndBlockPersist(20_000_001L, Hash.EMPTY, 60_000_000L);
   }
