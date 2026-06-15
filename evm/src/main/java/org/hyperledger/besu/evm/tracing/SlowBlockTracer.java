@@ -50,8 +50,15 @@ import org.slf4j.LoggerFactory;
  */
 public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
 
-  /** default constructor */
-  public SlowBlockTracer() {}
+  private final long thresholdMs;
+
+  /**
+   * @param thresholdMs blocks are logged when total processing time in ms &ge; this value (0 logs
+   *     every block)
+   */
+  public SlowBlockTracer(final long thresholdMs) {
+    this.thresholdMs = thresholdMs;
+  }
 
   private static final Logger SLOW_BLOCK_LOG = LoggerFactory.getLogger("SlowBlock");
   private static final ObjectMapper JSON_MAPPER = new ObjectMapper();
@@ -105,7 +112,9 @@ public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
   public void traceEndBlockPersist(
       final long blockNumber, final Hash blockHash, final long gasUsed) {
     totalTimeNanos = System.nanoTime() - totalStartNanos;
-    logSlowBlock(blockNumber, blockHash, gasUsed);
+    if (totalTimeNanos / 1_000_000 >= thresholdMs) {
+      logSlowBlock(blockNumber, blockHash, gasUsed);
+    }
   }
 
   @Override

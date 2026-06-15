@@ -48,6 +48,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWo
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.tracing.SlowBlockTracer;
+import org.hyperledger.besu.evm.tracing.SlowBlockTracerConfig;
 import org.hyperledger.besu.evm.worldstate.StackedUpdater;
 import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -251,15 +252,16 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         !blockTracer.isEnabled() ? OperationTracer.NO_TRACING : blockTracer;
 
     SlowBlockTracer maybeSlowBlockTracer = null;
-    // TODO SLD - hook up to config
-    boolean slowBlockTracerEnabled = true;
+    final boolean slowBlockTracerEnabled = SlowBlockTracerConfig.ENABLED;
     if (slowBlockTracerEnabled) {
       // if slow block tracer exists, enforce it to be only tracer.
       if (blockTracer.isEnabled()) {
         throw new IllegalStateException(
-            "SlowBlockTracer is not compatible with other tracers. Please disable other tracers to enable SlowBlockTracer.");
+            "SlowBlockTracer is not compatible with other tracers. Please disable other tracers "
+                + "(e.g. --slow-block-threshold=-1) to use them.");
       }
-      effectiveTracer = maybeSlowBlockTracer = new SlowBlockTracer();
+      effectiveTracer =
+          maybeSlowBlockTracer = new SlowBlockTracer(SlowBlockTracerConfig.THRESHOLD_MS);
     }
 
     // Wire state-access tracking on the serial path only (NoPreprocessing = no parallel tx).
