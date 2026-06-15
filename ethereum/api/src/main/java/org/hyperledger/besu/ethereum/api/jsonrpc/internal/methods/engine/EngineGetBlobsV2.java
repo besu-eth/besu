@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.StreamingJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
@@ -38,15 +39,20 @@ import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.util.HexUtils;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class EngineGetBlobsV2 extends ExecutionEngineJsonRpcMethod {
+public class EngineGetBlobsV2 extends ExecutionEngineJsonRpcMethod
+    implements StreamingJsonRpcMethod {
   private static final Logger LOG = LoggerFactory.getLogger(EngineGetBlobsV2.class);
   public static final int REQUEST_MAX_VERSIONED_HASHES = 128;
 
@@ -150,6 +156,92 @@ public class EngineGetBlobsV2 extends ExecutionEngineJsonRpcMethod {
 
     hitCounter.inc();
     return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), results);
+  }
+
+  @Override
+  public void streamResponse(
+      final JsonRpcRequestContext requestContext, final OutputStream out, final ObjectMapper mapper)
+      throws IOException {
+    final VersionedHash[] versionedHashes = extractVersionedHashes(requestContext);
+    if (versionedHashes.length > REQUEST_MAX_VERSIONED_HASHES) {
+      mapper.writeValue(
+          out,
+          new JsonRpcErrorResponse(
+              requestContext.getRequest().getId(),
+              RpcErrorType.INVALID_ENGINE_GET_BLOBS_TOO_LARGE_REQUEST));
+      return;
+    }
+    if (mergeContext.get().isSyncing()) {
+      writeNullResult(requestContext.getRequest().getId(), out, mapper);
+      return;
+    }
+    final long timestamp = protocolContext.getBlockchain().getChainHeadHeader().getTimestamp();
+    final ValidationResult<RpcErrorType> forkValidationResult = validateForkSupported(timestamp);
+    if (!forkValidationResult.isValid()) {
+      mapper.writeValue(
+          out, new JsonRpcErrorResponse(requestContext.getRequest().getId(), forkValidationResult));
+      return;
+    }
+
+    requestedCounter.inc(versionedHashes.length);
+
+    // Pre-scan: V2 returns null for the entire result if any blob is missing or unsupported
+    final List<BlobProofBundle> validBundles = new ArrayList<>(versionedHashes.length);
+    int missingBlobs = 0;
+    int unsupportedBlobs = 0;
+    for (final VersionedHash hash : versionedHashes) {
+      final BlobProofBundle bundle = transactionPool.getBlobProofBundle(hash);
+      if (bundle == null) {
+        LOG.trace("No BlobProofBundle found for versioned hash: {}", hash);
+        missingBlobs++;
+        continue;
+      }
+      if (bundle.getBlobType() == BlobType.KZG_PROOF) {
+        LOG.trace("Unsupported blob type KZG_PROOF for versioned hash: {}", hash);
+        unsupportedBlobs++;
+        continue;
+      }
+      validBundles.add(bundle);
+    }
+    availableCounter.inc(validBundles.size());
+
+    LOG.debug(
+        "Requested {} bundles, found {} valid bundles, {} missing, {} unsupported",
+        versionedHashes.length,
+        validBundles.size(),
+        missingBlobs,
+        unsupportedBlobs);
+
+    if (missingBlobs > 0 || unsupportedBlobs > 0) {
+      missCounter.inc();
+      writeNullResult(requestContext.getRequest().getId(), out, mapper);
+      return;
+    }
+
+    // Stream the array — write each blob entry as it is serialised, flushing after each
+    out.write(
+        ("{\"jsonrpc\":\"2.0\",\"id\":"
+                + mapper.writeValueAsString(requestContext.getRequest().getId())
+                + ",\"result\":")
+            .getBytes(StandardCharsets.UTF_8));
+    out.write('[');
+    boolean first = true;
+    for (final BlobProofBundle bundle : validBundles) {
+      if (!first) out.write(',');
+      out.write(mapper.writeValueAsBytes(createBlobAndProofV2(bundle)));
+      out.flush();
+      first = false;
+    }
+    out.write(']');
+    out.write('}');
+    hitCounter.inc();
+  }
+
+  private static void writeNullResult(
+      final Object id, final OutputStream out, final ObjectMapper mapper) throws IOException {
+    out.write(
+        ("{\"jsonrpc\":\"2.0\",\"id\":" + mapper.writeValueAsString(id) + ",\"result\":null}")
+            .getBytes(StandardCharsets.UTF_8));
   }
 
   private VersionedHash[] extractVersionedHashes(final JsonRpcRequestContext requestContext) {

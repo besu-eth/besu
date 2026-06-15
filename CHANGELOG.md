@@ -46,6 +46,7 @@
 - Return `SYNCING` from `engine_newPayload` when the parent block's world state is not immediately available in the Bonsai cache, preventing worker thread blocking during CL backfill or post-restart catch-up. [#10600](https://github.com/besu-eth/besu/pull/10600)
 
 ### Additions and Improvements
+- Stream `engine_getBlobsV2` and `engine_getBlobsV3` responses — each blob entry is serialised and flushed to the client as it is processed, reducing memory pressure and time-to-first-byte for large requests. [#10615](https://github.com/besu-eth/besu/issues/10615)
 - Add `eth_getTransactionBySenderAndNonce` JSON-RPC method to look up a transaction by sender address and nonce (pending or mined).
   - Mined transaction lookup uses a sender+nonce index, enabled by default (`--tx-sender-nonce-index-enabled=false` to disable). Nodes performing a FULL sync from scratch may want to disable this to avoid the storage overhead of indexing historical transactions. [#10501](https://github.com/besu-eth/besu/pull/10501)
 

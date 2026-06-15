@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.StreamingJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
@@ -49,10 +50,15 @@ import org.hyperledger.besu.metrics.ObservableMetricsSystem;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import io.vertx.core.Vertx;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -271,5 +277,89 @@ public class EngineGetBlobsV2Test extends AbstractScheduledApiTest {
         bundle.getKzgProof().stream().map(p -> p.getData().toHexString()).toList();
 
     assertThat(blob.getProofs()).containsExactlyElementsOf(expectedProofs);
+  }
+
+  // ── Streaming tests ────────────────────────────────────────────────────────
+
+  private final ObjectMapper streamMapper = new ObjectMapper().registerModule(new Jdk8Module());
+
+  @Test
+  public void shouldImplementStreamingJsonRpcMethod() {
+    assertThat(method).isInstanceOf(StreamingJsonRpcMethod.class);
+  }
+
+  @Test
+  public void streamResponse_shouldReturnValidBlobs() throws IOException {
+    BlobProofBundle bundle = createBundleAndRegisterToPool();
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    method.streamResponse(buildRequestContext(bundle.getVersionedHash()), out, streamMapper);
+
+    final JsonNode response = streamMapper.readTree(out.toByteArray());
+    assertThat(response.get("jsonrpc").asText()).isEqualTo("2.0");
+    assertThat(response.has("error")).isFalse();
+
+    final JsonNode result = response.get("result");
+    assertThat(result.isArray()).isTrue();
+    assertThat(result.size()).isEqualTo(1);
+    assertThat(result.get(0).get("blob").asText())
+        .isEqualTo(bundle.getBlob().getData().toHexString());
+  }
+
+  @Test
+  public void streamResponse_shouldReturnNullWhenBlobMissing() throws IOException {
+    VersionedHash unknown = new VersionedHash((byte) 1, Hash.ZERO);
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    method.streamResponse(buildRequestContext(unknown), out, streamMapper);
+
+    final JsonNode response = streamMapper.readTree(out.toByteArray());
+    assertThat(response.get("result").isNull()).isTrue();
+  }
+
+  @Test
+  public void streamResponse_shouldReturnNullWhenSyncing() throws IOException {
+    when(mergeContext.isSyncing()).thenReturn(true);
+    BlobProofBundle bundle = createBundleAndRegisterToPool();
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    method.streamResponse(buildRequestContext(bundle.getVersionedHash()), out, streamMapper);
+
+    final JsonNode response = streamMapper.readTree(out.toByteArray());
+    assertThat(response.get("result").isNull()).isTrue();
+  }
+
+  @Test
+  public void streamResponse_shouldReturnErrorWhenTooManyHashes() throws IOException {
+    VersionedHash[] hashes = new VersionedHash[129];
+    Arrays.fill(hashes, new VersionedHash((byte) 1, Hash.ZERO));
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    method.streamResponse(buildRequestContext(hashes), out, streamMapper);
+
+    final JsonNode response = streamMapper.readTree(out.toByteArray());
+    assertThat(response.has("error")).isTrue();
+    assertThat(response.get("error").get("code").asInt())
+        .isEqualTo(RpcErrorType.INVALID_ENGINE_GET_BLOBS_TOO_LARGE_REQUEST.getCode());
+  }
+
+  @Test
+  public void streamResponse_shouldReturnErrorWhenForkNotSupported() throws IOException {
+    when(blockHeader.getTimestamp()).thenReturn(osakaHardfork.milestone() - 1);
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    method.streamResponse(buildRequestContext(), out, streamMapper);
+
+    final JsonNode response = streamMapper.readTree(out.toByteArray());
+    assertThat(response.has("error")).isTrue();
+    assertThat(response.get("error").get("code").asInt())
+        .isEqualTo(RpcErrorType.UNSUPPORTED_FORK.getCode());
+  }
+
+  @Test
+  public void streamResponse_shouldReturnNullWhenMixedKnownAndUnknown() throws IOException {
+    BlobProofBundle bundle = createBundleAndRegisterToPool();
+    VersionedHash unknown = new VersionedHash((byte) 1, Hash.ZERO);
+    final ByteArrayOutputStream out = new ByteArrayOutputStream();
+    method.streamResponse(
+        buildRequestContext(bundle.getVersionedHash(), unknown), out, streamMapper);
+
+    final JsonNode response = streamMapper.readTree(out.toByteArray());
+    assertThat(response.get("result").isNull()).isTrue();
   }
 }
