@@ -28,9 +28,23 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.UpdateTrackingAccount;
 
+import java.util.HashSet;
+import java.util.Set;
+
 public class BonsaiWorldStateUpdateAccumulator
     extends PathBasedWorldStateUpdateAccumulator<BonsaiAccount> {
+
+  private static final CommittedTransactionListener NO_OP_LISTENER =
+      new CommittedTransactionListener() {
+        @Override
+        public void onTransactionCommitted(final CommittedTransactionChanges changes) {}
+
+        @Override
+        public void onReset() {}
+      };
+
   private final CodeCache codeCache;
+  private CommittedTransactionListener committedTransactionListener = NO_OP_LISTENER;
 
   public BonsaiWorldStateUpdateAccumulator(
       final PathBasedWorldView world,
@@ -43,17 +57,24 @@ public class BonsaiWorldStateUpdateAccumulator
     this.codeCache = codeCache;
   }
 
+  /** Copy constructor. */
+  protected BonsaiWorldStateUpdateAccumulator(final BonsaiWorldStateUpdateAccumulator source) {
+    this(source, source.committedTransactionListener);
+  }
+
+  private BonsaiWorldStateUpdateAccumulator(
+      final BonsaiWorldStateUpdateAccumulator source,
+      final CommittedTransactionListener committedTransactionListener) {
+    super(source);
+    this.codeCache = source.codeCache;
+    this.committedTransactionListener = committedTransactionListener;
+  }
+
   @Override
-  public PathBasedWorldStateUpdateAccumulator<BonsaiAccount> copy() {
-    final BonsaiWorldStateUpdateAccumulator copy =
-        new BonsaiWorldStateUpdateAccumulator(
-            wrappedWorldView(),
-            getAccountPreloader(),
-            getStoragePreloader(),
-            getEvmConfiguration(),
-            codeCache);
-    copy.cloneFromUpdater(this);
-    return copy;
+  public BonsaiWorldStateUpdateAccumulator copy() {
+    // Copies serve as per-tx workers (parallel-tx, simulation) and must not re-emit committed-
+    // transaction events to the registered listener; detach it on the copy.
+    return new BonsaiWorldStateUpdateAccumulator(this, NO_OP_LISTENER);
   }
 
   @Override
@@ -100,6 +121,43 @@ public class BonsaiWorldStateUpdateAccumulator
   protected void assertCloseEnoughForDiffing(
       final BonsaiAccount source, final AccountValue account, final String context) {
     BonsaiAccount.assertCloseEnoughForDiffing(source, account, context);
+  }
+
+  void setCommittedTransactionListener(final CommittedTransactionListener listener) {
+    this.committedTransactionListener = listener == null ? NO_OP_LISTENER : listener;
+  }
+
+  @Override
+  public void commit() {
+    super.commit();
+    final Set<Address> changed = new HashSet<>();
+    getUpdatedAccounts().forEach(account -> changed.add(account.getAddress()));
+    changed.addAll(getDeletedAccountAddresses());
+    if (!changed.isEmpty()) {
+      committedTransactionListener.onTransactionCommitted(new CommittedTransactionChanges(changed));
+    }
+  }
+
+  @Override
+  public void importStateChangesFromSource(
+      final PathBasedWorldStateUpdateAccumulator<BonsaiAccount> source) {
+    super.importStateChangesFromSource(source);
+    // Parallel tx processing imports state changes here instead of via commit(); emit the same
+    // snapshot from this path so listeners observe both code paths uniformly.
+    final Set<Address> changed = new HashSet<>(source.getAccountsToUpdate().keySet());
+    if (!changed.isEmpty()) {
+      committedTransactionListener.onTransactionCommitted(new CommittedTransactionChanges(changed));
+    }
+  }
+
+  @Override
+  public void reset() {
+    super.reset();
+    // After super.reset(), accountsToUpdate is empty; any listener-side cache derived from the
+    // accumulator is now stale and must be invalidated. revert() does NOT route through here
+    // (it bypasses to AbstractWorldUpdater.reset()), which is the intended behavior — listeners
+    // tracking committed deltas should survive a per-tx revert.
+    committedTransactionListener.onReset();
   }
 
   @Override
