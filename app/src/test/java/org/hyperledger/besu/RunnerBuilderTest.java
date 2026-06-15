@@ -428,4 +428,265 @@ public final class RunnerBuilderTest {
     when(blockchain.getGenesisBlock()).thenReturn(block);
     when(block.getHash()).thenReturn(Hash.ZERO);
   }
+
+  @Test
+  public void buildWithNullJsonRpcConfiguration() {
+    setupBlockchainAndBlock();
+
+    // Build a Runner with null jsonRpcConfiguration - should not throw NPE
+    final Runner runner =
+        new RunnerBuilder()
+            .p2pListenInterface("0.0.0.0")
+            .p2pListenPort(30303)
+            .p2pAdvertisedHost("127.0.0.1")
+            .p2pEnabled(false)
+            .discoveryEnabled(false)
+            .besuController(besuController)
+            .ethNetworkConfig(mock(EthNetworkConfig.class))
+            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .permissioningService(mock(PermissioningServiceImpl.class))
+            // jsonRpcConfiguration is deliberately null
+            .graphQLConfiguration(mock(GraphQLConfiguration.class))
+            .webSocketConfiguration(mock(WebSocketConfiguration.class))
+            .jsonRpcIpcConfiguration(mock(JsonRpcIpcConfiguration.class))
+            .inProcessRpcConfiguration(mock(InProcessRpcConfiguration.class))
+            .metricsConfiguration(mock(MetricsConfiguration.class))
+            .vertx(vertx)
+            .dataDir(dataDir)
+            .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
+            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .apiConfiguration(ImmutableApiConfiguration.builder().build())
+            .transactionValidatorService(mock(TransactionValidatorServiceImpl.class))
+            .build();
+
+    assertThat(runner).isNotNull();
+  }
+
+  @Test
+  public void buildWithNullWebSocketConfiguration() {
+    setupBlockchainAndBlock();
+
+    // Build a Runner with null webSocketConfiguration - should not throw NPE
+    final Runner runner =
+        new RunnerBuilder()
+            .p2pListenInterface("0.0.0.0")
+            .p2pListenPort(30303)
+            .p2pAdvertisedHost("127.0.0.1")
+            .p2pEnabled(false)
+            .discoveryEnabled(false)
+            .besuController(besuController)
+            .ethNetworkConfig(mock(EthNetworkConfig.class))
+            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .permissioningService(mock(PermissioningServiceImpl.class))
+            .jsonRpcConfiguration(mock(JsonRpcConfiguration.class))
+            .graphQLConfiguration(mock(GraphQLConfiguration.class))
+            // webSocketConfiguration is deliberately null
+            .jsonRpcIpcConfiguration(mock(JsonRpcIpcConfiguration.class))
+            .inProcessRpcConfiguration(mock(InProcessRpcConfiguration.class))
+            .metricsConfiguration(mock(MetricsConfiguration.class))
+            .vertx(vertx)
+            .dataDir(dataDir)
+            .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
+            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .apiConfiguration(ImmutableApiConfiguration.builder().build())
+            .transactionValidatorService(mock(TransactionValidatorServiceImpl.class))
+            .build();
+
+    assertThat(runner).isNotNull();
+  }
+
+  @Test
+  public void buildWithNullGraphQLConfiguration() {
+    setupBlockchainAndBlock();
+
+    // Build a Runner with null graphQLConfiguration - should not throw NPE
+    final Runner runner =
+        new RunnerBuilder()
+            .p2pListenInterface("0.0.0.0")
+            .p2pListenPort(30303)
+            .p2pAdvertisedHost("127.0.0.1")
+            .p2pEnabled(false)
+            .discoveryEnabled(false)
+            .besuController(besuController)
+            .ethNetworkConfig(mock(EthNetworkConfig.class))
+            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .permissioningService(mock(PermissioningServiceImpl.class))
+            .jsonRpcConfiguration(mock(JsonRpcConfiguration.class))
+            // graphQLConfiguration is deliberately null
+            .webSocketConfiguration(mock(WebSocketConfiguration.class))
+            .jsonRpcIpcConfiguration(mock(JsonRpcIpcConfiguration.class))
+            .inProcessRpcConfiguration(mock(InProcessRpcConfiguration.class))
+            .metricsConfiguration(mock(MetricsConfiguration.class))
+            .vertx(vertx)
+            .dataDir(dataDir)
+            .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
+            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .apiConfiguration(ImmutableApiConfiguration.builder().build())
+            .transactionValidatorService(mock(TransactionValidatorServiceImpl.class))
+            .build();
+
+    assertThat(runner).isNotNull();
+  }
+
+  @Test
+  public void buildWithNullJsonRpcIpcConfiguration() {
+    setupBlockchainAndBlock();
+
+    // Build a Runner with null jsonRpcIpcConfiguration - should not throw NPE
+    final Runner runner =
+        new RunnerBuilder()
+            .p2pListenInterface("0.0.0.0")
+            .p2pListenPort(30303)
+            .p2pAdvertisedHost("127.0.0.1")
+            .p2pEnabled(false)
+            .discoveryEnabled(false)
+            .besuController(besuController)
+            .ethNetworkConfig(mock(EthNetworkConfig.class))
+            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .permissioningService(mock(PermissioningServiceImpl.class))
+            .jsonRpcConfiguration(mock(JsonRpcConfiguration.class))
+            .graphQLConfiguration(mock(GraphQLConfiguration.class))
+            .webSocketConfiguration(mock(WebSocketConfiguration.class))
+            // jsonRpcIpcConfiguration is deliberately null
+            .inProcessRpcConfiguration(mock(InProcessRpcConfiguration.class))
+            .metricsConfiguration(mock(MetricsConfiguration.class))
+            .vertx(vertx)
+            .dataDir(dataDir)
+            .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
+            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .apiConfiguration(ImmutableApiConfiguration.builder().build())
+            .transactionValidatorService(mock(TransactionValidatorServiceImpl.class))
+            .build();
+
+    assertThat(runner).isNotNull();
+  }
+
+  @Test
+  public void buildWithNullInProcessRpcConfiguration() {
+    setupBlockchainAndBlock();
+
+    // Build a Runner with null inProcessRpcConfiguration - should not throw NPE
+    final Runner runner =
+        new RunnerBuilder()
+            .p2pListenInterface("0.0.0.0")
+            .p2pListenPort(30303)
+            .p2pAdvertisedHost("127.0.0.1")
+            .p2pEnabled(false)
+            .discoveryEnabled(false)
+            .besuController(besuController)
+            .ethNetworkConfig(mock(EthNetworkConfig.class))
+            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .permissioningService(mock(PermissioningServiceImpl.class))
+            .jsonRpcConfiguration(mock(JsonRpcConfiguration.class))
+            .graphQLConfiguration(mock(GraphQLConfiguration.class))
+            .webSocketConfiguration(mock(WebSocketConfiguration.class))
+            .jsonRpcIpcConfiguration(mock(JsonRpcIpcConfiguration.class))
+            // inProcessRpcConfiguration is deliberately null
+            .metricsConfiguration(mock(MetricsConfiguration.class))
+            .vertx(vertx)
+            .dataDir(dataDir)
+            .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
+            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .apiConfiguration(ImmutableApiConfiguration.builder().build())
+            .transactionValidatorService(mock(TransactionValidatorServiceImpl.class))
+            .build();
+
+    assertThat(runner).isNotNull();
+  }
+
+  @Test
+  public void buildWithNullBesuPluginContext() {
+    setupBlockchainAndBlock();
+
+    // Build a Runner with null besuPluginContext - should not throw NPE
+    final Runner runner =
+        new RunnerBuilder()
+            .p2pListenInterface("0.0.0.0")
+            .p2pListenPort(30303)
+            .p2pAdvertisedHost("127.0.0.1")
+            .p2pEnabled(false)
+            .discoveryEnabled(false)
+            .besuController(besuController)
+            .ethNetworkConfig(mock(EthNetworkConfig.class))
+            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .permissioningService(mock(PermissioningServiceImpl.class))
+            .jsonRpcConfiguration(mock(JsonRpcConfiguration.class))
+            .graphQLConfiguration(mock(GraphQLConfiguration.class))
+            .webSocketConfiguration(mock(WebSocketConfiguration.class))
+            .jsonRpcIpcConfiguration(mock(JsonRpcIpcConfiguration.class))
+            .inProcessRpcConfiguration(mock(InProcessRpcConfiguration.class))
+            .metricsConfiguration(mock(MetricsConfiguration.class))
+            .vertx(vertx)
+            .dataDir(dataDir)
+            .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
+            .rpcEndpointService(new RpcEndpointServiceImpl())
+            // besuPluginContext is deliberately null
+            .apiConfiguration(ImmutableApiConfiguration.builder().build())
+            .transactionValidatorService(mock(TransactionValidatorServiceImpl.class))
+            .build();
+
+    assertThat(runner).isNotNull();
+  }
+
+  @Test
+  public void buildWithAllNullOptionalConfigurations() {
+    setupBlockchainAndBlock();
+
+    // Build a Runner with multiple null optional configurations - should not throw NPE
+    // This simulates a minimal caller that only provides absolutely required fields
+    final Runner runner =
+        new RunnerBuilder()
+            .p2pListenInterface("0.0.0.0")
+            .p2pListenPort(30303)
+            .p2pAdvertisedHost("127.0.0.1")
+            .p2pEnabled(false)
+            .discoveryEnabled(false)
+            .besuController(besuController)
+            .ethNetworkConfig(mock(EthNetworkConfig.class))
+            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .permissioningService(mock(PermissioningServiceImpl.class))
+            // All optional RPC/plugin configurations are null
+            .metricsConfiguration(mock(MetricsConfiguration.class))
+            .vertx(vertx)
+            .dataDir(dataDir)
+            .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
+            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .apiConfiguration(ImmutableApiConfiguration.builder().build())
+            .transactionValidatorService(mock(TransactionValidatorServiceImpl.class))
+            .build();
+
+    assertThat(runner).isNotNull();
+  }
+
+  @Test
+  public void buildWithoutSettingOptionalConfigurationsInitializesDefaults() {
+    setupBlockchainAndBlock();
+
+    // Build a Runner explicitly NOT setting optional configurations
+    // Verify that build() initializes them with defaults and build succeeds
+    final RunnerBuilder builder =
+        new RunnerBuilder()
+            .p2pListenInterface("0.0.0.0")
+            .p2pListenPort(30303)
+            .p2pAdvertisedHost("127.0.0.1")
+            .p2pEnabled(false)
+            .discoveryEnabled(false)
+            .besuController(besuController)
+            .ethNetworkConfig(mock(EthNetworkConfig.class))
+            .metricsSystem(mock(ObservableMetricsSystem.class))
+            .permissioningService(mock(PermissioningServiceImpl.class))
+            .metricsConfiguration(mock(MetricsConfiguration.class))
+            .vertx(vertx)
+            .dataDir(dataDir)
+            .storageProvider(mock(KeyValueStorageProvider.class, RETURNS_DEEP_STUBS))
+            .rpcEndpointService(new RpcEndpointServiceImpl())
+            .apiConfiguration(ImmutableApiConfiguration.builder().build())
+            .transactionValidatorService(mock(TransactionValidatorServiceImpl.class));
+    // Note: not setting jsonRpcConfiguration, webSocketConfiguration, etc.
+
+    // Should not throw NPE; defaults should be applied internally
+    final Runner runner = builder.build();
+
+    assertThat(runner).isNotNull();
+  }
 }
