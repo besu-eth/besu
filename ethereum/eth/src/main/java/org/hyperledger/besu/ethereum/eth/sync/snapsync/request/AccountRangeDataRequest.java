@@ -200,6 +200,7 @@ public class AccountRangeDataRequest extends SnapDataRequest {
             Bytes32.wrap(getRootHash().getBytes()),
             taskElement.proofs(),
             taskElement.keys(),
+            startKeyHash,
             endKeyHash)
         .ifPresentOrElse(
             missingRightElement -> {
