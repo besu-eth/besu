@@ -196,7 +196,11 @@ public class TransactionProcessingResult
         partialBlockAccessView);
   }
 
-  /** Constructor with gasSpent (for Amsterdam+ forks with EIP-7778). */
+  /**
+   * Carries the multidimensional gas fields ({@code gasSpent} and {@code stateGasUsed}) needed by
+   * Amsterdam+ forks under EIP-7778 / EIP-8037 — pre-Amsterdam callers use the shorter overload
+   * above.
+   */
   public TransactionProcessingResult(
       final Status status,
       final List<Log> logs,
@@ -350,6 +354,17 @@ public class TransactionProcessingResult
    * @return the state gas used
    */
   public long getStateGasUsed() {
+    return stateGasUsed;
+  }
+
+  /**
+   * Returns the state gas used as seen by block-level accounting. Identical to {@link
+   * #getStateGasUsed()} — EIP-7702 authorization refunds are reflected in {@code state_gas_used} so
+   * per-tx and block-level accounting stay consistent.
+   *
+   * @return the state gas used for block accounting
+   */
+  public long getStateGasUsedForBlock() {
     return stateGasUsed;
   }
 

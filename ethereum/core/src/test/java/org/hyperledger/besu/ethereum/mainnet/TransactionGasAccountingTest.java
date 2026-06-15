@@ -29,8 +29,6 @@ public class TransactionGasAccountingTest {
         .remainingGas(0L)
         .stateGasReservoir(0L)
         .stateGasUsed(0L)
-        .initialFrameStateGasSpill(0L)
-        .stateGasSpillBurned(0L)
         .refundedGas(0L)
         .floorCost(0L)
         .regularGasLimitExceeded(false);
@@ -48,7 +46,7 @@ public class TransactionGasAccountingTest {
             .calculate();
 
     // executionGas = 100k - 30k - 0 = 70k
-    // stateGas = 0, regularGas = 70k - 0 - 0 - 0 = 70k
+    // stateGas = 0, regularGas = 70k
     // gasUsedByTransaction = max(70k, 0) + 0 = 70k
     // usedGas = 100k - 5k = 95k
     assertThat(result.effectiveStateGas()).isEqualTo(0L);
@@ -70,7 +68,7 @@ public class TransactionGasAccountingTest {
             .calculate();
 
     // executionGas = 100k - 20k - 10k = 70k
-    // stateGas = 10k + 0 = 10k, regularGas = 70k - 10k - 0 - 0 = 60k
+    // stateGas = 10k, regularGas = 70k - 10k = 60k
     // gasUsedByTransaction = max(60k, 0) + 10k = 70k
     // usedGas = 100k - 5k = 95k
     assertThat(result.effectiveStateGas()).isEqualTo(10_000L);
@@ -104,46 +102,17 @@ public class TransactionGasAccountingTest {
             .remainingGas(20_000L)
             .stateGasReservoir(5_000L)
             .stateGasUsed(30_000L)
-            .initialFrameStateGasSpill(2_000L)
-            .stateGasSpillBurned(5_000L)
             .regularGasLimitExceeded(true)
             .build()
             .calculate();
 
-    // All gas consumed when regular gas limit exceeded
-    assertThat(result.effectiveStateGas()).isEqualTo(32_000L); // 30k + 2k spill
+    assertThat(result.effectiveStateGas()).isEqualTo(30_000L);
     assertThat(result.gasUsedByTransaction()).isEqualTo(100_000L);
     assertThat(result.usedGas()).isEqualTo(100_000L);
   }
 
   @Test
-  public void stateGasSpill_doubleCountingAvoided() {
-    // initialFrameStateGasSpill=3000 is included in both stateGas AND spillBurned.
-    // The calculation must subtract it from spillBurned to avoid double-counting.
-    final var result =
-        baseBuilder()
-            .txGasLimit(100_000L)
-            .remainingGas(10_000L)
-            .stateGasUsed(20_000L)
-            .initialFrameStateGasSpill(3_000L)
-            .stateGasSpillBurned(8_000L)
-            .build()
-            .calculate();
-
-    // executionGas = 100k - 10k - 0 = 90k
-    // stateGas = 20k + 3k = 23k
-    // spillBurned correction = 8k - 3k = 5k (avoid double-counting initialFrameStateGasSpill)
-    // regularGas = 90k - 23k - 5k - 0 = 62k
-    // gasUsedByTransaction = max(62k, 0) + 23k = 85k
-    assertThat(result.effectiveStateGas()).isEqualTo(23_000L);
-    assertThat(result.gasUsedByTransaction()).isEqualTo(85_000L);
-    assertThat(result.usedGas()).isEqualTo(100_000L);
-  }
-
-  @Test
   public void zeroStateGas_preAmsterdamEquivalent() {
-    // Pre-Amsterdam: stateGasUsed=0, spillBurned=0
-    // Should behave identically to pre-8037 gas accounting
     final var result =
         baseBuilder()
             .txGasLimit(100_000L)
@@ -157,45 +126,6 @@ public class TransactionGasAccountingTest {
     assertThat(result.effectiveStateGas()).isEqualTo(0L);
     assertThat(result.gasUsedByTransaction()).isEqualTo(60_000L);
     assertThat(result.usedGas()).isEqualTo(90_000L);
-  }
-
-  @Test
-  public void initialFrameRegularHaltBurn_excludedFromRegularGas() {
-    // EIP-3607 collision scenario: CREATE tx with gas_limit=600k halts at
-    // ContractCreationProcessor.start(). chargeCreateStateGas charged 131488 state gas
-    // (spilled into gasRemaining). At halt, gasRemaining=438012 was cleared by
-    // clearGasRemaining() and captured into initialFrameRegularHaltBurn.
-    // The sender still pays the full 600k via receipts, but block regular gas must
-    // only reflect intrinsic regular (i.e. 0 executionGas attributable to the frame
-    // beyond state gas and halt burn).
-    final var result =
-        baseBuilder()
-            .txGasLimit(600_000L)
-            .remainingGas(0L)
-            .stateGasReservoir(0L)
-            .stateGasUsed(131_488L)
-            .initialFrameRegularHaltBurn(438_012L)
-            .build()
-            .calculate();
-
-    // executionGas = 600k - 0 - 0 = 600000
-    // stateGas = 131_488 + 0 = 131_488
-    // regularGas = 600_000 - 131_488 - 0 - 438_012 = 30_500
-    // gasUsedByTransaction = max(30_500, 0) + 131_488 = 161_988
-    // usedGas = 600_000 - 0 = 600_000 (sender pays full gas_limit)
-    assertThat(result.effectiveStateGas()).isEqualTo(131_488L);
-    assertThat(result.gasUsedByTransaction()).isEqualTo(161_988L);
-    assertThat(result.usedGas()).isEqualTo(600_000L);
-  }
-
-  @Test
-  public void initialFrameRegularHaltBurn_defaultsToZero() {
-    // When not set (pre-Amsterdam or non-halt paths), the field should default to 0
-    // and have no effect on the calculation.
-    final var result = baseBuilder().txGasLimit(100_000L).remainingGas(30_000L).build().calculate();
-
-    // Same as normalPath_regularGasComputedCorrectly (without refund)
-    assertThat(result.gasUsedByTransaction()).isEqualTo(70_000L);
   }
 
   @Test

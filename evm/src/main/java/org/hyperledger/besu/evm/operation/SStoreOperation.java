@@ -20,14 +20,20 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
+import org.hyperledger.besu.evm.gascalculator.StorageTransition;
 
 import java.util.function.Supplier;
 
 import com.google.common.base.Suppliers;
 import org.apache.tuweni.units.bigints.UInt256;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** The SStore operation. */
 public class SStoreOperation extends AbstractOperation {
+
+  private static final Logger LOG = LoggerFactory.getLogger(SStoreOperation.class);
 
   /** The constant FRONTIER_MINIMUM. */
   public static final long FRONTIER_MINIMUM = 0L;
@@ -106,15 +112,27 @@ public class SStoreOperation extends AbstractOperation {
         gasCalculator()
             .calculateStorageRefundAmount(newValue, currentValueSupplier, originalValueSupplier));
 
-    // EIP-8037: Refund state gas for 0→X→0 (storage set then clear)
-    gasCalculator()
-        .stateGasCostCalculator()
-        .refundStorageSetStateGas(frame, newValue, currentValueSupplier, originalValueSupplier);
+    LOG.trace(
+        "EIP-8037 REC_STORAGE depth={} addr={} key={} txEntryIsZero={} beforeIsZero={} afterIsZero={}",
+        frame.getDepth(),
+        address.toHexString(),
+        "0x" + key.toHexString().substring(2),
+        originalValueSupplier.get().isZero(),
+        currentValueSupplier.get().isZero(),
+        newValue.isZero());
 
-    // EIP-8037: Charge state gas for storage set (0 -> nonzero)
-    if (!gasCalculator()
-        .stateGasCostCalculator()
-        .chargeStorageSetStateGas(frame, newValue, currentValueSupplier, originalValueSupplier)) {
+    final StateGasCostCalculator stateGasCalc = gasCalculator().stateGasCostCalculator();
+    final StorageTransition transition =
+        StorageTransition.of(newValue, currentValueSupplier, originalValueSupplier);
+    final long storageSetStateGas = stateGasCalc.storageSetStateGas();
+
+    // EIP-8037: Refund state gas for 0→X→0 (storage set then clear).
+    if (transition.isUnwoundSet()) {
+      frame.refillStateGasReservoir(storageSetStateGas);
+    }
+
+    // EIP-8037: Charge state gas for storage set (0 → nonzero).
+    if (transition.isStorageSet() && !frame.consumeStateGas(storageSetStateGas)) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
 

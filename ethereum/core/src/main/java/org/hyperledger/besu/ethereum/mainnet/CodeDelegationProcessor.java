@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet;
 
 import static org.hyperledger.besu.evm.account.Account.MAX_NONCE;
+import static org.hyperledger.besu.evm.worldstate.CodeDelegationHelper.hasCodeDelegation;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.CodeDelegation;
@@ -130,6 +131,7 @@ public class CodeDelegationProcessor {
 
     MutableAccount authority;
     boolean authorityDoesAlreadyExist = false;
+    boolean authorityHasExistingDelegation = false;
     if (maybeExistingAccount.isEmpty()) {
       // only create an account if nonce is valid
       if (codeDelegation.nonce() != 0) {
@@ -150,6 +152,8 @@ public class CodeDelegationProcessor {
         return;
       }
 
+      authorityHasExistingDelegation = hasCodeDelegation(maybeExistingAccount.get().getCode());
+
       // Validation passed — now get the mutable account for mutation
       authority = worldUpdater.getAccount(authorizer.get());
       eip7928AccessList.ifPresent(t -> t.addTouchedAccount(authority.getAddress()));
@@ -158,6 +162,11 @@ public class CodeDelegationProcessor {
 
     if (authorityDoesAlreadyExist) {
       result.incrementAlreadyExistingDelegators();
+    }
+    // AUTH_BASE state gas is refunded when no delegation-indicator bytes are written: either the
+    // authority already has a delegation designator (overwritten in place) or auth.address is zero.
+    if (authorityHasExistingDelegation || codeDelegation.address().equals(Address.ZERO)) {
+      result.incrementAuthBaseRefundCount();
     }
 
     codeDelegationService.processCodeDelegation(authority, codeDelegation.address());

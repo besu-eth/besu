@@ -26,6 +26,7 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -46,6 +47,13 @@ public class SystemCallProcessor {
    * independent of the gas limit of the block
    */
   private static final long SYSTEM_CALL_GAS_LIMIT = 30_000_000L;
+
+  /**
+   * EIP-8037: maximum number of SSTOREs the state-gas reservoir of a system call must be sized to
+   * cover. The reservoir gets {@code STATE_BYTES_PER_STORAGE_SLOT * cpsb *
+   * SYSTEM_MAX_SSTORES_PER_CALL} extra gas on top of {@link #SYSTEM_CALL_GAS_LIMIT}.
+   */
+  private static final long SYSTEM_MAX_SSTORES_PER_CALL = 16L;
 
   /** The system address */
   static final Address SYSTEM_ADDRESS =
@@ -161,7 +169,23 @@ public class SystemCallProcessor {
           tracker.addTouchedAccount(callAddress);
         });
 
-    return builder.build();
+    final MessageFrame frame = builder.build();
+    seedSystemCallStateGasReservoir(frame);
+    return frame;
+  }
+
+  /**
+   * EIP-8037: seed the state-gas reservoir of a system call frame so state-gas growth alone cannot
+   * OOG the call. The reservoir is sized to cover up to {@link #SYSTEM_MAX_SSTORES_PER_CALL}
+   * storage-set state-gas charges. No-op when the active fork has no state-gas accounting.
+   */
+  private void seedSystemCallStateGasReservoir(final MessageFrame frame) {
+    final StateGasCostCalculator stateGasCalc =
+        mainnetTransactionProcessor.getGasCalculator().stateGasCostCalculator();
+    if (!stateGasCalc.isActive()) {
+      return;
+    }
+    frame.setStateGasReservoir(stateGasCalc.storageSetStateGas() * SYSTEM_MAX_SSTORES_PER_CALL);
   }
 
   private Code getCode(final Account contract, final AbstractMessageProcessor processor) {
