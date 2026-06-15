@@ -35,7 +35,7 @@ public abstract class TransactionGasAccounting {
   private static final Logger LOG = LoggerFactory.getLogger(TransactionGasAccounting.class);
 
   /** Result of the gas accounting calculation. */
-  public record GasResult(long effectiveStateGas, long gasUsedByTransaction, long usedGas) {}
+  public record GasResult(long gasUsedByTransaction, long usedGas) {}
 
   /** The transaction gas limit. */
   public abstract long txGasLimit();
@@ -66,25 +66,24 @@ public abstract class TransactionGasAccounting {
   /**
    * Calculate gas accounting for a completed transaction.
    *
-   * @return the gas result containing effectiveStateGas, gasUsedByTransaction, and usedGas
+   * @return the gas result containing gasUsedByTransaction and usedGas
    */
   public GasResult calculate() {
     if (regularGasLimitExceeded()) {
-      return new GasResult(stateGasUsed(), txGasLimit(), txGasLimit());
+      return new GasResult(txGasLimit(), txGasLimit());
     }
 
     final long executionGas = txGasLimit() - remainingGas() - stateGasReservoir();
-    final long stateGas = stateGasUsed();
-    final long regularGas = executionGas - stateGas;
+    final long regularGas = executionGas - stateGasUsed();
     if (regularGas < 0) {
       LOG.error(
           "Negative regularGas={} (executionGas={}, stateGas={})",
           regularGas,
           executionGas,
-          stateGas);
+          stateGasUsed());
     }
-    final long gasUsedByTransaction = Math.max(regularGas, floorCost()) + stateGas;
+    final long gasUsedByTransaction = Math.max(regularGas, floorCost()) + stateGasUsed();
     final long usedGas = txGasLimit() - refundedGas();
-    return new GasResult(stateGas, gasUsedByTransaction, usedGas);
+    return new GasResult(gasUsedByTransaction, usedGas);
   }
 }

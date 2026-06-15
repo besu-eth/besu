@@ -359,7 +359,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
         cumulativeReceiptGasUsed +=
             BlockGasAccountingStrategy.calculateReceiptGas(
                 transaction, transactionProcessingResult);
-        cumulativeStateGasUsed += transactionProcessingResult.getStateGasUsedForBlock();
+        cumulativeStateGasUsed += transactionProcessingResult.getStateGasUsed();
 
         // EIP-8037: Post-processing check — verify gas metered doesn't exceed block gas limit.
         final long gasMeteredSoFar =

@@ -254,8 +254,6 @@ class BlockSizeTransactionSelectorTest {
     final var txProcessingResult = mock(TransactionProcessingResult.class);
     when(txProcessingResult.getEstimateGasUsedByTransaction()).thenReturn(preRefundGasUsed);
     when(txProcessingResult.getStateGasUsed()).thenReturn(0L);
-    lenient().when(txProcessingResult.getStateGasUsedForBlock()).thenReturn(0L);
-
     final var txEvaluationContext =
         new TransactionEvaluationContext(
             blockSelectionContext.pendingBlockHeader(), tx, null, null, null, NEVER_CANCELLED);
@@ -288,8 +286,6 @@ class BlockSizeTransactionSelectorTest {
     final var txProcessingResult = mock(TransactionProcessingResult.class);
     when(txProcessingResult.getGasRemaining()).thenReturn(postRefundGasRemaining);
     lenient().when(txProcessingResult.getStateGasUsed()).thenReturn(0L);
-    lenient().when(txProcessingResult.getStateGasUsedForBlock()).thenReturn(0L);
-
     final var txEvaluationContext =
         new TransactionEvaluationContext(
             blockSelectionContext.pendingBlockHeader(), tx, null, null, null, NEVER_CANCELLED);
@@ -321,7 +317,6 @@ class BlockSizeTransactionSelectorTest {
     final var result1 = mock(TransactionProcessingResult.class);
     when(result1.getEstimateGasUsedByTransaction()).thenReturn(30_000_000L);
     when(result1.getStateGasUsed()).thenReturn(5_000_000L);
-    when(result1.getStateGasUsedForBlock()).thenReturn(5_000_000L);
     // calculateTransactionRegularGas returns 30M - 5M = 25M regular
 
     final var ctx1 =
@@ -367,7 +362,6 @@ class BlockSizeTransactionSelectorTest {
     final var result1 = mock(TransactionProcessingResult.class);
     when(result1.getEstimateGasUsedByTransaction()).thenReturn(30_000_000L);
     when(result1.getStateGasUsed()).thenReturn(10_000_000L);
-    when(result1.getStateGasUsedForBlock()).thenReturn(10_000_000L);
 
     final var ctx1 =
         new TransactionEvaluationContext(
@@ -414,7 +408,6 @@ class BlockSizeTransactionSelectorTest {
     final var result1 = mock(TransactionProcessingResult.class);
     when(result1.getEstimateGasUsedByTransaction()).thenReturn(1_000_000L);
     when(result1.getStateGasUsed()).thenReturn(10_000L);
-    when(result1.getStateGasUsedForBlock()).thenReturn(10_000L);
     // regular gas = 1_000_000 - 10_000 = 990_000
 
     final var ctx1 =
@@ -476,7 +469,6 @@ class BlockSizeTransactionSelectorTest {
     final var txProcessingResult = mock(TransactionProcessingResult.class);
     when(txProcessingResult.getGasRemaining()).thenReturn(remainingGas);
     lenient().when(txProcessingResult.getStateGasUsed()).thenReturn(0L);
-    lenient().when(txProcessingResult.getStateGasUsedForBlock()).thenReturn(0L);
     return txProcessingResult;
   }
 }

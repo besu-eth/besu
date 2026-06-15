@@ -49,7 +49,6 @@ public class TransactionGasAccountingTest {
     // stateGas = 0, regularGas = 70k
     // gasUsedByTransaction = max(70k, 0) + 0 = 70k
     // usedGas = 100k - 5k = 95k
-    assertThat(result.effectiveStateGas()).isEqualTo(0L);
     assertThat(result.gasUsedByTransaction()).isEqualTo(70_000L);
     assertThat(result.usedGas()).isEqualTo(95_000L);
   }
@@ -71,7 +70,6 @@ public class TransactionGasAccountingTest {
     // stateGas = 10k, regularGas = 70k - 10k = 60k
     // gasUsedByTransaction = max(60k, 0) + 10k = 70k
     // usedGas = 100k - 5k = 95k
-    assertThat(result.effectiveStateGas()).isEqualTo(10_000L);
     assertThat(result.gasUsedByTransaction()).isEqualTo(70_000L);
     assertThat(result.usedGas()).isEqualTo(95_000L);
   }
@@ -106,7 +104,6 @@ public class TransactionGasAccountingTest {
             .build()
             .calculate();
 
-    assertThat(result.effectiveStateGas()).isEqualTo(30_000L);
     assertThat(result.gasUsedByTransaction()).isEqualTo(100_000L);
     assertThat(result.usedGas()).isEqualTo(100_000L);
   }
@@ -123,7 +120,6 @@ public class TransactionGasAccountingTest {
 
     // executionGas = 100k - 40k = 60k
     // regularGas = 60k, gasUsedByTransaction = 60k, usedGas = 100k - 10k = 90k
-    assertThat(result.effectiveStateGas()).isEqualTo(0L);
     assertThat(result.gasUsedByTransaction()).isEqualTo(60_000L);
     assertThat(result.usedGas()).isEqualTo(90_000L);
   }

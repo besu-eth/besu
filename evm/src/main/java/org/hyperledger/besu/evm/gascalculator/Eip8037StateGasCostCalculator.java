@@ -43,7 +43,12 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
   /** Keccak256 word gas cost for code deposit hashing. */
   static final long KECCAK256_WORD_GAS_COST = 6L;
 
-  /** The mainnet transaction gas limit cap from EIP-7825, enforced at runtime on regular gas. */
+  /**
+   * The mainnet transaction gas limit cap from EIP-7825 (2^24), enforced at runtime on regular gas.
+   * Mirrors {@code GasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP} in the ethereum/core
+   * module; the value is duplicated here because the evm module cannot depend on ethereum/core.
+   * Keep the two in sync.
+   */
   static final long TX_MAX_GAS_LIMIT = 16_777_216L;
 
   static final long COST_PER_STATE_BYTE = 1530L;

@@ -24,6 +24,14 @@ public interface GasLimitCalculator {
   long BLOB_GAS_LIMIT = 0xC0000;
 
   /**
+   * The EIP-7825 transaction gas limit cap value (2^24). Through Osaka this caps {@code tx.gas}
+   * itself; EIP-8037 (Amsterdam) repurposes the same value as the cap on {@code
+   * max(intrinsic_regular, calldata_floor)}. See {@link #transactionGasLimitCap()} and {@link
+   * #transactionIntrinsicGasLimitCap()}.
+   */
+  long EIP_7825_TRANSACTION_GAS_LIMIT_CAP = 16_777_216L;
+
+  /**
    * Calculates the next gas limit based on the current gas limit, target gas limit, and new block
    * number.
    *
@@ -83,6 +91,20 @@ public interface GasLimitCalculator {
    * @return the transaction gas limit cap.
    */
   default long transactionGasLimitCap() {
+    return Long.MAX_VALUE;
+  }
+
+  /**
+   * Return the cap on the transaction intrinsic gas.
+   *
+   * <p>EIP-8037 (Amsterdam) relaxes the EIP-7825 cap on {@code tx.gas} itself and instead caps
+   * {@code max(intrinsic_regular, calldata_floor)} at the same value. Forks that cap {@code tx.gas}
+   * directly leave this uncapped, since the intrinsic gas is then implicitly bounded by {@code
+   * tx.gas}.
+   *
+   * @return the transaction intrinsic gas cap.
+   */
+  default long transactionIntrinsicGasLimitCap() {
     return Long.MAX_VALUE;
   }
 

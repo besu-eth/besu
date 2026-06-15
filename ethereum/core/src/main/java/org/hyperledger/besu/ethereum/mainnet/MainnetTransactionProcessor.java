@@ -519,13 +519,13 @@ public class MainnetTransactionProcessor {
               .regularGasLimitExceeded(regularGasLimitExceeded)
               .build()
               .calculate();
-      final long effectiveStateGas = gasResult.effectiveStateGas();
+      final long stateGasUsed = initialFrame.getStateGasUsed();
       final long gasUsedByTransaction = gasResult.gasUsedByTransaction();
       final long usedGas = gasResult.usedGas();
       LOG.trace(
           "EIP-8037 TX_END gasUsed={} stateGasUsed={} reservoir={}",
           gasUsedByTransaction,
-          effectiveStateGas,
+          stateGasUsed,
           initialFrame.getStateGasReservoir());
       final CoinbaseFeePriceCalculator coinbaseCalculator;
       if (blockHeader.getBaseFee().isPresent()) {
@@ -544,7 +544,7 @@ public class MainnetTransactionProcessor {
                 gasUsedByTransaction,
                 refundedGas,
                 usedGas,
-                effectiveStateGas,
+                stateGasUsed,
                 ValidationResult.invalid(
                     TransactionInvalidReason.TRANSACTION_PRICE_TOO_LOW,
                     "transaction price must be greater than base fee"),
@@ -601,7 +601,7 @@ public class MainnetTransactionProcessor {
             gasUsedByTransaction,
             refundedGas,
             usedGas,
-            effectiveStateGas,
+            stateGasUsed,
             initialFrame.getOutputData(),
             partialBlockAccessView,
             validationResult);
@@ -622,7 +622,7 @@ public class MainnetTransactionProcessor {
             gasUsedByTransaction,
             refundedGas,
             usedGas,
-            effectiveStateGas,
+            stateGasUsed,
             validationResult,
             initialFrame.getRevertReason(),
             initialFrame.getExceptionalHaltReason(),

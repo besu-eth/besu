@@ -19,7 +19,10 @@ import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 
 import java.util.OptionalInt;
 
-/** EIP-8037: Amsterdam disables the validation-time transaction gas limit cap. */
+/**
+ * EIP-8037: Amsterdam relaxes the EIP-7825 cap on {@code tx.gas} itself and instead caps {@code
+ * max(intrinsic_regular, calldata_floor)} at the former cap value.
+ */
 public class AmsterdamTargetingGasLimitCalculator extends OsakaTargetingGasLimitCalculator {
 
   public AmsterdamTargetingGasLimitCalculator(
@@ -39,5 +42,10 @@ public class AmsterdamTargetingGasLimitCalculator extends OsakaTargetingGasLimit
         maxBlobsPerTransaction,
         userMaxBlobsPerBlock,
         Long.MAX_VALUE);
+  }
+
+  @Override
+  public long transactionIntrinsicGasLimitCap() {
+    return EIP_7825_TRANSACTION_GAS_LIMIT_CAP;
   }
 }

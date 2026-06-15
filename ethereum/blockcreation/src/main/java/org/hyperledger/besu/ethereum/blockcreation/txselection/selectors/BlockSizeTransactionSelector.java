@@ -90,9 +90,8 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
     final long txRegularGasUsed =
         gasAccountingStrategy.calculateTransactionRegularGas(
             evaluationContext.getTransaction(), processingResult);
-    // EIP-8037: block accounting uses the worst-case immutable intrinsic_state_gas, captured by
-    // getStateGasUsedForBlock().
-    final long stateGasUsed = processingResult.getStateGasUsedForBlock();
+    // EIP-8037: block accounting uses the worst-case immutable intrinsic_state_gas.
+    final long stateGasUsed = processingResult.getStateGasUsed();
 
     final GasState state = getWorkingState();
     final GasState newState =

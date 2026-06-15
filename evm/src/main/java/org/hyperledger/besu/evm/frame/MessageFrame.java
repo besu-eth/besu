@@ -954,45 +954,13 @@ public class MessageFrame {
    * @return true if the full amount was consumed, false if insufficient gas (no mutation)
    */
   public boolean consumeStateGas(final long amount) {
-    return drainStateGas(amount, false);
-  }
-
-  /**
-   * Consumes state gas, draining all available gas even when the full amount cannot be covered.
-   * Always increments stateGasUsed by the full amount. Used when a transaction-level (depth-0)
-   * contract creation fails after state gas has been partially committed: the charge must be
-   * recorded for block accounting even though execution fails.
-   *
-   * @param amount the amount of state gas to consume
-   * @return true if the full amount was covered, false if available gas was under-funded
-   */
-  public boolean consumeStateGasForced(final long amount) {
-    return drainStateGas(amount, true);
-  }
-
-  /**
-   * Drains {@code amount} of state gas from the reservoir first, then from {@code gasRemaining}.
-   *
-   * <p>When {@code allowPartial} is {@code false} and total available gas is less than {@code
-   * amount}, no mutation occurs and {@code false} is returned. When {@code allowPartial} is {@code
-   * true} the available gas is drained anyway, {@code stateGasUsed} is still incremented by the
-   * full {@code amount}, and {@code false} is returned to signal under-funding.
-   *
-   * @param amount the amount of state gas to drain
-   * @param allowPartial whether to drain available gas even when under-funded
-   * @return true if fully covered, false if under-funded
-   */
-  private boolean drainStateGas(final long amount, final boolean allowPartial) {
     final long reservoirBefore = txValues.stateGasReservoir().get();
     final long gasLeftBefore = gasRemaining;
-    final boolean sufficient;
     if (reservoirBefore >= amount) {
       txValues.stateGasReservoir().set(reservoirBefore - amount);
-      sufficient = true;
     } else {
       final long overflow = amount - reservoirBefore;
-      sufficient = gasRemaining >= overflow;
-      if (!sufficient && !allowPartial) {
+      if (gasRemaining < overflow) {
         LOG.trace(
             "EIP-8037 CONSUME_STATE depth={} requested={} reservoirBefore={} gasLeftBefore={} ok=false reservoirAfter={} gasLeftAfter={} stateGasUsedAfter={}",
             getDepth(),
@@ -1005,20 +973,19 @@ public class MessageFrame {
         return false;
       }
       txValues.stateGasReservoir().set(0L);
-      gasRemaining = sufficient ? gasRemaining - overflow : Math.max(0L, gasRemaining - overflow);
+      gasRemaining -= overflow;
     }
     txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
     LOG.trace(
-        "EIP-8037 CONSUME_STATE depth={} requested={} reservoirBefore={} gasLeftBefore={} ok={} reservoirAfter={} gasLeftAfter={} stateGasUsedAfter={}",
+        "EIP-8037 CONSUME_STATE depth={} requested={} reservoirBefore={} gasLeftBefore={} ok=true reservoirAfter={} gasLeftAfter={} stateGasUsedAfter={}",
         getDepth(),
         amount,
         reservoirBefore,
         gasLeftBefore,
-        sufficient,
         txValues.stateGasReservoir().get(),
         gasRemaining,
         txValues.stateGasUsed().get());
-    return sufficient;
+    return true;
   }
 
   /**

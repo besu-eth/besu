@@ -177,14 +177,12 @@ public class SystemCallProcessor {
   /**
    * EIP-8037: seed the state-gas reservoir of a system call frame so state-gas growth alone cannot
    * OOG the call. The reservoir is sized to cover up to {@link #SYSTEM_MAX_SSTORES_PER_CALL}
-   * storage-set state-gas charges. No-op when the active fork has no state-gas accounting.
+   * storage-set state-gas charges. Pre-Amsterdam {@code storageSetStateGas()} is 0, so this seeds
+   * an empty reservoir and has no effect.
    */
   private void seedSystemCallStateGasReservoir(final MessageFrame frame) {
     final StateGasCostCalculator stateGasCalc =
         mainnetTransactionProcessor.getGasCalculator().stateGasCostCalculator();
-    if (!stateGasCalc.isActive()) {
-      return;
-    }
     frame.setStateGasReservoir(stateGasCalc.storageSetStateGas() * SYSTEM_MAX_SSTORES_PER_CALL);
   }
 

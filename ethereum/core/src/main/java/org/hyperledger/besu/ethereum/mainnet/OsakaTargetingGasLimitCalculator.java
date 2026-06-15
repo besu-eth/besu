@@ -34,9 +34,6 @@ public class OsakaTargetingGasLimitCalculator extends CancunTargetingGasLimitCal
   /** The blob base cost constant for Osaka */
   private static final long BLOB_BASE_COST = 1 << 13; // 2^13
 
-  /** The mainnet transaction gas limit cap for Osaka */
-  private static final long DEFAULT_TRANSACTION_GAS_LIMIT_CAP_OSAKA = 16_777_216L;
-
   private final long transactionGasLimitCap;
   private final long transactionBlobGasLimitCap;
   private final long blockBuilderBlobGasLimit;
@@ -57,7 +54,7 @@ public class OsakaTargetingGasLimitCalculator extends CancunTargetingGasLimitCal
         targetBlobsPerBlock,
         maxBlobsPerTransaction,
         userMaxBlobsPerBlock,
-        DEFAULT_TRANSACTION_GAS_LIMIT_CAP_OSAKA);
+        EIP_7825_TRANSACTION_GAS_LIMIT_CAP);
   }
 
   public OsakaTargetingGasLimitCalculator(

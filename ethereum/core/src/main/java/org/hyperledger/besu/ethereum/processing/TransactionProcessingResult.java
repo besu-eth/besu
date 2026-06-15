@@ -349,22 +349,12 @@ public class TransactionProcessingResult
    *
    * <p>This represents the gas consumed by state-creation operations (CREATE, SSTORE 0→nonzero,
    * CALL to new accounts, code deposits, EIP-7702 delegations). State gas is tracked separately
-   * from regular gas for multidimensional gas metering.
+   * from regular gas for multidimensional gas metering. EIP-7702 authorization refunds are already
+   * reflected in this value, so per-tx and block-level accounting use the same figure.
    *
    * @return the state gas used
    */
   public long getStateGasUsed() {
-    return stateGasUsed;
-  }
-
-  /**
-   * Returns the state gas used as seen by block-level accounting. Identical to {@link
-   * #getStateGasUsed()} — EIP-7702 authorization refunds are reflected in {@code state_gas_used} so
-   * per-tx and block-level accounting stay consistent.
-   *
-   * @return the state gas used for block accounting
-   */
-  public long getStateGasUsedForBlock() {
     return stateGasUsed;
   }
 
