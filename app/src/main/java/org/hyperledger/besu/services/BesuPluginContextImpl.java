@@ -52,6 +52,7 @@ import org.slf4j.LoggerFactory;
 public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProvider {
 
   private static final Logger LOG = LoggerFactory.getLogger(BesuPluginContextImpl.class);
+  private static final int CURRENT_API_VERSION = 1;
 
   private enum Lifecycle {
     /** Uninitialized lifecycle. */
@@ -110,6 +111,12 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
   @SuppressWarnings("unchecked")
   @Override
   public <T extends BesuService> Optional<T> getService(final Class<T> serviceType) {
+    if (state == Lifecycle.REGISTERING || state == Lifecycle.INITIALIZED) {
+      LOG.debug(
+          "Service {} requested during {} phase. Some services may not be available until STARTING phase.",
+          serviceType.getSimpleName(),
+          state);
+    }
     return Optional.ofNullable((T) serviceRegistry.get(serviceType));
   }
 
@@ -199,9 +206,22 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
 
   private boolean registerPlugin(final BesuPlugin plugin) {
     try {
+      final int pluginApiVersion = plugin.getApiVersion();
+      if (pluginApiVersion > CURRENT_API_VERSION) {
+        LOG.error(
+            "Plugin {} requires API version {}, but current Besu API version is {}. Plugin may not work correctly.",
+            plugin.getName(),
+            pluginApiVersion,
+            CURRENT_API_VERSION);
+      }
+
       plugin.register(this);
       pluginVersions.put(plugin.getName(), plugin.getVersion());
-      LOG.info("Registered plugin of type {}.", plugin.getClass().getName());
+      LOG.info(
+          "Registered plugin {} (API v{}) of type {}.",
+          plugin.getName(),
+          pluginApiVersion,
+          plugin.getClass().getName());
     } catch (final Exception e) {
       if (config.isContinueOnPluginError()) {
         LOG.error(
