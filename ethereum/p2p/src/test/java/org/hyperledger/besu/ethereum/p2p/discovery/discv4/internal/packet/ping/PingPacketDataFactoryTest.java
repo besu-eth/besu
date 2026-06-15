@@ -98,6 +98,23 @@ public class PingPacketDataFactoryTest {
   }
 
   @Test
+  public void testCreateDecodedPacketWithInvalidEndpoints() {
+    final long expiration = 456;
+    final UInt64 enrSeq = UInt64.MAX_VALUE;
+
+    final PingPacketData result =
+        factory.createForDecode(Optional.empty(), Optional.empty(), expiration, enrSeq);
+
+    Mockito.verify(expiryValidator).validate(expiration);
+    Mockito.verifyNoInteractions(endpointValidator);
+
+    Assertions.assertTrue(result.getFrom().isEmpty());
+    Assertions.assertTrue(result.getMaybeTo().isEmpty());
+    Assertions.assertEquals(expiration, result.getExpiration());
+    Assertions.assertEquals(Optional.of(enrSeq), result.getEnrSeq());
+  }
+
+  @Test
   public void testCreateWithoutExpiry() {
     final Optional<Endpoint> maybeFrom = Optional.empty();
     final Endpoint to = Mockito.mock(Endpoint.class);

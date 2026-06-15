@@ -19,10 +19,10 @@ import static org.hyperledger.besu.util.NetworkUtility.checkPort;
 import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryPacketDecodingException;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.DiscoveryPeerV4;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 import org.hyperledger.besu.plugin.data.EnodeURL;
-import org.hyperledger.besu.util.IllegalPortException;
 import org.hyperledger.besu.util.Preconditions;
 
 import java.net.InetAddress;
@@ -213,16 +213,18 @@ public class Endpoint {
 
   /**
    * Attempts to decodes the RLP stream as a standalone Endpoint instance, which is not part of a
-   * Peer. If the from field is malformed, consumes the rest of the items in the list and returns
-   * Optional.empty().
+   * Peer. If the endpoint is malformed, consumes the endpoint field and returns Optional.empty().
    *
    * @param in The RLP input stream from which to read.
    * @return Some decoded endpoint if it was possible to decode it, empty otherwise.
    */
   public static Optional<Endpoint> maybeDecodeStandalone(final RLPInput in) {
+    final RLPInput endpointInput = in.readAsRlp();
     try {
-      return Optional.of(decodeStandalone(in));
-    } catch (IllegalPortException __) {
+      return Optional.of(decodeStandalone(endpointInput));
+    } catch (final IllegalArgumentException
+        | PeerDiscoveryPacketDecodingException
+        | RLPException __) {
       return Optional.empty();
     }
   }

@@ -29,8 +29,8 @@ public class PingPacketData implements PacketData {
   /* Source. If the field is garbage this is empty and we might need to recover it another way. From our bonded peers, for example. */
   private final Optional<Endpoint> maybeFrom;
 
-  /* Destination. */
-  private final Endpoint to;
+  /* Destination. If the field is garbage this is empty. */
+  private final Optional<Endpoint> maybeTo;
 
   /* In seconds after epoch. */
   private final long expiration;
@@ -43,8 +43,16 @@ public class PingPacketData implements PacketData {
       final Endpoint to,
       final long expiration,
       final UInt64 enrSeq) {
+    this(maybeFrom, Optional.of(to), expiration, enrSeq);
+  }
+
+  PingPacketData(
+      final Optional<Endpoint> maybeFrom,
+      final Optional<Endpoint> maybeTo,
+      final long expiration,
+      final UInt64 enrSeq) {
     this.maybeFrom = maybeFrom;
-    this.to = to;
+    this.maybeTo = maybeTo;
     this.expiration = expiration;
     this.enrSeq = enrSeq;
   }
@@ -54,7 +62,11 @@ public class PingPacketData implements PacketData {
   }
 
   public Endpoint getTo() {
-    return to;
+    return maybeTo.orElseThrow(() -> new IllegalStateException("PING destination is invalid"));
+  }
+
+  public Optional<Endpoint> getMaybeTo() {
+    return maybeTo;
   }
 
   public long getExpiration() {
@@ -71,7 +83,7 @@ public class PingPacketData implements PacketData {
         + "from="
         + maybeFrom.map(Object::toString).orElse("INVALID")
         + ", to="
-        + to
+        + maybeTo.map(Object::toString).orElse("INVALID")
         + ", expiration="
         + expiration
         + ", enrSeq="
