@@ -1,0 +1,14 @@
+{
+  "request" : {
+    "jsonrpc" : "2.0",
+    "method" : "debug_executionWitness",
+    "params" : [ "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ],
+    "id" : 1
+  },
+  "response" : {
+    "jsonrpc" : "2.0",
+    "id" : 1,
+    "result" : null
+  },
+  "statusCode" : 200
+}

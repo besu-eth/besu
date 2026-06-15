@@ -34,6 +34,7 @@ import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
 import org.hyperledger.besu.evm.operation.BlockHashOperation;
 
+import java.util.Map;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -138,6 +139,32 @@ class BlockchainBasedBlockHashLookupTest {
   void shouldReturnZeroWhenRequestedBlockTooFarBehindCurrent() {
     assertHashForBlockNumber(MAXIMUM_COMPLETE_BLOCKS_BEHIND - 1, Hash.ZERO);
     assertHashForBlockNumber(10, Hash.ZERO);
+  }
+
+  @Test
+  void getAccessedAncestorsContainsParentByDefault() {
+    final long parentNumber = CURRENT_BLOCK_NUMBER - 1L;
+    assertThat(lookup.getAccessedAncestors())
+        .containsEntry(parentNumber, headers[(int) parentNumber].getHash())
+        .hasSize(1);
+  }
+
+  @Test
+  void getAccessedAncestorsRecordsEveryBlockWalkedByBlockhashLookups() {
+    // Resolve a hash far back; the walk should populate every intermediate ancestor down to it.
+    final int target = CURRENT_BLOCK_NUMBER - 10;
+    assertHashForBlockNumber(target);
+
+    final Map<Long, Hash> resolved = lookup.getAccessedAncestors();
+    for (long n = target; n <= CURRENT_BLOCK_NUMBER - 1; n++) {
+      assertThat(resolved).containsEntry(n, headers[(int) n].getHash());
+    }
+  }
+
+  @Test
+  void getAccessedAncestorsReturnsUnmodifiableView() {
+    Assertions.assertThatThrownBy(() -> lookup.getAccessedAncestors().put(1L, Hash.ZERO))
+        .isInstanceOf(UnsupportedOperationException.class);
   }
 
   private void assertHashForBlockNumber(final int blockNumber) {

@@ -27,7 +27,10 @@ public class DebugJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
   public static Object[][] specs() {
     return AbstractJsonRpcHttpBySpecTest.findSpecFiles(
         new String[] {
-          "debug/account-at", "debug/batch-send-raw-transaction", "debug/trace-transaction"
+          "debug/account-at",
+          "debug/batch-send-raw-transaction",
+          "debug/trace-transaction",
+          "debug/execution-witness"
         }); // storageRange and accountRange are not working with bonsai trie
   }
 }

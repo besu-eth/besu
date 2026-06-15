@@ -14,12 +14,14 @@
  */
 package org.hyperledger.besu.ethereum;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /** Contains the outputs of processing a block. */
@@ -30,6 +32,7 @@ public class BlockProcessingOutputs {
   private final Optional<List<Request>> maybeRequests;
   private final Optional<BlockAccessList> maybeBlockAccessList;
   private final long cumulativeBlockGasUsed;
+  private final Map<Long, Hash> accessedAncestors;
 
   /**
    * Creates a new instance.
@@ -87,11 +90,34 @@ public class BlockProcessingOutputs {
       final Optional<List<Request>> maybeRequests,
       final Optional<BlockAccessList> blockAccessList,
       final long cumulativeBlockGasUsed) {
+    this(worldState, receipts, maybeRequests, blockAccessList, cumulativeBlockGasUsed, Map.of());
+  }
+
+  /**
+   * Creates a new instance.
+   *
+   * @param worldState the world state after processing the block
+   * @param receipts the receipts produced by processing the block
+   * @param maybeRequests the requests produced by processing the block
+   * @param blockAccessList the block-level access list produced by processing the block
+   * @param cumulativeBlockGasUsed the cumulative block gas used (pre-refund for EIP-7778)
+   * @param accessedAncestors ancestor block numbers and hashes touched while processing this block
+   *     (includes the parent header by construction; EIP-8025 witness uses this to populate {@code
+   *     headers}).
+   */
+  public BlockProcessingOutputs(
+      final MutableWorldState worldState,
+      final List<TransactionReceipt> receipts,
+      final Optional<List<Request>> maybeRequests,
+      final Optional<BlockAccessList> blockAccessList,
+      final long cumulativeBlockGasUsed,
+      final Map<Long, Hash> accessedAncestors) {
     this.worldState = worldState;
     this.receipts = receipts;
     this.maybeRequests = maybeRequests;
     this.maybeBlockAccessList = blockAccessList;
     this.cumulativeBlockGasUsed = cumulativeBlockGasUsed;
+    this.accessedAncestors = accessedAncestors;
   }
 
   /**
@@ -139,5 +165,13 @@ public class BlockProcessingOutputs {
    */
   public long getCumulativeBlockGasUsed() {
     return cumulativeBlockGasUsed;
+  }
+
+  /**
+   * Returns a map of ancestor block numbers to hashes for all ancestors accessed during block
+   * processing. This is used to populate the "headers" field of the execution witness (EIP-8025).
+   */
+  public Map<Long, Hash> getAccessedAncestors() {
+    return accessedAncestors;
   }
 }

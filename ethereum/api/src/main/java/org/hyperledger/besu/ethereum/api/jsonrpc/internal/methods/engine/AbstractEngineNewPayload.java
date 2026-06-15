@@ -31,6 +31,7 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.RequestType;
 import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.BlockProcessingOutputs;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
@@ -408,7 +409,9 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
               .sum(),
           lastExecutionTimeInNs,
           executionResult.getNbParallelizedTransactions());
-      return respondWith(reqId, blockParam, newBlockHeader.getHash(), VALID);
+      final Hash validHash = newBlockHeader.getHash();
+      logEnginePayloadResponse(blockParam, validHash, VALID);
+      return buildValidResponse(reqId, validHash, executionResult);
     } else {
       if (executionResult.causedBy().isPresent()) {
         Throwable causedBy = executionResult.causedBy().get();
@@ -471,6 +474,27 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     }
   }
 
+  /**
+   * Builds the complete {@link JsonRpcResponse} for a successfully imported block. The default
+   * wraps a canonical {@link EnginePayloadStatusResult} in a {@link JsonRpcSuccessResponse}.
+   *
+   * <p>Overridden by handlers that need a different response shape or that may fail after the block
+   * is imported — for example {@link EngineNewPayloadWithWitnessV5}, which additionally builds an
+   * EIP-8025 execution witness and may return a {@link JsonRpcErrorResponse} if the witness cannot
+   * be generated.
+   *
+   * @param reqId the JSON-RPC request identifier, forwarded to the response
+   * @param latestValidHash the imported block's hash
+   * @param executionResult the processing result, carrying {@link BlockProcessingOutputs} metadata
+   */
+  protected JsonRpcResponse buildValidResponse(
+      final Object reqId,
+      final Hash latestValidHash,
+      @SuppressWarnings("unused") final BlockProcessingResult executionResult) {
+    return new JsonRpcSuccessResponse(
+        reqId, new EnginePayloadStatusResult(VALID, latestValidHash, Optional.empty()));
+  }
+
   JsonRpcResponse respondWith(
       final Object requestId,
       final EnginePayloadParameter param,
@@ -480,6 +504,13 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
       throw new IllegalArgumentException(
           "Don't call respondWith() with invalid status of " + status.toString());
     }
+    logEnginePayloadResponse(param, latestValidHash, status);
+    return new JsonRpcSuccessResponse(
+        requestId, new EnginePayloadStatusResult(status, latestValidHash, Optional.empty()));
+  }
+
+  private void logEnginePayloadResponse(
+      final EnginePayloadParameter param, final Hash latestValidHash, final EngineStatus status) {
     LOG.atDebug()
         .setMessage(
             "New payload: number: {}, hash: {}, parentHash: {}, latestValidHash: {}, status: {}")
@@ -490,8 +521,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
             () -> latestValidHash == null ? null : latestValidHash.getBytes().toHexString())
         .addArgument(status::name)
         .log();
-    return new JsonRpcSuccessResponse(
-        requestId, new EnginePayloadStatusResult(status, latestValidHash, Optional.empty()));
   }
 
   // engine api calls are synchronous, no need for volatile
