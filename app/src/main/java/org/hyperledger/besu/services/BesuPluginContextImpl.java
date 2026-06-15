@@ -88,6 +88,12 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
   private PluginConfiguration config;
   private URLClassLoader pluginClassLoader;
 
+  /**
+   * Per-plugin high-watermark tracking to track which lifecycle phase it reached, specifically for
+   * stopPlugins() calls
+   */
+  private final Map<BesuPlugin, Lifecycle> pluginHighWatermark = new LinkedHashMap<>();
+
   /** Instantiates a new Besu plugin context. */
   public BesuPluginContextImpl() {}
 
@@ -201,6 +207,7 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
     try {
       plugin.register(this);
       pluginVersions.put(plugin.getName(), plugin.getVersion());
+      pluginHighWatermark.put(plugin, Lifecycle.REGISTERED);
       LOG.info("Registered plugin of type {}.", plugin.getClass().getName());
     } catch (final Exception e) {
       if (config.isContinueOnPluginError()) {
@@ -232,6 +239,7 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
 
       try {
         plugin.beforeExternalServices();
+        pluginHighWatermark.put(plugin, Lifecycle.BEFORE_EXTERNAL_SERVICES_FINISHED);
         LOG.debug(
             "beforeExternalServices called on plugin of type {}.", plugin.getClass().getName());
       } catch (final Exception e) {
@@ -268,6 +276,7 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
 
       try {
         plugin.start();
+        pluginHighWatermark.put(plugin, Lifecycle.BEFORE_MAIN_LOOP_STARTED);
         LOG.debug("Started plugin of type {}.", plugin.getClass().getName());
       } catch (final Exception e) {
         if (config.isContinueOnPluginError()) {
@@ -318,21 +327,36 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
     }
   }
 
+  private boolean pluginReachedState(final BesuPlugin plugin, final Lifecycle target) {
+    Lifecycle reached = pluginHighWatermark.getOrDefault(plugin, Lifecycle.UNINITIALIZED);
+    return reached.ordinal() >= target.ordinal();
+  }
+
+  private void safeStop(final BesuPlugin plugin) {
+    try {
+      plugin.stop();
+      LOG.debug("Stopped plugin of type {}.", plugin.getClass().getName());
+    } catch (final Exception e) {
+      LOG.error("Error stopping plugin of type " + plugin.getClass().getName(), e);
+    }
+  }
+
   /** Stop plugins. */
   public void stopPlugins() {
-    checkState(
-        state == Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
-        "BesuContext should be in state %s but it was in %s",
-        Lifecycle.BEFORE_MAIN_LOOP_FINISHED,
-        state);
+    if (state == Lifecycle.STOPPED || state == Lifecycle.STOPPING) {
+      LOG.debug("stopPlugins() called but already in state {}. Ignoring.", state);
+      return;
+    }
     state = Lifecycle.STOPPING;
 
     for (final BesuPlugin plugin : registeredPlugins) {
-      try {
-        plugin.stop();
-        LOG.debug("Stopped plugin of type {}.", plugin.getClass().getName());
-      } catch (final Exception e) {
-        LOG.error("Error stopping plugin of type " + plugin.getClass().getName(), e);
+      if (pluginReachedState(plugin, Lifecycle.BEFORE_MAIN_LOOP_STARTED)) {
+        safeStop(plugin);
+      } else {
+        LOG.debug(
+            "Skipping stop for plugin {} — it did not reach start(). Watermark: {}",
+            plugin.getClass().getName(),
+            pluginHighWatermark.getOrDefault(plugin, Lifecycle.UNINITIALIZED));
       }
     }
 
@@ -406,6 +430,23 @@ public class BesuPluginContextImpl implements ServiceManager, PluginVersionsProv
   @VisibleForTesting
   List<BesuPlugin> getRegisteredPlugins() {
     return Collections.unmodifiableList(registeredPlugins);
+  }
+
+  /**
+   * Directly registers a plugin instance into the context, bypassing ServiceLoader discovery. This
+   * is intended for unit tests that need to inject a controlled plugin without touching the
+   * filesystem.
+   *
+   * <p>Drives the plugin through the real {@code registerPlugin()} path so that the high-watermark
+   * is stamped correctly (REGISTERED), exactly as production does.
+   *
+   * @param plugin the plugin to inject
+   */
+  @VisibleForTesting
+  void addPluginForTesting(final BesuPlugin plugin) {
+    if (registerPlugin(plugin)) {
+      registeredPlugins.add(plugin);
+    }
   }
 
   /**
