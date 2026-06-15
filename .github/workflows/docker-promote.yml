@@ -55,7 +55,7 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
-          cache-disabled: true
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
       - name: Docker upload
         run: ./gradlew "-Prelease.releaseVersion=${{ env.RELEASE_VERSION }}" "-PdockerOrgName=${{ env.registry }}/${{ secrets.DOCKER_ORG }}" dockerUploadRelease
