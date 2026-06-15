@@ -164,12 +164,9 @@ public class EthFeeHistory implements JsonRpcMethod {
       return new JsonRpcErrorResponse(requestId, RpcErrorType.INVALID_BLOCK_NUMBER_PARAMS);
     }
 
-    final Optional<List<Double>> rewardPercentiles =
-        maybeRewardPercentiles.filter(list -> list.size() <= MAXIMUM_QUERY_PERCENTILES);
-
     final boolean isLatestRequest = highestBlockNumber == chainHeadBlockNumber;
     final Optional<RewardBounds> rewardBounds =
-        rewardPercentiles.isPresent() && apiConfiguration.isGasAndPriorityFeeLimitingEnabled()
+        maybeRewardPercentiles.isPresent() && apiConfiguration.isGasAndPriorityFeeLimitingEnabled()
             ? Optional.of(
                 new RewardBounds(
                     blockchainQueries.gasPriceLowerBound(),
@@ -178,7 +175,9 @@ public class EthFeeHistory implements JsonRpcMethod {
     final ProtocolSpec nextBlockProtocolSpec =
         protocolSchedule.getForNextBlockHeader(chainHeadHeader, chainHeadHeader.getTimestamp());
     final Optional<List<Double>> sortedRewardPercentiles =
-        rewardPercentiles.map(percentiles -> percentiles.stream().sorted().toList());
+        maybeRewardPercentiles
+            .filter(list -> list.size() <= MAXIMUM_QUERY_PERCENTILES)
+            .map(percentiles -> percentiles.stream().sorted().toList());
     final ResultCacheKey resultCacheKey =
         isLatestRequest
             ? new ResultCacheKey(
@@ -489,15 +488,16 @@ public class EthFeeHistory implements JsonRpcMethod {
   private List<Wei> getBlobBaseFees(
       final List<BlockHeader> blockHeaders, final ProtocolSpec nextBlockProtocolSpec) {
     if (blockHeaders.isEmpty()) {
-      // Keep return mutability consistent for Error Prone's MixedMutabilityReturnType check.
-      return new ArrayList<>();
+      return Collections.emptyList();
     }
     // Headers are sorted oldest→newest, so blockHeaders[i] is the parent of blockHeaders[i+1].
     // Reuse it instead of a per-block parent-hash storage read; only the first header needs a
     // real parent lookup.
-    final List<Wei> baseFeesPerBlobGas = new ArrayList<>(blockHeaders.size() + 1);
+    final Wei[] baseFeesPerBlobGas = new Wei[blockHeaders.size() + 1];
     BlockHeader previous = null;
-    for (final BlockHeader header : blockHeaders) {
+    int i = 0;
+    for (; i < blockHeaders.size(); i++) {
+      final BlockHeader header = blockHeaders.get(i);
       final BlockHeader parent;
       if (previous != null && header.getParentHash().equals(previous.getHash())) {
         parent = previous;
@@ -505,16 +505,15 @@ public class EthFeeHistory implements JsonRpcMethod {
         parent = blockchain.getBlockHeader(header.getParentHash()).orElse(null);
       }
       if (parent == null) {
-        baseFeesPerBlobGas.add(Wei.ZERO);
+        baseFeesPerBlobGas[i] = Wei.ZERO;
       } else {
-        baseFeesPerBlobGas.add(getBlobGasFee(protocolSchedule.getByBlockHeader(header), parent));
+        baseFeesPerBlobGas[i] = getBlobGasFee(protocolSchedule.getByBlockHeader(header), parent);
       }
       previous = header;
     }
 
-    baseFeesPerBlobGas.add(
-        getNextBlobFee(blockHeaders.get(blockHeaders.size() - 1), nextBlockProtocolSpec));
-    return baseFeesPerBlobGas;
+    baseFeesPerBlobGas[i] = getNextBlobFee(blockHeaders.getLast(), nextBlockProtocolSpec);
+    return Arrays.asList(baseFeesPerBlobGas);
   }
 
   private Wei getBlobGasFee(final ProtocolSpec spec, final BlockHeader parent) {
