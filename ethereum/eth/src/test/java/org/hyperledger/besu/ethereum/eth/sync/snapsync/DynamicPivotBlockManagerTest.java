@@ -30,15 +30,11 @@ import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 
-import java.time.Duration;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
 
 public class DynamicPivotBlockManagerTest {
 
@@ -127,40 +123,6 @@ public class DynamicPivotBlockManagerTest {
     // second immediate check is a no-op — timer has not fired
     throttled.check(doNothingOnPivotChange());
     verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState()); // still just once
-  }
-
-  @Test
-  @Timeout(value = 5, unit = TimeUnit.SECONDS)
-  public void shouldRecoverAfterSelectPivotBlockTimesOut() {
-    // First check: selectPivotBlock never completes (simulates CL offline with infinite retry)
-    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
-        .thenReturn(new CompletableFuture<>()); // never completes
-
-    final DynamicPivotBlockSelector shortTimeoutSelector =
-        new DynamicPivotBlockSelector(
-            ethContext, fastSyncActions, snapSyncState, null, Duration.ofMillis(200));
-
-    // This must return quickly (within the 5s JUnit timeout) — currently hangs without the fix
-    shortTimeoutSelector.check(DynamicPivotBlockSelector.doNothingOnPivotChange);
-
-    // After the timeout the "ready to check" flag must be reset — verify by running a second check
-    final BlockHeader newHeader = new BlockHeaderTestFixture().number(2000).buildHeader();
-    final SnapSyncProcessState selectedState = new SnapSyncProcessState(newHeader.getHash());
-    final SnapSyncProcessState downloadedState = new SnapSyncProcessState(newHeader);
-    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
-        .thenReturn(completedFuture(selectedState));
-    when(fastSyncActions.resolvePivotBlockHeader(selectedState))
-        .thenReturn(completedFuture(downloadedState));
-    when(snapSyncState.getPivotBlockHeader()).thenReturn(Optional.empty());
-    when(snapSyncState.getPivotBlockNumber()).thenReturn(OptionalLong.of(1000));
-
-    shortTimeoutSelector.check(
-        (blockHeader, newBlockFound) -> {
-          assertThat(newBlockFound).isTrue();
-          assertThat(blockHeader.getNumber()).isEqualTo(2000);
-        });
-
-    verify(snapSyncState).setCurrentHeader(newHeader);
   }
 
   private static java.util.function.BiConsumer<BlockHeader, Boolean> doNothingOnPivotChange() {

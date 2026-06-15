@@ -23,7 +23,6 @@ import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
@@ -42,7 +41,6 @@ public class DynamicPivotBlockSelector {
 
   private static final Logger LOG = LoggerFactory.getLogger(DynamicPivotBlockSelector.class);
   private static final Duration CHECK_INTERVAL = Duration.ofMinutes(1);
-  private static final Duration DEFAULT_CHECK_TIMEOUT = Duration.ofSeconds(45);
 
   private final AtomicBoolean isTimeToCheckAgain = new AtomicBoolean(true);
 
@@ -50,7 +48,6 @@ public class DynamicPivotBlockSelector {
   private final PivotSyncActions syncActions;
   private final SnapSyncProcessState syncState;
   private final PivotUpdateListener pivotUpdateListener;
-  private final Duration checkTimeout;
 
   private Optional<BlockHeader> lastPivotBlockFound = Optional.empty();
 
@@ -59,20 +56,10 @@ public class DynamicPivotBlockSelector {
       final PivotSyncActions fastSyncActions,
       final SnapSyncProcessState fastSyncState,
       final PivotUpdateListener pivotUpdateListener) {
-    this(ethContext, fastSyncActions, fastSyncState, pivotUpdateListener, DEFAULT_CHECK_TIMEOUT);
-  }
-
-  DynamicPivotBlockSelector(
-      final EthContext ethContext,
-      final PivotSyncActions fastSyncActions,
-      final SnapSyncProcessState fastSyncState,
-      final PivotUpdateListener pivotUpdateListener,
-      final Duration checkTimeout) {
     this.ethContext = ethContext;
     this.syncActions = fastSyncActions;
     this.syncState = fastSyncState;
     this.pivotUpdateListener = pivotUpdateListener;
-    this.checkTimeout = checkTimeout;
   }
 
   public void check(final BiConsumer<BlockHeader, Boolean> onNewPivotBlock) {
@@ -97,28 +84,22 @@ public class DynamicPivotBlockSelector {
     }
 
     boolean cycleSucceeded = false;
-    final CompletableFuture<Void> checkFuture =
-        CompletableFuture.completedFuture(new SnapSyncProcessState())
-            .thenCompose(syncActions::selectPivotBlock)
-            .thenCompose(
-                fss -> {
-                  if (isSamePivotBlock(fss)) {
-                    LOG.atDebug()
-                        .setMessage("New pivot {} equals current pivot, nothing to do")
-                        .addArgument(fss::getPivotBlockHash)
-                        .log();
-                    return CompletableFuture.completedFuture(null);
-                  }
-                  return resolveNewPivotBlockHeader(fss);
-                });
     try {
-      checkFuture.get(checkTimeout.toMillis(), TimeUnit.MILLISECONDS);
+      CompletableFuture.completedFuture(new SnapSyncProcessState())
+          .thenCompose(syncActions::selectPivotBlock)
+          .thenCompose(
+              fss -> {
+                if (isSamePivotBlock(fss)) {
+                  LOG.atDebug()
+                      .setMessage("New pivot {} equals current pivot, nothing to do")
+                      .addArgument(fss::getPivotBlockHash)
+                      .log();
+                  return CompletableFuture.completedFuture(null);
+                }
+                return resolveNewPivotBlockHeader(fss);
+              })
+          .get();
       cycleSucceeded = true;
-    } catch (TimeoutException e) {
-      checkFuture.cancel(true);
-      LOG.debug(
-          "Pivot check timed out after {}s — consensus client may be offline; will retry",
-          checkTimeout.toSeconds());
     } catch (Exception e) {
       LOG.debug("Exception while searching for new pivot", e);
     }
