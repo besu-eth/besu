@@ -25,6 +25,7 @@ import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryAgent;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
 import org.hyperledger.besu.ethereum.p2p.peers.PeerId;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
+import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectSource;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
@@ -443,7 +444,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
                   LOG.warn("DiscV5 peer discovery failed", error);
                   return;
                 }
-                candidatePeers(nodeRecords).forEach(rlpxAgent::connect);
+                candidatePeers(nodeRecords).forEach(p -> rlpxAgent.connect(p, ConnectSource.DISCV5));
               } finally {
                 discoveryInProgress.set(false);
               }

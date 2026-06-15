@@ -1022,8 +1022,8 @@ public class BesuCommandTest extends CommandTestAbstract {
       "enr:-Iu4QEDJ4Wa_UQNbK8Ay1hFEkXvd8psolVK6OhfTL9irqz3nbXxxWyKwEplPfkju4zduVQj6mMhUCm9R2Lc4YM5jPcIBgmlkgnY0gmlwhANrfESJc2VjcDI1NmsxoQJCYz2-nsqFpeEj6eov9HSi9QssIVIVNr0I89J1vXM9foN0Y3CCIyiDdWRwgiMo";
 
   @Test
-  public void callingWithValidEnrBootnodeAndV5EnabledMustSucceed() {
-    parseCommand("--Xv5-discovery-enabled", "--bootnodes", VALID_ENR_1);
+  public void callingWithValidEnrBootnodeMustSucceed() {
+    parseCommand("--bootnodes", VALID_ENR_1);
 
     verify(mockRunnerBuilder).ethNetworkConfig(ethNetworkConfigArgumentCaptor.capture());
     verify(mockRunnerBuilder).build();
@@ -1035,8 +1035,8 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @Test
-  public void callingWithMultipleValidEnrBootnodesAndV5EnabledMustSucceed() {
-    parseCommand("--Xv5-discovery-enabled", "--bootnodes", VALID_ENR_1 + "," + VALID_ENR_2);
+  public void callingWithMultipleValidEnrBootnodesMustSucceed() {
+    parseCommand("--bootnodes", VALID_ENR_1 + "," + VALID_ENR_2);
 
     verify(mockRunnerBuilder).ethNetworkConfig(ethNetworkConfigArgumentCaptor.capture());
     verify(mockRunnerBuilder).build();
@@ -1048,12 +1048,39 @@ public class BesuCommandTest extends CommandTestAbstract {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {"enr:-invalidenrdata", "enr:invalidvalue", "invalidvalue"})
-  public void callingWithInvalidBootnodeAndV5EnabledMustDisplayError(final String bootnode) {
-    parseCommand("--Xv5-discovery-enabled", "--bootnodes", bootnode);
+  @ValueSource(strings = {"enr:-invalidenrdata", "enr:invalidvalue"})
+  public void callingWithInvalidEnrBootnodeMustDisplayError(final String bootnode) {
+    parseCommand("--bootnodes", bootnode);
     assertThat(commandOutput.toString(UTF_8)).isEmpty();
     assertThat(commandErrorOutput.toString(UTF_8))
         .contains("Invalid ENR bootnode: '" + bootnode + "'");
+  }
+
+  @Test
+  public void callingWithMixedBootnodesRoutesCorrectly() {
+    parseCommand("--bootnodes", VALID_ENR_1 + "," + VALID_ENODE_STRINGS[0]);
+
+    verify(mockRunnerBuilder).ethNetworkConfig(ethNetworkConfigArgumentCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    assertThat(ethNetworkConfigArgumentCaptor.getValue().enrBootNodes()).hasSize(1);
+    assertThat(ethNetworkConfigArgumentCaptor.getValue().enodeBootNodes()).hasSize(1);
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void callingWithOnlyEnodeBootnodesSucceeds() {
+    parseCommand("--bootnodes", String.join(",", VALID_ENODE_STRINGS));
+
+    verify(mockRunnerBuilder).ethNetworkConfig(ethNetworkConfigArgumentCaptor.capture());
+    verify(mockRunnerBuilder).build();
+
+    assertThat(ethNetworkConfigArgumentCaptor.getValue().enrBootNodes()).isEmpty();
+    assertThat(ethNetworkConfigArgumentCaptor.getValue().enodeBootNodes())
+        .hasSize(VALID_ENODE_STRINGS.length);
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
   }
 
   @Test

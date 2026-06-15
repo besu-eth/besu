@@ -640,8 +640,9 @@ public class BesuNodeFactory {
             .webSocketConfiguration(node.createWebSocketEnabledConfig())
             .devMode(false)
             .jsonRpcTxPool()
-            .genesisConfigProvider(GenesisConfigurationFactory::createQbft256r1GenesisConfig)
-            .discoveryV5Enabled(false); // DiscV5 only supports secp256k1 node keys
+            .genesisConfigProvider(GenesisConfigurationFactory::createQbft256r1GenesisConfig);
+    // DiscV5 self-disables at runtime for non-secp256k1 node keys (see
+    // CompositePeerDiscoveryAgentFactory).
 
     return builder.keyPair(keyPair);
   }

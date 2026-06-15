@@ -686,8 +686,6 @@ public class RunnerBuilder {
           discoveryConfiguration.getEnodeBootnodes(),
           discoveryConfiguration.getEnrBootnodes());
       discoveryConfiguration.setDnsDiscoveryURL(ethNetworkConfig.dnsDiscoveryUrl());
-      discoveryConfiguration.setDiscoveryV5Enabled(
-          networkingConfiguration.discoveryConfiguration().isDiscoveryV5Enabled());
       discoveryConfiguration.setFilterOnEnrForkId(
           networkingConfiguration.discoveryConfiguration().isFilterOnEnrForkIdEnabled());
       discoveryConfiguration.setDiscV5DiscoveryIntervalSeconds(
@@ -715,12 +713,9 @@ public class RunnerBuilder {
             .flatMap(protocolManager -> protocolManager.getSupportedCapabilities().stream())
             .collect(Collectors.toSet());
 
-    // IPv6 dual-stack support (a second UDP socket + a second TCP socket) was introduced
-    // alongside DiscV5. Besu does not implement dual-stack for DiscV4, so RLPx should only
-    // bind a second TCP socket when DiscV5 is active. This guard can be dropped once DiscV4
-    // is removed.
-    final boolean rlpxDualStackEnabled =
-        discoveryEnabled && networkingConfiguration.discoveryConfiguration().isDiscoveryV5Enabled();
+    // IPv6 dual-stack RLPx (second TCP socket) is meaningful when discovery is enabled —
+    // DiscV5 advertises the second address via the ENR.
+    final boolean rlpxDualStackEnabled = discoveryEnabled;
     final RlpxConfiguration rlpxConfiguration =
         RlpxConfiguration.create()
             .setBindHost(p2pListenInterface)
@@ -773,7 +768,6 @@ public class RunnerBuilder {
 
     PeerDiscoveryAgentFactory peerDiscoveryAgentFactory =
         DefaultPeerDiscoveryAgentFactory.builder()
-            .vertx(vertx)
             .nodeKey(nodeKey)
             .config(networkingConfiguration)
             .peerPermissions(peerPermissions)

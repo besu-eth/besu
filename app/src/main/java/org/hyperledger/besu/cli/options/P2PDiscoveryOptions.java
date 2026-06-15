@@ -90,8 +90,8 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
       names = {"--bootnodes"},
       paramLabel = "<enode://id@host:port>|<enr:base64Enr>",
       description =
-          "Comma separated enode or ENR URLs for P2P discovery bootstrap. "
-              + "Must be either all enode URLs (discovery V4) or all ENR URLs (discovery V5). "
+          "Comma separated enode URLs and/or ENR strings for P2P discovery bootstrap. "
+              + "Entries starting with 'enr:' feed DiscV5; all others are treated as enode URLs and feed DiscV4. "
               + "Default is a predefined list.",
       split = ",",
       arity = "0..*")

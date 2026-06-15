@@ -19,7 +19,6 @@ import static com.google.common.base.Preconditions.checkState;
 
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.ethereum.core.Util;
-import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.discovery.DiscoveryPeer;
 import org.hyperledger.besu.ethereum.p2p.discovery.DiscoveryPeerFactory;
@@ -38,6 +37,7 @@ import org.hyperledger.besu.ethereum.p2p.peers.PeerPrivileges;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissionsDenylist;
 import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectCallback;
+import org.hyperledger.besu.ethereum.p2p.rlpx.ConnectSource;
 import org.hyperledger.besu.ethereum.p2p.rlpx.DisconnectCallback;
 import org.hyperledger.besu.ethereum.p2p.rlpx.MessageCallback;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
@@ -202,13 +202,6 @@ public class DefaultP2PNetwork implements P2PNetwork {
       return;
     }
 
-    if (config.discoveryConfiguration().isDiscoveryV5Enabled()) {
-      LOG.warn(
-          "Discovery Protocol v5 is enabled via --Xv5-discovery-enabled. This is an experimental feature and may not be fully stable.");
-    } else {
-      warnIfIpv6OptionsWithDiscV4();
-    }
-
     final String address = config.discoveryConfiguration().getAdvertisedHost();
 
     Optional.ofNullable(config.discoveryConfiguration().getDNSDiscoveryURL())
@@ -352,7 +345,7 @@ public class DefaultP2PNetwork implements P2PNetwork {
     }
     final boolean wasAdded = maintainedPeers.add(peer);
     peerDiscoveryAgent.addPeer(peer);
-    rlpxAgent.connect(peer);
+    rlpxAgent.connect(peer, ConnectSource.ADMIN);
     return wasAdded;
   }
 
@@ -397,7 +390,7 @@ public class DefaultP2PNetwork implements P2PNetwork {
     maintainedPeers
         .streamPeers()
         .filter(p -> !doNotConnectTo.contains(p.getId()))
-        .forEach(rlpxAgent::connect);
+        .forEach(p -> rlpxAgent.connect(p, ConnectSource.MAINTAIN));
   }
 
   @VisibleForTesting
@@ -408,7 +401,7 @@ public class DefaultP2PNetwork implements P2PNetwork {
             .filter(DiscoveryPeer::isReadyForConnections)
             .filter(peerDiscoveryAgent::checkForkId)
             .sorted(Comparator.comparing(DiscoveryPeer::getLastAttemptedConnection));
-    toTry.forEach(rlpxAgent::connect);
+    toTry.forEach(p -> rlpxAgent.connect(p, ConnectSource.MAINTAIN));
   }
 
   @Override
@@ -477,15 +470,6 @@ public class DefaultP2PNetwork implements P2PNetwork {
       return Optional.empty();
     }
     return Optional.of(localNode.getPeer().getEnodeURL());
-  }
-
-  private void warnIfIpv6OptionsWithDiscV4() {
-    final DiscoveryConfiguration disc = config.discoveryConfiguration();
-    if (disc.getAdvertisedHostIpv6().isPresent() || disc.isDualStackEnabled()) {
-      LOG.warn(
-          "--p2p-host-ipv6 and --p2p-interface-ipv6 are only supported with DiscV5 "
-              + "(--Xv5-discovery-enabled). These options are ignored by DiscV4.");
-    }
   }
 
   private void setLocalNode(

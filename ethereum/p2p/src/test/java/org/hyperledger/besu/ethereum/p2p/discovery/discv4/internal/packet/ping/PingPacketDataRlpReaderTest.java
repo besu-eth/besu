@@ -24,20 +24,14 @@ import org.apache.tuweni.units.bigints.UInt64;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.Mock;
-import org.mockito.Mockito;
-import org.mockito.junit.jupiter.MockitoExtension;
 
-@ExtendWith(MockitoExtension.class)
 public class PingPacketDataRlpReaderTest {
-  private @Mock PingPacketDataFactory factory;
 
   private PingPacketDataRlpReader reader;
 
   @BeforeEach
   public void beforeTest() {
-    reader = new PingPacketDataRlpReader(factory);
+    reader = new PingPacketDataRlpReader();
   }
 
   @Test
@@ -49,16 +43,13 @@ public class PingPacketDataRlpReaderTest {
     long expiration = 123;
     UInt64 enrSeq = UInt64.valueOf(123456789);
 
-    Mockito.when(factory.create(Optional.of(from), to, expiration, enrSeq))
-        .thenReturn(new PingPacketData(Optional.of(from), to, expiration, enrSeq));
-
     PingPacketData result =
         reader.readFrom(new BytesValueRLPInput(Bytes.fromHexString(pingHexData), false));
 
     Assertions.assertNotNull(result);
     Assertions.assertTrue(result.getFrom().isPresent());
     Assertions.assertEquals(from, result.getFrom().get());
-    Assertions.assertEquals(to, result.getTo());
+    Assertions.assertEquals(Optional.of(to), result.getTo());
     Assertions.assertEquals(expiration, result.getExpiration());
     Assertions.assertTrue(result.getEnrSeq().isPresent());
     Assertions.assertEquals(enrSeq, result.getEnrSeq().get());

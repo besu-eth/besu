@@ -162,7 +162,6 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
                         "{\"config\":{\"ethash\":{},\"discovery\":{\"bootnodes\":[\"enode://%s@127.0.0.1:%d\"]}},\"gasLimit\":\"0x1\",\"difficulty\":\"0x1\"}",
                         peerPublicKey.toString().substring(2), peerP2pPort)))
         .bootnodeEligible(false)
-        .discoveryV5Enabled(false)
         .jsonRpcEnabled()
         .jsonRpcAdmin();
   }
@@ -174,7 +173,7 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
       final String bootEnr) {
     final String discoverySection =
         bootEnr != null
-            ? String.format("\"discovery\":{\"v5bootnodes\":[\"%s\"]}", bootEnr)
+            ? String.format("\"discovery\":{\"bootnodes\":[\"%s\"]}", bootEnr)
             : "\"discovery\":{}";
     return b.devMode(false)
         .keyPair(keyPair)
@@ -186,7 +185,6 @@ public class BootNodesGenesisSetupTest extends AcceptanceTestBase {
                         "{\"config\":{\"ethash\":{},%s},\"gasLimit\":\"0x1\",\"difficulty\":\"0x1\"}",
                         discoverySection)))
         .bootnodeEligible(false)
-        .discoveryV5Enabled(true)
         .jsonRpcEnabled()
         .jsonRpcAdmin();
   }

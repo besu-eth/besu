@@ -33,8 +33,11 @@ import org.hyperledger.besu.ethereum.p2p.rlpx.connections.netty.NettyConnectionI
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.Capability;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.PeerConnectionGatekeeper;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
+import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.plugin.data.EnodeURL;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
+import org.hyperledger.besu.plugin.services.metrics.Counter;
+import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 import org.hyperledger.besu.util.Subscribers;
 
 import java.net.InetSocketAddress;
@@ -98,6 +101,7 @@ public class RlpxAgent {
               Duration.ofSeconds(30L)) // we will at most try to connect every 30 seconds
           .concurrencyLevel(1)
           .build();
+  private final LabelledMetric<Counter> connectAttemptCounter;
 
   private RlpxAgent(
       final LocalNode localNode,
@@ -107,7 +111,8 @@ public class RlpxAgent {
       final PeerPrivileges peerPrivileges,
       final int maxPeers,
       final Supplier<Stream<PeerConnection>> allConnectionsSupplier,
-      final Supplier<Stream<PeerConnection>> allActiveConnectionsSupplier) {
+      final Supplier<Stream<PeerConnection>> allActiveConnectionsSupplier,
+      final LabelledMetric<Counter> connectAttemptCounter) {
     this.localNode = localNode;
     this.connectionEvents = connectionEvents;
     this.connectionInitializer = connectionInitializer;
@@ -116,6 +121,7 @@ public class RlpxAgent {
     this.maxPeers = maxPeers;
     this.allConnectionsSupplier = allConnectionsSupplier;
     this.allActiveConnectionsSupplier = allActiveConnectionsSupplier;
+    this.connectAttemptCounter = connectAttemptCounter;
   }
 
   public static Builder builder() {
@@ -218,6 +224,19 @@ public class RlpxAgent {
     } catch (final Exception e) {
       throw new RuntimeException(e);
     }
+  }
+
+  /**
+   * Connect to the peer, recording the originating source for metrics.
+   *
+   * @param peer The peer to connect to
+   * @param source The originating source of this connection attempt
+   * @return A future that will resolve to the existing or newly-established connection with this
+   *     peer.
+   */
+  public CompletableFuture<PeerConnection> connect(final Peer peer, final ConnectSource source) {
+    connectAttemptCounter.labels(source.label()).inc();
+    return connect(peer);
   }
 
   /**
@@ -431,6 +450,12 @@ public class RlpxAgent {
 
       final PeerRlpxPermissions rlpxPermissions =
           new PeerRlpxPermissions(localNode, peerPermissions);
+      final LabelledMetric<Counter> connectAttemptCounter =
+          metricsSystem.createLabelledCounter(
+              BesuMetricCategory.NETWORK,
+              "rlpx_outbound_connect_attempts_total",
+              "Total outbound RLPx connection attempts by originating source",
+              "source");
       return new RlpxAgent(
           localNode,
           connectionEvents,
@@ -439,7 +464,8 @@ public class RlpxAgent {
           peerPrivileges,
           maxPeers,
           allConnectionsSupplier,
-          allActiveConnectionsSupplier);
+          allActiveConnectionsSupplier,
+          connectAttemptCounter);
     }
 
     private void validate() {

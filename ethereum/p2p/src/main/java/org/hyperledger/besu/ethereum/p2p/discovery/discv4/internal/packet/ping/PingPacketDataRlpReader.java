@@ -32,11 +32,7 @@ import org.slf4j.LoggerFactory;
 public class PingPacketDataRlpReader implements PacketDataDeserializer<PingPacketData> {
   private static final Logger LOG = LoggerFactory.getLogger(PingPacketDataRlpReader.class);
 
-  private final PingPacketDataFactory pingPacketDataFactory;
-
-  public @Inject PingPacketDataRlpReader(final PingPacketDataFactory pingPacketDataFactory) {
-    this.pingPacketDataFactory = pingPacketDataFactory;
-  }
+  public @Inject PingPacketDataRlpReader() {}
 
   @Override
   public PingPacketData readFrom(final RLPInput in) {
@@ -68,6 +64,8 @@ public class PingPacketDataRlpReader implements PacketDataDeserializer<PingPacke
       }
     }
     in.leaveListLenient();
-    return pingPacketDataFactory.create(from, to.get(), expiration, enrSeq);
+    // Per EIP-8, a malformed to field must not prevent packet processing.
+    // The to field is unused when constructing our PONG; we always respond to the actual sender.
+    return new PingPacketData(from, to, expiration, enrSeq);
   }
 }

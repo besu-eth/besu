@@ -48,13 +48,13 @@ public class PingPacketDataFactory {
       final UInt64 enrSeq) {
     endpointValidator.validate(to, "destination endpoint cannot be null");
     expiryValidator.validate(expiration);
-    return new PingPacketData(maybeFrom, to, expiration, enrSeq);
+    return new PingPacketData(maybeFrom, Optional.of(to), expiration, enrSeq);
   }
 
   public PingPacketData create(
       final Optional<Endpoint> maybeFrom, final Endpoint to, final UInt64 enrSeq) {
     endpointValidator.validate(to, "destination endpoint cannot be null");
-    return new PingPacketData(maybeFrom, to, getDefaultExpirationTime(), enrSeq);
+    return new PingPacketData(maybeFrom, Optional.of(to), getDefaultExpirationTime(), enrSeq);
   }
 
   private long getDefaultExpirationTime() {
