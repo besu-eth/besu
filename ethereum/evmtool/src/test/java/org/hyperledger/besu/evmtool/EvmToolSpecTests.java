@@ -99,8 +99,8 @@ public class EvmToolSpecTests {
   }
 
   private static Object[] pathToParams(final String subDir, final File file) {
-    try {
-      var spec = specReader.readTree(new FileInputStream(file));
+    try (FileInputStream fis = new FileInputStream(file)) {
+      var spec = specReader.readTree(fis);
       return new Object[] {
         subDir + "/" + file.getName(), spec.get("cli"), spec.get("stdin"), spec.get("stdout")
       };
