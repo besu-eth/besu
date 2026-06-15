@@ -148,7 +148,8 @@ public class SnapV2WorldStateDownloadProcess implements WorldStateDownloadProces
             worldStateStorageCoordinator,
             downloadState,
             snapSyncConfiguration,
-            downloadState.getRangeTracker());
+            downloadState.getAccountRangeTracker(),
+            downloadState.getStorageRangeTracker());
     final SnapV2CompleteTaskStep completeTaskStep =
         new SnapV2CompleteTaskStep(snapSyncState, metricsSystem);
 
