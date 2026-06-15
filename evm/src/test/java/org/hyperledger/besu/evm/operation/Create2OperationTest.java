@@ -306,6 +306,46 @@ public class Create2OperationTest {
     assertThat(result.getHaltReason()).isNull();
   }
 
+  @Test
+  void oversizedInitCodeOnStackAbortsBeforeMemoryExpansion() {
+    // EIP-3860: when the declared initcode size on the stack exceeds the limit, the
+    // operation is an early exceptional abort and must not have memory side-effects.
+    // CREATE2 carries an extra salt item on the stack, so this guards getInputSize against a
+    // regression if the stack layout ever diverges from CREATE.
+    final UInt256 memoryOffset = UInt256.ZERO;
+    final UInt256 memoryLength =
+        UInt256.fromHexString("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    final MessageFrame messageFrame =
+        MessageFrame.builder()
+            .type(MessageFrame.Type.CONTRACT_CREATION)
+            .contract(Address.ZERO)
+            .inputData(Bytes.EMPTY)
+            .sender(Address.fromHexString(SENDER))
+            .value(Wei.ZERO)
+            .apparentValue(Wei.ZERO)
+            .code(new Code(SIMPLE_CREATE))
+            .completer(__ -> {})
+            .address(Address.fromHexString(SENDER))
+            .blockHashLookup((__, ___) -> Hash.ZERO)
+            .blockValues(mock(BlockValues.class))
+            .gasPrice(Wei.ZERO)
+            .miningBeneficiary(Address.ZERO)
+            .originator(Address.ZERO)
+            .initialGas(Long.MAX_VALUE)
+            .worldUpdater(worldUpdater)
+            .build();
+    messageFrame.pushStackItem(Bytes.EMPTY); // salt
+    messageFrame.pushStackItem(memoryLength);
+    messageFrame.pushStackItem(memoryOffset);
+    messageFrame.pushStackItem(UInt256.ZERO);
+
+    final EVM evm = MainnetEVMs.shanghai(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);
+    var result = operation.execute(messageFrame, evm);
+
+    assertThat(result.getHaltReason()).isEqualTo(CODE_TOO_LARGE);
+    assertThat(messageFrame.memoryWordSize()).isEqualTo(0);
+  }
+
   @NotNull
   private MessageFrame testMemoryFrame(final UInt256 memoryOffset, final UInt256 memoryLength) {
     final MessageFrame messageFrame =

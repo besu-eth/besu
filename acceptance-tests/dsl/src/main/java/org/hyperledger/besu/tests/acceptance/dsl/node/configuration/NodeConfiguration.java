@@ -16,16 +16,19 @@ package org.hyperledger.besu.tests.acceptance.dsl.node.configuration;
 
 import org.hyperledger.besu.tests.acceptance.dsl.node.configuration.genesis.GenesisConfigurationProvider;
 
-import java.net.URI;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
 public interface NodeConfiguration {
 
-  void setBootnodes(List<URI> bootnodes);
+  void setBootnodes(List<String> bootnodes);
 
-  List<URI> getBootnodes();
+  List<String> getBootnodes();
+
+  boolean isDiscoveryV5Enabled();
+
+  void ensureAdminRpcEnabled();
 
   void useWebSocketsForJsonRpc();
 

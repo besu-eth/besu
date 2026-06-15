@@ -132,6 +132,12 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
             Bytes32.wrap(rootHash.getBytes()), blockHash);
   }
 
+  @Override
+  public boolean isWorldStateImmediatelyCached(final Hash blockHash) {
+    return cachedWorldStorageManager.contains(blockHash)
+        || headWorldState.blockHash().equals(blockHash);
+  }
+
   /**
    * Gets a mutable world state based on the provided query parameters.
    *
