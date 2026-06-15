@@ -349,6 +349,45 @@ public class PeerDiscoveryControllerTest {
   }
 
   @Test
+  public void shouldRespondToPingRequestWithInvalidDestination() {
+    final DiscoveryPeerV4 discoPeer = createPeersInLastBucket(localPeer, 1).getFirst();
+    final OutboundMessageHandler outboundMessageHandler = mock(OutboundMessageHandler.class);
+    controller =
+        getControllerBuilder()
+            .peers(discoPeer)
+            .outboundMessageHandler(outboundMessageHandler)
+            .build();
+
+    final PingPacketData outgoingPingData =
+        packetPackage
+            .pingPacketDataFactory()
+            .create(
+                Optional.ofNullable(localPeer.getEndpoint()), discoPeer.getEndpoint(), UInt64.ONE);
+    final Packet outgoingPing =
+        packetPackage.packetFactory().create(PacketType.PING, outgoingPingData, localNodeKey);
+    mockPingPacketCreation(discoPeer, outgoingPing);
+
+    final PingPacketData incomingPingData =
+        packetPackage
+            .pingPacketDataFactory()
+            .createForDecode(
+                Optional.of(discoPeer.getEndpoint()),
+                Optional.empty(),
+                Instant.now().getEpochSecond() + 60,
+                UInt64.ONE);
+    final Packet incomingPing = mock(Packet.class);
+    when(incomingPing.getType()).thenReturn(PacketType.PING);
+    when(incomingPing.getHash()).thenReturn(Bytes32.ZERO);
+    when(incomingPing.getPacketData(PingPacketData.class))
+        .thenReturn(Optional.of(incomingPingData));
+
+    controller.onMessage(incomingPing, discoPeer);
+
+    verify(outboundMessageHandler, times(1))
+        .send(eq(discoPeer), matchPacketOfType(PacketType.PONG));
+  }
+
+  @Test
   public void shouldNotRespondToExpiredPingRequest() throws InterruptedException {
     final List<DiscoveryPeerV4> peers = createPeersInLastBucket(localPeer, 1);
 

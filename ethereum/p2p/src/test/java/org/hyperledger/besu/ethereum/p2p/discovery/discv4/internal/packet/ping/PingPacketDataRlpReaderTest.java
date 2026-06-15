@@ -14,8 +14,11 @@
  */
 package org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.ping;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
+
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.Endpoint;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
 import java.util.Optional;
 
@@ -49,7 +52,7 @@ public class PingPacketDataRlpReaderTest {
     long expiration = 123;
     UInt64 enrSeq = UInt64.valueOf(123456789);
 
-    Mockito.when(factory.create(Optional.of(from), to, expiration, enrSeq))
+    Mockito.when(factory.createForDecode(Optional.of(from), Optional.of(to), expiration, enrSeq))
         .thenReturn(new PingPacketData(Optional.of(from), to, expiration, enrSeq));
 
     PingPacketData result =
@@ -62,5 +65,100 @@ public class PingPacketDataRlpReaderTest {
     Assertions.assertEquals(expiration, result.getExpiration());
     Assertions.assertTrue(result.getEnrSeq().isPresent());
     Assertions.assertEquals(enrSeq, result.getEnrSeq().get());
+  }
+
+  @Test
+  public void readsLegacyPingWithoutFromEndpoint() {
+    final Endpoint to = new Endpoint("10.0.0.2", 30303, Optional.of(8910));
+    final long expiration = 123;
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.startList();
+    out.writeIntScalar(PingPacketData.VERSION);
+    to.encodeStandalone(out);
+    out.writeLongScalar(expiration);
+    out.endList();
+
+    Mockito.when(factory.createForDecode(Optional.empty(), Optional.of(to), expiration, null))
+        .thenReturn(new PingPacketData(Optional.empty(), to, expiration, null));
+
+    final PingPacketData result = reader.readFrom(new BytesValueRLPInput(out.encoded(), false));
+
+    Assertions.assertTrue(result.getFrom().isEmpty());
+    Assertions.assertEquals(to, result.getTo());
+  }
+
+  @Test
+  public void ignoresMalformedFromEndpoint() {
+    final Endpoint to = new Endpoint("10.0.0.2", 30303, Optional.of(8910));
+    final long expiration = 123;
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.startList();
+    out.writeIntScalar(PingPacketData.VERSION);
+    writeMalformedEndpoint(out);
+    to.encodeStandalone(out);
+    out.writeLongScalar(expiration);
+    out.endList();
+
+    Mockito.when(factory.createForDecode(Optional.empty(), Optional.of(to), expiration, null))
+        .thenReturn(new PingPacketData(Optional.empty(), to, expiration, null));
+
+    final PingPacketData result = reader.readFrom(new BytesValueRLPInput(out.encoded(), false));
+
+    Assertions.assertTrue(result.getFrom().isEmpty());
+    Assertions.assertEquals(to, result.getTo());
+  }
+
+  @Test
+  public void ignoresMalformedToEndpoint() {
+    final Endpoint from = new Endpoint("10.0.0.1", 30303, Optional.of(4567));
+    final long expiration = 123;
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.startList();
+    out.writeIntScalar(PingPacketData.VERSION);
+    from.encodeStandalone(out);
+    writeMalformedEndpoint(out);
+    out.writeLongScalar(expiration);
+    out.endList();
+
+    Mockito.when(factory.createForDecode(Optional.of(from), Optional.empty(), expiration, null))
+        .thenReturn(new PingPacketData(Optional.of(from), Optional.empty(), expiration, null));
+
+    final PingPacketData result = reader.readFrom(new BytesValueRLPInput(out.encoded(), false));
+
+    Assertions.assertEquals(Optional.of(from), result.getFrom());
+    Assertions.assertTrue(result.getMaybeTo().isEmpty());
+  }
+
+  @Test
+  public void ignoresInvalidEnrSequenceAndAdditionalElements() {
+    final Endpoint from = new Endpoint("10.0.0.1", 30303, Optional.of(4567));
+    final Endpoint to = new Endpoint("10.0.0.2", 30303, Optional.of(8910));
+    final long expiration = 123;
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.startList();
+    out.writeIntScalar(PingPacketData.VERSION);
+    from.encodeStandalone(out);
+    to.encodeStandalone(out);
+    out.writeLongScalar(expiration);
+    out.writeBytes(malformedField());
+    out.writeBytes(malformedField());
+    out.endList();
+
+    Mockito.when(factory.createForDecode(Optional.of(from), Optional.of(to), expiration, null))
+        .thenReturn(new PingPacketData(Optional.of(from), to, expiration, null));
+
+    final PingPacketData result = reader.readFrom(new BytesValueRLPInput(out.encoded(), false));
+
+    Assertions.assertEquals(Optional.of(from), result.getFrom());
+    Assertions.assertEquals(to, result.getTo());
+    Assertions.assertTrue(result.getEnrSeq().isEmpty());
+  }
+
+  private static void writeMalformedEndpoint(final BytesValueRLPOutput out) {
+    out.writeBytes(malformedField());
+  }
+
+  private static Bytes malformedField() {
+    return Bytes.wrap(".,?%@)2:%-67-".getBytes(UTF_8));
   }
 }

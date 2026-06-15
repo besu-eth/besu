@@ -17,6 +17,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- Respond to DiscV4 `PING` packets containing malformed endpoint fields or unknown trailing data. [#5914](https://github.com/besu-eth/besu/issues/5914)
 
 ### Additions and Improvements
 

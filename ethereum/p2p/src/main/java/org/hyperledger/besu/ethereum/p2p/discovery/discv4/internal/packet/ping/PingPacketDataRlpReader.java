@@ -18,6 +18,7 @@ import org.hyperledger.besu.ethereum.p2p.discovery.discv4.Endpoint;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.DevP2PException;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.PacketDataDeserializer;
 import org.hyperledger.besu.ethereum.rlp.MalformedRLPInputException;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.util.Optional;
@@ -40,34 +41,73 @@ public class PingPacketDataRlpReader implements PacketDataDeserializer<PingPacke
 
   @Override
   public PingPacketData readFrom(final RLPInput in) {
-    in.enterList();
+    final int fieldCount = in.enterList();
     // The first element signifies the "version", but this value is ignored as of EIP-8
     in.readBigIntegerScalar();
-    Optional<Endpoint> from = Optional.empty();
-    Optional<Endpoint> to = Optional.empty();
-    if (in.nextIsList()) {
-      to = Endpoint.maybeDecodeStandalone(in);
-      // https://github.com/ethereum/devp2p/blob/master/discv4.md#ping-packet-0x01
-      if (in.nextIsList()) { // if there are two, the first is the from address, next is the to
-        // address
-        from = to;
-        to = Endpoint.maybeDecodeStandalone(in);
-      }
-    } else {
+
+    if (fieldCount < 3) {
       throw new DevP2PException("missing address in ping packet");
     }
-    final long expiration = in.readLongScalar();
-    UInt64 enrSeq = null;
-    if (!in.isEndOfCurrentList()) {
-      try {
-        enrSeq = UInt64.valueOf(in.readBigIntegerScalar());
-        LOG.trace("read PING enr as long scalar");
-      } catch (MalformedRLPInputException malformed) {
-        LOG.trace("failed to read PING enr as scalar, trying to read bytes instead");
-        enrSeq = UInt64.fromBytes(in.readBytes());
+
+    Optional<Endpoint> from;
+    Optional<Endpoint> to;
+    long expiration;
+    if (fieldCount == 3) {
+      from = Optional.empty();
+      to = Endpoint.maybeDecodeStandalone(in);
+      expiration = in.readLongScalar();
+    } else if (in.nextIsList()) {
+      final Optional<Endpoint> firstEndpoint = Endpoint.maybeDecodeStandalone(in);
+      if (in.nextIsList()) {
+        from = firstEndpoint;
+        to = Endpoint.maybeDecodeStandalone(in);
+        expiration = in.readLongScalar();
+      } else {
+        final RLPInput possibleExpiration = in.readAsRlp();
+        try {
+          // Legacy PING packets can omit the from endpoint and place expiration next.
+          expiration = possibleExpiration.readLongScalar();
+          from = Optional.empty();
+          to = firstEndpoint;
+        } catch (final RLPException invalidExpiration) {
+          from = firstEndpoint;
+          to = Optional.empty();
+          expiration = in.readLongScalar();
+        }
       }
+    } else {
+      from = Endpoint.maybeDecodeStandalone(in);
+      to = Endpoint.maybeDecodeStandalone(in);
+      expiration = in.readLongScalar();
     }
+
+    final UInt64 enrSeq = readEnrSeq(in);
     in.leaveListLenient();
-    return pingPacketDataFactory.create(from, to.get(), expiration, enrSeq);
+    return pingPacketDataFactory.createForDecode(from, to, expiration, enrSeq);
+  }
+
+  private UInt64 readEnrSeq(final RLPInput in) {
+    if (in.isEndOfCurrentList()) {
+      return null;
+    }
+
+    final RLPInput enrSeqInput = in.readAsRlp();
+    try {
+      final UInt64 enrSeq = UInt64.valueOf(enrSeqInput.readBigIntegerScalar());
+      LOG.trace("read PING enr as long scalar");
+      return enrSeq;
+    } catch (final MalformedRLPInputException malformed) {
+      try {
+        LOG.trace("failed to read PING enr as scalar, trying to read bytes instead");
+        enrSeqInput.reset();
+        return UInt64.fromBytes(enrSeqInput.readBytes());
+      } catch (final IllegalArgumentException | RLPException invalidEnrSeq) {
+        LOG.trace("ignoring invalid PING enr sequence", invalidEnrSeq);
+        return null;
+      }
+    } catch (final IllegalArgumentException | RLPException invalidEnrSeq) {
+      LOG.trace("ignoring invalid PING enr sequence", invalidEnrSeq);
+      return null;
+    }
   }
 }
