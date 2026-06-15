@@ -19,12 +19,12 @@ import static org.hyperledger.besu.ethereum.eth.sync.StorageExceptionManager.err
 import static org.hyperledger.besu.ethereum.eth.sync.StorageExceptionManager.getRetryableErrorCounter;
 
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedAccountRangeTracker;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedStorageRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2AccountRangeRequest;
-import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2BytecodeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2StorageRangeRequest;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -33,7 +33,9 @@ import org.hyperledger.besu.services.tasks.Task;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.NavigableMap;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
@@ -48,19 +50,22 @@ public class SnapV2PersistDataStep {
   private final WorldStateStorageCoordinator worldStateStorageCoordinator;
   private final SnapRequestContext downloadState;
   private final SnapSyncConfiguration snapSyncConfiguration;
-  private final DownloadedAccountRangeTracker rangeTracker;
+  private final DownloadedAccountRangeTracker accountRangeTracker;
+  private final DownloadedStorageRangeTracker storageRangeTracker;
 
   public SnapV2PersistDataStep(
       final SnapSyncProcessState snapSyncState,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapRequestContext downloadState,
       final SnapSyncConfiguration snapSyncConfiguration,
-      final DownloadedAccountRangeTracker rangeTracker) {
+      final DownloadedAccountRangeTracker accountRangeTracker,
+      final DownloadedStorageRangeTracker storageRangeTracker) {
     this.snapSyncState = snapSyncState;
     this.worldStateStorageCoordinator = worldStateStorageCoordinator;
     this.downloadState = downloadState;
     this.snapSyncConfiguration = snapSyncConfiguration;
-    this.rangeTracker = rangeTracker;
+    this.accountRangeTracker = accountRangeTracker;
+    this.storageRangeTracker = storageRangeTracker;
   }
 
   public List<Task<SnapDataRequest>> persist(final List<Task<SnapDataRequest>> tasks) {
@@ -135,9 +140,7 @@ public class SnapV2PersistDataStep {
     if (request instanceof SnapV2AccountRangeRequest accountRequest) {
       trackAccountRange(accountRequest, children);
     } else if (request instanceof SnapV2StorageRangeRequest storageRequest) {
-      trackStorageRange(storageRequest, children);
-    } else if (request instanceof SnapV2BytecodeRequest codeRequest) {
-      rangeTracker.onChildCompleted(codeRequest.getRangeStart());
+      trackStorageRange(storageRequest);
     }
 
     downloadState.enqueueRequests(children.stream());
@@ -147,15 +150,12 @@ public class SnapV2PersistDataStep {
       final SnapV2AccountRangeRequest accountRequest, final List<SnapDataRequest> children) {
     final Bytes32 rangeStart = accountRequest.getRangeStart();
 
-    int continuationCount = 0;
     SnapV2AccountRangeRequest continuation = null;
     for (final SnapDataRequest child : children) {
       if (child instanceof SnapV2AccountRangeRequest accountRangeContinuation) {
-        continuationCount++;
-        if (continuationCount > 1) {
+        if (continuation != null) {
           throw new IllegalStateException(
-              "Expected at most one SnapV2AccountRangeRequest continuation, got "
-                  + continuationCount);
+              "Expected at most one SnapV2AccountRangeRequest continuation, got multiple");
         }
         continuation = accountRangeContinuation;
       }
@@ -183,19 +183,16 @@ public class SnapV2PersistDataStep {
       coveredEnd = accountRequest.getEndKeyHash();
     }
 
-    final int childCount = children.size() - continuationCount;
-
-    rangeTracker.registerPending(rangeStart, coveredEnd, childCount);
+    accountRangeTracker.registerPersisted(rangeStart, coveredEnd);
   }
 
-  private void trackStorageRange(
-      final SnapV2StorageRangeRequest storageRequest, final List<SnapDataRequest> children) {
-    final Bytes32 rangeStart = storageRequest.getRangeStart();
-    final int continuationCount = children.size();
-    if (continuationCount == 0) {
-      rangeTracker.onChildCompleted(rangeStart);
-    } else {
-      rangeTracker.adjustPendingChildren(rangeStart, continuationCount - 1);
+  private void trackStorageRange(final SnapV2StorageRangeRequest storageRequest) {
+    final NavigableMap<Bytes32, Bytes> slots = storageRequest.getSlots();
+    if (!slots.isEmpty()) {
+      storageRangeTracker.registerSlotRange(
+          Bytes32.wrap(storageRequest.getAccountHash().getBytes()),
+          slots.firstKey(),
+          slots.lastKey());
     }
   }
 
