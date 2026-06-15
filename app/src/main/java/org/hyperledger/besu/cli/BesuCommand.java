@@ -2065,6 +2065,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .isEarlyRoundChangeEnabled(unstableQbftOptions.isEarlyRoundChangeEnabled())
             .isLegacyBftProtocolEncodingEnabled(
                 unstableBftOptions.isLegacyProtocolEncodingEnabled())
+            .isBftValidateTransitions(unstableBftOptions.isBftValidateTransitionsEnabled())
             .requiredBlocks(requiredBlocks)
             .reorgLoggingThreshold(reorgLoggingThreshold)
             .evmConfiguration(unstableEvmOptions.toDomainObject())

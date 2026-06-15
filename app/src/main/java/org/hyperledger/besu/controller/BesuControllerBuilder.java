@@ -233,6 +233,9 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
    */
   protected boolean isLegacyBftProtocolEncodingEnabled = false;
 
+  /** When false, BFT fork transition timestamp/block epoch validation is skipped. */
+  protected boolean isBftValidateTransitions = true;
+
   /** The global code cache */
   protected CodeCache codeCache;
 
@@ -604,6 +607,17 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   public BesuControllerBuilder isLegacyBftProtocolEncodingEnabled(
       final boolean isLegacyBftProtocolEncodingEnabled) {
     this.isLegacyBftProtocolEncodingEnabled = isLegacyBftProtocolEncodingEnabled;
+    return this;
+  }
+
+  /**
+   * Configure whether BFT fork transition validation is enabled.
+   *
+   * @param isBftValidateTransitions whether to validate BFT fork transitions
+   * @return the besu controller builder
+   */
+  public BesuControllerBuilder isBftValidateTransitions(final boolean isBftValidateTransitions) {
+    this.isBftValidateTransitions = isBftValidateTransitions;
     return this;
   }
 

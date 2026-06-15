@@ -46,6 +46,9 @@ public abstract class BaseBftProtocolScheduleBuilder {
 
   private static final BigInteger DEFAULT_CHAIN_ID = BigInteger.ONE;
 
+  /** When false, fork transition validation in applyMilestoneTypes is skipped. */
+  protected boolean validateBftTransitions = true;
+
   /** Default constructor. */
   protected BaseBftProtocolScheduleBuilder() {}
 
@@ -104,8 +107,7 @@ public abstract class BaseBftProtocolScheduleBuilder {
     final BftProtocolSchedule bftSchedule =
         new BftProtocolSchedule((DefaultProtocolSchedule) protocolSchedule);
 
-    // Once we have the schedule we can update the fork schedule with the type of each milestone
-    forksSchedule.applyMilestoneTypes(bftSchedule);
+    forksSchedule.applyMilestoneTypes(bftSchedule, validateBftTransitions);
 
     return bftSchedule;
   }
