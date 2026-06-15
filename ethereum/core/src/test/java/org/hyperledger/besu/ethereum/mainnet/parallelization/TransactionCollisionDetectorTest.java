@@ -22,11 +22,11 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiAccount;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldStateUpdateAccumulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedValue;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.StorageConsumingMap;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
@@ -58,14 +58,14 @@ class TransactionCollisionDetectorTest {
             (__, ___) -> {},
             (__, ___) -> {},
             EvmConfiguration.DEFAULT,
-            new CodeCache());
+            new PathBasedCodeCache());
     trxUpdater =
         new BonsaiWorldStateUpdateAccumulator(
             worldState,
             (__, ___) -> {},
             (__, ___) -> {},
             EvmConfiguration.DEFAULT,
-            new CodeCache());
+            new PathBasedCodeCache());
   }
 
   private Transaction createTransaction(final Address sender, final Address to) {
@@ -91,7 +91,7 @@ class TransactionCollisionDetectorTest {
         Hash.EMPTY_TRIE_HASH,
         Hash.EMPTY,
         false,
-        new CodeCache());
+        new PathBasedCodeCache());
   }
 
   @Test
