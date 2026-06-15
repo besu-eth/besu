@@ -19,6 +19,7 @@
 ### Bug fixes
 
 ### Additions and Improvements
+- `--api-gas-price-blocks` fixed to treat `0` as "sample zero blocks" [#10642](https://github.com/besu-eth/besu/pull/10642)
 
 ## 26.6.1
 

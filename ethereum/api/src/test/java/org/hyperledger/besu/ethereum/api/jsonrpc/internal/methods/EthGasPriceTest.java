@@ -19,6 +19,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -200,6 +201,26 @@ public class EthGasPriceTest {
     long lowerBoundCoefficient = 120;
     long upperBoundCoefficient = 200;
     verifyGasPriceLimit(lowerBoundCoefficient, upperBoundCoefficient, gasPrice);
+  }
+
+  @Test
+  public void whenGasPriceBlocksIsZeroReturnLowerBoundWithoutSamplingHistoricalBlocks() {
+    mockBaseFeeMarket();
+
+    // Only stub chain head header — getChainHeadBlock and getBlockByNumber must never be called
+    final Block chainHeadBlock = createFakeBlock(1000L, 1, DEFAULT_BASE_FEE);
+    when(blockchain.getChainHeadHeader()).thenReturn(chainHeadBlock.getHeader());
+
+    method =
+        createEthGasPriceMethod(ImmutableApiConfiguration.builder().gasPriceBlocks(0L).build());
+
+    final JsonRpcResponse actualResponse = method.response(requestWithParams());
+
+    assertThat(actualResponse).isInstanceOf(JsonRpcSuccessResponse.class);
+    verify(blockchain).getChainHeadHeader();
+    verify(blockchain, never()).getChainHeadBlock();
+    verify(blockchain, never()).getBlockByNumber(anyLong());
+    verifyNoMoreInteractions(blockchain);
   }
 
   private static Stream<Arguments> ethGasPriceAtGenesis() {

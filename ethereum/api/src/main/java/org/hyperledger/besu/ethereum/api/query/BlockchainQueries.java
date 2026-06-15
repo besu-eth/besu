@@ -1074,6 +1074,10 @@ public class BlockchainQueries {
   }
 
   public Wei gasPrice() {
+    if (apiConfig.getGasPriceBlocks() == 0) {
+      return gasPriceLowerBound();
+    }
+
     final Block chainHeadBlock = blockchain.getChainHeadBlock();
     final var chainHeadHeader = chainHeadBlock.getHeader();
     final long blockHeight = chainHeadHeader.getNumber();
@@ -1143,6 +1147,10 @@ public class BlockchainQueries {
   }
 
   public Wei gasPriorityFee() {
+    if (apiConfig.getGasPriceBlocks() == 0) {
+      return miningConfiguration.getMinPriorityFeePerGas();
+    }
+
     final Block chainHeadBlock = blockchain.getChainHeadBlock();
     final long blockHeight = chainHeadBlock.getHeader().getNumber();
 
