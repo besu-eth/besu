@@ -85,6 +85,7 @@
 - Fix `RLPException` observed during BFT (QBFT/IBFT2) rolling upgrades from Besu 25.x. Use the flag `--Xbft-legacy-protocol-encoding` on each upgrading Besu node to remain compatible with existing Besu 25.x nodes on the BFT network. [#10499](https://github.com/besu-eth/besu/pull/10499)
 - Use a non-zero exit code when Besu shuts down after detecting disk-full errors in RocksDB transactions or log bloom cache I/O, allowing process managers to restart or alert correctly [#10254](https://github.com/besu-eth/besu/pull/10254)
 - Cache successfully validated engine JWT token so that the same token is only checked once per minute [#10559](https://github.com/besu-eth/besu/pull/10559) 
+- Fix `ArithmeticException: UInt256 overflow` when a value transfer, `PAY`, `SELFDESTRUCT`, `CREATE` endowment, block reward, withdrawal, gas refund, or DAO refund would push the recipient's balance past 2^256-1; the balance now wraps modulo 2^256, matching geth/nethermind/erigon/reth [#10565](https://github.com/besu-eth/besu/pull/10565)
 
 ### Additions and Improvements
 - Add `eth_baseFee` JSON-RPC method, returning the calculated base fee of the next block [#10457](https://github.com/besu-eth/besu/pull/10457)
