@@ -1126,7 +1126,7 @@ public class BlockchainQueries {
     if (apiConfig.getGasPriceBlocks() == 0) {
       return gasPriceLowerBound();
     }
-    
+
     final BlockHeader chainHeadHeader = blockchain.getChainHeadHeader();
     final FeeMarket nextBlockFeeMarket =
         protocolSchedule
