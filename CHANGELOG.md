@@ -19,6 +19,7 @@
 ### Bug fixes
 
 ### Additions and Improvements
+- Remove PoW mining infrastructure (Phase 1 of #9454): delete PoW mining coordinator, executor, block creator/miner, nonce generators, PoW solver, and PoWObserver; strip `nonceGenerator` from `MiningConfiguration` [#9455](https://github.com/besu-eth/besu/issues/9455)
 - Upgrade web3j dependencies to 5.0.3 [#10627](https://github.com/besu-eth/besu/pull/10627)
 
 ## 26.6.1
