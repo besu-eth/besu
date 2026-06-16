@@ -44,7 +44,7 @@ public class MainnetBesuControllerBuilder extends BesuControllerBuilder {
       final SyncState syncState,
       final EthProtocolManager ethProtocolManager) {
 
-    return new NoopMiningCoordinator();
+    return new NoopMiningCoordinator(miningConfiguration);
   }
 
   @Override
