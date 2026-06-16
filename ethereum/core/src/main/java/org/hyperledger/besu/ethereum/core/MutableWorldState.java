@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.core;
 
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitter;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitter;
 import org.hyperledger.besu.evm.worldstate.MutableWorldView;
 import org.hyperledger.besu.evm.worldstate.WorldState;
@@ -33,7 +34,7 @@ public interface MutableWorldState extends WorldState, MutableWorldView {
   void persist(BlockHeader blockHeader, StateRootCommitter committer);
 
   default void persist(final BlockHeader blockHeader) {
-    persist(blockHeader, StateRootCommitter.SYNCHRONOUS);
+    persist(blockHeader, new DefaultStateRootCommitter());
   }
 
   default MutableWorldState freezeStorage() {

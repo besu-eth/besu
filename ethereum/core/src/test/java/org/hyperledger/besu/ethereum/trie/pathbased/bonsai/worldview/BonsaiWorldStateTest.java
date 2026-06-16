@@ -15,29 +15,26 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.chain.Blockchain;
-import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitter;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootComputation;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedValue;
-import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -50,25 +47,18 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class BonsaiWorldStateTest {
   @Mock BonsaiWorldStateUpdateAccumulator bonsaiWorldStateUpdateAccumulator;
   @Mock BonsaiWorldStateKeyValueStorage.Updater bonsaiUpdater;
-  @Mock Blockchain blockchain;
-  @Mock BonsaiWorldStateKeyValueStorage bonsaiWorldStateKeyValueStorage;
 
   private static final Bytes CODE = Bytes.of(10);
   private static final Hash CODE_HASH = Hash.hash(CODE);
   private static final Hash ACCOUNT_HASH = Hash.hash(Address.ZERO.getBytes());
   private static final Address ACCOUNT = Address.ZERO;
 
-  private BonsaiWorldState worldState;
+  private final DefaultStateRootCommitter committer = new DefaultStateRootCommitter();
 
-  @BeforeEach
-  void setup() {
-    worldState =
-        new BonsaiWorldState(
-            InMemoryKeyValueStorageProvider.createBonsaiInMemoryWorldStateArchive(blockchain),
-            bonsaiWorldStateKeyValueStorage,
-            EvmConfiguration.DEFAULT,
-            createStatefulConfigWithTrie(),
-            new CodeCache());
+  private void applyCodeUpdate(final BonsaiWorldStateUpdateAccumulator accumulator) {
+    final List<StateRootComputation.UpdaterWrite> writes = new ArrayList<>();
+    committer.updateCode(writes, accumulator);
+    writes.forEach(w -> w.applyTo(bonsaiUpdater));
   }
 
   @ParameterizedTest
@@ -78,7 +68,7 @@ class BonsaiWorldStateTest {
     final Map<Address, PathBasedValue<Bytes>> codeToUpdate =
         Map.of(Address.ZERO, new PathBasedValue<>(prior, updated));
     when(bonsaiWorldStateUpdateAccumulator.getCodeToUpdate()).thenReturn(codeToUpdate);
-    worldState.updateCode(Optional.of(bonsaiUpdater), bonsaiWorldStateUpdateAccumulator);
+    applyCodeUpdate(bonsaiWorldStateUpdateAccumulator);
 
     verifyNoInteractions(bonsaiUpdater);
   }
@@ -88,7 +78,7 @@ class BonsaiWorldStateTest {
     final Map<Address, PathBasedValue<Bytes>> codeToUpdate =
         Map.of(Address.ZERO, new PathBasedValue<>(CODE, CODE));
     when(bonsaiWorldStateUpdateAccumulator.getCodeToUpdate()).thenReturn(codeToUpdate);
-    worldState.updateCode(Optional.of(bonsaiUpdater), bonsaiWorldStateUpdateAccumulator);
+    applyCodeUpdate(bonsaiWorldStateUpdateAccumulator);
 
     verifyNoInteractions(bonsaiUpdater);
   }
@@ -99,7 +89,7 @@ class BonsaiWorldStateTest {
     final Map<Address, PathBasedValue<Bytes>> codeToUpdate =
         Map.of(Address.ZERO, new PathBasedValue<>(CODE, updated));
     when(bonsaiWorldStateUpdateAccumulator.getCodeToUpdate()).thenReturn(codeToUpdate);
-    worldState.updateCode(Optional.of(bonsaiUpdater), bonsaiWorldStateUpdateAccumulator);
+    applyCodeUpdate(bonsaiWorldStateUpdateAccumulator);
 
     verify(bonsaiUpdater).removeCode(ACCOUNT_HASH, CODE_HASH);
   }
@@ -111,7 +101,7 @@ class BonsaiWorldStateTest {
         Map.of(ACCOUNT, new PathBasedValue<>(prior, CODE));
 
     when(bonsaiWorldStateUpdateAccumulator.getCodeToUpdate()).thenReturn(codeToUpdate);
-    worldState.updateCode(Optional.of(bonsaiUpdater), bonsaiWorldStateUpdateAccumulator);
+    applyCodeUpdate(bonsaiWorldStateUpdateAccumulator);
 
     verify(bonsaiUpdater).putCode(ACCOUNT_HASH, CODE_HASH, CODE);
   }
@@ -124,7 +114,7 @@ class BonsaiWorldStateTest {
     codeToUpdate.put(Address.fromHexString("0x3"), new PathBasedValue<>(Bytes.of(9), CODE));
 
     when(bonsaiWorldStateUpdateAccumulator.getCodeToUpdate()).thenReturn(codeToUpdate);
-    worldState.updateCode(Optional.of(bonsaiUpdater), bonsaiWorldStateUpdateAccumulator);
+    applyCodeUpdate(bonsaiWorldStateUpdateAccumulator);
 
     verify(bonsaiUpdater).putCode(Address.fromHexString("0x1").addressHash(), CODE_HASH, CODE);
     verify(bonsaiUpdater).removeCode(Address.fromHexString("0x2").addressHash(), CODE_HASH);

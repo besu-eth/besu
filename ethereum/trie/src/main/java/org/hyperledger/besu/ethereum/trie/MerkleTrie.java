@@ -24,6 +24,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.UnaryOperator;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -84,6 +85,19 @@ public interface MerkleTrie<K, V> {
    * @param putVisitor custom visitor for the update
    */
   void put(K key, PathNodeVisitor<V> putVisitor);
+
+  /**
+   * Read-modify-write: calls {@code merger} with the current value (or empty if absent), then puts
+   * the returned value or removes the key if the merger returns empty.
+   *
+   * @param key the key to update
+   * @param merger called with the existing value (or empty if absent); returning present updates the
+   *     key, returning empty removes it
+   */
+  default void putDeferred(final K key, final UnaryOperator<Optional<V>> merger) {
+    final Optional<V> merged = merger.apply(get(key));
+    merged.ifPresentOrElse(v -> put(key, v), () -> remove(key));
+  }
 
   /**
    * Deletes the value mapped to the specified key, if such a value exists (Optional operation).

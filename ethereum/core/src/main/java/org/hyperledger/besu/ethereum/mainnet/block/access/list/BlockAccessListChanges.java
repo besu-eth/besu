@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 
@@ -54,6 +55,7 @@ public final class BlockAccessListChanges {
       accountFinalChanges.add(
           new AccountFinalChanges(
               accountChanges.address(),
+              accountChanges.address().addressHash(),
               lastOf(accountChanges.balanceChanges())
                   .map(BlockAccessList.BalanceChange::postBalance),
               lastOf(accountChanges.nonceChanges()).map(BlockAccessList.NonceChange::newNonce),
@@ -66,6 +68,7 @@ public final class BlockAccessListChanges {
 
   public record AccountFinalChanges(
       Address address,
+      Hash accountHash,
       Optional<Wei> balance,
       Optional<Long> nonce,
       Optional<Bytes> code,

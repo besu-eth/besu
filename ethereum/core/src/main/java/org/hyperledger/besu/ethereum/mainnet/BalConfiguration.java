@@ -24,11 +24,9 @@ public interface BalConfiguration {
 
   BalConfiguration DEFAULT = ImmutableBalConfiguration.builder().build();
 
-  /** Returns whether the BAL-computed state root should be trusted without verification. */
-  @Value.Default
-  default boolean isBalStateRootTrusted() {
-    return true;
-  }
+  /** Configuration with BAL state root disabled (uses standard accumulator-based root). */
+  BalConfiguration DISABLED =
+      ImmutableBalConfiguration.builder().isBalStateRootEnabled(false).build();
 
   /**
    * Returns whether to use the BAL-based state root commit path when a BAL is available. When
@@ -42,15 +40,6 @@ public interface BalConfiguration {
   /** Returns whether BAL perfect parallelization is enabled. */
   @Value.Default
   default boolean isPerfectParallelizationEnabled() {
-    return true;
-  }
-
-  /**
-   * Returns whether mismatches between BAL and synchronously computed state roots should only log
-   * an error instead of throwing an exception.
-   */
-  @Value.Default
-  default boolean isBalLenientOnStateRootMismatch() {
     return true;
   }
 
