@@ -16,7 +16,6 @@ package org.hyperledger.besu.ethereum.blockcreation;
 
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.ethereum.chain.PoWObserver;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -86,8 +85,6 @@ public interface MiningCoordinator {
    * @return If supported, returns the block that was created, otherwise an empty response.
    */
   Optional<Block> createBlock(final BlockHeader parentHeader, final long timestamp);
-
-  default void addEthHashObserver(final PoWObserver observer) {}
 
   void changeTargetGasLimit(final Long targetGasLimit);
 
