@@ -76,6 +76,14 @@ public class SnappyCompressorTest {
   }
 
   @Test
+  public void shouldWrapUncheckedDecompressionFailuresAsFramingException() {
+    // snappy-java's uncompress can surface non-IOException failures for some malformed
+    // inputs; decompress() must convert them so callers see a single failure type.
+    assertThatThrownBy(() -> snappy.decompress(Bytes.fromHexString("0xFFFFFFFF0F00").toArray()))
+        .isInstanceOf(FramingException.class);
+  }
+
+  @Test
   public void roundTripEthereumData() {
     // First data set.
     byte[] compressed =
