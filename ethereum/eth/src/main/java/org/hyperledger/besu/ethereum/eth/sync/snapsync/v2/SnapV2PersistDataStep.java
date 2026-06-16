@@ -17,7 +17,10 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync.v2;
 import static org.hyperledger.besu.ethereum.eth.sync.StorageExceptionManager.canRetryOnError;
 import static org.hyperledger.besu.ethereum.eth.sync.StorageExceptionManager.errorCountAtThreshold;
 import static org.hyperledger.besu.ethereum.eth.sync.StorageExceptionManager.getRetryableErrorCounter;
+import static org.hyperledger.besu.ethereum.trie.RangeManager.MAX_RANGE;
+import static org.hyperledger.besu.ethereum.trie.RangeManager.MIN_RANGE;
 
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedAccountRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedStorageRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
@@ -27,6 +30,8 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContex
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2AccountRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2BytecodeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2StorageRangeRequest;
+import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
@@ -192,6 +197,17 @@ public class SnapV2PersistDataStep {
     final int childCount = children.size() - continuationCount;
 
     accountRangeTracker.registerPending(rangeStart, coveredEnd, childCount);
+
+    accountRequest
+        .getAccounts()
+        .forEach(
+            (accountHash, accountData) -> {
+              final PmtStateTrieAccountValue accountValue =
+                  PmtStateTrieAccountValue.readFrom(RLP.input(accountData));
+              if (accountValue.getStorageRoot().equals(Hash.EMPTY_TRIE_HASH)) {
+                storageRangeTracker.registerSlotRange(accountHash, MIN_RANGE, MAX_RANGE);
+              }
+            });
   }
 
   private void trackStorageRange(
