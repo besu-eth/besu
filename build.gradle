@@ -23,7 +23,7 @@ import java.util.regex.Pattern
 
 plugins {
   id 'com.diffplug.spotless' version '7.0.3'
-  id 'com.github.jk1.dependency-license-report' version '3.1.1'
+  id 'com.github.jk1.dependency-license-report' version '3.1.4'
   id 'com.jfrog.artifactory' version '5.2.5'
   id 'me.champeau.jmh' version '0.7.3' apply false
   id 'net.ltgt.errorprone' version '4.4.0'
