@@ -57,6 +57,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
+import java.util.concurrent.ConcurrentHashMap;
+import com.google.common.collect.EvictingQueue;
+
 public class ProcessBesuNodeRunner implements BesuNodeRunner {
 
   private static final Logger LOG = LoggerFactory.getLogger(ProcessBesuNodeRunner.class);
@@ -68,7 +71,8 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
   private boolean capturingConsole;
   private final ByteArrayOutputStream consoleContents = new ByteArrayOutputStream();
   private final PrintStream consoleOut = new PrintStream(consoleContents);
-  private final Map<String, StringBuilder> nodeOutputs = new java.util.concurrent.ConcurrentHashMap<>();
+  private static final int MAX_STARTUP_OUTPUT_LINES = 200;
+  private final Map<String, EvictingQueue<String>> nodeOutputs = new ConcurrentHashMap<>();
 
   ProcessBesuNodeRunner() {
     Runtime.getRuntime().addShutdownHook(new Thread(this::shutdown));
@@ -125,7 +129,7 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
           "A live process with name: %s, already exists. Cannot create another with the same name as it would orphan the first",
           node.getName());
 
-      nodeOutputs.put(node.getName(), new StringBuilder());
+      nodeOutputs.put(node.getName(), EvictingQueue.create(MAX_STARTUP_OUTPUT_LINES));
       final Process process = processBuilder.start();
       process.onExit().thenRun(() -> node.setExitCode(process.exitValue()));
       outputProcessorExecutor.execute(() -> printOutput(node, process));
@@ -144,6 +148,7 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
     }
     MDC.remove("node");
   }
+
 
   private List<String> commandlineArgs(final BesuNode node, final Path dataDir) {
     final List<String> params = new ArrayList<>();
@@ -434,10 +439,10 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
         if (capturingConsole) {
           consoleOut.println(line);
         }
-        final StringBuilder nodeOutput = nodeOutputs.get(node.getName());
+        final EvictingQueue<String> nodeOutput = nodeOutputs.get(node.getName());
         if (nodeOutput != null) {
           synchronized (nodeOutput) {
-            nodeOutput.append(line).append(System.lineSeparator());
+            nodeOutput.add(line);
           }
         }
         line = in.readLine();
@@ -483,22 +488,19 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
                     node.getName(),
                     exitValue,
                     fileName);
-                if (exitValue != 0) {
-                  final StringBuilder output = nodeOutputs.get(node.getName());
-                  final String outputStr;
-                  if (output != null) {
-                    synchronized (output) {
-                      outputStr = output.toString();
-                    }
-                  } else {
-                    outputStr = "<no output captured>";
+                final EvictingQueue<String> output = nodeOutputs.get(node.getName());
+                final String outputStr;
+                if (output != null) {
+                  synchronized (output) {
+                    outputStr = String.join(System.lineSeparator(), output);
                   }
-                  throw new IllegalStateException(
-                      String.format(
-                          "Besu process for node %s exited with code %d before writing %s. Process output:%n%s",
-                          node.getName(), exitValue, fileName, outputStr));
+                } else {
+                  outputStr = "<no output captured>";
                 }
-                return true;
+                throw new IllegalStateException(
+                    String.format(
+                        "Besu process for node %s exited with code %d before writing %s. Process output:%n%s",
+                        node.getName(), exitValue, fileName, outputStr));
               }
 
               try (final Stream<String> s = Files.lines(file.toPath())) {
