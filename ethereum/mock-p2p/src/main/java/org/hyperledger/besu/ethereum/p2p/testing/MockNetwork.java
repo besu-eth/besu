@@ -84,6 +84,12 @@ public final class MockNetwork {
           new MockNetwork.MockPeerConnection(source, target, this);
       final MockP2PNetwork sourceNode = nodes.get(source);
       final MockP2PNetwork targetNode = nodes.get(target);
+
+      if (sourceNode == null || targetNode == null) {
+        throw new IllegalStateException(
+            "Both source and target peers must be setup before connecting");
+      }
+
       sourceNode.connections.put(target, establishedConnection);
       final MockNetwork.MockPeerConnection backChannel =
           new MockNetwork.MockPeerConnection(target, source, this);
@@ -99,6 +105,13 @@ public final class MockNetwork {
     synchronized (this) {
       final MockP2PNetwork sourceNode = nodes.get(connection.from);
       final MockP2PNetwork targetNode = nodes.get(connection.to);
+
+      if (sourceNode == null || targetNode == null) {
+        throw new IllegalStateException(
+            String.format(
+                "No nodes found for connection between %s and %s", connection.from, connection.to));
+      }
+
       if (targetNode.connections.remove(connection.from) == null
           || sourceNode.connections.remove(connection.to) == null) {
         throw new IllegalStateException(
@@ -272,12 +285,16 @@ public final class MockNetwork {
         throws PeerNotConnected {
       synchronized (network) {
         final MockNetwork.MockP2PNetwork target = network.nodes.get(to);
-        final MockNetwork.MockPeerConnection backChannel = target.connections.get(from);
-        if (backChannel != null) {
-          final Message msg = new DefaultMessage(backChannel, message);
-          final Subscribers<MessageCallback> callbacks = target.protocolCallbacks.get(capability);
-          if (callbacks != null) {
-            callbacks.forEach(c -> c.onMessage(capability, msg));
+        if (target != null) {
+          final MockNetwork.MockPeerConnection backChannel = target.connections.get(from);
+          if (backChannel != null) {
+            final Message msg = new DefaultMessage(backChannel, message);
+            final Subscribers<MessageCallback> callbacks = target.protocolCallbacks.get(capability);
+            if (callbacks != null) {
+              callbacks.forEach(c -> c.onMessage(capability, msg));
+            }
+          } else {
+            throw new PeerNotConnected(String.format("%s not connected to %s", to, from));
           }
         } else {
           throw new PeerNotConnected(String.format("%s not connected to %s", to, from));
