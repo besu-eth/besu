@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Breaking Changes
+- Remove PoW mining infrastructure (Phase 1 of #9454): PoW mining coordinator, executor, block creator/miner, nonce generators, PoW solver, and PoWObserver are deleted. `nonceGenerator` is removed from `MiningConfiguration`. Mainnet genesis files with `ethash` config can no longer mine PoW blocks. [#9455](https://github.com/besu-eth/besu/issues/9455)
 
 ### Upcoming Breaking Changes
 - Sunsetting features - for more context on the reasoning behind the deprecation of these features, including alternative options, read [this blog post](https://www.lfdecentralizedtrust.org/blog/sunsetting-tessera-and-simplifying-hyperledger-besu)
@@ -19,7 +20,6 @@
 ### Bug fixes
 
 ### Additions and Improvements
-- Remove PoW mining infrastructure (Phase 1 of #9454): delete PoW mining coordinator, executor, block creator/miner, nonce generators, PoW solver, and PoWObserver; strip `nonceGenerator` from `MiningConfiguration` [#9455](https://github.com/besu-eth/besu/issues/9455)
 - Upgrade web3j dependencies to 5.0.3 [#10627](https://github.com/besu-eth/besu/pull/10627)
 
 ## 26.6.1
