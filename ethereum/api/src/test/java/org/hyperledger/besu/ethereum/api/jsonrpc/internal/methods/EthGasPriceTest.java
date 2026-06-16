@@ -214,9 +214,40 @@ public class EthGasPriceTest {
     method =
         createEthGasPriceMethod(ImmutableApiConfiguration.builder().gasPriceBlocks(0L).build());
 
-    final JsonRpcResponse actualResponse = method.response(requestWithParams());
+    final JsonRpcRequestContext request = requestWithParams();
+    // gasPriceBlocks=0 → no historical block sampling; returns gasPriceLowerBound() directly.
+    // nextBlockBaseFee = DEFAULT_BASE_FEE − EIP-1559 delta(gasUsed=21_000, gasLimit=100_000) =
+    // 92_750
+    // lowerBound = max(nextBlockBaseFee=92_750, DEFAULT_MIN_GAS_PRICE=1_000) = 92_750
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(request.getRequest().getId(), Wei.of(92_750).toShortHexString());
 
-    assertThat(actualResponse).isInstanceOf(JsonRpcSuccessResponse.class);
+    final JsonRpcResponse actualResponse = method.response(request);
+
+    assertThat(actualResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
+    verify(blockchain).getChainHeadHeader();
+    verify(blockchain, never()).getChainHeadBlock();
+    verify(blockchain, never()).getBlockByNumber(anyLong());
+    verifyNoMoreInteractions(blockchain);
+  }
+
+  @Test
+  public void whenGasPriceBlocksIsZeroAndMinGasPriceIsZeroReturnZero() {
+    miningConfiguration.setMinTransactionGasPrice(Wei.ZERO);
+    mockGasPriceMarket();
+
+    when(blockchain.getChainHeadHeader()).thenReturn(createFakeBlock(0, 0, null).getHeader());
+
+    final var methodWithZeroBlocks =
+        createEthGasPriceMethod(ImmutableApiConfiguration.builder().gasPriceBlocks(0L).build());
+
+    final JsonRpcRequestContext request = requestWithParams();
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(request.getRequest().getId(), Wei.ZERO.toShortHexString());
+
+    assertThat(methodWithZeroBlocks.response(request))
+        .usingRecursiveComparison()
+        .isEqualTo(expectedResponse);
     verify(blockchain).getChainHeadHeader();
     verify(blockchain, never()).getChainHeadBlock();
     verify(blockchain, never()).getBlockByNumber(anyLong());
