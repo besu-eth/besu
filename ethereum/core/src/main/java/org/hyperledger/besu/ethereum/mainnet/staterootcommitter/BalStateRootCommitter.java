@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListIndex;
+import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExecutors;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
@@ -129,7 +130,8 @@ public final class BalStateRootCommitter implements StateRootCommitter {
                   openParentWorldState(protocolContext, blockHeader, balIndex)) {
                 return runComputation(parent, bal);
               }
-            });
+            },
+            BlockProcessingExecutors.stateRootExecutor());
   }
 
   @Override

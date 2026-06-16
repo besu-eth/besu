@@ -126,7 +126,11 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
               getWorldState(protocolContext, maybeParentHeader);
           if (maybeWorldState.isPresent()) {
             balPrefetchMechanism
-                .prefetch(maybeWorldState.get(), blockAccessList, executor)
+                .prefetch(
+                    maybeWorldState.get(),
+                    blockAccessList,
+                    BlockProcessingExecutors.ioExecutor(),
+                    BlockProcessingExecutors.ioExecutor())
                 .exceptionally(
                     ex -> {
                       LOG.error("Prefetch failed", ex);
