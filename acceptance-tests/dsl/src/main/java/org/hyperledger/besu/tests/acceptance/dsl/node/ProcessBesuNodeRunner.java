@@ -46,19 +46,18 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import com.google.common.collect.EvictingQueue;
 import org.awaitility.Awaitility;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
-
-import java.util.concurrent.ConcurrentHashMap;
-import com.google.common.collect.EvictingQueue;
 
 public class ProcessBesuNodeRunner implements BesuNodeRunner {
 
@@ -148,7 +147,6 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
     }
     MDC.remove("node");
   }
-
 
   private List<String> commandlineArgs(final BesuNode node, final Path dataDir) {
     final List<String> params = new ArrayList<>();
