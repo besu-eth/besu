@@ -216,6 +216,12 @@ public class RocksDBCLIOptions {
     return isHighSpec;
   }
 
+  /**
+   * Derives max open files from the host's available memory.
+   *
+   * @return the max open files value for the current machine, or {@link #DEFAULT_MAX_OPEN_FILES} if
+   *     memory information is unavailable
+   */
   public static int deriveMaxOpenFilesFromAvailableMemory() {
     final java.lang.management.OperatingSystemMXBean osBean =
         ManagementFactory.getOperatingSystemMXBean();
@@ -225,6 +231,12 @@ public class RocksDBCLIOptions {
     return DEFAULT_MAX_OPEN_FILES;
   }
 
+  /**
+   * Calculates max open files for the given available memory.
+   *
+   * @param availableMemoryBytes the available memory in bytes
+   * @return the max open files value for the matching memory tier
+   */
   public static int calculateMaxOpenFiles(final long availableMemoryBytes) {
     if (availableMemoryBytes >= 32L * GIB) {
       return MAX_OPEN_FILES_32GB;
