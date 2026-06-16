@@ -83,7 +83,13 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
   protected StateAccessTracer stateAccessTracer;
 
   /** Write counts returned by {@link #computeBlockWriteCounts()}. */
-  public record StateWriteCounts(int accounts, int storageSlots, int code, int codeBytes) {}
+  public record StateWriteCounts(
+      int accounts,
+      int storageSlots,
+      int code,
+      int codeBytes,
+      int accountDeletes,
+      int storageDeletes) {}
 
   public PathBasedWorldStateUpdateAccumulator(
       final PathBasedWorldView world,
@@ -249,14 +255,25 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
    */
   public StateWriteCounts computeBlockWriteCounts() {
     int accountCount = 0;
+    int accountDeleteCount = 0;
     for (final PathBasedValue<?> v : accountsToUpdate.values()) {
       if (!v.isUnchanged()) accountCount++;
+      // a delete is an account that existed before the block and is gone after
+      if (v.getPrior() != null && v.getUpdated() == null) accountDeleteCount++;
     }
 
     int storageCount = 0;
+    int storageDeleteCount = 0;
     for (final Map<StorageSlotKey, PathBasedValue<UInt256>> slots : storageToUpdate.values()) {
       for (final PathBasedValue<UInt256> v : slots.values()) {
         if (!v.isUnchanged()) storageCount++;
+        // a delete is a slot that held a non-zero value and nets to removal from the trie,
+        // whether cleared via account deletion (updated == null) or SSTORE-to-zero (updated == 0)
+        if (v.getPrior() != null
+            && !v.getPrior().isZero()
+            && (v.getUpdated() == null || v.getUpdated().isZero())) {
+          storageDeleteCount++;
+        }
       }
     }
 
@@ -271,7 +288,13 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       }
     }
 
-    return new StateWriteCounts(accountCount, storageCount, codeCount, codeBytesWritten);
+    return new StateWriteCounts(
+        accountCount,
+        storageCount,
+        codeCount,
+        codeBytesWritten,
+        accountDeleteCount,
+        storageDeleteCount);
   }
 
   private static boolean isCodeEmpty(final Bytes code) {
