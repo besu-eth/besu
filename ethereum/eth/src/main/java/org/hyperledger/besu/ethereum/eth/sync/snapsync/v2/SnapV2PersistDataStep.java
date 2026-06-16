@@ -197,16 +197,38 @@ public class SnapV2PersistDataStep {
   private void trackStorageRange(
       final SnapV2StorageRangeRequest storageRequest, final List<SnapDataRequest> children) {
     final Bytes32 rangeStart = storageRequest.getRangeStart();
+    final Bytes32 startKeyHash = storageRequest.getStartKeyHash();
+    final Bytes32 accountHashBytes = Bytes32.wrap(storageRequest.getAccountHash().getBytes());
 
-    final NavigableMap<Bytes32, Bytes> slots = storageRequest.getSlots();
-    if (!slots.isEmpty()) {
-      storageRangeTracker.registerSlotRange(
-          Bytes32.wrap(storageRequest.getAccountHash().getBytes()),
-          slots.firstKey(),
-          slots.lastKey());
+    int continuationCount = 0;
+    SnapV2StorageRangeRequest firstContinuation = null;
+    for (final SnapDataRequest child : children) {
+      if (child instanceof SnapV2StorageRangeRequest storageRangeContinuation) {
+        continuationCount++;
+        if (firstContinuation == null) {
+          firstContinuation = storageRangeContinuation;
+        }
+      }
     }
 
-    final int continuationCount = children.size();
+    final Bytes32 coveredEnd;
+    if (firstContinuation != null) {
+      final Bytes32 continuationStart = firstContinuation.getStartKeyHash();
+      final NavigableMap<Bytes32, Bytes> slots = storageRequest.getSlots();
+      if (!slots.isEmpty() && continuationStart.compareTo(slots.lastKey()) <= 0) {
+        throw new IllegalStateException(
+            "Storage range continuation does not advance past last received slot: continuation "
+                + continuationStart
+                + ", last received "
+                + slots.lastKey());
+      }
+      coveredEnd = prevKey(continuationStart);
+    } else {
+      coveredEnd = storageRequest.getEndKeyHash();
+    }
+
+    storageRangeTracker.registerSlotRange(accountHashBytes, startKeyHash, coveredEnd);
+
     if (continuationCount == 0) {
       accountRangeTracker.onChildCompleted(rangeStart);
     } else {
