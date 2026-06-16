@@ -50,7 +50,7 @@ public class EmptyConsensusGenesisTest extends AcceptanceTestBase {
   @Test
   public void shouldStartAndFallBackToPoSWhenNoConsensusMechanismInGenesis() throws Exception {
     final BesuNode node =
-        besu.createArchiveNode(
+        besu.createNode(
             "empty-consensus",
             builder ->
                 builder

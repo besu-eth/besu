@@ -220,7 +220,8 @@ public class MergeBesuControllerBuilderTest {
   public void buildsSuccessfullyWhenTerminalTotalDifficultyIsAbsent() {
     when(genesisConfigOptions.getTerminalTotalDifficulty()).thenReturn(Optional.empty());
 
-    // The real assertion is that build() no longer throws on an absent TTD.
+    // Prior to this fix, build() threw here because createEthProtocolManager called orElseThrow()
+    // on an absent TTD. The TTD=ZERO assertion is secondary.
     final Difficulty terminalTotalDifficulty =
         visitWithMockConfigs(new MergeBesuControllerBuilder())
             .build()
