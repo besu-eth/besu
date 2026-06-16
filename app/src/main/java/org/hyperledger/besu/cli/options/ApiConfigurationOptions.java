@@ -37,7 +37,7 @@ public class ApiConfigurationOptions {
       names = {"--api-gas-price-blocks"},
       description =
           "Number of blocks to consider for eth_gasPrice and eth_maxPriorityFeePerGas (default: ${DEFAULT-VALUE}). "
-              + "Set to 0 to disable block sampling and use the respective configuration options instead.")
+              + "Set to 0 to disable block sampling.")
   private final Long apiGasPriceBlocks = 100L;
 
   @CommandLine.Option(
