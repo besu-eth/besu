@@ -91,7 +91,6 @@ public class ProtocolSpecBuilder {
   private FeeMarketBuilder feeMarketBuilder = (__) -> FeeMarket.legacy();
   private BlobSchedule blobSchedule = new BlobSchedule.NoBlobSchedule();
   private BadBlockManager badBlockManager;
-  private PoWHasher powHasher = PoWHasher.ETHASH_LIGHT;
   private boolean isPoS = false;
   private Duration slotDuration;
   private boolean isReplayProtectionSupported = false;
@@ -248,11 +247,6 @@ public class ProtocolSpecBuilder {
 
   public ProtocolSpecBuilder badBlocksManager(final BadBlockManager badBlockManager) {
     this.badBlockManager = badBlockManager;
-    return this;
-  }
-
-  public ProtocolSpecBuilder powHasher(final PoWHasher powHasher) {
-    this.powHasher = powHasher;
     return this;
   }
 
@@ -448,7 +442,6 @@ public class ProtocolSpecBuilder {
         gasCalculator,
         gasLimitCalculator,
         feeMarket,
-        Optional.ofNullable(powHasher),
         withdrawalsValidator,
         Optional.ofNullable(withdrawalsProcessor),
         requestsValidator,
