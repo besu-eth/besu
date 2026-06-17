@@ -30,6 +30,7 @@ import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
+import org.hyperledger.besu.ethereum.eth.sync.common.CheckpointReorgException;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
 import org.hyperledger.besu.ethereum.eth.sync.common.SyncError;
 import org.hyperledger.besu.ethereum.eth.sync.common.SyncException;
@@ -141,17 +142,48 @@ public class SnapSyncDownloaderTest {
   }
 
   @Test
-  public void shouldAbortIfSelectPivotBlockFails() {
+  public void shouldRePivotWhenSelectPivotBlockFails() {
     setup();
+    final SnapSyncProcessState selectPivotBlockState = new SnapSyncProcessState(50);
+    final BlockHeader pivotBlockHeader = new BlockHeaderTestFixture().number(50).buildHeader();
+    final SnapSyncProcessState resolvePivotBlockHeaderState =
+        new SnapSyncProcessState(pivotBlockHeader);
+
+    // A SyncException is treated as a transient (bad-peer) failure: the downloader re-pivots and
+    // succeeds on the retry rather than aborting.
     when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
-        .thenThrow(new SyncException(SyncError.UNEXPECTED_ERROR));
+        .thenThrow(new SyncException(SyncError.UNEXPECTED_ERROR))
+        .thenReturn(completedFuture(selectPivotBlockState));
+    when(fastSyncActions.resolvePivotBlockHeader(selectPivotBlockState))
+        .thenReturn(completedFuture(resolvePivotBlockHeaderState));
+    when(fastSyncActions.createChainDownloader(
+            snapSyncState(pivotBlockHeader), SyncDurationMetrics.NO_OP_SYNC_DURATION_METRICS))
+        .thenReturn(chainDownloader);
+    when(chainDownloader.start()).thenReturn(completedFuture(null));
+    when(worldStateDownloader.run(any(PivotSyncActions.class), eq(snapSyncState(pivotBlockHeader))))
+        .thenReturn(completedFuture(null));
 
     final CompletableFuture<SnapSyncProcessState> result = downloader.start();
 
-    assertCompletedExceptionally(result, SyncError.UNEXPECTED_ERROR);
+    // selectPivotBlock was called twice: the failed attempt, then the successful re-pivot.
+    verify(fastSyncActions, times(2)).selectPivotBlock(new SnapSyncProcessState());
+    assertThat(result).isCompletedWithValue(snapSyncState(pivotBlockHeader));
+  }
 
+  @Test
+  public void shouldStopWithoutRePivotOnCheckpointReorg() {
+    setup();
+    // A reorged trusted checkpoint is fatal: re-pivoting cannot fix it, so the sync stops and the
+    // error is surfaced rather than looping on a fresh pivot.
+    when(fastSyncActions.selectPivotBlock(new SnapSyncProcessState()))
+        .thenThrow(new CheckpointReorgException("trusted checkpoint reorged"));
+
+    final CompletableFuture<SnapSyncProcessState> result = downloader.start();
+
+    assertThat(result).isCompletedExceptionally();
+    assertThat(catchThrowable(result::get)).hasRootCauseInstanceOf(CheckpointReorgException.class);
+    // No re-pivot: selectPivotBlock was called exactly once.
     verify(fastSyncActions).selectPivotBlock(new SnapSyncProcessState());
-    verifyNoMoreInteractions(fastSyncActions);
   }
 
   @Test

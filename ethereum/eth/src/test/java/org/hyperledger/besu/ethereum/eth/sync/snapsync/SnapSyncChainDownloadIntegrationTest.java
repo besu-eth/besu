@@ -176,7 +176,8 @@ class SnapSyncChainDownloadIntegrationTest {
     final BlockHeader pivotHeader = bBlocks.get(NEW_PIVOT).getHeader(); // B100
 
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain);
+        new BackwardHeaderDriver(
+            BATCH_SIZE, anchorHeader, pivotHeader, aBlocks.get(0).getHeader(), blockchain);
 
     // ── Drive Stage 1 ─────────────────────────────────────────────────────────────────────────
     driveToCompletion(driver, anchorHeader.getNumber());

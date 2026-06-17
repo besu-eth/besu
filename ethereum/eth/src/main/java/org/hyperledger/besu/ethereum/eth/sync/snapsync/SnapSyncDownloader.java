@@ -20,6 +20,7 @@ import org.hyperledger.besu.ethereum.eth.manager.exceptions.MaxRetriesReachedExc
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.NoAvailablePeersException;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.TrailingPeerRequirements;
+import org.hyperledger.besu.ethereum.eth.sync.common.CheckpointReorgException;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredException;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredState;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
@@ -105,6 +106,11 @@ public class SnapSyncDownloader implements SnapSyncController {
     Throwable rootCause = ExceptionUtils.rootCause(error);
     if (rootCause instanceof NoSyncRequiredException) {
       return CompletableFuture.completedFuture(new NoSyncRequiredState());
+    } else if (rootCause instanceof CheckpointReorgException) {
+      // The trusted checkpoint is not on the pivot's chain. Re-pivoting cannot fix a bad/reorged
+      // checkpoint, so stop the sync and surface the error.
+      LOG.error("Trusted checkpoint reorg detected, stopping snap sync.", error);
+      return CompletableFuture.failedFuture(error);
     } else if (rootCause instanceof SyncException syncEx) {
       // Pivot block header mismatch is caused by bad peers — re-pivot to recover.
       LOG.debug("Sync error ({}), re-pivoting.", syncEx.getError());

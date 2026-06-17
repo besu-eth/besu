@@ -104,7 +104,11 @@ public class SnapSyncChainDownloadPipelineFactory {
 
     final BackwardHeaderDriver driver =
         new BackwardHeaderDriver(
-            headerRequestSize, lowerAnchor, upperBound, protocolContext.getBlockchain());
+            headerRequestSize,
+            lowerAnchor,
+            upperBound,
+            chainState.bodyCheckpoint(),
+            protocolContext.getBlockchain());
 
     final DownloadBackwardHeadersStep downloadStep =
         new DownloadBackwardHeadersStep(

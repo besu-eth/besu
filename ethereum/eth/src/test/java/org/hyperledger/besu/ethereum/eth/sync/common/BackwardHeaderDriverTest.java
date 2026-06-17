@@ -27,8 +27,6 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.plugin.services.metrics.Counter;
-import org.hyperledger.besu.plugin.services.metrics.LabelledMetric;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -72,7 +70,7 @@ public class BackwardHeaderDriverTest {
 
   @Test
   public void shouldStorePivotHeaderDuringConstruction() {
-    new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain);
+    new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, anchorHeader, blockchain);
 
     verify(blockchain).storeBlockHeaders(headersCaptor.capture());
     final List<BlockHeader> storedHeaders = headersCaptor.getValue();
@@ -83,7 +81,7 @@ public class BackwardHeaderDriverTest {
   @Test
   public void shouldImportMultipleBatches() {
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain);
+        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, anchorHeader, blockchain);
 
     // Import in batches going backward, verifying state updates between batches
     final List<BlockHeader> batch1 = getHeaders(99, 98, 97, 96);
@@ -105,7 +103,7 @@ public class BackwardHeaderDriverTest {
   @Test
   public void shouldTrackLowestImportedHeader() {
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain);
+        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, anchorHeader, blockchain);
 
     // Initially the lowest imported header is the pivot
     assertThat(driver.getLowestImportedHeader()).isEqualTo(pivotHeader);
@@ -122,7 +120,7 @@ public class BackwardHeaderDriverTest {
   @Test
   public void shouldCompleteSuccessfullyWhenImportingToLowestHeader() {
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain);
+        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, anchorHeader, blockchain);
 
     // Import all headers down to block 1 (lowestHeaderToImport)
     driver.accept(getHeadersRange(99, 1));
@@ -134,7 +132,7 @@ public class BackwardHeaderDriverTest {
   @Test
   public void shouldThrowWhenHeaderDoesNotMatchExpectedParentHash() {
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain);
+        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, anchorHeader, blockchain);
 
     // Create headers that don't link properly to pivot (skipping blocks)
     final List<BlockHeader> invalidHeaders = getHeaders(50, 51, 52);
@@ -155,7 +153,7 @@ public class BackwardHeaderDriverTest {
     final BlockHeader anchorAt50 = blocks.get(50).getHeader();
 
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorAt50, pivotHeader, blockchain);
+        new BackwardHeaderDriver(BATCH_SIZE, anchorAt50, pivotHeader, anchorHeader, blockchain);
 
     // Mid-walk batches from 99 down to 55 (each entirely above the boundary).
     for (int top = 99; top >= 55; top -= BATCH_SIZE) {
@@ -189,7 +187,7 @@ public class BackwardHeaderDriverTest {
     lenient().when(blockchain.getBlockHeader(0L)).thenReturn(Optional.of(localGenesis));
 
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, reorgedAnchor, wrongPivot, blockchain);
+        new BackwardHeaderDriver(BATCH_SIZE, reorgedAnchor, wrongPivot, anchorHeader, blockchain);
 
     // First batch [51..99]: triggers boundary detection, starts recovery.
     final List<BlockHeader> batch1 = new ArrayList<>();
@@ -227,7 +225,7 @@ public class BackwardHeaderDriverTest {
     lenient().when(blockchain.getBlockHeader(46L)).thenReturn(Optional.of(canonicalBlock46));
 
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, reorgedAnchor, pivotHeader, blockchain);
+        new BackwardHeaderDriver(BATCH_SIZE, reorgedAnchor, pivotHeader, anchorHeader, blockchain);
 
     // First batch: boundary fires, anchor mismatch, recovery starts.
     driver.accept(getHeadersRange(99, 51));
@@ -250,7 +248,7 @@ public class BackwardHeaderDriverTest {
     assertThat(reorgedAnchor.getHash()).isNotEqualTo(anchorHeader.getHash());
 
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, reorgedAnchor, pivotHeader, blockchain);
+        new BackwardHeaderDriver(BATCH_SIZE, reorgedAnchor, pivotHeader, anchorHeader, blockchain);
 
     // Feed a single batch that reaches block 1 — the original anchor boundary.
     driver.accept(getHeadersRange(99, 1));
@@ -262,15 +260,13 @@ public class BackwardHeaderDriverTest {
   }
 
   @Test
-  @SuppressWarnings("unchecked")
-  public void shouldIncrementRecoveryCountersAndUpdateDepthGaugeOnRecoverySuccess() {
+  public void shouldMatchCanonicalAncestorAfterExtendingRecovery() {
     // Scenario forces an extension on the first boundary then a match on the second batch:
     //  - Reorged anchor lives at height 50 with a hash different from blocks.get(50).
     //  - First batch (99..51) reaches the original boundary; parent (block 50) is NOT stored
-    //    AND not equal to the reorged anchor's hash, so recovery extends stopBlock and fires
-    //    the "started" counter.
+    //    AND not equal to the reorged anchor's hash, so recovery extends stopBlock.
     //  - Second batch (50..47) is in recovery mode; block 47's parent is block 46, which IS
-    //    stored, so the recovery match fires the "succeeded" counter and records depth = 1.
+    //    stored, so recovery matches the canonical ancestor at block 46.
     final BlockDataGenerator otherGenerator = new BlockDataGenerator(99);
     final BlockHeader reorgedAnchor = otherGenerator.blockSequence(51).get(50).getHeader();
     assertThat(reorgedAnchor.getHash()).isNotEqualTo(blocks.get(50).getHeader().getHash());
@@ -280,20 +276,60 @@ public class BackwardHeaderDriverTest {
         .when(blockchain.getBlockHeader(46L))
         .thenReturn(Optional.of(blocks.get(46).getHeader()));
 
-    final Counter startedCounter = org.mockito.Mockito.mock(Counter.class);
-    final Counter succeededCounter = org.mockito.Mockito.mock(Counter.class);
-    final LabelledMetric<Counter> recoveryCounter = org.mockito.Mockito.mock(LabelledMetric.class);
-    lenient().when(recoveryCounter.labels("started")).thenReturn(startedCounter);
-    lenient().when(recoveryCounter.labels("succeeded")).thenReturn(succeededCounter);
-
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, reorgedAnchor, pivotHeader, blockchain);
+        new BackwardHeaderDriver(BATCH_SIZE, reorgedAnchor, pivotHeader, anchorHeader, blockchain);
 
     driver.accept(getHeadersRange(99, 51));
     driver.accept(getHeadersRange(50, 47));
 
-    verify(startedCounter).inc();
-    verify(succeededCounter).inc();
+    // Recovery walked below the reorged anchor and matched the canonical ancestor at block 46.
+    assertThat(driver.getMatchedAncestor()).contains(blocks.get(46).getHeader());
+  }
+
+  @Test
+  public void recoveryMatchingExactlyAtTheCheckpointIsAllowed() {
+    // Same scenario as above, but with the trusted checkpoint set to the match height (block 46).
+    // Recovery is allowed to reconnect at the checkpoint.
+    final BlockDataGenerator otherGenerator = new BlockDataGenerator(99);
+    final BlockHeader reorgedAnchor = otherGenerator.blockSequence(51).get(50).getHeader();
+    final BlockHeader checkpointAt46 = blocks.get(46).getHeader();
+
+    lenient().when(blockchain.getBlockHeader(anyLong())).thenReturn(Optional.empty());
+    lenient().when(blockchain.getBlockHeader(46L)).thenReturn(Optional.of(checkpointAt46));
+
+    final BackwardHeaderDriver driver =
+        new BackwardHeaderDriver(
+            BATCH_SIZE, reorgedAnchor, pivotHeader, checkpointAt46, blockchain);
+
+    driver.accept(getHeadersRange(99, 51));
+    driver.accept(getHeadersRange(50, 47));
+
+    assertThat(driver.getMatchedAncestor()).contains(checkpointAt46);
+  }
+
+  @Test
+  public void recoveryWalkingBelowTheCheckpointStopsWithCheckpointReorgException() {
+    // Same scenario, but the trusted checkpoint sits at block 48 — above the only reconnection
+    // point (block 46). Recovery must not reconnect below the checkpoint, so it fails fatally
+    // instead of matching at block 46.
+    final BlockDataGenerator otherGenerator = new BlockDataGenerator(99);
+    final BlockHeader reorgedAnchor = otherGenerator.blockSequence(51).get(50).getHeader();
+    final BlockHeader checkpointAt48 = blocks.get(48).getHeader();
+
+    lenient().when(blockchain.getBlockHeader(anyLong())).thenReturn(Optional.empty());
+    lenient()
+        .when(blockchain.getBlockHeader(46L))
+        .thenReturn(Optional.of(blocks.get(46).getHeader()));
+
+    final BackwardHeaderDriver driver =
+        new BackwardHeaderDriver(
+            BATCH_SIZE, reorgedAnchor, pivotHeader, checkpointAt48, blockchain);
+
+    driver.accept(getHeadersRange(99, 51));
+
+    assertThatThrownBy(() -> driver.accept(getHeadersRange(50, 47)))
+        .isInstanceOf(CheckpointReorgException.class);
+    assertThat(driver.getMatchedAncestor()).isEmpty();
   }
 
   @Test
@@ -301,7 +337,7 @@ public class BackwardHeaderDriverTest {
     // Pivot at block 100, anchor at block 0, batch size 4.
     // Iterator should emit pivot-1 = 99, then 99 - 4 = 95, 91, ..., down to >= 1 (anchor+1).
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain);
+        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, anchorHeader, blockchain);
 
     // Build the expected sequence: starting at 99, decrement by 4, while >= 1.
     final List<Long> expected = new ArrayList<>();
@@ -323,7 +359,7 @@ public class BackwardHeaderDriverTest {
   @Test
   public void nextThrowsNoSuchElementWhenExhausted() {
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain);
+        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, anchorHeader, blockchain);
 
     // Drive the iterator through its natural emissions (99, 95, ..., 3) by calling next() the
     // expected number of times. After this, the next next() call falls below stopBlock and
@@ -339,7 +375,7 @@ public class BackwardHeaderDriverTest {
     // Pivot at 100, anchor at 0 — chain links cleanly. The happy-path boundary match must NOT
     // populate matchedAncestor; presence of a value is reserved for recovery-driven matches.
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain);
+        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, anchorHeader, blockchain);
 
     // Feed the whole range as one logical sequence from 99 down to 1.
     driver.accept(getHeadersRange(99, 1));
@@ -353,7 +389,7 @@ public class BackwardHeaderDriverTest {
   @Test
   public void getMatchedAncestorReturnsEmptyBeforeBoundaryIsReached() {
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, blockchain);
+        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, anchorHeader, blockchain);
 
     assertThat(driver.getMatchedAncestor()).isEqualTo(Optional.empty());
   }

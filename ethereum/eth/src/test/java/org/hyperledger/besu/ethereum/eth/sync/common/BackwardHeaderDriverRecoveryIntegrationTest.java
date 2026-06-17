@@ -123,7 +123,7 @@ public class BackwardHeaderDriverRecoveryIntegrationTest {
     // Anchor = A10 (previous pivot, now on side-chain).
     // New pivot = B15 (on the diverged canonical chain).
     // Recovery must walk below block 11 until it finds a header already stored in the blockchain.
-    final MutableBlockchain blockchain = createInMemoryBlockchain(aChain.get(0));
+    final MutableBlockchain blockchain = createInMemoryBlockchain(aChain.getFirst());
     blockchain.storeBlockHeaders(
         aChain.subList(1, 11).stream().map(Block::getHeader).toList()); // A1..A10
 
@@ -131,7 +131,8 @@ public class BackwardHeaderDriverRecoveryIntegrationTest {
     final BlockHeader pivot = bChain.get(15); // B15
 
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchor, pivot, blockchain);
+        new BackwardHeaderDriver(
+            BATCH_SIZE, anchor, pivot, aChain.getFirst().getHeader(), blockchain);
 
     final long lowestHeaderToImport = anchor.getNumber() + 1; // 11
     driveToCompletion(driver, lowestHeaderToImport);
@@ -156,7 +157,7 @@ public class BackwardHeaderDriverRecoveryIntegrationTest {
     // Anchor = A5 (below the divergence point — B6.parentHash == A5.hash).
     // The boundary batch contains exactly [B6] (clamped at lowestHeaderToImport = 6).
     // B6.parentHash == A5.hash == anchorHash → happy path, no recovery.
-    final MutableBlockchain blockchain = createInMemoryBlockchain(aChain.get(0));
+    final MutableBlockchain blockchain = createInMemoryBlockchain(aChain.getFirst());
     blockchain.storeBlockHeaders(
         aChain.subList(1, 6).stream().map(Block::getHeader).toList()); // A1..A5
 
@@ -164,7 +165,8 @@ public class BackwardHeaderDriverRecoveryIntegrationTest {
     final BlockHeader pivot = bChain.get(15); // B15
 
     final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchor, pivot, blockchain);
+        new BackwardHeaderDriver(
+            BATCH_SIZE, anchor, pivot, aChain.getFirst().getHeader(), blockchain);
 
     final long lowestHeaderToImport = anchor.getNumber() + 1; // 6
     driveToCompletion(driver, lowestHeaderToImport);

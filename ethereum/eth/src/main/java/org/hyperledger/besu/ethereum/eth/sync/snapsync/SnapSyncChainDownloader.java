@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.common.BackwardHeaderDriver;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.ChainSyncStateStorage;
+import org.hyperledger.besu.ethereum.eth.sync.common.CheckpointReorgException;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotUpdateListener;
 import org.hyperledger.besu.ethereum.eth.sync.common.SingleBlockHeaderDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.common.WorldStateHealFinishedListener;
@@ -101,6 +102,7 @@ public class SnapSyncChainDownloader
 
   private final AtomicBoolean downloadInProgress = new AtomicBoolean(false);
   private final AtomicBoolean initialized = new AtomicBoolean(false);
+  private final AtomicBoolean checkpointValidated = new AtomicBoolean(false);
   private final AtomicInteger sameStateRetryCount = new AtomicInteger(0);
   private volatile ChainSyncState lastRetriedState = null;
   private volatile long lastRetriedChainHead = -1;
@@ -459,7 +461,9 @@ public class SnapSyncChainDownloader
    */
   private Optional<Throwable> shouldRetry(final Throwable error) {
     final Throwable cause = error instanceof CompletionException ? error.getCause() : error;
-    if (cause instanceof CancellationException || cause instanceof WrongChainException) {
+    if (cause instanceof CancellationException
+        || cause instanceof WrongChainException
+        || cause instanceof CheckpointReorgException) {
       return Optional.of(cause);
     }
 
@@ -549,6 +553,10 @@ public class SnapSyncChainDownloader
               currentDriver = null;
               LOG.debug("Persisted backward header download completion state");
 
+              if (checkpointValidated.compareAndSet(false, true)) {
+                verifyCheckpointHeaderMatches(state.bodyCheckpoint());
+              }
+
               return null;
             });
   }
@@ -591,6 +599,32 @@ public class SnapSyncChainDownloader
               LOG.debug("Snap/2 BAL download finished in {} seconds", balDuration.toSeconds());
               completeSnapV2PivotCatchupIfNeeded(pivotBlockHeader);
               return null;
+            });
+  }
+
+  /**
+   * Verifies that the header the backward Stage-1 download produced at the trusted checkpoint
+   * height matches the checkpoint. A mismatch means the pivot is not on the checkpoint's chain,
+   * which is a fatal, non-recoverable condition.
+   *
+   * @param checkpoint the trusted body checkpoint header
+   */
+  private void verifyCheckpointHeaderMatches(final BlockHeader checkpoint) {
+    blockchain
+        .getBlockHeader(checkpoint.getNumber())
+        .filter(stored -> !stored.getHash().equals(checkpoint.getHash()))
+        .ifPresent(
+            stored -> {
+              final String message =
+                  "Header at the trusted checkpoint height #"
+                      + checkpoint.getNumber()
+                      + " ("
+                      + stored.getHash()
+                      + ") does not match the trusted checkpoint ("
+                      + checkpoint.getHash()
+                      + "). The pivot is not on the checkpoint's chain; stopping snap sync.";
+              LOG.error(message);
+              throw new CheckpointReorgException(message);
             });
   }
 

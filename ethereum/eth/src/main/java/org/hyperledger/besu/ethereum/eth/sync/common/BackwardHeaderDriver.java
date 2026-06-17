@@ -53,6 +53,9 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   private final long lowestHeaderToImport;
   private final Hash anchorHash;
   private final long totalHeaders;
+
+  private final long checkpointFloorNumber;
+  private final Hash checkpointFloorHash;
   private final AtomicBoolean isTimeToLog = new AtomicBoolean(true);
   private volatile BlockHeader lowestImportedHeader;
 
@@ -68,14 +71,16 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
    * header.
    *
    * @param batchSize the number of blocks per batch
-   * @param anchorHeader the anchor (checkpoint) header
+   * @param anchorHeader the anchor header where Stage 1 stops (for this cycle)
    * @param pivotHeader the pivot header at the top of the range to import
+   * @param checkpointHeader the trusted body checkpoint
    * @param blockchain the blockchain to which headers will be stored
    */
   public BackwardHeaderDriver(
       final int batchSize,
       final BlockHeader anchorHeader,
       final BlockHeader pivotHeader,
+      final BlockHeader checkpointHeader,
       final MutableBlockchain blockchain) {
     this.batchSize = batchSize;
     this.blockchainStorage = blockchain;
@@ -86,6 +91,9 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
     this.lowestHeaderToImport = anchorNumber + 1;
     this.anchorHash = anchorHeader.getHash();
     this.totalHeaders = pivotNumber - anchorNumber;
+
+    this.checkpointFloorNumber = checkpointHeader.getNumber();
+    this.checkpointFloorHash = checkpointHeader.getHash();
 
     this.currentBlock = new AtomicLong(pivotNumber - 1);
 
@@ -163,10 +171,12 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
 
     if (recoveryMode) {
       // Original anchor hash did not match. Check whether the parent hash of the lowest downloaded
-      // header connects to the existing chain.
+      // header connects to the existing chain. Recovery must reconnect at or above the trusted
+      // checkpoint.
       final long parentNumber = lowestImportedHeaderNumber - 1;
       final Optional<BlockHeader> potentialParent = blockchainStorage.getBlockHeader(parentNumber);
-      if (potentialParent.isPresent()
+      if (parentNumber >= checkpointFloorNumber
+          && potentialParent.isPresent()
           && potentialParent.get().getHash().equals(lowestImportedHeader.getParentHash())) {
         blockchainStorage.storeBlockHeaders(blockHeaders);
         matchedAncestor = potentialParent.get();
@@ -189,6 +199,21 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
                 .orElseThrow(() -> new RuntimeException("NO GENESIS HEADER AVAILABLE.")));
         throw new WrongChainException(
             "Backward header download reached genesis without matching parent hash.");
+      }
+      if (parentNumber <= checkpointFloorNumber) {
+        // Recovery reached the trusted checkpoint without reconnecting to the canonical chain
+        // above it: the pivot is not on the checkpoint's chain.
+        stopped = true;
+        decisions.add(false);
+        final String message =
+            "Anchor recovery reached the trusted checkpoint #"
+                + checkpointFloorNumber
+                + " ("
+                + checkpointFloorHash
+                + ") without reconnecting to the canonical chain above it. The pivot is not on "
+                + "the checkpoint's chain; stopping snap sync.";
+        LOG.error(message);
+        throw new CheckpointReorgException(message);
       }
       blockchainStorage.storeBlockHeaders(blockHeaders);
       startOrExtendRecovery();
