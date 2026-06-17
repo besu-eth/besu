@@ -65,7 +65,7 @@ public class TrieLogFactoryTests {
   @Test
   public void testSerializeDeserializeAreEqual() {
 
-    TrieLogFactory factory = new TrieLogFactoryImpl();
+    TrieLogFactory factory = new BonsaiTrieLogFactory();
     byte[] rlp = factory.serialize(trieLogFixture);
 
     TrieLog layer = factory.deserialize(rlp);
