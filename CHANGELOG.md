@@ -3,9 +3,30 @@
 ## Unreleased
 
 ### Breaking Changes
+
+### Upcoming Breaking Changes
+- Sunsetting features - for more context on the reasoning behind the deprecation of these features, including alternative options, read [this blog post](https://www.lfdecentralizedtrust.org/blog/sunsetting-tessera-and-simplifying-hyperledger-besu)
+  - Proof of Work consensus (PoW)
+- `--min-block-occupancy-ratio` is deprecated and will be removed in a future release
+- Plugin API
+  - `PluginTransactionSelectorFactory.create(final SelectorsStateManager selectorsStateManager)` is deprecated for removal
+- `--Xmax-tracked-seen-txs-per-peer` renamed to `--Xmax-tracked-seen-txs` (old name kept as deprecated alias will be removed in a future release)
+- BFT option `xemptyblockperiodseconds` has been taken out of experimental and been renamed `emptyblockperiodseconds`. The old config option is deprecated and will be removed in a future release.
+- `--Xbft-legacy-protocol-encoding` will be removed once Besu 25.x is no longer supported. [#10499](https://github.com/besu-eth/besu/pull/10499)
+- `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` is deprecated and will be removed in a future release; the flag is now a silent no-op.
+- `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
+
+### Bug fixes
+
+### Additions and Improvements
+- Upgrade web3j dependencies to 5.0.3 [#10627](https://github.com/besu-eth/besu/pull/10627)
+
+## 26.6.1
+
+### Breaking Changes
 - RPC changes to enhance compatibility with other ELs
   - The block parameter is now optional on `eth_getBalance`, `eth_getCode`, `eth_getStorageAt`, `eth_getTransactionCount`, `eth_getProof`, and `eth_getStorageValues`; when omitted it now defaults to `latest`, matching other ELs. Previously a missing block parameter was rejected. [#10587](https://github.com/besu-eth/besu/pull/10587)
-    
+
 ### Upcoming Breaking Changes
 - Sunsetting features - for more context on the reasoning behind the deprecation of these features, including alternative options, read [this blog post](https://www.lfdecentralizedtrust.org/blog/sunsetting-tessera-and-simplifying-hyperledger-besu)
   - Proof of Work consensus (PoW)
@@ -19,10 +40,11 @@
 
 ### Bug fixes
 - Fix `engine_getBlobsV2` returning `UNSUPPORTED_FORK (-38005)` during full sync on post-merge networks (e.g. Hoodi). `PostMergeContext.isSyncing()` now correctly returns `true` while the node is catching up, so the syncing short-circuit fires instead of failing fork validation against a pre-fork chain head. [#10613](https://github.com/besu-eth/besu/pull/10613)
-- Demote `ClosedChannelException` in JSON-RPC handler from `ERROR` to `DEBUG` — this exception indicates the remote client closed the connection before the response was written, not an internal Besu error. [#10616](https://github.com/besu-eth/besu/pull/10616)
+- Improve handling of `ClosedChannelException` in JSON-RPC handler - don't respond on the closed channel. [#10616](https://github.com/besu-eth/besu/pull/10616), [#10626](https://github.com/besu-eth/besu/pull/10626)
 - Fix WebSocket RPC event-loop stall caused by slow clients filling the TCP write queue. [#10354](https://github.com/besu-eth/besu/pull/10354)
 - Fix handshake-resend hive test failure by updating the DiscV5 library ([Consensys/discovery#236](https://github.com/Consensys/discovery/pull/236)). [#10612](https://github.com/besu-eth/besu/pull/10612)
 - Fix QBFT/IBFT2 block creation for contracts that use `block.prevrandao`. [#10611](https://github.com/besu-eth/besu/pull/10611)
+- Return `SYNCING` from `engine_newPayload` when the parent block's world state is not immediately available in the Bonsai cache, preventing worker thread blocking during CL backfill or post-restart catch-up. [#10600](https://github.com/besu-eth/besu/pull/10600)
 
 ### Additions and Improvements
 - Add `eth_getTransactionBySenderAndNonce` JSON-RPC method to look up a transaction by sender address and nonce (pending or mined).

@@ -152,7 +152,8 @@ public class SnapV2StorageRangeRequest extends SnapV2DataRequest {
       return Stream.empty();
     }
 
-    findNewBeginElementInRange(storageRoot, taskElement.proofs(), taskElement.keys(), endKeyHash)
+    findNewBeginElementInRange(
+            storageRoot, taskElement.proofs(), taskElement.keys(), startKeyHash, endKeyHash)
         .ifPresent(
             missingRightElement -> {
               final int nbRanges = getRangeCount(startKeyHash, endKeyHash, taskElement.keys());

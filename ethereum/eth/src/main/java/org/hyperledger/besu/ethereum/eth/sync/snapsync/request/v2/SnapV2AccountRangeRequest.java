@@ -155,6 +155,7 @@ public class SnapV2AccountRangeRequest extends SnapV2DataRequest {
             Bytes32.wrap(getRootHash().getBytes()),
             taskElement.proofs(),
             taskElement.keys(),
+            startKeyHash,
             endKeyHash)
         .ifPresentOrElse(
             missingRightElement -> {

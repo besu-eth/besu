@@ -39,7 +39,7 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.CompactEncoding;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiWorldStateProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -193,7 +193,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                 .map(ProtocolContext::getWorldStateArchive)
                 .map(BonsaiWorldStateProvider.class::cast);
         var cachedStorageManagerOpt =
-            bonsaiArchive.map(archive -> archive.getCachedWorldStorageManager());
+            bonsaiArchive.map(archive -> archive.getWorldStateCacheManager());
 
         if (cachedStorageManagerOpt.isPresent()) {
           var cachedStorageManager = cachedStorageManagerOpt.get();
@@ -546,13 +546,9 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
     StopWatch stopWatch = StopWatch.createStarted();
 
     final GetByteCodesMessage getByteCodesMessage = GetByteCodesMessage.readFrom(message);
-    final GetByteCodesMessage.CodeHashes codeHashes = getByteCodesMessage.codeHashes(true);
-    final int maxResponseBytes = Math.min(codeHashes.responseBytes().intValue(), MAX_RESPONSE_SIZE);
-    LOGGER
-        .atTrace()
-        .setMessage("Received get bytecodes message for {} hashes")
-        .addArgument(codeHashes.hashes()::size)
-        .log();
+    final int maxResponseBytes =
+        Math.min(getByteCodesMessage.responseBytes(true).intValue(), MAX_RESPONSE_SIZE);
+    LOGGER.atTrace().setMessage("Received get bytecodes message").log();
 
     try {
       List<Bytes> codeBytes = new ArrayDeque<>();
@@ -564,11 +560,12 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                   maxResponseBytes,
                   maxMillisPerRequest,
                   pair -> pair.getSecond().size()));
-      var codeHashList =
-          (codeHashes.hashes().size() < MAX_CODE_LOOKUPS_PER_REQUEST)
-              ? codeHashes.hashes()
-              : codeHashes.hashes().subList(0, MAX_CODE_LOOKUPS_PER_REQUEST);
-      for (Bytes32 codeHash : codeHashList) {
+      int lookups = 0;
+      for (Bytes32 codeHash : getByteCodesMessage.codeHashes(true)) {
+        if (lookups >= MAX_CODE_LOOKUPS_PER_REQUEST) {
+          break;
+        }
+        lookups++;
         final Optional<Bytes> maybeCode;
         if (Hash.EMPTY.getBytes().equals(codeHash)) {
           maybeCode = Optional.of(Bytes.EMPTY);

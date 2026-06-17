@@ -196,4 +196,96 @@ public final class RangeManagerTest {
 
     assertThat(newBeginElementInRange).isEmpty();
   }
+
+  @Test
+  public void testFindNewBeginElementWhenResponseTruncatedWithFullCoverageProofs() {
+    // A responder that returns only a subset of the keys but provides proofs that cover every
+    // leaf in the range must be detected as incomplete. With boundary-only proofs the existing
+    // missing-node probe already handles this; the harder case is when the proofs themselves
+    // make every leaf reachable.
+    final ForestWorldStateKeyValueStorage worldStateKeyValueStorage =
+        new ForestWorldStateKeyValueStorage(new InMemoryKeyValueStorage());
+    final WorldStateStorageCoordinator worldStateStorageCoordinator =
+        new WorldStateStorageCoordinator(worldStateKeyValueStorage);
+
+    final MerkleTrie<Bytes, Bytes> accountStateTrie =
+        TrieGenerator.generateTrie(worldStateStorageCoordinator, 15);
+
+    final RangeStorageEntriesCollector collector =
+        RangeStorageEntriesCollector.createCollector(
+            Bytes32.wrap(Hash.ZERO.getBytes()), RangeManager.MAX_RANGE, 15, Integer.MAX_VALUE);
+    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
+    final TreeMap<Bytes32, Bytes> allAccounts =
+        (TreeMap<Bytes32, Bytes>)
+            accountStateTrie.entriesFrom(
+                root ->
+                    RangeStorageEntriesCollector.collectEntries(
+                        collector, visitor, root, Bytes32.wrap(Hash.ZERO.getBytes())));
+
+    final WorldStateProofProvider worldStateProofProvider =
+        new WorldStateProofProvider(worldStateStorageCoordinator);
+
+    final List<Bytes> proofs = new java.util.ArrayList<>();
+    for (Bytes32 key : allAccounts.keySet()) {
+      proofs.addAll(
+          worldStateProofProvider.getAccountProofRelatedNodes(
+              Hash.wrap(accountStateTrie.getRootHash()), key));
+    }
+
+    final TreeMap<Bytes32, Bytes> partialAccounts = new TreeMap<>();
+    int taken = 0;
+    for (Map.Entry<Bytes32, Bytes> e : allAccounts.entrySet()) {
+      if (taken++ < 2) partialAccounts.put(e.getKey(), e.getValue());
+    }
+
+    final Optional<Bytes32> newBeginElementInRange =
+        RangeManager.findNewBeginElementInRange(
+            accountStateTrie.getRootHash(), proofs, partialAccounts, RangeManager.MAX_RANGE);
+
+    assertThat(newBeginElementInRange).isPresent();
+  }
+
+  @Test
+  public void testFindNewBeginElementWhenNoKeysReturnedButRangeNonEmpty() {
+    // A responder that returns zero keys but proofs that resolve all leaves in the range must
+    // still cause the caller to schedule follow-up fetches for the omitted entries.
+    final ForestWorldStateKeyValueStorage worldStateKeyValueStorage =
+        new ForestWorldStateKeyValueStorage(new InMemoryKeyValueStorage());
+    final WorldStateStorageCoordinator worldStateStorageCoordinator =
+        new WorldStateStorageCoordinator(worldStateKeyValueStorage);
+
+    final MerkleTrie<Bytes, Bytes> accountStateTrie =
+        TrieGenerator.generateTrie(worldStateStorageCoordinator, 15);
+
+    final RangeStorageEntriesCollector collector =
+        RangeStorageEntriesCollector.createCollector(
+            Bytes32.wrap(Hash.ZERO.getBytes()), RangeManager.MAX_RANGE, 15, Integer.MAX_VALUE);
+    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
+    final TreeMap<Bytes32, Bytes> allAccounts =
+        (TreeMap<Bytes32, Bytes>)
+            accountStateTrie.entriesFrom(
+                root ->
+                    RangeStorageEntriesCollector.collectEntries(
+                        collector, visitor, root, Bytes32.wrap(Hash.ZERO.getBytes())));
+
+    final WorldStateProofProvider worldStateProofProvider =
+        new WorldStateProofProvider(worldStateStorageCoordinator);
+
+    final List<Bytes> proofs = new java.util.ArrayList<>();
+    for (Bytes32 key : allAccounts.keySet()) {
+      proofs.addAll(
+          worldStateProofProvider.getAccountProofRelatedNodes(
+              Hash.wrap(accountStateTrie.getRootHash()), key));
+    }
+
+    final Optional<Bytes32> newBeginElementInRange =
+        RangeManager.findNewBeginElementInRange(
+            accountStateTrie.getRootHash(),
+            proofs,
+            new TreeMap<>(),
+            RangeManager.MIN_RANGE,
+            RangeManager.MAX_RANGE);
+
+    assertThat(newBeginElementInRange).isPresent();
+  }
 }
