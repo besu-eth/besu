@@ -17,7 +17,7 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
-- Fix `eth_getBlockByNumber("safe"/"finalized")` returning `Unknown block` on nodes with a complete chain but no peers. `engine_forkchoiceUpdated` was returning `SYNCING` (and not persisting safe/finalized hashes) because `isSyncing()` returned true when no peers were connected. The FCU handler now only returns `SYNCING` when the head block is genuinely not found. [#10613](https://github.com/besu-eth/besu/issues/10613)
+- Fix `eth_getBlockByNumber("safe"/"finalized")` returning `Unknown block` on nodes with a complete chain but no peers. The FCU handler now only returns `SYNCING` when the head block is genuinely not found. [#10658](https://github.com/besu-eth/besu/issues/10658)
 
 ### Additions and Improvements
 - Upgrade web3j dependencies to 5.0.3 [#10627](https://github.com/besu-eth/besu/pull/10627)
