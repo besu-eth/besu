@@ -105,6 +105,10 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     this.worldStateHealFinishedListener = worldStateHealFinishedListener;
     this.pivotCatchupListener = pivotCatchupListener;
 
+    accountRangeTracker.setOnRangeCompleted(
+        (rangeStart, rangeEnd) ->
+            storageRangeTracker.removeAccountHashesInRange(rangeStart, rangeEnd));
+
     metricsManager
         .getMetricsSystem()
         .createLongGauge(
@@ -378,8 +382,6 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
       }
       applyBlockAccessListsNoop(currentPivotBlockHeader, newPivotBlockHeader);
       retargetQueuedRequests(newPivotBlockHeader);
-      // TODO: Simplify account range tracker and clear both here
-      storageRangeTracker.clear();
       snapSyncState.setCurrentHeader(newPivotBlockHeader);
       pivotCatchupFuture = null;
       notifyAll();

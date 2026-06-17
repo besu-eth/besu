@@ -80,6 +80,20 @@ public class DownloadedStorageRangeTracker {
     accountStorageRanges.remove(accountHash);
   }
 
+  /**
+   * Remove all tracked storage intervals for account hashes falling within the given range
+   * [rangeStart, rangeEnd] inclusive. Used when an account range is promoted from pending to
+   * completed, as those accounts no longer need per-slot tracking.
+   */
+  public synchronized void removeAccountHashesInRange(
+      final Bytes32 rangeStart, final Bytes32 rangeEnd) {
+    for (final Bytes32 accountHash : accountStorageRanges.keySet()) {
+      if (accountHash.compareTo(rangeStart) >= 0 && accountHash.compareTo(rangeEnd) <= 0) {
+        accountStorageRanges.remove(accountHash);
+      }
+    }
+  }
+
   /** Clear all tracked state. */
   public synchronized void clear() {
     accountStorageRanges.clear();
