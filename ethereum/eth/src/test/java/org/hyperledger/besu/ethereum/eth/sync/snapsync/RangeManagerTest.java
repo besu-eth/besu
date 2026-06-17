@@ -343,6 +343,26 @@ public final class RangeManagerTest {
     assertKeysAreStrictlyIncreasing(ranges);
   }
 
+  @Test
+  public void testGenerateRangesStartsWithMin() {
+    final Bytes32 bytesMin =
+        Bytes32.fromHexString("0x1000000000000000000000000000000000000000000000000000000000000000");
+    final Bytes32 bytesMax =
+        Bytes32.fromHexString("0x2000000000000000000000000000000000000000000000000000000000000000");
+
+    final Map<Bytes32, Bytes32> bytesRanges = RangeManager.generateRanges(bytesMin, bytesMax, 5);
+    assertThat(bytesRanges.entrySet().iterator().next().getKey()).isEqualTo(bytesMin);
+
+    final Map<Bytes32, Bytes32> bigRanges =
+        RangeManager.generateRanges(BigInteger.valueOf(1000), BigInteger.valueOf(2000), 100);
+    final Bytes32 expectedBigMin =
+        Bytes32.leftPad(Bytes.of(BigInteger.valueOf(1000).toByteArray()).trimLeadingZeros());
+    assertThat(bigRanges.entrySet().iterator().next().getKey()).isEqualTo(expectedBigMin);
+
+    final Map<Bytes32, Bytes32> singleRange = RangeManager.generateRanges(bytesMin, bytesMax, 1);
+    assertThat(singleRange.entrySet().iterator().next().getKey()).isEqualTo(bytesMin);
+  }
+
   private static void assertKeysAreStrictlyIncreasing(final Map<Bytes32, Bytes32> ranges) {
     Bytes32 previousKey = null;
     for (final Bytes32 key : ranges.keySet()) {
