@@ -31,7 +31,7 @@ import org.hyperledger.besu.ethereum.core.Difficulty;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ScheduleBasedBlockHeaderFunctions;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -68,7 +68,9 @@ public final class GenesisState {
    * @return A new {@link GenesisState}.
    */
   public static GenesisState fromJson(
-      final String json, final ProtocolSchedule protocolSchedule, final CodeCache codeCache) {
+      final String json,
+      final ProtocolSchedule protocolSchedule,
+      final PathBasedCodeCache codeCache) {
     return fromConfig(GenesisConfig.fromConfig(json), protocolSchedule, codeCache);
   }
 
@@ -90,7 +92,7 @@ public final class GenesisState {
         dataStorageConfiguration,
         GenesisConfig.fromConfig(jsonSource),
         protocolSchedule,
-        new CodeCache());
+        new PathBasedCodeCache());
   }
 
   /**
@@ -103,7 +105,7 @@ public final class GenesisState {
   public static GenesisState fromConfig(
       final GenesisConfig config,
       final ProtocolSchedule protocolSchedule,
-      final CodeCache codeCache) {
+      final PathBasedCodeCache codeCache) {
     return fromConfig(DataStorageConfiguration.DEFAULT_CONFIG, config, protocolSchedule, codeCache);
   }
 
@@ -120,7 +122,7 @@ public final class GenesisState {
       final DataStorageConfiguration dataStorageConfiguration,
       final GenesisConfig genesisConfig,
       final ProtocolSchedule protocolSchedule,
-      final CodeCache codeCache) {
+      final PathBasedCodeCache codeCache) {
     final var genesisStateRoot =
         calculateGenesisStateRoot(dataStorageConfiguration, genesisConfig, codeCache);
     final Block block =
@@ -189,7 +191,7 @@ public final class GenesisState {
   private static Hash calculateGenesisStateRoot(
       final DataStorageConfiguration dataStorageConfiguration,
       final GenesisConfig genesisConfig,
-      final CodeCache codeCache) {
+      final PathBasedCodeCache codeCache) {
     try (var worldState = createGenesisWorldState(dataStorageConfiguration, codeCache)) {
       writeAccountsTo(worldState, genesisConfig.streamAllocations(), null);
       return worldState.rootHash();

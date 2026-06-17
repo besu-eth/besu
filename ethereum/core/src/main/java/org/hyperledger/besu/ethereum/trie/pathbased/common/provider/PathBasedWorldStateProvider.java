@@ -22,12 +22,12 @@ import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.proof.WorldStateProof;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.cache.PathBasedCachedWorldStorageManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.cache.PathBasedWorldStateCacheManager;
 import org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -56,7 +56,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
   protected final Blockchain blockchain;
 
   protected final TrieLogManager trieLogManager;
-  protected PathBasedCachedWorldStorageManager cachedWorldStorageManager;
+  protected PathBasedWorldStateCacheManager worldStateCacheManager;
   protected PathBasedWorldState headWorldState;
   protected final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage;
   protected EvmConfiguration evmConfiguration;
@@ -94,9 +94,9 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
             .build();
   }
 
-  protected void provideCachedWorldStorageManager(
-      final PathBasedCachedWorldStorageManager cachedWorldStorageManager) {
-    this.cachedWorldStorageManager = cachedWorldStorageManager;
+  protected void provideWorldStateCacheManager(
+      final PathBasedWorldStateCacheManager worldStateCacheManager) {
+    this.worldStateCacheManager = worldStateCacheManager;
   }
 
   protected void loadHeadWorldState(final PathBasedWorldState headWorldState) {
@@ -105,13 +105,13 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
         .getBlockHeader(headWorldState.getWorldStateBlockHash())
         .ifPresent(
             blockHeader ->
-                this.cachedWorldStorageManager.addCachedLayer(
+                this.worldStateCacheManager.addCachedLayer(
                     blockHeader, headWorldState.getWorldStateRootHash(), headWorldState));
   }
 
   @Override
   public Optional<WorldState> get(final Hash rootHash, final Hash blockHash) {
-    return cachedWorldStorageManager
+    return worldStateCacheManager
         .getWorldState(blockHash)
         .or(
             () -> {
@@ -126,7 +126,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
 
   @Override
   public boolean isWorldStateAvailable(final Hash rootHash, final Hash blockHash) {
-    return cachedWorldStorageManager.contains(blockHash)
+    return worldStateCacheManager.contains(blockHash)
         || headWorldState.blockHash().equals(blockHash)
         || worldStateKeyValueStorage.isWorldStateAvailable(
             Bytes32.wrap(rootHash.getBytes()), blockHash);
@@ -134,7 +134,7 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
 
   @Override
   public boolean isWorldStateImmediatelyCached(final Hash blockHash) {
-    return cachedWorldStorageManager.contains(blockHash)
+    return worldStateCacheManager.contains(blockHash)
         || headWorldState.blockHash().equals(blockHash);
   }
 
@@ -239,12 +239,12 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
           trieLogManager.getMaxLayersToLoad());
       return Optional.empty();
     }
-    return cachedWorldStorageManager
+    return worldStateCacheManager
         .getWorldState(blockHeader.getBlockHash())
-        .or(() -> cachedWorldStorageManager.getNearestWorldState(blockHeader))
+        .or(() -> worldStateCacheManager.getNearestWorldState(blockHeader))
         .or(
             () ->
-                cachedWorldStorageManager.getHeadWorldState(
+                worldStateCacheManager.getHeadWorldState(
                     blockHeaderHash ->
                         blockchain.getBlockHeader(blockHeaderHash).map(BlockHeader.class::cast)))
         .flatMap(
@@ -362,15 +362,15 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
     return trieLogManager;
   }
 
-  public PathBasedCachedWorldStorageManager getCachedWorldStorageManager() {
-    return cachedWorldStorageManager;
+  public PathBasedWorldStateCacheManager getWorldStateCacheManager() {
+    return worldStateCacheManager;
   }
 
   @Override
   public void resetArchiveStateTo(final BlockHeader blockHeader) {
     headWorldState.resetWorldStateTo(blockHeader);
-    this.cachedWorldStorageManager.reset();
-    this.cachedWorldStorageManager.addCachedLayer(
+    this.worldStateCacheManager.reset();
+    this.worldStateCacheManager.addCachedLayer(
         blockHeader, headWorldState.getWorldStateRootHash(), headWorldState);
   }
 

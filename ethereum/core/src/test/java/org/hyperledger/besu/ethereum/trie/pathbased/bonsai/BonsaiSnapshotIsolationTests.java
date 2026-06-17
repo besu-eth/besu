@@ -67,8 +67,8 @@ public class BonsaiSnapshotIsolationTests extends AbstractIsolationTests {
     assertThat(res.isSuccessful()).isTrue();
     assertThat(res2.isSuccessful()).isTrue();
 
-    assertThat(archive.getCachedWorldStorageManager().contains(firstBlock.getHash())).isTrue();
-    assertThat(archive.getCachedWorldStorageManager().contains(secondBlock.getHash())).isTrue();
+    assertThat(archive.getWorldStateCacheManager().contains(firstBlock.getHash())).isTrue();
+    assertThat(archive.getWorldStateCacheManager().contains(secondBlock.getHash())).isTrue();
 
     assertThat(archive.getWorldState().get(testAddress)).isNotNull();
     assertThat(archive.getWorldState().get(testAddress).getBalance())

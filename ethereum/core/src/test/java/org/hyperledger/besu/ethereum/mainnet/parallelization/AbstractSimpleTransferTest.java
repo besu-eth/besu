@@ -30,7 +30,7 @@ import static org.hyperledger.besu.ethereum.mainnet.parallelization.ParallelBloc
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
