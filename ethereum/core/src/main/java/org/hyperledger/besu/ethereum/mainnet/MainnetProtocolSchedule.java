@@ -17,6 +17,8 @@ package org.hyperledger.besu.ethereum.mainnet;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
+import org.hyperledger.besu.ethereum.difficulty.fixed.FixedDifficultyCalculators;
+import org.hyperledger.besu.ethereum.difficulty.fixed.FixedDifficultyProtocolSchedule;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
@@ -57,11 +59,19 @@ public class MainnetProtocolSchedule {
       final boolean isParallelTxProcessingEnabled,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
-    if (config.getFixedDifficultyConfigOptions().getFixedDifficulty().isPresent()) {
+    if (FixedDifficultyCalculators.isFixedDifficultyInConfig(config)) {
       LOG.warn(
-          "Genesis config contains ethash.fixedDifficulty which is no longer supported. "
-              + "The fixed-difficulty protocol schedule has been removed. "
-              + "Proceeding with standard mainnet protocol schedule.");
+          "Genesis config contains ethash.fixedDifficulty. "
+              + "This option is deprecated and will be removed in a future release.");
+      return FixedDifficultyProtocolSchedule.create(
+          config,
+          isRevertReasonEnabled.orElse(false),
+          evmConfiguration.orElse(EvmConfiguration.DEFAULT),
+          miningConfiguration,
+          badBlockManager,
+          isParallelTxProcessingEnabled,
+          balConfiguration,
+          metricsSystem);
     }
     return new ProtocolScheduleBuilder(
             config,
