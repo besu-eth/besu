@@ -54,6 +54,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -463,22 +464,7 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   @Override
   public Optional<BlockHeader> getBlockHeader(final Hash blockHeaderHash) {
-    return blockHeadersCache
-        .map(
-            cache -> {
-              final BlockHeader cached = cache.getIfPresent(blockHeaderHash);
-              if (cached != null) {
-                return Optional.of(cached);
-              }
-              return blockchainStorage
-                  .getBlockHeader(blockHeaderHash)
-                  .map(
-                      header -> {
-                        cache.put(blockHeaderHash, header);
-                        return header;
-                      });
-            })
-        .orElseGet(() -> blockchainStorage.getBlockHeader(blockHeaderHash));
+    return getCached(blockHeadersCache, blockHeaderHash, blockchainStorage::getBlockHeader);
   }
 
   @Override
@@ -493,12 +479,7 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   @Override
   public Optional<BlockBody> getBlockBody(final Hash blockHeaderHash) {
-    return blockBodiesCache
-        .map(
-            cache ->
-                Optional.ofNullable(cache.getIfPresent(blockHeaderHash))
-                    .or(() -> blockchainStorage.getBlockBody(blockHeaderHash)))
-        .orElseGet(() -> blockchainStorage.getBlockBody(blockHeaderHash));
+    return getCached(blockBodiesCache, blockHeaderHash, blockchainStorage::getBlockBody);
   }
 
   @Override
@@ -508,12 +489,30 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   @Override
   public Optional<List<TransactionReceipt>> getTxReceipts(final Hash blockHeaderHash) {
-    return transactionReceiptsCache
+    return getCached(
+        transactionReceiptsCache, blockHeaderHash, blockchainStorage::getTransactionReceipts);
+  }
+
+  private <T> Optional<T> getCached(
+      final Optional<Cache<Hash, T>> cache,
+      final Hash blockHash,
+      final Function<Hash, Optional<T>> storageLookup) {
+    return cache
         .map(
-            cache ->
-                Optional.ofNullable(cache.getIfPresent(blockHeaderHash))
-                    .or(() -> blockchainStorage.getTransactionReceipts(blockHeaderHash)))
-        .orElseGet(() -> blockchainStorage.getTransactionReceipts(blockHeaderHash));
+            c -> {
+              final T cached = c.getIfPresent(blockHash);
+              if (cached != null) {
+                return Optional.of(cached);
+              }
+              return storageLookup
+                  .apply(blockHash)
+                  .map(
+                      value -> {
+                        c.put(blockHash, value);
+                        return value;
+                      });
+            })
+        .orElseGet(() -> storageLookup.apply(blockHash));
   }
 
   @Override
