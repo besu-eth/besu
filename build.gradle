@@ -783,6 +783,7 @@ subprojects {
         "\t-Pincludes=<includePattern>\tInclude pattern (regular expression) for benchmarks to be executed. Defaults to including all benchmarks.\n" +
         "\t-Pexcludes=<excludePattern>\tComma-separated exclude pattern (regular expression) for benchmarks to not be executed. Defaults to including all benchmarks.\n" +
         "\t-Pcases=<caseNames>\t\tComma-separated list of @Param caseName values to run (e.g. MOD_32_32,MOD_256_256). Defaults to running all cases.\n" +
+        "\t-PgcProfiler=true\t\tEnable the JMH GC profiler to capture allocation rates (gc.alloc.rate.norm) alongside timing.\n" +
         "\t-PasyncProfiler=<libPath>\tLibrary path to fetch the Async profiler from. Default is to disable profiling.\n" +
         "\t-PasyncProfilerOptions=<asyncProfilerOptions>\tOptions to pass on to the Async profiler separated by ';'. Default is to produce a flamegraph with all other default profiler options.\n"
     }
@@ -818,6 +819,7 @@ subprojects {
       }
       var gcProfiler = _strCmdArg('gcProfiler')
       if (gcProfiler != null && gcProfiler.toBoolean()) {
+        if (asyncProfiler == null) profilers = []
         profilers.add('gc')
       }
       duplicateClassesStrategy = DuplicatesStrategy.INCLUDE

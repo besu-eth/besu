@@ -19,6 +19,7 @@
 ### Bug fixes
 
 ### Additions and Improvements
+- Upgrade web3j dependencies to 5.0.3 [#10627](https://github.com/besu-eth/besu/pull/10627)
 
 ## 26.6.1
 
