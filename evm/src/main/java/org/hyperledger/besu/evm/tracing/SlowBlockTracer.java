@@ -259,7 +259,7 @@ public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
   }
 
   private void logSlowBlock(final long blockNumber, final Hash blockHash, final long gasUsed) {
-    String formattedMGasPerSecond = String.format("%.2f", calculateMGasPerSecond(gasUsed));
+    String formattedMGasPerSecond = formatTwoDecimalPlaces(calculateMGasPerSecond(gasUsed));
     long executionTimeNanos = totalTimeNanos - stateHashTimeNanos - commitTimeNanos;
     try {
       final ObjectNode json = JSON_MAPPER.createObjectNode();
@@ -273,11 +273,11 @@ public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
       blockNode.put("tx_count", transactionCount);
 
       final ObjectNode timingNode = json.putObject("timing");
-      timingNode.put("execution_ms", executionTimeNanos / 1_000_000);
-      timingNode.put("state_read_ms", stateReadTimeNanos / 1_000_000);
-      timingNode.put("state_hash_ms", stateHashTimeNanos / 1_000_000);
-      timingNode.put("commit_ms", commitTimeNanos / 1_000_000);
-      timingNode.put("total_ms", totalTimeNanos / 1_000_000);
+      timingNode.put("execution_ms", formatTwoDecimalPlaces(executionTimeNanos / 1_000_000.0));
+      timingNode.put("state_read_ms", formatTwoDecimalPlaces(stateReadTimeNanos / 1_000_000.0));
+      timingNode.put("state_hash_ms", formatTwoDecimalPlaces(stateHashTimeNanos / 1_000_000.0));
+      timingNode.put("commit_ms", formatTwoDecimalPlaces(commitTimeNanos / 1_000_000.0));
+      timingNode.put("total_ms", formatTwoDecimalPlaces(totalTimeNanos / 1_000_000.0));
 
       final ObjectNode throughputNode = json.putObject("throughput");
       throughputNode.put("mgas_per_sec", formattedMGasPerSecond);
@@ -329,7 +329,7 @@ public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
           .setMessage("Slow block number={} hash={} exec={}ms gas={} mgas/s={} txs={}")
           .addArgument(blockNumber)
           .addArgument(blockHash.toHexString())
-          .addArgument(totalTimeNanos / 1_000_000)
+          .addArgument(formatTwoDecimalPlaces(totalTimeNanos / 1_000_000.0))
           .addArgument(gasUsed)
           .addArgument(formattedMGasPerSecond)
           .addArgument(transactionCount)
@@ -342,6 +342,10 @@ public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
       return 0.00;
     }
     return (gasUsed / 1_000_000.0) / (totalTimeNanos / 1_000_000_000.0);
+  }
+
+  private String formatTwoDecimalPlaces(final double value) {
+    return String.format("%.2f", value);
   }
 
   /**
