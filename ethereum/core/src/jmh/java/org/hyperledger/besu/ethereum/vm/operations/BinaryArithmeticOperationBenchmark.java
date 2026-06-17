@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.vm.operations;
 
 import java.math.BigInteger;
+import java.util.Locale;
 import java.util.Random;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -50,6 +51,7 @@ public abstract class BinaryArithmeticOperationBenchmark extends BinaryOperation
   }
 
   @Override
+  @SuppressWarnings("StringCaseLocaleUsage")
   public void setUp() {
     frame = BenchmarkHelper.createMessageCallFrame();
 

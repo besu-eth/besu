@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.vm.operations.v2;
 
+import org.hyperledger.besu.ethereum.utils.Range;
 import org.hyperledger.besu.evm.UInt256;
 
 import java.math.BigInteger;
@@ -21,105 +22,143 @@ import java.util.Random;
 
 public abstract class BinaryArithmeticOperationBenchmarkV2 extends BinaryOperationBenchmarkV2 {
   static class Case {
-    /** Marker value for {@link #bSizeBytes} when the divisor is a known power of two. */
-    static final int B_POWER_OF_TWO = -2;
-
     final int aSizeBytes;
     final int bSizeBytes;
 
-    /** Set when {@link #bSizeBytes} == {@link #B_POWER_OF_TWO}; the bit position N for 2^N. */
-    final int bPow2Bit;
-
     private Case(final int aSize, final int bSize) {
-      this(aSize, bSize, -1);
-    }
-
-    private Case(final int aSize, final int bSize, final int bPow2Bit) {
       this.aSizeBytes = aSize;
       this.bSizeBytes = bSize;
-      this.bPow2Bit = bPow2Bit;
     }
 
+    // format OPCODE_INT_INT
     static Case fromString(final String opcodeName, final String caseName) {
       try {
         String[] splitString = caseName.split("_", 3);
         if (splitString.length < 3 || !opcodeName.equalsIgnoreCase(splitString[0])) {
           throw new IllegalArgumentException();
         }
-        // `<opcode>_<aSize>_POW2_<N>` builds the divisor as 2^N (e.g. address mask 2^160).
-        if (splitString[2].startsWith("POW2_")) {
-          int bit = Integer.parseInt(splitString[2].substring(5));
-          if (bit < 1 || bit > 255) {
-            throw new IllegalArgumentException("POW2 bit position must be in [1, 255]");
-          }
-          return new Case(parseSizeBytes(splitString[1]), B_POWER_OF_TWO, bit);
-        }
         return new Case(parseSizeBytes(splitString[1]), parseSizeBytes(splitString[2]));
       } catch (IllegalArgumentException t) {
         throw new IllegalArgumentException(
             String.format(
-                "%s must have the format [%s_size_size] or [%s_size_POW2_N], "
-                    + "where size is #bits and N is a bit position in [1, 255]",
-                caseName, opcodeName, opcodeName));
+                "%s must have the format [%s_size_size] where size is #bits",
+                caseName, opcodeName));
       }
     }
 
-    private static int parseSizeBytes(final String s) {
-      return "RANDOM".equalsIgnoreCase(s) ? -1 : Integer.parseInt(s) / 8;
+    void runSetup(final UInt256[] poolA, final UInt256[] poolB) {
+      assert poolA.length == poolB.length;
+
+      final Random random = new Random();
+      int aSize;
+      int bSize;
+
+      for (int i = 0; i < SAMPLE_SIZE; i++) {
+        if (aSizeBytes < 0) aSize = random.nextInt(1, 33);
+        else aSize = aSizeBytes;
+        if (bSizeBytes < 0) bSize = random.nextInt(1, 33);
+        else bSize = bSizeBytes;
+
+        byte[] a = new byte[aSize];
+        byte[] b = new byte[bSize];
+        random.nextBytes(a);
+        random.nextBytes(b);
+
+        // Swap a and b if necessary - a must always be the biggest unsigned
+        if (aSizeBytes == bSizeBytes) {
+          if ((new BigInteger(1, a).compareTo(new BigInteger(1, b)) < 0)) {
+            byte[] tmp = a;
+            a = b;
+            b = tmp;
+          }
+        }
+
+        poolA[i] = BenchmarkHelperV2.bytesToUInt256(a);
+        poolB[i] = BenchmarkHelperV2.bytesToUInt256(b);
+      }
     }
+  }
+
+  static class Pow2Case {
+    final int aSizeBytes;
+    final Range<Integer> pow2BitRange;
+
+    private Pow2Case(final int aSize, final Range<Integer> pow2BitRange) {
+      this.aSizeBytes = aSize;
+      this.pow2BitRange = pow2BitRange;
+    }
+
+    // format OPCODE_INT_POW2_INT_INT
+    static Pow2Case fromString(final String opcodeName, final String caseName) {
+      try {
+        String[] splitString = caseName.split("_", 5);
+        if (splitString.length < 5
+            || !opcodeName.equalsIgnoreCase(splitString[0])
+            || !splitString[2].equalsIgnoreCase("POW2")) {
+          throw new IllegalArgumentException();
+        }
+        Range<Integer> pow2BitRange =
+            new Range<>(
+                Integer.parseInt(splitString[3]),
+                Integer.parseInt(splitString[4]),
+                Integer::compare);
+        if (!pow2BitRange.isWithin(1, 255)) {
+          throw new IllegalArgumentException();
+        }
+        return new Pow2Case(parseSizeBytes(splitString[1]), pow2BitRange);
+      } catch (IllegalArgumentException t) {
+        throw new IllegalArgumentException(
+            String.format(
+                "%s must have the format [%s_POW2_bit_bit] where bit_bit is the range of bits to set in the denominator",
+                caseName, opcodeName));
+      }
+    }
+
+    void runSetup(final UInt256[] poolA, final UInt256[] poolB) {
+      final Random random = new Random();
+      int aSize;
+
+      for (int i = 0; i < SAMPLE_SIZE; i++) {
+        if (aSizeBytes < 0) aSize = random.nextInt(1, 33);
+        else aSize = aSizeBytes;
+
+        byte[] a = new byte[aSize];
+        random.nextBytes(a);
+
+        UInt256 bValue = pow2(random.nextInt(pow2BitRange.minimum, pow2BitRange.maximum + 1));
+
+        poolA[i] = BenchmarkHelperV2.bytesToUInt256(a);
+        poolB[i] = bValue;
+      }
+    }
+
+    private static UInt256 pow2(final int n) {
+      if (n < 64) return new UInt256(0, 0, 0, 1L << n);
+      if (n < 128) return new UInt256(0, 0, 1L << (n - 64), 0);
+      if (n < 192) return new UInt256(0, 1L << (n - 128), 0, 0);
+      return new UInt256(1L << (n - 192), 0, 0, 0);
+    }
+  }
+
+  private static int parseSizeBytes(final String s) {
+    return "RANDOM".equalsIgnoreCase(s) ? -1 : Integer.parseInt(s) / 8;
   }
 
   @Override
+  @SuppressWarnings("StringCaseLocaleUsage")
   public void setUp() {
     frame = BenchmarkHelperV2.createMessageCallFrame();
 
-    Case scenario = Case.fromString(opCode(), caseName());
     aPool = new UInt256[SAMPLE_SIZE];
     bPool = new UInt256[SAMPLE_SIZE];
 
-    final Random random = new Random();
-    int aSize;
-    int bSize;
-
-    for (int i = 0; i < SAMPLE_SIZE; i++) {
-      if (scenario.aSizeBytes < 0) aSize = random.nextInt(1, 33);
-      else aSize = scenario.aSizeBytes;
-      if (scenario.bSizeBytes < 0) bSize = random.nextInt(1, 33);
-      else bSize = scenario.bSizeBytes;
-
-      byte[] a = new byte[aSize];
-      byte[] b = new byte[bSize];
-      random.nextBytes(a);
-      random.nextBytes(b);
-
-      // Swap a and b if necessary - a must always be the biggest unsigned
-      if (scenario.aSizeBytes == scenario.bSizeBytes) {
-        if ((new BigInteger(1, a).compareTo(new BigInteger(1, b)) < 0)) {
-          byte[] tmp = a;
-          a = b;
-          b = tmp;
-        }
-      }
-
-      aPool[i] = BenchmarkHelperV2.bytesToUInt256(a);
-      bPool[i] = BenchmarkHelperV2.bytesToUInt256(b);
+    if (caseName().toLowerCase().matches(".*_\\d+_pow2_\\d+_\\d+")) {
+      Pow2Case.fromString(opCode(), caseName()).runSetup(aPool, bPool);
+    } else {
+      Case.fromString(opCode(), caseName()).runSetup(aPool, bPool);
     }
 
-    // Replace random b values with the chosen 2^N divisor. setUp is not on the measured path.
-    if (scenario.bSizeBytes == Case.B_POWER_OF_TWO) {
-      final UInt256 pow2Divisor = pow2(scenario.bPow2Bit);
-      for (int i = 0; i < bPool.length; i++) {
-        bPool[i] = pow2Divisor;
-      }
-    }
     index = 0;
-  }
-
-  private static UInt256 pow2(final int n) {
-    if (n < 64) return new UInt256(0, 0, 0, 1L << n);
-    if (n < 128) return new UInt256(0, 0, 1L << (n - 64), 0);
-    if (n < 192) return new UInt256(0, 1L << (n - 128), 0, 0);
-    return new UInt256(1L << (n - 192), 0, 0, 0);
   }
 
   /**
