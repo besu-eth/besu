@@ -24,6 +24,11 @@ public class MalformedRlpFromPeerException extends Exception {
     this.messageData = messageData;
   }
 
+  public MalformedRlpFromPeerException(final String message, final Bytes messageData) {
+    super(message);
+    this.messageData = messageData;
+  }
+
   public Bytes getMessageData() {
     return messageData;
   }

@@ -23,7 +23,6 @@ import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
 import org.hyperledger.besu.ethereum.chain.BlockAddedObserver;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
-import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.plugin.data.AddedBlockContext;
@@ -266,7 +265,7 @@ public class PeerTransactionTracker
     if (!freshAnnouncements.isEmpty()) {
       final LRUMap<Hash, TransactionAnnouncement> announcementsByHashForPeer =
           announcementsToRequestByHash.computeIfAbsent(
-              peer, key -> new LRUMap<>(maxSendQueueSizePerPeer, freshAnnouncements.size()));
+              peer, key -> boundedLRUMap(freshAnnouncements.size(), maxSendQueueSizePerPeer));
       freshAnnouncements.forEach(ann -> announcementsByHashForPeer.put(ann.hash(), ann));
     }
 
@@ -332,6 +331,10 @@ public class PeerTransactionTracker
         });
   }
 
+  private static <K, V> LRUMap<K, V> boundedLRUMap(final int initialCapacity, final int maxSize) {
+    return new LRUMap<>(maxSize, Math.min(initialCapacity, maxSize));
+  }
+
   @Override
   public synchronized void onDisconnect(final EthPeer peer) {
     LOG.atTrace().setMessage("onDisconnect for peer {}").addArgument(peer::getLoggableId).log();
@@ -351,10 +354,7 @@ public class PeerTransactionTracker
         .log();
 
     final Set<EthPeer> connectedPeers =
-        ethPeers
-            .streamAllPeers()
-            .map(EthPeerImmutableAttributes::ethPeer)
-            .collect(Collectors.toUnmodifiableSet());
+        ethPeers.streamAllConnectedPeers().collect(Collectors.toUnmodifiableSet());
 
     final Set<EthPeer> disconnectedPeers = trackedPeers;
     disconnectedPeers.removeAll(connectedPeers);

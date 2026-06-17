@@ -37,6 +37,7 @@ testing {
 
         implementation project(':acceptance-tests:dsl')
         implementation project(':acceptance-tests:tests:shanghai')
+        implementation project(':acceptance-tests:tests:osaka')
         implementation project(':config')
         implementation project(':crypto:algorithms')
         implementation project(':datatypes')
@@ -55,15 +56,19 @@ testing {
         implementation 'com.google.guava:guava'
         implementation 'com.google.protobuf:protobuf-java'
         implementation 'io.grpc:grpc-all'
+        implementation 'io.netty:netty-handler'
         implementation 'io.opentelemetry:opentelemetry-extension-trace-propagators'
         implementation 'io.opentelemetry:opentelemetry-sdk'
         implementation 'io.opentelemetry.instrumentation:opentelemetry-okhttp-3.0'
         implementation 'io.opentelemetry.proto:opentelemetry-proto'
+        implementation 'io.vertx:vertx-core'
         implementation 'jakarta.validation:jakarta.validation-api'
         implementation 'org.apache.commons:commons-compress'
         implementation 'org.assertj:assertj-core'
         implementation 'org.awaitility:awaitility'
         implementation 'org.junit.jupiter:junit-jupiter'
+        implementation 'com.fasterxml.jackson.core:jackson-annotations'
+        implementation 'com.fasterxml.jackson.core:jackson-databind'
         implementation 'org.web3j:abi'
         implementation 'org.web3j:core'
       }
@@ -93,6 +98,9 @@ testing {
             systemProperty 'java.security.properties', "${buildDir}/resources/acceptanceTest/acceptanceTesting.security"
             if (System.getProperty('acctests.consensusType')) {
               systemProperty 'acctests.consensusType', System.getProperty('acctests.consensusType')
+            }
+            if (System.getProperty('root.log.level')) {
+              systemProperty 'root.log.level', System.getProperty('root.log.level')
             }
             def javaProjects = rootProject.subprojects - project(':platform')
             mustRunAfter javaProjects.test

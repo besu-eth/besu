@@ -21,6 +21,7 @@ import org.hyperledger.besu.cli.options.NetworkingOptions;
 import org.hyperledger.besu.cli.options.TransactionPoolOptions;
 import org.hyperledger.besu.cli.options.storage.DataStorageOptions;
 import org.hyperledger.besu.ethereum.api.jsonrpc.ipc.JsonRpcIpcConfiguration;
+import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.WebSocketConfiguration;
 import org.hyperledger.besu.ethereum.core.plugins.PluginConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.ImmutableTransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.permissioning.PermissioningConfiguration;
@@ -35,7 +36,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.lang.ProcessBuilder.Redirect;
-import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -173,6 +173,12 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
       params.add(Integer.toString(node.getSynchronizerConfiguration().getSyncMinimumPeerCount()));
       params.add("--Xsynchronizer-pivot-distance");
       params.add(Integer.toString(node.getSynchronizerConfiguration().getSyncPivotDistance()));
+      params.add("--Xsnapsync-synchronizer-pivot-block-window-validity");
+      params.add(
+          Integer.toString(
+              node.getSynchronizerConfiguration()
+                  .getSnapSyncConfiguration()
+                  .getPivotBlockWindowValidity()));
     } else {
       params.add("--sync-mode");
       params.add("FULL");
@@ -182,6 +188,10 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
 
     params.add("--discovery-enabled");
     params.add(Boolean.toString(node.isDiscoveryEnabled()));
+
+    if (node.getNetworkingConfiguration().discoveryConfiguration().isDiscoveryV5Enabled()) {
+      params.add("--Xv5-discovery-enabled");
+    }
 
     params.add("--p2p-host");
     params.add(node.p2pListenHost());
@@ -203,7 +213,7 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
 
     if (!node.getBootnodes().isEmpty()) {
       params.add("--bootnodes");
-      params.add(node.getBootnodes().stream().map(URI::toString).collect(Collectors.joining(",")));
+      params.add(String.join(",", node.getBootnodes()));
     }
 
     if (node.hasStaticNodes()) {
@@ -282,6 +292,9 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
       if (node.webSocketConfiguration().getAuthenticationAlgorithm() != null) {
         params.add("--rpc-ws-authentication-jwt-algorithm");
         params.add(node.webSocketConfiguration().getAuthenticationAlgorithm().toString());
+      }
+      if (node.webSocketConfiguration().isSslEnabled()) {
+        params.addAll(wsSslCommandlineArgs(node.webSocketConfiguration()));
       }
     }
 
@@ -471,6 +484,96 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
 
   private String apiList(final Collection<String> rpcApis) {
     return String.join(",", rpcApis);
+  }
+
+  private List<String> wsSslCommandlineArgs(final WebSocketConfiguration wsConfig) {
+    final List<String> args = new ArrayList<>();
+    args.add("--rpc-ws-ssl-enabled");
+    wsConfig
+        .getKeyStorePath()
+        .ifPresent(
+            p -> {
+              args.add("--rpc-ws-ssl-keystore-file");
+              args.add(p);
+            });
+    wsConfig
+        .getKeyStoreType()
+        .ifPresent(
+            t -> {
+              args.add("--rpc-ws-ssl-keystore-type");
+              args.add(t);
+            });
+    wsConfig
+        .getKeyPath()
+        .ifPresent(
+            p -> {
+              args.add("--rpc-ws-ssl-key-file");
+              args.add(p);
+            });
+    wsConfig
+        .getCertPath()
+        .ifPresent(
+            p -> {
+              args.add("--rpc-ws-ssl-cert-file");
+              args.add(p);
+            });
+    if (wsConfig.getKeyStorePasswordFile().isPresent()) {
+      args.add("--rpc-ws-ssl-keystore-password-file");
+      args.add(wsConfig.getKeyStorePasswordFile().get());
+    } else {
+      try {
+        wsConfig
+            .getKeyStorePassword()
+            .ifPresent(
+                pwd -> {
+                  args.add("--rpc-ws-ssl-keystore-password");
+                  args.add(pwd);
+                });
+      } catch (IOException e) {
+        throw new IllegalStateException("Failed to resolve WS SSL keystore password", e);
+      }
+    }
+    if (wsConfig.isClientAuthEnabled()) {
+      args.add("--rpc-ws-ssl-client-auth-enabled");
+      wsConfig
+          .getTrustStorePath()
+          .ifPresent(
+              p -> {
+                args.add("--rpc-ws-ssl-truststore-file");
+                args.add(p);
+              });
+      wsConfig
+          .getTrustStoreType()
+          .ifPresent(
+              t -> {
+                args.add("--rpc-ws-ssl-truststore-type");
+                args.add(t);
+              });
+      wsConfig
+          .getTrustCertPath()
+          .ifPresent(
+              p -> {
+                args.add("--rpc-ws-ssl-trustcert-file");
+                args.add(p);
+              });
+      if (wsConfig.getTrustStorePasswordFile().isPresent()) {
+        args.add("--rpc-ws-ssl-truststore-password-file");
+        args.add(wsConfig.getTrustStorePasswordFile().get());
+      } else {
+        try {
+          wsConfig
+              .getTrustStorePassword()
+              .ifPresent(
+                  pwd -> {
+                    args.add("--rpc-ws-ssl-truststore-password");
+                    args.add(pwd);
+                  });
+        } catch (IOException e) {
+          throw new IllegalStateException("Failed to resolve WS SSL truststore password", e);
+        }
+      }
+    }
+    return args;
   }
 
   private void waitForFileOrExit(final BesuNode node, final String fileName) {

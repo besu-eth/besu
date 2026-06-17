@@ -22,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collection;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
@@ -46,6 +47,14 @@ public class EngineAuthService implements AuthenticationService {
   private static final int JWT_EXPIRATION_TIME_IN_SECONDS = 60;
 
   public static final String EPHEMERAL_JWT_FILE = "jwt.hex";
+
+  // Engine API JWT tokens rotate at most once per minute (CL updates iat on a 60s cycle).
+  // Caching the last validated token avoids repeated Jackson JSON parsing and HMAC-SHA256
+  // verification for the burst of calls that arrive with the same token string. The iat
+  // freshness check is still performed on every request.
+  private record CachedToken(String raw, long iat, User user) {}
+
+  private final AtomicReference<CachedToken> lastValidToken = new AtomicReference<>();
 
   private final JWTAuth jwtAuthProvider;
 
@@ -132,20 +141,30 @@ public class EngineAuthService implements AuthenticationService {
 
   @Override
   public void authenticate(final String token, final Handler<Optional<User>> handler) {
+    // Fast path: same token string as the last successfully validated token. Avoids repeated
+    // Jackson JSON parsing (ByteQuadsCanonicalizer lock) and HMAC-SHA256 verification for the
+    // burst of engine API calls that arrive with the same token. The iat freshness check is
+    // still performed on every request to correctly reject a cached token once it goes stale.
+    final CachedToken cached = lastValidToken.get();
+    if (cached != null && cached.raw().equals(token)) {
+      handler.handle(issuedRecently(cached.iat()) ? Optional.of(cached.user()) : Optional.empty());
+      return;
+    }
+
     try {
       getJwtAuthProvider()
           .authenticate(
               new TokenCredentials(token),
               r -> {
                 if (r.succeeded()) {
-                  if (issuedRecently(r.result().attributes().getLong("iat"))) {
-                    final Optional<User> user = Optional.ofNullable(r.result());
-                    handler.handle(user);
+                  final long iat = r.result().attributes().getLong("iat");
+                  if (issuedRecently(iat)) {
+                    lastValidToken.set(new CachedToken(token, iat, r.result()));
+                    handler.handle(Optional.of(r.result()));
                   } else {
                     LOG.warn("Client sent stale token: {}", r.result().attributes());
                     handler.handle(Optional.empty());
                   }
-
                 } else {
                   LOG.debug("Authentication failed: {}", r.cause().toString());
                   handler.handle(Optional.empty());

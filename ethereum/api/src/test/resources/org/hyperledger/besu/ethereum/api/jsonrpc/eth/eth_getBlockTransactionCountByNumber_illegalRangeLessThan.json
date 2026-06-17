@@ -10,7 +10,10 @@
   "response": {
     "jsonrpc": "2.0",
     "id": 210,
-    "result": null
+    "error": {
+      "code": -32602,
+      "message": "Invalid block param (block not found)"
+    }
   },
   "statusCode": 200
 }
