@@ -67,6 +67,8 @@ testing {
         implementation 'org.assertj:assertj-core'
         implementation 'org.awaitility:awaitility'
         implementation 'org.junit.jupiter:junit-jupiter'
+        implementation 'com.fasterxml.jackson.core:jackson-annotations'
+        implementation 'com.fasterxml.jackson.core:jackson-databind'
         implementation 'org.web3j:abi'
         implementation 'org.web3j:core'
       }
