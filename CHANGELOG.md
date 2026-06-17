@@ -3,12 +3,13 @@
 ## Unreleased
 
 ### Breaking Changes
-- Remove PoW mining infrastructure (Phase 1 of #9454): PoW mining coordinator, executor, block creator/miner, nonce generators, PoW solver, and PoWObserver are deleted. `nonceGenerator` is removed from `MiningConfiguration`. Mainnet genesis files with `ethash` config can no longer mine PoW blocks. [#9455](https://github.com/besu-eth/besu/issues/9455)
-- Remove PoW RPC methods (Phase 3 of #9454): `miner_start`, `miner_stop`, and `eth_mining` JSON-RPC methods are removed. `getCoinbase()` and `setCoinbase()` are removed from the `MiningCoordinator` interface. [#9457](https://github.com/besu-eth/besu/issues/9457)
+- Sunsetting features is now complete - for more context on the reasoning behind these removals, read [this blog post](https://www.lfdecentralizedtrust.org/blog/sunsetting-tessera-and-simplifying-hyperledger-besu)
+  - Proof of Work consensus (PoW) removal is now complete:
+    - Remove PoW mining infrastructure: PoW mining coordinator, executor, block creator/miner, nonce generators, PoW solver, and PoWObserver are deleted. `nonceGenerator` is removed from `MiningConfiguration`. Mainnet genesis files with `ethash` config can no longer mine PoW blocks. [#10656](https://github.com/besu-eth/besu/issues/10656)
+    - Remove Ethash and PoW validation code: EthHash algorithm, PoWHasher, ProofOfWorkValidationRule, CalculatedDifficultyValidationRule, EpochCalculator, and DirectAcyclicGraphSeed are deleted. `powHasher` is removed from `ProtocolSpec`/`ProtocolSpecBuilder`. [#10659](https://github.com/besu-eth/besu/issues/10659)
+    - Remove PoW RPC methods: `miner_start`, `miner_stop`, and `eth_mining` JSON-RPC methods are removed. `getCoinbase()` and `setCoinbase()` are removed from the `MiningCoordinator` interface. [#10662](https://github.com/besu-eth/besu/issues/10662)
 
 ### Upcoming Breaking Changes
-- Sunsetting features - for more context on the reasoning behind the deprecation of these features, including alternative options, read [this blog post](https://www.lfdecentralizedtrust.org/blog/sunsetting-tessera-and-simplifying-hyperledger-besu)
-  - Proof of Work consensus (PoW)
 - `--min-block-occupancy-ratio` is deprecated and will be removed in a future release
 - Plugin API
   - `PluginTransactionSelectorFactory.create(final SelectorsStateManager selectorsStateManager)` is deprecated for removal

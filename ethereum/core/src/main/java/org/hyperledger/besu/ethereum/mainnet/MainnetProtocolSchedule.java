@@ -17,8 +17,6 @@ package org.hyperledger.besu.ethereum.mainnet;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.ethereum.chain.BadBlockManager;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
-import org.hyperledger.besu.ethereum.difficulty.fixed.FixedDifficultyCalculators;
-import org.hyperledger.besu.ethereum.difficulty.fixed.FixedDifficultyProtocolSchedule;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
@@ -54,17 +52,6 @@ public class MainnetProtocolSchedule {
       final boolean isParallelTxProcessingEnabled,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
-    if (FixedDifficultyCalculators.isFixedDifficultyInConfig(config)) {
-      return FixedDifficultyProtocolSchedule.create(
-          config,
-          isRevertReasonEnabled.orElse(false),
-          evmConfiguration.orElse(EvmConfiguration.DEFAULT),
-          miningConfiguration,
-          badBlockManager,
-          isParallelTxProcessingEnabled,
-          balConfiguration,
-          metricsSystem);
-    }
     return new ProtocolScheduleBuilder(
             config,
             Optional.of(DEFAULT_CHAIN_ID),
