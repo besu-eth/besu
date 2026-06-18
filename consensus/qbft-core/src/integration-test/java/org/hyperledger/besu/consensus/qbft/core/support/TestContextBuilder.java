@@ -122,7 +122,7 @@ import org.hyperledger.besu.ethereum.eth.transactions.sorter.GasPricePendingTran
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -400,7 +400,7 @@ public class TestContextBuilder {
     return GenesisState.fromConfig(
         GenesisConfig.fromSource(Path.of(genesisFile).toUri().toURL()),
         ProtocolScheduleFixture.TESTING_NETWORK,
-        new CodeCache());
+        new PathBasedCodeCache());
   }
 
   private static ControllerAndState createControllerAndFinalState(
