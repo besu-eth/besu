@@ -19,6 +19,7 @@ import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordina
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.common.WorldStateHealFinishedListener;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedAccountRangeTracker;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedStorageRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncMetricsManager;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePersistenceManager;
@@ -72,6 +73,8 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   private final AtomicBoolean worldStateFinishedNotified = new AtomicBoolean(false);
   private final WorldStateHealFinishedListener worldStateHealFinishedListener;
   private final DownloadedAccountRangeTracker rangeTracker = new DownloadedAccountRangeTracker();
+  private final DownloadedStorageRangeTracker storageRangeTracker =
+      new DownloadedStorageRangeTracker();
   private final SnapV2PivotCatchupListener pivotCatchupListener;
   private boolean accountRangeRequestsPausedForPivotCatchup = false;
   private boolean pivotCatchupInProgress = false;
@@ -211,6 +214,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     pendingLargeStorageRequests.clear();
     pendingCodeRequests.clear();
     rangeTracker.clear();
+    storageRangeTracker.clear();
     accountRangeRequestsPausedForPivotCatchup = false;
     pivotCatchupInProgress = false;
     pivotCatchupSafePointFuture = null;
@@ -466,7 +470,11 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     LOG.debug("Ignoring snap/2 healing marker for account {}", account);
   }
 
-  public DownloadedAccountRangeTracker getRangeTracker() {
+  public DownloadedAccountRangeTracker getAccountRangeTracker() {
     return rangeTracker;
+  }
+
+  public DownloadedStorageRangeTracker getStorageRangeTracker() {
+    return storageRangeTracker;
   }
 }
