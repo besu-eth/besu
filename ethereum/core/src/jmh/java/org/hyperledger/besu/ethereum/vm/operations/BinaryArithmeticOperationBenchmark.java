@@ -14,13 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.vm.operations;
 
+import org.hyperledger.besu.ethereum.utils.Range;
+import org.hyperledger.besu.evm.UInt256;
+
 import java.math.BigInteger;
-import java.util.Locale;
 import java.util.Random;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.hyperledger.besu.ethereum.utils.Range;
-import org.hyperledger.besu.evm.UInt256;
 
 public abstract class BinaryArithmeticOperationBenchmark extends BinaryOperationBenchmark {
   static class Case {
@@ -93,24 +93,24 @@ public abstract class BinaryArithmeticOperationBenchmark extends BinaryOperation
       try {
         String[] splitString = caseName.split("_", 5);
         if (splitString.length < 5
-          || !opcodeName.equalsIgnoreCase(splitString[0])
-          || !splitString[2].equalsIgnoreCase("POW2")) {
+            || !opcodeName.equalsIgnoreCase(splitString[0])
+            || !splitString[2].equalsIgnoreCase("POW2")) {
           throw new IllegalArgumentException();
         }
         Range<Integer> pow2BitRange =
-          new Range<>(
-            Integer.parseInt(splitString[3]),
-            Integer.parseInt(splitString[4]),
-            Integer::compare);
+            new Range<>(
+                Integer.parseInt(splitString[3]),
+                Integer.parseInt(splitString[4]),
+                Integer::compare);
         if (!pow2BitRange.isWithin(1, 255)) {
           throw new IllegalArgumentException();
         }
         return new Pow2Case(parseSizeBytes(splitString[1]), pow2BitRange);
       } catch (IllegalArgumentException t) {
         throw new IllegalArgumentException(
-          String.format(
-            "%s must have the format [%s_POW2_bit_bit] where bit_bit is the range of bits to set in the denominator",
-            caseName, opcodeName));
+            String.format(
+                "%s must have the format [%s_POW2_bit_bit] where bit_bit is the range of bits to set in the denominator",
+                caseName, opcodeName));
       }
     }
 
@@ -139,6 +139,7 @@ public abstract class BinaryArithmeticOperationBenchmark extends BinaryOperation
       return new UInt256(1L << (n - 192), 0, 0, 0);
     }
   }
+
   private static int parseSizeBytes(final String s) {
     return "RANDOM".equalsIgnoreCase(s) ? -1 : Integer.parseInt(s) / 8;
   }
