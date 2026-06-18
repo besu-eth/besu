@@ -228,6 +228,12 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         stopped = true;
         decisions.add(false);
       } else {
+        if (lowestHeaderToImport == 1) {
+          stopped = true;
+          decisions.add(false);
+          throw new WrongChainException(
+              "Backward header download reached genesis boundary without matching parent hash.");
+        }
         emitRecoveryStartLog(lowestImportedHeader);
         recoveryMode = true;
         currentBlock.set(lowestHeaderToImport - 1);

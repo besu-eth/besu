@@ -133,6 +133,10 @@ public class PivotSyncActions {
       final SnapSyncProcessState currentState) {
     if (currentState.hasPivotBlockHeader()) {
       LOG.debug("Initial sync state {} already contains the block header", currentState);
+      // Resume path: no new pivot is selected, but keep the gauge in sync with the loaded pivot.
+      currentState
+          .getPivotBlockHeader()
+          .ifPresent(blockHeader -> pivotBlockGauge.set(blockHeader.getNumber()));
       return completedFuture(currentState);
     } else {
       return internalDownloadPivotBlockHeader(currentState).thenApply(this::updateStats);
