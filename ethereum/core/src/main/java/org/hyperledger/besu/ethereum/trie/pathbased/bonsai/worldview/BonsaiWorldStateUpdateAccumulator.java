@@ -19,7 +19,6 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedValue;
@@ -28,8 +27,6 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.Consumer;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.UpdateTrackingAccount;
-
-import java.util.Optional;
 
 public class BonsaiWorldStateUpdateAccumulator
     extends PathBasedWorldStateUpdateAccumulator<BonsaiAccount> {
@@ -41,17 +38,7 @@ public class BonsaiWorldStateUpdateAccumulator
       final Consumer<StorageSlotKey> storagePreloader,
       final EvmConfiguration evmConfiguration,
       final CodeCache codeCache) {
-    this(world, accountPreloader, storagePreloader, evmConfiguration, codeCache, Optional.empty());
-  }
-
-  public BonsaiWorldStateUpdateAccumulator(
-      final PathBasedWorldView world,
-      final Consumer<PathBasedValue<BonsaiAccount>> accountPreloader,
-      final Consumer<StorageSlotKey> storagePreloader,
-      final EvmConfiguration evmConfiguration,
-      final CodeCache codeCache,
-      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
-    super(world, accountPreloader, storagePreloader, evmConfiguration, maybeBlockAccessListOverlay);
+    super(world, accountPreloader, storagePreloader, evmConfiguration);
 
     this.codeCache = codeCache;
   }
@@ -64,8 +51,7 @@ public class BonsaiWorldStateUpdateAccumulator
             getAccountPreloader(),
             getStoragePreloader(),
             getEvmConfiguration(),
-            codeCache,
-            getMaybeBlockAccessListOverlay());
+            codeCache);
     copy.cloneFromUpdater(this);
     return copy;
   }

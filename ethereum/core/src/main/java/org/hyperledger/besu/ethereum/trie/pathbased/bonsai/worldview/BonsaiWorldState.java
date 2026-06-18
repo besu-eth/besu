@@ -26,6 +26,7 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.NoOpMerkleTrie;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.bal.BonsaiBalWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
@@ -131,17 +132,24 @@ public class BonsaiWorldState extends PathBasedWorldState {
     this.bonsaiCachedMerkleTrieLoader = bonsaiCachedMerkleTrieLoader;
     this.worldStateKeyValueStorage = worldStateKeyValueStorage;
     this.setAccumulator(
-        new BonsaiWorldStateUpdateAccumulator(
-            this,
-            (addr, value) ->
-                this.bonsaiCachedMerkleTrieLoader.preLoadAccount(
-                    getWorldStateStorage(), worldStateRootHash, addr),
-            (addr, value) ->
-                this.bonsaiCachedMerkleTrieLoader.preLoadStorageSlot(
-                    getWorldStateStorage(), addr, value),
-            evmConfiguration,
-            codeCache,
-            maybeBlockAccessListOverlay));
+        maybeBlockAccessListOverlay
+            .map(
+                overlay ->
+                    (BonsaiWorldStateUpdateAccumulator)
+                        new BonsaiBalWorldStateUpdateAccumulator(
+                            this, evmConfiguration, codeCache, overlay))
+            .orElseGet(
+                () ->
+                    new BonsaiWorldStateUpdateAccumulator(
+                        this,
+                        (addr, value) ->
+                            this.bonsaiCachedMerkleTrieLoader.preLoadAccount(
+                                getWorldStateStorage(), worldStateRootHash, addr),
+                        (addr, value) ->
+                            this.bonsaiCachedMerkleTrieLoader.preLoadStorageSlot(
+                                getWorldStateStorage(), addr, value),
+                        evmConfiguration,
+                        codeCache)));
     this.codeCache = codeCache;
   }
 

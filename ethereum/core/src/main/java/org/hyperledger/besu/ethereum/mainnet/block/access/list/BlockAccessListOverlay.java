@@ -49,46 +49,111 @@ public final class BlockAccessListOverlay {
   }
 
   /**
+   * Returns whether the BAL has balance, nonce, or code-hash changes for {@code address} before
+   * {@code maxTxIndexExclusive}.
+   */
+  public boolean hasAccountHeaderChanges(final Address address) {
+    return blockAccessListAddressView
+        .getAccountChanges(address)
+        .map(this::hasAccountHeaderChanges)
+        .orElse(false);
+  }
+
+  private boolean hasAccountHeaderChanges(final BlockAccessList.AccountChanges accountChanges) {
+    return findLatestBeforeMax(
+                accountChanges.balanceChanges(),
+                maxTxIndexExclusive,
+                BlockAccessList.BalanceChange::txIndex)
+            .isPresent()
+        || findLatestBeforeMax(
+                accountChanges.nonceChanges(),
+                maxTxIndexExclusive,
+                BlockAccessList.NonceChange::txIndex)
+            .isPresent()
+        || findLatestBeforeMax(
+                accountChanges.codeChanges(),
+                maxTxIndexExclusive,
+                BlockAccessList.CodeChange::txIndex)
+            .isPresent();
+  }
+
+  public BlockAccessListAddressView getAddressView() {
+    return blockAccessListAddressView;
+  }
+
+  public long getMaxTxIndexExclusive() {
+    return maxTxIndexExclusive;
+  }
+
+  public Optional<Wei> getBalance(final Address address) {
+    return blockAccessListAddressView
+        .getAccountChanges(address)
+        .flatMap(
+            accountChanges ->
+                findLatestBeforeMax(
+                        accountChanges.balanceChanges(),
+                        maxTxIndexExclusive,
+                        BlockAccessList.BalanceChange::txIndex)
+                    .map(BlockAccessList.BalanceChange::postBalance));
+  }
+
+  public Optional<Long> getNonce(final Address address) {
+    return blockAccessListAddressView
+        .getAccountChanges(address)
+        .flatMap(
+            accountChanges ->
+                findLatestBeforeMax(
+                        accountChanges.nonceChanges(),
+                        maxTxIndexExclusive,
+                        BlockAccessList.NonceChange::txIndex)
+                    .map(BlockAccessList.NonceChange::newNonce));
+  }
+
+  public Optional<Hash> getCodeHash(final Address address) {
+    return blockAccessListAddressView
+        .getAccountChanges(address)
+        .flatMap(
+            accountChanges ->
+                findLatestBeforeMax(
+                        accountChanges.codeChanges(),
+                        maxTxIndexExclusive,
+                        BlockAccessList.CodeChange::txIndex)
+                    .map(BlockAccessListOverlay::codeHashFromChange));
+  }
+
+  public Optional<Bytes> getCode(final Address address) {
+    return blockAccessListAddressView
+        .getAccountChanges(address)
+        .flatMap(
+            accountChanges ->
+                findLatestBeforeMax(
+                        accountChanges.codeChanges(),
+                        maxTxIndexExclusive,
+                        BlockAccessList.CodeChange::txIndex)
+                    .map(BlockAccessList.CodeChange::newCode));
+  }
+
+  /**
    * Applies balance, nonce and code hash from the BAL when prior changes exist. The {@code
    * accountSupplier} provides the account to mutate (existing copy or newly created).
    */
   public <A extends MutableAccount> Optional<A> applyToAccountState(
       final Address address, final Supplier<A> accountSupplier) {
-    return blockAccessListAddressView
-        .getAccountChanges(address)
-        .flatMap(
-            accountChanges -> {
-              final Optional<Wei> balance =
-                  findLatestBeforeMax(
-                          accountChanges.balanceChanges(),
-                          maxTxIndexExclusive,
-                          BlockAccessList.BalanceChange::txIndex)
-                      .map(BlockAccessList.BalanceChange::postBalance);
-              final Optional<Long> nonce =
-                  findLatestBeforeMax(
-                          accountChanges.nonceChanges(),
-                          maxTxIndexExclusive,
-                          BlockAccessList.NonceChange::txIndex)
-                      .map(BlockAccessList.NonceChange::newNonce);
-              final Optional<Hash> codeHash =
-                  findLatestBeforeMax(
-                          accountChanges.codeChanges(),
-                          maxTxIndexExclusive,
-                          BlockAccessList.CodeChange::txIndex)
-                      .map(BlockAccessListOverlay::codeHashFromChange);
+    if (!hasAccountHeaderChanges(address)) {
+      return Optional.empty();
+    }
 
-              if (balance.isEmpty() && nonce.isEmpty() && codeHash.isEmpty()) {
-                return Optional.empty();
-              }
+    final Optional<Wei> balance = getBalance(address);
+    final Optional<Long> nonce = getNonce(address);
+    final Optional<Hash> codeHash = getCodeHash(address);
 
-              final A account = accountSupplier.get();
-              balance.ifPresent(account::setBalance);
-              nonce.ifPresent(account::setNonce);
-              if (codeHash.isPresent() && account instanceof PathBasedAccount pathBasedAccount) {
-                pathBasedAccount.setCodeHash(codeHash.get());
-              }
-              return Optional.of(account);
-            });
+    final A account = accountSupplier.get();
+    balance.ifPresent(account::setBalance);
+    nonce.ifPresent(account::setNonce);
+    if (codeHash.isPresent() && account instanceof PathBasedAccount pathBasedAccount) {
+      pathBasedAccount.setCodeHash(codeHash.get());
+    }
+    return Optional.of(account);
   }
 
   public void applyToCode(final Address address, final Consumer<Bytes> codeApplier) {

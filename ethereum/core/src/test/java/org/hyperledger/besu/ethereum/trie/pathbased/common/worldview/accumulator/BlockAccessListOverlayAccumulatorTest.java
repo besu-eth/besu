@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAd
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedLazy;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.evm.account.Account;
@@ -97,6 +98,7 @@ class BlockAccessListOverlayAccumulatorTest {
 
           final PathBasedValue<BonsaiAccount> tracked =
               accumulator.getAccountsToUpdate().get(ADDRESS);
+          assertThat(tracked).isInstanceOf(PathBasedLazy.class);
           assertThat(tracked.getPrior()).isNull();
           assertThat(tracked.getUpdated().getBalance()).isEqualTo(balBalance);
           assertThat(tracked.getUpdated().getNonce()).isEqualTo(balNonce);
@@ -161,6 +163,7 @@ class BlockAccessListOverlayAccumulatorTest {
 
           final PathBasedValue<BonsaiAccount> tracked =
               accumulator.getAccountsToUpdate().get(balOnlyAddress);
+          assertThat(tracked).isInstanceOf(PathBasedLazy.class);
           assertThat(tracked.getPrior()).isNull();
           assertThat(tracked.getUpdated().getBalance()).isEqualTo(balBalance);
         });
