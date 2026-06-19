@@ -14,10 +14,10 @@
  */
 package org.hyperledger.besu.tests.acceptance.plugins;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.awaitility.Awaitility.await;
-import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.hyperledger.besu.ethereum.core.plugins.ImmutablePluginConfiguration;
@@ -91,7 +91,8 @@ public class CataloglessPluginTest extends AcceptanceTestBase {
             .filter(line -> line.contains("ERROR"))
             .filter(line -> line.contains("cataloglessTestPlugins.jar"))
             .anyMatch(line -> line.contains("is without a catalog")));
-    // The exception message includes captured process output; verify the catalogless error was logged
+    // The exception message includes captured process output; verify the catalogless error was
+    // logged
     assertThat(thrown.getMessage())
         .contains("cataloglessTestPlugins.jar")
         .contains("is without a catalog");

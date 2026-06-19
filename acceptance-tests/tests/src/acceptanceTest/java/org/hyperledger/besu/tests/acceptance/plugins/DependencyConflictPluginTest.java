@@ -14,10 +14,10 @@
  */
 package org.hyperledger.besu.tests.acceptance.plugins;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.awaitility.Awaitility.await;
-import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.hyperledger.besu.ethereum.core.plugins.ImmutablePluginConfiguration;
@@ -103,6 +103,7 @@ public class DependencyConflictPluginTest extends AcceptanceTestBase {
     assertThat(thrown.getMessage())
         .contains("dependencyConflict1.jar")
         .contains("dependencyConflict2.jar")
-        .contains("bring the same dependency org.junit.platform:junit-platform-commons but with different versions");
+        .contains(
+            "bring the same dependency org.junit.platform:junit-platform-commons but with different versions");
   }
 }

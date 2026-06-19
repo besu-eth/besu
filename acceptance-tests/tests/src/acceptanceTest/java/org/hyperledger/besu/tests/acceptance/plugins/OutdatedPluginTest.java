@@ -14,10 +14,10 @@
  */
 package org.hyperledger.besu.tests.acceptance.plugins;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.awaitility.Awaitility.await;
-import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.hyperledger.besu.ethereum.core.plugins.ImmutablePluginConfiguration;
@@ -103,7 +103,8 @@ public class OutdatedPluginTest extends AcceptanceTestBase {
     // The exception message includes captured process output; verify the outdated error was logged
     assertThat(thrown.getMessage())
         .contains("outdatedTestPlugins.jar")
-        .contains("is built against Besu version 25.12.0 while current running Besu version is "
-            + BesuVersionUtils.shortVersion());
+        .contains(
+            "is built against Besu version 25.12.0 while current running Besu version is "
+                + BesuVersionUtils.shortVersion());
   }
 }
