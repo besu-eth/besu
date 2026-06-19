@@ -25,11 +25,11 @@ import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.CacheManager;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedCacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiFlatDbStrategyProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.cache.FlatDbCacheManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.cache.VersionedFlatDbCacheManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.FlatDbStrategy;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.FlatDbMode;
@@ -60,7 +60,7 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
   private static final Logger LOG = LoggerFactory.getLogger(BonsaiWorldStateKeyValueStorage.class);
 
   protected final BonsaiFlatDbStrategyProvider flatDbStrategyProvider;
-  protected final CacheManager cacheManager;
+  protected final FlatDbCacheManager cacheManager;
   private volatile long cacheVersion;
 
   public BonsaiWorldStateKeyValueStorage(
@@ -78,7 +78,7 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
       final StorageProvider provider,
       final MetricsSystem metricsSystem,
       final DataStorageConfiguration dataStorageConfiguration,
-      final CacheManager cacheManager) {
+      final FlatDbCacheManager cacheManager) {
     super(
         provider.getStorageBySegmentIdentifiers(
             List.of(
@@ -96,7 +96,7 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
       final BonsaiFlatDbStrategyProvider flatDbStrategyProvider,
       final SegmentedKeyValueStorage composedWorldStateStorage,
       final KeyValueStorage trieLogStorage,
-      final CacheManager cacheManager,
+      final FlatDbCacheManager cacheManager,
       final long cacheVersion) {
     super(composedWorldStateStorage, trieLogStorage);
     this.flatDbStrategyProvider = flatDbStrategyProvider;
@@ -104,13 +104,13 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
     this.cacheVersion = cacheVersion;
   }
 
-  private static CacheManager createCacheManager(
+  private static FlatDbCacheManager createCacheManager(
       final DataStorageConfiguration dataStorageConfiguration, final MetricsSystem metricsSystem) {
     if (dataStorageConfiguration
         .getPathBasedExtraStorageConfiguration()
         .getUnstable()
         .getBonsaiCrossBlockCacheEnabled()) {
-      return new VersionedCacheManager(
+      return new VersionedFlatDbCacheManager(
           dataStorageConfiguration
               .getPathBasedExtraStorageConfiguration()
               .getUnstable()
@@ -121,7 +121,7 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
               .getBonsaiCrossBlockCacheStorageSize(),
           metricsSystem);
     } else {
-      return CacheManager.NO_OP_CACHE;
+      return FlatDbCacheManager.NO_OP_CACHE;
     }
   }
 
@@ -288,12 +288,12 @@ public class BonsaiWorldStateKeyValueStorage extends PathBasedWorldStateKeyValue
     return cacheManager.isCached(segment, key);
   }
 
-  public Optional<CacheManager.VersionedValue> getCachedValue(
+  public Optional<FlatDbCacheManager.VersionedValue> getCachedValue(
       final SegmentIdentifier segment, final Bytes key) {
     return cacheManager.getCachedValue(segment, key);
   }
 
-  public CacheManager getCacheManager() {
+  public FlatDbCacheManager getCacheManager() {
     return cacheManager;
   }
 

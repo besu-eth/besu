@@ -16,7 +16,7 @@ package org.hyperledger.besu.ethereum.trie.pathbased.common.trielog;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogFactoryImpl;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.BonsaiTrieLogFactory;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
@@ -158,8 +158,8 @@ public class TrieLogManager {
         return trieLogService.getTrieLogFactory().get();
       }
     }
-    // Otherwise default to TrieLogFactoryImpl
-    return new TrieLogFactoryImpl();
+    // Otherwise default to BonsaiTrieLogFactory
+    return new BonsaiTrieLogFactory();
   }
 
   private TrieLogProvider getTrieLogProvider() {
