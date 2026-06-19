@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.consensus.common;
 
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
@@ -110,11 +109,6 @@ public class MigratingMiningCoordinator implements MiningCoordinator, BlockAdded
   @Override
   public Wei getMinPriorityFeePerGas() {
     return activeMiningCoordinator.getMinPriorityFeePerGas();
-  }
-
-  @Override
-  public Optional<Address> getCoinbase() {
-    return activeMiningCoordinator.getCoinbase();
   }
 
   @Override

@@ -133,7 +133,7 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
         mergeCoordinator.getOrSyncHeadByHash(
             forkChoice.getHeadBlockHash(), forkChoice.getFinalizedBlockHash());
 
-    if (maybeNewHead.isEmpty() || mergeContext.get().isSyncing()) {
+    if (maybeNewHead.isEmpty()) {
       return syncingResponse(requestId, forkChoice);
     }
 
