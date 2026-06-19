@@ -63,6 +63,7 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
   private final int maxOutstandingRequests;
   private final int maxNodeRequestsWithoutProgress;
   private final WorldStateStorageCoordinator worldStateStorageCoordinator;
+  private final MutableBlockchain blockchain;
   private final AtomicReference<SnapV2WorldDownloadState> downloadState = new AtomicReference<>();
   private final SyncDurationMetrics syncDurationMetrics;
   private volatile WorldStateHealFinishedListener worldStateHealFinishedListener;
@@ -84,6 +85,7 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
       final SyncDurationMetrics syncDurationMetrics) {
     this.ethContext = ethContext;
     this.worldStateStorageCoordinator = worldStateStorageCoordinator;
+    this.blockchain = blockchain;
     this.snapContext = snapContext;
     this.snapTaskCollection = snapTaskCollection;
     this.snapSyncConfiguration = snapSyncConfiguration;
@@ -167,7 +169,8 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
               syncDurationMetrics,
               worldStateHealFinishedListener,
               pivotCatchupListener,
-              blockAccessListApplier);
+              blockAccessListApplier,
+              blockchain);
 
       final Map<Bytes32, Bytes32> ranges = RangeManager.generateAllRanges(16);
       snapsyncMetricsManager.initRange(ranges);

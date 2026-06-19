@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync.v2;
 import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator.applyForStrategy;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.sync.common.WorldStateHealFinishedListener;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedAccountRangeTracker;
@@ -82,6 +83,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
       new DownloadedStorageRangeTracker();
   private final SnapV2PivotCatchupListener pivotCatchupListener;
   private final SnapV2BlockAccessListApplier blockAccessListApplier;
+  private final Blockchain blockchain;
   // future that completes once every in-flight (already-dequeued) task has finished
   private CompletableFuture<Void> pivotCatchupFuture; // null unless pivot catchup is in progress
 
@@ -97,7 +99,8 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
       final SyncDurationMetrics syncDurationMetrics,
       final WorldStateHealFinishedListener worldStateHealFinishedListener,
       final SnapV2PivotCatchupListener pivotCatchupListener,
-      final SnapV2BlockAccessListApplier blockAccessListApplier) {
+      final SnapV2BlockAccessListApplier blockAccessListApplier,
+      final Blockchain blockchain) {
     super(
         worldStateStorageCoordinator,
         pendingRequests,
@@ -111,6 +114,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     this.worldStateHealFinishedListener = worldStateHealFinishedListener;
     this.pivotCatchupListener = pivotCatchupListener;
     this.blockAccessListApplier = blockAccessListApplier;
+    this.blockchain = blockchain;
 
     accountRangeTracker.setOnRangeCompleted(
         (rangeStart, rangeEnd) ->
@@ -342,22 +346,6 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
         return;
       }
 
-      if (!blockAccessListApplier.areBothPivotsOnCanonicalChain(
-          currentPivotBlockHeader, newPivotBlockHeader)) {
-        failPivotCatchup(
-            new WorldStateDownloaderException(
-                "Chain reorg detected during snap/2 pivot catch-up: current pivot "
-                    + currentPivotBlockHeader.getNumber()
-                    + " ("
-                    + currentPivotBlockHeader.getHash()
-                    + ") and new pivot "
-                    + newPivotBlockHeader.getNumber()
-                    + " ("
-                    + newPivotBlockHeader.getHash()
-                    + ") are not both on the canonical chain. Sync restart required."));
-        return;
-      }
-
       if (pivotCatchupListener == null) {
         internalFuture.completeExceptionally(
             new WorldStateDownloaderException("Snap/2 pivot catch-up listener is not available"));
@@ -386,9 +374,24 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
             (unused, error) -> {
               if (error != null) {
                 failPivotCatchup(error);
-              } else {
-                finishPivotCatchup(currentPivotBlockHeader, newPivotBlockHeader);
+                return;
               }
+              if (!blockchain.areBothBlocksOnCanonicalChain(
+                  currentPivotBlockHeader.getHash(), newPivotBlockHeader.getHash())) {
+                failPivotCatchup(
+                    new WorldStateDownloaderException(
+                        "Chain reorg detected during snap/2 pivot catch-up: current pivot "
+                            + currentPivotBlockHeader.getNumber()
+                            + " ("
+                            + currentPivotBlockHeader.getHash()
+                            + ") and new pivot "
+                            + newPivotBlockHeader.getNumber()
+                            + " ("
+                            + newPivotBlockHeader.getHash()
+                            + ") are not both on the canonical chain. Sync restart required."));
+                return;
+              }
+              finishPivotCatchup(currentPivotBlockHeader, newPivotBlockHeader);
             });
   }
 

@@ -65,19 +65,6 @@ public class SnapV2BlockAccessListApplier {
     this.blockchain = blockchain;
   }
 
-  /**
-   * Checks whether both the current and new pivot blocks are on the canonical chain.
-   *
-   * @param currentPivot the currently active pivot block header
-   * @param newPivot the candidate new pivot block header
-   * @return true if both pivots are on the canonical chain
-   */
-  public boolean areBothPivotsOnCanonicalChain(
-      final BlockHeader currentPivot, final BlockHeader newPivot) {
-    return blockchain.blockIsOnCanonicalChain(currentPivot.getHash())
-        && blockchain.blockIsOnCanonicalChain(newPivot.getHash());
-  }
-
   public void applyBlockAccessLists(
       final BlockHeader currentPivotBlockHeader,
       final BlockHeader newPivotBlockHeader,
