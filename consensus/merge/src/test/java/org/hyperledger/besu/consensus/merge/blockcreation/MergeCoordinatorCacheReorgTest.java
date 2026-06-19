@@ -60,10 +60,10 @@ import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolMetrics;
 import org.hyperledger.besu.ethereum.eth.transactions.sorter.BaseFeePendingTransactionsSorter;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiWorldStateProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMerkleTrieLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutablePathBasedExtraStorageConfiguration;
@@ -124,7 +124,7 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
 
   private final ProtocolSchedule protocolSchedule = spy(getMergeProtocolSchedule());
   private final GenesisState genesisState =
-      GenesisState.fromConfig(getPosGenesisConfig(), protocolSchedule, new CodeCache());
+      GenesisState.fromConfig(getPosGenesisConfig(), protocolSchedule, new PathBasedCodeCache());
 
   private final Address coinbase = genesisAllocations(getPosGenesisConfig()).findFirst().get();
   private final MutableBlockchain blockchain =
@@ -183,7 +183,7 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
             pluginContext,
             EvmConfiguration.DEFAULT,
             () -> null,
-            new CodeCache());
+            new PathBasedCodeCache());
 
     protocolContext =
         new ProtocolContext.Builder()
@@ -300,7 +300,7 @@ public class MergeCoordinatorCacheReorgTest implements MergeGenesisConfigHelper 
             "Block B1 (competing block at height 1, same sender, nonce=0) should process "
                 + "successfully against genesis state where sender nonce is 0. "
                 + "If this fails with 'transaction nonce below sender account nonce', "
-                + "the Bonsai VersionedCacheManager returned stale nonce=1 from block A1 "
+                + "the Bonsai VersionedFlatDbCacheManager returned stale nonce=1 from block A1 "
                 + "instead of correct nonce=0 from genesis. "
                 + "This is the exact production bug.")
         .isPresent();

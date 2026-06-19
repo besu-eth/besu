@@ -253,6 +253,43 @@ class CreateOperationTest {
   }
 
   @Test
+  void oversizedInitCodeOnStackAbortsBeforeMemoryExpansion() {
+    // EIP-3860: when the declared initcode size on the stack exceeds the limit, the
+    // operation is an early exceptional abort and must not have memory side-effects.
+    final UInt256 memoryOffset = UInt256.ZERO;
+    final UInt256 memoryLength =
+        UInt256.fromHexString("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+    final MessageFrame messageFrame =
+        MessageFrame.builder()
+            .type(MessageFrame.Type.CONTRACT_CREATION)
+            .contract(Address.ZERO)
+            .inputData(Bytes.EMPTY)
+            .sender(Address.fromHexString(SENDER))
+            .value(Wei.ZERO)
+            .apparentValue(Wei.ZERO)
+            .code(new Code(SIMPLE_CREATE))
+            .completer(__ -> {})
+            .address(Address.fromHexString(SENDER))
+            .blockHashLookup((__, ___) -> Hash.ZERO)
+            .blockValues(mock(BlockValues.class))
+            .gasPrice(Wei.ZERO)
+            .miningBeneficiary(Address.ZERO)
+            .originator(Address.ZERO)
+            .initialGas(Long.MAX_VALUE)
+            .worldUpdater(worldUpdater)
+            .build();
+    messageFrame.pushStackItem(memoryLength);
+    messageFrame.pushStackItem(memoryOffset);
+    messageFrame.pushStackItem(UInt256.ZERO);
+
+    final EVM evm = MainnetEVMs.shanghai(DEV_NET_CHAIN_ID, EvmConfiguration.DEFAULT);
+    var result = operation.execute(messageFrame, evm);
+
+    assertThat(result.getHaltReason()).isEqualTo(CODE_TOO_LARGE);
+    assertThat(messageFrame.memoryWordSize()).isEqualTo(0);
+  }
+
+  @Test
   void amsterdamBetweenOldAndNewInitCodeLimitCreate() {
     final UInt256 memoryOffset = UInt256.fromHexString("0xFF");
     final UInt256 memoryLength = UInt256.fromHexString("0xC001");

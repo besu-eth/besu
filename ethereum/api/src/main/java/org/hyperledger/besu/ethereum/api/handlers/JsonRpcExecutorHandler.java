@@ -73,10 +73,9 @@ public class JsonRpcExecutorHandler {
                   } catch (IOException e) {
                     final String method = executor.getRpcMethodName(ctx);
                     if (e instanceof ClosedChannelException) {
-                      // The remote end closed the connection before we finished writing — not an
-                      // internal error. No point trying to send an error response on a closed
-                      // channel.
-                      LOG.debug(
+                      // The remote end closed the connection before we finished writing.
+                      // No point trying to send an error response on a closed channel.
+                      LOG.error(
                           "{} - Connection closed before JSON-RPC response could be written",
                           method);
                     } else {

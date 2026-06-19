@@ -43,8 +43,8 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.BlobCacheModule;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMerkleTrieLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCacheModule;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCacheModule;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.metrics.MetricsSystemModule;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -414,7 +414,7 @@ public abstract class JsonBlockImporterTest {
         JsonBlockImporterModule.class,
         BesuPluginContextModule.class,
         BlobCacheModule.class,
-        CodeCacheModule.class,
+        PathBasedCodeCacheModule.class,
       })
   interface JsonBlockImportComponent extends BesuComponent {}
 }

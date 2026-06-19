@@ -29,13 +29,16 @@ import org.hyperledger.besu.ethereum.core.BlockDataGenerator;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
+import org.hyperledger.besu.ethereum.eth.messages.EthProtocolMessages;
 import org.hyperledger.besu.ethereum.eth.messages.TransactionsMessage;
+import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -53,6 +56,9 @@ public class TransactionsMessageProcessorTest {
   private final Transaction transaction1 = generator.transaction();
   private final Transaction transaction2 = generator.transaction();
   private final Transaction transaction3 = generator.transaction();
+  private static final Bytes TRANSACTIONS_MESSAGE_WITH_AUTHORIZATION_CHAIN_ID_OVERFLOW =
+      Bytes.fromHexString(
+          "0xf9014db9014a04f9014683301824800285012a05f2008307a1209471562b71999873db5b286df957af199ec94617f78080c0f8d9f87ba101000000000000000000000000000000000000000000000000000000000000000094000000000000000000000000000000000000aaaa0101a0f7e3e597fc097e71ed6c26b14b25e5395bc8510d58b9136af439e12715f2d721a06cf7c3d7939bfdb784373effc0ebb0bd7549691a513f395e3cdabf8602724987f85a8094000000000000000000000000000000000000bbbb8001a05011890f198f0356a887b0779bde5afa1ed04e6acb1e3f37f8f18c7b6f521b98a056c3fa3456b103f3ef4a0acb4b647b9cab9ec4bc68fbcdf1e10b49fb2bcbcf6180a0df13441160d9e36a96c4f27f7be42f0a67de1b27345d32e562d7a7e80cc61332a04160c3339755fd0f41d852dff56da6b71a975eda6fefdf1d00ba6d8b3ce3e0d2");
 
   private TransactionsMessageProcessor messageHandler;
   private StubMetricsSystem metricsSystem;
@@ -150,6 +156,21 @@ public class TransactionsMessageProcessorTest {
 
     strictHandler.processTransactionsMessage(
         peer1, TransactionsMessage.create(tooMany), now(), ofMinutes(1));
+
+    verify(peer1).disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+    verifyNoInteractions(transactionPool);
+    verifyNoInteractions(transactionTracker);
+  }
+
+  @Test
+  public void shouldDisconnectPeerWhenCodeDelegationAuthorizationChainIdOverflows() {
+    final TransactionsMessage transactionsMessage =
+        TransactionsMessage.readFrom(
+            new RawMessage(
+                EthProtocolMessages.TRANSACTIONS,
+                TRANSACTIONS_MESSAGE_WITH_AUTHORIZATION_CHAIN_ID_OVERFLOW));
+
+    messageHandler.processTransactionsMessage(peer1, transactionsMessage, now(), ofMinutes(1));
 
     verify(peer1).disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
     verifyNoInteractions(transactionPool);

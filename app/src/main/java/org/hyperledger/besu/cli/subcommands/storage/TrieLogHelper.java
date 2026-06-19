@@ -26,7 +26,7 @@ import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLP;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogFactoryImpl;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.BonsaiTrieLogFactory;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogLayer;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -334,7 +334,7 @@ public class TrieLogHelper {
       while (!input.isEndOfCurrentList()) {
         final Bytes trieLogBytes = input.currentListAsBytes();
         TrieLogLayer trieLogLayer =
-            TrieLogFactoryImpl.readFrom(new BytesValueRLPInput(Bytes.wrap(trieLogBytes), false));
+            BonsaiTrieLogFactory.readFrom(new BytesValueRLPInput(Bytes.wrap(trieLogBytes), false));
         trieLogs.put(
             trieLogLayer.getBlockHash().getBytes().toArrayUnsafe(), trieLogBytes.toArrayUnsafe());
       }
