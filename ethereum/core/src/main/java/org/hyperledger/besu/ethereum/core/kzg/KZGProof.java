@@ -19,6 +19,8 @@ import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 
 import java.util.Objects;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
 import org.apache.tuweni.bytes.Bytes48;
 
 /** This class contains the data for a KZG proof for a KZG commitment. */
@@ -31,6 +33,7 @@ public class KZGProof implements org.hyperledger.besu.datatypes.KZGProof {
    *
    * @param data The data for the KZG proof.
    */
+  @JsonCreator
   public KZGProof(final Bytes48 data) {
     this.data = data;
   }
@@ -61,6 +64,7 @@ public class KZGProof implements org.hyperledger.besu.datatypes.KZGProof {
    * @return The data for the KZG proof.
    */
   @Override
+  @JsonValue
   public Bytes48 getData() {
     return data;
   }
