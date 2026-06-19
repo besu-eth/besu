@@ -74,7 +74,6 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
   private static final int MAX_ENTRIES_PER_REQUEST = 100000;
   private static final int MAX_RESPONSE_SIZE = 2 * 1024 * 1024;
   private static final int MAX_CODE_LOOKUPS_PER_REQUEST = 1024;
-  private static final int MAX_TRIE_LOOKUPS_PER_REQUEST = 1024;
   private static final AccountRangeMessage EMPTY_ACCOUNT_RANGE =
       AccountRangeMessage.create(new HashMap<>(), new ArrayDeque<>());
   private static final StorageRangeMessage EMPTY_STORAGE_RANGE =
@@ -605,11 +604,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
     final GetTrieNodesMessage getTrieNodesMessage = GetTrieNodesMessage.readFrom(message);
     final GetTrieNodesMessage.TrieNodesPaths triePaths = getTrieNodesMessage.paths(true);
     final int maxResponseBytes = Math.min(triePaths.responseBytes().intValue(), MAX_RESPONSE_SIZE);
-    LOGGER
-        .atTrace()
-        .setMessage("Received get trie nodes message of size {}")
-        .addArgument(() -> triePaths.paths().size())
-        .log();
+    LOGGER.atTrace().setMessage("Received get trie nodes message").log();
 
     try {
       return worldStateStorageProvider
@@ -626,16 +621,17 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                             maxResponseBytes,
                             maxMillisPerRequest,
                             trieNode -> trieNode.size()));
-                var triePathList =
-                    triePaths.paths().size() < MAX_TRIE_LOOKUPS_PER_REQUEST
-                        ? triePaths.paths()
-                        : triePaths.paths().subList(0, MAX_TRIE_LOOKUPS_PER_REQUEST);
-                triePathLoop:
-                for (var triePath : triePathList) {
-                  // first element in paths is account
-                  if (triePath.size() == 1) {
-                    // if there is only one path, presume it should be compact encoded account path
-                    final Bytes location = CompactEncoding.decode(triePath.get(0));
+                outerLoop:
+                for (var group : triePaths.paths()) {
+                  final var pathIter = group.iterator();
+                  if (!pathIter.hasNext()) {
+                    LOGGER.debug("returned empty trie nodes message due to invalid path");
+                    return EMPTY_TRIE_NODES_MESSAGE;
+                  }
+                  final Bytes firstPath = pathIter.next();
+                  if (!pathIter.hasNext()) {
+                    // single path: compact-encoded account trie node
+                    final Bytes location = CompactEncoding.decode(firstPath);
                     var optStorage = storage.getTrieNodeUnsafe(location);
                     if (optStorage.isEmpty() && location.isEmpty()) {
                       optStorage = Optional.of(MerkleTrie.EMPTY_TRIE_NODE);
@@ -645,26 +641,17 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                       trieNodes.add(trieNode);
                     }
                     if (!trieNodesResponseSizePredicate.shouldGetMore()) {
-                      break triePathLoop;
+                      break outerLoop;
                     }
                   } else {
-                    // There must be at least one element in the path otherwise it is invalid
-                    if (triePath.isEmpty()) {
-                      LOGGER.debug("returned empty trie nodes message due to invalid path");
-                      return EMPTY_TRIE_NODES_MESSAGE;
-                    }
-
-                    // otherwise the first element should be account hash, and subsequent paths
-                    // are compact encoded account storage paths
-
-                    final Bytes32 accountPrefix = Bytes32.leftPad(triePath.getFirst());
+                    // multiple paths: first is account hash, rest are compact-encoded storage paths
+                    final Bytes32 accountPrefix = Bytes32.leftPad(firstPath);
                     var optAccount = storage.getAccount(Hash.wrap(accountPrefix));
                     if (optAccount.isEmpty()) {
                       continue;
                     }
-
-                    List<Bytes> storagePaths = triePath.subList(1, triePath.size());
-                    for (var path : storagePaths) {
+                    while (pathIter.hasNext()) {
+                      final Bytes path = pathIter.next();
                       final Bytes location = CompactEncoding.decode(path);
                       var optStorage =
                           storage.getTrieNodeUnsafe(Bytes.concatenate(accountPrefix, location));
@@ -676,7 +663,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                         trieNodes.add(trieNode);
                       }
                       if (!trieNodesResponseSizePredicate.shouldGetMore()) {
-                        break triePathLoop;
+                        break outerLoop;
                       }
                     }
                   }
@@ -686,7 +673,7 @@ class SnapServer implements BesuEvents.InitialSyncCompletionListener {
                     "returned in {} trie nodes message with {} entries, resp size {} of max {}",
                     stopWatch,
                     trieNodes.size(),
-                    resp.getCode(),
+                    resp.getSize(),
                     maxResponseBytes);
                 return resp;
               })
