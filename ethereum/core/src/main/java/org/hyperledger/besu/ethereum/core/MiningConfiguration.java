@@ -337,9 +337,6 @@ public abstract class MiningConfiguration {
 
   @Value.Immutable
   public interface Unstable {
-    int DEFAULT_REMOTE_SEALERS_LIMIT = 1000;
-    long DEFAULT_REMOTE_SEALERS_TTL = Duration.ofMinutes(10).toMinutes();
-    long DEFAULT_POW_JOB_TTL = Duration.ofMinutes(5).toMillis();
     int DEFAULT_MAX_OMMERS_DEPTH = 8;
     long DEFAULT_POS_BLOCK_CREATION_MAX_TIME = Duration.ofSeconds(12).toMillis();
     long DEFAULT_POS_BLOCK_CREATION_REPETITION_MIN_DURATION = Duration.ofMillis(500).toMillis();
@@ -347,21 +344,6 @@ public abstract class MiningConfiguration {
     Integer DEFAULT_POS_SLOT_DURATION_SECS = 12;
 
     MiningConfiguration.Unstable DEFAULT = ImmutableMiningConfiguration.Unstable.builder().build();
-
-    @Value.Default
-    default int getRemoteSealersLimit() {
-      return DEFAULT_REMOTE_SEALERS_LIMIT;
-    }
-
-    @Value.Default
-    default long getRemoteSealersTimeToLive() {
-      return DEFAULT_REMOTE_SEALERS_TTL;
-    }
-
-    @Value.Default
-    default long getPowJobTimeToLive() {
-      return DEFAULT_POW_JOB_TTL;
-    }
 
     @Value.Default
     default int getMaxOmmerDepth() {

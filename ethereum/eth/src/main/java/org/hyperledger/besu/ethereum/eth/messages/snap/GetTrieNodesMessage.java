@@ -42,8 +42,8 @@ public final class GetTrieNodesMessage extends AbstractSnapMessageData {
   }
 
   public static GetTrieNodesMessage readFrom(final MessageData message) {
-    if (message instanceof GetTrieNodesMessage) {
-      return (GetTrieNodesMessage) message;
+    if (message instanceof GetTrieNodesMessage getTrieNodesMessage) {
+      return getTrieNodesMessage;
     }
     final int code = message.getCode();
     if (code != SnapV1.GET_TRIE_NODES) {

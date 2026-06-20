@@ -202,8 +202,8 @@ public class JsonRpcHttpService {
     this.livenessService = livenessService;
     this.readinessService = readinessService;
     this.maxActiveConnections = config.getMaxActiveConnections();
-    if (metricsSystem instanceof OpenTelemetrySystem) {
-      this.tracerProvider = ((OpenTelemetrySystem) metricsSystem).getTracerProvider();
+    if (metricsSystem instanceof OpenTelemetrySystem openTelemetrySystem) {
+      this.tracerProvider = openTelemetrySystem.getTracerProvider();
     }
     this.metricsSystem = metricsSystem;
   }

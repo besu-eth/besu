@@ -212,6 +212,8 @@ public class DefaultP2PNetwork implements P2PNetwork {
     final String address = config.discoveryConfiguration().getAdvertisedHost();
 
     Optional.ofNullable(config.discoveryConfiguration().getDNSDiscoveryURL())
+        .map(String::strip)
+        .filter(url -> !url.isBlank())
         .ifPresent(
             disco -> {
               // These lists are updated every 12h

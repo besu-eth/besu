@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.blockcreation;
 
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -56,13 +55,6 @@ public interface MiningCoordinator {
   Wei getMinTransactionGasPrice();
 
   Wei getMinPriorityFeePerGas();
-
-  default void setCoinbase(final Address coinbase) {
-    throw new UnsupportedOperationException(
-        "Current consensus mechanism prevents setting coinbase.");
-  }
-
-  Optional<Address> getCoinbase();
 
   /**
    * Creates a block if possible, otherwise return an empty result

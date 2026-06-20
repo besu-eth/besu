@@ -35,8 +35,8 @@ public final class GetByteCodesMessage extends AbstractSnapMessageData {
   }
 
   public static GetByteCodesMessage readFrom(final MessageData message) {
-    if (message instanceof GetByteCodesMessage) {
-      return (GetByteCodesMessage) message;
+    if (message instanceof GetByteCodesMessage getByteCodesMessage) {
+      return getByteCodesMessage;
     }
     final int code = message.getCode();
     if (code != SnapV1.GET_BYTECODES) {

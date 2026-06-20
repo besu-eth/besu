@@ -87,10 +87,10 @@ public class JsonUtil {
               final String key = entry.getKey();
               final JsonNode value = entry.getValue();
               final String normalizedKey = normalizeKey(key);
-              if (value instanceof ObjectNode) {
-                normalized.set(normalizedKey, normalizeKeys((ObjectNode) value));
-              } else if (value instanceof ArrayNode) {
-                normalized.set(normalizedKey, normalizeKeysInArray((ArrayNode) value));
+              if (value instanceof ObjectNode nestedObject) {
+                normalized.set(normalizedKey, normalizeKeys(nestedObject));
+              } else if (value instanceof ArrayNode nestedArray) {
+                normalized.set(normalizedKey, normalizeKeysInArray(nestedArray));
               } else {
                 normalized.set(normalizedKey, value);
               }
@@ -113,10 +113,10 @@ public class JsonUtil {
     final ArrayNode normalizedArray = JsonUtil.createEmptyArrayNode();
     arrayNode.forEach(
         value -> {
-          if (value instanceof ObjectNode) {
-            normalizedArray.add(normalizeKeys((ObjectNode) value));
-          } else if (value instanceof ArrayNode) {
-            normalizedArray.add(normalizeKeysInArray((ArrayNode) value));
+          if (value instanceof ObjectNode nestedObject) {
+            normalizedArray.add(normalizeKeys(nestedObject));
+          } else if (value instanceof ArrayNode nestedArray) {
+            normalizedArray.add(normalizeKeysInArray(nestedArray));
           } else {
             normalizedArray.add(value);
           }
