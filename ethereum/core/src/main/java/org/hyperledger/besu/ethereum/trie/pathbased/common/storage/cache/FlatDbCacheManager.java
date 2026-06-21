@@ -135,8 +135,8 @@ final class CacheKey {
   @Override
   public boolean equals(final Object o) {
     if (this == o) return true;
-    if (!(o instanceof CacheKey)) return false;
-    return Arrays.equals(data, ((CacheKey) o).data);
+    if (!(o instanceof CacheKey that)) return false;
+    return Arrays.equals(data, that.data);
   }
 
   @Override
