@@ -46,13 +46,10 @@ class RLPDecodingHelpers {
     }
 
     boolean isList() {
-      switch (this) {
-        case SHORT_LIST:
-        case LONG_LIST:
-          return true;
-        default:
-          return false;
-      }
+      return switch (this) {
+        case SHORT_LIST, LONG_LIST -> true;
+        default -> false;
+      };
     }
   }
 
@@ -100,6 +97,7 @@ class RLPDecodingHelpers {
     }
   }
 
+  @SuppressWarnings("StatementSwitchToExpressionSwitch")
   static RLPElementMetadata rlpElementMetadata(
       final LongUnaryOperator byteGetter, final long size, final long elementStart) {
     final int prefix = Math.toIntExact(byteGetter.applyAsLong(elementStart)) & 0xFF;

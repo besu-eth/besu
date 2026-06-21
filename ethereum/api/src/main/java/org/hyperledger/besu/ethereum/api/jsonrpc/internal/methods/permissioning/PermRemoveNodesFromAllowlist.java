@@ -62,32 +62,30 @@ public class PermRemoveNodesFromAllowlist implements JsonRpcMethod {
           final NodesAllowlistResult nodesAllowlistResult =
               nodeAllowlistPermissioningController.get().removeNodes(enodeURLs);
 
-          switch (nodesAllowlistResult.result()) {
-            case SUCCESS:
-              return new JsonRpcSuccessResponse(requestContext.getRequest().getId());
-            case ERROR_EMPTY_ENTRY:
-              return new JsonRpcErrorResponse(
-                  requestContext.getRequest().getId(), RpcErrorType.NODE_ALLOWLIST_EMPTY_ENTRY);
-            case ERROR_ABSENT_ENTRY:
-              return new JsonRpcErrorResponse(
-                  requestContext.getRequest().getId(), RpcErrorType.NODE_ALLOWLIST_MISSING_ENTRY);
-            case ERROR_DUPLICATED_ENTRY:
-              return new JsonRpcErrorResponse(
-                  requestContext.getRequest().getId(),
-                  RpcErrorType.NODE_ALLOWLIST_DUPLICATED_ENTRY);
-            case ERROR_ALLOWLIST_PERSIST_FAIL:
-              return new JsonRpcErrorResponse(
-                  requestContext.getRequest().getId(), RpcErrorType.ALLOWLIST_PERSIST_FAILURE);
-            case ERROR_ALLOWLIST_FILE_SYNC:
-              return new JsonRpcErrorResponse(
-                  requestContext.getRequest().getId(), RpcErrorType.ALLOWLIST_FILE_SYNC);
-            case ERROR_FIXED_NODE_CANNOT_BE_REMOVED:
-              return new JsonRpcErrorResponse(
-                  requestContext.getRequest().getId(),
-                  RpcErrorType.NODE_ALLOWLIST_FIXED_NODE_CANNOT_BE_REMOVED);
-            default:
-              throw new Exception();
-          }
+          return switch (nodesAllowlistResult.result()) {
+            case SUCCESS -> new JsonRpcSuccessResponse(requestContext.getRequest().getId());
+            case ERROR_EMPTY_ENTRY ->
+                new JsonRpcErrorResponse(
+                    requestContext.getRequest().getId(), RpcErrorType.NODE_ALLOWLIST_EMPTY_ENTRY);
+            case ERROR_ABSENT_ENTRY ->
+                new JsonRpcErrorResponse(
+                    requestContext.getRequest().getId(), RpcErrorType.NODE_ALLOWLIST_MISSING_ENTRY);
+            case ERROR_DUPLICATED_ENTRY ->
+                new JsonRpcErrorResponse(
+                    requestContext.getRequest().getId(),
+                    RpcErrorType.NODE_ALLOWLIST_DUPLICATED_ENTRY);
+            case ERROR_ALLOWLIST_PERSIST_FAIL ->
+                new JsonRpcErrorResponse(
+                    requestContext.getRequest().getId(), RpcErrorType.ALLOWLIST_PERSIST_FAILURE);
+            case ERROR_ALLOWLIST_FILE_SYNC ->
+                new JsonRpcErrorResponse(
+                    requestContext.getRequest().getId(), RpcErrorType.ALLOWLIST_FILE_SYNC);
+            case ERROR_FIXED_NODE_CANNOT_BE_REMOVED ->
+                new JsonRpcErrorResponse(
+                    requestContext.getRequest().getId(),
+                    RpcErrorType.NODE_ALLOWLIST_FIXED_NODE_CANNOT_BE_REMOVED);
+            default -> throw new Exception();
+          };
         } catch (IllegalArgumentException e) {
           return new JsonRpcErrorResponse(
               requestContext.getRequest().getId(), RpcErrorType.NODE_ALLOWLIST_INVALID_ENTRY);
