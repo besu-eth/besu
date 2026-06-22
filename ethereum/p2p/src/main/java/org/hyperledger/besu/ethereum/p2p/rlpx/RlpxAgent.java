@@ -326,8 +326,8 @@ public class RlpxAgent {
 
   private CompletableFuture<PeerConnection> initiateOutboundConnection(final Peer peer) {
     LOG.trace("Initiating connection to peer: {}", peer.getEnodeURL());
-    if (peer instanceof DiscoveryPeer) {
-      ((DiscoveryPeer) peer).setLastAttemptedConnection(System.currentTimeMillis());
+    if (peer instanceof DiscoveryPeer discoveryPeer) {
+      discoveryPeer.setLastAttemptedConnection(System.currentTimeMillis());
     }
 
     return connectionInitializer

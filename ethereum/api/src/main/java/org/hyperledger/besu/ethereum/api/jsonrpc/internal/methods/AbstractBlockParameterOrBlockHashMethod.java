@@ -177,8 +177,8 @@ public abstract class AbstractBlockParameterOrBlockHashMethod implements JsonRpc
   public JsonRpcResponse response(final JsonRpcRequestContext requestContext) {
     Object response = handleParamTypes(requestContext);
 
-    if (response instanceof JsonRpcResponse) {
-      return (JsonRpcResponse) response;
+    if (response instanceof JsonRpcResponse jsonRpcResponse) {
+      return jsonRpcResponse;
     }
 
     return new JsonRpcSuccessResponse(requestContext.getRequest().getId(), response);

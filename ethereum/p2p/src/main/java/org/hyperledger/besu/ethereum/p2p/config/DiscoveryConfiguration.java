@@ -244,10 +244,9 @@ public class DiscoveryConfiguration {
     if (o == this) {
       return true;
     }
-    if (!(o instanceof DiscoveryConfiguration)) {
+    if (!(o instanceof DiscoveryConfiguration that)) {
       return false;
     }
-    final DiscoveryConfiguration that = (DiscoveryConfiguration) o;
     return enabled == that.enabled
         && bindPort == that.bindPort
         && bucketSize == that.bucketSize

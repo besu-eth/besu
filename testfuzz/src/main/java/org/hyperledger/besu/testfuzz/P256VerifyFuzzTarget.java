@@ -187,15 +187,10 @@ public class P256VerifyFuzzTarget implements FuzzTarget {
 
   /** Determines if a strategy requires generating valid signatures. */
   private boolean requiresSignatureGeneration(MutationStrategy strategy) {
-    switch (strategy) {
-      case NO_MUTATION:
-      case BIT_FLIP:
-      case SIGNATURE_MALLEABILITY:
-      case ARITHMETIC_MUTATION:
-        return true;
-      default:
-        return false;
-    }
+    return switch (strategy) {
+      case NO_MUTATION, BIT_FLIP, SIGNATURE_MALLEABILITY, ARITHMETIC_MUTATION -> true;
+      default -> false;
+    };
   }
 
   /**
@@ -321,22 +316,13 @@ public class P256VerifyFuzzTarget implements FuzzTarget {
 
   /** Applies mutation to signature data based on the strategy. */
   private byte[] applyMutation(byte[] signatureData, byte[] fuzzData, MutationStrategy strategy) {
-    switch (strategy) {
-      case NO_MUTATION:
-        return signatureData;
-
-      case BIT_FLIP:
-        return applyBitFlipMutation(signatureData, fuzzData);
-
-      case SIGNATURE_MALLEABILITY:
-        return applySignatureMalleabilityMutation(signatureData);
-
-      case ARITHMETIC_MUTATION:
-        return applyArithmeticMutation(signatureData, fuzzData);
-
-      default:
-        return signatureData;
-    }
+    return switch (strategy) {
+      case NO_MUTATION -> signatureData;
+      case BIT_FLIP -> applyBitFlipMutation(signatureData, fuzzData);
+      case SIGNATURE_MALLEABILITY -> applySignatureMalleabilityMutation(signatureData);
+      case ARITHMETIC_MUTATION -> applyArithmeticMutation(signatureData, fuzzData);
+      default -> signatureData;
+    };
   }
 
   /** Applies bit flip mutation to signature data, focusing on signature components. */
@@ -349,23 +335,14 @@ public class P256VerifyFuzzTarget implements FuzzTarget {
 
     // Select which component to flip: 0=r, 1=s, 2=qx, 3=qy (skip message hash)
     int component = (fuzzData[1] & 0xFF) % 4;
-    int componentOffset;
-    switch (component) {
-      case 0:
-        componentOffset = 32; // r starts at byte 32
-        break;
-      case 1:
-        componentOffset = 64; // s starts at byte 64
-        break;
-      case 2:
-        componentOffset = 96; // qx starts at byte 96
-        break;
-      case 3:
-        componentOffset = 128; // qy starts at byte 128
-        break;
-      default:
-        componentOffset = 32;
-    }
+    int componentOffset =
+        switch (component) {
+          case 0 -> 32; // r starts at byte 32
+          case 1 -> 64; // s starts at byte 64
+          case 2 -> 96; // qx starts at byte 96
+          case 3 -> 128; // qy starts at byte 128
+          default -> 32;
+        };
 
     // Select which bit within the 32-byte component to flip
     int byteWithinComponent = (fuzzData[2] & 0xFF) % 32;
@@ -418,58 +395,44 @@ public class P256VerifyFuzzTarget implements FuzzTarget {
 
   /** Gets the byte offset for a signature component. */
   private int getComponentOffset(int component) {
-    switch (component) {
-      case 0:
-        return 0; // hash
-      case 1:
-        return 32; // r
-      case 2:
-        return 64; // s
-      case 3:
-        return 96; // qx
-      case 4:
-        return 128; // qy
-      default:
-        return 0;
-    }
+    return switch (component) {
+      case 0 -> 0; // hash
+      case 1 -> 32; // r
+      case 2 -> 64; // s
+      case 3 -> 96; // qx
+      case 4 -> 128; // qy
+      default -> 0;
+    };
   }
 
   /** Applies an arithmetic operation to a BigInteger value. */
   private BigInteger applyArithmeticOperation(BigInteger value, int operation, byte[] fuzzData) {
     int delta = fuzzData.length > 3 ? (fuzzData[3] & 0xFF) : 1;
 
-    switch (operation) {
-      case 0: // Add
-        return value.add(BigInteger.valueOf(delta));
-      case 1: // Subtract
-        return value.subtract(BigInteger.valueOf(delta));
-      case 2: // Multiply
-        return value.multiply(BigInteger.valueOf(2 + (delta % 8)));
-      case 3: // XOR
+    return switch (operation) {
+      case 0 -> value.add(BigInteger.valueOf(delta)); // Add
+      case 1 -> value.subtract(BigInteger.valueOf(delta)); // Subtract
+      case 2 -> value.multiply(BigInteger.valueOf(2 + (delta % 8))); // Multiply
+      case 3 -> { // XOR
         byte[] bytes = value.toByteArray();
         for (int i = 0; i < bytes.length; i++) {
           bytes[i] ^= (byte) delta;
         }
-        return new BigInteger(1, bytes);
-      default:
-        return value;
-    }
+        yield new BigInteger(1, bytes);
+      }
+      default -> value;
+    };
   }
 
   /** Generates synthetic input for testing edge cases and boundary conditions. */
   private byte[] generateSyntheticInput(byte[] fuzzData, MutationStrategy strategy) {
-    switch (strategy) {
-      case BOUNDARY_VALUES:
-        return generateBoundaryValueInput(fuzzData);
-      case CURVE_ATTACKS:
-        return generateCurveAttackInput(fuzzData);
-      case POINT_MANIPULATION:
-        return generatePointManipulationInput(fuzzData);
-      case BOUNCYCASTLE_BYPASS:
-        return generateBouncyCastleBypassInput(fuzzData);
-      default:
-        return new byte[160]; // Return zeros for unknown strategies
-    }
+    return switch (strategy) {
+      case BOUNDARY_VALUES -> generateBoundaryValueInput(fuzzData);
+      case CURVE_ATTACKS -> generateCurveAttackInput(fuzzData);
+      case POINT_MANIPULATION -> generatePointManipulationInput(fuzzData);
+      case BOUNCYCASTLE_BYPASS -> generateBouncyCastleBypassInput(fuzzData);
+      default -> new byte[160];
+    };
   }
 
   /** Generates input with boundary values for testing edge cases. */

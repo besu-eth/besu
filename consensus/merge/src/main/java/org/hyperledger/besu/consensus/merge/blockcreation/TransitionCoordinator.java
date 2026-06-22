@@ -16,7 +16,6 @@ package org.hyperledger.besu.consensus.merge.blockcreation;
 
 import org.hyperledger.besu.consensus.merge.PostMergeContext;
 import org.hyperledger.besu.consensus.merge.TransitionUtils;
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
@@ -104,11 +103,6 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
   @Override
   public Wei getMinPriorityFeePerGas() {
     return dispatchFunctionAccordingToMergeState(MiningCoordinator::getMinPriorityFeePerGas);
-  }
-
-  @Override
-  public Optional<Address> getCoinbase() {
-    return dispatchFunctionAccordingToMergeState(MiningCoordinator::getCoinbase);
   }
 
   @Override
