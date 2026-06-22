@@ -646,6 +646,13 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private final Boolean isCacheLastBlockHeadersPreloadEnabled = false;
 
   @CommandLine.Option(
+      names = {"--tx-sender-nonce-index-enabled"},
+      description =
+          "Enable indexing of mined transactions by sender address and nonce, to support"
+              + " eth_getTransactionBySenderAndNonce. (default: ${DEFAULT-VALUE})")
+  private final Boolean txSenderNonceIndexEnabled = true;
+
+  @CommandLine.Option(
       names = {"--cache-precompiles"},
       description = "Specifies whether to cache precompile results (default: ${DEFAULT-VALUE})")
   private final Boolean enablePrecompileCaching = false;
@@ -2103,6 +2110,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .cacheLastBlocks(numberOfBlocksToCache)
             .cacheLastBlockHeaders(numberOfBlockHeadersToCache)
             .isCacheLastBlockHeadersPreloadEnabled(isCacheLastBlockHeadersPreloadEnabled)
+            .senderNonceIndexingEnabled(txSenderNonceIndexEnabled)
             .genesisStateHashCacheEnabled(genesisStateHashCacheEnabled)
             .apiConfiguration(apiConfiguration)
             .balConfiguration(balConfiguration)
