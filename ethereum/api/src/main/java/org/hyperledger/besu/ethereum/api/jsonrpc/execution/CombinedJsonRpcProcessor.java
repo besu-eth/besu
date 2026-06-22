@@ -18,6 +18,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestId;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.JsonRpcMethod;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.StreamingJsonRpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
@@ -105,10 +106,9 @@ public class CombinedJsonRpcProcessor implements JsonRpcProcessor {
       final OutputStream out,
       final ObjectMapper mapper)
       throws IOException {
-    // Default implementation throws UnsupportedOperationException
-    // Methods supporting streaming override this
-    throw new UnsupportedOperationException(
-        "Method " + method.getName() + " does not support streaming");
+    // Let exceptions propagate — the caller decides how to handle them based on
+    // whether the response headers have already been flushed.
+    ((StreamingJsonRpcMethod) method).streamResponse(request, out, mapper);
   }
 
   private JsonRpcResponse executeMethod(
