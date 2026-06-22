@@ -410,7 +410,7 @@ public class SnapSyncChainDownloader
       stateToUse = loadedState.withCanonicalPivot(initialPivotHeader);
     } else if (loadedState.headersDownloadComplete()) {
       BlockHeader headerAnchor;
-      if (newPivotNumber > oldPivotNumber) {
+      if (newPivotNumber >= oldPivotNumber) {
         headerAnchor = loadedState.pivotBlockHeader();
       } else {
         headerAnchor = blockchain.getBlockHeader(newPivotNumber - 1).orElseThrow();

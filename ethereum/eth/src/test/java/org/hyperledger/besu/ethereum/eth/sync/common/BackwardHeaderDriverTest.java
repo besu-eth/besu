@@ -251,7 +251,7 @@ public class BackwardHeaderDriverTest {
         new BackwardHeaderDriver(BATCH_SIZE, reorgedAnchor, pivotHeader, anchorHeader, blockchain);
 
     // Feed a single batch that reaches block 1 — the original anchor boundary.
-    driver.accept(getHeadersRange(99, 1));
+    driver.accept(getHeadersRange(99, 2));
 
     // No match: the driver should be in recovery mode and no matched ancestor populated.
     assertThat(driver.getMatchedAncestor()).isEmpty();
