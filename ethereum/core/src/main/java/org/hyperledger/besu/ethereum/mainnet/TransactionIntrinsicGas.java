@@ -14,13 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
-import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
-
-import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
-
-import java.util.List;
 
 /**
  * Intrinsic gas (EIP-8037) for a transaction, split into regular and state dimensions.
@@ -32,23 +27,9 @@ public record TransactionIntrinsicGas(long regularGas, long stateGas) {
 
   public static TransactionIntrinsicGas of(
       final Transaction transaction, final GasCalculator gasCalculator) {
-    final List<AccessListEntry> accessListEntries = transaction.getAccessList().orElse(List.of());
-    int accessListStorageCount = 0;
-    for (final var entry : accessListEntries) {
-      accessListStorageCount += entry.storageKeys().size();
-    }
-    final long accessListGas =
-        gasCalculator.accessListGasCost(accessListEntries.size(), accessListStorageCount);
-    final long codeDelegationGas =
-        gasCalculator.delegateCodeGasCost(transaction.codeDelegationListSize());
-    final long regularGas =
-        gasCalculator.transactionIntrinsicGasCost(
-            transaction, clampedAdd(accessListGas, codeDelegationGas));
+    final long regularGas = gasCalculator.transactionIntrinsicRegularGas(transaction);
     final long stateGas =
-        gasCalculator
-            .stateGasCostCalculator()
-            .transactionIntrinsicStateGas(
-                transaction.isContractCreation(), transaction.codeDelegationListSize());
+        gasCalculator.stateGasCostCalculator().transactionIntrinsicStateGas(transaction);
     return new TransactionIntrinsicGas(regularGas, stateGas);
   }
 }

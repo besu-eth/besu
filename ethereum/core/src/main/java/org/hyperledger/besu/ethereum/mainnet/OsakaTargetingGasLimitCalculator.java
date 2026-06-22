@@ -28,6 +28,14 @@ import org.slf4j.LoggerFactory;
 public class OsakaTargetingGasLimitCalculator extends CancunTargetingGasLimitCalculator {
   private static final Logger LOG = LoggerFactory.getLogger(OsakaTargetingGasLimitCalculator.class);
 
+  /**
+   * The EIP-7825 transaction gas limit cap value (2^24). Through Osaka this caps {@code tx.gas}
+   * itself; EIP-8037 (Amsterdam) repurposes the same value as the cap on {@code
+   * max(intrinsic_regular, calldata_floor)}. See {@link #transactionGasLimitCap()} and {@link
+   * #transactionIntrinsicGasLimitCap()}.
+   */
+  public static final long EIP_7825_TRANSACTION_GAS_LIMIT_CAP = 16_777_216L;
+
   /** The constant max number of blobs per transaction defined for Osaka */
   private static final int DEFAULT_MAX_BLOBS_PER_TRANSACTION = 6;
 

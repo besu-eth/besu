@@ -55,9 +55,6 @@ public abstract class TransactionGasAccounting {
   /** Transaction floor cost (EIP-7623), 0 for pre-Prague. */
   public abstract long floorCost();
 
-  /** Whether the regular gas limit was exceeded (EIP-8037). */
-  public abstract boolean regularGasLimitExceeded();
-
   /** Creates a new builder. */
   public static ImmutableTransactionGasAccounting.Builder builder() {
     return ImmutableTransactionGasAccounting.builder();
@@ -69,10 +66,6 @@ public abstract class TransactionGasAccounting {
    * @return the gas result containing gasUsedByTransaction and usedGas
    */
   public GasResult calculate() {
-    if (regularGasLimitExceeded()) {
-      return new GasResult(txGasLimit(), txGasLimit());
-    }
-
     final long executionGas = txGasLimit() - remainingGas() - stateGasReservoir();
     final long regularGas = executionGas - stateGasUsed();
     if (regularGas < 0) {

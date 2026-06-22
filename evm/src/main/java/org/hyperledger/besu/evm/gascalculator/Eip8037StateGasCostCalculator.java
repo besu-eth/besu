@@ -45,9 +45,9 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
 
   /**
    * The mainnet transaction gas limit cap from EIP-7825 (2^24), enforced at runtime on regular gas.
-   * Mirrors {@code GasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP} in the ethereum/core
-   * module; the value is duplicated here because the evm module cannot depend on ethereum/core.
-   * Keep the two in sync.
+   * Mirrors {@code OsakaTargetingGasLimitCalculator.EIP_7825_TRANSACTION_GAS_LIMIT_CAP} in the
+   * ethereum/core module; the value is duplicated here because the evm module cannot depend on
+   * ethereum/core. Keep the two in sync.
    */
   static final long TX_MAX_GAS_LIMIT = 16_777_216L;
 

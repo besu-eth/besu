@@ -30,8 +30,7 @@ public class TransactionGasAccountingTest {
         .stateGasReservoir(0L)
         .stateGasUsed(0L)
         .refundedGas(0L)
-        .floorCost(0L)
-        .regularGasLimitExceeded(false);
+        .floorCost(0L);
   }
 
   @Test
@@ -89,22 +88,6 @@ public class TransactionGasAccountingTest {
     // regularGas = 40k, floorCost = 50k -> max(40k, 50k) = 50k
     // gasUsedByTransaction = 50k + 0 = 50k
     assertThat(result.gasUsedByTransaction()).isEqualTo(50_000L);
-    assertThat(result.usedGas()).isEqualTo(100_000L);
-  }
-
-  @Test
-  public void regularGasLimitExceeded_allGasConsumed() {
-    final var result =
-        baseBuilder()
-            .txGasLimit(100_000L)
-            .remainingGas(20_000L)
-            .stateGasReservoir(5_000L)
-            .stateGasUsed(30_000L)
-            .regularGasLimitExceeded(true)
-            .build()
-            .calculate();
-
-    assertThat(result.gasUsedByTransaction()).isEqualTo(100_000L);
     assertThat(result.usedGas()).isEqualTo(100_000L);
   }
 

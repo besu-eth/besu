@@ -17,6 +17,8 @@ package org.hyperledger.besu.evm.gascalculator;
 import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
 import static org.hyperledger.besu.evm.internal.Words.clampedMultiply;
 
+import org.hyperledger.besu.datatypes.Transaction;
+
 /**
  * Strategy interface for EIP-8037 state-creation gas cost calculations.
  *
@@ -128,13 +130,12 @@ public interface StateGasCostCalculator {
    * upfront (assuming all delegation targets are new accounts). Existing-account refunds are
    * applied later during processing.
    *
-   * @param isContractCreation whether the transaction creates a contract
-   * @param codeDelegationCount number of EIP-7702 code delegations
+   * @param transaction the transaction
    * @return the intrinsic state gas
    */
-  default long transactionIntrinsicStateGas(
-      final boolean isContractCreation, final long codeDelegationCount) {
-    long stateGas = isContractCreation ? newContractStateGas() : 0L;
+  default long transactionIntrinsicStateGas(final Transaction transaction) {
+    long stateGas = transaction.isContractCreation() ? newContractStateGas() : 0L;
+    final long codeDelegationCount = transaction.codeDelegationListSize();
     if (codeDelegationCount > 0) {
       // Worst case: all delegators are new accounts → (112 + 23) * cpsb each
       final long perDelegation = clampedAdd(emptyAccountDelegationStateGas(), authBaseStateGas());

@@ -24,14 +24,6 @@ public interface GasLimitCalculator {
   long BLOB_GAS_LIMIT = 0xC0000;
 
   /**
-   * The EIP-7825 transaction gas limit cap value (2^24). Through Osaka this caps {@code tx.gas}
-   * itself; EIP-8037 (Amsterdam) repurposes the same value as the cap on {@code
-   * max(intrinsic_regular, calldata_floor)}. See {@link #transactionGasLimitCap()} and {@link
-   * #transactionIntrinsicGasLimitCap()}.
-   */
-  long EIP_7825_TRANSACTION_GAS_LIMIT_CAP = 16_777_216L;
-
-  /**
    * Calculates the next gas limit based on the current gas limit, target gas limit, and new block
    * number.
    *

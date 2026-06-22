@@ -136,17 +136,12 @@ abstract class AbstractBlockProcessorTest {
     final Transaction tx = mock(Transaction.class);
     when(tx.getGasLimit()).thenReturn(50_000L);
     when(tx.getHash()).thenReturn(Hash.fromHexStringLenient("0x1234"));
-    when(tx.getAccessList()).thenReturn(Optional.empty());
-    when(tx.codeDelegationListSize()).thenReturn(0);
-    when(tx.isContractCreation()).thenReturn(false);
 
     final GasCalculator gasCalculator = mock(GasCalculator.class);
     final StateGasCostCalculator stateGasCalc = mock(StateGasCostCalculator.class);
     when(gasCalculator.stateGasCostCalculator()).thenReturn(stateGasCalc);
-    when(gasCalculator.accessListGasCost(0, 0)).thenReturn(0L);
-    when(gasCalculator.delegateCodeGasCost(0)).thenReturn(0L);
-    when(gasCalculator.transactionIntrinsicGasCost(tx, 0L)).thenReturn(0L);
-    when(stateGasCalc.transactionIntrinsicStateGas(false, 0L)).thenReturn(0L);
+    when(gasCalculator.transactionIntrinsicRegularGas(tx)).thenReturn(0L);
+    when(stateGasCalc.transactionIntrinsicStateGas(tx)).thenReturn(0L);
     when(stateGasCalc.transactionRegularGasLimit()).thenReturn(Long.MAX_VALUE);
     when(protocolSpec.getGasCalculator()).thenReturn(gasCalculator);
 
