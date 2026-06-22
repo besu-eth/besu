@@ -128,6 +128,7 @@ class RLPDecodingHelpers {
         payloadStart = elementStart + 1 + sizeLength;
         payloadSize = readLongSize(byteGetter, size, elementStart, sizeLength);
       }
+      default -> throw new IllegalStateException("Unexpected RLP kind: " + kind);
     }
 
     return new RLPElementMetadata(kind, elementStart, payloadStart, payloadSize);
