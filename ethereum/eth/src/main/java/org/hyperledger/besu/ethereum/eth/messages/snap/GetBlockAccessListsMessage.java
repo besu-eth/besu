@@ -30,8 +30,8 @@ public final class GetBlockAccessListsMessage extends AbstractSnapMessageData {
   }
 
   public static GetBlockAccessListsMessage readFrom(final MessageData message) {
-    if (message instanceof GetBlockAccessListsMessage) {
-      return (GetBlockAccessListsMessage) message;
+    if (message instanceof GetBlockAccessListsMessage getBlockAccessListsMessage) {
+      return getBlockAccessListsMessage;
     }
     final int code = message.getCode();
     if (code != SnapV2.GET_BLOCK_ACCESS_LISTS) {

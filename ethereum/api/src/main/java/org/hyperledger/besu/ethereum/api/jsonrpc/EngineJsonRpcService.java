@@ -187,8 +187,8 @@ public class EngineJsonRpcService {
             "Time taken to process a JSON-RPC request",
             "methodName");
     JsonRpcProcessor jsonRpcProcessor = new BaseJsonRpcProcessor();
-    if (metricsSystem instanceof OpenTelemetrySystem) {
-      this.tracerProvider = ((OpenTelemetrySystem) metricsSystem).getTracerProvider();
+    if (metricsSystem instanceof OpenTelemetrySystem openTelemetrySystem) {
+      this.tracerProvider = openTelemetrySystem.getTracerProvider();
     }
 
     this.socketConfiguration =

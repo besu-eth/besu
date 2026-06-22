@@ -258,8 +258,8 @@ public class BackwardSyncContext {
     Throwable currentCause = throwable;
 
     while (currentCause != null) {
-      if (currentCause instanceof BackwardSyncException) {
-        return Optional.of((BackwardSyncException) currentCause);
+      if (currentCause instanceof BackwardSyncException backwardSyncException) {
+        return Optional.of(backwardSyncException);
       }
       currentCause = currentCause.getCause();
     }
