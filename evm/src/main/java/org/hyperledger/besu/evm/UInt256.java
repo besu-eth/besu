@@ -605,6 +605,12 @@ public record UInt256(long u3, long u2, long u1, long u0) {
    */
   public UInt256 div(final UInt256 divisor) {
     if (isZero()) return ZERO;
+    // Fast path: when the divisor is a power of two, division is a right-shift by its exponent.
+    // A non-zero value x is a power of two iff (x & (x - 1)) == 0. Subtracting 1 from a power of
+    // two flips its single set bit to 0 and sets all lower bits to 1 (e.g. 0b1000 - 1 == 0b0111),
+    // so x and x - 1 share no bits and the AND is 0. For any non-power-of-two there are at least
+    // two set bits; the lowest stays set in x - 1, so the AND is non-zero. The highest non-zero
+    // limb must be a power of two and every lower limb must be zero for the whole value to qualify.
     if (divisor.u3 != 0) {
       if ((divisor.u3 & (divisor.u3 - 1)) == 0 && (divisor.u2 | divisor.u1 | divisor.u0) == 0) {
         return shiftRightWide(192 + Long.numberOfTrailingZeros(divisor.u3));
