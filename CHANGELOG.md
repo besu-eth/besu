@@ -8,6 +8,7 @@
     - Remove PoW mining infrastructure: PoW mining coordinator, executor, block creator/miner, nonce generators, PoW solver, and PoWObserver are deleted. `nonceGenerator` is removed from `MiningConfiguration`. Mainnet genesis files with `ethash` config can no longer mine PoW blocks. [#10656](https://github.com/besu-eth/besu/issues/10656)
     - Remove Ethash and PoW validation code: EthHash algorithm, PoWHasher, ProofOfWorkValidationRule, CalculatedDifficultyValidationRule, EpochCalculator, and DirectAcyclicGraphSeed are deleted. `powHasher` is removed from `ProtocolSpec`/`ProtocolSpecBuilder`. [#10659](https://github.com/besu-eth/besu/issues/10659)
     - Remove PoW RPC methods: `miner_start`, `miner_stop`, and `eth_mining` JSON-RPC methods are removed. `getCoinbase()` and `setCoinbase()` are removed from the `MiningCoordinator` interface. [#10662](https://github.com/besu-eth/besu/issues/10662)
+    - Remove `PowAlgorithm` enum and `getPowAlgorithm()` from `GenesisConfigOptions`. [#9458](https://github.com/besu-eth/besu/issues/9458)
 
 ### Upcoming Breaking Changes
 - `--min-block-occupancy-ratio` is deprecated and will be removed in a future release
