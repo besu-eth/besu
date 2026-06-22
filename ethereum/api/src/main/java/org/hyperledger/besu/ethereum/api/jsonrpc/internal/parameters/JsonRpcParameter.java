@@ -43,7 +43,7 @@ public class JsonRpcParameter {
 
   /**
    * Retrieves a required parameter at the given index interpreted as the given class. Throws
-   * InvalidJsonRpcParameters if parameter is missing or of the wrong type.
+   * InvalidJsonRpcParameters if the parameter is missing or of the wrong type.
    *
    * @param params the list of objects from which to extract a typed object.
    * @param index Which index of the params array to access.
@@ -135,11 +135,20 @@ public class JsonRpcParameter {
       final Class<T> listClass,
       final Configuration configuration)
       throws JsonRpcParameterException {
-    return optionalList(params, index, listClass, configuration)
-        .orElseThrow(
-            () ->
-                new JsonRpcMissingParameterException(
-                    "Missing required json rpc parameter at index " + index));
+    final Optional<List<T>> value = optionalList(params, index, listClass, configuration);
+    if (value.isPresent()) {
+      return value.get();
+    }
+
+    if (params != null && params.length > index && params[index] != null) {
+      final Object rawParam = params[index];
+      throw new JsonRpcParameterException(
+          String.format(
+              "Invalid json rpc parameter at index %d. Supplied value was: '%s' of type: '%s' - expected a list of '%s'",
+              index, rawParam, rawParam.getClass().getName(), listClass.getName()));
+    }
+    throw new JsonRpcMissingParameterException(
+        "Missing required json rpc parameter at index " + index);
   }
 
   /**

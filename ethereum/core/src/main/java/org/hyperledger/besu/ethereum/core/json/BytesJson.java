@@ -60,7 +60,7 @@ public final class BytesJson {
         return Bytes.fromHexString(value);
       }
       throw new IllegalArgumentException(
-          "Invalid hash: must be a hex string with 0x prefix, got: " + value);
+          "Invalid bytes: must be a hex string with 0x prefix, got: " + value);
     }
   }
 }

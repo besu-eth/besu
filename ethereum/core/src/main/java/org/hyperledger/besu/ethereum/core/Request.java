@@ -32,7 +32,7 @@ public record Request(RequestType type, Bytes data)
     final RequestType type = RequestType.of(bytes.get(0));
     final Bytes data = bytes.slice(1);
 
-    checkArgument(!bytes.isEmpty(), "Request must be at least 1 byte");
+    checkArgument(!data.isEmpty(), "Request must be at least 1 byte");
 
     return new Request(type, data);
   }
@@ -54,6 +54,6 @@ public record Request(RequestType type, Bytes data)
    */
   @JsonValue
   public Bytes getEncodedRequest() {
-    return Bytes.concatenate(Bytes.of(getType().ordinal()), getData());
+    return Bytes.concatenate(Bytes.of(getType().getSerializedType()), getData());
   }
 }
