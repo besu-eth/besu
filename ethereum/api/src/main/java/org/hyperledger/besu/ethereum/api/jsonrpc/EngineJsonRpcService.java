@@ -175,8 +175,8 @@ public class EngineJsonRpcService {
       final HealthService readinessService) {
     this.dataDir = dataDir;
     JsonRpcProcessor jsonRpcProcessor = new CombinedJsonRpcProcessor(metricsSystem);
-    if (metricsSystem instanceof OpenTelemetrySystem) {
-      this.tracerProvider = ((OpenTelemetrySystem) metricsSystem).getTracerProvider();
+    if (metricsSystem instanceof OpenTelemetrySystem openTelemetrySystem) {
+      this.tracerProvider = openTelemetrySystem.getTracerProvider();
     }
 
     this.socketConfiguration =

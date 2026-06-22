@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
 import java.io.IOException;
+import java.nio.channels.ClosedChannelException;
 import java.util.Optional;
 
 import com.fasterxml.jackson.core.JsonGenerator;
@@ -103,18 +104,22 @@ public class JsonRpcExecutorHandler {
           cancelTimer(ctx);
         }
       } catch (final IOException e) {
-        final String requestBodyAsJson =
-            ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name()).toString();
-        LOG.error("Error streaming JSON-RPC response", e);
-        LOG.atTrace()
-            .setMessage("Error streaming JSON-RPC response")
-            .addArgument(requestBodyAsJson)
-            .log();
-        handleErrorAndEndResponse(ctx, null, RpcErrorType.INTERNAL_ERROR);
+        if (e instanceof ClosedChannelException) {
+          LOG.error(
+              "Error streaming JSON-RPC response — connection closed before response could be written",
+              e);
+        } else {
+          final String requestBodyAsJson = getRequestBodyAsString(ctx);
+          LOG.error("Error streaming JSON-RPC response", e);
+          LOG.atTrace()
+              .setMessage("Error streaming JSON-RPC response")
+              .addArgument(requestBodyAsJson)
+              .log();
+          handleErrorAndEndResponse(ctx, null, RpcErrorType.INTERNAL_ERROR);
+        }
         cancelTimer(ctx);
       } catch (final RuntimeException e) {
-        final String requestBodyAsJson =
-            ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name()).toString();
+        final String requestBodyAsJson = getRequestBodyAsString(ctx);
         LOG.error(
             "Unhandled exception in JSON-RPC executor for method {}",
             getShortLogString(requestBodyAsJson),
@@ -347,6 +352,13 @@ public class JsonRpcExecutorHandler {
           .setStatusCode(statusCodeFromError(errorType).code())
           .end(Json.encode(new JsonRpcErrorResponse(id, errorType)));
     }
+  }
+
+  private static String getRequestBodyAsString(final RoutingContext ctx) {
+    final Object obj = ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name());
+    if (obj != null) return obj.toString();
+    final Object arr = ctx.get(ContextKey.REQUEST_BODY_AS_JSON_ARRAY.name());
+    return arr != null ? arr.toString() : null;
   }
 
   private static Object getShortLogString(final String requestBodyAsJson) {

@@ -194,7 +194,8 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
   @SuppressWarnings({"FieldCanBeFinal", "FieldMayBeFinal"}) // PicoCLI requires non-final Strings.
   @CommandLine.Option(
       names = {"--discovery-dns-url"},
-      description = "Specifies the URL to use for DNS discovery")
+      description =
+          "Specifies the URL to use for DNS discovery of peers. Set to empty string to disable DNS peer discovery even on networks that include a DNS URL in their genesis config.")
   public String discoveryDnsUrl = null;
 
   /** Boolean option to allow for incoming connections to be prioritized randomly. */

@@ -46,7 +46,11 @@ public class SnapV2CompleteTaskStep {
 
   public synchronized void markAsCompleteOrFailed(
       final WorldDownloadState<SnapDataRequest> downloadState, final Task<SnapDataRequest> task) {
-    if (task.getData().isResponseReceived()) {
+    final SnapDataRequest request = task.getData();
+    if (request.isExpired(snapSyncState)) {
+      throw new IllegalStateException(expiredRequestMessage(request));
+    }
+    if (request.isResponseReceived()) {
       completedRequestsCounter.inc();
       task.markCompleted();
       downloadState.checkCompletion(snapSyncState.getPivotBlockHeader().orElseThrow());
@@ -55,5 +59,20 @@ public class SnapV2CompleteTaskStep {
       task.markFailed();
     }
     downloadState.notifyTaskAvailable();
+  }
+
+  private String expiredRequestMessage(final SnapDataRequest request) {
+    final String currentPivot =
+        snapSyncState.getPivotBlockHeader().map(header -> header.toLogString()).orElse("empty");
+    final String requestPivot =
+        request instanceof SnapV2DataRequest snapV2DataRequest
+            ? snapV2DataRequest.getPivotBlockHeader().toLogString()
+            : "unknown";
+    return "Expired snap/2 request reached completion step: type "
+        + request.getRequestType()
+        + ", request pivot "
+        + requestPivot
+        + ", current pivot "
+        + currentPivot;
   }
 }

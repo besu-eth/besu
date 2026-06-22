@@ -36,7 +36,6 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.lang.ProcessBuilder.Redirect;
-import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
@@ -47,12 +46,14 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
+import com.google.common.collect.EvictingQueue;
 import org.awaitility.Awaitility;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,6 +70,8 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
   private boolean capturingConsole;
   private final ByteArrayOutputStream consoleContents = new ByteArrayOutputStream();
   private final PrintStream consoleOut = new PrintStream(consoleContents);
+  private static final int MAX_STARTUP_OUTPUT_LINES = 200;
+  private final Map<String, EvictingQueue<String>> nodeOutputs = new ConcurrentHashMap<>();
 
   ProcessBesuNodeRunner() {
     Runtime.getRuntime().addShutdownHook(new Thread(this::shutdown));
@@ -125,6 +128,7 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
           "A live process with name: %s, already exists. Cannot create another with the same name as it would orphan the first",
           node.getName());
 
+      nodeOutputs.put(node.getName(), EvictingQueue.create(MAX_STARTUP_OUTPUT_LINES));
       final Process process = processBuilder.start();
       process.onExit().thenRun(() -> node.setExitCode(process.exitValue()));
       outputProcessorExecutor.execute(() -> printOutput(node, process));
@@ -133,9 +137,13 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
       LOG.error("Error starting BesuNode process", e);
     }
 
-    if (node.getRunCommand().isEmpty()) {
-      waitForFileOrExit(node, "besu.ports");
-      waitForFileOrExit(node, "besu.networks");
+    try {
+      if (node.getRunCommand().isEmpty()) {
+        waitForFileOrExit(node, "besu.ports");
+        waitForFileOrExit(node, "besu.networks");
+      }
+    } finally {
+      nodeOutputs.remove(node.getName());
     }
     MDC.remove("node");
   }
@@ -181,6 +189,10 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
     params.add("--discovery-enabled");
     params.add(Boolean.toString(node.isDiscoveryEnabled()));
 
+    if (node.getNetworkingConfiguration().discoveryConfiguration().isDiscoveryV5Enabled()) {
+      params.add("--Xv5-discovery-enabled");
+    }
+
     params.add("--p2p-host");
     params.add(node.p2pListenHost());
 
@@ -201,7 +213,7 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
 
     if (!node.getBootnodes().isEmpty()) {
       params.add("--bootnodes");
-      params.add(node.getBootnodes().stream().map(URI::toString).collect(Collectors.joining(",")));
+      params.add(String.join(",", node.getBootnodes()));
     }
 
     if (node.hasStaticNodes()) {
@@ -438,6 +450,12 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
         if (capturingConsole) {
           consoleOut.println(line);
         }
+        final EvictingQueue<String> nodeOutput = nodeOutputs.get(node.getName());
+        if (nodeOutput != null) {
+          synchronized (nodeOutput) {
+            nodeOutput.add(line);
+          }
+        }
         line = in.readLine();
       }
     } catch (final IOException e) {
@@ -565,12 +583,25 @@ public class ProcessBesuNodeRunner implements BesuNodeRunner {
             () -> {
               final Process process = besuProcesses.get(node.getName());
               if (!process.isAlive()) {
+                final int exitValue = process.exitValue();
                 LOG.warn(
                     "Besu process for node {} exited with code {} before writing {}",
                     node.getName(),
-                    process.exitValue(),
+                    exitValue,
                     fileName);
-                return true;
+                final EvictingQueue<String> output = nodeOutputs.get(node.getName());
+                final String outputStr;
+                if (output != null) {
+                  synchronized (output) {
+                    outputStr = String.join(System.lineSeparator(), output);
+                  }
+                } else {
+                  outputStr = "<no output captured>";
+                }
+                throw new IllegalStateException(
+                    String.format(
+                        "Besu process for node %s exited with code %d before writing %s. Process output:%n%s",
+                        node.getName(), exitValue, fileName, outputStr));
               }
 
               try (final Stream<String> s = Files.lines(file.toPath())) {

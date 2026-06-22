@@ -19,6 +19,7 @@ import static org.hyperledger.besu.services.pipeline.PipelineBuilder.createPipel
 
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.DynamicPivotBlockSelector;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
@@ -126,6 +127,7 @@ public class SnapV2WorldStateDownloadProcess implements WorldStateDownloadProces
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final SnapSyncProcessState snapSyncState,
       final SnapV2WorldDownloadState downloadState,
+      final DynamicPivotBlockSelector pivotBlockSelector,
       final SnapSyncConfiguration snapSyncConfiguration,
       final int maxOutstandingRequests,
       final MetricsSystem metricsSystem) {
@@ -133,6 +135,7 @@ public class SnapV2WorldStateDownloadProcess implements WorldStateDownloadProces
     checkNotNull(worldStateStorageCoordinator);
     checkNotNull(snapSyncState);
     checkNotNull(downloadState);
+    checkNotNull(pivotBlockSelector);
     checkNotNull(snapSyncConfiguration);
     checkNotNull(metricsSystem);
 
@@ -145,7 +148,8 @@ public class SnapV2WorldStateDownloadProcess implements WorldStateDownloadProces
             worldStateStorageCoordinator,
             downloadState,
             snapSyncConfiguration,
-            downloadState.getRangeTracker());
+            downloadState.getAccountRangeTracker(),
+            downloadState.getStorageRangeTracker());
     final SnapV2CompleteTaskStep completeTaskStep =
         new SnapV2CompleteTaskStep(snapSyncState, metricsSystem);
 
@@ -165,6 +169,12 @@ public class SnapV2WorldStateDownloadProcess implements WorldStateDownloadProces
                 outputCounter,
                 true,
                 "node_data_request")
+            .thenProcess(
+                "snapV2CheckNewPivotBlock-Complete",
+                task -> {
+                  pivotBlockSelector.checkForNewPivotCandidate(downloadState::startPivotCatchup);
+                  return task;
+                })
             .andFinishWith(
                 "snapV2RequestCompleteTask",
                 task -> completeTaskStep.markAsCompleteOrFailed(downloadState, task));
@@ -180,6 +190,12 @@ public class SnapV2WorldStateDownloadProcess implements WorldStateDownloadProces
                 outputCounter,
                 true,
                 "world_state_download")
+            .thenProcess(
+                "snapV2CheckNewPivotBlock-Account",
+                task -> {
+                  pivotBlockSelector.checkForNewPivotCandidate(downloadState::startPivotCatchup);
+                  return task;
+                })
             .thenProcessAsync(
                 "snapV2BatchDownloadAccountData",
                 requestTask -> requestDataStep.requestAccount(requestTask),
@@ -197,6 +213,12 @@ public class SnapV2WorldStateDownloadProcess implements WorldStateDownloadProces
                 true,
                 "world_state_download")
             .inBatches(snapSyncConfiguration.getStorageCountPerRequest())
+            .thenProcess(
+                "snapV2CheckNewPivotBlock-Storage",
+                tasks -> {
+                  pivotBlockSelector.checkForNewPivotCandidate(downloadState::startPivotCatchup);
+                  return tasks;
+                })
             .thenProcessAsyncOrdered(
                 "snapV2BatchDownloadStorageData",
                 requestTask -> requestDataStep.requestStorage(requestTask),
@@ -215,6 +237,12 @@ public class SnapV2WorldStateDownloadProcess implements WorldStateDownloadProces
                 outputCounter,
                 true,
                 "world_state_download")
+            .thenProcess(
+                "snapV2CheckNewPivotBlock-LargeStorage",
+                task -> {
+                  pivotBlockSelector.checkForNewPivotCandidate(downloadState::startPivotCatchup);
+                  return task;
+                })
             .thenProcessAsyncOrdered(
                 "snapV2BatchDownloadLargeStorageData",
                 requestTask -> requestDataStep.requestStorage(List.of(requestTask)),
@@ -249,6 +277,12 @@ public class SnapV2WorldStateDownloadProcess implements WorldStateDownloadProces
                                 .map(SnapV2BytecodeRequest::getCodeHash)
                                 .distinct()
                                 .count())
+            .thenProcess(
+                "snapV2CheckNewPivotBlock-Code",
+                tasks -> {
+                  pivotBlockSelector.checkForNewPivotCandidate(downloadState::startPivotCatchup);
+                  return tasks;
+                })
             .thenProcessAsyncOrdered(
                 "snapV2BatchDownloadCodeData",
                 tasks -> requestDataStep.requestCode(tasks),

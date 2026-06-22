@@ -43,8 +43,8 @@ final class WireKeepAlive extends ChannelDuplexHandler {
   @Override
   public void userEventTriggered(final ChannelHandlerContext ctx, final Object evt)
       throws IOException {
-    if (!(evt instanceof IdleStateEvent
-        && ((IdleStateEvent) evt).state() == IdleState.READER_IDLE)) {
+    if (!(evt instanceof IdleStateEvent idleStateEvent
+        && idleStateEvent.state() == IdleState.READER_IDLE)) {
       // We only care about idling of incoming data from our peer
       return;
     }

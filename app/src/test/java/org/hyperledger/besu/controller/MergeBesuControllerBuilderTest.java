@@ -56,7 +56,7 @@ import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStoragePrefixedKeyBlockchainStorage;
 import org.hyperledger.besu.ethereum.storage.keyvalue.VariablesKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -217,6 +217,22 @@ public class MergeBesuControllerBuilderTest {
   }
 
   @Test
+  public void buildsSuccessfullyWhenTerminalTotalDifficultyIsAbsent() {
+    when(genesisConfigOptions.getTerminalTotalDifficulty()).thenReturn(Optional.empty());
+
+    // Prior to this fix, build() threw here because createEthProtocolManager called orElseThrow()
+    // on an absent TTD. The TTD=ZERO assertion is secondary.
+    final Difficulty terminalTotalDifficulty =
+        visitWithMockConfigs(new MergeBesuControllerBuilder())
+            .build()
+            .getProtocolContext()
+            .getConsensusContext(MergeContext.class)
+            .getTerminalTotalDifficulty();
+
+    assertThat(terminalTotalDifficulty).isEqualTo(Difficulty.ZERO);
+  }
+
+  @Test
   public void assertConfiguredBlock() {
     final Blockchain mockChain = mock(Blockchain.class);
     when(mockChain.getBlockHeader(anyLong())).thenReturn(Optional.of(mock(BlockHeader.class)));
@@ -233,7 +249,9 @@ public class MergeBesuControllerBuilderTest {
   public void assertBuiltContextMonitorsTTD() {
     final GenesisState genesisState =
         GenesisState.fromConfig(
-            genesisConfig, this.besuControllerBuilder.createProtocolSchedule(), new CodeCache());
+            genesisConfig,
+            this.besuControllerBuilder.createProtocolSchedule(),
+            new PathBasedCodeCache());
     final MutableBlockchain blockchain = createInMemoryBlockchain(genesisState.getBlock());
     final MergeContext mergeContext =
         spy(

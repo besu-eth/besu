@@ -22,13 +22,13 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 
 import java.math.BigInteger;
+import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 
-import kotlin.collections.ArrayDeque;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.immutables.value.Value;
-import org.jspecify.annotations.Nullable;
 
 public final class GetStorageRangeMessage extends AbstractSnapMessageData {
 
@@ -37,8 +37,8 @@ public final class GetStorageRangeMessage extends AbstractSnapMessageData {
   }
 
   public static GetStorageRangeMessage readFrom(final MessageData message) {
-    if (message instanceof GetStorageRangeMessage) {
-      return (GetStorageRangeMessage) message;
+    if (message instanceof GetStorageRangeMessage getStorageRangeMessage) {
+      return getStorageRangeMessage;
     }
     final int code = message.getCode();
     if (code != SnapV1.GET_STORAGE_RANGE) {
@@ -70,36 +70,36 @@ public final class GetStorageRangeMessage extends AbstractSnapMessageData {
   }
 
   public StorageRange range(final boolean withRequestId) {
-    final ArrayDeque<Bytes32> hashes = new ArrayDeque<>();
     final RLPInput input = new BytesValueRLPInput(data, false);
     input.enterList();
     if (withRequestId) input.skipNext();
-    final Hash worldStateRootHash = Hash.wrap(Bytes32.wrap(input.readBytes32()));
-    final ImmutableStorageRange.Builder range =
-        ImmutableStorageRange.builder()
-            .worldStateRootHash(getRootHash().orElse(worldStateRootHash));
-    input.enterList();
-    while (!input.isEndOfCurrentList()) {
-      hashes.add(input.readBytes32());
-    }
-    range.hashes(hashes);
-    input.leaveList();
 
+    final Hash wireRootHash = Hash.wrap(Bytes32.wrap(input.readBytes32()));
+    // Zero-copy slice of the RLP-encoded account hash list; iterated on demand by accountHashes().
+    final Bytes rawAccountHashes = input.readAsRlp().raw();
+
+    final Hash startKeyHash;
     if (input.nextIsNull()) {
       input.skipNext();
-      range.startKeyHash(Hash.ZERO);
+      startKeyHash = Hash.ZERO;
     } else {
-      range.startKeyHash(Hash.wrap(Bytes32.wrap(input.readBytes32())));
+      startKeyHash = Hash.wrap(Bytes32.wrap(input.readBytes32()));
     }
+    final Hash endKeyHash;
     if (input.nextIsNull()) {
       input.skipNext();
-      range.endKeyHash(Hash.LAST);
+      endKeyHash = Hash.LAST;
     } else {
-      range.endKeyHash(Hash.wrap(Bytes32.wrap(input.readBytes32())));
+      endKeyHash = Hash.wrap(Bytes32.wrap(input.readBytes32()));
     }
-    range.responseBytes(input.readBigIntegerScalar());
-    input.leaveList();
-    return range.build();
+
+    return ImmutableStorageRange.builder()
+        .worldStateRootHash(getRootHash().orElse(wireRootHash))
+        .rawAccountHashes(rawAccountHashes)
+        .startKeyHash(startKeyHash)
+        .endKeyHash(endKeyHash)
+        .responseBytes(input.readBigIntegerScalar())
+        .build();
   }
 
   @Value.Immutable
@@ -107,12 +107,57 @@ public final class GetStorageRangeMessage extends AbstractSnapMessageData {
 
     Hash worldStateRootHash();
 
-    ArrayDeque<Bytes32> hashes();
+    Bytes rawAccountHashes();
 
     Hash startKeyHash();
 
-    @Nullable Hash endKeyHash();
+    Hash endKeyHash();
 
     BigInteger responseBytes();
+
+    /**
+     * Lazily iterates the requested account hashes by decoding {@link #rawAccountHashes()} on
+     * demand. Each call returns a fresh independent iterator so the snap server can stop early once
+     * its response budget is exhausted without materializing the full peer-supplied list.
+     */
+    default Iterable<Bytes32> accountHashes() {
+      return () ->
+          new Iterator<>() {
+            private final BytesValueRLPInput input =
+                new BytesValueRLPInput(rawAccountHashes(), false);
+            private Bytes32 peeked = null;
+            private boolean exhausted = false;
+
+            {
+              input.enterList();
+            }
+
+            @Override
+            public boolean hasNext() {
+              if (peeked != null) return true;
+              if (exhausted || input.isEndOfCurrentList()) {
+                exhausted = true;
+                return false;
+              }
+              peeked = input.readBytes32();
+              return true;
+            }
+
+            @Override
+            public Bytes32 next() {
+              if (!hasNext()) throw new NoSuchElementException();
+              final Bytes32 result = peeked;
+              peeked = null;
+              return result;
+            }
+          };
+    }
+
+    /** Returns {@code true} if the request covers more than one account. */
+    default boolean hasMultipleAccountHashes() {
+      final var it = accountHashes().iterator();
+      if (it.hasNext()) it.next();
+      return it.hasNext();
+    }
   }
 }

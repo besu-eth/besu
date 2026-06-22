@@ -125,7 +125,7 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
   private final boolean devMode;
   private final NetworkDefinition network;
   private final boolean discoveryEnabled;
-  private final List<URI> bootnodes = new ArrayList<>();
+  private final List<String> bootnodes = new ArrayList<>();
   private final boolean bootnodeEligible;
   private final boolean secp256k1Native;
   private final boolean altbn128Native;
@@ -736,7 +736,7 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
   }
 
   @Override
-  public List<URI> getBootnodes() {
+  public List<String> getBootnodes() {
     return unmodifiableList(bootnodes);
   }
 
@@ -755,9 +755,45 @@ public class BesuNode implements NodeConfiguration, RunnableNode, AutoCloseable 
   }
 
   @Override
-  public void setBootnodes(final List<URI> bootnodes) {
+  public void setBootnodes(final List<String> bootnodes) {
     this.bootnodes.clear();
     this.bootnodes.addAll(bootnodes);
+  }
+
+  @Override
+  public boolean isDiscoveryV5Enabled() {
+    return networkingConfiguration.discoveryConfiguration().isDiscoveryV5Enabled();
+  }
+
+  @Override
+  public void ensureAdminRpcEnabled() {
+    if (!jsonRpcConfiguration.isEnabled()) {
+      jsonRpcConfiguration.setEnabled(true);
+    }
+    if (!jsonRpcConfiguration.getRpcApis().contains("ADMIN")) {
+      jsonRpcConfiguration.addRpcApi("ADMIN");
+    }
+    // When auth is enabled, exempt admin_nodeInfo so the cluster harness can fetch
+    // bootnode addresses without needing credentials.
+    if (jsonRpcConfiguration.isAuthenticationEnabled()
+        && !jsonRpcConfiguration.getNoAuthRpcApis().contains("admin_nodeInfo")) {
+      final List<String> noAuth = new ArrayList<>(jsonRpcConfiguration.getNoAuthRpcApis());
+      noAuth.add("admin_nodeInfo");
+      jsonRpcConfiguration.setNoAuthRpcApis(noAuth);
+    }
+  }
+
+  public Map<String, Object> fetchBootnodeInfo() {
+    try {
+      final AdminRequestFactory.AdminNodeInfoResponse response =
+          nodeRequests().admin().adminNodeInfo().send();
+      if (response.hasError()) {
+        throw new RuntimeException("admin_nodeInfo failed: " + response.getError().getMessage());
+      }
+      return response.getResult();
+    } catch (final IOException e) {
+      throw new RuntimeException("Failed to fetch bootnode info via admin_nodeInfo", e);
+    }
   }
 
   public MiningConfiguration getMiningParameters() {
