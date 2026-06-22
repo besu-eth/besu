@@ -31,7 +31,7 @@ import org.apache.tuweni.units.bigints.UInt256;
 public interface GenesisConfigOptions {
 
   /**
-   * /** Is eth hash boolean.
+   * Is eth hash boolean.
    *
    * @return the boolean
    */
