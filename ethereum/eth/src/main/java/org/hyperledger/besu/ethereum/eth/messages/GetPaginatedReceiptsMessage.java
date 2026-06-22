@@ -35,8 +35,8 @@ public final class GetPaginatedReceiptsMessage extends GetReceiptsMessage {
   }
 
   public static GetPaginatedReceiptsMessage readFrom(final MessageData message) {
-    if (message instanceof GetPaginatedReceiptsMessage) {
-      return (GetPaginatedReceiptsMessage) message;
+    if (message instanceof GetPaginatedReceiptsMessage getPaginatedReceiptsMessage) {
+      return getPaginatedReceiptsMessage;
     }
     final int code = message.getCode();
     if (code != EthProtocolMessages.GET_RECEIPTS) {

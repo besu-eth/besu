@@ -155,9 +155,9 @@ public class Memory {
   public boolean equals(final Object other) {
     if (other == null) return false;
     if (other == this) return true;
-    if (!(other instanceof Memory)) return false;
+    if (!(other instanceof Memory that)) return false;
 
-    return Arrays.equals(memBytes, ((Memory) other).memBytes);
+    return Arrays.equals(memBytes, that.memBytes);
   }
 
   @Override

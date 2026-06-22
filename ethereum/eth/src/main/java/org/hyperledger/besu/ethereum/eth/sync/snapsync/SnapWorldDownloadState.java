@@ -308,8 +308,8 @@ public class SnapWorldDownloadState extends WorldDownloadState<SnapDataRequest>
     if (!internalFuture.isDone()) {
       if (request instanceof BytecodeRequest) {
         pendingCodeRequests.add(request);
-      } else if (request instanceof StorageRangeDataRequest) {
-        if (!((StorageRangeDataRequest) request).getStartKeyHash().equals(RangeManager.MIN_RANGE)) {
+      } else if (request instanceof StorageRangeDataRequest storageRangeDataRequest) {
+        if (!storageRangeDataRequest.getStartKeyHash().equals(RangeManager.MIN_RANGE)) {
           pendingLargeStorageRequests.add(request);
         } else {
           pendingStorageRequests.add(request);

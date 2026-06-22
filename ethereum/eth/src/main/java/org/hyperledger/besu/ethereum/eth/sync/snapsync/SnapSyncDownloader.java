@@ -191,8 +191,8 @@ public class SnapSyncDownloader implements SnapSyncController {
    */
   private void wireSnapSyncBidirectionalReferences(final ChainDownloader chainDownloader) {
     // Register chain downloader for pivot update callbacks
-    if (chainDownloader instanceof PivotUpdateListener) {
-      fastSyncActions.setChainDownloaderListener((PivotUpdateListener) chainDownloader);
+    if (chainDownloader instanceof PivotUpdateListener pivotUpdateListener) {
+      fastSyncActions.setChainDownloaderListener(pivotUpdateListener);
       LOG.debug("Registered chain downloader as pivot update listener");
     }
 
