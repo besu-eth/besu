@@ -80,6 +80,10 @@ public class JsonRpcExecutorHandler {
                         .addArgument(timeoutMillis)
                         .addArgument(requestBodyAsJson)
                         .log();
+                    // OPTIONAL: headWritten() check is required — setStatusCode() after
+                    // headers are flushed throws IllegalStateException in Vert.x.
+                    // reset() issues RST_STREAM (HTTP/2) or TCP close (HTTP/1.1),
+                    // which is the correct abort for an in-progress response stream.
                     if (ctx.response().headWritten()) {
                       ctx.response().reset();
                     } else {

@@ -87,7 +87,13 @@ class JsonRpcExecutorHandlerTest {
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Handler<Long>> timerHandlerCaptor = ArgumentCaptor.forClass(Handler.class);
 
-    when(mockContext.get(eq(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name()))).thenReturn("{}");
+    final JsonObject jsonRequest =
+        new JsonObject().put("jsonrpc", "2.0").put("id", 1).put("method", "eth_blockNumber");
+    final Map<String, Object> contextData = new HashMap<>();
+    contextData.put(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name(), jsonRequest);
+    when(mockContext.data()).thenReturn(contextData);
+    when(mockContext.get(eq(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name())))
+        .thenReturn(jsonRequest);
     when(mockVertx.setTimer(delayCaptor.capture(), timerHandlerCaptor.capture())).thenReturn(1L);
     when(mockContext.get("timerId")).thenReturn(1L);
 

@@ -69,7 +69,7 @@ public class CombinedJsonRpcProcessor implements JsonRpcProcessor {
       final JsonRpcMethod method,
       final Span metricSpan,
       final JsonRpcRequestContext request) {
-    try (final OperationTimer.TimingContext ignored =
+    try (final OperationTimer.TimingContext autoClosed =
         requestTimer.labels(request.getRequest().getMethod()).startTimer()) {
       JsonRpcResponse response = executeMethod(id, method, request);
       if (response.getType() == RpcResponseType.ERROR) {
@@ -90,7 +90,7 @@ public class CombinedJsonRpcProcessor implements JsonRpcProcessor {
       final OutputStream out,
       final ObjectMapper mapper)
       throws IOException {
-    try (final OperationTimer.TimingContext ignored =
+    try (final OperationTimer.TimingContext autoClosed =
         requestTimer.labels(request.getRequest().getMethod()).startTimer()) {
       executeMethodAndStream(id, method, request, out, mapper);
       metricSpan.end();
