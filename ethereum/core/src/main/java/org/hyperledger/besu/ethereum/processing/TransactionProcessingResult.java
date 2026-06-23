@@ -52,6 +52,13 @@ public class TransactionProcessingResult
 
   private final long stateGasUsed;
 
+  /**
+   * EIP-8037: the unfloored regular gas dimension for block accounting. Set explicitly by the
+   * transaction processor; when unset, falls back to {@code estimateGasUsedByTransaction -
+   * stateGasUsed} (which equals the regular gas whenever the calldata floor is not binding).
+   */
+  private long regularGasUsedForBlock = Long.MIN_VALUE;
+
   private final List<Log> logs;
 
   private final Bytes output;
@@ -366,6 +373,29 @@ public class TransactionProcessingResult
    */
   public long getStateGasUsedForBlock() {
     return stateGasUsed;
+  }
+
+  /**
+   * Returns the unfloored regular gas dimension used by EIP-8037 block accounting. The calldata
+   * floor (EIP-7976) raises the gas the sender pays but does not count toward the block's regular
+   * gas dimension, so this must exclude the floor. Falls back to {@code
+   * estimateGasUsedByTransaction - stateGasUsed} when not explicitly set.
+   *
+   * @return the unfloored regular gas used for block accounting
+   */
+  public long getRegularGasUsedForBlock() {
+    return regularGasUsedForBlock == Long.MIN_VALUE
+        ? estimateGasUsedByTransaction - stateGasUsed
+        : regularGasUsedForBlock;
+  }
+
+  /**
+   * Sets the unfloored regular gas dimension for EIP-8037 block accounting.
+   *
+   * @param regularGasUsedForBlock the unfloored regular gas
+   */
+  public void setRegularGasUsedForBlock(final long regularGasUsedForBlock) {
+    this.regularGasUsedForBlock = regularGasUsedForBlock;
   }
 
   /**

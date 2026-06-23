@@ -34,8 +34,16 @@ public abstract class TransactionGasAccounting {
 
   private static final Logger LOG = LoggerFactory.getLogger(TransactionGasAccounting.class);
 
-  /** Result of the gas accounting calculation. */
-  public record GasResult(long effectiveStateGas, long gasUsedByTransaction, long usedGas) {}
+  /**
+   * Result of the gas accounting calculation.
+   *
+   * @param effectiveStateGas the state gas dimension
+   * @param gasUsedByTransaction floored 2D gas (max(regular, floor) + state) for estimation/receipts
+   * @param usedGas post-refund gas the sender pays
+   * @param regularGas the unfloored regular gas dimension (execution - state) for block accounting
+   */
+  public record GasResult(
+      long effectiveStateGas, long gasUsedByTransaction, long usedGas, long regularGas) {}
 
   /** The transaction gas limit. */
   public abstract long txGasLimit();
@@ -70,7 +78,8 @@ public abstract class TransactionGasAccounting {
    */
   public GasResult calculate() {
     if (regularGasLimitExceeded()) {
-      return new GasResult(stateGasUsed(), txGasLimit(), txGasLimit());
+      return new GasResult(
+          stateGasUsed(), txGasLimit(), txGasLimit(), Math.max(0L, txGasLimit() - stateGasUsed()));
     }
 
     final long executionGas = txGasLimit() - remainingGas() - stateGasReservoir();
@@ -85,6 +94,6 @@ public abstract class TransactionGasAccounting {
     }
     final long gasUsedByTransaction = Math.max(regularGas, floorCost()) + stateGas;
     final long usedGas = txGasLimit() - refundedGas();
-    return new GasResult(stateGas, gasUsedByTransaction, usedGas);
+    return new GasResult(stateGas, gasUsedByTransaction, usedGas, Math.max(0L, regularGas));
   }
 }

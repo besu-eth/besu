@@ -64,11 +64,9 @@ public class BlockGasAccountingStrategyTest {
     when(tx.getGasLimit()).thenReturn(GAS_LIMIT);
 
     final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
-    when(result.getGasRemaining()).thenReturn(GAS_REMAINING);
-    when(result.getEstimateGasUsedByTransaction()).thenReturn(PRE_REFUND_GAS);
-    when(result.getStateGasUsed()).thenReturn(0L);
+    when(result.getRegularGasUsedForBlock()).thenReturn(PRE_REFUND_GAS);
 
-    // Amsterdam strategy: estimateGasUsedByTransaction - stateGasUsed = 70,000 - 0 = 70,000
+    // Amsterdam strategy: unfloored regular gas for block accounting = 70,000
     final long blockGas =
         BlockGasAccountingStrategy.AMSTERDAM.calculateTransactionRegularGas(tx, result);
 
@@ -90,8 +88,7 @@ public class BlockGasAccountingStrategyTest {
 
     final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
     when(result.getGasRemaining()).thenReturn(gasRemainingAfterRefund);
-    when(result.getEstimateGasUsedByTransaction()).thenReturn(preRefundGasUsed);
-    when(result.getStateGasUsed()).thenReturn(0L);
+    when(result.getRegularGasUsedForBlock()).thenReturn(preRefundGasUsed);
 
     // Frontier: 100,000 - 40,000 = 60,000 (benefits from refund)
     final long frontierGas =
@@ -117,8 +114,7 @@ public class BlockGasAccountingStrategyTest {
 
     final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
     when(result.getGasRemaining()).thenReturn(gasRemaining);
-    when(result.getEstimateGasUsedByTransaction()).thenReturn(gasUsed);
-    when(result.getStateGasUsed()).thenReturn(0L);
+    when(result.getRegularGasUsedForBlock()).thenReturn(gasUsed);
 
     final long frontierGas =
         BlockGasAccountingStrategy.FRONTIER.calculateTransactionRegularGas(tx, result);
@@ -136,11 +132,10 @@ public class BlockGasAccountingStrategyTest {
 
     final TransactionProcessingResult result = mock(TransactionProcessingResult.class);
     when(result.getGasRemaining()).thenReturn(GAS_REMAINING);
-    // estimateGasUsedByTransaction = 70,000 (pre-refund), stateGas = 10,000
-    when(result.getEstimateGasUsedByTransaction()).thenReturn(PRE_REFUND_GAS);
-    when(result.getStateGasUsed()).thenReturn(10_000L);
+    // Unfloored regular gas dimension (execution - state) = 70,000 - 10,000 = 60,000
+    when(result.getRegularGasUsedForBlock()).thenReturn(60_000L);
 
-    // Amsterdam block gas = estimateGas - stateGas = 70,000 - 10,000 = 60,000
+    // Amsterdam block gas = unfloored regular gas = 60,000
     final long blockGas =
         BlockGasAccountingStrategy.AMSTERDAM.calculateTransactionRegularGas(tx, result);
     assertThat(blockGas).isEqualTo(60_000L);

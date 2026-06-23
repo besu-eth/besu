@@ -120,7 +120,9 @@ public interface BlockGasAccountingStrategy {
         @Override
         public long calculateTransactionRegularGas(
             final Transaction transaction, final TransactionProcessingResult result) {
-          return result.getEstimateGasUsedByTransaction() - result.getStateGasUsed();
+          // EIP-7976/EIP-8037: the calldata floor raises the gas the sender pays but does not
+          // count toward the block's regular gas dimension, so use the unfloored regular gas.
+          return result.getRegularGasUsedForBlock();
         }
 
         @Override

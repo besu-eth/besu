@@ -607,15 +607,18 @@ public class MainnetTransactionProcessor {
           accessLocationTracker.map(tracker -> tracker.createPartialBlockAccessView(worldState));
 
       if (txSucceeded) {
-        return TransactionProcessingResult.successful(
-            initialFrame.getLogs(),
-            gasUsedByTransaction,
-            refundedGas,
-            usedGas,
-            effectiveStateGas,
-            initialFrame.getOutputData(),
-            partialBlockAccessView,
-            validationResult);
+        final TransactionProcessingResult successResult =
+            TransactionProcessingResult.successful(
+                initialFrame.getLogs(),
+                gasUsedByTransaction,
+                refundedGas,
+                usedGas,
+                effectiveStateGas,
+                initialFrame.getOutputData(),
+                partialBlockAccessView,
+                validationResult);
+        successResult.setRegularGasUsedForBlock(gasResult.regularGas());
+        return successResult;
       } else {
         if (initialFrame.getExceptionalHaltReason().isPresent()) {
           LOG.debug(
@@ -629,15 +632,18 @@ public class MainnetTransactionProcessor {
               transaction.getHash(),
               initialFrame.getRevertReason().get());
         }
-        return TransactionProcessingResult.failed(
-            gasUsedByTransaction,
-            refundedGas,
-            usedGas,
-            effectiveStateGas,
-            validationResult,
-            initialFrame.getRevertReason(),
-            initialFrame.getExceptionalHaltReason(),
-            partialBlockAccessView);
+        final TransactionProcessingResult failedResult =
+            TransactionProcessingResult.failed(
+                gasUsedByTransaction,
+                refundedGas,
+                usedGas,
+                effectiveStateGas,
+                validationResult,
+                initialFrame.getRevertReason(),
+                initialFrame.getExceptionalHaltReason(),
+                partialBlockAccessView);
+        failedResult.setRegularGasUsedForBlock(gasResult.regularGas());
+        return failedResult;
       }
     } catch (final MerkleTrieException re) {
       operationTracer.traceEndTransaction(
