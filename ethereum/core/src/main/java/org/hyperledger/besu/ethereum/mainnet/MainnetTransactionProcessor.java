@@ -284,8 +284,13 @@ public class MainnetTransactionProcessor {
                 .get()
                 .process(delegationUpdater, transaction, accessLocationTracker);
         eip2930WarmAddressList.addAll(codeDelegationResult.accessedDelegatorAddresses());
-        alreadyExistingDelegators = codeDelegationResult.alreadyExistingDelegators();
-        authBaseRefundCount = codeDelegationResult.authBaseRefundCount();
+        // EIP-7702 (#11715): an invalid authorization grows no state, so it refunds its full
+        // worst-case intrinsic charge — NEW_ACCOUNT + AUTH_BASE state gas plus the regular
+        // ACCOUNT_WRITE — exactly like an authority whose account already existed.
+        final long invalidAuthorizations = codeDelegationResult.invalidAuthorizations();
+        alreadyExistingDelegators =
+            codeDelegationResult.alreadyExistingDelegators() + invalidAuthorizations;
+        authBaseRefundCount = codeDelegationResult.authBaseRefundCount() + invalidAuthorizations;
         codeDelegationRefund =
             gasCalculator.calculateDelegateCodeGasRefund(alreadyExistingDelegators);
         delegationUpdater.commit();

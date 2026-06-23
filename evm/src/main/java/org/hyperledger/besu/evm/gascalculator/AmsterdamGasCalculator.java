@@ -369,8 +369,10 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
 
   @Override
   public long calculateDelegateCodeGasRefund(final long alreadyExistingAccounts) {
-    // No refund needed — regular cost is lower, state gas uses its own refund path
-    return 0L;
+    // EIP-7702: the worst-case ACCOUNT_WRITE charged per authorization in intrinsic gas is refunded
+    // (via the regular refund counter) for authorizations whose authority account already existed
+    // or that were invalid — neither grows a new account.
+    return ACCOUNT_WRITE * alreadyExistingAccounts;
   }
 
   @Override

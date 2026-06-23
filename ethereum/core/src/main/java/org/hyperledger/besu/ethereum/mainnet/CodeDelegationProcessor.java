@@ -99,23 +99,27 @@ public class CodeDelegationProcessor {
           "Invalid chain id for code delegation. Expected: {}, Actual: {}",
           maybeChainId.get(),
           codeDelegation.chainId());
+      result.incrementInvalidAuthorization();
       return;
     }
 
     if (codeDelegation.nonce() == MAX_NONCE) {
       LOG.trace("Nonce of code delegation must be less than 2^64-1");
+      result.incrementInvalidAuthorization();
       return;
     }
 
     if (codeDelegation.signature().getS().compareTo(halfCurveOrder) > 0) {
       LOG.trace(
           "Invalid signature for code delegation. S value must be less or equal than the half curve order.");
+      result.incrementInvalidAuthorization();
       return;
     }
 
     final Optional<Address> authorizer = codeDelegation.authorizer();
     if (authorizer.isEmpty()) {
       LOG.trace("Invalid signature for code delegation");
+      result.incrementInvalidAuthorization();
       return;
     }
 
@@ -135,12 +139,14 @@ public class CodeDelegationProcessor {
     if (maybeExistingAccount.isEmpty()) {
       // only create an account if nonce is valid
       if (codeDelegation.nonce() != 0) {
+        result.incrementInvalidAuthorization();
         return;
       }
       authority = worldUpdater.createAccount(authorizer.get());
       eip7928AccessList.ifPresent(t -> t.addTouchedAccount(authority.getAddress()));
     } else {
       if (!codeDelegationService.canSetCodeDelegation(maybeExistingAccount.get())) {
+        result.incrementInvalidAuthorization();
         return;
       }
 
@@ -149,6 +155,7 @@ public class CodeDelegationProcessor {
             "Invalid nonce for code delegation. Expected: {}, Actual: {}",
             maybeExistingAccount.get().getNonce(),
             codeDelegation.nonce());
+        result.incrementInvalidAuthorization();
         return;
       }
 

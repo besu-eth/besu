@@ -23,6 +23,7 @@ public class CodeDelegationResult {
   private final Set<Address> accessedDelegatorAddresses = new HashSet<>(Address.SIZE);
   private long alreadyExistingDelegators = 0L;
   private long authBaseRefundCount = 0L;
+  private long invalidAuthorizations = 0L;
 
   public void addAccessedDelegatorAddress(final Address address) {
     accessedDelegatorAddresses.add(address);
@@ -34,6 +35,23 @@ public class CodeDelegationResult {
 
   public void incrementAuthBaseRefundCount() {
     authBaseRefundCount += 1;
+  }
+
+  /**
+   * Records an invalid authorization. Per EIP-7702 (#11715) an invalid authorization grows no
+   * state, so the full worst-case intrinsic charge is refunded: NEW_ACCOUNT + AUTH_BASE state gas
+   * and the regular ACCOUNT_WRITE.
+   */
+  public void incrementInvalidAuthorization() {
+    invalidAuthorizations += 1;
+  }
+
+  /**
+   * Returns the count of invalid authorizations, each of which refunds its full worst-case
+   * intrinsic charge (NEW_ACCOUNT + AUTH_BASE state, plus the regular ACCOUNT_WRITE).
+   */
+  public long invalidAuthorizations() {
+    return invalidAuthorizations;
   }
 
   public Set<Address> accessedDelegatorAddresses() {
