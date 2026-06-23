@@ -1,4 +1,4 @@
-# [Besu Code of Conduct](CODE_OF_CONDUCT.md)
+# Besu Code of Conduct
 
 Besu is a collaborative project at The Linux Foundation. It is an open-source and open
 community project where participants choose to work together, and in that process experience
