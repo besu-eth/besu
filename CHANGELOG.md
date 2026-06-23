@@ -21,11 +21,11 @@
 
 ### Bug fixes
 - Fix `eth_getBlockByNumber("safe"/"finalized")` returning `Unknown block` on nodes with a complete chain but no peers. The FCU handler now only returns `SYNCING` when the head block is genuinely not found. [#10658](https://github.com/besu-eth/besu/issues/10658)
-- `--api-gas-price-blocks` fixed to treat `0` as "sample zero blocks" [#10642](https://github.com/besu-eth/besu/pull/10642)
 
 ### Additions and Improvements
 - Upgrade web3j dependencies to 5.0.3 [#10627](https://github.com/besu-eth/besu/pull/10627)
 - Besu now falls back to Proof of Stake when the genesis file declares no consensus mechanism (e.g. an empty `"config": {}`). [#10266](https://github.com/besu-eth/besu/pull/10266)
+- Add `HealthCheckService` plugin API enabling custom health check implementations. The plugin-based `/readiness` response body is simplified to `{"status":"UP"|"DOWN"}` and no longer includes the previous `{peers, sync}` detail. [#10167](https://github.com/besu-eth/besu/pull/10167)
 
 ## 26.6.1
 
@@ -61,8 +61,8 @@
 ### Breaking Changes
 - Besu now requires JDK 25 to build and run.
 - RPC changes to enhance compatibility with other ELs
+  - Block number parameter in RPCs now only supports hex values. Non-hex (decimal) block number parameters are now rejected. Affected RPCs including but not limited to: `admin_logsRemoveCache`, `admin_generateLogBloomCache`, `eth_estimateGas`, `eth_getBlockByNumber`, `eth_getBlockTransactionCountByNumber`, `eth_getTransactionByBlockNumberAndIndex`, `eth_getUncleByBlockNumberAndIndex`, `eth_getUncleCountByBlockNumber`, `eth_feeHistory`, `eth_getProof`, `trace_block`, `trace_call`, `trace_callMany`, `trace_replayBlockTransactions`, `debug_traceBlockByNumber`, `debug_traceCall`, `debug_replayBlock`, `debug_getRawBlock`, `debug_getRawHeader`, and `debug_getRawReceipts` [#10515](https://github.com/besu-eth/besu/pull/10515), [#10240](https://github.com/besu-eth/besu/pull/10240)
   - Hash parameter in RPCs now only supports hex values. Hash values without a `0x` prefix are now rejected with `-32602 INVALID_PARAMS`. Affected RPCs including but not limited to: `debug_getRawTransaction`, `eth_getTransactionByHash`, `eth_getTransactionReceipt` [#10505](https://github.com/besu-eth/besu/pull/10505)
-  - Block number parameter in RPCs now only supports hex values. Non-hex (decimal) block number parameters are now rejected. Affected RPCs including but not limited to: `admin_logsRemoveCache`, `admin_generateLogBloomCache`, `eth_estimateGas`, `eth_getBlockByNumber`, `eth_getBlockTransactionCountByNumber`, `eth_getTransactionByBlockNumberAndIndex`, `eth_getUncleByBlockNumberAndIndex`, `eth_getUncleCountByBlockNumber`, `eth_feeHistory`, `trace_block`, `trace_call`, `trace_callMany`, `trace_replayBlockTransactions`, `debug_traceBlockByNumber`, `debug_traceCall`, and `debug_replayBlock` [#10515](https://github.com/besu-eth/besu/pull/10515), [#10240](https://github.com/besu-eth/besu/pull/10240)
 
 ### Upcoming Breaking Changes
 - Sunsetting features - for more context on the reasoning behind the deprecation of these features, including alternative options, read [this blog post](https://www.lfdecentralizedtrust.org/blog/sunsetting-tessera-and-simplifying-hyperledger-besu)
@@ -79,20 +79,22 @@
 
 ### Bug fixes
 - `debug_accountAt`: fix off-by-one in transaction index validation that caused an `IndexOutOfBoundsException` when `txIndex` equalled the transaction list size; the boundary is now correctly rejected with `INVALID_TRANSACTION_PARAMS` [#10464](https://github.com/besu-eth/besu/pull/10464)
+- Fix transaction pool save/restore so disk access lock contention is reported through the returned futures instead of blocking callers or leaving the pool partially disabled. [#10561](https://github.com/besu-eth/besu/pull/10561)
 - Fix `Address.addressHash()` stalling under high concurrent load: replaced Guava `LoadingCache` (non-fair segment lock caused indefinite starvation when transaction pool validation and parallel block processing threads simultaneously saturated the same cache segments) with Caffeine, which computes hashes without holding a segment lock. [#10235](https://github.com/besu-eth/besu/pull/10235)
 - Fix `testing_buildBlockV1` to return correct `blockValue` (actual priority fees) and omit null `blockAccessList`/`slotNumber` fields from the response payload; same omission applies to `engine_getPayloadV6` (these fields are always populated for a V6 payload). [#10492](https://github.com/besu-eth/besu/pull/10492)
 - Fix `testing_buildBlockV1` to return error `-32000` when an explicitly provided transaction is not applicable (e.g. wrong nonce), instead of silently dropping it and returning a success response. [#10486](https://github.com/besu-eth/besu/pull/10486)
 - Fix `LayeredKeyValueStorage.isClosed()` repeatedly re-walking the full parent chain on every storage operation, causing CPU saturation under a stalled forkchoice head. The closed-state is now cached per layer after the first propagation. [#10508](https://github.com/besu-eth/besu/issues/10508)
 - Fix `engine_forkchoiceUpdatedV1` now returns `-38003 INVALID_PAYLOAD_ATTRIBUTES` for invalid payload attribute timestamps (zero or not greater than head). [#10353](https://github.com/besu-eth/besu/pull/10353)
-- Fix `engine_newPayloadV4`/`V5` now returns `-32602 INVALID_PARAMS` instead of `INVALID` payload status when execution requests contain an unknown request type. [#10484](https://github.com/besu-eth/besu/pull/10484)
+- Fix `engine_newPayloadV4`/`V5` returns `-32602 INVALID_PARAMS` when execution requests are out of order, have empty data, contain duplicate type bytes, or the param is null; returns `INVALID` payload status for unknown request type bytes. [#10484](https://github.com/besu-eth/besu/pull/10484)
 - Fix `debug_trace*` `storage` field to emit only for SLOAD/SSTORE opcodes showing the single slot touched, matching the execution-apis spec and geth behaviour [#10176](https://github.com/besu-eth/besu/pull/10176)
 - Fix blob transaction sidecar validation: detect missing sidecars, KZG commitment/versioned-hash mismatches, and type/size mismatches against eth/68 announcements; disconnect offending peers immediately [#10510](https://github.com/hyperledger/besu/pull/10510)
 - Fix `PeerTransactionTracker` incorrectly evicting peers that are connected but awaiting `ChainHeadTracker` validation, causing Besu to silently drop announced transactions from those peers [#10511](https://github.com/hyperledger/besu/pull/10511)
 - Fix `RLPException` observed during BFT (QBFT/IBFT2) rolling upgrades from Besu 25.x. Use the flag `--Xbft-legacy-protocol-encoding` on each upgrading Besu node to remain compatible with existing Besu 25.x nodes on the BFT network. [#10499](https://github.com/besu-eth/besu/pull/10499)
+- Use a non-zero exit code when Besu shuts down after detecting disk-full errors in RocksDB transactions or log bloom cache I/O, allowing process managers to restart or alert correctly [#10254](https://github.com/besu-eth/besu/pull/10254)
+- Cache successfully validated engine JWT token so that the same token is only checked once per minute [#10559](https://github.com/besu-eth/besu/pull/10559) 
 
 ### Additions and Improvements
 - Add `eth_baseFee` JSON-RPC method, returning the calculated base fee of the next block [#10457](https://github.com/besu-eth/besu/pull/10457)
-- Add `HealthCheckService` plugin API enabling custom health check implementations [#10167](https://github.com/besu-eth/besu/pull/10167)
 - Add `eth_getStorageValues` JSON-RPC method for batched reads of multiple storage slots across multiple accounts in a single call [#10259](https://github.com/besu-eth/besu/pull/10259)
 - Add `enableReturnData` parameter to `debug_traceTransaction` and `debug_traceBlockByNumber`, and include `returnData` in `StructLog` when captured; the field is omitted when return data is empty or not captured. [#10172](https://github.com/besu-eth/besu/pull/10172)
 - Updated `Bouncycastle` to 1.84 and `maven-artifact` to 3.9.15 to resolve CVEs reported in those libraries. Besu's usage patterns are not affected by these vulnerabilities. [#10420](https://github.com/besu-eth/besu/pull/10420)
@@ -222,7 +224,7 @@ are provided with different values, using input as per the execution-apis spec i
 
 ### Plugin API
 - Plugin API: Allow the registration of multiple PluginTransactionPoolValidatorFactory [#9964](https://github.com/hyperledger/besu/pull/9964)
-- Plugin API: pass pending block header when creating selectors [#10034](https://github.com/hyperledger/besu/pull/10034)
+- Plugin API: pass pending block header when creating selectors [#10034](https://github.com/besu-eth/besu/pull/10034)
 
 ### RPCs
 - Add `blockTimestamp` to transaction RPC results [#9887](https://github.com/hyperledger/besu/pull/9887)
