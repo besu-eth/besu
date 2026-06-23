@@ -29,8 +29,7 @@ public class JsonRpcParameter {
    * must opt out individually via {@code @JsonIgnoreProperties(ignoreUnknown = true)} — without
    * that annotation, an unknown property fails deserialization regardless of its value.
    */
-  private static final ObjectMapper mapperDefault =
-      JsonRpcObjectMapperFactory.createParameterMapper();
+  private static final ObjectMapper mapperDefault = JsonRpcObjectMapperFactory.getParameterMapper();
 
   /**
    * Like mapperDefault but with {@link DeserializationFeature#FAIL_ON_UNKNOWN_PROPERTIES}
@@ -39,7 +38,7 @@ public class JsonRpcParameter {
    * deserialization to fail.
    */
   private static final ObjectMapper mapperFailOnUnknownButNull =
-      JsonRpcObjectMapperFactory.createParameterMapperIgnoringUnknownNulls();
+      JsonRpcObjectMapperFactory.getParameterMapperIgnoringUnknownNulls();
 
   /**
    * Retrieves a required parameter at the given index interpreted as the given class. Throws

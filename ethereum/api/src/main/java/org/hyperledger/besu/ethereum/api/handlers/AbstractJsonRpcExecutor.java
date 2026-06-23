@@ -50,7 +50,7 @@ public abstract class AbstractJsonRpcExecutor {
   final JsonRpcConfiguration jsonRpcConfiguration;
 
   private static final ObjectMapper jsonObjectMapper =
-      JsonRpcObjectMapperFactory.createResponseMapper();
+      JsonRpcObjectMapperFactory.getResponseMapper();
 
   /**
    * Creates a new AbstractJsonRpcExecutor.

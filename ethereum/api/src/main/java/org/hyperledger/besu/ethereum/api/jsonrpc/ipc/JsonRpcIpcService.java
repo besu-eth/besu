@@ -56,7 +56,7 @@ public class JsonRpcIpcService {
 
   private static final Logger LOG = LoggerFactory.getLogger(JsonRpcIpcService.class);
   private static final ObjectWriter JSON_OBJECT_WRITER =
-      JsonRpcObjectMapperFactory.createResponseMapper()
+      JsonRpcObjectMapperFactory.getResponseMapper()
           .writer()
           .without(JsonGenerator.Feature.FLUSH_PASSED_TO_STREAM)
           .with(JsonGenerator.Feature.AUTO_CLOSE_TARGET);

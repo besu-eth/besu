@@ -48,7 +48,7 @@ public class SubscriptionManager extends AbstractVerticle {
 
   private static final Logger LOG = LoggerFactory.getLogger(SubscriptionManager.class);
   private static final ObjectMapper jsonObjectMapper =
-      JsonRpcObjectMapperFactory.createResponseMapper();
+      JsonRpcObjectMapperFactory.getResponseMapper();
 
   public static final String EVENTBUS_REMOVE_SUBSCRIPTIONS_ADDRESS =
       "SubscriptionManager::removeSubscriptions";

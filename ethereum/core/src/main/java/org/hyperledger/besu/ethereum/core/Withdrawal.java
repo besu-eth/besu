@@ -25,10 +25,13 @@ import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 import java.util.Objects;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonGetter;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt64;
 
+@JsonPropertyOrder({"index", "validatorIndex", "address", "amount"})
 public class Withdrawal implements org.hyperledger.besu.plugin.data.Withdrawal {
   private final UInt64 index;
   private final UInt64 validatorIndex;
@@ -60,21 +63,25 @@ public class Withdrawal implements org.hyperledger.besu.plugin.data.Withdrawal {
   }
 
   @Override
+  @JsonGetter("index")
   public UInt64 getIndex() {
     return index;
   }
 
   @Override
+  @JsonGetter("validatorIndex")
   public UInt64 getValidatorIndex() {
     return validatorIndex;
   }
 
   @Override
+  @JsonGetter("address")
   public Address getAddress() {
     return address;
   }
 
   @Override
+  @JsonGetter("amount")
   public GWei getAmount() {
     return amount;
   }

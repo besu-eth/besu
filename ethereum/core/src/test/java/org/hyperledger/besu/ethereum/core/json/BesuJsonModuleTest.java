@@ -21,8 +21,14 @@ import org.hyperledger.besu.datatypes.BlobGas;
 import org.hyperledger.besu.datatypes.GWei;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.LogsBloomFilter;
+import org.hyperledger.besu.datatypes.RequestType;
+import org.hyperledger.besu.datatypes.VersionedHash;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Withdrawal;
+import org.hyperledger.besu.ethereum.core.kzg.Blob;
+import org.hyperledger.besu.ethereum.core.kzg.KZGCommitment;
+import org.hyperledger.besu.ethereum.core.kzg.KZGProof;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import java.util.List;
@@ -30,6 +36,7 @@ import java.util.List;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.bytes.Bytes48;
 import org.apache.tuweni.units.bigints.UInt64;
 import org.junit.jupiter.api.Test;
 
@@ -56,6 +63,19 @@ class BesuJsonModuleTest {
     assertThat(mapper.writeValueAsString(bytes32)).isEqualTo("\"" + bytes32.toHexString() + "\"");
     assertThat(mapper.readValue(mapper.writeValueAsString(bytes32), Bytes32.class))
         .isEqualTo(bytes32);
+
+    final Bytes48 bytes48 = Bytes48.fromHexString("0x" + "12".repeat(48));
+    assertThat(mapper.writeValueAsString(bytes48)).isEqualTo("\"" + bytes48.toHexString() + "\"");
+    assertThat(mapper.readValue(mapper.writeValueAsString(bytes48), Bytes48.class))
+        .isEqualTo(bytes48);
+
+    // VersionedHash requires the version byte (0x01) as the first byte.
+    final VersionedHash versionedHash =
+        new VersionedHash(Bytes32.fromHexString("0x01" + "00".repeat(31)));
+    assertThat(mapper.writeValueAsString(versionedHash))
+        .isEqualTo("\"" + versionedHash.getBytes().toHexString() + "\"");
+    assertThat(mapper.readValue(mapper.writeValueAsString(versionedHash), VersionedHash.class))
+        .isEqualTo(versionedHash);
   }
 
   @Test
@@ -72,6 +92,35 @@ class BesuJsonModuleTest {
     assertThat(mapper.writeValueAsString(blobGas)).isEqualTo("\"0x2a\"");
     assertThat(mapper.readValue(mapper.writeValueAsString(blobGas), BlobGas.class))
         .isEqualTo(blobGas);
+
+    final GWei gwei = GWei.of(42L);
+    assertThat(mapper.writeValueAsString(gwei)).isEqualTo("\"0x2a\"");
+    assertThat(mapper.readValue(mapper.writeValueAsString(gwei), GWei.class)).isEqualTo(gwei);
+  }
+
+  @Test
+  void shouldSerializeAndDeserializeBlobAndRequestTypes() throws Exception {
+    final Request request = new Request(RequestType.DEPOSIT, Bytes.of(1));
+    assertThat(mapper.writeValueAsString(request))
+        .isEqualTo("\"" + request.getEncodedRequest().toHexString() + "\"");
+    assertThat(mapper.readValue(mapper.writeValueAsString(request), Request.class))
+        .isEqualTo(request);
+
+    final KZGCommitment commitment =
+        new KZGCommitment(Bytes48.fromHexString("0x" + "ab".repeat(48)));
+    assertThat(mapper.writeValueAsString(commitment))
+        .isEqualTo("\"" + commitment.getData().toHexString() + "\"");
+    assertThat(mapper.readValue(mapper.writeValueAsString(commitment), KZGCommitment.class))
+        .isEqualTo(commitment);
+
+    final KZGProof proof = new KZGProof(Bytes48.fromHexString("0x" + "cd".repeat(48)));
+    assertThat(mapper.writeValueAsString(proof))
+        .isEqualTo("\"" + proof.getData().toHexString() + "\"");
+    assertThat(mapper.readValue(mapper.writeValueAsString(proof), KZGProof.class)).isEqualTo(proof);
+
+    final Blob blob = new Blob(Bytes.fromHexString("0x010203"));
+    assertThat(mapper.writeValueAsString(blob)).isEqualTo("\"0x010203\"");
+    assertThat(mapper.readValue(mapper.writeValueAsString(blob), Blob.class)).isEqualTo(blob);
   }
 
   @Test

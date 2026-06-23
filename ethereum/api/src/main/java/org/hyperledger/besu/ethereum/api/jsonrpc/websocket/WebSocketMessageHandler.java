@@ -48,7 +48,7 @@ import org.slf4j.LoggerFactory;
 public class WebSocketMessageHandler {
 
   private static final ObjectMapper jsonObjectMapper =
-      JsonRpcObjectMapperFactory.createResponseMapper();
+      JsonRpcObjectMapperFactory.getResponseMapper();
 
   private static final Logger LOG = LoggerFactory.getLogger(WebSocketMessageHandler.class);
   private static final ObjectWriter JSON_OBJECT_WRITER =

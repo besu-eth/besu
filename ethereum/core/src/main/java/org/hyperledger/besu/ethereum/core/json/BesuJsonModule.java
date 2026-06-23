@@ -14,11 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.core.json;
 
-import org.hyperledger.besu.datatypes.BlobGas;
-import org.hyperledger.besu.datatypes.LogsBloomFilter;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.ethereum.core.Withdrawal;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import org.apache.tuweni.bytes.Bytes;
@@ -43,19 +39,10 @@ public final class BesuJsonModule extends SimpleModule {
     addSerializer(UInt64.class, new UInt64Json.Serializer());
     addDeserializer(UInt64.class, new UInt64Json.Deserializer());
 
+    // Wei is a Bytes32 subtype, so the Bytes32 serializer above would otherwise shadow Wei's
+    // @JsonValue and emit a padded 32-byte hex. Register an exact-type (de)serializer so Wei keeps
+    // its quantity encoding.
     addSerializer(Wei.class, new WeiJson.Serializer());
     addDeserializer(Wei.class, new WeiJson.Deserializer());
-
-    addSerializer(BlobGas.class, new BlobGasJson.Serializer());
-    addDeserializer(BlobGas.class, new BlobGasJson.Deserializer());
-
-    addSerializer(LogsBloomFilter.class, new LogsBloomFilterJson.Serializer());
-    addDeserializer(LogsBloomFilter.class, new LogsBloomFilterJson.Deserializer());
-
-    addSerializer(Withdrawal.class, new WithdrawalJson.Serializer());
-    addDeserializer(Withdrawal.class, new WithdrawalJson.Deserializer());
-
-    addSerializer(BlockAccessList.class, new BlockAccessListJson.Serializer());
-    addDeserializer(BlockAccessList.class, new BlockAccessListJson.Deserializer());
   }
 }

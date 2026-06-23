@@ -43,7 +43,7 @@ public class TraceCallManyParameter {
 }
 
 class TraceCallParameterDeserializer extends StdDeserializer<TraceCallParameterTuple> {
-  private static final ObjectMapper mapper = JsonRpcObjectMapperFactory.createParameterMapper();
+  private static final ObjectMapper mapper = JsonRpcObjectMapperFactory.getParameterMapper();
 
   public TraceCallParameterDeserializer(final Class<?> vc) {
     super(vc);

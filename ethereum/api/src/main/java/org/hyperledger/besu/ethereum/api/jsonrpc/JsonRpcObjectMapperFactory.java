@@ -28,23 +28,48 @@ import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 
 public final class JsonRpcObjectMapperFactory {
+  private static final ObjectMapper BASE_MAPPER = createBaseMapper();
+  private static final ObjectMapper PARAMETER_MAPPER = createParameterMapper();
+  private static final ObjectMapper PARAMETER_MAPPER_IGNORING_UNKNOWN_NULLS =
+      createParameterMapperIgnoringUnknownNulls();
+  private static final ObjectMapper RESPONSE_MAPPER = createResponseMapper();
 
   private JsonRpcObjectMapperFactory() {}
 
-  public static ObjectMapper createBaseMapper() {
+  private static ObjectMapper createBaseMapper() {
     return new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new BesuJsonModule());
   }
 
-  public static ObjectMapper createParameterMapper() {
-    return createBaseMapper().configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
+  private static ObjectMapper createParameterMapper() {
+    // copy() so configuring this mapper does not mutate the shared base/response mapper
+    return getBaseMapper()
+        .copy()
+        .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
   }
 
-  public static ObjectMapper createParameterMapperIgnoringUnknownNulls() {
-    return createParameterMapper().addHandler(new IgnoreNullUnknownHandler());
+  private static ObjectMapper createParameterMapperIgnoringUnknownNulls() {
+    // copy() so adding the handler does not mutate the strict (DEFAULT) parameter mapper
+    return getParameterMapper().copy().addHandler(new IgnoreNullUnknownHandler());
   }
 
-  public static ObjectMapper createResponseMapper() {
-    return createBaseMapper();
+  private static ObjectMapper createResponseMapper() {
+    return getBaseMapper().copy();
+  }
+
+  public static ObjectMapper getBaseMapper() {
+    return BASE_MAPPER;
+  }
+
+  public static ObjectMapper getParameterMapper() {
+    return PARAMETER_MAPPER;
+  }
+
+  public static ObjectMapper getParameterMapperIgnoringUnknownNulls() {
+    return PARAMETER_MAPPER_IGNORING_UNKNOWN_NULLS;
+  }
+
+  public static ObjectMapper getResponseMapper() {
+    return RESPONSE_MAPPER;
   }
 
   private static class IgnoreNullUnknownHandler extends DeserializationProblemHandler {

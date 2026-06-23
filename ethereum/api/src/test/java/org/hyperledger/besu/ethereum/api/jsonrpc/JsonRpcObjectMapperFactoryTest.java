@@ -29,7 +29,7 @@ class JsonRpcObjectMapperFactoryTest {
   void shouldUseBesuJsonModuleWhenSerializingResponses() throws Exception {
     final Hash hash = Hash.ZERO;
     final String json =
-        JsonRpcObjectMapperFactory.createResponseMapper()
+        JsonRpcObjectMapperFactory.getResponseMapper()
             .writeValueAsString(new JsonRpcSuccessResponse(1, hash));
 
     assertThat(json).isEqualTo("{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"" + hash + "\"}");
@@ -40,7 +40,7 @@ class JsonRpcObjectMapperFactoryTest {
     final String json = "{\"hash\":\"" + Hash.ZERO + "\"}";
 
     final HashParameter parameter =
-        JsonRpcObjectMapperFactory.createParameterMapper().readValue(json, HashParameter.class);
+        JsonRpcObjectMapperFactory.getParameterMapper().readValue(json, HashParameter.class);
 
     assertThat(parameter.hash()).isEqualTo(Hash.ZERO);
   }
