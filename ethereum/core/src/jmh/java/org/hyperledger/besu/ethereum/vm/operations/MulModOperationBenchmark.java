@@ -65,7 +65,14 @@ public class MulModOperationBenchmark extends TernaryArithmeticOperationBenchmar
     "MULMOD_64_64_128",
     "MULMOD_192_192_256",
     "MULMOD_128_256_0",
-    "MULMOD_RANDOM_RANDOM_RANDOM"
+    "MULMOD_RANDOM_RANDOM_RANDOM",
+    // Power-of-two moduli (2^N): exercises each UInt256.mulMod dispatch branch.
+    "MULMOD_256_256_POW2_8",
+    "MULMOD_256_256_POW2_64",
+    "MULMOD_256_256_POW2_128",
+    "MULMOD_256_256_POW2_160",
+    "MULMOD_256_256_POW2_192",
+    "MULMOD_256_256_POW2_240"
   })
   private String caseName;
 
