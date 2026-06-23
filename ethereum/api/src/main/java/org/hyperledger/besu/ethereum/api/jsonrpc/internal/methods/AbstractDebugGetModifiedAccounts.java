@@ -41,6 +41,7 @@ abstract class AbstractDebugGetModifiedAccounts implements JsonRpcMethod {
 
   private static final String METHOD_ONLY_SUPPORTED_WITH_BONSAI =
       "This method is only supported with Bonsai world state storage";
+  private static final int INTERNAL_ERROR_CODE = -32000;
 
   private final Supplier<BlockchainQueries> blockchainQueries;
 
@@ -111,10 +112,6 @@ abstract class AbstractDebugGetModifiedAccounts implements JsonRpcMethod {
 
   protected HeaderRangeResult headersInRange(
       final BlockHeader startBlock, final BlockHeader endBlock) {
-    if (rangeSize(startBlock, endBlock) > TrieLogManager.LOG_RANGE_LIMIT) {
-      return HeaderRangeResult.error(RpcErrorType.EXCEEDS_RPC_MAX_BLOCK_RANGE);
-    }
-
     final List<BlockHeader> headers = new ArrayList<>();
     for (long blockNumber = startBlock.getNumber() + 1;
         blockNumber <= endBlock.getNumber();
@@ -129,10 +126,6 @@ abstract class AbstractDebugGetModifiedAccounts implements JsonRpcMethod {
     return HeaderRangeResult.success(headers);
   }
 
-  protected long rangeSize(final BlockHeader startBlock, final BlockHeader endBlock) {
-    return endBlock.getNumber() - startBlock.getNumber();
-  }
-
   private void addChangedAddresses(final Set<Address> modifiedAccounts, final TrieLog trieLog) {
     modifiedAccounts.addAll(trieLog.getAccountChanges().keySet());
     modifiedAccounts.addAll(trieLog.getCodeChanges().keySet());
@@ -145,6 +138,14 @@ abstract class AbstractDebugGetModifiedAccounts implements JsonRpcMethod {
 
   protected Optional<JsonRpcError> validateParameters(final JsonRpcRequestContext requestContext) {
     return Optional.empty();
+  }
+
+  protected JsonRpcError noParentError(final BlockHeader blockHeader) {
+    return new JsonRpcError(
+        INTERNAL_ERROR_CODE,
+        "block %s has no parent"
+            .formatted(blockHeader.getHash().getBytes().toUnprefixedHexString()),
+        null);
   }
 
   protected abstract Optional<BlockHeader> startBlock(JsonRpcRequestContext requestContext);

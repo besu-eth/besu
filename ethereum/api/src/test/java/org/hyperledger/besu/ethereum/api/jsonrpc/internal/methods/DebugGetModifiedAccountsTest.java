@@ -106,7 +106,7 @@ public class DebugGetModifiedAccountsTest {
         (JsonRpcSuccessResponse) getModifiedAccountsByNumber.response(request("0x1"));
 
     assertThat((List<String>) response.getResult())
-        .containsExactly(
+        .containsExactlyInAnyOrder(
             ACCOUNT_ADDRESS.toHexString(),
             CODE_ADDRESS.toHexString(),
             STORAGE_ADDRESS.toHexString());
@@ -125,7 +125,7 @@ public class DebugGetModifiedAccountsTest {
         (JsonRpcSuccessResponse) getModifiedAccountsByNumber.response(request("0x0", "0x2"));
 
     assertThat((List<String>) response.getResult())
-        .containsExactly(
+        .containsExactlyInAnyOrder(
             ACCOUNT_ADDRESS.toHexString(),
             CODE_ADDRESS.toHexString(),
             STORAGE_ADDRESS.toHexString(),
@@ -145,7 +145,7 @@ public class DebugGetModifiedAccountsTest {
             getModifiedAccountsByHash.response(hashRequest(block1.getBlockHash().toHexString()));
 
     assertThat((List<String>) response.getResult())
-        .containsExactly(
+        .containsExactlyInAnyOrder(
             ACCOUNT_ADDRESS.toHexString(),
             CODE_ADDRESS.toHexString(),
             STORAGE_ADDRESS.toHexString());
@@ -171,7 +171,7 @@ public class DebugGetModifiedAccountsTest {
                     block0.getBlockHash().toHexString(), block2.getBlockHash().toHexString()));
 
     assertThat((List<String>) response.getResult())
-        .containsExactly(
+        .containsExactlyInAnyOrder(
             ACCOUNT_ADDRESS.toHexString(),
             CODE_ADDRESS.toHexString(),
             STORAGE_ADDRESS.toHexString(),
@@ -203,11 +203,24 @@ public class DebugGetModifiedAccountsTest {
   }
 
   @Test
-  public void shouldReturnInvalidBlockParamsWhenSingleNumberParamIsGenesisBlock() {
+  public void shouldReturnNoParentErrorWhenSingleNumberParamIsGenesisBlock() {
     final JsonRpcResponse response = getModifiedAccountsByNumber.response(request("0x0"));
 
-    assertThat(((JsonRpcErrorResponse) response).getErrorType())
-        .isEqualTo(RpcErrorType.INVALID_BLOCK_PARAMS);
+    assertThat(((JsonRpcErrorResponse) response).getError().getCode()).isEqualTo(-32000);
+    assertThat(((JsonRpcErrorResponse) response).getError().getMessage())
+        .isEqualTo(
+            "block " + block0.getHash().getBytes().toUnprefixedHexString() + " has no parent");
+  }
+
+  @Test
+  public void shouldReturnNoParentErrorWhenSingleHashParamIsGenesisBlock() {
+    final JsonRpcResponse response =
+        getModifiedAccountsByHash.response(hashRequest(block0.getBlockHash().toHexString()));
+
+    assertThat(((JsonRpcErrorResponse) response).getError().getCode()).isEqualTo(-32000);
+    assertThat(((JsonRpcErrorResponse) response).getError().getMessage())
+        .isEqualTo(
+            "block " + block0.getHash().getBytes().toUnprefixedHexString() + " has no parent");
   }
 
   @Test
@@ -245,22 +258,27 @@ public class DebugGetModifiedAccountsTest {
   }
 
   @Test
-  public void shouldReturnRangeErrorWhenNumberRangeIsTooLarge() {
+  public void shouldNotRejectNumberRangeLargerThanOneThousandUpFront() {
     final BlockHeader distantBlock = blockHeader(1001);
     when(blockchain.getBlockHeader(1001L)).thenReturn(Optional.of(distantBlock));
+    for (long blockNumber = 3; blockNumber < 1001; blockNumber++) {
+      final BlockHeader intermediateBlock = blockHeader(blockNumber);
+      when(blockchain.getBlockHeader(blockNumber)).thenReturn(Optional.of(intermediateBlock));
+    }
 
     final JsonRpcResponse response = getModifiedAccountsByNumber.response(request("0x0", "0x3e9"));
 
     assertThat(((JsonRpcErrorResponse) response).getErrorType())
-        .isEqualTo(RpcErrorType.EXCEEDS_RPC_MAX_BLOCK_RANGE);
+        .isEqualTo(RpcErrorType.WORLD_STATE_UNAVAILABLE);
   }
 
   @Test
-  public void shouldReturnRangeErrorWhenHashRangeIsTooLarge() {
+  public void shouldNotRejectHashRangeLargerThanOneThousandUpFront() {
     final BlockHeader distantBlock =
         blockHeader(1001, block0.getBlockHash(), Hash.hash(Bytes.ofUnsignedLong(1001)));
     when(blockchain.getBlockHeader(distantBlock.getBlockHash()))
         .thenReturn(Optional.of(distantBlock));
+    when(blockchain.getBlockHeader(distantBlock.getParentHash())).thenReturn(Optional.of(block0));
 
     final JsonRpcResponse response =
         getModifiedAccountsByHash.response(
@@ -268,7 +286,7 @@ public class DebugGetModifiedAccountsTest {
                 block0.getBlockHash().toHexString(), distantBlock.getBlockHash().toHexString()));
 
     assertThat(((JsonRpcErrorResponse) response).getErrorType())
-        .isEqualTo(RpcErrorType.EXCEEDS_RPC_MAX_BLOCK_RANGE);
+        .isEqualTo(RpcErrorType.WORLD_STATE_UNAVAILABLE);
   }
 
   @Test

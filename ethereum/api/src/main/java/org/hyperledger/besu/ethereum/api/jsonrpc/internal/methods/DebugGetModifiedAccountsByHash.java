@@ -19,10 +19,10 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcError;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManager;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -38,6 +38,16 @@ public class DebugGetModifiedAccountsByHash extends AbstractDebugGetModifiedAcco
   @Override
   public String getName() {
     return RpcMethod.DEBUG_GET_MODIFIED_ACCOUNTS_BY_HASH.getMethodName();
+  }
+
+  @Override
+  protected Optional<JsonRpcError> validateParameters(final JsonRpcRequestContext requestContext) {
+    if (requestContext.getRequest().getParamLength() == 1) {
+      return getBlockHeader(requestContext, 0)
+          .filter(blockHeader -> blockHeader.getNumber() == BlockHeader.GENESIS_BLOCK_NUMBER)
+          .map(this::noParentError);
+    }
+    return Optional.empty();
   }
 
   @Override
@@ -57,10 +67,6 @@ public class DebugGetModifiedAccountsByHash extends AbstractDebugGetModifiedAcco
   @Override
   protected HeaderRangeResult headersInRange(
       final BlockHeader startBlock, final BlockHeader endBlock) {
-    if (rangeSize(startBlock, endBlock) > TrieLogManager.LOG_RANGE_LIMIT) {
-      return HeaderRangeResult.error(RpcErrorType.EXCEEDS_RPC_MAX_BLOCK_RANGE);
-    }
-
     final List<BlockHeader> headers = new ArrayList<>();
     Optional<BlockHeader> current = Optional.of(endBlock);
     while (current.isPresent() && current.get().getNumber() > startBlock.getNumber()) {

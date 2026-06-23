@@ -39,13 +39,11 @@ public class DebugGetModifiedAccountsByNumber extends AbstractDebugGetModifiedAc
 
   @Override
   protected Optional<JsonRpcError> validateParameters(final JsonRpcRequestContext requestContext) {
-    if (requestContext.getRequest().getParamLength() == 1
-        && getBlockNumber(requestContext, 0)
-            .filter(blockNumber -> blockNumber == BlockHeader.GENESIS_BLOCK_NUMBER)
-            .isPresent()) {
-      return Optional.of(
-          new JsonRpcError(
-              RpcErrorType.INVALID_BLOCK_PARAMS, "genesis block has no parent to diff against"));
+    if (requestContext.getRequest().getParamLength() == 1) {
+      return getBlockNumber(requestContext, 0)
+          .filter(blockNumber -> blockNumber == BlockHeader.GENESIS_BLOCK_NUMBER)
+          .flatMap(blockchainQueries().getBlockchain()::getBlockHeader)
+          .map(this::noParentError);
     }
     return Optional.empty();
   }
