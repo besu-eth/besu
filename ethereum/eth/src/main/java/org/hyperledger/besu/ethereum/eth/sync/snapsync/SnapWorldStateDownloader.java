@@ -170,6 +170,7 @@ public class SnapWorldStateDownloader implements WorldStateDownloader {
               clock,
               ethContext,
               syncDurationMetrics);
+      this.downloadState.set(newDownloadState);
 
       final Map<Bytes32, Bytes32> ranges = RangeManager.generateAllRanges(16);
       snapsyncMetricsManager.initRange(ranges);
@@ -208,7 +209,7 @@ public class SnapWorldStateDownloader implements WorldStateDownloader {
         ranges.forEach(
             (key, value) ->
                 newDownloadState.enqueueRequest(
-                    createAccountRangeDataRequest(stateRoot, key, value, false)));
+                    createAccountRangeDataRequest(stateRoot, key, value)));
       }
 
       Optional<CompleteTaskStep> maybeCompleteTask =

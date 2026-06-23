@@ -109,12 +109,22 @@ class EthGetProofTest {
   }
 
   @Test
-  void errorWhenNoBlockNumberSupplied() {
-    final JsonRpcRequestContext request = requestWithParams(address.toString(), new String[] {});
+  void defaultsToLatestWhenNoBlockSupplied() {
+    // Per execution-apis the Block parameter is optional and defaults to 'latest'.
+    // Omitting it must behave identically to explicitly passing "latest".
+    final JsonRpcRequestContext omitted =
+        requestWithParams(address.toString(), new String[] {storageKey.toString()});
+    final JsonRpcRequestContext latest =
+        requestWithParams(address.toString(), new String[] {storageKey.toString()}, "latest");
 
-    Assertions.assertThatThrownBy(() -> method.response(request))
-        .isInstanceOf(InvalidJsonRpcParameters.class)
-        .hasMessageContaining("Invalid block or block hash parameter");
+    final JsonRpcResponse omittedResponse = method.response(omitted);
+    final JsonRpcResponse latestResponse = method.response(latest);
+
+    Assertions.assertThat(omittedResponse).isInstanceOf(JsonRpcSuccessResponse.class);
+    Assertions.assertThat(latestResponse).isInstanceOf(JsonRpcSuccessResponse.class);
+    Assertions.assertThat(((JsonRpcSuccessResponse) omittedResponse).getResult())
+        .usingRecursiveComparison()
+        .isEqualTo(((JsonRpcSuccessResponse) latestResponse).getResult());
   }
 
   @Test

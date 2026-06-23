@@ -80,10 +80,9 @@ public class DefaultPeer extends DefaultPeerId implements Peer {
     if (obj == this) {
       return true;
     }
-    if (!(obj instanceof DefaultPeer)) {
+    if (!(obj instanceof DefaultPeer other)) {
       return false;
     }
-    final DefaultPeer other = (DefaultPeer) obj;
     return id.equals(other.id) && enodeURL.equals(other.enodeURL);
   }
 

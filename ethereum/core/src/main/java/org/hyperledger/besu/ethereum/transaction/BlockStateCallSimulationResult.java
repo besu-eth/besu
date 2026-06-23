@@ -90,8 +90,8 @@ public class BlockStateCallSimulationResult {
             result.transaction().getType(), result.result(), worldState, cumulativeGasUsed);
 
     List<Log> logs =
-        (operationTracer instanceof EthTransferLogOperationTracer)
-            ? ((EthTransferLogOperationTracer) operationTracer).getLogs()
+        (operationTracer instanceof EthTransferLogOperationTracer tracer)
+            ? tracer.getLogs()
             : transactionReceipt.getLogsList();
 
     transactionSimulatorResults.add(

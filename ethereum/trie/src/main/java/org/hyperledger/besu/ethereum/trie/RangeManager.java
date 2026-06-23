@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.trie;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.trie.InnerNodeDiscoveryManager.InnerNode;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 
 import java.math.BigInteger;
@@ -117,7 +118,7 @@ public class RangeManager {
    * @param worldstateRootHash the root hash
    * @param proofs proof received
    * @param endKeyHash the end of the range initially wanted
-   * @param receivedKeys the last key received
+   * @param receivedKeys the keys already returned by the responder
    * @return begin of the new range
    */
   public static Optional<Bytes32> findNewBeginElementInRange(
@@ -125,31 +126,76 @@ public class RangeManager {
       final List<Bytes> proofs,
       final NavigableMap<Bytes32, Bytes> receivedKeys,
       final Bytes32 endKeyHash) {
-    if (receivedKeys.isEmpty() || receivedKeys.lastKey().compareTo(endKeyHash) >= 0) {
-      return Optional.empty();
-    } else {
-      final Map<Bytes32, Bytes> proofsEntries = new HashMap<>();
-      for (Bytes proof : proofs) {
-        proofsEntries.put(Bytes32.wrap(Hash.hash(proof).getBytes()), proof);
-      }
-      final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
-          new StoredMerklePatriciaTrie<>(
-              new InnerNodeDiscoveryManager<>(
-                  (location, key) -> Optional.ofNullable(proofsEntries.get(key)),
-                  Function.identity(),
-                  Function.identity(),
-                  receivedKeys.lastKey(),
-                  endKeyHash,
-                  false),
-              worldstateRootHash);
+    return findNewBeginElementInRange(
+        worldstateRootHash, proofs, receivedKeys, MIN_RANGE, endKeyHash);
+  }
 
-      try {
-        storageTrie.visitAll(bytesNode -> {});
-      } catch (MerkleTrieException e) {
-        return Optional.of(InnerNodeDiscoveryManager.decodePath(e.getLocation()));
-      }
+  /**
+   * Helps to create a new range according to the last data obtained. This happens when a peer
+   * doesn't return all of the data in a range.
+   *
+   * @param worldstateRootHash the root hash
+   * @param proofs proof received
+   * @param receivedKeys the keys already returned by the responder
+   * @param startKeyHash the start of the range initially wanted (used as the probe origin when no
+   *     keys were returned)
+   * @param endKeyHash the end of the range initially wanted
+   * @return begin of the new range
+   */
+  public static Optional<Bytes32> findNewBeginElementInRange(
+      final Bytes32 worldstateRootHash,
+      final List<Bytes> proofs,
+      final NavigableMap<Bytes32, Bytes> receivedKeys,
+      final Bytes32 startKeyHash,
+      final Bytes32 endKeyHash) {
+    if (!receivedKeys.isEmpty() && receivedKeys.lastKey().compareTo(endKeyHash) >= 0) {
       return Optional.empty();
     }
+    final Bytes32 probeStart = receivedKeys.isEmpty() ? startKeyHash : receivedKeys.lastKey();
+    final Map<Bytes32, Bytes> proofsEntries = new HashMap<>();
+    for (Bytes proof : proofs) {
+      proofsEntries.put(Bytes32.wrap(Hash.hash(proof).getBytes()), proof);
+    }
+    final InnerNodeDiscoveryManager<Bytes> manager =
+        new InnerNodeDiscoveryManager<>(
+            (location, key) -> Optional.ofNullable(proofsEntries.get(key)),
+            Function.identity(),
+            Function.identity(),
+            probeStart,
+            endKeyHash,
+            false);
+    final StoredMerklePatriciaTrie<Bytes, Bytes> storageTrie =
+        new StoredMerklePatriciaTrie<>(manager, worldstateRootHash);
+
+    try {
+      storageTrie.visitAll(bytesNode -> {});
+    } catch (MerkleTrieException e) {
+      return Optional.of(InnerNodeDiscoveryManager.decodePath(e.getLocation()));
+    }
+
+    // visitAll completes whenever every node it touches resolves through the supplied node
+    // source. If the source itself encodes leaves the responder did not include in
+    // receivedKeys, the walk silently visits them — so scan the discovered inner nodes for
+    // any in-range leaf the responder omitted.
+    Bytes32 firstOmitted = null;
+    for (InnerNode innerNode : manager.getInnerNodes()) {
+      final Bytes concatenated = Bytes.concatenate(innerNode.location(), innerNode.path());
+      if (concatenated.size() != Bytes32.SIZE * 2 + 1) {
+        continue;
+      }
+      final Bytes32 leafKey =
+          InnerNodeDiscoveryManager.decodePath(concatenated.slice(0, concatenated.size() - 1));
+      if (leafKey.compareTo(probeStart) <= 0 || leafKey.compareTo(endKeyHash) > 0) {
+        continue;
+      }
+      if (receivedKeys.containsKey(leafKey)) {
+        continue;
+      }
+      if (firstOmitted == null || leafKey.compareTo(firstOmitted) < 0) {
+        firstOmitted = leafKey;
+      }
+    }
+    return Optional.ofNullable(firstOmitted);
   }
 
   private static Bytes32 format(final BigInteger data) {

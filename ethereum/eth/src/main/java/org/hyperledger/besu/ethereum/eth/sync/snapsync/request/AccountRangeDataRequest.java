@@ -63,7 +63,6 @@ public class AccountRangeDataRequest extends SnapDataRequest {
   protected final Optional<Bytes32> endStorageRange;
 
   protected final StackTrie stackTrie;
-  private final boolean persistIncompleteTrieNodes;
   private Optional<Boolean> isProofValid;
 
   protected AccountRangeDataRequest(
@@ -71,14 +70,12 @@ public class AccountRangeDataRequest extends SnapDataRequest {
       final Bytes32 startKeyHash,
       final Bytes32 endKeyHash,
       final Optional<Bytes32> startStorageRange,
-      final Optional<Bytes32> endStorageRange,
-      final boolean persistIncompleteTrieNodes) {
+      final Optional<Bytes32> endStorageRange) {
     super(ACCOUNT_RANGE, rootHash);
     this.startKeyHash = startKeyHash;
     this.endKeyHash = endKeyHash;
     this.startStorageRange = startStorageRange;
     this.endStorageRange = endStorageRange;
-    this.persistIncompleteTrieNodes = persistIncompleteTrieNodes;
     this.isProofValid = Optional.empty();
     this.stackTrie = new StackTrie(rootHash, startKeyHash);
     LOG.trace(
@@ -90,7 +87,7 @@ public class AccountRangeDataRequest extends SnapDataRequest {
 
   protected AccountRangeDataRequest(
       final Hash rootHash, final Bytes32 startKeyHash, final Bytes32 endKeyHash) {
-    this(rootHash, startKeyHash, endKeyHash, Optional.empty(), Optional.empty(), false);
+    this(rootHash, startKeyHash, endKeyHash, Optional.empty(), Optional.empty());
   }
 
   protected AccountRangeDataRequest(
@@ -103,8 +100,7 @@ public class AccountRangeDataRequest extends SnapDataRequest {
         Bytes32.wrap(accountHash.getBytes()),
         Bytes32.wrap(accountHash.getBytes()),
         Optional.of(startStorageRange),
-        Optional.of(endStorageRange),
-        false);
+        Optional.of(endStorageRange));
   }
 
   @Override
@@ -125,7 +121,7 @@ public class AccountRangeDataRequest extends SnapDataRequest {
     final AtomicInteger nbNodesSaved = new AtomicInteger();
     final NodeUpdater nodeUpdater =
         (location, hash, value) -> {
-          if (persistIncompleteTrieNodes && location.isEmpty()) {
+          if (location.isEmpty()) {
             downloadState.setRootNodeData(value);
           }
           applyForStrategy(
@@ -152,7 +148,7 @@ public class AccountRangeDataRequest extends SnapDataRequest {
                       .putAccountInfoState(Hash.wrap(key), value));
         });
 
-    stackTrie.commit(flatDatabaseUpdater.get(), nodeUpdater, persistIncompleteTrieNodes);
+    stackTrie.commit(flatDatabaseUpdater.get(), nodeUpdater, false);
 
     downloadState.getMetricsManager().notifyAccountsDownloaded(stackTrie.getElementsCount().get());
 
@@ -204,6 +200,7 @@ public class AccountRangeDataRequest extends SnapDataRequest {
             Bytes32.wrap(getRootHash().getBytes()),
             taskElement.proofs(),
             taskElement.keys(),
+            startKeyHash,
             endKeyHash)
         .ifPresentOrElse(
             missingRightElement -> {
@@ -211,18 +208,12 @@ public class AccountRangeDataRequest extends SnapDataRequest {
                   .getMetricsManager()
                   .notifyRangeProgress(DOWNLOAD, missingRightElement, endKeyHash);
               childRequests.add(
-                  createAccountRangeDataRequest(
-                      getRootHash(), missingRightElement, endKeyHash, persistIncompleteTrieNodes));
+                  createAccountRangeDataRequest(getRootHash(), missingRightElement, endKeyHash));
             },
-            () -> {
-              downloadState
-                  .getMetricsManager()
-                  .notifyRangeProgress(DOWNLOAD, endKeyHash, endKeyHash);
-              // TODO: A range is not truly complete until all child storage and code requests
-              // spawned from this account range have finished downloading.
-              // Defer markAccountRangeComplete until all children are finished.
-              downloadState.markAccountRangeComplete(startKeyHash, endKeyHash);
-            });
+            () ->
+                downloadState
+                    .getMetricsManager()
+                    .notifyRangeProgress(DOWNLOAD, endKeyHash, endKeyHash));
 
     // find missing storages and code
     for (Map.Entry<Bytes32, Bytes> account : taskElement.keys().entrySet()) {
@@ -235,8 +226,7 @@ public class AccountRangeDataRequest extends SnapDataRequest {
                 account.getKey(),
                 Bytes32.wrap(accountValue.getStorageRoot().getBytes()),
                 startStorageRange.orElse(MIN_RANGE),
-                endStorageRange.orElse(MAX_RANGE),
-                persistIncompleteTrieNodes));
+                endStorageRange.orElse(MAX_RANGE)));
       }
       if (!accountValue.getCodeHash().equals(Hash.EMPTY)) {
         childRequests.add(
@@ -287,6 +277,6 @@ public class AccountRangeDataRequest extends SnapDataRequest {
     final Bytes32 startKeyHash = in.readBytes32();
     final Bytes32 endKeyHash = in.readBytes32();
     in.leaveList();
-    return createAccountRangeDataRequest(rootHash, startKeyHash, endKeyHash, false);
+    return createAccountRangeDataRequest(rootHash, startKeyHash, endKeyHash);
   }
 }

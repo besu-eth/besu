@@ -50,10 +50,9 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
     if (this == o) {
       return true;
     }
-    if (!(o instanceof BlockAccessList)) {
+    if (!(o instanceof BlockAccessList that)) {
       return false;
     }
-    final BlockAccessList that = (BlockAccessList) o;
     return Objects.equals(accountChanges, that.accountChanges);
   }
 

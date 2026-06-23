@@ -514,6 +514,38 @@ public class SyncStateTest {
     assertThat(clearedEvent).isEmpty();
   }
 
+  @Test
+  public void bestChainHeight_usesPeerEstimateBeforeAnyPayload() {
+    updateChainState(otherPeer.getEthPeer(), TARGET_CHAIN_HEIGHT, TARGET_DIFFICULTY);
+    doReturn(Optional.of(otherPeer.getEthPeer())).when(ethPeers).bestPeerWithHeightEstimate();
+
+    assertThat(syncState.bestChainHeight()).isEqualTo(TARGET_CHAIN_HEIGHT);
+  }
+
+  @Test
+  public void bestChainHeight_usesPayloadHeightAfterNewPayload() {
+    // A peer reports a higher estimate, which must be ignored once a payload is received.
+    updateChainState(otherPeer.getEthPeer(), TARGET_CHAIN_HEIGHT, TARGET_DIFFICULTY);
+    lenient()
+        .doReturn(Optional.of(otherPeer.getEthPeer()))
+        .when(ethPeers)
+        .bestPeerWithHeightEstimate();
+
+    final long payloadHeight = 1_000L;
+    syncState.onNewPayload(new BlockHeaderTestFixture().number(payloadHeight).buildHeader());
+
+    assertThat(syncState.bestChainHeight()).isEqualTo(payloadHeight);
+    assertThat(syncState.bestChainHeight(0L)).isEqualTo(payloadHeight);
+  }
+
+  @Test
+  public void bestChainHeight_tracksLatestPayloadOnReorg() {
+    syncState.onNewPayload(new BlockHeaderTestFixture().number(1_000L).buildHeader());
+    syncState.onNewPayload(new BlockHeaderTestFixture().number(998L).buildHeader());
+
+    assertThat(syncState.bestChainHeight()).isEqualTo(998L);
+  }
+
   private RespondingEthPeer createPeer(final long blockHeight) {
     return EthProtocolManagerTestUtil.createPeer(ethProtocolManager, blockHeight);
   }

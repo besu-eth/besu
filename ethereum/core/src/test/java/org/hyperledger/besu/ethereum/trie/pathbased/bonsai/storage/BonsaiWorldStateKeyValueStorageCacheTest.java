@@ -21,8 +21,8 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.CacheManager;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.cache.VersionedCacheManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.cache.FlatDbCacheManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.cache.VersionedFlatDbCacheManager;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutablePathBasedExtraStorageConfiguration;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
@@ -37,8 +37,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * Cross-block (versioned) cache behaviour on {@link BonsaiWorldStateKeyValueStorage}: monotonic
- * versions, commit/rollback interaction with {@link VersionedCacheManager}, and snapshot views
- * pinned to a cache epoch so they do not observe newer cache-only state after the head moves.
+ * versions, commit/rollback interaction with {@link VersionedFlatDbCacheManager}, and snapshot
+ * views pinned to a cache epoch so they do not observe newer cache-only state after the head moves.
  */
 public class BonsaiWorldStateKeyValueStorageCacheTest {
 
@@ -84,7 +84,7 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
   @Test
   void crossBlockDisabled_usesEmptyCacheManager() throws Exception {
     newHead(false);
-    assertThat(head.getCacheManager()).isSameAs(CacheManager.NO_OP_CACHE);
+    assertThat(head.getCacheManager()).isSameAs(FlatDbCacheManager.NO_OP_CACHE);
 
     final Hash account = Hash.hash(Bytes.of(1));
     commitAccount(account, Bytes.of(1, 2, 3));
@@ -94,9 +94,9 @@ public class BonsaiWorldStateKeyValueStorageCacheTest {
   }
 
   @Test
-  void crossBlockEnabled_usesVersionedCacheManager() throws Exception {
+  void crossBlockEnabled_usesVersionedFlatDbCacheManager() throws Exception {
     newHead(true);
-    assertThat(head.getCacheManager()).isInstanceOf(VersionedCacheManager.class);
+    assertThat(head.getCacheManager()).isInstanceOf(VersionedFlatDbCacheManager.class);
     assertThat(head.getCacheSize(ACCOUNT_INFO_STATE)).isZero();
     assertThat(head.getCacheSize(ACCOUNT_STORAGE_STORAGE)).isZero();
   }

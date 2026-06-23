@@ -76,7 +76,7 @@ public class TaskGenerator {
 
     final AccountRangeDataRequest accountRangeDataRequest =
         SnapDataRequest.createAccountRangeDataRequest(
-            rootHash, RangeManager.MIN_RANGE, RangeManager.MAX_RANGE, false);
+            rootHash, RangeManager.MIN_RANGE, RangeManager.MAX_RANGE);
     if (withData) {
       accountRangeDataRequest.addResponse(worldStateProofProvider, accounts, new ArrayDeque<>());
     }

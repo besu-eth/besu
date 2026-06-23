@@ -20,7 +20,6 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncMetricsManager;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
-import org.apache.tuweni.bytes.Bytes32;
 
 /** Context needed by snap requests to enqueue follow-up work and report progress. */
 public interface SnapRequestContext {
@@ -38,6 +37,4 @@ public interface SnapRequestContext {
   SnapSyncMetricsManager getMetricsManager();
 
   void addAccountToHealingList(Bytes account);
-
-  default void markAccountRangeComplete(final Bytes32 startKeyHash, final Bytes32 endKeyHash) {}
 }

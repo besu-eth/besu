@@ -178,16 +178,16 @@ dependencies {
 
     api 'org.springframework.security:spring-security-crypto:6.4.9'
 
-    api 'org.web3j:abi:5.0.2'
-    api 'org.web3j:besu:5.0.2'
-    api 'org.web3j:core:5.0.2'
-    api 'org.web3j:crypto:5.0.2'
+    api 'org.web3j:abi:5.0.3'
+    api 'org.web3j:besu:5.0.3'
+    api 'org.web3j:core:5.0.3'
+    api 'org.web3j:crypto:5.0.3'
 
     api 'org.xerial.snappy:snappy-java:1.1.10.7'
 
     api 'io.consensys.protocols:jc-kzg-4844:2.1.6'
 
-    api 'io.consensys.protocols:discovery:26.5.0'
+    api 'io.consensys.protocols:discovery:26.6.0'
   }
 }
 

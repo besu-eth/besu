@@ -106,7 +106,7 @@ public class SnapSyncProcessState {
     return sourceIsTrusted;
   }
 
-  void setCurrentHeader(final BlockHeader header) {
+  public void setCurrentHeader(final BlockHeader header) {
     pivotBlockNumber = OptionalLong.of(header.getNumber());
     pivotBlockHash = Optional.of(header.getHash());
     pivotBlockHeader = Optional.of(header);

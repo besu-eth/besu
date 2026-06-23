@@ -27,6 +27,7 @@ import org.hyperledger.besu.ethereum.trie.forest.storage.ForestWorldStateKeyValu
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.services.kvstore.InMemoryKeyValueStorage;
 
+import java.math.BigInteger;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -195,5 +196,180 @@ public final class RangeManagerTest {
             accountStateTrie.getRootHash(), proofs, accounts, RangeManager.MAX_RANGE);
 
     assertThat(newBeginElementInRange).isEmpty();
+  }
+
+  @Test
+  public void testFindNewBeginElementWhenResponseTruncatedWithFullCoverageProofs() {
+    // A responder that returns only a subset of the keys but provides proofs that cover every
+    // leaf in the range must be detected as incomplete. With boundary-only proofs the existing
+    // missing-node probe already handles this; the harder case is when the proofs themselves
+    // make every leaf reachable.
+    final ForestWorldStateKeyValueStorage worldStateKeyValueStorage =
+        new ForestWorldStateKeyValueStorage(new InMemoryKeyValueStorage());
+    final WorldStateStorageCoordinator worldStateStorageCoordinator =
+        new WorldStateStorageCoordinator(worldStateKeyValueStorage);
+
+    final MerkleTrie<Bytes, Bytes> accountStateTrie =
+        TrieGenerator.generateTrie(worldStateStorageCoordinator, 15);
+
+    final RangeStorageEntriesCollector collector =
+        RangeStorageEntriesCollector.createCollector(
+            Bytes32.wrap(Hash.ZERO.getBytes()), RangeManager.MAX_RANGE, 15, Integer.MAX_VALUE);
+    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
+    final TreeMap<Bytes32, Bytes> allAccounts =
+        (TreeMap<Bytes32, Bytes>)
+            accountStateTrie.entriesFrom(
+                root ->
+                    RangeStorageEntriesCollector.collectEntries(
+                        collector, visitor, root, Bytes32.wrap(Hash.ZERO.getBytes())));
+
+    final WorldStateProofProvider worldStateProofProvider =
+        new WorldStateProofProvider(worldStateStorageCoordinator);
+
+    final List<Bytes> proofs = new java.util.ArrayList<>();
+    for (Bytes32 key : allAccounts.keySet()) {
+      proofs.addAll(
+          worldStateProofProvider.getAccountProofRelatedNodes(
+              Hash.wrap(accountStateTrie.getRootHash()), key));
+    }
+
+    final TreeMap<Bytes32, Bytes> partialAccounts = new TreeMap<>();
+    int taken = 0;
+    for (Map.Entry<Bytes32, Bytes> e : allAccounts.entrySet()) {
+      if (taken++ < 2) partialAccounts.put(e.getKey(), e.getValue());
+    }
+
+    final Optional<Bytes32> newBeginElementInRange =
+        RangeManager.findNewBeginElementInRange(
+            accountStateTrie.getRootHash(), proofs, partialAccounts, RangeManager.MAX_RANGE);
+
+    assertThat(newBeginElementInRange).isPresent();
+  }
+
+  @Test
+  public void testFindNewBeginElementWhenNoKeysReturnedButRangeNonEmpty() {
+    // A responder that returns zero keys but proofs that resolve all leaves in the range must
+    // still cause the caller to schedule follow-up fetches for the omitted entries.
+    final ForestWorldStateKeyValueStorage worldStateKeyValueStorage =
+        new ForestWorldStateKeyValueStorage(new InMemoryKeyValueStorage());
+    final WorldStateStorageCoordinator worldStateStorageCoordinator =
+        new WorldStateStorageCoordinator(worldStateKeyValueStorage);
+
+    final MerkleTrie<Bytes, Bytes> accountStateTrie =
+        TrieGenerator.generateTrie(worldStateStorageCoordinator, 15);
+
+    final RangeStorageEntriesCollector collector =
+        RangeStorageEntriesCollector.createCollector(
+            Bytes32.wrap(Hash.ZERO.getBytes()), RangeManager.MAX_RANGE, 15, Integer.MAX_VALUE);
+    final TrieIterator<Bytes> visitor = RangeStorageEntriesCollector.createVisitor(collector);
+    final TreeMap<Bytes32, Bytes> allAccounts =
+        (TreeMap<Bytes32, Bytes>)
+            accountStateTrie.entriesFrom(
+                root ->
+                    RangeStorageEntriesCollector.collectEntries(
+                        collector, visitor, root, Bytes32.wrap(Hash.ZERO.getBytes())));
+
+    final WorldStateProofProvider worldStateProofProvider =
+        new WorldStateProofProvider(worldStateStorageCoordinator);
+
+    final List<Bytes> proofs = new java.util.ArrayList<>();
+    for (Bytes32 key : allAccounts.keySet()) {
+      proofs.addAll(
+          worldStateProofProvider.getAccountProofRelatedNodes(
+              Hash.wrap(accountStateTrie.getRootHash()), key));
+    }
+
+    final Optional<Bytes32> newBeginElementInRange =
+        RangeManager.findNewBeginElementInRange(
+            accountStateTrie.getRootHash(),
+            proofs,
+            new TreeMap<>(),
+            RangeManager.MIN_RANGE,
+            RangeManager.MAX_RANGE);
+
+    assertThat(newBeginElementInRange).isPresent();
+  }
+
+  @Test
+  public void testGenerateRangesPreservesSortedKeyOrder() {
+    final Bytes32 min =
+        Bytes32.fromHexString("0x0000000000000000000000000000000000000000000000000000000000000000");
+    final Bytes32 max =
+        Bytes32.fromHexString("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+
+    final Map<Bytes32, Bytes32> ranges = RangeManager.generateRanges(min, max, 5);
+
+    assertThat(ranges).isNotEmpty();
+    assertKeysAreStrictlyIncreasing(ranges);
+  }
+
+  @Test
+  public void testGenerateRangesWithLargerCountPreservesSortedKeyOrder() {
+    final Bytes32 min =
+        Bytes32.fromHexString("0x1000000000000000000000000000000000000000000000000000000000000000");
+    final Bytes32 max =
+        Bytes32.fromHexString("0x2000000000000000000000000000000000000000000000000000000000000000");
+
+    final Map<Bytes32, Bytes32> ranges =
+        RangeManager.generateRanges(min.toUnsignedBigInteger(), max.toUnsignedBigInteger(), 10);
+
+    assertThat(ranges).isNotEmpty();
+    assertKeysAreStrictlyIncreasing(ranges);
+    for (final Map.Entry<Bytes32, Bytes32> entry : ranges.entrySet()) {
+      assertThat(entry.getKey().compareTo(entry.getValue())).isLessThanOrEqualTo(0);
+    }
+  }
+
+  @Test
+  public void testGenerateRangesLargeNbRangePreservesSortedKeyOrder() {
+    final BigInteger min = BigInteger.valueOf(1000);
+    final BigInteger max = BigInteger.valueOf(2000);
+
+    final Map<Bytes32, Bytes32> ranges = RangeManager.generateRanges(min, max, 100);
+
+    assertThat(ranges).isNotEmpty();
+    assertKeysAreStrictlyIncreasing(ranges);
+  }
+
+  @Test
+  public void testGenerateRangesWithNarrowRangePreservesSortedKeyOrder() {
+    final BigInteger min = BigInteger.ZERO;
+    final BigInteger max = BigInteger.valueOf(1000);
+
+    final Map<Bytes32, Bytes32> ranges = RangeManager.generateRanges(min, max, 7);
+
+    assertThat(ranges).isNotEmpty();
+    assertThat(ranges).hasSize(7);
+    assertKeysAreStrictlyIncreasing(ranges);
+  }
+
+  @Test
+  public void testGenerateRangesStartsWithMin() {
+    final Bytes32 bytesMin =
+        Bytes32.fromHexString("0x1000000000000000000000000000000000000000000000000000000000000000");
+    final Bytes32 bytesMax =
+        Bytes32.fromHexString("0x2000000000000000000000000000000000000000000000000000000000000000");
+
+    final Map<Bytes32, Bytes32> bytesRanges = RangeManager.generateRanges(bytesMin, bytesMax, 5);
+    assertThat(bytesRanges.entrySet().iterator().next().getKey()).isEqualTo(bytesMin);
+
+    final Map<Bytes32, Bytes32> bigRanges =
+        RangeManager.generateRanges(BigInteger.valueOf(1000), BigInteger.valueOf(2000), 100);
+    final Bytes32 expectedBigMin =
+        Bytes32.leftPad(Bytes.of(BigInteger.valueOf(1000).toByteArray()).trimLeadingZeros());
+    assertThat(bigRanges.entrySet().iterator().next().getKey()).isEqualTo(expectedBigMin);
+
+    final Map<Bytes32, Bytes32> singleRange = RangeManager.generateRanges(bytesMin, bytesMax, 1);
+    assertThat(singleRange.entrySet().iterator().next().getKey()).isEqualTo(bytesMin);
+  }
+
+  private static void assertKeysAreStrictlyIncreasing(final Map<Bytes32, Bytes32> ranges) {
+    Bytes32 previousKey = null;
+    for (final Bytes32 key : ranges.keySet()) {
+      if (previousKey != null) {
+        assertThat(key.toUnsignedBigInteger()).isGreaterThan(previousKey.toUnsignedBigInteger());
+      }
+      previousKey = key;
+    }
   }
 }
