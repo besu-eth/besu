@@ -870,6 +870,25 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       }
       besuPluginContext.initialize(PluginsConfigurationOptions.fromCommandLine(commandLine));
       besuPluginContext.registerPlugins();
+
+      // Register built-in health-check plugins only if no external plugin already claimed the
+      // endpoint. This runs after registerPlugins() so external plugins have had their chance;
+      // the built-in field stays null when an external plugin owns the endpoint, so the
+      // start()/stop() calls skip it (no orphaned SyncStatusListener).
+      besuPluginContext
+          .getService(HealthCheckService.class)
+          .ifPresent(
+              healthCheckService -> {
+                if (!healthCheckService.getHealthCheck("/liveness").isPresent()) {
+                  livenessCheckPlugin = new LivenessCheckPlugin();
+                  livenessCheckPlugin.register(besuPluginContext);
+                }
+                if (!healthCheckService.getHealthCheck("/readiness").isPresent()) {
+                  readinessCheckPlugin = new ReadinessCheckPlugin();
+                  readinessCheckPlugin.register(besuPluginContext);
+                }
+              });
+
       commandLine.setExecutionStrategy(nextStep);
       return commandLine.execute(parseResult.originalArgs().toArray(new String[0]));
     };
@@ -1280,22 +1299,6 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     rocksDBPlugin = new RocksDBPlugin();
     rocksDBPlugin.register(besuPluginContext);
     new InMemoryStoragePlugin().register(besuPluginContext);
-    livenessCheckPlugin = new LivenessCheckPlugin();
-    readinessCheckPlugin = new ReadinessCheckPlugin();
-
-    // Only register built-in health checks if endpoints are not already registered
-    // This allows external plugins to provide custom implementations
-    besuPluginContext
-        .getService(HealthCheckService.class)
-        .ifPresent(
-            healthCheckService -> {
-              if (!healthCheckService.getHealthCheck("/liveness").isPresent()) {
-                livenessCheckPlugin.register(besuPluginContext);
-              }
-              if (!healthCheckService.getHealthCheck("/readiness").isPresent()) {
-                readinessCheckPlugin.register(besuPluginContext);
-              }
-            });
 
     // register default security module
     securityModuleService.register(
