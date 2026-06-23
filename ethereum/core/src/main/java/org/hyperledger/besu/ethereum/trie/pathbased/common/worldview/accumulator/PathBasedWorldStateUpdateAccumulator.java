@@ -307,6 +307,9 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     return Optional.empty();
   }
 
+  protected void onAccountValueLoaded(
+      final Address address, final PathBasedValue<ACCOUNT> accountValue) {}
+
   protected void onCodeValueLoaded(final Address address, final PathBasedValue<Bytes> codeValue) {}
 
   protected void onStorageValueLoaded(
@@ -328,11 +331,20 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         if (account instanceof PathBasedAccount pathBasedAccount) {
           final ACCOUNT priorAccount = copyAccount((ACCOUNT) pathBasedAccount);
           final ACCOUNT updatedAccount = copyAccount((ACCOUNT) pathBasedAccount, this, true);
-          accountsToUpdate.put(address, new PathBasedValue<>(priorAccount, updatedAccount));
-          return accountFunction.apply(accountsToUpdate.get(address));
+          final PathBasedValue<ACCOUNT> accountValue =
+              new PathBasedValue<>(priorAccount, updatedAccount);
+          onAccountValueLoaded(address, accountValue);
+          accountsToUpdate.put(address, accountValue);
+          return accountFunction.apply(accountValue);
         }
-        accountsToUpdate.put(address, new PathBasedValue<>(null, null));
-        return null;
+        final PathBasedValue<ACCOUNT> accountValue = new PathBasedValue<>(null, null);
+        onAccountValueLoaded(address, accountValue);
+        if (accountValue.getUpdated() == null) {
+          accountsToUpdate.put(address, new PathBasedValue<>(null, null));
+          return null;
+        }
+        accountsToUpdate.put(address, accountValue);
+        return accountFunction.apply(accountValue);
       }
       return accountFunction.apply(pathBasedValue);
     } catch (MerkleTrieException e) {
@@ -519,9 +531,9 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
   public Optional<Bytes> getCode(final Address address, final Hash codeHash) {
     final PathBasedValue<Bytes> localCode = codeToUpdate.get(address);
     if (localCode == null) {
-      final Optional<Bytes> code = wrappedWorldView().getCode(address, codeHash);
       final PathBasedValue<Bytes> codeValue =
-          new PathBasedValue<>(code.orElse(null), code.orElse(null));
+          PathBasedValue.withLazyPrior(
+              () -> wrappedWorldView().getCode(address, codeHash).orElse(null));
       onCodeValueLoaded(address, codeValue);
       codeToUpdate.put(address, codeValue);
       if (codeValue.getUpdated() == null && !codeHash.equals(Hash.EMPTY)) {
@@ -556,12 +568,16 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       }
     }
     try {
-      final Optional<UInt256> prior =
-          (wrappedWorldView() instanceof PathBasedWorldState worldState)
-              ? worldState.getStorageValueByStorageSlotKey(address, storageSlotKey)
-              : wrappedWorldView().getStorageValueByStorageSlotKey(address, storageSlotKey);
       final PathBasedValue<UInt256> storageValue =
-          new PathBasedValue<>(prior.orElse(null), prior.orElse(null));
+          PathBasedValue.withLazyPrior(
+              () ->
+                  (wrappedWorldView() instanceof PathBasedWorldState worldState)
+                      ? worldState
+                          .getStorageValueByStorageSlotKey(address, storageSlotKey)
+                          .orElse(null)
+                      : wrappedWorldView()
+                          .getStorageValueByStorageSlotKey(address, storageSlotKey)
+                          .orElse(null));
       onStorageValueLoaded(address, storageSlotKey, storageValue);
 
       storageToUpdate

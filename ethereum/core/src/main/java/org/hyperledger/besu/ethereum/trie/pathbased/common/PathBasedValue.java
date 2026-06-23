@@ -16,12 +16,16 @@ package org.hyperledger.besu.ethereum.trie.pathbased.common;
 
 import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
 
+import java.util.function.Supplier;
+
+import com.google.common.base.Suppliers;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 
 public class PathBasedValue<T> implements TrieLog.LogTuple<T> {
   private T prior;
   private T updated;
+  private Supplier<T> priorSupplier;
   private boolean lastStepCleared;
 
   private boolean clearedAtLeastOnce;
@@ -51,18 +55,35 @@ public class PathBasedValue<T> implements TrieLog.LogTuple<T> {
     this.clearedAtLeastOnce = clearedAtLeastOnce;
   }
 
+  public static <T> PathBasedValue<T> withLazyPrior(final Supplier<T> priorLoader) {
+    final PathBasedValue<T> value = new PathBasedValue<>(null, null);
+    value.priorSupplier = Suppliers.memoize(priorLoader::get);
+    return value;
+  }
+
   @Override
   public T getPrior() {
+    if (priorSupplier != null) {
+      prior = priorSupplier.get();
+      priorSupplier = null;
+    }
     return prior;
   }
 
   @Override
   public T getUpdated() {
-    return updated;
+    if (lastStepCleared || updated != null) {
+      return updated;
+    }
+    if (priorSupplier != null) {
+      return priorSupplier.get();
+    }
+    return prior;
   }
 
   public PathBasedValue<T> setPrior(final T prior) {
     this.prior = prior;
+    this.priorSupplier = null;
     return this;
   }
 

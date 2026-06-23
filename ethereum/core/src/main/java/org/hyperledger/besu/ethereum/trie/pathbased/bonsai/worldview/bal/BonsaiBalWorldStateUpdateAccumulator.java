@@ -15,28 +15,25 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.bal;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
-import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldStateUpdateAccumulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedLazy;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldView;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
-import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
-
-import java.util.Optional;
-import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
 
 /**
- * Bonsai accumulator for parallel BAL execution: account headers are loaded lazily via {@link
- * PathBasedLazy} and account trie prefetch is disabled.
+ * Bonsai accumulator for parallel BAL execution: applies BAL overlays on first account, code, and
+ * storage reads via {@link #onAccountValueLoaded}, {@link #onCodeValueLoaded}, and {@link
+ * #onStorageValueLoaded}. Account trie prefetch is disabled.
  */
 public class BonsaiBalWorldStateUpdateAccumulator extends BonsaiWorldStateUpdateAccumulator {
 
@@ -70,37 +67,26 @@ public class BonsaiBalWorldStateUpdateAccumulator extends BonsaiWorldStateUpdate
   }
 
   @Override
-  public BonsaiAccount loadAccount(
-      final Address address,
-      final Function<PathBasedValue<BonsaiAccount>, BonsaiAccount> accountFunction) {
-    try {
-      final PathBasedValue<BonsaiAccount> pathBasedValue = getAccountsToUpdate().get(address);
-      if (pathBasedValue != null) {
-        return accountFunction.apply(pathBasedValue);
-      }
-
-      final Optional<BonsaiAccount> fromParent =
-          loadAccountFromParentAccumulator(address, accountFunction);
-      if (fromParent.isPresent()) {
-        return fromParent.get();
-      }
-
-      final PathBasedLazy<BonsaiAccount> value =
-          new PathBasedLazy<>(
-              () -> resolvePriorAccount(address),
-              () -> resolveUpdatedAccount(address));
-      getAccountsToUpdate().put(address, value);
-
-      final BonsaiAccount account = accountFunction.apply(value);
-      if (account instanceof BonsaiBalAccount balAccount && !balAccount.exists()) {
-        getAccountsToUpdate().put(address, new PathBasedValue<>(null, null));
-        return null;
-      }
-      return account;
-    } catch (MerkleTrieException e) {
-      throw new MerkleTrieException(
-          e.getMessage(), Optional.of(address), e.getHash(), e.getLocation());
-    }
+  protected void onAccountValueLoaded(
+      final Address address, final PathBasedValue<BonsaiAccount> accountValue) {
+    blockAccessListOverlay.applyToAccountState(
+        address,
+        () -> {
+          final BonsaiAccount updated = accountValue.getUpdated();
+          if (updated != null) {
+            return updated;
+          }
+          return createAccount(
+              this,
+              address,
+              hashAndSaveAccountPreImage(address),
+              0,
+              Wei.ZERO,
+              Hash.EMPTY_TRIE_HASH,
+              Hash.EMPTY,
+              true);
+        })
+        .ifPresent(accountValue::setUpdated);
   }
 
   @Override
@@ -114,40 +100,5 @@ public class BonsaiBalWorldStateUpdateAccumulator extends BonsaiWorldStateUpdate
       final StorageSlotKey storageSlotKey,
       final PathBasedValue<UInt256> storageValue) {
     blockAccessListOverlay.applyToStorage(address, storageSlotKey, storageValue::setUpdated);
-  }
-
-  @Override
-  protected BonsaiAccount copyAccount(final BonsaiAccount account) {
-    if (account instanceof BonsaiBalAccount balAccount) {
-      return new BonsaiBalAccount(balAccount);
-    }
-    return super.copyAccount(account);
-  }
-
-  @Override
-  protected BonsaiAccount copyAccount(
-      final BonsaiAccount toCopy, final PathBasedWorldView context, final boolean mutable) {
-    if (toCopy instanceof BonsaiBalAccount balAccount) {
-      return new BonsaiBalAccount(balAccount, context, mutable);
-    }
-    return super.copyAccount(toCopy, context, mutable);
-  }
-
-  private BonsaiAccount resolvePriorAccount(final Address address) {
-    final Account parent = wrappedWorldView().get(address);
-    if (parent instanceof BonsaiAccount bonsaiAccount) {
-      return copyAccount(bonsaiAccount, this, false);
-    }
-    return null;
-  }
-
-  private BonsaiAccount resolveUpdatedAccount(final Address address) {
-    return new BonsaiBalAccount(
-        this,
-        address,
-        () -> wrappedWorldView().get(address),
-        blockAccessListOverlay.getAddressView(),
-        blockAccessListOverlay.getMaxTxIndexExclusive(),
-        codeCache());
   }
 }
