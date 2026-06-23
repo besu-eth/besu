@@ -210,6 +210,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   private int numberOfBlockHeadersToCache = 0;
   private boolean isCacheLastBlockHeadersPreloadEnabled;
   private boolean senderNonceIndexingEnabled = false;
+  private boolean p2pEnabled = true;
 
   /** whether parallel transaction processing is enabled or not */
   protected boolean isParallelTxProcessingEnabled;
@@ -524,6 +525,17 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   }
 
   /**
+   * Sets whether p2p networking is enabled.
+   *
+   * @param p2pEnabled {@code true} (default) when p2p networking is enabled
+   * @return the besu controller builder
+   */
+  public BesuControllerBuilder p2pEnabled(final boolean p2pEnabled) {
+    this.p2pEnabled = p2pEnabled;
+    return this;
+  }
+
+  /**
    * Sets whether the block header cache should be preloaded.
    *
    * @param isCacheLastBlockHeadersPreloadEnabled {@code true} to enable preloading of the block
@@ -767,7 +779,9 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     final EthContext ethContext =
         new EthContext(ethPeers, ethMessages, snapMessages, scheduler, peerTaskExecutor);
     final boolean fullSyncDisabled = syncConfig.getSyncMode() != SyncMode.FULL;
-    final SyncState syncState = new SyncState(blockchain, ethPeers, fullSyncDisabled, checkpoint);
+    final boolean hasInitialSyncPhase = fullSyncDisabled && p2pEnabled;
+    final SyncState syncState =
+        new SyncState(blockchain, ethPeers, hasInitialSyncPhase, checkpoint);
 
     protocolContext
         .safeConsensusContext(MergeContext.class)
