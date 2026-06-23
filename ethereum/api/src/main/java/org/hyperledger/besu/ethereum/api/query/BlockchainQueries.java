@@ -1123,6 +1123,10 @@ public class BlockchainQueries {
   }
 
   public Wei gasPrice() {
+    if (apiConfig.getGasPriceBlocks() == 0) {
+      return gasPriceLowerBound();
+    }
+
     final BlockHeader chainHeadHeader = blockchain.getChainHeadHeader();
     final FeeMarket nextBlockFeeMarket =
         protocolSchedule
@@ -1167,6 +1171,10 @@ public class BlockchainQueries {
   }
 
   public Wei gasPriorityFee() {
+    if (apiConfig.getGasPriceBlocks() == 0) {
+      return miningConfiguration.getMinPriorityFeePerGas();
+    }
+
     final BlockHeader chainHeadHeader = blockchain.getChainHeadHeader();
     final Optional<Wei> rawSample = getOrComputePrioritySample(chainHeadHeader);
 
