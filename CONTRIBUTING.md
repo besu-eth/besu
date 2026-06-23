@@ -1,9 +1,9 @@
-# Contributing to Hyperledger Besu
+# Contributing to Besu
 ## :tada: Thanks for taking the time to contribute! :tada:
 
 Welcome to the Besu repository! The following links are a set of guidelines for contributing to this repo and its packages. These are mostly guidelines, not rules. Use your best judgement, and feel free to propose changes to this document in a pull request. Contributions come in the form of code submissions, writing documentation, raising issues, helping others in chat, and any other actions that help develop Besu.
 
-### Github/Discord/LF Accounts
+### GitHub/Discord Accounts
 
 Having the following accounts is necessary for contributing code/issues to Besu.  
 * If you want to contribute code, you can make a [github account here](https://github.com).  
@@ -12,9 +12,8 @@ Having the following accounts is necessary for contributing code/issues to Besu.
 
 ### Useful contributing links
 
-* [I just have a quick question](https://wiki.hyperledger.org/display/BESU/I+just+have+a+quick+question)
-* [How to Contribute]
-* [First contribution workflow](https://wiki.hyperledger.org/display/BESU/First+contribution?src=contextnavpagetreemode)
+* [I just have a quick question](https://docs.besu-eth.org/)
+* [First contribution workflow](https://github.com/besu-eth/besu/wiki/Contributing-First-Contribution)
 * [Did you find a bug?](https://wiki.hyperledger.org/display/BESU/Reporting+Bugs)
 * [Issues](https://wiki.hyperledger.org/display/BESU/Issues)
 * [DCO](DCO.md)
@@ -27,8 +26,8 @@ Having the following accounts is necessary for contributing code/issues to Besu.
 
 ### Other important information
 
-* [Code of Conduct](https://wiki.hyperledger.org/display/BESU/Code+of+Conduct)
-* [Governance](https://wiki.hyperledger.org/display/BESU/Governance)
+* [Code of Conduct](CODE_OF_CONDUCT.md)
+* [Governance](CHARTER.md)
 
 ### Guidelines for Non-Code and other Trivial Contributions
 Please keep in mind that we do not accept non-code contributions like fixing comments, typos or some other trivial fixes. Although we appreciate the extra help, managing lots of these small contributions is unfeasible, and puts extra pressure in our continuous delivery systems (running all tests, etc). Feel free to open an issue pointing any of those errors, and we will batch them into a single change.
@@ -41,6 +40,3 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 Signed-off-by: jflo <justin+github@florentine.us>
 ```
 
-
-[How to Contribute]: https://wiki.hyperledger.org/display/BESU/How+to+Contribute
-[Linux Foundation (LF) account]: https://identity.linuxfoundation.org/
