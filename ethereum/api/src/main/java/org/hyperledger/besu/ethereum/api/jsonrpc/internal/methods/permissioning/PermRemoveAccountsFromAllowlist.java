@@ -58,31 +58,31 @@ public class PermRemoveAccountsFromAllowlist implements JsonRpcMethod {
       final AllowlistOperationResult removeResult =
           allowlistController.get().removeAccounts(accountsList);
 
-      switch (removeResult) {
-        case ERROR_EMPTY_ENTRY:
-          return new JsonRpcErrorResponse(
-              requestContext.getRequest().getId(), RpcErrorType.ACCOUNT_ALLOWLIST_EMPTY_ENTRY);
-        case ERROR_INVALID_ENTRY:
-          return new JsonRpcErrorResponse(
-              requestContext.getRequest().getId(), RpcErrorType.ACCOUNT_ALLOWLIST_INVALID_ENTRY);
-        case ERROR_ABSENT_ENTRY:
-          return new JsonRpcErrorResponse(
-              requestContext.getRequest().getId(), RpcErrorType.ACCOUNT_ALLOWLIST_ABSENT_ENTRY);
-        case ERROR_DUPLICATED_ENTRY:
-          return new JsonRpcErrorResponse(
-              requestContext.getRequest().getId(), RpcErrorType.ACCOUNT_ALLOWLIST_DUPLICATED_ENTRY);
-        case ERROR_ALLOWLIST_PERSIST_FAIL:
-          return new JsonRpcErrorResponse(
-              requestContext.getRequest().getId(), RpcErrorType.ALLOWLIST_PERSIST_FAILURE);
-        case ERROR_ALLOWLIST_FILE_SYNC:
-          return new JsonRpcErrorResponse(
-              requestContext.getRequest().getId(), RpcErrorType.ALLOWLIST_FILE_SYNC);
-        case SUCCESS:
-          return new JsonRpcSuccessResponse(requestContext.getRequest().getId());
-        default:
-          throw new IllegalStateException(
-              "Unmapped result from AccountLocalConfigPermissioningController");
-      }
+      return switch (removeResult) {
+        case ERROR_EMPTY_ENTRY ->
+            new JsonRpcErrorResponse(
+                requestContext.getRequest().getId(), RpcErrorType.ACCOUNT_ALLOWLIST_EMPTY_ENTRY);
+        case ERROR_INVALID_ENTRY ->
+            new JsonRpcErrorResponse(
+                requestContext.getRequest().getId(), RpcErrorType.ACCOUNT_ALLOWLIST_INVALID_ENTRY);
+        case ERROR_ABSENT_ENTRY ->
+            new JsonRpcErrorResponse(
+                requestContext.getRequest().getId(), RpcErrorType.ACCOUNT_ALLOWLIST_ABSENT_ENTRY);
+        case ERROR_DUPLICATED_ENTRY ->
+            new JsonRpcErrorResponse(
+                requestContext.getRequest().getId(),
+                RpcErrorType.ACCOUNT_ALLOWLIST_DUPLICATED_ENTRY);
+        case ERROR_ALLOWLIST_PERSIST_FAIL ->
+            new JsonRpcErrorResponse(
+                requestContext.getRequest().getId(), RpcErrorType.ALLOWLIST_PERSIST_FAILURE);
+        case ERROR_ALLOWLIST_FILE_SYNC ->
+            new JsonRpcErrorResponse(
+                requestContext.getRequest().getId(), RpcErrorType.ALLOWLIST_FILE_SYNC);
+        case SUCCESS -> new JsonRpcSuccessResponse(requestContext.getRequest().getId());
+        default ->
+            throw new IllegalStateException(
+                "Unmapped result from AccountLocalConfigPermissioningController");
+      };
     } else {
       return new JsonRpcErrorResponse(
           requestContext.getRequest().getId(), RpcErrorType.ACCOUNT_ALLOWLIST_NOT_ENABLED);

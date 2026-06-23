@@ -105,10 +105,9 @@ public class Endpoint {
     if (obj == this) {
       return true;
     }
-    if (!(obj instanceof Endpoint)) {
+    if (!(obj instanceof Endpoint other)) {
       return false;
     }
-    final Endpoint other = (Endpoint) obj;
     return host.equals(other.host)
         && this.udpPort == other.udpPort
         && (this.tcpPort.equals(other.tcpPort));

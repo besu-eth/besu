@@ -59,6 +59,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.WithdrawalsValidator;
 import org.hyperledger.besu.ethereum.mainnet.requests.ProhibitedRequestValidator;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
+import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.rpc.RpcResponseType;
 
@@ -98,6 +99,8 @@ public abstract class AbstractEngineNewPayloadTest extends AbstractScheduledApiT
 
   @Mock protected EthPeers ethPeers;
 
+  @Mock protected WorldStateArchive worldStateArchive;
+
   @Mock protected EngineCallListener engineCallListener;
 
   @BeforeEach
@@ -106,6 +109,8 @@ public abstract class AbstractEngineNewPayloadTest extends AbstractScheduledApiT
     super.before();
     when(protocolContext.safeConsensusContext(Mockito.any())).thenReturn(Optional.of(mergeContext));
     when(protocolContext.getBlockchain()).thenReturn(blockchain);
+    lenient().when(protocolContext.getWorldStateArchive()).thenReturn(worldStateArchive);
+    lenient().when(worldStateArchive.isWorldStateImmediatelyCached(any())).thenReturn(true);
     lenient()
         .when(protocolSpec.getWithdrawalsValidator())
         .thenReturn(new WithdrawalsValidator.ProhibitedWithdrawals());
@@ -315,6 +320,30 @@ public abstract class AbstractEngineNewPayloadTest extends AbstractScheduledApiT
     assertThat(res.getLatestValidHash()).isEmpty();
     assertThat(res.getStatusAsString()).isEqualTo(SYNCING.name());
     assertThat(res.getError()).isNull();
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
+  public void shouldReturnSyncingWhenParentWorldStateNotImmediatelyCached() {
+    // Simulates cold-cache after restart: parent header is known to the blockchain but its
+    // world state is not in the Bonsai layered cache (requires expensive trie-log replay).
+    // We must return SYNCING immediately rather than blocking the worker thread.
+    BlockHeader mockHeader = createBlockHeader(Optional.empty());
+    when(blockchain.getBlockByHash(mockHeader.getHash())).thenReturn(Optional.empty());
+    when(blockchain.getBlockHeader(mockHeader.getParentHash()))
+        .thenReturn(Optional.of(mock(BlockHeader.class)));
+    when(mergeCoordinator.getLatestValidAncestor(any(BlockHeader.class)))
+        .thenReturn(Optional.of(mockHash));
+    when(worldStateArchive.isWorldStateImmediatelyCached(mockHeader.getParentHash()))
+        .thenReturn(false);
+
+    var resp = resp(mockEnginePayload(mockHeader, emptyList()));
+
+    EnginePayloadStatusResult res = fromSuccessResp(resp);
+    assertThat(res.getStatusAsString()).isEqualTo(SYNCING.name());
+    assertThat(res.getLatestValidHash()).isEmpty();
+    assertThat(res.getError()).isNull();
+    verify(mergeCoordinator, times(0)).rememberBlock(any(), any());
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 

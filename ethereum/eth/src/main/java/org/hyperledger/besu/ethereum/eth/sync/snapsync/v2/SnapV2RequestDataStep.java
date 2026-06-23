@@ -21,8 +21,6 @@ import org.hyperledger.besu.ethereum.eth.manager.snap.RetryingGetAccountRangeFro
 import org.hyperledger.besu.ethereum.eth.manager.snap.RetryingGetBytecodeFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.snap.RetryingGetStorageRangeFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.manager.task.EthTask;
-import org.hyperledger.besu.ethereum.eth.messages.snap.AccountRangeMessage;
-import org.hyperledger.besu.ethereum.eth.messages.snap.StorageRangeMessage;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
@@ -56,7 +54,6 @@ public class SnapV2RequestDataStep {
 
   private final EthContext ethContext;
   private final WorldStateProofProvider worldStateProofProvider;
-  private final SnapSyncProcessState fastSyncState;
   private final SnapRequestContext downloadState;
   private final MetricsSystem metricsSystem;
 
@@ -68,22 +65,22 @@ public class SnapV2RequestDataStep {
       final MetricsSystem metricsSystem) {
     this.ethContext = ethContext;
     this.worldStateProofProvider = new WorldStateProofProvider(worldStateStorageCoordinator);
-    this.fastSyncState = fastSyncState;
     this.downloadState = downloadState;
     this.metricsSystem = metricsSystem;
   }
 
   public CompletableFuture<Task<SnapDataRequest>> requestAccount(
       final Task<SnapDataRequest> requestTask) {
-    final BlockHeader blockHeader = fastSyncState.getPivotBlockHeader().get();
     final SnapV2AccountRangeRequest request = (SnapV2AccountRangeRequest) requestTask.getData();
-    final EthTask<AccountRangeMessage.AccountRangeData> getAccountTask =
-        RetryingGetAccountRangeFromPeerTask.forAccountRange(
-            ethContext,
-            request.getStartKeyHash(),
-            request.getEndKeyHash(),
-            blockHeader,
-            metricsSystem);
+    final BlockHeader blockHeader = request.getPivotBlockHeader();
+    final RetryingGetAccountRangeFromPeerTask getAccountTask =
+        (RetryingGetAccountRangeFromPeerTask)
+            RetryingGetAccountRangeFromPeerTask.forAccountRange(
+                ethContext,
+                request.getStartKeyHash(),
+                request.getEndKeyHash(),
+                blockHeader,
+                metricsSystem);
     downloadState.addOutstandingTask(getAccountTask);
     return getAccountTask
         .run()
@@ -95,6 +92,19 @@ public class SnapV2RequestDataStep {
                 request.setRootHash(blockHeader.getStateRoot());
                 request.addResponse(
                     worldStateProofProvider, response.accounts(), response.proofs());
+                if (request.hasInvalidProof()) {
+                  getAccountTask
+                      .getAssignedPeer()
+                      .ifPresent(
+                          peer -> {
+                            LOG.atDebug()
+                                .setMessage(
+                                    "Invalid snap/2 account range proof received from peer {}")
+                                .addArgument(peer::getLoggableId)
+                                .log();
+                            peer.recordUselessResponse("invalid snap/2 account range proof");
+                          });
+                }
               }
               if (error != null) {
                 LOG.atDebug()
@@ -116,7 +126,8 @@ public class SnapV2RequestDataStep {
             .map(SnapV2StorageRangeRequest.class::cast)
             .map(SnapV2StorageRangeRequest::getAccountHash)
             .collect(Collectors.toList());
-    final BlockHeader blockHeader = fastSyncState.getPivotBlockHeader().get();
+    final BlockHeader blockHeader =
+        ((SnapV2StorageRangeRequest) requestTasks.getFirst().getData()).getPivotBlockHeader();
     final Bytes32 minRange =
         requestTasks.size() == 1
             ? ((SnapV2StorageRangeRequest) requestTasks.get(0).getData()).getStartKeyHash()
@@ -129,7 +140,7 @@ public class SnapV2RequestDataStep {
         accountHashes.stream()
             .map(hash -> Bytes32.wrap(hash.getBytes()))
             .collect(Collectors.toList());
-    final EthTask<StorageRangeMessage.SlotRangeData> getStorageRangeTask =
+    final RetryingGetStorageRangeFromPeerTask getStorageRangeTask =
         RetryingGetStorageRangeFromPeerTask.forStorageRange(
             ethContext, accountHashesAsBytes32, minRange, maxRange, blockHeader, metricsSystem);
     downloadState.addOutstandingTask(getStorageRangeTask);
@@ -141,6 +152,7 @@ public class SnapV2RequestDataStep {
               downloadState.removeOutstandingTask(getStorageRangeTask);
               if (response != null) {
                 final ArrayDeque<NavigableMap<Bytes32, Bytes>> slots = new ArrayDeque<>();
+                boolean invalidProofReceived = false;
                 try {
                   final boolean isEmptyRange =
                       (response.slots().isEmpty() || response.slots().get(0).isEmpty())
@@ -159,6 +171,22 @@ public class SnapV2RequestDataStep {
                         worldStateProofProvider,
                         slots.get(i),
                         i < slots.size() - 1 ? new ArrayDeque<>() : response.proofs());
+                    if (request.hasInvalidProof()) {
+                      invalidProofReceived = true;
+                    }
+                  }
+                  if (invalidProofReceived) {
+                    getStorageRangeTask
+                        .getAssignedPeer()
+                        .ifPresent(
+                            peer -> {
+                              LOG.atDebug()
+                                  .setMessage(
+                                      "Invalid snap/2 storage range proof received from peer {}")
+                                  .addArgument(peer::getLoggableId)
+                                  .log();
+                              peer.recordUselessResponse("invalid snap/2 storage range proof");
+                            });
                   }
                 } catch (final Exception e) {
                   LOG.error("Error while processing storage range response", e);
@@ -183,7 +211,8 @@ public class SnapV2RequestDataStep {
             .map(SnapV2BytecodeRequest::getCodeHash)
             .distinct()
             .collect(Collectors.toList());
-    final BlockHeader blockHeader = fastSyncState.getPivotBlockHeader().get();
+    final BlockHeader blockHeader =
+        ((SnapV2BytecodeRequest) requestTasks.getFirst().getData()).getPivotBlockHeader();
     final EthTask<Map<Bytes32, Bytes>> getByteCodeTask =
         RetryingGetBytecodeFromPeerTask.forByteCode(
             ethContext, codeHashes, blockHeader, metricsSystem);

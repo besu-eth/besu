@@ -77,8 +77,6 @@ public class ProtocolSpec {
 
   private final FeeMarket feeMarket;
 
-  private final Optional<PoWHasher> powHasher;
-
   private final WithdrawalsValidator withdrawalsValidator;
   private final Optional<WithdrawalsProcessor> withdrawalsProcessor;
   private final RequestsValidator requestsValidator;
@@ -118,7 +116,6 @@ public class ProtocolSpec {
    * @param gasCalculator the gas calculator to use.
    * @param gasLimitCalculator the gas limit calculator to use.
    * @param feeMarket an {@link Optional} wrapping {@link FeeMarket} class if appropriate.
-   * @param powHasher the proof-of-work hasher
    * @param withdrawalsProcessor the Withdrawals processor to use
    * @param requestsValidator the request validator to use
    * @param requestProcessorCoordinator the request processor to use
@@ -152,7 +149,6 @@ public class ProtocolSpec {
       final GasCalculator gasCalculator,
       final GasLimitCalculator gasLimitCalculator,
       final FeeMarket feeMarket,
-      final Optional<PoWHasher> powHasher,
       final WithdrawalsValidator withdrawalsValidator,
       final Optional<WithdrawalsProcessor> withdrawalsProcessor,
       final RequestsValidator requestsValidator,
@@ -187,7 +183,6 @@ public class ProtocolSpec {
     this.gasCalculator = gasCalculator;
     this.gasLimitCalculator = gasLimitCalculator;
     this.feeMarket = feeMarket;
-    this.powHasher = powHasher;
     this.withdrawalsValidator = withdrawalsValidator;
     this.withdrawalsProcessor = withdrawalsProcessor;
     this.requestsValidator = requestsValidator;
@@ -378,15 +373,6 @@ public class ProtocolSpec {
    */
   public FeeMarket getFeeMarket() {
     return feeMarket;
-  }
-
-  /**
-   * Returns the Proof-of-Work hasher
-   *
-   * @return the Proof-of-Work hasher
-   */
-  public Optional<PoWHasher> getPoWHasher() {
-    return powHasher;
   }
 
   public WithdrawalsValidator getWithdrawalsValidator() {
