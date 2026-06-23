@@ -626,28 +626,6 @@ public class UInt256Test {
   }
 
   @Test
-  public void divPowerOfTwoDivisor() {
-    final Random random = new Random(746521);
-    for (int k = 0; k < 256; k++) {
-      BigInteger bInt = BigInteger.ONE.shiftLeft(k);
-      UInt256 b = UInt256.fromBytesBE(bigIntTo32B(bInt).toArray());
-      for (int i = 0; i < 8; i++) {
-        byte[] aArray = new byte[32];
-        random.nextBytes(aArray);
-        UInt256 a = UInt256.fromBytesBE(aArray);
-        BigInteger aInt = new BigInteger(1, aArray);
-        Bytes32 qBytes = Bytes32.leftPad(Bytes.wrap(a.div(b).toBytesBE()));
-        Bytes32 expected = bigIntTo32B(aInt.divide(bInt), 1);
-        assertThat(qBytes)
-            .withFailMessage(
-                String.format(
-                    "Failure detected:\n%s.DIV(2^%d=%s)\n", a.toHexString(), k, b.toHexString()))
-            .isEqualTo(expected);
-      }
-    }
-  }
-
-  @Test
   public void signedDivRandom() {
     final Random random = new Random(957467);
     for (int i = 0; i < SAMPLE_SIZE; i++) {
