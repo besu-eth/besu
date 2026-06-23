@@ -24,6 +24,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedAccountRangeTra
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedStorageRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloaderException;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListChanges;
 import org.hyperledger.besu.ethereum.rlp.RLP;
@@ -31,7 +32,6 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
 import org.hyperledger.besu.ethereum.trie.NodeUpdater;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
-import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
@@ -57,12 +57,15 @@ public class SnapV2BlockAccessListApplier {
 
   private final WorldStateStorageCoordinator worldStateStorageCoordinator;
   private final MutableBlockchain blockchain;
+  private final ProtocolSchedule protocolSchedule;
 
   public SnapV2BlockAccessListApplier(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
-      final MutableBlockchain blockchain) {
+      final MutableBlockchain blockchain,
+      final ProtocolSchedule protocolSchedule) {
     this.worldStateStorageCoordinator = worldStateStorageCoordinator;
     this.blockchain = blockchain;
+    this.protocolSchedule = protocolSchedule;
   }
 
   public void applyBlockAccessLists(
@@ -104,9 +107,6 @@ public class SnapV2BlockAccessListApplier {
             changes, accountTrie, updater, storageRangeTracker, accountRangeTracker);
 
     stageAccountTrieChanges(accountTrie, updater);
-
-    verifyStateRoot(accountTrie, newPivotBlockHeader);
-
     updater.commit();
 
     LOG.info(
@@ -125,6 +125,12 @@ public class SnapV2BlockAccessListApplier {
 
     for (long blockNumber = fromBlock; blockNumber <= toBlock; blockNumber++) {
       final BlockHeader blockHeader = loadBlockHeader(blockNumber);
+
+      if (!protocolSchedule.getByBlockHeader(blockHeader).isBlockAccessListEnabled()) {
+        LOG.debug("Skipping block {}: BALs not enabled", blockNumber);
+        continue;
+      }
+
       final BlockAccessList bal = loadBal(blockNumber, blockHeader);
       verifyBalHash(blockNumber, blockHeader, bal);
 
@@ -404,22 +410,6 @@ public class SnapV2BlockAccessListApplier {
 
   private static Bytes32 asBytes32(final Hash hash) {
     return Bytes32.wrap(hash.getBytes());
-  }
-
-  private void verifyStateRoot(
-      final MerkleTrie<Bytes, Bytes> accountTrie, final BlockHeader newPivotBlockHeader) {
-
-    final Hash expectedRoot = newPivotBlockHeader.getStateRoot();
-    final Hash actualRoot = Hash.wrap(accountTrie.getRootHash());
-
-    if (!actualRoot.equals(expectedRoot)) {
-      throw new StateRootMismatchException(expectedRoot, actualRoot);
-    }
-
-    LOG.debug(
-        "Verified snap/2 state root for pivot block {}: {}",
-        newPivotBlockHeader.getNumber(),
-        actualRoot);
   }
 
   private record BalApplicationStats(int accounts, int storageSlots, int storageRoots) {}

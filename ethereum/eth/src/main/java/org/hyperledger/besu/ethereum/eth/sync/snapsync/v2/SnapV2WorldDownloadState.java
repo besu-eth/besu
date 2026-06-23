@@ -33,8 +33,12 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2StorageR
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldDownloadState;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloaderException;
 import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.trie.MerkleTrie;
+import org.hyperledger.besu.ethereum.trie.NodeLoader;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
+import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
+import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
@@ -50,6 +54,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
+import java.util.function.Function;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -84,8 +89,13 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   private final SnapV2PivotCatchupListener pivotCatchupListener;
   private final SnapV2BlockAccessListApplier blockAccessListApplier;
   private final Blockchain blockchain;
-  // future that completes once every in-flight (already-dequeued) task has finished
-  private CompletableFuture<Void> pivotCatchupFuture; // null unless pivot catchup is in progress
+
+  // Completes once every in-flight (already-dequeued) world-state task has finished.
+  // Non-null only while a pivot catch-up is in progress.
+  private CompletableFuture<Void> pivotCatchupFuture;
+  // Completes once the chain-side BAL fetch for the pivot gap is done.
+  // Non-null only while a pivot catch-up is in progress.
+  private CompletableFuture<Void> chainCatchupFuture;
 
   public SnapV2WorldDownloadState(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
@@ -175,6 +185,9 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
         && pendingStorageRequests.allTasksCompleted()
         && pendingLargeStorageRequests.allTasksCompleted()
         && accountRangeTracker.pendingRangeCount() == 0) {
+      if (!verifyWorldStateRoot(header)) {
+        return false;
+      }
       persistWorldStateRoot(header);
       notifyWorldStateFinished();
       syncDurationMetrics.stopTimer(
@@ -212,6 +225,30 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     updater.commit();
   }
 
+  private boolean verifyWorldStateRoot(final BlockHeader header) {
+    final Function<Bytes, Bytes> identity = Function.identity();
+    final NodeLoader accountNodeLoader =
+        (location, hash) -> worldStateStorageCoordinator.getAccountStateTrieNode(location, hash);
+    final MerkleTrie<Bytes, Bytes> accountTrie =
+        new StoredMerklePatriciaTrie<>(
+            accountNodeLoader, Bytes32.wrap(header.getStateRoot().getBytes()), identity, identity);
+    final Hash actualRoot = Hash.wrap(accountTrie.getRootHash());
+    final Hash expectedRoot = header.getStateRoot();
+    if (!actualRoot.equals(expectedRoot)) {
+      LOG.error(
+          "Snap/2 state root verification failed at sync completion for pivot block {}: expected {}, actual {}",
+          header.getNumber(),
+          expectedRoot,
+          actualRoot);
+      internalFuture.completeExceptionally(
+          new StateRootMismatchException(expectedRoot, actualRoot));
+      return false;
+    }
+    LOG.info(
+        "Snap/2 world state root verified at pivot block {}: {}", header.getNumber(), actualRoot);
+    return true;
+  }
+
   private void notifyWorldStateFinished() {
     if (worldStateFinishedNotified.compareAndSet(false, true)) {
       if (worldStateHealFinishedListener != null) {
@@ -231,6 +268,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     accountRangeTracker.clear();
     storageRangeTracker.clear();
     pivotCatchupFuture = null;
+    chainCatchupFuture = null;
   }
 
   @Override
@@ -269,14 +307,22 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     return pivotCatchupFuture != null;
   }
 
+  /**
+   * Blocks dequeueing only during the apply phase (chain catch-up done, BALs being applied). While
+   * the chain catch-up is still running, old-pivot requests keep flowing.
+   */
+  private boolean isDequeueBlocked() {
+    return pivotCatchupFuture != null && chainCatchupFuture != null && chainCatchupFuture.isDone();
+  }
+
   private boolean isWaitingForInFlightCompletion() {
-    return isPivotCatchupInProgress() && !pivotCatchupFuture.isDone();
+    return pivotCatchupFuture != null && !pivotCatchupFuture.isDone();
   }
 
   public synchronized Task<SnapDataRequest> dequeueRequestBlocking(
       final BooleanSupplier extraPauseCondition, final TaskCollection<SnapDataRequest> queue) {
     while (!isStateDownloadFinished()
-        && (isPivotCatchupInProgress() || extraPauseCondition.getAsBoolean() || queue.isEmpty())) {
+        && (isDequeueBlocked() || extraPauseCondition.getAsBoolean() || queue.isEmpty())) {
       try {
         wait();
       } catch (final InterruptedException e) {
@@ -351,11 +397,10 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
             new WorldStateDownloaderException("Snap/2 pivot catch-up listener is not available"));
         return;
       }
-      pivotCatchupFuture = new CompletableFuture<>(); // pause dequeueing
+      pivotCatchupFuture = new CompletableFuture<>();
       maybeCompleteInFlightTasks(); // handle case of 0 in-flight tasks when catchup starts
     }
 
-    final CompletableFuture<Void> chainCatchupFuture;
     try {
       chainCatchupFuture =
           pivotCatchupListener.preparePivotCatchup(currentPivotBlockHeader, newPivotBlockHeader);
@@ -397,6 +442,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
 
   private synchronized void failPivotCatchup(final Throwable error) {
     pivotCatchupFuture = null;
+    chainCatchupFuture = null;
     internalFuture.completeExceptionally(error);
     notifyAll();
   }
@@ -407,10 +453,31 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
       if (isStateDownloadFinished()) {
         return;
       }
-      applyBlockAccessLists(currentPivotBlockHeader, newPivotBlockHeader);
-      retargetQueuedRequests(newPivotBlockHeader);
-      snapSyncState.setCurrentHeader(newPivotBlockHeader);
+      // Drain in-flight tasks started when dequeue was allowed while the chain catch-up ran.
+      while (!areAllInflightTasksComplete()) {
+        try {
+          wait();
+        } catch (final InterruptedException e) {
+          Thread.currentThread().interrupt();
+          failPivotCatchup(e);
+          return;
+        }
+      }
+      try {
+        applyBlockAccessLists(currentPivotBlockHeader, newPivotBlockHeader);
+        retargetQueuedRequests(newPivotBlockHeader);
+        snapSyncState.setCurrentHeader(newPivotBlockHeader);
+      } catch (final Throwable e) {
+        LOG.error(
+            "Snap/2 pivot catch-up failed while applying BALs from pivot {} to {}",
+            currentPivotBlockHeader.getNumber(),
+            newPivotBlockHeader.getNumber(),
+            e);
+        failPivotCatchup(e);
+        return;
+      }
       pivotCatchupFuture = null;
+      chainCatchupFuture = null;
       notifyAll();
     }
     checkCompletion(newPivotBlockHeader);

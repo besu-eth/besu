@@ -196,8 +196,11 @@ public class SnapV2PersistDataStep {
 
     final int childCount = children.size() - continuationCount;
 
+    // Peer responses include boundary accounts outside [rangeStart, coveredEnd] required for
+    // proof verification; only track in-range accounts.
     accountRequest
         .getAccounts()
+        .subMap(rangeStart, true, coveredEnd, true)
         .forEach(
             (accountHash, accountData) -> {
               final PmtStateTrieAccountValue accountValue =

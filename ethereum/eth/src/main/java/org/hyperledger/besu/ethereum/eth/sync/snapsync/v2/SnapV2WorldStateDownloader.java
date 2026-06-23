@@ -29,6 +29,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePers
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2AccountRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloader;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
@@ -75,6 +76,7 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
       final SnapSyncStatePersistenceManager snapContext,
       final MutableBlockchain blockchain,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
+      final ProtocolSchedule protocolSchedule,
       final InMemoryTasksPriorityQueues<SnapDataRequest> snapTaskCollection,
       final SnapSyncConfiguration snapSyncConfiguration,
       final int maxOutstandingRequests,
@@ -96,7 +98,8 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
     this.metricsSystem = metricsSystem;
     this.syncDurationMetrics = syncDurationMetrics;
     this.blockAccessListApplier =
-        new SnapV2BlockAccessListApplier(worldStateStorageCoordinator, blockchain);
+        new SnapV2BlockAccessListApplier(
+            worldStateStorageCoordinator, blockchain, protocolSchedule);
 
     metricsSystem.createIntegerGauge(
         BesuMetricCategory.SYNCHRONIZER,
