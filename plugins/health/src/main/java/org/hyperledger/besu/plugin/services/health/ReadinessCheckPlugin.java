@@ -28,7 +28,7 @@ public class ReadinessCheckPlugin implements BesuPlugin {
 
   private static final String READINESS_ENDPOINT = "/readiness";
   private static final int DEFAULT_MIN_PEERS = 1;
-  private static final long DEFAULT_MAX_BLOCKS_BEHIND = Long.MAX_VALUE;
+  private static final long DEFAULT_MAX_BLOCKS_BEHIND = 2L;
 
   /** Instantiates a new readiness check plugin. */
   public ReadinessCheckPlugin() {}
@@ -75,8 +75,13 @@ public class ReadinessCheckPlugin implements BesuPlugin {
 
   private ServiceManager context;
   private P2PService p2pService;
+  // Push model: the sync status is fed by a BesuEvents listener registered in start() rather than
+  // pulled live from the synchronizer on every health check. Until the first listener callback
+  // arrives, cachedSyncStatus is empty, and checkReadiness treats the node as healthy
+  // (orElse(true))
+  // to avoid a false-negative at startup before any sync event has been delivered.
   private volatile Optional<SyncStatus> cachedSyncStatus = Optional.empty();
-  private long syncListenerId;
+  private long syncListenerId = -1;
 
   @Override
   public void register(final ServiceManager context) {
@@ -115,7 +120,7 @@ public class ReadinessCheckPlugin implements BesuPlugin {
     if (minPeers.isEmpty()) {
       return false;
     }
-    if (p2pService.getPeerCount() < minPeers.get()) {
+    if (p2pService.isP2pEnabled() && p2pService.getPeerCount() < minPeers.get()) {
       return false;
     }
 
@@ -140,10 +145,14 @@ public class ReadinessCheckPlugin implements BesuPlugin {
 
   @Override
   public void stop() {
-    if (context != null) {
+    if (context != null && syncListenerId != -1) {
       context
           .getService(BesuEvents.class)
-          .ifPresent(besuEvents -> besuEvents.removeSyncStatusListener(syncListenerId));
+          .ifPresent(
+              besuEvents -> {
+                besuEvents.removeSyncStatusListener(syncListenerId);
+                syncListenerId = -1;
+              });
     }
   }
 }
