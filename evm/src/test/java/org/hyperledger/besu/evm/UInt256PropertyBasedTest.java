@@ -67,6 +67,14 @@ public class UInt256PropertyBasedTest {
     return Arbitraries.integers().between(-512, 512);
   }
 
+  @Provide
+  Arbitrary<Integer> powerOfTwoExponent() {
+    final Arbitrary<Integer> edges =
+        Arbitraries.of(0, 1, 63, 64, 65, 127, 128, 129, 191, 192, 193, 254, 255);
+    return Arbitraries.frequencyOf(
+        Tuple.of(7, edges), Tuple.of(3, Arbitraries.integers().between(0, 255)));
+  }
+
   // --------------------------------------------------------------------------
   // endregion
 
@@ -357,6 +365,23 @@ public class UInt256PropertyBasedTest {
     BigInteger D = toBigUnsigned(d);
     byte[] exp =
         (D.signum() == 0) ? Bytes32.ZERO.toArrayUnsafe() : bigUnsignedToBytes32(A.divide(D));
+    assertThat(got).containsExactly(exp);
+  }
+
+  @Property
+  void property_div_byPowerOfTwo_matchesBigInteger(
+      @ForAll("unsigned1to32") final byte[] a, @ForAll("powerOfTwoExponent") final int k) {
+    // Arrange
+    final BigInteger D = BigInteger.ONE.shiftLeft(k);
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ud = UInt256.fromBytesBE(bigUnsignedToBytes32(D));
+
+    // Act
+    byte[] got = ua.div(ud).toBytesBE();
+
+    // Assert
+    BigInteger A = toBigUnsigned(a);
+    byte[] exp = bigUnsignedToBytes32(A.divide(D));
     assertThat(got).containsExactly(exp);
   }
 

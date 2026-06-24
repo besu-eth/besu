@@ -106,7 +106,7 @@ public class EthSimulateV1Test {
   }
 
   @Test
-  public void shouldReturnInvalidParamsWhenUpfrontCostExceedsBalanceWithValidation() {
+  public void shouldReturnUpfrontCostErrorCodeWhenUpfrontCostExceedsBalanceWithValidation() {
     setupMethodWithMockSimulator();
     setupBlockchainForLatest();
     when(blockSimulator.process(any(BlockHeader.class), any(), any(OperationTracer.class)))
@@ -120,7 +120,7 @@ public class EthSimulateV1Test {
 
     assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
     assertThat(((JsonRpcErrorResponse) response).getError().getCode())
-        .isEqualTo(RpcErrorType.INVALID_PARAMS.getCode());
+        .isEqualTo(BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE.getCode());
   }
 
   @Test
