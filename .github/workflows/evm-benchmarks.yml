@@ -34,6 +34,19 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
+      - name: Ensure JMH writes JSON output
+        run: |
+          if ! grep -q "resultFormat" build.gradle; then
+            if ! grep -q "^jmh {" build.gradle; then
+              echo "ERROR: jmh block not found in build.gradle, cannot inject resultFormat" >&2
+              exit 1
+            fi
+            sed -i "/^jmh {/a\\  resultFormat = 'JSON'" build.gradle
+            echo "Patched build.gradle to set resultFormat = 'JSON'"
+          else
+            echo "build.gradle already declares resultFormat — no patch needed"
+          fi
+
       - name: Run JMH Benchmarks
         run: |
           FILTER="${{ inputs.benchmark_filter }}"
