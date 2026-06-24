@@ -251,7 +251,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   private void startOrExtendRecovery() {
     extraBatchesRequested++;
     decision.complete(true);
-    LOG.info(
+    LOG.debug(
         "BackwardHeaderDriver: extending walk by one batch (extraBatches={})",
         extraBatchesRequested);
     if (extraBatchesRequested % RECOVERY_WARN_EVERY_N_BATCHES == 0) {
@@ -281,7 +281,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
 
   private void emitRecoverySuccessLog(final BlockHeader ancestor) {
     final long delta = (lowestHeaderToImport - 1) - ancestor.getNumber();
-    LOG.info(
+    LOG.debug(
         "Anchor recovery succeeded after {} extra batch(es). previousAnchor={}, matchedAncestor={} (#{}), depthBelowPreviousAnchor={}.",
         extraBatchesRequested,
         anchorHash,

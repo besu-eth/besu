@@ -90,7 +90,7 @@ public class DynamicPivotBlockSelector {
           .thenCompose(
               fss -> {
                 if (isSamePivotBlock(fss)) {
-                  LOG.atInfo()
+                  LOG.atDebug()
                       .setMessage("New pivot {} equals current pivot, nothing to do")
                       .addArgument(fss::getPivotBlockHash)
                       .log();
@@ -114,7 +114,7 @@ public class DynamicPivotBlockSelector {
         .thenAccept(
             fssWithHeader -> {
               lastPivotBlockFound = fssWithHeader.getPivotBlockHeader();
-              LOG.atInfo()
+              LOG.atDebug()
                   .setMessage("Found new pivot block {}")
                   .addArgument(this::logLastPivotBlockFound)
                   .log();
@@ -152,7 +152,7 @@ public class DynamicPivotBlockSelector {
   public void switchToNewPivotBlock(final BiConsumer<BlockHeader, Boolean> onSwitchDone) {
     lastPivotBlockFound.ifPresentOrElse(
         blockHeader -> {
-          LOG.atInfo()
+          LOG.atDebug()
               .setMessage("Setting new pivot block {} with state root {}")
               .addArgument(blockHeader::toLogString)
               .addArgument(blockHeader.getStateRoot())
