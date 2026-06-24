@@ -217,6 +217,22 @@ public class MergeBesuControllerBuilderTest {
   }
 
   @Test
+  public void buildsSuccessfullyWhenTerminalTotalDifficultyIsAbsent() {
+    when(genesisConfigOptions.getTerminalTotalDifficulty()).thenReturn(Optional.empty());
+
+    // Prior to this fix, build() threw here because createEthProtocolManager called orElseThrow()
+    // on an absent TTD. The TTD=ZERO assertion is secondary.
+    final Difficulty terminalTotalDifficulty =
+        visitWithMockConfigs(new MergeBesuControllerBuilder())
+            .build()
+            .getProtocolContext()
+            .getConsensusContext(MergeContext.class)
+            .getTerminalTotalDifficulty();
+
+    assertThat(terminalTotalDifficulty).isEqualTo(Difficulty.ZERO);
+  }
+
+  @Test
   public void assertConfiguredBlock() {
     final Blockchain mockChain = mock(Blockchain.class);
     when(mockChain.getBlockHeader(anyLong())).thenReturn(Optional.of(mock(BlockHeader.class)));

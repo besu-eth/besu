@@ -91,8 +91,8 @@ public class JsonRpcArrayExecutor extends AbstractJsonRpcExecutor {
    *     request.
    */
   private JsonRpcResponse processMaybeRequest(final Object maybeRequest) {
-    if (maybeRequest instanceof JsonObject) {
-      return executeRequest((JsonObject) maybeRequest);
+    if (maybeRequest instanceof JsonObject jsonObject) {
+      return executeRequest(jsonObject);
     } else {
       return createErrorResponse();
     }

@@ -3,10 +3,13 @@
 ## Unreleased
 
 ### Breaking Changes
+- Sunsetting features is now complete - for more context on the reasoning behind these removals, read [this blog post](https://www.lfdecentralizedtrust.org/blog/sunsetting-tessera-and-simplifying-hyperledger-besu)
+  - Proof of Work consensus (PoW) removal is now complete:
+    - Remove PoW mining infrastructure: PoW mining coordinator, executor, block creator/miner, nonce generators, PoW solver, and PoWObserver are deleted. `nonceGenerator` is removed from `MiningConfiguration`. Mainnet genesis files with `ethash` config can no longer mine PoW blocks. [#10656](https://github.com/besu-eth/besu/issues/10656)
+    - Remove Ethash and PoW validation code: EthHash algorithm, PoWHasher, ProofOfWorkValidationRule, CalculatedDifficultyValidationRule, EpochCalculator, and DirectAcyclicGraphSeed are deleted. `powHasher` is removed from `ProtocolSpec`/`ProtocolSpecBuilder`. [#10659](https://github.com/besu-eth/besu/issues/10659)
+    - Remove PoW RPC methods: `miner_start`, `miner_stop`, and `eth_mining` JSON-RPC methods are removed. `getCoinbase()` and `setCoinbase()` are removed from the `MiningCoordinator` interface. [#10662](https://github.com/besu-eth/besu/issues/10662)
 
 ### Upcoming Breaking Changes
-- Sunsetting features - for more context on the reasoning behind the deprecation of these features, including alternative options, read [this blog post](https://www.lfdecentralizedtrust.org/blog/sunsetting-tessera-and-simplifying-hyperledger-besu)
-  - Proof of Work consensus (PoW)
 - `--min-block-occupancy-ratio` is deprecated and will be removed in a future release
 - Plugin API
   - `PluginTransactionSelectorFactory.create(final SelectorsStateManager selectorsStateManager)` is deprecated for removal
@@ -17,9 +20,12 @@
 - `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
 
 ### Bug fixes
+- Fix `eth_getBlockByNumber("safe"/"finalized")` returning `Unknown block` on nodes with a complete chain but no peers. The FCU handler now only returns `SYNCING` when the head block is genuinely not found. [#10658](https://github.com/besu-eth/besu/issues/10658)
+- `--api-gas-price-blocks` fixed to treat `0` as "sample zero blocks" [#10642](https://github.com/besu-eth/besu/pull/10642)
 
 ### Additions and Improvements
 - Upgrade web3j dependencies to 5.0.3 [#10627](https://github.com/besu-eth/besu/pull/10627)
+- Besu now falls back to Proof of Stake when the genesis file declares no consensus mechanism (e.g. an empty `"config": {}`). [#10266](https://github.com/besu-eth/besu/pull/10266)
 
 ## 26.6.1
 

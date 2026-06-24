@@ -63,8 +63,8 @@ public class IbftQueryServiceImpl extends PoaQueryServiceImpl implements BftQuer
 
   private BlockHeader getHeaderFromChain(
       final org.hyperledger.besu.plugin.data.BlockHeader header) {
-    if (header instanceof BlockHeader) {
-      return (BlockHeader) header;
+    if (header instanceof BlockHeader blockHeader) {
+      return blockHeader;
     }
 
     final Hash blockHash = Hash.wrap(Bytes32.wrap(header.getBlockHash().getBytes().toArray()));

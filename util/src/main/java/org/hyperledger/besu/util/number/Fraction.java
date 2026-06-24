@@ -95,10 +95,9 @@ public class Fraction {
     if (o == this) {
       return true;
     }
-    if (!(o instanceof Fraction)) {
+    if (!(o instanceof Fraction that)) {
       return false;
     }
-    final Fraction that = (Fraction) o;
     return value == that.value;
   }
 

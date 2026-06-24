@@ -36,8 +36,8 @@ public final class GetAccountRangeMessage extends AbstractSnapMessageData {
   }
 
   public static GetAccountRangeMessage readFrom(final MessageData message) {
-    if (message instanceof GetAccountRangeMessage) {
-      return (GetAccountRangeMessage) message;
+    if (message instanceof GetAccountRangeMessage getAccountRangeMessage) {
+      return getAccountRangeMessage;
     }
     final int code = message.getCode();
     if (code != SnapV1.GET_ACCOUNT_RANGE) {
