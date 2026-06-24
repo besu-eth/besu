@@ -89,10 +89,14 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   /** EIP-8038: account write cost (value-bearing CALL / new account). */
   private static final long ACCOUNT_WRITE = 8_000L;
 
-  /** EIP-2780: contract-creation recipient access = ACCOUNT_WRITE + COLD_STORAGE_ACCESS = 11,000. */
+  /**
+   * EIP-2780: contract-creation recipient access = ACCOUNT_WRITE + COLD_STORAGE_ACCESS = 11,000.
+   */
   private static final long CREATE_ACCESS = ACCOUNT_WRITE + COLD_STORAGE_ACCESS;
 
-  /** EIP-2780: top-level contract-creation transaction cost, equal to the CREATE recipient access. */
+  /**
+   * EIP-2780: top-level contract-creation transaction cost, equal to the CREATE recipient access.
+   */
   private static final long TX_CREATE_COST = CREATE_ACCESS;
 
   /** EIP-2780: recipient balance-write cost charged in intrinsic gas on a value transfer. */
@@ -406,7 +410,8 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
       final Supplier<UInt256> currentValue,
       final Supplier<UInt256> originalValue) {
     // EIP-8038 refund model: no per-set/reset distinction; the flat STORAGE_WRITE is refunded when
-    // the slot is restored to its original value, and the storage-clear refund is the larger 12,480.
+    // the slot is restored to its original value, and the storage-clear refund is the larger
+    // 12,480.
     final UInt256 localCurrentValue = currentValue.get();
     if (localCurrentValue.equals(newValue)) {
       return 0L;

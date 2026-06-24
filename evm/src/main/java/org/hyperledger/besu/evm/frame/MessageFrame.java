@@ -1300,9 +1300,9 @@ public class MessageFrame {
   }
 
   /**
-   * EIP-8037: returns whether the target address of the most recent CREATE/CREATE2 spawned from this
-   * frame was already alive before the creation. On a successful create to an already-alive target,
-   * the NEW_ACCOUNT state gas is refunded.
+   * EIP-8037: returns whether the target address of the most recent CREATE/CREATE2 spawned from
+   * this frame was already alive before the creation. On a successful create to an already-alive
+   * target, the NEW_ACCOUNT state gas is refunded.
    *
    * @return true if the create target was already alive
    */

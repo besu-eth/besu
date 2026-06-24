@@ -239,13 +239,12 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
   }
 
   /**
-   * Credits {@code amount} of state gas back to the frame in LIFO order, matching EELS
-   * {@code credit_state_gas_refund}. State-gas charges draw from the reservoir first and from
-   * gasRemaining (spill) last, so a refund credits the pool charged last first: gasRemaining up to
-   * the frame's spilled amount, then the reservoir. stateGasUsed is always decremented by the full
-   * amount. This routing is observable — a refund that lands in gasRemaining is visible only to the
-   * current frame's regular gas, never to a sub-call that can only draw state gas from the
-   * reservoir.
+   * Credits {@code amount} of state gas back to the frame in LIFO order, matching EELS {@code
+   * credit_state_gas_refund}. State-gas charges draw from the reservoir first and from gasRemaining
+   * (spill) last, so a refund credits the pool charged last first: gasRemaining up to the frame's
+   * spilled amount, then the reservoir. stateGasUsed is always decremented by the full amount. This
+   * routing is observable — a refund that lands in gasRemaining is visible only to the current
+   * frame's regular gas, never to a sub-call that can only draw state gas from the reservoir.
    */
   private static void creditStateGasRefund(final MessageFrame frame, final long amount) {
     final long fromGasLeft = Math.min(amount, frame.getStateGasSpilled());

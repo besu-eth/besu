@@ -130,7 +130,8 @@ public class SelfDestructOperation extends AbstractOperation {
 
     // EIP-7708: emit a transfer log for the value moved to the beneficiary. Pre-EIP-8246 a
     // self-referential destruction additionally emitted a burn log (the balance was burned); under
-    // EIP-8246 the balance is preserved, so only a genuine transfer (beneficiary != originator) logs.
+    // EIP-8246 the balance is preserved, so only a genuine transfer (beneficiary != originator)
+    // logs.
     final boolean emitBurnLog =
         willBeDestroyed && !gasCalculator().isSelfDestructBalancePreserved();
     if (!originatorAddress.equals(beneficiaryAddress) || emitBurnLog) {

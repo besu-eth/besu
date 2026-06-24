@@ -141,9 +141,7 @@ class BalTransactionProcessorUnitTest {
   }
 
   private PartialBlockAccessView emptyPartialBlockAccessView(final long txIndex) {
-    return new PartialBlockAccessView.PartialBlockAccessViewBuilder()
-        .withTxIndex(txIndex)
-        .build();
+    return new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(txIndex).build();
   }
 
   private void stubSuccessfulTransaction() {
@@ -345,9 +343,7 @@ class BalTransactionProcessorUnitTest {
       assertEquals(nonce, account.getNonce(), "Nonce should come from partial BAL");
       assertEquals(code, account.getCode(), "Code should come from partial BAL");
       assertEquals(
-          UInt256.valueOf(11),
-          account.getStorageValue(slotOneKey),
-          "Slot one should be applied");
+          UInt256.valueOf(11), account.getStorageValue(slotOneKey), "Slot one should be applied");
       assertEquals(UInt256.ZERO, account.getStorageValue(slotTwoKey), "Null slot clears to zero");
       assertNull(
           env.worldState().updater().get(readOnlyAddress),

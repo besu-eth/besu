@@ -748,8 +748,8 @@ public class MainnetTransactionProcessor {
 
   /**
    * Settles accounts marked for self-destruction at transaction finalization. Under EIP-8246 each
-   * account is cleared (nonce reset, code and storage removed) but keeps its balance — EIP-161 state
-   * clearing then removes any account left with a zero balance. Pre-EIP-8246 the accounts are
+   * account is cleared (nonce reset, code and storage removed) but keeps its balance — EIP-161
+   * state clearing then removes any account left with a zero balance. Pre-EIP-8246 the accounts are
    * deleted outright.
    */
   private void settleSelfDestructs(

@@ -38,7 +38,8 @@ public abstract class TransactionGasAccounting {
    * Result of the gas accounting calculation.
    *
    * @param effectiveStateGas the state gas dimension
-   * @param gasUsedByTransaction floored 2D gas (max(regular, floor) + state) for estimation/receipts
+   * @param gasUsedByTransaction floored 2D gas (max(regular, floor) + state) for
+   *     estimation/receipts
    * @param usedGas post-refund gas the sender pays
    * @param regularGas the unfloored regular gas dimension (execution - state) for block accounting
    */

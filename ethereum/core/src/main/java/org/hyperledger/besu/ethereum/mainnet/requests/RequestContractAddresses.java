@@ -61,8 +61,7 @@ public class RequestContractAddresses {
             .getConsolidationRequestContractAddress()
             .orElseThrow(
                 () ->
-                    new NoSuchElementException(
-                        "Consolidation Request Contract Address not found")),
+                    new NoSuchElementException("Consolidation Request Contract Address not found")),
         // EIP-8282: builder request addresses are spec-fixed; the genesis config may override them.
         genesisConfigOptions
             .getBuilderDepositRequestContractAddress()
