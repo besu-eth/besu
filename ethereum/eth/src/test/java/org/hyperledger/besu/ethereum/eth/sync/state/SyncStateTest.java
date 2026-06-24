@@ -124,17 +124,6 @@ public class SyncStateTest {
   }
 
   @Test
-  public void isInitialSyncPhaseDone_trueWhenConstructedWithoutInitialSyncPhase() {
-    final SyncState syncStateNoInitialPhase =
-        new SyncState(blockchain, ethPeers, false, Optional.empty());
-    otherPeer.disconnect(DisconnectReason.REQUESTED);
-    syncTargetPeer.disconnect(DisconnectReason.REQUESTED);
-
-    assertThat(syncStateNoInitialPhase.isInitialSyncPhaseDone()).isTrue();
-    assertThat(syncStateNoInitialPhase.isInSync()).isTrue();
-  }
-
-  @Test
   public void isInSync_singlePeerWithWorseChainBetterHeight() {
     updateChainState(
         otherPeer.getEthPeer(), TARGET_CHAIN_HEIGHT, OUR_CHAIN_DIFFICULTY.subtract(1L));

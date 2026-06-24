@@ -233,6 +233,34 @@ public class MergeBesuControllerBuilderTest {
   }
 
   @Test
+  public void p2pEnabledFalseWithNonFullSyncMarksInitialSyncPhaseDone() {
+    when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.SNAP);
+
+    final boolean initialSyncPhaseDone =
+        visitWithMockConfigs(new MergeBesuControllerBuilder())
+            .p2pEnabled(false)
+            .build()
+            .getSyncState()
+            .isInitialSyncPhaseDone();
+
+    assertThat(initialSyncPhaseDone).isTrue();
+  }
+
+  @Test
+  public void p2pEnabledTrueWithNonFullSyncKeepsInitialSyncPhaseInProgress() {
+    when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.SNAP);
+
+    final boolean initialSyncPhaseDone =
+        visitWithMockConfigs(new MergeBesuControllerBuilder())
+            .p2pEnabled(true)
+            .build()
+            .getSyncState()
+            .isInitialSyncPhaseDone();
+
+    assertThat(initialSyncPhaseDone).isFalse();
+  }
+
+  @Test
   public void assertConfiguredBlock() {
     final Blockchain mockChain = mock(Blockchain.class);
     when(mockChain.getBlockHeader(anyLong())).thenReturn(Optional.of(mock(BlockHeader.class)));
