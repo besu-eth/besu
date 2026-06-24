@@ -564,10 +564,12 @@ public class MainnetTransactionProcessor {
         coinbase.incrementBalance(coinbaseWeiDelta);
       }
 
-      // EIP-7708: Emit closure logs for accounts with remaining balance before deletion
-      // Noop before Amsterdam
-      transferLogEmitter.emitClosureLogs(
-          worldState, initialFrame.getSelfDestructs(), initialFrame::addLog);
+      // EIP-7708: Emit closure (burn) logs for self-destructed accounts whose balance is burned.
+      // EIP-8246 preserves the balance instead of burning it, so no closure log is emitted then.
+      if (!gasCalculator.isSelfDestructBalancePreserved()) {
+        transferLogEmitter.emitClosureLogs(
+            worldState, initialFrame.getSelfDestructs(), initialFrame::addLog);
+      }
 
       operationTracer.traceEndTransaction(
           worldState.updater(),
@@ -579,7 +581,23 @@ public class MainnetTransactionProcessor {
           initialFrame.getSelfDestructs(),
           0L);
 
-      initialFrame.getSelfDestructs().forEach(worldState::deleteAccount);
+      if (gasCalculator.isSelfDestructBalancePreserved()) {
+        // EIP-8246: clear the destroyed account (nonce, code, storage) but keep its balance.
+        // Any account left empty (zero balance) is then removed by EIP-161 state clearing.
+        initialFrame
+            .getSelfDestructs()
+            .forEach(
+                address -> {
+                  final MutableAccount account = worldState.getAccount(address);
+                  if (account != null) {
+                    account.setNonce(0L);
+                    account.setCode(Bytes.EMPTY);
+                    account.clearStorage();
+                  }
+                });
+      } else {
+        initialFrame.getSelfDestructs().forEach(worldState::deleteAccount);
+      }
 
       if (clearEmptyAccounts) {
         worldState.clearAccountsThatAreEmpty();

@@ -191,6 +191,14 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   }
 
   @Override
+  public boolean isSelfDestructBalancePreserved() {
+    // EIP-8246: SELFDESTRUCT no longer burns the originator's balance. A same-tx-created account is
+    // cleared (nonce/code/storage) at finalization with its balance preserved (EIP-161 then removes
+    // it only if the balance is zero), so no Burn closure log is emitted.
+    return true;
+  }
+
+  @Override
   public long getColdSloadCost() {
     // EIP-8038: cold storage slot access raised to 3,000.
     return COLD_STORAGE_ACCESS;
