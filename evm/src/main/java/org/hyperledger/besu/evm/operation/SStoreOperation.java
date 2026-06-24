@@ -92,7 +92,7 @@ public class SStoreOperation extends AbstractOperation {
 
     final long cost =
         gasCalculator().calculateStorageCost(newValue, currentValueSupplier, originalValueSupplier)
-            + (slotIsWarm ? 0L : gasCalculator().getColdSloadCost());
+            + (slotIsWarm ? 0L : gasCalculator().getSStoreColdAccessGasCost());
     if (remainingGas < cost) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }

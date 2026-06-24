@@ -40,30 +40,30 @@ class AmsterdamGasCalculatorTest {
 
   @Test
   void transactionFloorCostShouldBeAtLeastTransactionBaseCost() {
-    // floor cost = 21000 (base cost) + 0
-    assertThat(amsterdamGasCalculator.transactionFloorCost(Bytes.EMPTY, 0)).isEqualTo(21000L);
-    // EIP-7976: floor cost = 21000 + 256 * 64 (uniform per-byte floor)
+    // EIP-2780: floor base cost = TX_BASE = 12000
+    assertThat(amsterdamGasCalculator.transactionFloorCost(Bytes.EMPTY, 0)).isEqualTo(12000L);
+    // EIP-7976: floor cost = 12000 + 256 * 64 (uniform per-byte floor)
     assertThat(amsterdamGasCalculator.transactionFloorCost(Bytes.repeat((byte) 0x0, 256), 256))
-        .isEqualTo(37384L);
+        .isEqualTo(28384L);
     // EIP-7976: non-zero bytes priced identically to zero bytes for the floor
     assertThat(amsterdamGasCalculator.transactionFloorCost(Bytes.repeat((byte) 0x1, 256), 0))
-        .isEqualTo(37384L);
-    // 11-byte mixed payload: 21000 + 11 * 64 = 21704
+        .isEqualTo(28384L);
+    // 11-byte mixed payload: 12000 + 11 * 64 = 12704
     assertThat(
             amsterdamGasCalculator.transactionFloorCost(
                 Bytes.fromHexString("0x0001000100010001000101"), 5))
-        .isEqualTo(21704L);
+        .isEqualTo(12704L);
   }
 
   @Test
   void accessListGasCostIncludesDataFloor() {
-    // EIP-2930: 2400/address + 1900/key; EIP-7981: +1280/address + 2048/key
-    // One address + zero keys  = 2400 + 1280 = 3680
-    assertThat(amsterdamGasCalculator.accessListGasCost(1, 0)).isEqualTo(3680L);
-    // One address + one key    = 3680 + 1900 + 2048 = 7628
-    assertThat(amsterdamGasCalculator.accessListGasCost(1, 1)).isEqualTo(7628L);
-    // Three addresses + five keys = 3*3680 + 5*(1900+2048) = 11040 + 19740 = 30780
-    assertThat(amsterdamGasCalculator.accessListGasCost(3, 5)).isEqualTo(30780L);
+    // EIP-2780/EIP-8038: 3000/address + 3000/key; EIP-7981: +1280/address + 2048/key
+    // One address + zero keys  = 3000 + 1280 = 4280
+    assertThat(amsterdamGasCalculator.accessListGasCost(1, 0)).isEqualTo(4280L);
+    // One address + one key    = 4280 + 3000 + 2048 = 9328
+    assertThat(amsterdamGasCalculator.accessListGasCost(1, 1)).isEqualTo(9328L);
+    // Three addresses + five keys = 3*4280 + 5*(3000+2048) = 12840 + 25240 = 38080
+    assertThat(amsterdamGasCalculator.accessListGasCost(3, 5)).isEqualTo(38080L);
   }
 
   @Test
@@ -71,14 +71,14 @@ class AmsterdamGasCalculatorTest {
     when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x1, 256));
     when(transaction.getAccessList()).thenReturn(Optional.empty());
 
-    // 21000 + 256 * 64 = 37384
-    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(37384L);
+    // 12000 + 256 * 64 = 28384
+    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(28384L);
   }
 
   @Test
   void transactionFloorCostIncludesAccessListBytes() {
     // 10 calldata bytes + 1 address (20 bytes) + 2 keys (2*32 = 64 bytes) = 94 bytes
-    // 21000 + 94 * 64 = 21000 + 6016 = 27016
+    // 12000 + 94 * 64 = 12000 + 6016 = 18016
     final AccessListEntry entry =
         new AccessListEntry(
             Address.fromHexString("0x00000000000000000000000000000000000000aa"),
@@ -86,6 +86,6 @@ class AmsterdamGasCalculatorTest {
     when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x1, 10));
     when(transaction.getAccessList()).thenReturn(Optional.of(List.of(entry)));
 
-    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(27016L);
+    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(18016L);
   }
 }
