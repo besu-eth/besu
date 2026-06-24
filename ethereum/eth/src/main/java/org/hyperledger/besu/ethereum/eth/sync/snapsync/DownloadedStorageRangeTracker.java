@@ -17,7 +17,6 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 import java.util.Collections;
 import java.util.Map.Entry;
 import java.util.NavigableMap;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 import org.apache.tuweni.bytes.Bytes32;
@@ -33,8 +32,8 @@ public class DownloadedStorageRangeTracker {
 
   private static final Logger LOG = LoggerFactory.getLogger(DownloadedStorageRangeTracker.class);
 
-  private final ConcurrentHashMap<Bytes32, ConcurrentSkipListMap<Bytes32, Bytes32>>
-      accountStorageRanges = new ConcurrentHashMap<>();
+  private final ConcurrentSkipListMap<Bytes32, ConcurrentSkipListMap<Bytes32, Bytes32>>
+      accountStorageRanges = new ConcurrentSkipListMap<>();
 
   /**
    * Register a storage slot hash interval whose slots have been downloaded and persisted for the
@@ -87,10 +86,10 @@ public class DownloadedStorageRangeTracker {
    */
   public synchronized void removeAccountHashesInRange(
       final Bytes32 rangeStart, final Bytes32 rangeEnd) {
-    for (final Bytes32 accountHash : accountStorageRanges.keySet()) {
-      if (accountHash.compareTo(rangeStart) >= 0 && accountHash.compareTo(rangeEnd) <= 0) {
-        accountStorageRanges.remove(accountHash);
-      }
+    final NavigableMap<Bytes32, ConcurrentSkipListMap<Bytes32, Bytes32>> inRange =
+        accountStorageRanges.subMap(rangeStart, true, rangeEnd, true);
+    for (final Bytes32 accountHash : inRange.keySet()) {
+      accountStorageRanges.remove(accountHash);
     }
   }
 
