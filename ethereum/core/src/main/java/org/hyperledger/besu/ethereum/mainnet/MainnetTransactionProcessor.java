@@ -382,9 +382,16 @@ public class MainnetTransactionProcessor {
       }
 
       final MessageFrame initialFrame;
+      // EIP-8037: whether a contract-creation transaction's target address was already alive
+      // (existed and non-empty, e.g. pre-funded) before execution. On a successful creation to an
+      // already-alive target no new account leaf is added, so the intrinsic NEW_ACCOUNT state gas
+      // is refunded — matching EELS process_transaction's created_target_alive path.
+      boolean createTargetAlreadyAlive = false;
       if (transaction.isContractCreation()) {
         final Address contractAddress =
             Address.contractAddress(senderAddress, sender.getNonce() - 1L);
+        final Account existingTarget = worldState.get(contractAddress);
+        createTargetAlreadyAlive = existingTarget != null && !existingTarget.isEmpty();
         accessLocationTracker.ifPresent(t -> t.addTouchedAccount(contractAddress));
 
         final Bytes initCodeBytes = transaction.getPayload();
@@ -424,6 +431,14 @@ public class MainnetTransactionProcessor {
       // contract creation) are not rolled back if the initial frame's execution reverts.
       // These are transaction-level costs that persist regardless of execution outcome.
       initialFrame.advanceUndoMark();
+      // EIP-8037: the intrinsic/top-frame state-gas charges above drew from gasRemaining when the
+      // reservoir was empty, which would otherwise count as frame spill. In EELS these intrinsic
+      // costs are pre-deducted (the frame's state_gas_spilled starts at zero), and their refund on
+      // a failed contract-creation tx is credited solely to the reservoir via
+      // refundTxCreateIntrinsicStateGas. Clearing the spill here prevents the frame-failure handler
+      // from also returning that intrinsic spill to gasRemaining on revert (a double refund); only
+      // genuine execution-time spill is tracked from this point.
+      initialFrame.resetStateGasSpilled();
 
       Deque<MessageFrame> messageFrameStack = initialFrame.getMessageFrameStack();
       while (!messageFrameStack.isEmpty()) {
@@ -457,6 +472,14 @@ public class MainnetTransactionProcessor {
 
       if (txSucceeded) {
         worldUpdater.commit();
+        // EIP-8037: a successful creation transaction to an already-alive target adds no new
+        // account leaf, so the intrinsic NEW_ACCOUNT state gas is refunded (EELS
+        // created_target_alive). The failure case is handled symmetrically below.
+        if (stateGasCalc.isActive()
+            && transaction.isContractCreation()
+            && createTargetAlreadyAlive) {
+          stateGasCalc.refundTxCreateIntrinsicStateGas(initialFrame);
+        }
       } else {
         if (initialFrame.getExceptionalHaltReason().isPresent()) {
           validationResult =
@@ -586,23 +609,7 @@ public class MainnetTransactionProcessor {
           initialFrame.getSelfDestructs(),
           0L);
 
-      if (gasCalculator.isSelfDestructBalancePreserved()) {
-        // EIP-8246: clear the destroyed account (nonce, code, storage) but keep its balance.
-        // Any account left empty (zero balance) is then removed by EIP-161 state clearing.
-        initialFrame
-            .getSelfDestructs()
-            .forEach(
-                address -> {
-                  final MutableAccount account = worldState.getAccount(address);
-                  if (account != null) {
-                    account.setNonce(0L);
-                    account.setCode(Bytes.EMPTY);
-                    account.clearStorage();
-                  }
-                });
-      } else {
-        initialFrame.getSelfDestructs().forEach(worldState::deleteAccount);
-      }
+      settleSelfDestructs(worldState, initialFrame.getSelfDestructs());
 
       if (clearEmptyAccounts) {
         worldState.clearAccountsThatAreEmpty();
@@ -737,6 +744,29 @@ public class MainnetTransactionProcessor {
     final long reservoir = gasAvailable - gasLeft;
     initialFrame.setGasRemaining(gasLeft);
     initialFrame.setStateGasReservoir(reservoir);
+  }
+
+  /**
+   * Settles accounts marked for self-destruction at transaction finalization. Under EIP-8246 each
+   * account is cleared (nonce reset, code and storage removed) but keeps its balance — EIP-161 state
+   * clearing then removes any account left with a zero balance. Pre-EIP-8246 the accounts are
+   * deleted outright.
+   */
+  private void settleSelfDestructs(
+      final WorldUpdater worldState, final Set<Address> selfDestructs) {
+    if (gasCalculator.isSelfDestructBalancePreserved()) {
+      selfDestructs.forEach(
+          address -> {
+            final MutableAccount account = worldState.getAccount(address);
+            if (account != null) {
+              account.setNonce(0L);
+              account.setCode(Bytes.EMPTY);
+              account.clearStorage();
+            }
+          });
+    } else {
+      selfDestructs.forEach(worldState::deleteAccount);
+    }
   }
 
   /** Charges EIP-8037 intrinsic state gas (contract creation and authorization delegation). */

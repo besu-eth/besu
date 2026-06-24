@@ -153,16 +153,33 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
     return frame.consumeStateGas(codeDepositStateGas(codeSize));
   }
 
+  /**
+   * Whether a value-bearing CALL to {@code recipientAddress} would create a new account leaf (the
+   * shared predicate for {@link #chargeCallNewAccountStateGas} and {@link
+   * #refundCallNewAccountStateGas}): a nonzero transfer to a non-existent or empty recipient.
+   */
+  private static boolean callCreatesNewAccount(
+      final MessageFrame frame, final Address recipientAddress, final Wei transferValue) {
+    if (transferValue.isZero()) {
+      return false;
+    }
+    final Account recipient = frame.getWorldUpdater().get(recipientAddress);
+    return recipient == null || recipient.isEmpty();
+  }
+
   @Override
   public boolean chargeCallNewAccountStateGas(
       final MessageFrame frame, final Address recipientAddress, final Wei transferValue) {
-    if (!transferValue.isZero()) {
-      final Account recipient = frame.getWorldUpdater().get(recipientAddress);
-      if (recipient == null || recipient.isEmpty()) {
-        return frame.consumeStateGas(newAccountStateGas());
-      }
+    return !callCreatesNewAccount(frame, recipientAddress, transferValue)
+        || frame.consumeStateGas(newAccountStateGas());
+  }
+
+  @Override
+  public void refundCallNewAccountStateGas(
+      final MessageFrame frame, final Address recipientAddress, final Wei transferValue) {
+    if (callCreatesNewAccount(frame, recipientAddress, transferValue)) {
+      creditStateGasRefund(frame, newAccountStateGas());
     }
-    return true;
   }
 
   @Override
@@ -190,19 +207,24 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
     long refund = emptyAccountDelegationStateGas() * alreadyExistingDelegators;
     refund += authBaseStateGas() * authBaseRefundCount;
     if (refund > 0L) {
-      creditReservoir(frame, refund);
+      // EELS set_delegation credits the authorization refund directly to the reservoir
+      // (message.state_gas_reservoir += refund) at message entry — not in LIFO order — so it is
+      // observable by a sub-call that can only draw state gas from the reservoir. Decrement
+      // stateGasUsed by the same amount (EELS state_refund) for block state-gas accounting.
+      frame.incrementStateGasReservoir(refund);
+      frame.decrementStateGasUsed(refund);
     }
     return true;
   }
 
   @Override
   public void refundCreateStateGas(final MessageFrame frame) {
-    creditReservoir(frame, createStateGas());
+    creditStateGasRefund(frame, createStateGas());
   }
 
   @Override
   public void refundTxCreateIntrinsicStateGas(final MessageFrame initialFrame) {
-    creditReservoir(initialFrame, createStateGas());
+    creditStateGasRefund(initialFrame, createStateGas());
   }
 
   @Override
@@ -212,18 +234,29 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
       final Supplier<UInt256> currentValue,
       final Supplier<UInt256> originalValue) {
     if (StorageTransition.of(newValue, currentValue, originalValue).isUnwoundSet()) {
-      creditReservoir(frame, storageSetStateGas());
+      creditStateGasRefund(frame, storageSetStateGas());
     }
   }
 
   /**
-   * Credits {@code amount} back to the reservoir and decrements stateGasUsed by the same amount.
-   * Both counters are UndoScalar-tracked, so the credit is rolled back if the enclosing frame fails
-   * — the frame-failure handler then restores the spill via a reservoir credit, so same-frame
-   * charge/refund pairs net to zero for the sender.
+   * Credits {@code amount} of state gas back to the frame in LIFO order, matching EELS
+   * {@code credit_state_gas_refund}. State-gas charges draw from the reservoir first and from
+   * gasRemaining (spill) last, so a refund credits the pool charged last first: gasRemaining up to
+   * the frame's spilled amount, then the reservoir. stateGasUsed is always decremented by the full
+   * amount. This routing is observable — a refund that lands in gasRemaining is visible only to the
+   * current frame's regular gas, never to a sub-call that can only draw state gas from the
+   * reservoir.
    */
-  private static void creditReservoir(final MessageFrame frame, final long amount) {
-    frame.incrementStateGasReservoir(amount);
+  private static void creditStateGasRefund(final MessageFrame frame, final long amount) {
+    final long fromGasLeft = Math.min(amount, frame.getStateGasSpilled());
+    if (fromGasLeft > 0L) {
+      frame.incrementRemainingGas(fromGasLeft);
+      frame.decrementStateGasSpilled(fromGasLeft);
+    }
+    final long toReservoir = amount - fromGasLeft;
+    if (toReservoir > 0L) {
+      frame.incrementStateGasReservoir(toReservoir);
+    }
     frame.decrementStateGasUsed(amount);
   }
 

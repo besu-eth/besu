@@ -136,21 +136,21 @@ public abstract class AbstractMessageProcessor {
   }
 
   /**
-   * EIP-8037 state-gas accounting on frame failure (REVERT or exceptional HALT). Rolls back the
-   * frame's UndoScalar state-gas mutations, then credits any gas-left spill back to the reservoir
-   * so the parent (or sender, on top-level failure) recovers it. Halt and revert share this path
-   * because both propagate the full state_gas_used back via incorporate_child_on_error.
+   * EIP-8037 state-gas accounting on frame failure (REVERT or exceptional HALT), matching EELS
+   * {@code refill_frame_state_gas}. Rolls back the frame's UndoScalar state-gas mutations — which
+   * restores the reservoir to its frame-entry value (the reservoir-drawn portion of the charges) —
+   * and then returns the frame's spilled state gas to gasRemaining in LIFO order. On revert the
+   * restored gasRemaining propagates to the parent; on halt it is subsequently cleared (counted as
+   * regular gas consumed). The frame-local spill counter is reset since the frame's charges are now
+   * fully unwound.
    */
   private void handleStateGasOnFrameFailure(final MessageFrame frame) {
-    final long stateGasUsedBefore = frame.getStateGasUsed();
-    final long reservoirBefore = frame.getStateGasReservoir();
     clearAccumulatedStateBesidesGasAndOutput(frame);
-    final long stateGasRestored = stateGasUsedBefore - frame.getStateGasUsed();
-    final long reservoirRestored = frame.getStateGasReservoir() - reservoirBefore;
-    final long spill = stateGasRestored - reservoirRestored;
-    if (spill > 0) {
-      frame.incrementStateGasReservoir(spill);
+    final long spilled = frame.getStateGasSpilled();
+    if (spilled > 0) {
+      frame.incrementRemainingGas(spilled);
     }
+    frame.resetStateGasSpilled();
   }
 
   private void exceptionalHalt(final MessageFrame frame) {

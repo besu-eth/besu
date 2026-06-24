@@ -149,15 +149,14 @@ public interface BlockGasAccountingStrategy {
             final long cumulativeRegularGas,
             final long cumulativeStateGas,
             final long blockGasLimit) {
-          // EIP-8037: per-dimension block gas limit enforcement.
-          // Worst-case regular consumption is capped at TX_MAX_GAS_LIMIT and at
-          // tx.gas - intrinsic_state_gas; worst-case state consumption is tx.gas -
-          // intrinsic_regular_gas. Both must fit in their respective remaining budgets.
+          // EIP-8037 per-dimension inclusion check (matches EELS exactly):
+          //   min(TX_MAX_GAS_LIMIT, tx.gas) <= block_gas_limit - cumulative_regular_gas
+          //   tx.gas                        <= block_gas_limit - cumulative_state_gas
+          // The full tx gas limit bounds both dimensions; the intrinsic split is not subtracted.
           final long regularAvailable = Math.max(0L, blockGasLimit - cumulativeRegularGas);
           final long stateAvailable = Math.max(0L, blockGasLimit - cumulativeStateGas);
-          final long worstCaseRegular =
-              Math.min(txMaxGasLimit, Math.max(0L, txGasLimit - intrinsicStateGas));
-          final long worstCaseState = Math.max(0L, txGasLimit - intrinsicRegularGas);
+          final long worstCaseRegular = Math.min(txMaxGasLimit, txGasLimit);
+          final long worstCaseState = txGasLimit;
           return worstCaseRegular <= regularAvailable && worstCaseState <= stateAvailable;
         }
 

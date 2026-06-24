@@ -269,6 +269,11 @@ public abstract class AbstractCallOperation extends AbstractOperation {
     final boolean insufficientBalance = value(frame).compareTo(balance) > 0;
     final boolean isFrameDepthTooDeep = frame.getDepth() >= 1024;
     if (insufficientBalance || isFrameDepthTooDeep) {
+      // EIP-8037: the CALL fails before the child frame, so no account is created — refund the
+      // NEW_ACCOUNT state gas charged above for a value transfer to a new recipient.
+      gasCalculator()
+          .stateGasCostCalculator()
+          .refundCallNewAccountStateGas(frame, recipientAddress, transferValue);
       frame.expandMemory(inputDataOffset(frame), inputDataLength(frame));
       frame.expandMemory(outputDataOffset(frame), outputDataLength(frame));
       // For the following, we either increment the gas or return zero, so we don't get double
@@ -346,6 +351,19 @@ public abstract class AbstractCallOperation extends AbstractOperation {
 
     final long gasRemaining = childFrame.getRemainingGas();
     frame.incrementRemainingGas(gasRemaining);
+
+    // EIP-8037: on success the parent absorbs the child's spilled state gas so later refunds route
+    // back to gasRemaining (LIFO). On failure the child already returned its spill via the
+    // frame-failure handler, so nothing is absorbed here; instead, since no account was created,
+    // refund the NEW_ACCOUNT state gas charged for a value transfer to a new recipient.
+    if (childFrame.getState() == State.COMPLETED_SUCCESS) {
+      frame.incrementStateGasSpilled(childFrame.getStateGasSpilled());
+    } else {
+      gasCalculator()
+          .stateGasCostCalculator()
+          .refundCallNewAccountStateGas(
+              frame, childFrame.getContractAddress(), childFrame.getValue());
+    }
 
     frame.popStackItems(getStackItemsConsumed());
     Bytes resultItem;

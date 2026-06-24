@@ -258,10 +258,10 @@ public class MainnetTransactionValidator implements TransactionValidator {
         clampedAdd(
             transaction.getAccessList().map(gasCalculator::accessListGasCost).orElse(0L),
             gasCalculator.delegateCodeGasCost(transaction.codeDelegationListSize()));
-    final long intrinsicGasCostOrFloor =
-        Math.max(
-            gasCalculator.transactionIntrinsicGasCost(transaction, baselineGas),
-            gasCalculator.transactionFloorCost(transaction));
+    final long intrinsicRegularGas =
+        gasCalculator.transactionIntrinsicGasCost(transaction, baselineGas);
+    final long floorCost = gasCalculator.transactionFloorCost(transaction);
+    final long intrinsicGasCostOrFloor = Math.max(intrinsicRegularGas, floorCost);
 
     if (Long.compareUnsigned(intrinsicGasCostOrFloor, transaction.getGasLimit()) > 0) {
       return ValidationResult.invalid(
@@ -269,6 +269,30 @@ public class MainnetTransactionValidator implements TransactionValidator {
           String.format(
               "intrinsic gas cost %s exceeds gas limit %s",
               intrinsicGasCostOrFloor, transaction.getGasLimit()));
+    }
+
+    // EIP-8037: with multidimensional gas, tx.gasLimit may exceed TX_MAX_GAS_LIMIT to accommodate
+    // state gas, so the gas-limit cap (validated above) is disabled for Amsterdam. The cap is
+    // instead enforced on the regular-gas dimension: both the intrinsic regular gas and the
+    // calldata floor must fit within TX_MAX_GAS_LIMIT. For pre-Amsterdam forks
+    // transactionRegularGasLimit() is Long.MAX_VALUE, so these checks never fire.
+    final var stateGasCalculator = gasCalculator.stateGasCostCalculator();
+    final long txMaxRegularGas =
+        stateGasCalculator == null
+            ? Long.MAX_VALUE
+            : stateGasCalculator.transactionRegularGasLimit();
+    if (Long.compareUnsigned(intrinsicRegularGas, txMaxRegularGas) > 0) {
+      return ValidationResult.invalid(
+          TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT,
+          String.format(
+              "intrinsic regular gas %s exceeds TX_MAX_GAS_LIMIT %s",
+              intrinsicRegularGas, txMaxRegularGas));
+    }
+    if (Long.compareUnsigned(floorCost, txMaxRegularGas) > 0) {
+      return ValidationResult.invalid(
+          TransactionInvalidReason.INTRINSIC_GAS_EXCEEDS_GAS_LIMIT,
+          String.format(
+              "calldata floor gas %s exceeds TX_MAX_GAS_LIMIT %s", floorCost, txMaxRegularGas));
     }
 
     if (transaction.calculateUpfrontGasCost(transaction.getMaxGasPrice(), Wei.ZERO, 0).bitLength()

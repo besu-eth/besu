@@ -214,6 +214,15 @@ public class MessageFrame {
   private Code createdCode = null;
   private final boolean isStatic;
 
+  // EIP-8037: whether the target address of the CREATE/CREATE2 currently in flight from this frame
+  // was already alive (existed and non-empty) before the creation. On a successful create to an
+  // already-alive target, the NEW_ACCOUNT state gas charged up-front is refunded to the reservoir.
+  private boolean createTargetWasAlive = false;
+
+  // EIP-8037: net state gas this frame has drawn from its own gasRemaining because the reservoir
+  // was insufficient. Frame-local (see the stateGasSpilled accessors below).
+  private long stateGasSpilled = 0L;
+
   // Transaction state fields.
   private final List<Log> logs = new ArrayList<>();
   private final Map<Address, Wei> refunds = new HashMap<>();
@@ -937,6 +946,45 @@ public class MessageFrame {
     }
   }
 
+  // ---- stateGasSpilled ----
+  // Frame-local (like gasRemaining): the net amount of state gas this frame has drawn from its own
+  // gasRemaining (regular gas) because the reservoir was insufficient. EIP-8037 routes refunds in
+  // LIFO order — back to gasRemaining first (up to this value), then to the reservoir — and on
+  // frame failure the spilled amount is returned to gasRemaining. On child success the parent
+  // absorbs the child's spill; on child failure it is consumed by the failure handler.
+
+  /**
+   * Returns the net state gas this frame has spilled into its own gasRemaining.
+   *
+   * @return the spilled state gas
+   */
+  public long getStateGasSpilled() {
+    return stateGasSpilled;
+  }
+
+  /**
+   * Adds to this frame's spilled state gas (used when absorbing a successful child's spill).
+   *
+   * @param amount the amount to add
+   */
+  public void incrementStateGasSpilled(final long amount) {
+    this.stateGasSpilled += amount;
+  }
+
+  /**
+   * Subtracts from this frame's spilled state gas (used when a refund routes back to gasRemaining).
+   *
+   * @param amount the amount to subtract
+   */
+  public void decrementStateGasSpilled(final long amount) {
+    this.stateGasSpilled -= amount;
+  }
+
+  /** Resets this frame's spilled state gas to zero (used by the frame-failure handler). */
+  public void resetStateGasSpilled() {
+    this.stateGasSpilled = 0L;
+  }
+
   // ---- consume ----
 
   /**
@@ -1001,6 +1049,9 @@ public class MessageFrame {
       }
       txValues.stateGasReservoir().set(0L);
       gasRemaining = sufficient ? gasRemaining - overflow : Math.max(0L, gasRemaining - overflow);
+      // Record the regular gas actually drawn from this frame's budget so refunds can be routed
+      // back to gasRemaining first (LIFO) per EIP-8037.
+      stateGasSpilled += gasLeftBefore - gasRemaining;
     }
     txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
     if (Eip8037Trace.ENABLED) {
@@ -1236,6 +1287,27 @@ public class MessageFrame {
    */
   public Address getContractAddress() {
     return contract;
+  }
+
+  /**
+   * EIP-8037: records whether the target address of the CREATE/CREATE2 currently being spawned from
+   * this frame was already alive (existed and non-empty) before the creation.
+   *
+   * @param wasAlive true if the create target was already alive
+   */
+  public void setCreateTargetWasAlive(final boolean wasAlive) {
+    this.createTargetWasAlive = wasAlive;
+  }
+
+  /**
+   * EIP-8037: returns whether the target address of the most recent CREATE/CREATE2 spawned from this
+   * frame was already alive before the creation. On a successful create to an already-alive target,
+   * the NEW_ACCOUNT state gas is refunded.
+   *
+   * @return true if the create target was already alive
+   */
+  public boolean wasCreateTargetAlive() {
+    return createTargetWasAlive;
   }
 
   /**

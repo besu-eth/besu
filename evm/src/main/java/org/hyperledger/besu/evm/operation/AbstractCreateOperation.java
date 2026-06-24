@@ -192,6 +192,12 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     final Address contractAddress = generateTargetContractAddress(parent, code);
     final Bytes inputData = getInputData(parent);
 
+    // EIP-8037: capture whether the target address is already alive (exists and non-empty) before
+    // the creation. On a successful create to an already-alive target the NEW_ACCOUNT state gas is
+    // refunded in complete() — the account's existence was already paid for.
+    final var existingTarget = parent.getWorldUpdater().get(contractAddress);
+    parent.setCreateTargetWasAlive(existingTarget != null && !existingTarget.isEmpty());
+
     final long childGasStipend =
         gasCalculator().gasAvailableForChildCreate(parent.getRemainingGas());
     parent.decrementRemainingGas(childGasStipend);
@@ -242,6 +248,16 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
 
     if (childFrame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
       Address createdAddress = childFrame.getContractAddress();
+      // EIP-8037: absorb the child's spilled state gas before crediting any create refund, so the
+      // refund routes back to gasRemaining (LIFO) over the combined spill — matching the EELS order
+      // of incorporate_child_on_success then credit_state_gas_refund.
+      frame.incrementStateGasSpilled(childFrame.getStateGasSpilled());
+      // If the target address was already alive before this CREATE/CREATE2 (e.g. a pre-funded
+      // account), no new account was added to the state trie, so the NEW_ACCOUNT state gas charged
+      // up-front is refunded in LIFO order.
+      if (frame.wasCreateTargetAlive()) {
+        gasCalculator().stateGasCostCalculator().refundCreateStateGas(frame);
+      }
       frame.pushStackItem(Words.fromAddress(createdAddress));
       frame.setReturnData(Bytes.EMPTY);
       onSuccess(frame, createdAddress);

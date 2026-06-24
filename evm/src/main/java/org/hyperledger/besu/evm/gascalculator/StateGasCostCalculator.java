@@ -187,6 +187,18 @@ public interface StateGasCostCalculator {
   }
 
   /**
+   * Refunds the NEW_ACCOUNT state gas charged by {@link #chargeCallNewAccountStateGas} when a CALL
+   * fails before the child frame runs (insufficient balance or max call depth), so no account is
+   * created. Mirrors the charge condition; no-op when no charge applied.
+   *
+   * @param frame the message frame
+   * @param recipientAddress the recipient address
+   * @param transferValue the value being transferred
+   */
+  default void refundCallNewAccountStateGas(
+      final MessageFrame frame, final Address recipientAddress, final Wei transferValue) {}
+
+  /**
    * Charges state gas for SELFDESTRUCT that sends to a new account. Only charges when the
    * beneficiary does not exist or is empty and the originator has nonzero balance.
    *
