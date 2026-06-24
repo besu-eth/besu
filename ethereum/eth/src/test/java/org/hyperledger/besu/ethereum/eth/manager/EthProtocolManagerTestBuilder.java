@@ -30,7 +30,7 @@ import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPool;
 import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
@@ -175,7 +175,8 @@ public class EthProtocolManagerTestBuilder {
         genesisConfig = GenesisConfig.mainnet();
       }
       if (genesisState == null) {
-        genesisState = GenesisState.fromConfig(genesisConfig, protocolSchedule, new CodeCache());
+        genesisState =
+            GenesisState.fromConfig(genesisConfig, protocolSchedule, new PathBasedCodeCache());
       }
       blockchain = createInMemoryBlockchain(genesisState.getBlock());
     }

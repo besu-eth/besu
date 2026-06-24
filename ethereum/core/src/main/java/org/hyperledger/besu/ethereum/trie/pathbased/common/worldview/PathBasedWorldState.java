@@ -23,13 +23,13 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.StorageSubscriber;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.cache.PathBasedCachedWorldStorageManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedLayeredWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedSnapshotWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.StorageSubscriber;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.cache.PathBasedWorldStateCacheManager;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -56,7 +56,7 @@ public abstract class PathBasedWorldState
   private static final Logger LOG = LoggerFactory.getLogger(PathBasedWorldState.class);
 
   protected PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage;
-  protected final PathBasedCachedWorldStorageManager cachedWorldStorageManager;
+  protected final PathBasedWorldStateCacheManager worldStateCacheManager;
   protected final TrieLogManager trieLogManager;
   protected PathBasedWorldStateUpdateAccumulator<?> accumulator;
 
@@ -78,7 +78,7 @@ public abstract class PathBasedWorldState
 
   protected PathBasedWorldState(
       final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage,
-      final PathBasedCachedWorldStorageManager cachedWorldStorageManager,
+      final PathBasedWorldStateCacheManager worldStateCacheManager,
       final TrieLogManager trieLogManager,
       final WorldStateConfig worldStateConfig) {
     this.worldStateKeyValueStorage = worldStateKeyValueStorage;
@@ -89,7 +89,7 @@ public abstract class PathBasedWorldState
                     .getWorldStateRootHash()
                     .orElse(getEmptyTrieHash().getBytes())));
     this.worldStateBlockHash = worldStateKeyValueStorage.getWorldStateBlockHash().orElse(Hash.ZERO);
-    this.cachedWorldStorageManager = cachedWorldStorageManager;
+    this.worldStateCacheManager = worldStateCacheManager;
     this.trieLogManager = trieLogManager;
     this.worldStateConfig = worldStateConfig;
     this.isStorageFrozen = false;
@@ -196,7 +196,7 @@ public abstract class PathBasedWorldState
               trieLogManager.saveTrieLog(accumulator, calculatedRootHash, blockHeader, this);
             };
         cacheWorldState =
-            () -> cachedWorldStorageManager.addCachedLayer(blockHeader, calculatedRootHash, this);
+            () -> worldStateCacheManager.addCachedLayer(blockHeader, calculatedRootHash, this);
         stateUpdater
             .getWorldStateTransaction()
             .put(

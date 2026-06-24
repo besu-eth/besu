@@ -164,10 +164,10 @@ public class WorldStateStorageCoordinator {
       final WorldStateKeyValueStorage.Updater updater,
       final Consumer<BonsaiWorldStateKeyValueStorage.Updater> onBonsai,
       final Consumer<ForestWorldStateKeyValueStorage.Updater> onForest) {
-    if (updater instanceof BonsaiWorldStateKeyValueStorage.Updater) {
-      onBonsai.accept(((BonsaiWorldStateKeyValueStorage.Updater) updater));
-    } else if (updater instanceof ForestWorldStateKeyValueStorage.Updater) {
-      onForest.accept(((ForestWorldStateKeyValueStorage.Updater) updater));
+    if (updater instanceof BonsaiWorldStateKeyValueStorage.Updater bonsaiUpdater) {
+      onBonsai.accept(bonsaiUpdater);
+    } else if (updater instanceof ForestWorldStateKeyValueStorage.Updater forestUpdater) {
+      onForest.accept(forestUpdater);
     }
   }
 

@@ -161,34 +161,24 @@ public class MainnetTransactionValidator implements TransactionValidator {
           "transaction code delegation transactions must have a to address");
     }
 
-    final Optional<ValidationResult<TransactionInvalidReason>> validationResult =
-        transaction
-            .getCodeDelegationList()
-            .map(
-                codeDelegations -> {
-                  for (CodeDelegation codeDelegation : codeDelegations) {
-                    if (codeDelegation.chainId().compareTo(TWO_POW_256) >= 0) {
-                      throw new IllegalArgumentException(
-                          "Invalid 'chainId' value, should be < 2^256 but got "
-                              + codeDelegation.chainId());
-                    }
+    for (CodeDelegation codeDelegation : transaction.getCodeDelegationList().orElseThrow()) {
+      if (codeDelegation.chainId().compareTo(TWO_POW_256) >= 0) {
+        return ValidationResult.invalid(
+            TransactionInvalidReason.INVALID_TRANSACTION_FORMAT,
+            "Invalid 'chainId' value, should be < 2^256 but got " + codeDelegation.chainId());
+      }
 
-                    if (codeDelegation.r().compareTo(TWO_POW_256) >= 0) {
-                      throw new IllegalArgumentException(
-                          "Invalid 'r' value, should be < 2^256 but got " + codeDelegation.r());
-                    }
+      if (codeDelegation.r().compareTo(TWO_POW_256) >= 0) {
+        return ValidationResult.invalid(
+            TransactionInvalidReason.INVALID_TRANSACTION_FORMAT,
+            "Invalid 'r' value, should be < 2^256 but got " + codeDelegation.r());
+      }
 
-                    if (codeDelegation.s().compareTo(TWO_POW_256) >= 0) {
-                      throw new IllegalArgumentException(
-                          "Invalid 's' value, should be < 2^256 but got " + codeDelegation.s());
-                    }
-                  }
-
-                  return ValidationResult.valid();
-                });
-
-    if (validationResult.isPresent() && !validationResult.get().isValid()) {
-      return validationResult.get();
+      if (codeDelegation.s().compareTo(TWO_POW_256) >= 0) {
+        return ValidationResult.invalid(
+            TransactionInvalidReason.INVALID_TRANSACTION_FORMAT,
+            "Invalid 's' value, should be < 2^256 but got " + codeDelegation.s());
+      }
     }
 
     return ValidationResult.valid();

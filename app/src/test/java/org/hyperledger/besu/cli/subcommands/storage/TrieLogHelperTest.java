@@ -31,7 +31,7 @@ import org.hyperledger.besu.ethereum.core.InMemoryKeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogFactoryImpl;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.BonsaiTrieLogFactory;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogLayer;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutableDataStorageConfiguration;
@@ -117,7 +117,7 @@ class TrieLogHelperTest {
     TrieLogLayer trieLogLayer = new TrieLogLayer();
     trieLogLayer.setBlockHash(blockHeader.getBlockHash());
     final BytesValueRLPOutput rlpLog = new BytesValueRLPOutput();
-    TrieLogFactoryImpl.writeTo(trieLogLayer, rlpLog);
+    BonsaiTrieLogFactory.writeTo(trieLogLayer, rlpLog);
     return rlpLog.encoded().toArrayUnsafe();
   }
 
