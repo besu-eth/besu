@@ -76,10 +76,15 @@ public class BonsaiBalWorldStateUpdateAccumulator extends BonsaiWorldStateUpdate
           if (updated != null) {
             return updated;
           }
+          final Hash addressHash =
+              blockAccessListOverlay
+                  .getAddressView()
+                  .getAddressHash(address)
+                  .orElseGet(() -> hashAndSaveAccountPreImage(address));
           return createAccount(
               this,
               address,
-              hashAndSaveAccountPreImage(address),
+              addressHash,
               0,
               Wei.ZERO,
               Hash.EMPTY_TRIE_HASH,

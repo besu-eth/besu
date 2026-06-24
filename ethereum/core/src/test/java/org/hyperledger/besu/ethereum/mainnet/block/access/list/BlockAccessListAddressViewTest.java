@@ -52,6 +52,7 @@ class BlockAccessListAddressViewTest {
 
     assertThat(addressView.getAccountChanges(ADDRESS)).isPresent();
     assertThat(addressView.getAccountChanges(other)).isPresent();
+    assertThat(addressView.getAddressHash(ADDRESS)).contains(ADDRESS.addressHash());
     assertThat(addressView.getSlotChanges(ADDRESS, SLOT).map(BlockAccessList.SlotChanges::slot))
         .contains(SLOT);
     assertThat(addressView.getSlotChanges(other, SLOT)).isEmpty();

@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 
 import java.util.HashMap;
@@ -49,6 +50,11 @@ public final class BlockAccessListAddressView {
     return entry == null ? Optional.empty() : Optional.of(entry.accountChanges);
   }
 
+  public Optional<Hash> getAddressHash(final Address address) {
+    final AccountEntry entry = accountEntries.get(address);
+    return entry == null ? Optional.empty() : Optional.of(entry.addressHash);
+  }
+
   Optional<BlockAccessList.SlotChanges> getSlotChanges(
       final Address address, final StorageSlotKey storageSlotKey) {
     final AccountEntry entry = accountEntries.get(address);
@@ -57,10 +63,12 @@ public final class BlockAccessListAddressView {
 
   private static final class AccountEntry {
     private final BlockAccessList.AccountChanges accountChanges;
+    private final Hash addressHash;
     private final Map<StorageSlotKey, BlockAccessList.SlotChanges> storageBySlot;
 
     private AccountEntry(final BlockAccessList.AccountChanges accountChanges) {
       this.accountChanges = accountChanges;
+      this.addressHash = accountChanges.address().addressHash();
       this.storageBySlot = buildStorageBySlot(accountChanges.storageChanges());
     }
 
