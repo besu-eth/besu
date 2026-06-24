@@ -114,16 +114,14 @@ public interface MutableBlockchain extends Blockchain {
   void storeBlockHeaders(List<BlockHeader> blockHeaders);
 
   /**
-   * During the header download phase of snap sync blockNumber→blockHash index entries are written
-   * for each header stored. In case of a reorg a new pivot could have a lower block number than the
-   * highest header downloaded. The blockNumber->blockHash index is used to identify blocks on the
-   * canonical chain and in this case the index of the reorged headers need to be removed.
+   * Removes the canonical blockNumber→blockHash index entries for the given block number range,
+   * without otherwise altering stored headers or chain state.
    *
    * @param lowerExclusive blocks at or below this number are not touched
    * @param upperInclusive blocks up to and including this number have their canonical index entry
    *     removed
    */
-  void unsafeStripCanonicalIndexRange(long lowerExclusive, long upperInclusive);
+  void unsafeRemoveCanonicalIndexRange(long lowerExclusive, long upperInclusive);
 
   Difficulty calculateTotalDifficulty(final BlockHeader blockHeader);
 

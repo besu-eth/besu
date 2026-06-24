@@ -181,7 +181,7 @@ public class PivotSelectorFromSafeBlock
               if (currentPivot != null) {
                 final long distanceFromHead = head.getNumber() - currentPivot.getNumber();
                 if (distanceFromHead < effectiveThreshold) {
-                  LOG.debug(
+                  LOG.info(
                       "Reusing existing pivot block {} — head has only advanced {} blocks (threshold {})",
                       currentPivot.getNumber(),
                       distanceFromHead,
@@ -193,12 +193,12 @@ public class PivotSelectorFromSafeBlock
               final BlockHeader cachedSafe = headHeaders.getIfPresent(latestSafeHash);
               if (cachedSafe != null
                   && head.getNumber() - cachedSafe.getNumber() < effectiveThreshold) {
-                LOG.debug("Using safe block {} as pivot", cachedSafe.getNumber());
+                LOG.info("Using safe block {} as pivot", cachedSafe.getNumber());
                 return CompletableFuture.completedFuture(new SnapSyncProcessState(cachedSafe));
               }
 
               final int blocksToWalk = (int) Math.min(PIVOT_DISTANCE, head.getNumber());
-              LOG.debug(
+              LOG.info(
                   "Walking back {} blocks from head {} for pivot", blocksToWalk, head.getNumber());
               return walkBackParents(head, blocksToWalk)
                   .thenApply(newPivot -> new SnapSyncProcessState(newPivot));

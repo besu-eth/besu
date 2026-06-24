@@ -544,7 +544,7 @@ public class SnapWorldDownloadStateTest {
     clock.stepMillis(MIN_MILLIS_BEFORE_STALLING + 1);
 
     // Pivot switch resets the counter and the timestamp. Next failure must NOT stall.
-    downloadState.notePivotSwitch();
+    downloadState.resetProgressTracking();
     downloadState.requestComplete(false);
 
     assertThat(future).isNotCompleted();

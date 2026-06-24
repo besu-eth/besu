@@ -96,7 +96,7 @@ public class SnapSyncChainDownloader
   private final AtomicReference<BlockHeader> pendingPivotUpdate = new AtomicReference<>(null);
   private final AtomicReference<SnapV2PivotCatchupRequest> pendingSnapV2PivotCatchup =
       new AtomicReference<>(null);
-  private CompletableFuture<Void> pivotUpdateFuture = new CompletableFuture<>();
+  private volatile CompletableFuture<Void> pivotUpdateFuture = new CompletableFuture<>();
   private final CompletableFuture<Void> worldStateHealFinishedFuture = new CompletableFuture<>();
   private volatile SnapWorldDownloadState worldDownloadState;
 
@@ -403,7 +403,7 @@ public class SnapSyncChainDownloader
     if (newPivotNumber < oldPivotNumber) {
       protocolContext
           .getBlockchain()
-          .unsafeStripCanonicalIndexRange(newPivotNumber, oldPivotNumber);
+          .unsafeRemoveCanonicalIndexRange(newPivotNumber, oldPivotNumber);
     }
 
     if (headerIsOnCanonicalChain(initialPivotHeader)) {
@@ -941,7 +941,7 @@ public class SnapSyncChainDownloader
                 chainSyncStateStorage.storeState(chainSyncState.get());
                 return CompletableFuture.completedFuture(true);
               } else {
-                blockchain.unsafeStripCanonicalIndexRange(
+                blockchain.unsafeRemoveCanonicalIndexRange(
                     updatedPivot.getNumber(), previousPivot.getNumber());
                 if (headerIsOnCanonicalChain(updatedPivot)) {
                   LOG.debug("Pivot is already canonical at height #{}.", updatedPivot.getNumber());

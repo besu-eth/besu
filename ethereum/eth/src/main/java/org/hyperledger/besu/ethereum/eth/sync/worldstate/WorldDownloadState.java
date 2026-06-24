@@ -186,7 +186,7 @@ public abstract class WorldDownloadState<REQUEST extends TasksPriorityProvider> 
     this.rootNodeData = rootNodeData;
   }
 
-  public synchronized void notePivotSwitch() {
+  public synchronized void resetProgressTracking() {
     requestsSinceLastProgress = 0;
     timestampOfLastProgress = clock.millis();
   }
@@ -194,8 +194,7 @@ public abstract class WorldDownloadState<REQUEST extends TasksPriorityProvider> 
   public synchronized void requestComplete(
       final boolean madeProgress, final long minMillisBeforeStalling) {
     if (madeProgress) {
-      requestsSinceLastProgress = 0;
-      timestampOfLastProgress = clock.millis();
+      resetProgressTracking();
     } else {
       requestsSinceLastProgress++;
       if (requestsSinceLastProgress >= maxRequestsWithoutProgress

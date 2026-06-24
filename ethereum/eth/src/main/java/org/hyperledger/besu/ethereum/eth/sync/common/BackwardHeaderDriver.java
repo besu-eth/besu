@@ -24,8 +24,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
@@ -59,8 +59,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   private final AtomicBoolean isTimeToLog = new AtomicBoolean(true);
   private volatile BlockHeader lowestImportedHeader;
 
-  private final BlockingQueue<Boolean> decisions = new LinkedBlockingQueue<>();
-  private Boolean held;
+  private volatile CompletableFuture<Boolean> decision = new CompletableFuture<>();
   private int extraBatchesRequested = 0;
   private volatile BlockHeader matchedAncestor;
   private boolean recoveryMode = false;
@@ -108,11 +107,6 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         batchSize);
   }
 
-  /* In the pipeline, hasNext() and next() are only ever called by the single source thread.
-   * accept() runs on the completer thread but never touches {@code held}; it communicates
-   * back via {@link #decisions}.
-   */
-
   @Override
   public boolean hasNext() {
     if (stopped) {
@@ -121,16 +115,16 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
     if (currentBlock.get() >= lowestHeaderToImport) {
       return true;
     }
-    // After downloading to the anchor we finish or go into recovery mode, see accept()
-    if (held == null) {
-      try {
-        held = decisions.take();
-      } catch (InterruptedException e) {
-        Thread.currentThread().interrupt();
-        return false;
-      }
+    // Below the original anchor: wait for the completer to decide extend-or-stop, see accept()
+    try {
+      return decision.get();
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+      return false;
+    } catch (final ExecutionException e) {
+      // The decision is only ever completed normally; treat anything else as "stop".
+      return false;
     }
-    return held;
   }
 
   @Override
@@ -140,10 +134,10 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
       // Phase 1 emit, still above the original anchor.
       return block;
     }
-    // Phase 2 emit — must have a live extend permission cached by hasNext(). Consume it so the
-    // next hasNext() blocks again waiting for the next batch's decision.
-    if (held != null && held) {
-      held = null;
+    // Recovery-mode emit. hasNext() must have observed an "extend" decision. Install a fresh
+    // future so the next hasNext() blocks again until the completer decides on this batch.
+    if (decision.getNow(Boolean.FALSE)) {
+      decision = new CompletableFuture<>();
       return block;
     }
     LOG.debug("BackwardHeaderDriver exhausted at block {}", block);
@@ -181,7 +175,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         blockchainStorage.storeBlockHeaders(blockHeaders);
         matchedAncestor = potentialParent.get();
         stopped = true;
-        decisions.add(false);
+        decision.complete(false);
         emitRecoverySuccessLog(matchedAncestor);
         return;
       }
@@ -189,7 +183,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         // Genesis floor reached without a canonical match: the pivot's chain does not connect to
         // our genesis.
         stopped = true;
-        decisions.add(false);
+        decision.complete(false);
         LOG.error(
             "Backward header download reached block number 1 with hash {}, but it's parent hash {} is not matching the genesis hash {}.",
             lowestImportedHeader.getBlockHash(),
@@ -204,7 +198,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
         // Recovery reached the trusted checkpoint without reconnecting to the canonical chain
         // above it: the pivot is not on the checkpoint's chain.
         stopped = true;
-        decisions.add(false);
+        decision.complete(false);
         final String message =
             "Anchor recovery reached the trusted checkpoint #"
                 + checkpointFloorNumber
@@ -226,11 +220,11 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
       if (lowestImportedHeader.getParentHash().equals(anchorHash)) {
         LOG.info("Header import progress 100.00%");
         stopped = true;
-        decisions.add(false);
+        decision.complete(false);
       } else {
         if (lowestHeaderToImport == 1) {
           stopped = true;
-          decisions.add(false);
+          decision.complete(false);
           throw new WrongChainException(
               "Backward header download reached genesis boundary without matching parent hash.");
         }
@@ -256,8 +250,8 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
 
   private void startOrExtendRecovery() {
     extraBatchesRequested++;
-    decisions.add(true);
-    LOG.debug(
+    decision.complete(true);
+    LOG.info(
         "BackwardHeaderDriver: extending walk by one batch (extraBatches={})",
         extraBatchesRequested);
     if (extraBatchesRequested % RECOVERY_WARN_EVERY_N_BATCHES == 0) {
@@ -287,7 +281,7 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
 
   private void emitRecoverySuccessLog(final BlockHeader ancestor) {
     final long delta = (lowestHeaderToImport - 1) - ancestor.getNumber();
-    LOG.debug(
+    LOG.info(
         "Anchor recovery succeeded after {} extra batch(es). previousAnchor={}, matchedAncestor={} (#{}), depthBelowPreviousAnchor={}.",
         extraBatchesRequested,
         anchorHash,

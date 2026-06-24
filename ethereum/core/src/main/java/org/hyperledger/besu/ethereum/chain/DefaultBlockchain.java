@@ -611,7 +611,8 @@ public class DefaultBlockchain implements MutableBlockchain {
   }
 
   @Override
-  public void unsafeStripCanonicalIndexRange(final long lowerExclusive, final long upperInclusive) {
+  public void unsafeRemoveCanonicalIndexRange(
+      final long lowerExclusive, final long upperInclusive) {
     final BlockchainStorage.Updater updater = blockchainStorage.updater();
     for (long i = lowerExclusive + 1; i <= upperInclusive; i++) {
       updater.removeBlockHash(i);
