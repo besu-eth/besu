@@ -20,6 +20,34 @@ public class MainnetRequestsProcessor {
 
   public static RequestProcessorCoordinator pragueRequestsProcessors(
       final RequestContractAddresses requestContractAddresses) {
+    return pragueRequestsProcessorsBuilder(requestContractAddresses).build();
+  }
+
+  /**
+   * Amsterdam request processors: the Prague set plus the EIP-8282 builder deposit (0x03) and
+   * builder exit (0x04) requests, each collected via an empty-data system call to its fixed
+   * predeploy.
+   */
+  public static RequestProcessorCoordinator amsterdamRequestsProcessors(
+      final RequestContractAddresses requestContractAddresses) {
+    return pragueRequestsProcessorsBuilder(requestContractAddresses)
+        .addProcessor(
+            RequestType.BUILDER_DEPOSIT,
+            new SystemCallRequestProcessor(
+                "BUILDER_DEPOSIT_REQUEST_PREDEPLOY_ADDRESS",
+                requestContractAddresses.getBuilderDepositRequestContractAddress(),
+                RequestType.BUILDER_DEPOSIT))
+        .addProcessor(
+            RequestType.BUILDER_EXIT,
+            new SystemCallRequestProcessor(
+                "BUILDER_EXIT_REQUEST_PREDEPLOY_ADDRESS",
+                requestContractAddresses.getBuilderExitRequestContractAddress(),
+                RequestType.BUILDER_EXIT))
+        .build();
+  }
+
+  private static RequestProcessorCoordinator.Builder pragueRequestsProcessorsBuilder(
+      final RequestContractAddresses requestContractAddresses) {
     return new RequestProcessorCoordinator.Builder()
         .addProcessor(
             RequestType.WITHDRAWAL,
@@ -35,7 +63,6 @@ public class MainnetRequestsProcessor {
                 RequestType.CONSOLIDATION))
         .addProcessor(
             RequestType.DEPOSIT,
-            new DepositRequestProcessor(requestContractAddresses.getDepositContractAddress()))
-        .build();
+            new DepositRequestProcessor(requestContractAddresses.getDepositContractAddress()));
   }
 }

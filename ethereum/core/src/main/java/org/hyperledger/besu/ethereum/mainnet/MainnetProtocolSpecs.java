@@ -42,6 +42,7 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SPURIOUS_DRAGON;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.TANGERINE_WHISTLE;
+import static org.hyperledger.besu.ethereum.mainnet.requests.MainnetRequestsProcessor.amsterdamRequestsProcessors;
 import static org.hyperledger.besu.ethereum.mainnet.requests.MainnetRequestsProcessor.pragueRequestsProcessors;
 
 import org.hyperledger.besu.config.BlobSchedule;
@@ -1211,7 +1212,8 @@ public abstract class MainnetProtocolSpecs {
       final boolean isParallelTxProcessingEnabled,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
-    return bpo5Definition(
+    final ProtocolSpecBuilder amsterdamSpecBuilder =
+        bpo5Definition(
             chainId,
             enableRevertReason,
             genesisConfigOptions,
@@ -1292,6 +1294,16 @@ public abstract class MainnetProtocolSpecs {
         // Amsterdam: Validator uses pre-refund gas_metered = max(regular, state) from processing
         .blockGasUsedValidator(BlockGasUsedValidator.AMSTERDAM)
         .hardforkId(AMSTERDAM);
+
+    // EIP-8282: add the builder deposit (0x03) and builder exit (0x04) execution requests on top of
+    // the inherited Prague request processors. Skipped for PoA chains without system contracts.
+    if (!(isPoAConsensus(genesisConfigOptions)
+        && !hasSystemContractAddresses(genesisConfigOptions))) {
+      amsterdamSpecBuilder.requestProcessorCoordinator(
+          amsterdamRequestsProcessors(RequestContractAddresses.fromGenesis(genesisConfigOptions)));
+    }
+
+    return amsterdamSpecBuilder;
   }
 
   private static ProtocolSpecBuilder applyBlobSchedule(

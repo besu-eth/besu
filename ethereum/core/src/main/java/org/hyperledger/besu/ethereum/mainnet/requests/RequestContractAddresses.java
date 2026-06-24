@@ -20,17 +20,31 @@ import org.hyperledger.besu.datatypes.Address;
 import java.util.NoSuchElementException;
 
 public class RequestContractAddresses {
+  /** EIP-8282 builder deposit request predeploy (spec-fixed default when not configured). */
+  public static final Address DEFAULT_BUILDER_DEPOSIT_REQUEST_CONTRACT_ADDRESS =
+      Address.fromHexString("0x0000884d2AA32eAa155F59A2f24eFa73D9008282");
+
+  /** EIP-8282 builder exit request predeploy (spec-fixed default when not configured). */
+  public static final Address DEFAULT_BUILDER_EXIT_REQUEST_CONTRACT_ADDRESS =
+      Address.fromHexString("0x000014574A74c805590AFF9499fc7A690f008282");
+
   private final Address withdrawalRequestContractAddress;
   private final Address depositContractAddress;
   private final Address consolidationRequestContractAddress;
+  private final Address builderDepositRequestContractAddress;
+  private final Address builderExitRequestContractAddress;
 
   private RequestContractAddresses(
       final Address withdrawalRequestContractAddress,
       final Address depositContractAddress,
-      final Address consolidationRequestContractAddress) {
+      final Address consolidationRequestContractAddress,
+      final Address builderDepositRequestContractAddress,
+      final Address builderExitRequestContractAddress) {
     this.withdrawalRequestContractAddress = withdrawalRequestContractAddress;
     this.depositContractAddress = depositContractAddress;
     this.consolidationRequestContractAddress = consolidationRequestContractAddress;
+    this.builderDepositRequestContractAddress = builderDepositRequestContractAddress;
+    this.builderExitRequestContractAddress = builderExitRequestContractAddress;
   }
 
   public static RequestContractAddresses fromGenesis(
@@ -48,7 +62,14 @@ public class RequestContractAddresses {
             .orElseThrow(
                 () ->
                     new NoSuchElementException(
-                        "Consolidation Request Contract Address not found")));
+                        "Consolidation Request Contract Address not found")),
+        // EIP-8282: builder request addresses are spec-fixed; the genesis config may override them.
+        genesisConfigOptions
+            .getBuilderDepositRequestContractAddress()
+            .orElse(DEFAULT_BUILDER_DEPOSIT_REQUEST_CONTRACT_ADDRESS),
+        genesisConfigOptions
+            .getBuilderExitRequestContractAddress()
+            .orElse(DEFAULT_BUILDER_EXIT_REQUEST_CONTRACT_ADDRESS));
   }
 
   public Address getWithdrawalRequestContractAddress() {
@@ -61,5 +82,13 @@ public class RequestContractAddresses {
 
   public Address getConsolidationRequestContractAddress() {
     return consolidationRequestContractAddress;
+  }
+
+  public Address getBuilderDepositRequestContractAddress() {
+    return builderDepositRequestContractAddress;
+  }
+
+  public Address getBuilderExitRequestContractAddress() {
+    return builderExitRequestContractAddress;
   }
 }
