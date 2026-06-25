@@ -52,7 +52,7 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Static-pivot snap/2 leaf download state. Healing queues are intentionally absent. */
+/** Static-pivot snap/2 leaf download state. */
 public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest>
     implements SnapRequestContext {
 
@@ -72,13 +72,13 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   private final SnapSyncMetricsManager metricsManager;
   private final AtomicBoolean worldStateFinishedNotified = new AtomicBoolean(false);
   private final WorldStateHealFinishedListener worldStateHealFinishedListener;
-  private final DownloadedAccountRangeTracker rangeTracker = new DownloadedAccountRangeTracker();
+  private final DownloadedAccountRangeTracker accountRangeTracker =
+      new DownloadedAccountRangeTracker();
   private final DownloadedStorageRangeTracker storageRangeTracker =
       new DownloadedStorageRangeTracker();
   private final SnapV2PivotCatchupListener pivotCatchupListener;
-  private boolean accountRangeRequestsPausedForPivotCatchup = false;
-  private boolean pivotCatchupInProgress = false;
-  private CompletableFuture<Void> pivotCatchupSafePointFuture;
+  // future that completes once every in-flight (already-dequeued) task has finished
+  private CompletableFuture<Void> pivotCatchupFuture; // null unless pivot catchup is in progress
 
   public SnapV2WorldDownloadState(
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
@@ -104,6 +104,10 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     this.metricsManager = metricsManager;
     this.worldStateHealFinishedListener = worldStateHealFinishedListener;
     this.pivotCatchupListener = pivotCatchupListener;
+
+    accountRangeTracker.setOnRangeCompleted(
+        (rangeStart, rangeEnd) ->
+            storageRangeTracker.removeAccountHashesInRange(rangeStart, rangeEnd));
 
     metricsManager
         .getMetricsSystem()
@@ -139,27 +143,27 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
             BesuMetricCategory.SYNCHRONIZER,
             "snap_v2_world_state_completed_ranges_current",
             "Number of completed account ranges for snap/2 world state download",
-            rangeTracker::completedRangeCount);
+            accountRangeTracker::completedRangeCount);
     metricsManager
         .getMetricsSystem()
         .createLongGauge(
             BesuMetricCategory.SYNCHRONIZER,
             "snap_v2_world_state_pending_ranges_current",
             "Number of pending account ranges for snap/2 world state download",
-            rangeTracker::pendingRangeCount);
+            accountRangeTracker::pendingRangeCount);
     syncDurationMetrics.startTimer(
         SyncDurationMetrics.Labels.SNAP_INITIAL_WORLD_STATE_DOWNLOAD_DURATION);
   }
 
   @Override
   public synchronized boolean checkCompletion(final BlockHeader header) {
-    if (!internalFuture.isDone()
-        && !pivotCatchupInProgress
+    if (!isStateDownloadFinished()
+        && !isPivotCatchupInProgress()
         && pendingAccountRequests.allTasksCompleted()
         && pendingCodeRequests.allTasksCompleted()
         && pendingStorageRequests.allTasksCompleted()
         && pendingLargeStorageRequests.allTasksCompleted()
-        && rangeTracker.pendingRangeCount() == 0) {
+        && accountRangeTracker.pendingRangeCount() == 0) {
       persistWorldStateRoot(header);
       notifyWorldStateFinished();
       syncDurationMetrics.stopTimer(
@@ -213,16 +217,14 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     pendingStorageRequests.clear();
     pendingLargeStorageRequests.clear();
     pendingCodeRequests.clear();
-    rangeTracker.clear();
+    accountRangeTracker.clear();
     storageRangeTracker.clear();
-    accountRangeRequestsPausedForPivotCatchup = false;
-    pivotCatchupInProgress = false;
-    pivotCatchupSafePointFuture = null;
+    pivotCatchupFuture = null;
   }
 
   @Override
   public synchronized void enqueueRequest(final SnapDataRequest request) {
-    if (!internalFuture.isDone()) {
+    if (!isStateDownloadFinished()) {
       if (request instanceof SnapV2BytecodeRequest) {
         pendingCodeRequests.add(request);
       } else if (request instanceof SnapV2StorageRangeRequest storageRangeDataRequest) {
@@ -243,105 +245,90 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
 
   @Override
   public synchronized void enqueueRequests(final Stream<SnapDataRequest> requests) {
-    if (!internalFuture.isDone()) {
+    if (!isStateDownloadFinished()) {
       requests.forEach(this::enqueueRequest);
     }
   }
 
+  private boolean isStateDownloadFinished() {
+    return internalFuture.isDone();
+  }
+
+  private boolean isPivotCatchupInProgress() {
+    return pivotCatchupFuture != null;
+  }
+
+  private boolean isWaitingForInFlightCompletion() {
+    return isPivotCatchupInProgress() && !pivotCatchupFuture.isDone();
+  }
+
   public synchronized Task<SnapDataRequest> dequeueRequestBlocking(
-      final BooleanSupplier areRequestsPaused, final TaskCollection<SnapDataRequest> queue) {
-    while (!internalFuture.isDone()) {
-      while (!internalFuture.isDone() && (areRequestsPaused.getAsBoolean() || queue.isEmpty())) {
-        try {
-          wait();
-        } catch (final InterruptedException e) {
-          Thread.currentThread().interrupt();
-          return null;
-        }
-      }
-      if (internalFuture.isDone()) {
+      final BooleanSupplier extraPauseCondition, final TaskCollection<SnapDataRequest> queue) {
+    while (!isStateDownloadFinished()
+        && (isPivotCatchupInProgress() || extraPauseCondition.getAsBoolean() || queue.isEmpty())) {
+      try {
+        wait();
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
         return null;
       }
-      final Task<SnapDataRequest> task = queue.remove();
-      if (task != null) {
-        return task;
-      }
     }
-    return null;
+    if (isStateDownloadFinished()) {
+      return null;
+    }
+    return queue.remove();
   }
 
   public synchronized Task<SnapDataRequest> dequeueAccountRequestBlocking() {
     return dequeueRequestBlocking(this::shouldPauseAccountRequests, pendingAccountRequests);
   }
 
-  /**
-   * Pauses new account-range dequeues so already-persisted ranges can finish their storage/code
-   * children before a snap/2 pivot catch-up applies BALs.
-   *
-   * <p>Storage and code queues intentionally keep draining while this pause is active. Queued but
-   * not yet dequeued account ranges are not persisted yet, so a catch-up coordinator can retarget
-   * them to the next pivot after the safe point is reached.
-   */
-  public synchronized CompletableFuture<Void> pauseAccountRangeRequestsAndWaitForSafePoint() {
-    accountRangeRequestsPausedForPivotCatchup = true;
-    pivotCatchupSafePointFuture = new CompletableFuture<>();
-    maybeCompletePivotCatchupSafePoint();
-    notifyAll();
-    return pivotCatchupSafePointFuture;
+  public synchronized Task<SnapDataRequest> dequeueLargeStorageRequestBlocking() {
+    return dequeueRequestBlocking(() -> false, pendingLargeStorageRequests);
   }
 
-  public synchronized void resumeAccountRangeRequestsAfterPivotCatchup() {
-    accountRangeRequestsPausedForPivotCatchup = false;
-    pivotCatchupSafePointFuture = null;
-    notifyAll();
+  public synchronized Task<SnapDataRequest> dequeueStorageRequestBlocking() {
+    return dequeueRequestBlocking(() -> false, pendingStorageRequests);
   }
 
-  public synchronized boolean isAccountRangeRequestsPausedForPivotCatchup() {
-    return accountRangeRequestsPausedForPivotCatchup;
+  public synchronized Task<SnapDataRequest> dequeueCodeRequestBlocking() {
+    return dequeueRequestBlocking(() -> false, pendingCodeRequests);
   }
 
   /**
-   * Returns true when no partially persisted snap/2 range can still receive child data.
-   *
-   * <p>The account queue may still contain tasks: those ranges have not been dequeued or persisted
-   * yet and can be safely retargeted by the caller. A dequeued account task is not safe because it
-   * can still persist leaves and spawn storage/code children.
+   * Returns true when no in-flight task remains across any queue. Queued tasks are intentionally
+   * ignored.
    */
-  public synchronized boolean isPivotCatchupSafePoint() {
-    return accountRangeRequestsPausedForPivotCatchup
-        && pendingAccountRequests.outstandingTaskCount() == 0
-        && pendingStorageRequests.allTasksCompleted()
-        && pendingLargeStorageRequests.allTasksCompleted()
-        && pendingCodeRequests.allTasksCompleted()
-        && rangeTracker.pendingRangeCount() == 0;
+  public synchronized boolean areAllInflightTasksComplete() {
+    return pendingAccountRequests.outstandingTaskCount() == 0
+        && pendingStorageRequests.outstandingTaskCount() == 0
+        && pendingLargeStorageRequests.outstandingTaskCount() == 0
+        && pendingCodeRequests.outstandingTaskCount() == 0;
   }
 
-  private synchronized void maybeCompletePivotCatchupSafePoint() {
-    if (pivotCatchupSafePointFuture != null
-        && !pivotCatchupSafePointFuture.isDone()
-        && isPivotCatchupSafePoint()) {
-      pivotCatchupSafePointFuture.complete(null);
+  private synchronized void maybeCompleteInFlightTasks() {
+    if (isWaitingForInFlightCompletion() && areAllInflightTasksComplete()) {
+      pivotCatchupFuture.complete(null);
     }
   }
 
   @Override
   public synchronized void notifyTaskAvailable() {
-    maybeCompletePivotCatchupSafePoint();
+    maybeCompleteInFlightTasks();
     super.notifyTaskAvailable();
   }
 
   public void startPivotCatchup(final BlockHeader newPivotBlockHeader) {
     final BlockHeader currentPivotBlockHeader;
-    final CompletableFuture<Void> safePointFuture;
     synchronized (this) {
-      if (internalFuture.isDone()) {
+      if (isStateDownloadFinished()) {
         return;
       }
       currentPivotBlockHeader = snapSyncState.getPivotBlockHeader().orElseThrow();
       if (newPivotBlockHeader.getNumber() <= currentPivotBlockHeader.getNumber()) {
         return;
       }
-      if (pivotCatchupInProgress) {
+      if (isPivotCatchupInProgress()) {
         LOG.debug(
             "Snap/2 pivot catch-up to {} ignored because another catch-up is in progress",
             newPivotBlockHeader.getNumber());
@@ -352,8 +339,8 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
             new WorldStateDownloaderException("Snap/2 pivot catch-up listener is not available"));
         return;
       }
-      pivotCatchupInProgress = true;
-      safePointFuture = pauseAccountRangeRequestsAndWaitForSafePoint();
+      pivotCatchupFuture = new CompletableFuture<>(); // pause dequeueing
+      maybeCompleteInFlightTasks(); // handle case of 0 in-flight tasks when catchup starts
     }
 
     final CompletableFuture<Void> chainCatchupFuture;
@@ -370,7 +357,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
       return;
     }
 
-    CompletableFuture.allOf(safePointFuture, chainCatchupFuture)
+    CompletableFuture.allOf(pivotCatchupFuture, chainCatchupFuture)
         .whenComplete(
             (unused, error) -> {
               if (error != null) {
@@ -382,9 +369,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   }
 
   private synchronized void failPivotCatchup(final Throwable error) {
-    pivotCatchupInProgress = false;
-    accountRangeRequestsPausedForPivotCatchup = false;
-    pivotCatchupSafePointFuture = null;
+    pivotCatchupFuture = null;
     internalFuture.completeExceptionally(error);
     notifyAll();
   }
@@ -392,14 +377,14 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   private void finishPivotCatchup(
       final BlockHeader currentPivotBlockHeader, final BlockHeader newPivotBlockHeader) {
     synchronized (this) {
-      if (internalFuture.isDone()) {
+      if (isStateDownloadFinished()) {
         return;
       }
       applyBlockAccessListsNoop(currentPivotBlockHeader, newPivotBlockHeader);
-      retargetQueuedAccountRangeRequests(newPivotBlockHeader);
+      retargetQueuedRequests(newPivotBlockHeader);
       snapSyncState.setCurrentHeader(newPivotBlockHeader);
-      pivotCatchupInProgress = false;
-      resumeAccountRangeRequestsAfterPivotCatchup();
+      pivotCatchupFuture = null;
+      notifyAll();
     }
     checkCompletion(newPivotBlockHeader);
   }
@@ -407,14 +392,23 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   private void applyBlockAccessListsNoop(
       final BlockHeader currentPivotBlockHeader, final BlockHeader newPivotBlockHeader) {
     LOG.info(
-        "Snap/2 BAL application placeholder: pivot {} -> {}",
+        "Snap/2 BAL application placeholder: pivot {} -> {} (completed ranges: {}, pending ranges: {})",
         currentPivotBlockHeader.getNumber(),
-        newPivotBlockHeader.getNumber());
+        newPivotBlockHeader.getNumber(),
+        accountRangeTracker.completedRangeCount(),
+        accountRangeTracker.pendingRangeCount());
   }
 
-  private void retargetQueuedAccountRangeRequests(final BlockHeader newPivotBlockHeader) {
+  private void retargetQueuedRequests(final BlockHeader newPivotBlockHeader) {
+    retargetQueuedAccountRequests(newPivotBlockHeader);
+    retargetQueuedStorageRequests(pendingStorageRequests, newPivotBlockHeader);
+    retargetQueuedStorageRequests(pendingLargeStorageRequests, newPivotBlockHeader);
+    retargetQueuedCodeRequests(newPivotBlockHeader);
+  }
+
+  private void retargetQueuedAccountRequests(final BlockHeader newPivotBlockHeader) {
     final List<SnapDataRequest> queuedAccountRequests = pendingAccountRequests.asList();
-    pendingAccountRequests.clear();
+    pendingAccountRequests.clearInternalQueue();
     for (final SnapDataRequest request : queuedAccountRequests) {
       if (request instanceof SnapV2AccountRangeRequest accountRangeRequest) {
         pendingAccountRequests.add(accountRangeRequest.retarget(newPivotBlockHeader));
@@ -425,35 +419,40 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     }
   }
 
-  public synchronized boolean isPivotCatchupInProgress() {
-    return pivotCatchupInProgress;
+  private void retargetQueuedCodeRequests(final BlockHeader newPivotBlockHeader) {
+    final List<SnapDataRequest> queuedCodeRequests = pendingCodeRequests.asList();
+    pendingCodeRequests.clearInternalQueue();
+    for (final SnapDataRequest request : queuedCodeRequests) {
+      if (request instanceof SnapV2BytecodeRequest codeRequest) {
+        pendingCodeRequests.add(codeRequest.retarget(newPivotBlockHeader));
+      } else {
+        throw new IllegalStateException(
+            "Unexpected snap/2 code queue request: " + request.getClass().getSimpleName());
+      }
+    }
   }
 
-  public synchronized Task<SnapDataRequest> dequeueLargeStorageRequestBlocking() {
-    return dequeueRequestBlocking(() -> false, pendingLargeStorageRequests);
-  }
-
-  public synchronized Task<SnapDataRequest> dequeueStorageRequestBlocking() {
-    return dequeueRequestBlocking(() -> false, pendingStorageRequests);
-  }
-
-  public synchronized Task<SnapDataRequest> dequeueCodeRequestBlocking() {
-    return dequeueRequestBlocking(this::shouldPauseCodeRequests, pendingCodeRequests);
+  private void retargetQueuedStorageRequests(
+      final InMemoryTaskQueue<SnapDataRequest> queue, final BlockHeader newPivotBlockHeader) {
+    final List<SnapDataRequest> queuedRequests = queue.asList();
+    queue.clearInternalQueue();
+    for (final SnapDataRequest request : queuedRequests) {
+      if (request instanceof SnapV2StorageRangeRequest storageRequest) {
+        // TODO: Compute new storage root during state root application
+        queue.add(storageRequest.retarget(newPivotBlockHeader, storageRequest.getStorageRoot()));
+      } else {
+        throw new IllegalStateException(
+            "Unexpected snap/2 storage queue request: " + request.getClass().getSimpleName());
+      }
+    }
   }
 
   private boolean shouldPauseAccountRequests() {
     // TODO: Replace this drain-to-zero gate with bounded backpressure. Account ranges should pause
     // only while child queues are above a high-watermark, then resume below a low-watermark.
-    return accountRangeRequestsPausedForPivotCatchup
-        || hasIncompleteTasks(pendingStorageRequests)
+    return hasIncompleteTasks(pendingStorageRequests)
         || hasIncompleteTasks(pendingLargeStorageRequests)
         || hasIncompleteTasks(pendingCodeRequests);
-  }
-
-  private boolean shouldPauseCodeRequests() {
-    // TODO: Revisit this v1-style storage-before-code priority for snap/2. Code downloads may be
-    // able to drain independently once account backpressure is bounded.
-    return hasIncompleteTasks(pendingStorageRequests);
   }
 
   private boolean hasIncompleteTasks(final TaskCollection<SnapDataRequest> queue) {
@@ -471,7 +470,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   }
 
   public DownloadedAccountRangeTracker getAccountRangeTracker() {
-    return rangeTracker;
+    return accountRangeTracker;
   }
 
   public DownloadedStorageRangeTracker getStorageRangeTracker() {

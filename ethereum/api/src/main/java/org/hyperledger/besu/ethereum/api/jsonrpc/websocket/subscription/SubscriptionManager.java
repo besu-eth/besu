@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription;
 
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.JsonRpcResult;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscribeRequest;
 import org.hyperledger.besu.ethereum.api.jsonrpc.websocket.subscription.request.SubscriptionType;
@@ -34,7 +35,6 @@ import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.eventbus.Message;
 import org.slf4j.Logger;
@@ -48,8 +48,7 @@ public class SubscriptionManager extends AbstractVerticle {
 
   private static final Logger LOG = LoggerFactory.getLogger(SubscriptionManager.class);
   private static final ObjectMapper jsonObjectMapper =
-      new ObjectMapper()
-          .registerModule(new Jdk8Module()); // Handle JDK8 Optionals (de)serialization
+      JsonRpcObjectMapperFactory.getResponseMapper();
 
   public static final String EVENTBUS_REMOVE_SUBSCRIPTIONS_ADDRESS =
       "SubscriptionManager::removeSubscriptions";

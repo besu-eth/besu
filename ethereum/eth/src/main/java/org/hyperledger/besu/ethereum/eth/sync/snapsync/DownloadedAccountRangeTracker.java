@@ -19,6 +19,7 @@ import java.util.Map.Entry;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
 
 import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
@@ -38,6 +39,7 @@ public class DownloadedAccountRangeTracker {
       new ConcurrentSkipListMap<>();
   private final ConcurrentSkipListMap<Bytes32, Bytes32> completedRanges =
       new ConcurrentSkipListMap<>();
+  private BiConsumer<Bytes32, Bytes32> onRangeCompleted = (rangeStart, rangeEnd) -> {};
 
   private static class PendingRange {
     volatile Bytes32 endInclusive;
@@ -67,6 +69,7 @@ public class DownloadedAccountRangeTracker {
     assertNoOverlap(rangeStart, rangeEnd);
     if (initialChildCount == 0) {
       completedRanges.put(rangeStart, rangeEnd);
+      onRangeCompleted.accept(rangeStart, rangeEnd);
       LOG.atDebug()
           .setMessage("Account range completed immediately: [{},{}] (no children)")
           .addArgument(rangeStart)
@@ -108,6 +111,7 @@ public class DownloadedAccountRangeTracker {
     if (remaining == 0) {
       pendingRanges.remove(rangeStart);
       completedRanges.put(rangeStart, range.endInclusive);
+      onRangeCompleted.accept(rangeStart, range.endInclusive);
       LOG.atDebug()
           .setMessage("Account range completed (delta {}): [{},{}]")
           .addArgument(delta)
@@ -156,6 +160,11 @@ public class DownloadedAccountRangeTracker {
 
   public long completedRangeCount() {
     return completedRanges.size();
+  }
+
+  /** Register a callback invoked when a range is promoted from pending to completed. */
+  public void setOnRangeCompleted(final BiConsumer<Bytes32, Bytes32> callback) {
+    this.onRangeCompleted = callback;
   }
 
   /** Clear all tracked state. */
