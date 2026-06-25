@@ -370,7 +370,7 @@ public class BesuController implements java.io.Closeable {
         builder = new CliqueBesuControllerBuilder();
       } else {
         LOG.warn("No consensus mechanism detected in genesis config, using PoS");
-        return new MergeBesuControllerBuilder().genesisConfig(genesisConfig);
+        builder = new MergeBesuControllerBuilder();
       }
 
       // wrap with TransitionBesuControllerBuilder if we have a terminal total difficulty:
