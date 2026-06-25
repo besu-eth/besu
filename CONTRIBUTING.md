@@ -141,10 +141,6 @@ Please follow these steps to have your contribution considered by the approvers:
 - This limits the surface area of the change and makes it easier to identify root causes when issues arise.
 - Make sure your PR doesn't include commits that are not part of it. This can happen if [your fork is not up to date](https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/syncing-a-fork).
 
-#### Link to an issue
-
-- When submitting your PR, include the issue's link in the description and the number in the title (for example, `[#99] My awesome PR`). This provides context and auto-updates the issue to link to your PR.
-
 #### Minimize lines of code (LOC) per PR
 
 - PRs get near-exponentially longer to review as the number of lines of code increases. Ideally, keep your changes under 300 LOC. If that's not possible, try to break your PR into smaller ones for reviewers to review sequentially.
