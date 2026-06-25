@@ -53,7 +53,7 @@ public enum RequestType {
       case 0x02 -> CONSOLIDATION;
       default ->
           throw new InvalidRequestTypeException(
-              String.format("Unsupported request type: 0x%02X", serializedTypeValue));
+              String.format("Unsupported request type: 0x%02X", (byte) serializedTypeValue));
     };
   }
 
