@@ -37,6 +37,14 @@ public interface P2PService extends BesuService {
   void disableDiscovery();
 
   /**
+   * Returns whether the P2P network is enabled. When disabled (e.g. started with {@code
+   * --p2p-enabled=false}), peer-count checks should be skipped because no peers will ever connect.
+   *
+   * @return {@code true} if the P2P network is enabled, {@code false} otherwise
+   */
+  boolean isP2pEnabled();
+
+  /**
    * Get the number of connected peers.
    *
    * @return the number of connected peers
