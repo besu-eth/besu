@@ -210,6 +210,15 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
     try {
       final Address coinbase = payloadAttributes.getSuggestedFeeRecipient();
 
+      // The header coinbase is sourced from miningConfiguration (see
+      // BlockHeaderBuilder.createPending), whereas transaction fees and the EIP-7928
+      // block access list are credited to the mining beneficiary derived from the
+      // suggestedFeeRecipient below. Without aligning the two, the built block's header
+      // records the node's configured coinbase (Address.ZERO on a filler) while the BAL
+      // credits suggestedFeeRecipient, so re-execution on engine_newPayload recomputes a
+      // BAL under the header coinbase and the block self-rejects with a BAL hash mismatch.
+      miningConfiguration.setCoinbase(coinbase);
+
       final TestingBlockCreator blockCreator =
           new TestingBlockCreator(
               miningConfiguration,
