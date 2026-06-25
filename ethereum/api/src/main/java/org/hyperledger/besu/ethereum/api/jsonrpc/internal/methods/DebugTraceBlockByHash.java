@@ -19,6 +19,9 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.RpcMethod;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.JsonRpcRequestContext;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.exception.InvalidJsonRpcParameters;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters.JsonRpcParameter.JsonRpcParameterException;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
+import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.query.BlockchainQueries;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -54,22 +57,60 @@ public class DebugTraceBlockByHash extends AbstractDebugTraceBlock {
   }
 
   @Override
+  public JsonRpcResponse response(final JsonRpcRequestContext request) {
+    final Optional<Block> maybeBlock = getBlockByHash(request);
+    if (maybeBlock.isEmpty()) {
+      return errorResponse(request, RpcErrorType.BLOCK_NOT_FOUND);
+    }
+
+    final Block block = maybeBlock.get();
+    if (block.getHeader().getNumber() == 0L) {
+      return errorResponse(request, RpcErrorType.GENESIS_BLOCK_NOT_TRACEABLE);
+    }
+
+    final TraceOptions traceOptions = getTraceOptions(request);
+    final DebugTraceBlockStreamer streamer = createStreamer(traceOptions, Optional.of(block));
+    return new JsonRpcSuccessResponse(request.getRequest().getId(), streamer.accumulateAll());
+  }
+
+  @Override
   public void streamResponse(
       final JsonRpcRequestContext requestContext, final OutputStream out, final ObjectMapper mapper)
       throws IOException {
-    final Hash blockHash;
+    final Optional<Block> maybeBlock = getBlockByHash(requestContext);
+    if (maybeBlock.isEmpty()) {
+      mapper.writeValue(out, errorResponse(requestContext, RpcErrorType.BLOCK_NOT_FOUND));
+      return;
+    }
+
+    final Block block = maybeBlock.get();
+    if (block.getHeader().getNumber() == 0L) {
+      mapper.writeValue(
+          out, errorResponse(requestContext, RpcErrorType.GENESIS_BLOCK_NOT_TRACEABLE));
+      return;
+    }
+
+    final TraceOptions traceOptions = getTraceOptions(requestContext);
+
+    final DebugTraceBlockStreamer streamer = createStreamer(traceOptions, Optional.of(block));
+    writeStreamingResponse(requestContext.getRequest().getId(), streamer, out, mapper);
+  }
+
+  private Optional<Block> getBlockByHash(final JsonRpcRequestContext requestContext) {
+    return getBlockchainQueries().getBlockchain().getBlockByHash(getBlockHash(requestContext));
+  }
+
+  private Hash getBlockHash(final JsonRpcRequestContext requestContext) {
     try {
-      blockHash = requestContext.getRequiredParameter(0, Hash.class);
+      return requestContext.getRequiredParameter(0, Hash.class);
     } catch (JsonRpcParameterException e) {
       throw new InvalidJsonRpcParameters(
           "Invalid block hash parameter (index 0)", RpcErrorType.INVALID_BLOCK_HASH_PARAMS, e);
     }
+  }
 
-    final TraceOptions traceOptions = getTraceOptions(requestContext);
-    final Optional<Block> maybeBlock =
-        getBlockchainQueries().getBlockchain().getBlockByHash(blockHash);
-
-    final DebugTraceBlockStreamer streamer = createStreamer(traceOptions, maybeBlock);
-    writeStreamingResponse(requestContext.getRequest().getId(), streamer, out, mapper);
+  private JsonRpcErrorResponse errorResponse(
+      final JsonRpcRequestContext requestContext, final RpcErrorType errorType) {
+    return new JsonRpcErrorResponse(requestContext.getRequest().getId(), errorType);
   }
 }
