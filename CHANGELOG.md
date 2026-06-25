@@ -138,6 +138,7 @@
 - Enforce that `blob_versioned_hashes` match the supplied blobs [#10278](https://github.com/besu-eth/besu/pull/10278)
 - Restrict no-reorg behavior to the prefix of the known finalized chain (per execution-apis #786) [#10335](https://github.com/besu-eth/besu/pull/10335)
 - `eth_getFilterLogs`: cache the chain head once when resolving default `latest..latest` bounds, so a block arriving between the two reads no longer expands the queried range into `[N, N+1]` and returns extra logs. [#10368](https://github.com/besu-eth/besu/pull/10368)
+- `testing_buildBlockV1` now sets the mining coinbase to the requested `suggestedFeeRecipient` before building, so the block header coinbase matches the account credited transaction fees and the EIP-7928 block access list. Previously the header used the node's configured coinbase (`Address.ZERO` on a block builder), so a non-zero `suggestedFeeRecipient` produced a block that self-rejected on `engine_newPayload` re-execution with a block access list hash mismatch.
 
 ### Additions and Improvements
 - The option to set a different block period for empty BFT blocks (`emptyblockperiodseconds`) is no longer experimental. The experimental flag `xemptyblockperiodseconds` will be removed in a future release. [#10264](https://github.com/besu-eth/besu/pull/10264)
