@@ -17,7 +17,6 @@ package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 import java.util.Collections;
 import java.util.Map.Entry;
 import java.util.NavigableMap;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 
 import org.apache.tuweni.bytes.Bytes32;
@@ -33,8 +32,8 @@ public class DownloadedStorageRangeTracker {
 
   private static final Logger LOG = LoggerFactory.getLogger(DownloadedStorageRangeTracker.class);
 
-  private final ConcurrentHashMap<Bytes32, ConcurrentSkipListMap<Bytes32, Bytes32>>
-      accountStorageRanges = new ConcurrentHashMap<>();
+  private final ConcurrentSkipListMap<Bytes32, ConcurrentSkipListMap<Bytes32, Bytes32>>
+      accountStorageRanges = new ConcurrentSkipListMap<>();
 
   /**
    * Register a storage slot hash interval whose slots have been downloaded and persisted for the
@@ -78,6 +77,20 @@ public class DownloadedStorageRangeTracker {
   /** Remove all tracked storage intervals for a given account (e.g. during reorg cleanup). */
   public synchronized void removeAccount(final Bytes32 accountHash) {
     accountStorageRanges.remove(accountHash);
+  }
+
+  /**
+   * Remove all tracked storage intervals for account hashes falling within the given range
+   * [rangeStart, rangeEnd] inclusive. Used when an account range is promoted from pending to
+   * completed, as those accounts no longer need per-slot tracking.
+   */
+  public synchronized void removeAccountHashesInRange(
+      final Bytes32 rangeStart, final Bytes32 rangeEnd) {
+    final NavigableMap<Bytes32, ConcurrentSkipListMap<Bytes32, Bytes32>> inRange =
+        accountStorageRanges.subMap(rangeStart, true, rangeEnd, true);
+    for (final Bytes32 accountHash : inRange.keySet()) {
+      accountStorageRanges.remove(accountHash);
+    }
   }
 
   /** Clear all tracked state. */

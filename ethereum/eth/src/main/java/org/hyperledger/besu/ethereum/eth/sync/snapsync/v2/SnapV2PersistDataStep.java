@@ -196,8 +196,6 @@ public class SnapV2PersistDataStep {
 
     final int childCount = children.size() - continuationCount;
 
-    accountRangeTracker.registerPending(rangeStart, coveredEnd, childCount);
-
     accountRequest
         .getAccounts()
         .forEach(
@@ -208,6 +206,8 @@ public class SnapV2PersistDataStep {
                 storageRangeTracker.registerSlotRange(accountHash, MIN_RANGE, MAX_RANGE);
               }
             });
+
+    accountRangeTracker.registerPending(rangeStart, coveredEnd, childCount);
   }
 
   private void trackStorageRange(
