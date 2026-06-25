@@ -109,6 +109,8 @@ public class SnapSyncChainDownloader
 
   private volatile Pipeline<?> currentPipeline;
   private volatile BackwardHeaderDriver currentDriver;
+
+  private volatile CompletableFuture<Void> downloadResult;
   private Instant overallStartTime;
 
   private record SnapV2PivotCatchupRequest(
@@ -710,6 +712,7 @@ public class SnapSyncChainDownloader
     }
 
     final CompletableFuture<Void> result = new CompletableFuture<>();
+    downloadResult = result;
 
     // Ensure we always reset the guard when complete
     result.whenComplete((r, error) -> downloadInProgress.set(false));
@@ -972,5 +975,10 @@ public class SnapSyncChainDownloader
       pipeline.abort();
     }
     failSnapV2PivotCatchupIfNeeded(new CancellationException());
+
+    final CompletableFuture<Void> result = downloadResult;
+    if (result != null) {
+      result.completeExceptionally(new CancellationException());
+    }
   }
 }

@@ -38,6 +38,13 @@ public record ChainSyncState(
     boolean headersDownloadComplete,
     BlockHeader headerDownloadProgress) {
 
+  public ChainSyncState {
+    Objects.requireNonNull(pivotBlockHeader, "pivotBlockHeader");
+    Objects.requireNonNull(bodyCheckpoint, "bodyCheckpoint");
+    Objects.requireNonNull(headerDownloadAnchor, "headerDownloadAnchor");
+    // headerDownloadProgress is intentionally nullable (null == no resume point yet)
+  }
+
   /**
    * Creates a new state with an initial pivot block.
    *

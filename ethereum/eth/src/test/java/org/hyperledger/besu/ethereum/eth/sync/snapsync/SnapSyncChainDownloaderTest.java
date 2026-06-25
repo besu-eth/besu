@@ -57,6 +57,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
@@ -153,6 +154,40 @@ public class SnapSyncChainDownloaderTest {
 
     // Verify cancel completes successfully even when no pipeline is running
     assertThatCode(downloader::cancel).doesNotThrowAnyException();
+  }
+
+  @Test
+  public void cancelShouldCompleteDownloadFutureWhenParkedInPivotUpdateLoop() {
+    // Regression test for the world-state-stall hang: once Stage 1 and Stage 2 have completed, the
+    // downloader parks in handlePivotUpdateLoop awaiting either a pivot update or the
+    // world-state-heal-finished signal. A world-state stall cancels the chain download via
+    // cancel(); that call MUST complete the chain-download future. Otherwise
+    // allOf(worldStateFuture, chainFuture) in SnapSyncDownloader never completes, handleFailure
+    // never runs, and snap sync never re-pivots (the node hangs).
+    setupSuccessfulPipelineMocks();
+
+    final SnapSyncChainDownloader downloader =
+        new SnapSyncChainDownloader(
+            pipelineFactory,
+            syncConfig,
+            protocolSchedule,
+            protocolContext,
+            ethContext,
+            syncState,
+            syncDurationMetrics,
+            pivotBlockHeader,
+            chainSyncStateStorage,
+            headerDownloader);
+
+    // Deliberately do NOT fire onWorldStateHealFinished() and do NOT supply a pivot update, so the
+    // first cycle completes and the downloader parks in the pivot-update wait loop.
+    final CompletableFuture<Void> downloadFuture = downloader.start();
+
+    downloader.cancel();
+
+    // Before the fix this blocks until the timeout; after the fix cancel() completes the future.
+    assertThatThrownBy(() -> downloadFuture.get(5, TimeUnit.SECONDS))
+        .hasRootCauseInstanceOf(CancellationException.class);
   }
 
   @Test
