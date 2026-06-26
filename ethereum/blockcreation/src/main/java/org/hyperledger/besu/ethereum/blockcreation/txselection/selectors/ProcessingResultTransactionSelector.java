@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.blockcreation.txselection.selectors;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.BlockSelectionContext;
 import org.hyperledger.besu.ethereum.blockcreation.txselection.TransactionEvaluationContext;
 import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration.Implementation;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.transaction.TransactionInvalidReason;
@@ -105,17 +106,29 @@ public class ProcessingResultTransactionSelector extends AbstractTransactionSele
    * is penalised (score reduced) but retained in the pool so it can be retried in a later block.
    * When not transient, the transaction is dropped from the pool permanently.
    *
-   * <p>By default, UPFRONT_COST_EXCEEDS_BALANCE is a permanent failure and the transaction is
-   * removed from the pool immediately. When {@code noLateFunding} is true, it is instead treated
-   * as transient: the score is penalised each block until the sender's balance improves or the
-   * score falls below the minimum and the transaction is evicted.
+   * <p>UPFRONT_COST_EXCEEDS_BALANCE is handled differently per pool type and {@code noLateFunding}:
+   *
+   * <ul>
+   *   <li><b>Layered, noLateFunding=false</b>: non-transient — dropped immediately.
+   *   <li><b>Layered, noLateFunding=true</b>: transient — score-penalised each block; evicted when
+   *       score falls below the minimum.
+   *   <li><b>Sequenced, noLateFunding=false</b>: transient — the sequenced pool ignores penalise
+   *       results, so the transaction stays in the pool indefinitely (original behaviour).
+   *   <li><b>Sequenced, noLateFunding=true</b>: non-transient — dropped and added to the tracked
+   *       seen-transaction list so it cannot be immediately re-admitted from peers.
+   * </ul>
    *
    * @param invalidReason The invalid reason.
    * @return True if the invalid reason is transient, false otherwise.
    */
   private boolean isTransientValidationError(final TransactionInvalidReason invalidReason) {
     if (invalidReason.equals(TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE)) {
-      return context.transactionPool().getConfiguration().getNoLateFunding();
+      final var config = context.transactionPool().getConfiguration();
+      final boolean isLayered = config.getTxPoolImplementation() == Implementation.LAYERED;
+      final boolean noLateFunding = config.getNoLateFunding();
+      // Layered:    transient iff noLateFunding=true  (penalise rather than drop immediately)
+      // Sequenced:  transient iff noLateFunding=false (leave in pool; drop+track when true)
+      return isLayered ? noLateFunding : !noLateFunding;
     }
     return invalidReason.equals(TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE)
         || invalidReason.equals(TransactionInvalidReason.NONCE_TOO_HIGH)
