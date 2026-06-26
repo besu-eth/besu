@@ -443,7 +443,7 @@ public class PeerTransactionTracker
       removeAnnouncementsToRequest(droppedHashes);
     }
 
-    if (reason.stopTracking() && forgetEvictedTxsEnabled) {
+    if (forgetInvalidTxnMins == 0 || (reason.stopTracking() && forgetEvictedTxsEnabled)) {
       peersSeenStateByHash.remove(transaction.getHash());
     }
   }

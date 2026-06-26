@@ -93,8 +93,11 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
       names = {TX_POOL_FORGET_INVALID_TXN_MINS},
       paramLabel = "<INTEGER>",
       description =
-          "Number of minutes after which a seen-but-invalid transaction is forgotten and can be "
-              + "re-accepted from peers. 0 disables time-based expiry (default: ${DEFAULT-VALUE})",
+          "Controls how long a seen-but-invalid transaction is remembered before being forgotten "
+              + "and potentially re-accepted from peers. "
+              + "-1 disables forgetting (LRU eviction only), "
+              + "0 forgets immediately on drop, "
+              + "N > 0 forgets after N minutes (default: ${DEFAULT-VALUE})",
       arity = "1")
   private int forgetInvalidTxnMins =
       TransactionPoolConfiguration.DEFAULT_TX_POOL_FORGET_INVALID_TXN_MINS;

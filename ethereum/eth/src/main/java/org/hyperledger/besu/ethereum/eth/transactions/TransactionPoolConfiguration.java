@@ -108,7 +108,7 @@ public interface TransactionPoolConfiguration {
   byte DEFAULT_TX_POOL_MIN_SCORE = -128;
   boolean DEFAULT_TX_POOL_ENABLE_BALANCE_CHECK = true;
   boolean DEFAULT_TX_POOL_NO_LATE_FUNDING = false;
-  int DEFAULT_TX_POOL_FORGET_INVALID_TXN_MINS = 0;
+  int DEFAULT_TX_POOL_FORGET_INVALID_TXN_MINS = -1;
 
   TransactionPoolConfiguration DEFAULT = ImmutableTransactionPoolConfiguration.builder().build();
 

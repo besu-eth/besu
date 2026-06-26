@@ -128,12 +128,19 @@ public class TransactionPoolOptionsTest
   }
 
   @Test
-  public void forgetInvalidTxnMinsDefaultIsZero() {
-    internalTestSuccess(config -> assertThat(config.getForgetInvalidTxnMins()).isZero());
+  public void forgetInvalidTxnMinsDefaultIsDisabled() {
+    internalTestSuccess(config -> assertThat(config.getForgetInvalidTxnMins()).isEqualTo(-1));
   }
 
   @Test
-  public void forgetInvalidTxnMinsCanBeSet() {
+  public void forgetInvalidTxnMinsZeroForgetImmediately() {
+    internalTestSuccess(
+        config -> assertThat(config.getForgetInvalidTxnMins()).isZero(),
+        "--tx-pool-forget-invalid-txn-mins=0");
+  }
+
+  @Test
+  public void forgetInvalidTxnMinsCanBeSetToMinutes() {
     internalTestSuccess(
         config -> assertThat(config.getForgetInvalidTxnMins()).isEqualTo(60),
         "--tx-pool-forget-invalid-txn-mins=60");
