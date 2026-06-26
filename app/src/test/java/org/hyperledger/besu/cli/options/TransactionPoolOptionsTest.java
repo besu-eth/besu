@@ -128,6 +128,18 @@ public class TransactionPoolOptionsTest
   }
 
   @Test
+  public void forgetInvalidTxnMinsDefaultIsZero() {
+    internalTestSuccess(config -> assertThat(config.getForgetInvalidTxnMins()).isZero());
+  }
+
+  @Test
+  public void forgetInvalidTxnMinsCanBeSet() {
+    internalTestSuccess(
+        config -> assertThat(config.getForgetInvalidTxnMins()).isEqualTo(60),
+        "--tx-pool-forget-invalid-txn-mins=60");
+  }
+
+  @Test
   public void saveToFileDisabledByDefault() {
     internalTestSuccess(config -> assertThat(config.getEnableSaveRestore()).isFalse());
   }

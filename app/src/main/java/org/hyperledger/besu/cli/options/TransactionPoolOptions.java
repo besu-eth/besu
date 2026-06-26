@@ -49,6 +49,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
   private static final String TX_POOL_IMPLEMENTATION = "--tx-pool";
   private static final String TX_POOL_NO_LOCAL_PRIORITY = "--tx-pool-no-local-priority";
   private static final String TX_POOL_NO_LATE_FUNDING = "--tx-pool-no-late-funding";
+  private static final String TX_POOL_FORGET_INVALID_TXN_MINS = "--tx-pool-forget-invalid-txn-mins";
   private static final String TX_POOL_ENABLE_SAVE_RESTORE = "--tx-pool-enable-save-restore";
   private static final String TX_POOL_SAVE_FILE = "--tx-pool-save-file";
   private static final String TX_POOL_PRICE_BUMP = "--tx-pool-price-bump";
@@ -87,6 +88,16 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
       fallbackValue = "true",
       arity = "0..1")
   private Boolean noLateFunding = TransactionPoolConfiguration.DEFAULT_TX_POOL_NO_LATE_FUNDING;
+
+  @CommandLine.Option(
+      names = {TX_POOL_FORGET_INVALID_TXN_MINS},
+      paramLabel = "<INTEGER>",
+      description =
+          "Number of minutes after which a seen-but-invalid transaction is forgotten and can be "
+              + "re-accepted from peers. 0 disables time-based expiry (default: ${DEFAULT-VALUE})",
+      arity = "1")
+  private int forgetInvalidTxnMins =
+      TransactionPoolConfiguration.DEFAULT_TX_POOL_FORGET_INVALID_TXN_MINS;
 
   @CommandLine.Option(
       names = {TX_POOL_ENABLE_SAVE_RESTORE},
@@ -364,6 +375,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
     options.saveRestoreEnabled = config.getEnableSaveRestore();
     options.noLocalPriority = config.getNoLocalPriority();
     options.noLateFunding = config.getNoLateFunding();
+    options.forgetInvalidTxnMins = config.getForgetInvalidTxnMins();
     options.priceBump = config.getPriceBump();
     options.blobPriceBump = config.getBlobPriceBump();
     options.txFeeCap = config.getTxFeeCap();
@@ -432,6 +444,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
         .enableSaveRestore(saveRestoreEnabled)
         .noLocalPriority(noLocalPriority)
         .noLateFunding(noLateFunding)
+        .forgetInvalidTxnMins(forgetInvalidTxnMins)
         .priceBump(priceBump)
         .blobPriceBump(blobPriceBump)
         .txFeeCap(txFeeCap)
