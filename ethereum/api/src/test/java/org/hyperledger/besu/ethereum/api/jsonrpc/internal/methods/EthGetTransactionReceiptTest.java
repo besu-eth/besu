@@ -55,7 +55,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitterFactory;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.gascalculator.CancunGasCalculator;
 
@@ -181,7 +181,7 @@ public class EthGetTransactionReceiptTest {
           Optional.empty(),
           Optional.empty(),
           BlockAccessListValidator.ALWAYS_REJECT_BAL,
-          new DefaultStateRootCommitterFactory(),
+          new StateRootCommitterFactory(BalConfiguration.DISABLED),
           BlockGasAccountingStrategy.FRONTIER,
           BlockGasUsedValidator.FRONTIER);
   private final ProtocolSpec statusTransactionTypeSpec =
@@ -218,7 +218,7 @@ public class EthGetTransactionReceiptTest {
           Optional.empty(),
           Optional.empty(),
           BlockAccessListValidator.ALWAYS_REJECT_BAL,
-          new DefaultStateRootCommitterFactory(),
+          new StateRootCommitterFactory(BalConfiguration.DISABLED),
           BlockGasAccountingStrategy.FRONTIER,
           BlockGasUsedValidator.FRONTIER);
 

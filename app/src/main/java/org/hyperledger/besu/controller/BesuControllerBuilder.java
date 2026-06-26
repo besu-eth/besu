@@ -90,7 +90,6 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiArchiveWorldSta
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoopBonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiArchiver;
@@ -665,7 +664,9 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     }
 
     final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader =
-        new NoopBonsaiCachedMerkleTrieLoader();
+        besuComponent
+            .map(BesuComponent::getCachedMerkleTrieLoader)
+            .orElseGet(() -> new BonsaiCachedMerkleTrieLoader(metricsSystem));
 
     final var worldStateHealerSupplier = new AtomicReference<WorldStateHealer>();
 

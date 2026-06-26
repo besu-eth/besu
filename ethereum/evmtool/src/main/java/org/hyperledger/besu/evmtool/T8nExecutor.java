@@ -437,11 +437,11 @@ public class T8nExecutor {
       timer.stop();
 
       if (shouldClearEmptyAccounts(fork)) {
-        var entries = new ArrayList<>(worldState.getAccumulator().getAccountsToUpdate().entrySet());
+        var entries = new ArrayList<>(worldState.updater().getAccountsToUpdate().entrySet());
         for (var entry : entries) {
           PathBasedAccount updated = entry.getValue().getUpdated();
           if (updated != null && updated.isEmpty()) {
-            worldState.getAccumulator().deleteAccount(entry.getKey());
+            worldState.updater().deleteAccount(entry.getKey());
           }
         }
       }

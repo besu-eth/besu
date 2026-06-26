@@ -32,16 +32,14 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.C
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.NonceChange;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalRootComputation;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAddressView;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.BalStateRootCommitter;
+import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitter;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
-import java.time.Duration;
 import java.util.List;
-import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -51,8 +49,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class BalStateRootCalculatorTest {
-
-  private static final Duration FUTURE_TIMEOUT = Duration.ofSeconds(3);
 
   private ExecutionContextTestFixture contextTestFixture;
   private ProtocolContext protocolContext;
@@ -98,8 +94,7 @@ class BalStateRootCalculatorTest {
               account.setNonce(newNonce);
             });
 
-    final Hash balRoot =
-        computeRootFromBalAsync(bal).get(FUTURE_TIMEOUT.toSeconds(), TimeUnit.SECONDS).root();
+    final Hash balRoot = computeRootFromBal(bal);
 
     assertThat(balRoot).isEqualTo(accumulatorRoot);
   }
@@ -130,8 +125,7 @@ class BalStateRootCalculatorTest {
               account.setCode(newCode);
             });
 
-    final Hash balRoot =
-        computeRootFromBalAsync(bal).get(FUTURE_TIMEOUT.toSeconds(), TimeUnit.SECONDS).root();
+    final Hash balRoot = computeRootFromBal(bal);
 
     assertThat(balRoot).isEqualTo(accumulatorRoot);
   }
@@ -175,8 +169,7 @@ class BalStateRootCalculatorTest {
               second.setStorageValue(slotKey.getSlotKey().orElseThrow(), UInt256.valueOf(99));
             });
 
-    final Hash balRoot =
-        computeRootFromBalAsync(bal).get(FUTURE_TIMEOUT.toSeconds(), TimeUnit.SECONDS).root();
+    final Hash balRoot = computeRootFromBal(bal);
 
     assertThat(balRoot).isEqualTo(accumulatorRoot);
   }
@@ -203,8 +196,7 @@ class BalStateRootCalculatorTest {
               account.setBalance(Wei.of(75));
             });
 
-    final Hash balRoot =
-        computeRootFromBalAsync(bal).get(FUTURE_TIMEOUT.toSeconds(), TimeUnit.SECONDS).root();
+    final Hash balRoot = computeRootFromBal(bal);
 
     assertThat(balRoot).isNotEqualTo(accumulatorRoot);
   }
@@ -234,8 +226,7 @@ class BalStateRootCalculatorTest {
               account.setStorageValue(slotKey.getSlotKey().orElseThrow(), UInt256.valueOf(222));
             });
 
-    final Hash balRoot =
-        computeRootFromBalAsync(bal).get(FUTURE_TIMEOUT.toSeconds(), TimeUnit.SECONDS).root();
+    final Hash balRoot = computeRootFromBal(bal);
 
     assertThat(balRoot).isNotEqualTo(accumulatorRoot);
   }
@@ -271,8 +262,7 @@ class BalStateRootCalculatorTest {
               account.setNonce(newNonce);
             });
 
-    final Hash balRoot =
-        computeRootFromBalAsync(bal).get(FUTURE_TIMEOUT.toSeconds(), TimeUnit.SECONDS).root();
+    final Hash balRoot = computeRootFromBal(bal);
 
     assertThat(balRoot).isEqualTo(expectedRoot);
   }
@@ -288,22 +278,36 @@ class BalStateRootCalculatorTest {
                 .orElseThrow();
     try {
       final BonsaiWorldStateUpdateAccumulator accumulator =
-          (BonsaiWorldStateUpdateAccumulator) worldState.getAccumulator();
+          (BonsaiWorldStateUpdateAccumulator) worldState.updater();
       accumulatorConsumer.accept(accumulator);
       accumulator.commit();
-      return worldState.calculateRootHash(Optional.empty(), accumulator);
+      return new DefaultStateRootCommitter().compute(worldState, null, accumulator).root();
     } finally {
       worldState.close();
     }
   }
 
-  private CompletableFuture<BalRootComputation> computeRootFromBalAsync(final BlockAccessList bal) {
+  private Hash computeRootFromBal(final BlockAccessList bal) {
     final BlockHeader blockHeader =
         new BlockHeaderTestFixture()
             .parentHash(chainHeadHeader.getHash())
             .number(chainHeadHeader.getNumber() + 1L)
             .buildHeader();
 
-    return BalStateRootCalculator.computeAsync(protocolContext, blockHeader, bal);
+    final BonsaiWorldState worldState =
+        (BonsaiWorldState)
+            protocolContext
+                .getWorldStateArchive()
+                .getWorldState(
+                    WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead(chainHeadHeader))
+                .orElseThrow();
+    try {
+      final BalStateRootCommitter committer =
+          new BalStateRootCommitter(
+              protocolContext, blockHeader, BlockAccessListAddressView.of(bal), false);
+      return committer.compute(worldState, null, worldState.updater()).root();
+    } finally {
+      worldState.close();
+    }
   }
 }

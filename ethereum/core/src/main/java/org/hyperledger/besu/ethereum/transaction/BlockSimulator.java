@@ -589,7 +589,7 @@ public class BlockSimulator {
     if (returnTrieLog && ws instanceof PathBasedWorldState) {
       // if requested and path-based worldstate, return result with trielog and serializer:
       var pathBasedArchive = (PathBasedWorldStateProvider) worldStateArchive;
-      var pathBasedAccumulator = ((PathBasedWorldState) ws).getAccumulator();
+      var pathBasedAccumulator = ((PathBasedWorldState) ws).updater();
       var trieLogFactory = pathBasedArchive.getTrieLogManager().getTrieLogFactory();
       var trieLog = trieLogFactory.create(pathBasedAccumulator, finalBlockHeader);
       return new BlockSimulationResult(

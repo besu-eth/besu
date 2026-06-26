@@ -37,8 +37,8 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.S
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
 import java.time.Duration;
@@ -51,7 +51,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-class BalStateRootCommitterFactoryTest {
+class StateRootCommitterFactoryTest {
 
   private static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(5);
 
@@ -75,7 +75,7 @@ class BalStateRootCommitterFactoryTest {
   }
 
   @Test
-  void trustedMode_balAndSyncCommitterProduceSameRoot() throws Exception {
+  void balAndSyncCommitterProduceSameRoot() throws Exception {
 
     final Address address = Address.fromHexString("0x00000000000000000000000000000000000000a1");
     final Wei newBalance = Wei.of(999_999L);
@@ -102,20 +102,17 @@ class BalStateRootCommitterFactoryTest {
             .stateRoot(expectedRoot)
             .buildHeader();
 
-    // Create committer in trusted mode
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().balStateRootTimeout(DEFAULT_TIMEOUT).build();
 
-    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
-    final StateRootCommitter committer =
-        factory.forBlock(protocolContext, blockHeader, Optional.of(bal));
+    final StateRootCommitterFactory factory = new StateRootCommitterFactory(balConfig);
 
     final BonsaiWorldState worldState = getWorldState(false);
+    final StateRootCommitter committer =
+        factory.forBlock(protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
+
     try {
-      final PathBasedWorldStateUpdateAccumulator<?> updater = worldState.updater();
+      final WorldUpdater updater = worldState.updater();
       final MutableAccount account = updater.getOrCreate(address);
       account.setBalance(newBalance);
       account.setNonce(newNonce);
@@ -130,7 +127,7 @@ class BalStateRootCommitterFactoryTest {
   }
 
   @Test
-  void trustedMode_balRootMismatchThrowsException() throws Exception {
+  void balRootMismatchThrowsException() throws Exception {
 
     final Address address = Address.fromHexString("0x00000000000000000000000000000000000000b2");
     final Wei balBalance = Wei.of(1_000_000L);
@@ -157,18 +154,15 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().balStateRootTimeout(DEFAULT_TIMEOUT).build();
 
-    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
-    final StateRootCommitter committer =
-        factory.forBlock(protocolContext, blockHeader, Optional.of(bal));
-
+    final StateRootCommitterFactory factory = new StateRootCommitterFactory(balConfig);
     final BonsaiWorldState worldState = getWorldState(false);
+    final StateRootCommitter committer =
+        factory.forBlock(protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
+
     try {
-      final PathBasedWorldStateUpdateAccumulator<?> updater = worldState.updater();
+      final WorldUpdater updater = worldState.updater();
       final MutableAccount account = updater.getOrCreate(address);
       account.setBalance(balBalance);
       updater.commit();
@@ -178,159 +172,6 @@ class BalStateRootCommitterFactoryTest {
           .hasMessageContaining("BAL-computed root does not match block header state root");
     } finally {
       worldState.close();
-    }
-  }
-
-  @Test
-  void verificationMode_strictMode_matchingRootsSucceed() throws Exception {
-
-    final Address address = Address.fromHexString("0x00000000000000000000000000000000000000c3");
-    final Wei newBalance = Wei.of(555_555L);
-
-    final BlockAccessList bal =
-        new BlockAccessList(
-            List.of(
-                new AccountChanges(
-                    address,
-                    List.of(),
-                    List.of(),
-                    List.of(new BalanceChange(0, newBalance)),
-                    List.of(),
-                    List.of())));
-
-    final Hash expectedRoot = computeRootFromAccumulator(address, newBalance, 0L);
-
-    final BlockHeader blockHeader =
-        new BlockHeaderTestFixture()
-            .parentHash(chainHeadHeader.getHash())
-            .number(chainHeadHeader.getNumber() + 1L)
-            .stateRoot(expectedRoot)
-            .buildHeader();
-
-    final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(false)
-            .isBalLenientOnStateRootMismatch(false)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
-
-    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
-    final StateRootCommitter committer =
-        factory.forBlock(protocolContext, blockHeader, Optional.of(bal));
-
-    final BonsaiWorldState worldState = getWorldState(false);
-    try {
-      final PathBasedWorldStateUpdateAccumulator<?> updater = worldState.updater();
-      final MutableAccount account = updater.getOrCreate(address);
-      account.setBalance(newBalance);
-      updater.commit();
-
-      worldState.persist(blockHeader, committer);
-
-      assertThat(worldState.rootHash()).isEqualTo(expectedRoot);
-    } finally {
-      worldState.close();
-    }
-  }
-
-  @Test
-  void verificationMode_strictMode_mismatchThrowsException() throws Exception {
-
-    final Address address = Address.fromHexString("0x00000000000000000000000000000000000000d4");
-    final Wei balBalance = Wei.of(1_111_111L);
-    final Wei syncBalance = Wei.of(2_222_222L); // Different!
-
-    final BlockAccessList bal =
-        new BlockAccessList(
-            List.of(
-                new AccountChanges(
-                    address,
-                    List.of(),
-                    List.of(),
-                    List.of(new BalanceChange(0, balBalance)),
-                    List.of(),
-                    List.of())));
-
-    // Calculate root with sync balance (different from BAL)
-    final Hash syncRoot = computeRootFromAccumulator(address, syncBalance, 0L);
-
-    final BlockHeader blockHeader =
-        new BlockHeaderTestFixture()
-            .parentHash(chainHeadHeader.getHash())
-            .number(chainHeadHeader.getNumber() + 1L)
-            .stateRoot(syncRoot)
-            .buildHeader();
-
-    final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(false)
-            .isBalLenientOnStateRootMismatch(false)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
-
-    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
-    final StateRootCommitter committer =
-        factory.forBlock(protocolContext, blockHeader, Optional.of(bal));
-
-    try (BonsaiWorldState worldState = getWorldState(false)) {
-      final PathBasedWorldStateUpdateAccumulator<?> updater = worldState.updater();
-      final MutableAccount account = updater.getOrCreate(address);
-      account.setBalance(syncBalance); // Use different balance than BAL
-      updater.commit();
-
-      assertThatThrownBy(() -> worldState.persist(blockHeader, committer))
-          .isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("BAL root mismatch");
-    }
-  }
-
-  @Test
-  void verificationMode_lenientMode_mismatchLogsButSucceeds() throws Exception {
-
-    final Address address = Address.fromHexString("0x00000000000000000000000000000000000000e5");
-    final Wei balBalance = Wei.of(3_333_333L);
-    final Wei syncBalance = Wei.of(4_444_444L); // Different!
-
-    final BlockAccessList bal =
-        new BlockAccessList(
-            List.of(
-                new AccountChanges(
-                    address,
-                    List.of(),
-                    List.of(),
-                    List.of(new BalanceChange(0, balBalance)),
-                    List.of(),
-                    List.of())));
-
-    final Hash syncRoot = computeRootFromAccumulator(address, syncBalance, 0L);
-
-    final BlockHeader blockHeader =
-        new BlockHeaderTestFixture()
-            .parentHash(chainHeadHeader.getHash())
-            .number(chainHeadHeader.getNumber() + 1L)
-            .stateRoot(syncRoot)
-            .buildHeader();
-
-    final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(false)
-            .isBalLenientOnStateRootMismatch(true) // Lenient mode
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
-
-    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
-    final StateRootCommitter committer =
-        factory.forBlock(protocolContext, blockHeader, Optional.of(bal));
-
-    try (BonsaiWorldState worldState = getWorldState(false)) {
-      final PathBasedWorldStateUpdateAccumulator<?> updater = worldState.updater();
-      final MutableAccount account = updater.getOrCreate(address);
-      account.setBalance(syncBalance); // Use different balance than BAL
-      updater.commit();
-
-      worldState.persist(blockHeader, committer);
-
-      assertThat(worldState.rootHash()).isEqualTo(syncRoot);
     }
   }
 
@@ -361,14 +202,12 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().balStateRootTimeout(DEFAULT_TIMEOUT).build();
 
-    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
+    final StateRootCommitterFactory factory = new StateRootCommitterFactory(balConfig);
+    final BonsaiWorldState worldState = getWorldState(false);
     final StateRootCommitter committer =
-        factory.forBlock(protocolContext, blockHeader, Optional.of(bal));
+        factory.forBlock(protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
 
     committer.cancel();
   }
@@ -383,17 +222,15 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().balStateRootTimeout(DEFAULT_TIMEOUT).build();
 
-    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
+    final StateRootCommitterFactory factory = new StateRootCommitterFactory(balConfig);
 
+    final BonsaiWorldState worldState = getWorldState(false);
     final StateRootCommitter committer =
-        factory.forBlock(protocolContext, blockHeader, Optional.empty());
+        factory.forBlock(protocolContext, blockHeader, Optional.empty(), worldState.isStorageFrozen());
 
-    assertThat(committer).isSameAs(StateRootCommitter.SYNCHRONOUS);
+    assertThat(committer).isInstanceOf(DefaultStateRootCommitter.class);
   }
 
   @Test
@@ -422,12 +259,13 @@ class BalStateRootCommitterFactoryTest {
             .balStateRootTimeout(DEFAULT_TIMEOUT)
             .build();
 
-    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
+    final StateRootCommitterFactory factory = new StateRootCommitterFactory(balConfig);
 
+    final BonsaiWorldState worldState = getWorldState(false);
     final StateRootCommitter committer =
-        factory.forBlock(protocolContext, blockHeader, Optional.of(bal));
+        factory.forBlock(protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
 
-    assertThat(committer).isSameAs(StateRootCommitter.SYNCHRONOUS);
+    assertThat(committer).isInstanceOf(DefaultStateRootCommitter.class);
   }
 
   @Test
@@ -462,7 +300,7 @@ class BalStateRootCommitterFactoryTest {
     final BonsaiWorldState expectedWorldState = getWorldState(false);
     Hash expectedRoot;
     try {
-      final PathBasedWorldStateUpdateAccumulator<?> updater = expectedWorldState.updater();
+      final WorldUpdater updater = expectedWorldState.updater();
       final MutableAccount account1 = updater.getOrCreate(address1);
       account1.setBalance(balance1);
       account1.setNonce(nonce1);
@@ -483,18 +321,15 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().balStateRootTimeout(DEFAULT_TIMEOUT).build();
 
-    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
-    final StateRootCommitter committer =
-        factory.forBlock(protocolContext, blockHeader, Optional.of(bal));
-
+    final StateRootCommitterFactory factory = new StateRootCommitterFactory(balConfig);
     final BonsaiWorldState worldState = getWorldState(false);
+    final StateRootCommitter committer =
+        factory.forBlock(protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
+
     try {
-      final PathBasedWorldStateUpdateAccumulator<?> updater = worldState.updater();
+      final WorldUpdater updater = worldState.updater();
       final MutableAccount account1 = updater.getOrCreate(address1);
       account1.setBalance(balance1);
       account1.setNonce(nonce1);
@@ -526,17 +361,15 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().balStateRootTimeout(DEFAULT_TIMEOUT).build();
 
-    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
-    final StateRootCommitter committer =
-        factory.forBlock(protocolContext, blockHeader, Optional.of(bal));
+    final StateRootCommitterFactory factory = new StateRootCommitterFactory(balConfig);
 
     try (BonsaiWorldState worldState = getWorldState(false)) {
       // No changes to world state
+
+      final StateRootCommitter committer =
+              factory.forBlock(protocolContext, blockHeader, Optional.of(bal), worldState.isStorageFrozen());
 
       worldState.persist(blockHeader, committer);
 
@@ -545,7 +378,7 @@ class BalStateRootCommitterFactoryTest {
   }
 
   @Test
-  void trustedMode_notMergeBalStateChangesForFrozenSate() throws Exception {
+  void notMergeBalStateChangesForFrozenState() throws Exception {
 
     final Address address = Address.fromHexString("0x000000000000000000000000000000000000007d");
     final Wei balBalance = Wei.of(1_234_567L);
@@ -572,20 +405,17 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().balStateRootTimeout(DEFAULT_TIMEOUT).build();
 
-    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
-    final StateRootCommitter committer =
-        factory.forBlock(protocolContext, blockHeader, Optional.of(bal));
+    final StateRootCommitterFactory factory = new StateRootCommitterFactory(balConfig);
 
     // DON'T make any changes to worldState, let BAL import them
     try (BonsaiWorldState verifyWorldState = getWorldState(false)) {
       // Verify account doesn't exist before
       assertThat(verifyWorldState.get(address)).isNull();
 
+      final StateRootCommitter committer =
+              factory.forBlock(protocolContext, blockHeader, Optional.of(bal), verifyWorldState.isStorageFrozen());
       verifyWorldState.persist(blockHeader, committer);
 
       // verify BAL state was imported
@@ -597,7 +427,7 @@ class BalStateRootCommitterFactoryTest {
   }
 
   @Test
-  void trustedMode_mergeBalStateChanges_balanceAndNonce() throws Exception {
+  void mergeBalStateChanges_balanceAndNonce() throws Exception {
 
     final Address address = Address.fromHexString("0x000000000000000000000000000000000000007d");
     final Wei balBalance = Wei.of(1_234_567L);
@@ -624,14 +454,9 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().balStateRootTimeout(DEFAULT_TIMEOUT).build();
 
-    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
-    final StateRootCommitter committer =
-        factory.forBlock(protocolContext, blockHeader, Optional.of(bal));
+    final StateRootCommitterFactory factory = new StateRootCommitterFactory(balConfig);
 
     // DON'T make any changes to worldState, let BAL import them
     final BonsaiWorldState verifyWorldState = getWorldState(true);
@@ -639,6 +464,8 @@ class BalStateRootCommitterFactoryTest {
       // Verify account doesn't exist before
       assertThat(verifyWorldState.get(address)).isNull();
 
+      final StateRootCommitter committer =
+              factory.forBlock(protocolContext, blockHeader, Optional.of(bal), verifyWorldState.isStorageFrozen());
       verifyWorldState.persist(blockHeader, committer);
 
       // verify BAL state was imported
@@ -654,7 +481,7 @@ class BalStateRootCommitterFactoryTest {
   }
 
   @Test
-  void trustedMode_mergeBalStateChanges_withStorage() throws Exception {
+  void mergeBalStateChanges_withStorage() throws Exception {
 
     final Address address = Address.fromHexString("0x00000000000000000000000000000000000000a0");
     final Wei balance = Wei.of(5_000_000L);
@@ -680,7 +507,7 @@ class BalStateRootCommitterFactoryTest {
     final BonsaiWorldState expectedWorldState = getWorldState(false);
     Hash expectedRoot;
     try {
-      final PathBasedWorldStateUpdateAccumulator<?> updater = expectedWorldState.updater();
+      final WorldUpdater updater = expectedWorldState.updater();
       final MutableAccount account = updater.getOrCreate(address);
       account.setBalance(balance);
       account.setStorageValue(slot1.getSlotKey().orElseThrow(), value1);
@@ -699,17 +526,14 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().balStateRootTimeout(DEFAULT_TIMEOUT).build();
 
-    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
-    final StateRootCommitter committer =
-        factory.forBlock(protocolContext, blockHeader, Optional.of(bal));
+    final StateRootCommitterFactory factory = new StateRootCommitterFactory(balConfig);
 
     final BonsaiWorldState verifyWorldState = getWorldState(true);
     try {
+      final StateRootCommitter committer =
+              factory.forBlock(protocolContext, blockHeader, Optional.of(bal), verifyWorldState.isStorageFrozen());
       verifyWorldState.persist(blockHeader, committer);
 
       assertThat(verifyWorldState.rootHash()).isEqualTo(expectedRoot);
@@ -727,7 +551,7 @@ class BalStateRootCommitterFactoryTest {
   }
 
   @Test
-  void trustedMode_mergeBalStateChanges_withCode() throws Exception {
+  void mergeBalStateChanges_withCode() throws Exception {
 
     final Address address = Address.fromHexString("0x00000000000000000000000000000000000000b1");
     final Wei balance = Wei.of(3_000_000L);
@@ -748,7 +572,7 @@ class BalStateRootCommitterFactoryTest {
     final BonsaiWorldState expectedWorldState = getWorldState(false);
     Hash expectedRoot;
     try {
-      final PathBasedWorldStateUpdateAccumulator<?> updater = expectedWorldState.updater();
+      final WorldUpdater updater = expectedWorldState.updater();
       final MutableAccount account = updater.getOrCreate(address);
       account.setBalance(balance);
       account.setCode(code);
@@ -766,16 +590,13 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().balStateRootTimeout(DEFAULT_TIMEOUT).build();
 
-    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
-    final StateRootCommitter committer =
-        factory.forBlock(protocolContext, blockHeader, Optional.of(bal));
+    final StateRootCommitterFactory factory = new StateRootCommitterFactory(balConfig);
 
     try (BonsaiWorldState verifyWorldState = getWorldState(true)) {
+      final StateRootCommitter committer =
+              factory.forBlock(protocolContext, blockHeader, Optional.of(bal), verifyWorldState.isStorageFrozen());
       verifyWorldState.persist(blockHeader, committer);
 
       assertThat(verifyWorldState.rootHash()).isEqualTo(expectedRoot);
@@ -788,7 +609,7 @@ class BalStateRootCommitterFactoryTest {
   }
 
   @Test
-  void trustedMode_mergeBalStateChanges_complexScenario() throws Exception {
+  void mergeBalStateChanges_complexScenario() throws Exception {
     // Complex scenario with multiple accounts, storage, and code
     final Address contractAddress = Address.fromHexString("0x00000000000000000000000000000000e4");
     final Address eoaAddress = Address.fromHexString("0x00000000000000000000000000000000000000f5");
@@ -823,7 +644,7 @@ class BalStateRootCommitterFactoryTest {
     final BonsaiWorldState expectedWorldState = getWorldState(false);
     Hash expectedRoot;
     try {
-      final PathBasedWorldStateUpdateAccumulator<?> updater = expectedWorldState.updater();
+      final WorldUpdater updater = expectedWorldState.updater();
 
       final MutableAccount contract = updater.getOrCreate(contractAddress);
       contract.setBalance(contractBalance);
@@ -848,17 +669,14 @@ class BalStateRootCommitterFactoryTest {
             .buildHeader();
 
     final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(true)
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
+        ImmutableBalConfiguration.builder().balStateRootTimeout(DEFAULT_TIMEOUT).build();
 
-    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
-    final StateRootCommitter committer =
-        factory.forBlock(protocolContext, blockHeader, Optional.of(bal));
+    final StateRootCommitterFactory factory = new StateRootCommitterFactory(balConfig);
 
     // DON'T make any changes, let BAL import everything
     try (BonsaiWorldState verifyWorldState = getWorldState(true)) {
+      final StateRootCommitter committer =
+              factory.forBlock(protocolContext, blockHeader, Optional.of(bal), verifyWorldState.isStorageFrozen());
       verifyWorldState.persist(blockHeader, committer);
 
       // verify all state was imported correctly
@@ -878,69 +696,6 @@ class BalStateRootCommitterFactoryTest {
     }
   }
 
-  @Test
-  void verificationMode_doesNotImportBalStateChanges() throws Exception {
-
-    final Address address = Address.fromHexString("0x00000000000000000000000000000000000000d3");
-    final Wei balBalance = Wei.of(1_111_111L);
-    final Wei syncBalance = Wei.of(2_222_222L);
-
-    final BlockAccessList bal =
-        new BlockAccessList(
-            List.of(
-                new AccountChanges(
-                    address,
-                    List.of(),
-                    List.of(),
-                    List.of(new BalanceChange(0, balBalance)),
-                    List.of(),
-                    List.of())));
-
-    // Expected root based on sync balance (what we actually set)
-    final Hash syncRoot = computeRootFromAccumulator(address, syncBalance, 0L);
-
-    final BlockHeader blockHeader =
-        new BlockHeaderTestFixture()
-            .parentHash(chainHeadHeader.getHash())
-            .number(chainHeadHeader.getNumber() + 1L)
-            .stateRoot(syncRoot)
-            .buildHeader();
-
-    final BalConfiguration balConfig =
-        ImmutableBalConfiguration.builder()
-            .isBalStateRootTrusted(false) // Verification mode
-            .isBalLenientOnStateRootMismatch(true) // Lenient to allow mismatch
-            .balStateRootTimeout(DEFAULT_TIMEOUT)
-            .build();
-
-    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
-    final StateRootCommitter committer =
-        factory.forBlock(protocolContext, blockHeader, Optional.of(bal));
-
-    // Make sync changes (different from BAL)
-    final BonsaiWorldState verifyWorldState = getWorldState(true);
-    try {
-      final PathBasedWorldStateUpdateAccumulator<?> updater = verifyWorldState.updater();
-      final MutableAccount account = updater.getOrCreate(address);
-      account.setBalance(syncBalance); // Use sync balance, not BAL balance
-      updater.commit();
-
-      // In lenient mode, this should succeed even though BAL root differs
-      verifyWorldState.persist(blockHeader, committer);
-
-      // verify sync root is correct (BAL was NOT imported)
-      assertThat(verifyWorldState.rootHash()).isEqualTo(syncRoot);
-
-      // Verify the persisted state uses sync balance, not BAL balance
-      assertThat(verifyWorldState.get(address)).isNotNull();
-      assertThat(verifyWorldState.get(address).getBalance())
-          .isEqualTo(syncBalance) // Should be sync balance
-          .isNotEqualTo(balBalance); // NOT BAL balance
-    } finally {
-      verifyWorldState.close();
-    }
-  }
-
   private BonsaiWorldState getWorldState(final boolean shouldUpdateHead) {
     return (BonsaiWorldState)
         protocolContext
@@ -957,7 +712,7 @@ class BalStateRootCommitterFactoryTest {
       final Address address, final Wei balance, final long nonce) {
     final BonsaiWorldState worldState = getWorldState(false);
     try {
-      final PathBasedWorldStateUpdateAccumulator<?> accumulator = worldState.updater();
+      final WorldUpdater accumulator = worldState.updater();
       final MutableAccount account = accumulator.getOrCreate(address);
       account.setBalance(balance);
       if (nonce > 0) {

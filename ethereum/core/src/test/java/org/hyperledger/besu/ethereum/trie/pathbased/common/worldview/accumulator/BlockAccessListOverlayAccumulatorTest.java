@@ -261,7 +261,7 @@ class BlockAccessListOverlayAccumulatorTest {
                 .orElseThrow();
     try {
       final BonsaiWorldStateUpdateAccumulator accumulator =
-          (BonsaiWorldStateUpdateAccumulator) worldState.getAccumulator();
+          (BonsaiWorldStateUpdateAccumulator) worldState.updater();
       consumer.accept(accumulator);
     } finally {
       worldState.close();

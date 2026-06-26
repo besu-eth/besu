@@ -140,7 +140,7 @@ public class OptimisticConcurrentTransactionProcessor extends ParallelBlockTrans
       roundWorldStateUpdater.commit();
 
       contextBuilder
-          .transactionAccumulator(ws.getAccumulator())
+          .transactionAccumulator(ws.updater())
           .transactionProcessingResult(result);
 
       final ParallelizedTransactionContext parallelizedTransactionContext = contextBuilder.build();
