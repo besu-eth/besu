@@ -209,6 +209,13 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     final Optional<List<Request>> maybeRequests;
     try {
       maybeRequests = extractRequests(maybeRequestsParam);
+    } catch (RequestType.InvalidRequestTypeException ex) {
+      return respondWithInvalid(
+          reqId,
+          blockParam,
+          mergeCoordinator.getLatestValidAncestor(blockParam.getParentHash()).orElse(null),
+          INVALID,
+          "Invalid execution requests: unknown request type");
     } catch (Exception ex) {
       return new JsonRpcErrorResponse(reqId, RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS);
     }
@@ -231,11 +238,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
           e.getMessage());
     }
 
-    if (mergeContext.get().isSyncing()) {
-      LOG.debug("We are syncing");
-      return respondWith(reqId, blockParam, null, SYNCING);
-    }
-
     final List<Transaction> transactions;
     try {
       transactions =
@@ -243,7 +245,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
               .map(Bytes::fromHexString)
               .map(in -> TransactionDecoder.decodeOpaqueBytes(in, EncodingContext.BLOCK_BODY))
               .toList();
-      precomputeSenders(transactions);
     } catch (final RLPException | IllegalArgumentException e) {
       return respondWithInvalid(
           reqId,
@@ -301,6 +302,15 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
       LOG.debug(errorMessage);
       return respondWithInvalid(reqId, blockParam, null, getInvalidBlockHashStatus(), errorMessage);
     }
+
+    mergeContext.get().fireNewPayloadEvent(newBlockHeader);
+
+    if (mergeContext.get().isSyncing()) {
+      LOG.debug("We are syncing");
+      return respondWith(reqId, blockParam, null, SYNCING);
+    }
+
+    precomputeSenders(transactions);
 
     final var blobTransactions =
         transactions.stream().filter(transaction -> transaction.getType().supportsBlob()).toList();
@@ -365,6 +375,22 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
 
     if (latestValidAncestor.isEmpty()) {
       return respondWith(reqId, blockParam, null, ACCEPTED);
+    }
+
+    // If the parent world state is not immediately in the Bonsai layered cache, executing
+    // this block would require expensive trie-log replay on the vert.x worker thread,
+    // potentially blocking for tens of seconds and accumulating unbounded LayeredKeyValueStorage
+    // chains. Return SYNCING so the CL retries after sending FCU, which fills the cache.
+    if (!protocolContext
+        .getWorldStateArchive()
+        .isWorldStateImmediatelyCached(blockParam.getParentHash())) {
+      LOG.atDebug()
+          .setMessage(
+              "Parent world state not immediately cached for block {}, parentHash={}, returning SYNCING")
+          .addArgument(blockParam::getBlockHash)
+          .addArgument(blockParam::getParentHash)
+          .log();
+      return respondWith(reqId, blockParam, null, SYNCING);
     }
 
     // execute block and return result response

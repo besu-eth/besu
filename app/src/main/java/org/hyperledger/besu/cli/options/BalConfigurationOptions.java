@@ -32,19 +32,6 @@ public class BalConfigurationOptions {
   boolean balPerfectParallelizationEnabled = true;
 
   @CommandLine.Option(
-      names = {"--Xbal-lenient-on-state-root-mismatch"},
-      hidden = true,
-      description =
-          "Log an error instead of throwing when the BAL-computed state root does not match the synchronously computed root.")
-  boolean balLenientOnStateRootMismatch = true;
-
-  @CommandLine.Option(
-      names = {"--Xbal-trust-state-root"},
-      hidden = true,
-      description = "Trust the BAL-computed state root without verification.")
-  boolean balTrustStateRoot = false;
-
-  @CommandLine.Option(
       names = {"--Xbal-state-root-enabled"},
       hidden = true,
       negatable = true,
@@ -67,8 +54,6 @@ public class BalConfigurationOptions {
     return ImmutableBalConfiguration.builder()
         .isPerfectParallelizationEnabled(balPerfectParallelizationEnabled)
         .shouldLogBalsOnMismatch(balLogBalsOnMismatch)
-        .isBalLenientOnStateRootMismatch(balLenientOnStateRootMismatch)
-        .isBalStateRootTrusted(balTrustStateRoot)
         .isBalStateRootEnabled(balStateRootEnabled)
         .build();
   }

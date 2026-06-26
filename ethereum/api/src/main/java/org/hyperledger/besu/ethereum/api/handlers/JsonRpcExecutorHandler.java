@@ -22,6 +22,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.execution.JsonRpcExecutor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 
 import java.io.IOException;
+import java.nio.channels.ClosedChannelException;
 import java.util.Optional;
 
 import io.opentelemetry.api.trace.Tracer;
@@ -71,14 +72,20 @@ public class JsonRpcExecutorHandler {
                     executor.execute();
                   } catch (IOException e) {
                     final String method = executor.getRpcMethodName(ctx);
-                    final String requestBodyAsJson =
-                        ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name()).toString();
-                    LOG.error("{} - Error streaming JSON-RPC response", method, e);
-                    LOG.atTrace()
-                        .setMessage("{} - Error streaming JSON-RPC response")
-                        .addArgument(requestBodyAsJson)
-                        .log();
-                    handleErrorAndEndResponse(ctx, null, RpcErrorType.INTERNAL_ERROR);
+                    if (e instanceof ClosedChannelException) {
+                      // The remote end closed the connection before we finished writing.
+                      // No point trying to send an error response on a closed channel.
+                      LOG.error(
+                          "{} - Connection closed before JSON-RPC response could be written",
+                          method);
+                    } else {
+                      LOG.error("{} - Error streaming JSON-RPC response", method, e);
+                      LOG.atTrace()
+                          .setMessage("{} - Error streaming JSON-RPC response")
+                          .addArgument(() -> getRequestBodyAsString(ctx))
+                          .log();
+                      handleErrorAndEndResponse(ctx, null, RpcErrorType.INTERNAL_ERROR);
+                    }
                   } finally {
                     cancelTimer(ctx);
                   }
@@ -88,8 +95,7 @@ public class JsonRpcExecutorHandler {
                   cancelTimer(ctx);
                 });
       } catch (final RuntimeException e) {
-        final String requestBodyAsJson =
-            ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name()).toString();
+        final String requestBodyAsJson = getRequestBodyAsString(ctx);
         LOG.error(
             "Unhandled exception in JSON-RPC executor for method {}",
             getShortLogString(requestBodyAsJson),
@@ -102,6 +108,13 @@ public class JsonRpcExecutorHandler {
         cancelTimer(ctx);
       }
     };
+  }
+
+  private static String getRequestBodyAsString(final RoutingContext ctx) {
+    final Object obj = ctx.get(ContextKey.REQUEST_BODY_AS_JSON_OBJECT.name());
+    if (obj != null) return obj.toString();
+    final Object arr = ctx.get(ContextKey.REQUEST_BODY_AS_JSON_ARRAY.name());
+    return arr != null ? arr.toString() : null;
   }
 
   private static Object getShortLogString(final String requestBodyAsJson) {

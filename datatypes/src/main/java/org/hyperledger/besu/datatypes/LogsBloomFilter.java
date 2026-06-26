@@ -23,6 +23,7 @@ import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import java.util.Collection;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.MutableBytes;
 
@@ -63,6 +64,7 @@ public class LogsBloomFilter extends BytesHolder {
    *
    * @param data the data
    */
+  @JsonCreator
   public LogsBloomFilter(final Bytes data) {
     super(data);
     checkArgument(

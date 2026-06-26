@@ -14,4 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.eth.sync.common;
 
-public class NoSyncRequiredState extends PivotSyncState {}
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
+
+public class NoSyncRequiredState extends SnapSyncProcessState {}

@@ -127,8 +127,8 @@ public abstract class PeerPermissions implements AutoCloseable {
           permissions.stream()
               .flatMap(
                   p -> {
-                    if (p instanceof CombinedPeerPermissions) {
-                      return ((CombinedPeerPermissions) p).permissions.stream();
+                    if (p instanceof CombinedPeerPermissions combinedPeerPermissions) {
+                      return combinedPeerPermissions.permissions.stream();
                     } else {
                       return Stream.of(p);
                     }

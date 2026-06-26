@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.parallelization;
 
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig.createStatefulConfigWithTrie;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -38,11 +39,11 @@ import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.NoOpBonsaiCachedWorldStorageManager;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoopBonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.NoOpBonsaiCachedMerkleTrieLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.NoOpBonsaiWorldStateCacheManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.NoOpTrieLogManager;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -99,13 +100,13 @@ class OptimisticTransactionProcessorUnitTest {
   @Mock private MainnetTransactionProcessor transactionProcessor;
   @Mock private TransactionCollisionDetector collisionDetector;
 
-  private ParallelizedConcurrentTransactionProcessor processor;
+  private OptimisticConcurrentTransactionProcessor processor;
   private TestEnvironment env;
 
   @BeforeEach
   void setUp() {
     processor =
-        new ParallelizedConcurrentTransactionProcessor(transactionProcessor, collisionDetector);
+        new OptimisticConcurrentTransactionProcessor(transactionProcessor, collisionDetector);
     env = createTestEnvironment();
   }
 
@@ -125,12 +126,13 @@ class OptimisticTransactionProcessorUnitTest {
 
     return new BonsaiWorldState(
         storage,
-        new NoopBonsaiCachedMerkleTrieLoader(),
-        new NoOpBonsaiCachedWorldStorageManager(storage, EvmConfiguration.DEFAULT, new CodeCache()),
+        new NoOpBonsaiCachedMerkleTrieLoader(),
+        new NoOpBonsaiWorldStateCacheManager(
+            storage, EvmConfiguration.DEFAULT, new PathBasedCodeCache()),
         new NoOpTrieLogManager(),
         EvmConfiguration.DEFAULT,
         createStatefulConfigWithTrie(),
-        new CodeCache());
+        new PathBasedCodeCache());
   }
 
   private TestEnvironment createTestEnvironment() {
@@ -510,6 +512,7 @@ class OptimisticTransactionProcessorUnitTest {
 
       assertTrue(result.isPresent(), "Expected result when no collision");
       assertTrue(result.get().isSuccessful(), "Expected successful result");
+      assertNull(processor.futures[0], "Expected consumed future reference to be cleared");
     }
 
     @Test

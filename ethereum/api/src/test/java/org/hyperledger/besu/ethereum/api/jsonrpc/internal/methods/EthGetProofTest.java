@@ -109,12 +109,22 @@ class EthGetProofTest {
   }
 
   @Test
-  void errorWhenNoBlockNumberSupplied() {
-    final JsonRpcRequestContext request = requestWithParams(address.toString(), new String[] {});
+  void defaultsToLatestWhenNoBlockSupplied() {
+    // Per execution-apis the Block parameter is optional and defaults to 'latest'.
+    // Omitting it must behave identically to explicitly passing "latest".
+    final JsonRpcRequestContext omitted =
+        requestWithParams(address.toString(), new String[] {storageKey.toString()});
+    final JsonRpcRequestContext latest =
+        requestWithParams(address.toString(), new String[] {storageKey.toString()}, "latest");
 
-    Assertions.assertThatThrownBy(() -> method.response(request))
-        .isInstanceOf(InvalidJsonRpcParameters.class)
-        .hasMessageContaining("Invalid block or block hash parameter");
+    final JsonRpcResponse omittedResponse = method.response(omitted);
+    final JsonRpcResponse latestResponse = method.response(latest);
+
+    Assertions.assertThat(omittedResponse).isInstanceOf(JsonRpcSuccessResponse.class);
+    Assertions.assertThat(latestResponse).isInstanceOf(JsonRpcSuccessResponse.class);
+    Assertions.assertThat(((JsonRpcSuccessResponse) omittedResponse).getResult())
+        .usingRecursiveComparison()
+        .isEqualTo(((JsonRpcSuccessResponse) latestResponse).getResult());
   }
 
   @Test
@@ -124,7 +134,7 @@ class EthGetProofTest {
         requestWithParams(
             Address.fromHexString("0x0000000000000000000000000000000000000000"),
             new String[] {storageKey.toString()},
-            String.valueOf(501));
+            "0x" + Long.toHexString(blockNumber + 1));
 
     final JsonRpcResponse response = method.response(request);
 
@@ -139,7 +149,9 @@ class EthGetProofTest {
 
     final JsonRpcRequestContext request =
         requestWithParams(
-            address.toString(), new String[] {storageKey.toString()}, String.valueOf(blockNumber));
+            address.toString(),
+            new String[] {storageKey.toString()},
+            "0x" + Long.toHexString(blockNumber));
 
     final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
     final GetProofResult result = (GetProofResult) response.getResult();
@@ -225,7 +237,9 @@ class EthGetProofTest {
 
     final JsonRpcRequestContext request =
         requestWithParams(
-            address.toString(), new String[] {storageKey.toString()}, String.valueOf(blockNumber));
+            address.toString(),
+            new String[] {storageKey.toString()},
+            "0x" + Long.toHexString(blockNumber));
 
     final JsonRpcSuccessResponse response = (JsonRpcSuccessResponse) method.response(request);
     final GetProofResult result = (GetProofResult) response.getResult();

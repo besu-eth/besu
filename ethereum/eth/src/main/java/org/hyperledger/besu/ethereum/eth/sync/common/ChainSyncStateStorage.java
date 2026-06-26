@@ -38,7 +38,7 @@ import org.slf4j.LoggerFactory;
 public class ChainSyncStateStorage {
   private static final Logger LOG = LoggerFactory.getLogger(ChainSyncStateStorage.class);
   private static final String STATE_FILE_NAME = "chain-sync-state.rlp";
-  private static final byte FORMAT_VERSION = 3;
+  private static final byte FORMAT_VERSION = 4;
 
   private final File stateFile;
   private final File tempFile;
@@ -78,9 +78,6 @@ public class ChainSyncStateStorage {
           return null;
         }
 
-        // Read first pivot block header
-        final BlockHeader firstPivotBlockHeader = headerReader.apply(input);
-
         // Read pivot block header
         final BlockHeader pivotBlockHeader = headerReader.apply(input);
 
@@ -109,8 +106,7 @@ public class ChainSyncStateStorage {
         input.leaveList();
 
         LOG.debug(
-            "Loaded chain sync state: firstPivot={}, pivot={}, checkpoint={}, headers anchor={}, header download progress={}, header download complete={}",
-            firstPivotBlockHeader.getNumber(),
+            "Loaded chain sync state: pivot={}, checkpoint={}, headers anchor={}, header download progress={}, header download complete={}",
             pivotBlockHeader.getNumber(),
             checkpointBlockHeader.getNumber(),
             headerDownloadAnchor != null ? headerDownloadAnchor.getNumber() : "null",
@@ -118,7 +114,6 @@ public class ChainSyncStateStorage {
             headersDownloadComplete);
 
         return new ChainSyncState(
-            firstPivotBlockHeader,
             pivotBlockHeader,
             checkpointBlockHeader,
             headerDownloadAnchor,
@@ -151,9 +146,6 @@ public class ChainSyncStateStorage {
 
         // Write version
         output.writeByte(FORMAT_VERSION);
-
-        // Write first pivot block header
-        state.firstPivotBlockHeader().writeTo(output);
 
         // Write pivot block header
         state.pivotBlockHeader().writeTo(output);
@@ -191,8 +183,7 @@ public class ChainSyncStateStorage {
             StandardCopyOption.REPLACE_EXISTING);
 
         LOG.debug(
-            "Stored chain sync state: firstPivot={}, pivot={}, checkpoint block={}, headers complete={}",
-            state.firstPivotBlockHeader().getNumber(),
+            "Stored chain sync state: pivot={}, checkpoint block={}, headers complete={}",
             state.pivotBlockHeader().getNumber(),
             state.blockDownloadAnchor().getNumber(),
             state.headersDownloadComplete());

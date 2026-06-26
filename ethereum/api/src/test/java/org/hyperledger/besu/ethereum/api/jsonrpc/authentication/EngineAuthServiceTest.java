@@ -113,4 +113,41 @@ public class EngineAuthServiceTest {
     Handler<Optional<User>> authHandler = event -> assertThat(event).isEmpty();
     auth.authenticate(token, authHandler);
   }
+
+  @Test
+  public void cachesFreshTokenAndAcceptsOnSubsequentCall() throws IOException, URISyntaxException {
+    Vertx vertx = mock(Vertx.class);
+    final Path userKey =
+        Paths.get(ClassLoader.getSystemResource("authentication/ee-jwt-secret.hex").toURI());
+    Path dataDir = Files.createTempDirectory("besuUnitTest");
+    EngineAuthService auth = new EngineAuthService(vertx, Optional.of(userKey.toFile()), dataDir);
+    JWTAuth jwtAuth = auth.getJwtAuthProvider();
+    String token =
+        jwtAuth.generateToken(new JsonObject().put("iat", System.currentTimeMillis() / 1000));
+
+    // First call: slow path — full parse + HMAC verify, result cached
+    auth.authenticate(token, event -> assertThat(event).isPresent());
+
+    // Second call: fast path — same token string, should be accepted from cache
+    auth.authenticate(token, event -> assertThat(event).isPresent());
+  }
+
+  @Test
+  public void rejectsStaleCachedToken() throws IOException, URISyntaxException {
+    Vertx vertx = mock(Vertx.class);
+    final Path userKey =
+        Paths.get(ClassLoader.getSystemResource("authentication/ee-jwt-secret.hex").toURI());
+    Path dataDir = Files.createTempDirectory("besuUnitTest");
+    EngineAuthService auth = new EngineAuthService(vertx, Optional.of(userKey.toFile()), dataDir);
+    JWTAuth jwtAuth = auth.getJwtAuthProvider();
+
+    // Token with iat 61 seconds ago: slow path rejects it (issuedRecently returns false),
+    // so it is never cached. A subsequent call with the same token also goes through the
+    // slow path and is rejected again.
+    String staleToken =
+        jwtAuth.generateToken(
+            new JsonObject().put("iat", (System.currentTimeMillis() / 1000) - 61));
+    auth.authenticate(staleToken, event -> assertThat(event).isEmpty());
+    auth.authenticate(staleToken, event -> assertThat(event).isEmpty());
+  }
 }

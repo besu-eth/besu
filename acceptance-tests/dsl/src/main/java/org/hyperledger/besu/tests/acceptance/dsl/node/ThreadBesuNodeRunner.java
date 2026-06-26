@@ -57,8 +57,8 @@ import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueStorageProviderBuilder;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMerkleTrieLoaderModule;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCacheModule;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoaderModule;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCacheModule;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -90,6 +90,7 @@ import org.hyperledger.besu.util.io.OutputStreamFactory;
 import org.hyperledger.besu.util.snappy.SnappyFactory;
 
 import java.io.File;
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.util.HashMap;
@@ -144,7 +145,10 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
     final ObservableMetricsSystem metricsSystem =
         (ObservableMetricsSystem) component.getMetricsSystem();
     final List<EnodeURLImpl> bootnodes =
-        node.getConfiguration().getBootnodes().stream().map(EnodeURLImpl::fromURI).toList();
+        node.getConfiguration().getBootnodes().stream()
+            .filter(b -> b.startsWith("enode://"))
+            .map(b -> EnodeURLImpl.fromURI(URI.create(b)))
+            .toList();
 
     final EthNetworkConfig.Builder networkConfigBuilder = component.ethNetworkConfigBuilder();
     networkConfigBuilder.setEnodeBootNodes(bootnodes);
@@ -716,7 +720,7 @@ public class ThreadBesuNodeRunner implements BesuNodeRunner {
         MetricsSystemModule.class,
         ThreadBesuNodeRunner.BesuNodeProviderModule.class,
         BlobCacheModule.class,
-        CodeCacheModule.class,
+        PathBasedCodeCacheModule.class,
       })
   public interface AcceptanceTestBesuComponent extends BesuComponent {
     BesuController besuController();

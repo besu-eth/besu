@@ -20,23 +20,31 @@ import org.hyperledger.besu.ethereum.eth.SnapProtocol;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeer;
 import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
+import org.hyperledger.besu.ethereum.eth.manager.exceptions.IncompleteResultsException;
 import org.hyperledger.besu.ethereum.eth.manager.task.AbstractRetryingSwitchingPeerTask;
-import org.hyperledger.besu.ethereum.eth.manager.task.EthTask;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+
+import com.google.common.annotations.VisibleForTesting;
 
 public class RetryingGetBlockAccessListsFromPeerTask
     extends AbstractRetryingSwitchingPeerTask<List<SyncBlockAccessList>> {
 
-  public static final int MAX_RETRIES = 4;
+  public static final int MAX_RETRIES = 16;
 
   private final EthContext ethContext;
   private final List<BlockHeader> blockHeaders;
   private final MetricsSystem metricsSystem;
+  private final List<SyncBlockAccessList> blockAccessLists;
+  private final Set<Integer> pendingIndexes = new LinkedHashSet<>();
 
-  private RetryingGetBlockAccessListsFromPeerTask(
+  public RetryingGetBlockAccessListsFromPeerTask(
       final EthContext ethContext,
       final List<BlockHeader> blockHeaders,
       final MetricsSystem metricsSystem) {
@@ -44,27 +52,78 @@ public class RetryingGetBlockAccessListsFromPeerTask
     this.ethContext = ethContext;
     this.blockHeaders = blockHeaders;
     this.metricsSystem = metricsSystem;
-  }
-
-  public static EthTask<List<SyncBlockAccessList>> forBlockAccessLists(
-      final EthContext ethContext,
-      final List<BlockHeader> blockHeaders,
-      final MetricsSystem metricsSystem) {
-    return new RetryingGetBlockAccessListsFromPeerTask(ethContext, blockHeaders, metricsSystem);
+    this.blockAccessLists = new ArrayList<>(Collections.nCopies(blockHeaders.size(), null));
+    for (int i = 0; i < blockHeaders.size(); i++) {
+      pendingIndexes.add(i);
+    }
   }
 
   @Override
   protected CompletableFuture<List<SyncBlockAccessList>> executeTaskOnCurrentPeer(
       final EthPeer peer) {
-    final GetBlockAccessListsFromPeerTask task =
-        GetBlockAccessListsFromPeerTask.forBlockAccessLists(
-            ethContext, blockHeaders, metricsSystem);
-    return executeSubTask(task::run)
+    if (pendingIndexes.isEmpty()) {
+      return CompletableFuture.completedFuture(completedBlockAccessLists());
+    }
+
+    final List<Integer> requestedIndexes = List.copyOf(pendingIndexes);
+    return requestBlockAccessListsFromPeer(peer, requestedIndexes)
         .thenApply(
-            peerResult -> {
-              result.complete(peerResult.getResult());
-              return peerResult.getResult();
+            receivedBlockAccessLists -> {
+              final int pendingCountBeforeProcessing = pendingIndexes.size();
+              processBlockAccessLists(requestedIndexes, receivedBlockAccessLists);
+              if (pendingIndexes.isEmpty()) {
+                return completedBlockAccessLists();
+              }
+              if (pendingIndexes.size() < pendingCountBeforeProcessing) {
+                resetRetryCount();
+              }
+              throw new IncompleteResultsException(
+                  "Downloaded "
+                      + (blockHeaders.size() - pendingIndexes.size())
+                      + " of "
+                      + blockHeaders.size()
+                      + " block access lists");
             });
+  }
+
+  protected CompletableFuture<List<SyncBlockAccessList>> requestBlockAccessListsFromPeer(
+      final EthPeer peer, final List<Integer> requestedIndexes) {
+    final GetBlockAccessListsFromPeerTask task =
+        new GetBlockAccessListsFromPeerTask(
+            ethContext, requestedIndexes.stream().map(blockHeaders::get).toList(), metricsSystem);
+    task.assignPeer(peer);
+    return executeSubTask(task::run).thenApply(peerResult -> peerResult.getResult());
+  }
+
+  @Override
+  protected boolean isRetryableError(final Throwable error) {
+    return super.isRetryableError(error) || error instanceof IncompleteResultsException;
+  }
+
+  @VisibleForTesting
+  void processBlockAccessLists(
+      final List<Integer> requestedIndexes,
+      final List<SyncBlockAccessList> receivedBlockAccessLists) {
+    for (int i = 0; i < receivedBlockAccessLists.size(); i++) {
+      final SyncBlockAccessList blockAccessList = receivedBlockAccessLists.get(i);
+      if (blockAccessList.isUnavailable()) {
+        continue;
+      }
+
+      final int originalIndex = requestedIndexes.get(i);
+      if (pendingIndexes.remove(originalIndex)) {
+        blockAccessLists.set(originalIndex, blockAccessList);
+      }
+    }
+  }
+
+  private List<SyncBlockAccessList> completedBlockAccessLists() {
+    return List.copyOf(blockAccessLists);
+  }
+
+  @VisibleForTesting
+  int pendingBlockAccessLists() {
+    return pendingIndexes.size();
   }
 
   @Override
