@@ -81,9 +81,9 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
       names = {TX_POOL_NO_LATE_FUNDING},
       paramLabel = "<Boolean>",
       description =
-          "Set to true to drop transactions from the pool when the sender has insufficient balance "
-              + "at block-selection time, rather than penalising the score and retaining them in "
-              + "the hope that the sender receives funds later (default: ${DEFAULT-VALUE})",
+          "Set to true to penalise (and eventually evict) transactions whose sender has "
+              + "insufficient balance at block-selection time, rather than dropping them immediately "
+              + "(default: ${DEFAULT-VALUE})",
       fallbackValue = "true",
       arity = "0..1")
   private Boolean noLateFunding = TransactionPoolConfiguration.DEFAULT_TX_POOL_NO_LATE_FUNDING;
