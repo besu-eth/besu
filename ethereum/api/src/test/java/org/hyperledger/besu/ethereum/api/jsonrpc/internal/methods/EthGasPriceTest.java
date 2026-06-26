@@ -21,7 +21,9 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -222,6 +224,57 @@ public class EthGasPriceTest {
     long lowerBoundCoefficient = 120;
     long upperBoundCoefficient = 200;
     verifyGasPriceLimit(lowerBoundCoefficient, upperBoundCoefficient, gasPrice);
+  }
+
+  @Test
+  public void whenGasPriceBlocksIsZeroReturnLowerBoundWithoutSamplingHistoricalBlocks() {
+    mockBaseFeeMarket();
+
+    // Only stub chain head header — getChainHeadBlock and getBlockByNumber must never be called
+    final Block chainHeadBlock = createFakeBlock(1000L, 1, DEFAULT_BASE_FEE);
+    when(blockchain.getChainHeadHeader()).thenReturn(chainHeadBlock.getHeader());
+
+    method =
+        createEthGasPriceMethod(ImmutableApiConfiguration.builder().gasPriceBlocks(0L).build());
+
+    final JsonRpcRequestContext request = requestWithParams();
+    // gasPriceBlocks=0 → no historical block sampling; returns gasPriceLowerBound() directly.
+    // nextBlockBaseFee = DEFAULT_BASE_FEE − EIP-1559 delta(gasUsed=21_000, gasLimit=100_000) =
+    // 92_750
+    // lowerBound = max(nextBlockBaseFee=92_750, DEFAULT_MIN_GAS_PRICE=1_000) = 92_750
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(request.getRequest().getId(), Wei.of(92_750).toShortHexString());
+
+    final JsonRpcResponse actualResponse = method.response(request);
+
+    assertThat(actualResponse).usingRecursiveComparison().isEqualTo(expectedResponse);
+    verify(blockchain).getChainHeadHeader();
+    verify(blockchain, never()).getChainHeadBlock();
+    verify(blockchain, never()).getBlockByNumber(anyLong());
+    verifyNoMoreInteractions(blockchain);
+  }
+
+  @Test
+  public void whenGasPriceBlocksIsZeroAndMinGasPriceIsZeroReturnZero() {
+    miningConfiguration.setMinTransactionGasPrice(Wei.ZERO);
+    mockGasPriceMarket();
+
+    when(blockchain.getChainHeadHeader()).thenReturn(createFakeBlock(0, 0, null).getHeader());
+
+    final var methodWithZeroBlocks =
+        createEthGasPriceMethod(ImmutableApiConfiguration.builder().gasPriceBlocks(0L).build());
+
+    final JsonRpcRequestContext request = requestWithParams();
+    final JsonRpcResponse expectedResponse =
+        new JsonRpcSuccessResponse(request.getRequest().getId(), Wei.ZERO.toShortHexString());
+
+    assertThat(methodWithZeroBlocks.response(request))
+        .usingRecursiveComparison()
+        .isEqualTo(expectedResponse);
+    verify(blockchain).getChainHeadHeader();
+    verify(blockchain, never()).getChainHeadBlock();
+    verify(blockchain, never()).getBlockByNumber(anyLong());
+    verifyNoMoreInteractions(blockchain);
   }
 
   private static Stream<Arguments> ethGasPriceAtGenesis() {

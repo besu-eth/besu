@@ -19,6 +19,7 @@ import java.util.Map.Entry;
 import java.util.NavigableMap;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
 
 import org.apache.tuweni.bytes.Bytes32;
 import org.slf4j.Logger;
@@ -38,6 +39,7 @@ public class DownloadedAccountRangeTracker {
       new ConcurrentSkipListMap<>();
   private final ConcurrentSkipListMap<Bytes32, Bytes32> completedRanges =
       new ConcurrentSkipListMap<>();
+  private BiConsumer<Bytes32, Bytes32> onRangeCompleted = (rangeStart, rangeEnd) -> {};
 
   private static class PendingRange {
     volatile Bytes32 endInclusive;
@@ -59,7 +61,7 @@ public class DownloadedAccountRangeTracker {
    * @param initialChildCount the number of child storage and code requests spawned from accounts
    *     within this range
    */
-  public void registerPending(
+  public synchronized void registerPending(
       final Bytes32 rangeStart, final Bytes32 rangeEnd, final int initialChildCount) {
     if (initialChildCount < 0) {
       throw new IllegalArgumentException("Initial child count cannot be negative");
@@ -67,6 +69,7 @@ public class DownloadedAccountRangeTracker {
     assertNoOverlap(rangeStart, rangeEnd);
     if (initialChildCount == 0) {
       completedRanges.put(rangeStart, rangeEnd);
+      onRangeCompleted.accept(rangeStart, rangeEnd);
       LOG.atDebug()
           .setMessage("Account range completed immediately: [{},{}] (no children)")
           .addArgument(rangeStart)
@@ -93,14 +96,22 @@ public class DownloadedAccountRangeTracker {
    * (e.g. storage continuations), a negative delta removes it (child completed). When the count
    * reaches zero, the range is promoted to completed.
    */
-  public void adjustPendingChildren(final Bytes32 rangeStart, final int delta) {
+  public synchronized void adjustPendingChildren(final Bytes32 rangeStart, final int delta) {
     final PendingRange range = pendingRanges.get(rangeStart);
     if (range == null) {
       throw new IllegalStateException("No pending range found for start key " + rangeStart);
     }
-    if (range.pendingChildRequests.addAndGet(delta) <= 0) {
+    final int remaining = range.pendingChildRequests.addAndGet(delta);
+    if (remaining < 0) {
+      throw new IllegalStateException(
+          String.format(
+              "Pending child count cannot be negative, but was %d for range %s",
+              remaining, rangeStart));
+    }
+    if (remaining == 0) {
       pendingRanges.remove(rangeStart);
       completedRanges.put(rangeStart, range.endInclusive);
+      onRangeCompleted.accept(rangeStart, range.endInclusive);
       LOG.atDebug()
           .setMessage("Account range completed (delta {}): [{},{}]")
           .addArgument(delta)
@@ -129,6 +140,15 @@ public class DownloadedAccountRangeTracker {
     return entry != null && accountHash.compareTo(entry.getValue()) <= 0;
   }
 
+  /**
+   * Check whether an account hash falls within any pending interval. The account has been persisted
+   * but still has outstanding storage or code child requests.
+   */
+  public boolean isAccountHashPending(final Bytes32 accountHash) {
+    final Entry<Bytes32, PendingRange> entry = pendingRanges.floorEntry(accountHash);
+    return entry != null && accountHash.compareTo(entry.getValue().endInclusive) <= 0;
+  }
+
   /** Return an unmodifiable snapshot of completed ranges for external consumers (e.g. BAL). */
   public NavigableMap<Bytes32, Bytes32> getCompletedRanges() {
     return Collections.unmodifiableNavigableMap(new ConcurrentSkipListMap<>(completedRanges));
@@ -142,8 +162,13 @@ public class DownloadedAccountRangeTracker {
     return completedRanges.size();
   }
 
+  /** Register a callback invoked when a range is promoted from pending to completed. */
+  public void setOnRangeCompleted(final BiConsumer<Bytes32, Bytes32> callback) {
+    this.onRangeCompleted = callback;
+  }
+
   /** Clear all tracked state. */
-  public void clear() {
+  public synchronized void clear() {
     pendingRanges.clear();
     completedRanges.clear();
   }

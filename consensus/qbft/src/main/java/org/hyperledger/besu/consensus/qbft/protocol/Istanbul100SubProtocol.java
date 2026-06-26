@@ -53,31 +53,20 @@ public class Istanbul100SubProtocol implements SubProtocol {
 
   @Override
   public boolean isValidMessageCode(final int protocolVersion, final int code) {
-    switch (code) {
-      case QbftV1.PROPOSAL:
-      case QbftV1.PREPARE:
-      case QbftV1.COMMIT:
-      case QbftV1.ROUND_CHANGE:
-        return true;
-
-      default:
-        return false;
-    }
+    return switch (code) {
+      case QbftV1.PROPOSAL, QbftV1.PREPARE, QbftV1.COMMIT, QbftV1.ROUND_CHANGE -> true;
+      default -> false;
+    };
   }
 
   @Override
   public String messageName(final int protocolVersion, final int code) {
-    switch (code) {
-      case QbftV1.PROPOSAL:
-        return "Proposal";
-      case QbftV1.PREPARE:
-        return "Prepare";
-      case QbftV1.COMMIT:
-        return "Commit";
-      case QbftV1.ROUND_CHANGE:
-        return "RoundChange";
-      default:
-        return INVALID_MESSAGE_NAME;
-    }
+    return switch (code) {
+      case QbftV1.PROPOSAL -> "Proposal";
+      case QbftV1.PREPARE -> "Prepare";
+      case QbftV1.COMMIT -> "Commit";
+      case QbftV1.ROUND_CHANGE -> "RoundChange";
+      default -> INVALID_MESSAGE_NAME;
+    };
   }
 }

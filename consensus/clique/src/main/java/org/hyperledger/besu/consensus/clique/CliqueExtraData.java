@@ -94,8 +94,8 @@ public class CliqueExtraData implements ParsedExtraData {
    */
   public static CliqueExtraData decode(final BlockHeader header) {
     final Object inputExtraData = header.getParsedExtraData();
-    if (inputExtraData instanceof CliqueExtraData) {
-      return (CliqueExtraData) inputExtraData;
+    if (inputExtraData instanceof CliqueExtraData cliqueExtraData) {
+      return cliqueExtraData;
     }
     LOG.warn(
         "Expected a CliqueExtraData instance but got {}. Reparsing required.",

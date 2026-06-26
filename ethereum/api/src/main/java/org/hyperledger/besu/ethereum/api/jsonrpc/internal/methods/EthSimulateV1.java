@@ -141,14 +141,7 @@ public class EthSimulateV1 extends AbstractBlockParameterOrBlockHashMethod {
       }
       return process(header, simulateV1Parameter);
     } catch (final BlockStateCallException e) {
-      int errorCode = e.getError().getCode();
-      // When validation is enabled, map simulation-specific error codes to -32602
-      // (invalid params) per the execution-apis spec.
-      if (simulateV1Parameter.isValidation()
-          && e.getError() == BlockStateCallError.UPFRONT_COST_EXCEEDS_BALANCE) {
-        errorCode = INVALID_PARAMS.getCode();
-      }
-      JsonRpcError error = new JsonRpcError(errorCode, e.getMessage(), null);
+      JsonRpcError error = new JsonRpcError(e.getError().getCode(), e.getMessage(), null);
       return new JsonRpcErrorResponse(request.getRequest().getId(), error);
     } catch (Exception e) {
       throw new RuntimeException(e);
