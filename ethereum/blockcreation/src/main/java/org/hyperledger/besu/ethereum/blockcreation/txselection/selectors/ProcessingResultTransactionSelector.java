@@ -101,14 +101,22 @@ public class ProcessingResultTransactionSelector extends AbstractTransactionSele
   }
 
   /**
-   * Checks if the invalid reason is a transient validation error.
+   * Checks if the invalid reason is a transient validation error. When transient, the transaction
+   * is penalised (score reduced) but retained in the pool so it can be retried in a later block.
+   * When not transient, the transaction is dropped from the pool permanently.
+   *
+   * <p>UPFRONT_COST_EXCEEDS_BALANCE is only treated as transient when {@code noLateFunding} is
+   * false (the default). When {@code noLateFunding} is true the sender's insufficient balance is
+   * treated as a permanent failure and the transaction is removed from the pool immediately.
    *
    * @param invalidReason The invalid reason.
    * @return True if the invalid reason is transient, false otherwise.
    */
   private boolean isTransientValidationError(final TransactionInvalidReason invalidReason) {
-    return invalidReason.equals(TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE)
-        || invalidReason.equals(TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE)
+    if (invalidReason.equals(TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE)) {
+      return !context.transactionPool().getConfiguration().getNoLateFunding();
+    }
+    return invalidReason.equals(TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE)
         || invalidReason.equals(TransactionInvalidReason.NONCE_TOO_HIGH)
         || invalidReason.equals(TransactionInvalidReason.EXECUTION_INTERRUPTED);
   }
