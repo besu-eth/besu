@@ -14,32 +14,38 @@
  */
 package org.hyperledger.besu.ethereum.core.json;
 
-import org.hyperledger.besu.datatypes.Hash;
-
 import java.io.IOException;
+import java.math.BigInteger;
 
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.deser.std.StdDeserializer;
+import org.apache.tuweni.units.bigints.UInt256;
 
-public class HashDeserializer extends StdDeserializer<Hash> {
+public final class ChainIdJson {
 
-  public HashDeserializer() {
-    this(null);
-  }
+  private ChainIdJson() {}
 
-  public HashDeserializer(final Class<?> vc) {
-    super(vc);
-  }
+  public static class Deserializer extends StdDeserializer<BigInteger> {
 
-  @Override
-  public Hash deserialize(final JsonParser jsonParser, final DeserializationContext context)
-      throws IOException {
-    final String value = jsonParser.getCodec().readValue(jsonParser, String.class);
-    if (!value.startsWith("0x") && !value.startsWith("0X")) {
-      throw new IllegalArgumentException(
-          "Invalid hash: must be a hex string with 0x prefix, got: " + value);
+    public Deserializer() {
+      this(null);
     }
-    return Hash.fromHexString(value);
+
+    public Deserializer(final Class<?> vc) {
+      super(vc);
+    }
+
+    @Override
+    public BigInteger deserialize(final JsonParser jsonParser, final DeserializationContext context)
+        throws IOException {
+      final BigInteger chainId =
+          UInt256.fromHexString(jsonParser.getCodec().readValue(jsonParser, String.class))
+              .toBigInteger();
+      if (chainId.signum() < 0) {
+        throw new IllegalArgumentException("Negative chain id: " + chainId);
+      }
+      return chainId;
+    }
   }
 }

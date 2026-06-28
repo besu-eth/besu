@@ -49,9 +49,10 @@ public interface TransactionValidationParams {
   TransactionValidationParams transactionSimulatorAllowExceedingBalanceAndFutureNonceParams =
       ImmutableTransactionValidationParams.of(true, true, false, false, false, true, true, false);
 
+  // eth_simulateV1 strict: preserves caller-provided gas pricing (defaulting to 0 if not specified)
+  // so that base fee validation is enforced against the caller's literal values.
   TransactionValidationParams blockSimulatorStrictParams =
-      ImmutableTransactionValidationParams.of(
-          false, false, false, false, false, true, false, false);
+      ImmutableTransactionValidationParams.of(false, false, false, false, false, true, false, true);
 
   // eth_simulateV1 non-strict: allows exceeding balance and future nonces, and preserves
   // caller-provided gas pricing so that gas fees are actually charged during simulation.

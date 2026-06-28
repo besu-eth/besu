@@ -38,6 +38,8 @@ public enum BlockStateCallError {
   UPFRONT_COST_EXCEEDS_BALANCE(-38014, "Upfront cost exceeds balance"),
   /** Gas price too low. */
   GAS_PRICE_TOO_LOW(-32602, "Gas price too low"),
+  /** Max fee per gas is below the block base fee. */
+  GAS_PRICE_BELOW_BASE_FEE(-38012, "BaseFeePerGas too low"),
   /** Intrinsic gas exceeds gas limit. */
   INTRINSIC_GAS_EXCEEDS_GAS_LIMIT(-38013, "Intrinsic gas exceeds gas limit"),
   /** Unknown error. */
