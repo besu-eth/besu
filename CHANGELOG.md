@@ -25,7 +25,7 @@
 
 ### Additions and Improvements
 - Upgrade web3j dependencies to 5.0.3 [#10627](https://github.com/besu-eth/besu/pull/10627)
-- Upgrade netty dependencies to 4.2.15.Final[#10693](https://github.com/besu-eth/besu/pull/10693) 
+- Upgrade netty dependencies to 4.2.15.Final [#10693](https://github.com/besu-eth/besu/pull/10693) 
 - Besu now falls back to Proof of Stake when the genesis file declares no consensus mechanism (e.g. an empty `"config": {}`). [#10266](https://github.com/besu-eth/besu/pull/10266)
 
 ## 26.6.1
