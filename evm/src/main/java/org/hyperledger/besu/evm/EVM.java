@@ -247,10 +247,10 @@ public class EVM {
       Operation currentOperation;
       int opcode;
       int pc = frame.getPC();
-      try {
+      if (pc < code.length) {
         opcode = code[pc] & 0xff;
         currentOperation = operationArray[opcode];
-      } catch (ArrayIndexOutOfBoundsException aiiobe) {
+      } else {
         opcode = 0;
         currentOperation = endOfScriptStop;
       }
@@ -478,10 +478,10 @@ public class EVM {
       Operation currentOperation;
       int opcode;
       int pc = frame.getPC();
-      try {
+      if (pc < code.length) {
         opcode = code[pc] & 0xff;
         currentOperation = operationArray[opcode];
-      } catch (ArrayIndexOutOfBoundsException aiiobe) {
+      } else {
         opcode = 0;
         currentOperation = endOfScriptStop;
       }

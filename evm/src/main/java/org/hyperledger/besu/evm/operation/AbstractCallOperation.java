@@ -252,7 +252,7 @@ public abstract class AbstractCallOperation extends AbstractOperation {
 
     // If the call is sending more value than the account has or the message frame is too deep
     // return a failed call
-    final boolean insufficientBalance = value(frame).compareTo(balance) > 0;
+    final boolean insufficientBalance = transferValue.compareTo(balance) > 0;
     final boolean isFrameDepthTooDeep = frame.getDepth() >= 1024;
     if (insufficientBalance || isFrameDepthTooDeep) {
       frame.expandMemory(inputDataOffset(frame), inputDataLength(frame));
@@ -281,7 +281,7 @@ public abstract class AbstractCallOperation extends AbstractOperation {
             .contract(to)
             .inputData(inputData)
             .sender(sender(frame))
-            .value(value(frame))
+            .value(transferValue)
             .apparentValue(apparentValue(frame))
             .code(code)
             .isStatic(isStatic(frame))
