@@ -16,6 +16,7 @@ package org.hyperledger.besu.evm.frame;
 
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Collections.emptySet;
+import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
 
 import org.hyperledger.besu.collections.undo.UndoSet;
 import org.hyperledger.besu.datatypes.Address;
@@ -889,15 +890,6 @@ public class MessageFrame {
   }
 
   /**
-   * Increments stateGasUsed (UndoScalar — undone on revert).
-   *
-   * @param amount the amount to add
-   */
-  public void incrementStateGasUsed(final long amount) {
-    txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
-  }
-
-  /**
    * Decrements stateGasUsed for in-frame refunds (SSTORE 0→X→0, CREATE silent failure, same-tx
    * SELFDESTRUCT). UndoScalar-scoped: refunds propagate to parents only on full success.
    *
@@ -934,14 +926,16 @@ public class MessageFrame {
    */
   public void incrementStateGasReservoir(final long amount) {
     final long before = txValues.stateGasReservoir().get();
-    final long after = before + amount;
+    final long after = clampedAdd(before, amount);
     txValues.stateGasReservoir().set(after);
-    LOG.trace(
-        "EIP-8037 CREDIT_RESERVOIR depth={} amount={} reservoirBefore={} reservoirAfter={}",
-        getDepth(),
-        amount,
-        before,
-        after);
+    if (LOG.isTraceEnabled()) {
+      LOG.trace(
+          "EIP-8037 CREDIT_RESERVOIR depth={} amount={} reservoirBefore={} reservoirAfter={}",
+          getDepth(),
+          amount,
+          before,
+          after);
+    }
   }
 
   // ---- consume ----
@@ -956,11 +950,12 @@ public class MessageFrame {
   public boolean consumeStateGas(final long amount) {
     final long reservoirBefore = txValues.stateGasReservoir().get();
     final long gasLeftBefore = gasRemaining;
-    if (reservoirBefore >= amount) {
-      txValues.stateGasReservoir().set(reservoirBefore - amount);
-    } else {
-      final long overflow = amount - reservoirBefore;
-      if (gasRemaining < overflow) {
+    // Draw from the reservoir first, then from gasRemaining for whatever the reservoir can't cover.
+    final long fromReservoir = Math.min(reservoirBefore, amount);
+    final long fromGas = amount - fromReservoir;
+    if (gasRemaining < fromGas) {
+      // OOG: do the accounting last so we leave the counters untouched on failure.
+      if (LOG.isTraceEnabled()) {
         LOG.trace(
             "EIP-8037 CONSUME_STATE depth={} requested={} reservoirBefore={} gasLeftBefore={} ok=false reservoirAfter={} gasLeftAfter={} stateGasUsedAfter={}",
             getDepth(),
@@ -970,21 +965,23 @@ public class MessageFrame {
             reservoirBefore,
             gasLeftBefore,
             txValues.stateGasUsed().get());
-        return false;
       }
-      txValues.stateGasReservoir().set(0L);
-      gasRemaining -= overflow;
+      return false;
     }
+    txValues.stateGasReservoir().set(reservoirBefore - fromReservoir);
+    gasRemaining -= fromGas;
     txValues.stateGasUsed().set(txValues.stateGasUsed().get() + amount);
-    LOG.trace(
-        "EIP-8037 CONSUME_STATE depth={} requested={} reservoirBefore={} gasLeftBefore={} ok=true reservoirAfter={} gasLeftAfter={} stateGasUsedAfter={}",
-        getDepth(),
-        amount,
-        reservoirBefore,
-        gasLeftBefore,
-        txValues.stateGasReservoir().get(),
-        gasRemaining,
-        txValues.stateGasUsed().get());
+    if (LOG.isTraceEnabled()) {
+      LOG.trace(
+          "EIP-8037 CONSUME_STATE depth={} requested={} reservoirBefore={} gasLeftBefore={} ok=true reservoirAfter={} gasLeftAfter={} stateGasUsedAfter={}",
+          getDepth(),
+          amount,
+          reservoirBefore,
+          gasLeftBefore,
+          txValues.stateGasReservoir().get(),
+          gasRemaining,
+          txValues.stateGasUsed().get());
+    }
     return true;
   }
 

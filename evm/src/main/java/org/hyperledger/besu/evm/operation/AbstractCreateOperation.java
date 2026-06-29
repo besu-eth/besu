@@ -99,8 +99,6 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
 
     frame.clearReturnData();
 
-    final Code code = codeSupplier.get();
-
     // EIP-8037: Deduct regular gas before charging state gas (ordering requirement).
     frame.decrementRemainingGas(cost);
 
@@ -112,6 +110,8 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
 
     // Add regular gas back — the EVM loop will deduct it via the OperationResult.
     frame.incrementRemainingGas(cost);
+
+    final Code code = codeSupplier.get();
 
     final boolean insufficientBalance = value.compareTo(account.getBalance()) > 0;
     final boolean maxDepthReached = frame.getDepth() >= 1024;

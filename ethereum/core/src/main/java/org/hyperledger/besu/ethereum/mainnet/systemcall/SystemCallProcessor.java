@@ -161,6 +161,10 @@ public class SystemCallProcessor {
             .inputData(inputData)
             .sender(SYSTEM_ADDRESS)
             .blockHashLookup(blockHashLookup)
+            // EIP-8037: seed the state-gas reservoir so state-gas growth alone cannot OOG the call.
+            // The reservoir is sized to cover up to SYSTEM_MAX_SSTORES_PER_CALL storage-set charges.
+            // Pre-Amsterdam storageSetStateGas() is 0, so this seeds an empty reservoir (no effect).
+            .initialStateGasReservoir(systemCallStateGasReservoir())
             .code(getCode(worldUpdater.get(callAddress), processor));
 
     maybeAccessLocationTracker.ifPresent(
@@ -169,21 +173,13 @@ public class SystemCallProcessor {
           tracker.addTouchedAccount(callAddress);
         });
 
-    final MessageFrame frame = builder.build();
-    seedSystemCallStateGasReservoir(frame);
-    return frame;
+    return builder.build();
   }
 
-  /**
-   * EIP-8037: seed the state-gas reservoir of a system call frame so state-gas growth alone cannot
-   * OOG the call. The reservoir is sized to cover up to {@link #SYSTEM_MAX_SSTORES_PER_CALL}
-   * storage-set state-gas charges. Pre-Amsterdam {@code storageSetStateGas()} is 0, so this seeds
-   * an empty reservoir and has no effect.
-   */
-  private void seedSystemCallStateGasReservoir(final MessageFrame frame) {
+  private long systemCallStateGasReservoir() {
     final StateGasCostCalculator stateGasCalc =
         mainnetTransactionProcessor.getGasCalculator().stateGasCostCalculator();
-    frame.setStateGasReservoir(stateGasCalc.storageSetStateGas() * SYSTEM_MAX_SSTORES_PER_CALL);
+    return stateGasCalc.storageSetStateGas() * SYSTEM_MAX_SSTORES_PER_CALL;
   }
 
   private Code getCode(final Account contract, final AbstractMessageProcessor processor) {
