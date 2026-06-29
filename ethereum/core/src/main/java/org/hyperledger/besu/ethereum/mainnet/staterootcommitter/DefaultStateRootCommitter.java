@@ -32,7 +32,6 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -66,8 +65,7 @@ public final class DefaultStateRootCommitter implements StateRootCommitter {
         (PathBasedWorldStateUpdateAccumulator<?>) worldUpdater;
     final BonsaiWorldState bonsai = (BonsaiWorldState) mutableWorldState;
     final boolean storageFrozen = mutableWorldState.isStorageFrozen();
-    final List<StateRootComputation.UpdaterWrite> writes =
-        Collections.synchronizedList(new ArrayList<>());
+    final List<StateRootComputation.UpdaterWrite> writes = new ArrayList<>();
     if (blockHeader != null && bonsai.isTrieDisabled()) {
       executeComputation(bonsai, writes, accumulator, storageFrozen);
       return StateRootComputation.pathBased(blockHeader.getStateRoot(), writes);
@@ -85,8 +83,13 @@ public final class DefaultStateRootCommitter implements StateRootCommitter {
 
     clearStorage(writes, worldStateUpdater, bonsai);
 
-    worldStateUpdater.getStorageToUpdate().entrySet().parallelStream()
-        .forEach(entry -> updateAccountStorageState(writes, worldStateUpdater, entry, bonsai,storageFrozen));
+    writes.addAll(
+        worldStateUpdater.getStorageToUpdate().entrySet().parallelStream()
+            .flatMap(
+                entry ->
+                    collectAccountStorageWrites(worldStateUpdater, entry, bonsai, storageFrozen)
+                        .stream())
+            .toList());
 
     if(!storageFrozen){
       updateCode(writes, worldStateUpdater);
@@ -166,8 +169,20 @@ public final class DefaultStateRootCommitter implements StateRootCommitter {
     return value == null || value.isEmpty();
   }
 
+  private List<StateRootComputation.UpdaterWrite> collectAccountStorageWrites(
+      final BonsaiWorldStateUpdateAccumulator worldStateUpdater,
+      final Map.Entry<Address, StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>>>
+          storageAccountUpdate,
+      final BonsaiWorldState bonsai,
+      final boolean storageFrozen) {
+    final List<StateRootComputation.UpdaterWrite> localWrites = new ArrayList<>();
+    updateAccountStorageState(
+        localWrites, worldStateUpdater, storageAccountUpdate, bonsai, storageFrozen);
+    return localWrites;
+  }
+
   private void updateAccountStorageState(
-          final List<StateRootComputation.UpdaterWrite> writes,
+      final List<StateRootComputation.UpdaterWrite> writes,
           final BonsaiWorldStateUpdateAccumulator worldStateUpdater,
           final Map.Entry<Address, StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>>>
           storageAccountUpdate,

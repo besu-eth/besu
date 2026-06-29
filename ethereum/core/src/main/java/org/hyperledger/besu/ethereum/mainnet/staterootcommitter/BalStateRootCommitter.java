@@ -36,7 +36,6 @@ import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -44,6 +43,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -178,9 +178,9 @@ public final class BalStateRootCommitter implements StateRootCommitter {
      */
     private final boolean storageFrozen;
 
-    /** Thread-safe; populated concurrently by storage futures and account writes. */
-    private final List<StateRootComputation.UpdaterWrite> writes =
-            Collections.synchronizedList(new ArrayList<>());
+    /** Lock-free queue; storage futures and account resolution may append concurrently. */
+    private final ConcurrentLinkedQueue<StateRootComputation.UpdaterWrite> writes =
+        new ConcurrentLinkedQueue<>();
 
     /** Populated during account resolution once storage futures complete. */
     private final Map<Address, Hash> storageRoots = new ConcurrentHashMap<>();
@@ -239,7 +239,8 @@ public final class BalStateRootCommitter implements StateRootCommitter {
                 (location, hash, value) ->
                         writes.add(u -> u.putAccountStateTrieNode(location, hash, value)));
       }
-      return new BackgroundResult(Hash.wrap(accountTrie.getRootHash()), writes, storageRoots);
+      return new BackgroundResult(
+          Hash.wrap(accountTrie.getRootHash()), new ArrayList<>(writes), storageRoots);
     }
 
     private Optional<Bytes> resolveAccount(
