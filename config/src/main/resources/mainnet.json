@@ -45,8 +45,6 @@
         "baseFeeUpdateFraction": 11684671
       }
     },
-    "ethash": {
-    },
     "discovery": {
       "dns": "enrtree://AKA3AM6LPBYEUDMVNU3BSVQJ5AD45Y7YPOHJLEF6W26QOE4VTUDPE@all.mainnet.ethdisco.net",
       "bootnodes": [

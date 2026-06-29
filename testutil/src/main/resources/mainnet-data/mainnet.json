@@ -32,8 +32,6 @@
         "baseFeeUpdateFraction": 5007716
       }
     },
-    "ethash": {
-    },
     "checkpoint": {
       "comment": "Start sync from first proof of stake block",
       "hash": "0x56a9bb0302da44b8c0b3df540781424684c3af04d0b7a38d72842b762076a664",

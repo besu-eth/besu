@@ -26,6 +26,7 @@
 
 ### Additions and Improvements
 - Upgrade web3j dependencies to 5.0.3 [#10627](https://github.com/besu-eth/besu/pull/10627)
+- Upgrade netty dependencies to 4.2.15.Final [#10693](https://github.com/besu-eth/besu/pull/10693) 
 - Besu now falls back to Proof of Stake when the genesis file declares no consensus mechanism (e.g. an empty `"config": {}`). [#10266](https://github.com/besu-eth/besu/pull/10266)
 - Add `HealthCheckService` plugin API enabling custom health check implementations. The plugin-based `/readiness` response body is simplified to `{"status":"UP"|"DOWN"}` and no longer includes the previous `{peers, sync}` detail. [#10167](https://github.com/besu-eth/besu/pull/10167)
 - Add `--discovery-mode` CLI option (`BOTH` | `V5` | `V4`, default `BOTH`) to control which discovery protocol(s) the node runs. IPv6 peer reachability requires explicit `--p2p-host-ipv6` configuration; `V4`-only mode is IPv4-only by design. [#10624](https://github.com/besu-eth/besu/pull/10624)
@@ -140,6 +141,7 @@
 - Enforce that `blob_versioned_hashes` match the supplied blobs [#10278](https://github.com/besu-eth/besu/pull/10278)
 - Restrict no-reorg behavior to the prefix of the known finalized chain (per execution-apis #786) [#10335](https://github.com/besu-eth/besu/pull/10335)
 - `eth_getFilterLogs`: cache the chain head once when resolving default `latest..latest` bounds, so a block arriving between the two reads no longer expands the queried range into `[N, N+1]` and returns extra logs. [#10368](https://github.com/besu-eth/besu/pull/10368)
+- `testing_buildBlockV1` now sets the mining coinbase to the requested `suggestedFeeRecipient` before building, so the block header coinbase matches the account credited transaction fees and the EIP-7928 block access list. Previously the header used the node's configured coinbase (`Address.ZERO` on a block builder), so a non-zero `suggestedFeeRecipient` produced a block that self-rejected on `engine_newPayload` re-execution with a block access list hash mismatch.
 
 ### Additions and Improvements
 - The option to set a different block period for empty BFT blocks (`emptyblockperiodseconds`) is no longer experimental. The experimental flag `xemptyblockperiodseconds` will be removed in a future release. [#10264](https://github.com/besu-eth/besu/pull/10264)
