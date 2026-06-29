@@ -37,6 +37,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Stream;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
@@ -83,8 +84,16 @@ public final class DefaultStateRootCommitter implements StateRootCommitter {
 
     clearStorage(writes, worldStateUpdater, bonsai);
 
+    // Parallel storage trie updates are only safe when flat-DB writes are deferred (frozen /
+    // dry-run), matching the previous BonsaiWorldState behaviour where parallelization was enabled
+    // only when no state updater was supplied.
+    Stream<Map.Entry<Address, StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>>>>
+        storageUpdates = worldStateUpdater.getStorageToUpdate().entrySet().stream();
+    if (storageFrozen) {
+      storageUpdates = storageUpdates.parallel();
+    }
     writes.addAll(
-        worldStateUpdater.getStorageToUpdate().entrySet().parallelStream()
+        storageUpdates
             .flatMap(
                 entry ->
                     collectAccountStorageWrites(worldStateUpdater, entry, bonsai, storageFrozen)

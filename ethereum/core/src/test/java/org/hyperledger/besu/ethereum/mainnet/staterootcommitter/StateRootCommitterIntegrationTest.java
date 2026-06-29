@@ -57,6 +57,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldSt
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.trielog.TrieLogFactoryImpl;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogLayer;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.evm.account.MutableAccount;
@@ -383,6 +384,48 @@ class StateRootCommitterIntegrationTest {
       assertThat(harness.codeFlatDbKeyCount()).isEqualTo(codeKeysBefore);
       assertThat(harness.storageFlatDbKeyCount()).isEqualTo(storageKeysBefore);
       assertThat(harness.accountExistsInFlatDb(CONTRACT)).isFalse();
+    }
+
+    @Test
+    void engineNewPayloadPath_writesTrieLogAndFcuRollsHead() {
+      final BlockChange blockChange = BlockChange.complex();
+      final BlockHeader parent = harness.persistParent();
+      final BlockHeader blockHeader = harness.childHeader(parent, blockChange);
+
+      try (BonsaiWorldState worldState =
+          (BonsaiWorldState)
+              harness
+                  .protocolContext()
+                  .getWorldStateArchive()
+                  .getWorldState(
+                      WorldStateQueryParams.newBuilder()
+                          .withBlockHeader(parent)
+                          .withShouldWorldStateUpdateHead(false)
+                          .build())
+                  .orElseThrow()) {
+        blockChange.apply(worldState.updater());
+        worldState.updater().commit();
+        worldState.persist(blockHeader, new DefaultStateRootCommitter());
+      }
+
+      assertThat(harness.trieLogExists(blockHeader)).isTrue();
+
+      harness
+          .protocolContext()
+          .getBlockchain()
+          .appendBlock(new Block(blockHeader, BlockBody.empty()), List.of(), Optional.empty());
+
+      final Optional<MutableWorldState> headAfterFcu =
+          harness
+              .protocolContext()
+              .getWorldStateArchive()
+              .getWorldState(
+                  WorldStateQueryParams.withBlockHeaderAndUpdateNodeHead(blockHeader));
+
+      assertThat(headAfterFcu).isPresent();
+      assertThat(headAfterFcu.get().rootHash()).isEqualTo(blockHeader.getStateRoot());
+      assertThat(headAfterFcu.get().get(CONTRACT).getStorageValue(SLOT.getSlotKey().orElseThrow()))
+          .isEqualTo(SLOT_VALUE);
     }
 
     @Test
@@ -897,6 +940,7 @@ class StateRootCommitterIntegrationTest {
             new DefaultStateRootCommitter()
                 .compute(worldState, null, worldState.updater())
                 .root();
+        ((BonsaiWorldStateUpdateAccumulator) worldState.updater()).reset();
         return new BlockHeaderTestFixture()
             .parentHash(parent.getHash())
             .number(parent.getNumber() + 1L)
