@@ -162,8 +162,10 @@ public class SystemCallProcessor {
             .sender(SYSTEM_ADDRESS)
             .blockHashLookup(blockHashLookup)
             // EIP-8037: seed the state-gas reservoir so state-gas growth alone cannot OOG the call.
-            // The reservoir is sized to cover up to SYSTEM_MAX_SSTORES_PER_CALL storage-set charges.
-            // Pre-Amsterdam storageSetStateGas() is 0, so this seeds an empty reservoir (no effect).
+            // The reservoir is sized to cover up to SYSTEM_MAX_SSTORES_PER_CALL storage-set
+            // charges.
+            // Pre-Amsterdam storageSetStateGas() is 0, so this seeds an empty reservoir (no
+            // effect).
             .initialStateGasReservoir(systemCallStateGasReservoir())
             .code(getCode(worldUpdater.get(callAddress), processor));
 
