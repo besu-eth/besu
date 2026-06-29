@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator;
 
+import com.google.common.base.Supplier;
+import com.google.common.base.Suppliers;
 import org.hyperledger.besu.datatypes.AccountValue;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -24,6 +26,7 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogLayer;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldView;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.AccountConsumingMap;
@@ -329,10 +332,9 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
         }
         final Account account = wrappedWorldView().get(address);
         if (account instanceof PathBasedAccount pathBasedAccount) {
-          final ACCOUNT priorAccount = copyAccount((ACCOUNT) pathBasedAccount);
           final ACCOUNT updatedAccount = copyAccount((ACCOUNT) pathBasedAccount, this, true);
           final PathBasedValue<ACCOUNT> accountValue =
-              new PathBasedValue<>(priorAccount, updatedAccount);
+              new PathBasedValue<>((ACCOUNT) pathBasedAccount, updatedAccount);
           onAccountValueLoaded(address, accountValue);
           accountsToUpdate.put(address, accountValue);
           return accountFunction.apply(accountValue);
@@ -531,9 +533,9 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
   public Optional<Bytes> getCode(final Address address, final Hash codeHash) {
     final PathBasedValue<Bytes> localCode = codeToUpdate.get(address);
     if (localCode == null) {
+      final Supplier<Bytes> loader = Suppliers.memoize(()->wrappedWorldView().getCode(address, codeHash).orElse(null));
       final PathBasedValue<Bytes> codeValue =
-          PathBasedValue.withLazyPrior(
-              () -> wrappedWorldView().getCode(address, codeHash).orElse(null));
+          PathBasedValue.withLazy(loader, loader);
       onCodeValueLoaded(address, codeValue);
       codeToUpdate.put(address, codeValue);
       if (codeValue.getUpdated() == null && !codeHash.equals(Hash.EMPTY)) {
@@ -568,16 +570,16 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       }
     }
     try {
-      final PathBasedValue<UInt256> storageValue =
-          PathBasedValue.withLazyPrior(
-              () ->
-                  (wrappedWorldView() instanceof PathBasedWorldState worldState)
+      final Supplier<UInt256> loader = Suppliers.memoize(() ->
+              (wrappedWorldView() instanceof PathBasedWorldState worldState)
                       ? worldState
-                          .getStorageValueByStorageSlotKey(address, storageSlotKey)
-                          .orElse(null)
+                      .getStorageValueByStorageSlotKey(address, storageSlotKey)
+                      .orElse(null)
                       : wrappedWorldView()
-                          .getStorageValueByStorageSlotKey(address, storageSlotKey)
-                          .orElse(null));
+                      .getStorageValueByStorageSlotKey(address, storageSlotKey)
+                      .orElse(null));
+      final PathBasedValue<UInt256> storageValue =
+          PathBasedValue.withLazy(loader,loader);
       onStorageValueLoaded(address, storageSlotKey, storageValue);
 
       storageToUpdate
