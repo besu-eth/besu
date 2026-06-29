@@ -116,8 +116,7 @@ public class TransactionPoolOptionsTest
   @Test
   public void noLateFundingCanBeEnabled() {
     internalTestSuccess(
-        config -> assertThat(config.getNoLateFunding()).isTrue(),
-        "--tx-pool-no-late-funding=true");
+        config -> assertThat(config.getNoLateFunding()).isTrue(), "--tx-pool-no-late-funding=true");
   }
 
   @Test

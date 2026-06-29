@@ -268,7 +268,9 @@ public class LondonFeeMarketBlockTransactionSelectorTest
     assertThat(transactionPool.getTransactionByHash(tx.getHash())).isPresent();
     assertThat(results.getNotSelectedTransactions())
         .containsOnly(
-            entry(tx, TransactionSelectionResult.invalidPenalized(UPFRONT_COST_EXCEEDS_BALANCE.name())));
+            entry(
+                tx,
+                TransactionSelectionResult.invalidPenalized(UPFRONT_COST_EXCEEDS_BALANCE.name())));
   }
 
   @Test
@@ -320,7 +322,9 @@ public class LondonFeeMarketBlockTransactionSelectorTest
     assertThat(transactionPool.getTransactionByHash(tx.getHash())).isPresent();
     assertThat(results.getNotSelectedTransactions())
         .containsOnly(
-            entry(tx, TransactionSelectionResult.invalidPenalized(UPFRONT_COST_EXCEEDS_BALANCE.name())));
+            entry(
+                tx,
+                TransactionSelectionResult.invalidPenalized(UPFRONT_COST_EXCEEDS_BALANCE.name())));
   }
 
   @Test
@@ -396,13 +400,16 @@ public class LondonFeeMarketBlockTransactionSelectorTest
     final TransactionPoolMetrics metrics = new TransactionPoolMetrics(metricsSystem);
     final BiFunction<PendingTransaction, PendingTransaction, Boolean> replacementTester =
         (t1, t2) ->
-            new TransactionPoolReplacementHandler(poolConf.getPriceBump(), poolConf.getBlobPriceBump())
+            new TransactionPoolReplacementHandler(
+                    poolConf.getPriceBump(), poolConf.getBlobPriceBump())
                 .shouldReplace(t1, t2, blockchain.getChainHeadHeader());
     final EndLayer evictCollector = new EndLayer(metrics);
     final SparseTransactions sparse =
-        new SparseTransactions(poolConf, ethScheduler, evictCollector, metrics, replacementTester, new BlobCache());
+        new SparseTransactions(
+            poolConf, ethScheduler, evictCollector, metrics, replacementTester, new BlobCache());
     final ReadyTransactions ready =
-        new ReadyTransactions(poolConf, ethScheduler, sparse, metrics, replacementTester, new BlobCache());
+        new ReadyTransactions(
+            poolConf, ethScheduler, sparse, metrics, replacementTester, new BlobCache());
     final BaseFeePrioritizedTransactions prioritized =
         new BaseFeePrioritizedTransactions(
             poolConf,

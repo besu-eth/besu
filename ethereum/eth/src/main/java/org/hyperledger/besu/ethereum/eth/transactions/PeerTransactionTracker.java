@@ -30,7 +30,6 @@ import org.hyperledger.besu.plugin.data.AddedBlockContext;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.BitSet;
-import java.util.concurrent.TimeUnit;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -41,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.SequencedSet;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -105,7 +105,10 @@ public class PeerTransactionTracker
     peersSeenStateByHash.entrySet().removeIf(e -> e.getValue().addedAtMillis() < cutoffMillis);
     final int removed = before - peersSeenStateByHash.size();
     if (removed > 0) {
-      LOG.debug("Purged {} expired seen-transaction entries (older than {} min)", removed, forgetInvalidTxnMins);
+      LOG.debug(
+          "Purged {} expired seen-transaction entries (older than {} min)",
+          removed,
+          forgetInvalidTxnMins);
     }
   }
 
