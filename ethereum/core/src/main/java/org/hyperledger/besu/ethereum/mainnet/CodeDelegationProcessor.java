@@ -117,10 +117,10 @@ public class CodeDelegationProcessor {
       return;
     }
 
-    // Spec (EELS account_exists_and_is_non_empty): the worst-case STATE_BYTES_PER_NEW_ACCOUNT and
-    // ACCOUNT_WRITE charged at intrinsic time are only refilled/refunded if the authority leaf
-    // already exists AND is non-empty (non-zero nonce, non-zero balance, or non-empty code). A
-    // present-but-empty account is treated like a brand-new leaf for gas purposes.
+    // the worst-case STATE_BYTES_PER_NEW_ACCOUNT and ACCOUNT_WRITE charged at intrinsic time
+    // are only refilled/refunded if the authority already exists AND is non-empty
+    // (non-zero nonce, non-zero balance, or non-empty code). A present-but-empty account is
+    // treated like a brand-new leaf for gas purposes.
     final boolean authorityAlreadyExists =
         maybeExistingAccount.isPresent() && !maybeExistingAccount.get().isEmpty();
 
