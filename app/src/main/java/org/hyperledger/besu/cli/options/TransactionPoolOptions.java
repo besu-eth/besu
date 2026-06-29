@@ -99,7 +99,7 @@ public class TransactionPoolOptions implements CLIOptions<TransactionPoolConfigu
               + "0 forgets immediately on drop, "
               + "N > 0 forgets after N minutes (default: ${DEFAULT-VALUE})",
       arity = "1")
-  private int forgetInvalidTxnMins =
+  private Integer forgetInvalidTxnMins =
       TransactionPoolConfiguration.DEFAULT_TX_POOL_FORGET_INVALID_TXN_MINS;
 
   @CommandLine.Option(
