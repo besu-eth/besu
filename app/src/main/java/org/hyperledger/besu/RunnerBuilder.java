@@ -169,6 +169,7 @@ public class RunnerBuilder {
   private String p2pAdvertisedHost;
   private String p2pListenInterface = NetworkUtility.INADDR_ANY;
   private int p2pListenPort;
+  private int p2pDiscoveryListenPort;
   private Optional<String> p2pAdvertisedHostIpv6 = Optional.empty();
   private Optional<String> p2pListenInterfaceIpv6 = Optional.empty();
   private int p2pListenPortIpv6 = EnodeURLImpl.DEFAULT_LISTENING_PORT_IPV6;
@@ -302,6 +303,17 @@ public class RunnerBuilder {
    */
   public RunnerBuilder p2pListenPort(final int p2pListenPort) {
     this.p2pListenPort = p2pListenPort;
+    return this;
+  }
+
+  /**
+   * Add UDP discovery listen port. Defaults to p2pListenPort when not set.
+   *
+   * @param p2pDiscoveryListenPort the UDP discovery port
+   * @return the runner builder
+   */
+  public RunnerBuilder p2pDiscoveryListenPort(final int p2pDiscoveryListenPort) {
+    this.p2pDiscoveryListenPort = p2pDiscoveryListenPort;
     return this;
   }
 
@@ -661,10 +673,12 @@ public class RunnerBuilder {
 
     Preconditions.checkNotNull(besuController);
 
+    final int effectiveDiscoveryPort =
+        p2pDiscoveryListenPort > 0 ? p2pDiscoveryListenPort : p2pListenPort;
     final DiscoveryConfiguration discoveryConfiguration =
         DiscoveryConfiguration.create()
             .setBindHost(p2pListenInterface)
-            .setBindPort(p2pListenPort)
+            .setBindPort(effectiveDiscoveryPort)
             .setAdvertisedHost(p2pAdvertisedHost);
     p2pListenInterfaceIpv6.ifPresent(
         iface -> {

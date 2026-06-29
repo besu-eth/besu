@@ -284,6 +284,44 @@ public class P2PDiscoveryOptionsTest extends CommandTestAbstract {
   }
 
   @Test
+  public void p2pDiscoveryPortDefaultsToP2pPort() {
+    final int port = 30303;
+    parseCommand("--p2p-port", String.valueOf(port));
+
+    verify(mockRunnerBuilder).p2pListenPort(intArgumentCaptor.capture());
+    verify(mockRunnerBuilder).p2pDiscoveryListenPort(intArgumentCaptor.capture());
+    verify(mockRunnerBuilder).preferIpv6Outbound(anyBoolean());
+    verify(mockRunnerBuilder).build();
+
+    final var capturedPorts = intArgumentCaptor.getAllValues();
+    assertThat(capturedPorts.get(0)).isEqualTo(port);
+    assertThat(capturedPorts.get(1)).isEqualTo(port);
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
+  public void p2pDiscoveryPortCanDifferFromP2pPort() {
+    final int tcpPort = 30303;
+    final int udpPort = 30304;
+    parseCommand(
+        "--p2p-port", String.valueOf(tcpPort), "--p2p-discovery-port", String.valueOf(udpPort));
+
+    verify(mockRunnerBuilder).p2pListenPort(intArgumentCaptor.capture());
+    verify(mockRunnerBuilder).p2pDiscoveryListenPort(intArgumentCaptor.capture());
+    verify(mockRunnerBuilder).preferIpv6Outbound(anyBoolean());
+    verify(mockRunnerBuilder).build();
+
+    final var capturedPorts = intArgumentCaptor.getAllValues();
+    assertThat(capturedPorts.get(0)).isEqualTo(tcpPort);
+    assertThat(capturedPorts.get(1)).isEqualTo(udpPort);
+
+    assertThat(commandOutput.toString(UTF_8)).isEmpty();
+    assertThat(commandErrorOutput.toString(UTF_8)).isEmpty();
+  }
+
+  @Test
   public void ipv4OnlyConfigurationDoesNotApplySmartDefault() {
     final String ipv4Host = "192.0.2.1";
     parseCommand("--p2p-host", ipv4Host);

@@ -29,6 +29,7 @@ public record P2PDiscoveryConfiguration(
     String p2pHost,
     String p2pInterface,
     Integer p2pPort,
+    Integer p2pDiscoveryPort,
     Optional<String> p2pHostIpv6,
     Optional<String> p2pInterfaceIpv6,
     Integer p2pPortIpv6,

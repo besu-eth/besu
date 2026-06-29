@@ -2391,6 +2391,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .p2pAdvertisedHost(p2pAdvertisedHost)
             .p2pListenInterface(p2pListenInterface)
             .p2pListenPort(p2pListenPort)
+            .p2pDiscoveryListenPort(p2PDiscoveryConfig.p2pDiscoveryPort())
             .p2pAdvertisedHostIpv6(p2PDiscoveryConfig.p2pHostIpv6())
             .p2pListenInterfaceIpv6(p2PDiscoveryConfig.p2pInterfaceIpv6())
             .p2pListenPortIpv6(p2PDiscoveryConfig.p2pPortIpv6())
@@ -2717,11 +2718,15 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .forEach(
             port -> {
               if (port.equals(p2PDiscoveryConfig.p2pPort())
-                  && (NetworkUtility.isPortUnavailableForTcp(port)
-                      || NetworkUtility.isPortUnavailableForUdp(port))) {
+                  && NetworkUtility.isPortUnavailableForTcp(port)) {
+                unavailablePorts.add(port);
+              }
+              if (port.equals(p2PDiscoveryConfig.p2pDiscoveryPort())
+                  && NetworkUtility.isPortUnavailableForUdp(port)) {
                 unavailablePorts.add(port);
               }
               if (!port.equals(p2PDiscoveryConfig.p2pPort())
+                  && !port.equals(p2PDiscoveryConfig.p2pDiscoveryPort())
                   && NetworkUtility.isPortUnavailableForTcp(port)) {
                 unavailablePorts.add(port);
               }
@@ -2742,6 +2747,11 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private List<Integer> getEffectivePorts() {
     final List<Integer> effectivePorts = new ArrayList<>();
     addPortIfEnabled(effectivePorts, p2PDiscoveryOptions.p2pPort, p2PDiscoveryOptions.p2pEnabled);
+    if (p2PDiscoveryOptions.p2pDiscoveryPort != null
+        && !p2PDiscoveryOptions.p2pDiscoveryPort.equals(p2PDiscoveryOptions.p2pPort)) {
+      addPortIfEnabled(
+          effectivePorts, p2PDiscoveryOptions.p2pDiscoveryPort, p2PDiscoveryOptions.p2pEnabled);
+    }
     addPortIfEnabled(
         effectivePorts, graphQlOptions.getGraphQLHttpPort(), graphQlOptions.isGraphQLHttpEnabled());
     addPortIfEnabled(
