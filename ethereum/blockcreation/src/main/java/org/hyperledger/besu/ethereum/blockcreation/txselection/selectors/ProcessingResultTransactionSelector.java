@@ -92,11 +92,20 @@ public class ProcessingResultTransactionSelector extends AbstractTransactionSele
       return TransactionSelectionResult.invalidPenalized(invalidReason.name());
     }
     // If the transaction was invalid for any other reason, delete it, and continue.
-    LOG.atTrace()
-        .setMessage("Delete invalid transaction {}, reason {}")
-        .addArgument(transaction::toTraceLog)
-        .addArgument(invalidReason)
-        .log();
+    if (invalidReason.equals(TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE)) {
+      LOG.atInfo()
+          .setMessage(
+              "Transaction {} removed from pool: sender had insufficient balance at block-selection"
+                  + " time (tx-pool-no-late-funding=true)")
+          .addArgument(transaction::getHash)
+          .log();
+    } else {
+      LOG.atTrace()
+          .setMessage("Removing invalid transaction {}, reason {}")
+          .addArgument(transaction::toTraceLog)
+          .addArgument(invalidReason)
+          .log();
+    }
     return TransactionSelectionResult.invalid(invalidReason.name());
   }
 
