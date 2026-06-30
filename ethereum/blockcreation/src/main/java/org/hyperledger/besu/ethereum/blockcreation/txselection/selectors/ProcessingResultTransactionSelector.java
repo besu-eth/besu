@@ -92,7 +92,8 @@ public class ProcessingResultTransactionSelector extends AbstractTransactionSele
       return TransactionSelectionResult.invalidPenalized(invalidReason.name());
     }
     // If the transaction was invalid for any other reason, delete it, and continue.
-    if (invalidReason.equals(TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE)) {
+    if (invalidReason.equals(TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE)
+        && context.transactionPool().getConfiguration().getNoLateFunding()) {
       LOG.atInfo()
           .setMessage(
               "Transaction {} removed from pool: sender had insufficient balance at block-selection"
@@ -110,27 +111,15 @@ public class ProcessingResultTransactionSelector extends AbstractTransactionSele
   }
 
   /**
-   * Checks if the invalid reason is a transient validation error. When transient, the transaction
-   * is penalised (score reduced) but retained in the pool so it can be retried in a later block.
-   * When not transient, the transaction is dropped from the pool permanently.
-   *
-   * <p>UPFRONT_COST_EXCEEDS_BALANCE behaviour depends on {@code noLateFunding}:
-   *
-   * <ul>
-   *   <li><b>noLateFunding=false</b> (default): treated as transient — the layered pool
-   *       score-penalises the transaction and retains it; the sequenced pool ignores the penalise
-   *       result and leaves the transaction in the pool. Both pools restore the original behaviour.
-   *   <li><b>noLateFunding=true</b>: treated as non-transient — the transaction is dropped
-   *       immediately and tracked in the seen-transaction list so it cannot be re-admitted from
-   *       peers.
-   * </ul>
+   * Checks if the invalid reason is a transient validation error. Some errors have configurable
+   * behaviour to allow for customization of the pool behaviour.
    *
    * @param invalidReason The invalid reason.
    * @return True if the invalid reason is transient, false otherwise.
    */
   private boolean isTransientValidationError(final TransactionInvalidReason invalidReason) {
     if (invalidReason.equals(TransactionInvalidReason.UPFRONT_COST_EXCEEDS_BALANCE)) {
-      return !context.transactionPool().getConfiguration().getNoLateFunding();
+      return context.transactionPool().getConfiguration().getNoLateFunding() ? false : true;
     }
     return invalidReason.equals(TransactionInvalidReason.GAS_PRICE_BELOW_CURRENT_BASE_FEE)
         || invalidReason.equals(TransactionInvalidReason.NONCE_TOO_HIGH)

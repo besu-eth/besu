@@ -244,8 +244,6 @@ public class LondonFeeMarketBlockTransactionSelectorTest
     assertThat(results.getNotSelectedTransactions()).isEmpty();
   }
 
-  // --- noLateFunding tests: sequenced pool (BaseFeePendingTransactionsSorter) ---
-
   @Test
   public void sequencedPool_upfrontCostExceedsBalance_noLateFundingFalse_txRemainsInPool() {
     transactionPool = createSequencedPoolWithNoLateFunding(false);
@@ -297,8 +295,6 @@ public class LondonFeeMarketBlockTransactionSelectorTest
         .containsOnly(
             entry(tx, TransactionSelectionResult.invalid(UPFRONT_COST_EXCEEDS_BALANCE.name())));
   }
-
-  // --- noLateFunding tests: layered pool (LayeredPendingTransactions) ---
 
   @Test
   public void layeredPool_upfrontCostExceedsBalance_noLateFundingFalse_txRemainsInPool() {
