@@ -233,7 +233,7 @@ public class MergeBesuControllerBuilderTest {
   }
 
   @Test
-  public void p2pEnabledFalseWithNonFullSyncMarksInitialSyncPhaseDone() {
+  public void p2pEnabledFalseWithSnapSyncMarksInitialSyncPhaseDone() {
     when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.SNAP);
 
     final boolean initialSyncPhaseDone =
@@ -247,7 +247,7 @@ public class MergeBesuControllerBuilderTest {
   }
 
   @Test
-  public void p2pEnabledTrueWithNonFullSyncKeepsInitialSyncPhaseInProgress() {
+  public void p2pEnabledTrueWithSnapSyncKeepsInitialSyncPhaseInProgress() {
     when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.SNAP);
 
     final boolean initialSyncPhaseDone =
@@ -261,7 +261,7 @@ public class MergeBesuControllerBuilderTest {
   }
 
   @Test
-  public void p2pEnabledFalseWithNonFullSyncReportsNotSyncing() {
+  public void p2pEnabledFalseWithSnapSyncReportsNotSyncing() {
     when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.SNAP);
 
     final boolean isSyncing =
@@ -290,7 +290,9 @@ public class MergeBesuControllerBuilderTest {
   }
 
   @Test
-  public void p2pEnabledTrueLeavesTerminalDifficultyUnreached() {
+  public void p2pEnabledTrueWithFullSyncLeavesTerminalDifficultyUnreached() {
+    when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.FULL);
+
     final Optional<Boolean> ttdReached =
         visitWithMockConfigs(new MergeBesuControllerBuilder())
             .p2pEnabled(true)
@@ -299,6 +301,20 @@ public class MergeBesuControllerBuilderTest {
             .hasReachedTerminalDifficulty();
 
     assertThat(ttdReached).isNotPresent();
+  }
+
+  @Test
+  public void p2pEnabledTrueWithSnapSyncLeavesTerminalDifficultyUnreached() {
+    when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.SNAP);
+
+    final Optional<Boolean> ttdReached =
+        visitWithMockConfigs(new MergeBesuControllerBuilder())
+            .p2pEnabled(true)
+            .build()
+            .getSyncState()
+            .hasReachedTerminalDifficulty();
+
+    assertThat(ttdReached).contains(false);
   }
 
   @Test

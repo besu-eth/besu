@@ -210,6 +210,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   private int numberOfBlockHeadersToCache = 0;
   private boolean isCacheLastBlockHeadersPreloadEnabled;
   private boolean senderNonceIndexingEnabled = false;
+
+  /** Whether p2p networking is enabled. */
   protected boolean p2pEnabled = true;
 
   /** whether parallel transaction processing is enabled or not */

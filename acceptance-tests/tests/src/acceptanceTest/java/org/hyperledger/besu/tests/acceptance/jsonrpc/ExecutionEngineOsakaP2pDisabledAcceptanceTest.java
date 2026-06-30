@@ -22,6 +22,14 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.params.provider.Arguments;
 
+/**
+ * Replays the existing Osaka engine API test cases against a node started with {@code
+ * --p2p-enabled=false}, to simulate the environment of benchmark and test harnesses (e.g. hive,
+ * benchmarkoor) that drive Besu standalone over the engine API with no peers.
+ *
+ * <p>Sync mode defaults to FULL — matching how those harnesses run Besu — so this also exercises
+ * the FULL-sync + p2p-disabled path that the controller-level fix targets.
+ */
 public class ExecutionEngineOsakaP2pDisabledAcceptanceTest extends AbstractJsonRpcTest {
   private static final String GENESIS_FILE = "/jsonrpc/engine/osaka/genesis.json";
   private static final String TEST_CASE_PATH = "/jsonrpc/engine/osaka/test-cases/";
