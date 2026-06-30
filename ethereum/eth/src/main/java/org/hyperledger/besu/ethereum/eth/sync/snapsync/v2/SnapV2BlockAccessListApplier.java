@@ -143,7 +143,7 @@ public class SnapV2BlockAccessListApplier {
         final Hash accountHash = afc.address().addressHash();
         final Bytes32 accountHashBytes = asBytes32(accountHash);
 
-        if (!accountRangeTracker.isAccountHashPersisted(accountHashBytes)) {
+        if (!accountRangeTracker.isAccountHashPersisted(accountHashBytes) || !afc.hasAnyChange()) {
           continue;
         }
 
