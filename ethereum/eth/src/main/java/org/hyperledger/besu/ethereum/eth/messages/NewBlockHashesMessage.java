@@ -29,8 +29,8 @@ import org.apache.tuweni.bytes.Bytes;
 public final class NewBlockHashesMessage extends AbstractMessageData {
 
   public static NewBlockHashesMessage readFrom(final MessageData message) {
-    if (message instanceof NewBlockHashesMessage) {
-      return (NewBlockHashesMessage) message;
+    if (message instanceof NewBlockHashesMessage newBlockHashesMessage) {
+      return newBlockHashesMessage;
     }
     final int code = message.getCode();
     if (code != EthProtocolMessages.NEW_BLOCK_HASHES) {
@@ -111,10 +111,9 @@ public final class NewBlockHashesMessage extends AbstractMessageData {
       if (this == that) {
         return true;
       }
-      if (!(that instanceof NewBlockHashesMessage.NewBlockHash)) {
+      if (!(that instanceof NewBlockHashesMessage.NewBlockHash other)) {
         return false;
       }
-      final NewBlockHashesMessage.NewBlockHash other = (NewBlockHashesMessage.NewBlockHash) that;
       return other.hash.equals(hash) && other.number == number;
     }
 

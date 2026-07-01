@@ -19,7 +19,6 @@ import org.hyperledger.besu.consensus.common.bft.BftExecutors;
 import org.hyperledger.besu.consensus.common.bft.BftProcessor;
 import org.hyperledger.besu.consensus.common.bft.events.NewChainHead;
 import org.hyperledger.besu.consensus.common.bft.statemachine.BftEventHandler;
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
 import org.hyperledger.besu.ethereum.chain.BlockAddedEvent;
@@ -227,11 +226,6 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
   @Override
   public Wei getMinPriorityFeePerGas() {
     return blockCreatorFactory.getMinPriorityFeePerGas();
-  }
-
-  @Override
-  public Optional<Address> getCoinbase() {
-    return Optional.of(blockCreatorFactory.getLocalAddress());
   }
 
   @Override

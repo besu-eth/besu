@@ -83,7 +83,7 @@ public class CodeDelegationTransactionDecoder {
   public static CodeDelegation decodeInnerPayload(final RLPInput input) {
     input.enterList();
 
-    final BigInteger chainId = input.readBigIntegerScalar();
+    final BigInteger chainId = input.readUInt256Scalar().toUnsignedBigInteger();
     final Address address = Address.wrap(input.readBytes());
     final long nonce = input.readLongScalar();
 

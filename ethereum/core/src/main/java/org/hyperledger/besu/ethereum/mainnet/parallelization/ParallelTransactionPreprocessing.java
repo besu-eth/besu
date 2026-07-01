@@ -67,7 +67,7 @@ public class ParallelTransactionPreprocessing implements PreprocessingFunction {
       parallelProcessor =
           new BalConcurrentTransactionProcessor(transactionProcessor, maybeBlockBal.get());
     } else {
-      parallelProcessor = new ParallelizedConcurrentTransactionProcessor(transactionProcessor);
+      parallelProcessor = new OptimisticConcurrentTransactionProcessor(transactionProcessor);
     }
 
     parallelProcessor.runAsyncBlock(

@@ -38,10 +38,10 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiWorldStateProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoopBonsaiCachedMerkleTrieLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.NoOpBonsaiCachedMerkleTrieLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.ImmutablePathBasedExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
@@ -93,7 +93,7 @@ public class BlockchainReferenceTestCaseSpec {
             ImmutablePathBasedExtraStorageConfiguration.copyOf(
                     storageConfiguration.getPathBasedExtraStorageConfiguration())
                 .withMaxLayersToLoad(cacheSize),
-            new NoopBonsaiCachedMerkleTrieLoader(),
+            new NoOpBonsaiCachedMerkleTrieLoader(),
             new ServiceManager() {
               @Override
               public <T extends BesuService> void addService(
@@ -106,7 +106,7 @@ public class BlockchainReferenceTestCaseSpec {
             },
             EvmConfiguration.DEFAULT,
             () -> (__, ___) -> {},
-            new CodeCache());
+            new PathBasedCodeCache());
 
     final MutableWorldState worldState = worldStateArchive.getWorldState();
     final WorldUpdater updater = worldState.updater();

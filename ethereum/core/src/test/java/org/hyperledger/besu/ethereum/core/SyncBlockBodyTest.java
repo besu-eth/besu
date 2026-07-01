@@ -29,7 +29,6 @@ import org.hyperledger.besu.ethereum.mainnet.BlockGasUsedValidator;
 import org.hyperledger.besu.ethereum.mainnet.BodyValidation;
 import org.hyperledger.besu.ethereum.mainnet.DefaultProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
-import org.hyperledger.besu.ethereum.mainnet.PoWHasher;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitterFactory;
@@ -214,7 +213,6 @@ public class SyncBlockBodyTest {
         null,
         GasLimitCalculator.constant(),
         FeeMarket.legacy(),
-        Optional.of(PoWHasher.ETHASH_LIGHT),
         null,
         Optional.empty(),
         null,

@@ -132,10 +132,17 @@ public abstract class AbstractEngineForkchoiceUpdatedTest {
   public abstract void shouldReturnExpectedMethodName();
 
   @Test
-  public void shouldReturnSyncingIfForwardSync() {
-    when(mergeContext.isSyncing()).thenReturn(true);
+  public void shouldProceedWithForkChoiceWhenHeadKnownEvenIfSyncing() {
+    // isSyncing() is no longer checked in FCU; if the head block is found, we proceed.
+    BlockHeader mockHeader = blockHeaderBuilder.buildHeader();
+    when(mergeCoordinator.getOrSyncHeadByHash(mockHeader.getHash(), Hash.ZERO))
+        .thenReturn(Optional.of(mockHeader));
+
     assertSuccessWithPayloadForForkchoiceResult(
-        mockFcuParam, Optional.empty(), mock(ForkchoiceResult.class), SYNCING);
+        new EngineForkchoiceUpdatedParameter(mockHeader.getHash(), Hash.ZERO, Hash.ZERO),
+        Optional.empty(),
+        ForkchoiceResult.withResult(Optional.empty(), Optional.of(mockHeader)),
+        VALID);
   }
 
   @Test

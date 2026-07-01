@@ -15,146 +15,100 @@
 package org.hyperledger.besu.ethereum.eth.sync.snapsync;
 
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.ProcessableBlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncActions;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotUpdateListener;
 
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * DynamicPivotBlockSelector is responsible for dynamically selecting the pivot block for Snapsync.
- * It uses an algorithm to find the most suitable pivot block based on the current network
- * conditions.
+ * Selects the pivot block for snap sync dynamically. Asks the underlying {@link PivotSyncActions}
+ * for a fresh pivot at most once per configured interval; if the result differs from the current
+ * pivot it downloads the new header and switches.
  */
 public class DynamicPivotBlockSelector {
 
-  private static final Duration DEFAULT_CHECK_INTERVAL = Duration.ofSeconds(60);
   public static final BiConsumer<BlockHeader, Boolean> doNothingOnPivotChange = (___, __) -> {};
 
   private static final Logger LOG = LoggerFactory.getLogger(DynamicPivotBlockSelector.class);
+  private static final Duration CHECK_INTERVAL = Duration.ofMinutes(1);
 
   private final AtomicBoolean isTimeToCheckAgain = new AtomicBoolean(true);
 
   private final EthContext ethContext;
   private final PivotSyncActions syncActions;
-
   private final SnapSyncProcessState syncState;
   private final PivotUpdateListener pivotUpdateListener;
-  private final int pivotBlockWindowValidity;
-  private final int pivotBlockDistanceBeforeCaching;
 
-  private Optional<BlockHeader> lastPivotBlockFound;
+  private Optional<BlockHeader> lastPivotBlockFound = Optional.empty();
 
   public DynamicPivotBlockSelector(
       final EthContext ethContext,
       final PivotSyncActions fastSyncActions,
       final SnapSyncProcessState fastSyncState,
-      final PivotUpdateListener pivotUpdateListener,
-      final int pivotBlockWindowValidity,
-      final int pivotBlockDistanceBeforeCaching) {
+      final PivotUpdateListener pivotUpdateListener) {
     this.ethContext = ethContext;
     this.syncActions = fastSyncActions;
     this.syncState = fastSyncState;
     this.pivotUpdateListener = pivotUpdateListener;
-    this.pivotBlockWindowValidity = pivotBlockWindowValidity;
-    this.pivotBlockDistanceBeforeCaching = pivotBlockDistanceBeforeCaching;
-    this.lastPivotBlockFound = Optional.empty();
   }
 
   public void check(final BiConsumer<BlockHeader, Boolean> onNewPivotBlock) {
-    if (isTimeToCheckAgain.compareAndSet(true, false)) {
-      AtomicBoolean delayNextCheck = new AtomicBoolean(false);
-
-      syncState
-          .getPivotBlockNumber()
-          .ifPresent(
-              currentPivotBlockNumber -> {
-                final long bestChainHeight = syncActions.getBestChainHeight();
-                final long distanceNextPivotBlock =
-                    bestChainHeight
-                        - lastPivotBlockFound
-                            .map(ProcessableBlockHeader::getNumber)
-                            .orElse(currentPivotBlockNumber);
-
-                final CompletableFuture<Void> searchForNewPivot;
-
-                if (distanceNextPivotBlock > pivotBlockDistanceBeforeCaching) {
-                  LOG.atDebug()
-                      .setMessage(
-                          "Searching for a new pivot: current pivot {} best chain height {} distance next pivot {} last pivot block found {}")
-                      .addArgument(currentPivotBlockNumber)
-                      .addArgument(bestChainHeight)
-                      .addArgument(distanceNextPivotBlock)
-                      .addArgument(this::logLastPivotBlockFound)
-                      .log();
-
-                  searchForNewPivot =
-                      CompletableFuture.completedFuture(PivotSyncState.EMPTY_SYNC_STATE)
-                          .thenCompose(syncActions::selectPivotBlock)
-                          .thenCompose(
-                              fss -> {
-                                if (isSamePivotBlock(fss)) {
-                                  LOG.atDebug()
-                                      .setMessage(
-                                          "New pivot {} is equal to last found {}, nothing to do")
-                                      .addArgument(fss::getPivotBlockHash)
-                                      .addArgument(this::logLastPivotBlockFound)
-                                      .log();
-                                  return CompletableFuture.completedFuture(null);
-                                }
-                                return downloadNewPivotBlock(fss);
-                              })
-                          .whenComplete(
-                              (unused, throwable) -> {
-                                if (throwable != null) {
-                                  LOG.debug("Error while searching for a new pivot", throwable);
-                                }
-                              });
-                } else {
-                  searchForNewPivot = CompletableFuture.completedFuture(null);
-                }
-
-                try {
-                  searchForNewPivot
-                      .thenRun(
-                          () -> {
-                            final long distance = bestChainHeight - currentPivotBlockNumber;
-                            if (distance > pivotBlockWindowValidity) {
-                              LOG.atDebug()
-                                  .setMessage(
-                                      "Switch to new pivot: current pivot {} is distant {} from current best chain height {} last pivot block found {}")
-                                  .addArgument(currentPivotBlockNumber)
-                                  .addArgument(distance)
-                                  .addArgument(bestChainHeight)
-                                  .addArgument(this::logLastPivotBlockFound)
-                                  .log();
-                              switchToNewPivotBlock(onNewPivotBlock);
-                            }
-                            // delay next check only if we are successful
-                            delayNextCheck.set(true);
-                          })
-                      .get();
-                } catch (InterruptedException | ExecutionException e) {
-                  LOG.debug("Exception while searching for new pivot", e);
-                }
-              });
-
-      scheduleNextCheck(delayNextCheck.get());
-    }
+    checkForEligiblePivot(() -> switchToNewPivotBlock(onNewPivotBlock));
   }
 
-  private CompletableFuture<Void> downloadNewPivotBlock(final PivotSyncState fss) {
+  /**
+   * Checks for a newer pivot candidate without mutating the active pivot state.
+   *
+   * <p>This is used by snap/2, where the world-state downloader must first drain in-flight range
+   * work and wait for chain-side BAL catch-up before changing the active pivot.
+   *
+   * @param onNewPivotCandidate callback invoked with a downloaded pivot header candidate
+   */
+  public void checkForNewPivotCandidate(final Consumer<BlockHeader> onNewPivotCandidate) {
+    checkForEligiblePivot(() -> notifyNewPivotCandidate(onNewPivotCandidate));
+  }
+
+  private void checkForEligiblePivot(final EligiblePivotHandler eligiblePivotHandler) {
+    if (!isTimeToCheckAgain.compareAndSet(true, false)) {
+      return;
+    }
+
+    boolean cycleSucceeded = false;
+    try {
+      CompletableFuture.completedFuture(new SnapSyncProcessState())
+          .thenCompose(syncActions::selectPivotBlock)
+          .thenCompose(
+              fss -> {
+                if (isSamePivotBlock(fss)) {
+                  LOG.atDebug()
+                      .setMessage("New pivot {} equals current pivot, nothing to do")
+                      .addArgument(fss::getPivotBlockHash)
+                      .log();
+                  return CompletableFuture.completedFuture(null);
+                }
+                return downloadNewPivotBlock(fss);
+              })
+          .get();
+      cycleSucceeded = true;
+    } catch (Exception e) {
+      LOG.debug("Exception while searching for new pivot", e);
+    }
+
+    eligiblePivotHandler.onEligiblePivot();
+    scheduleNextCheck(cycleSucceeded);
+  }
+
+  private CompletableFuture<Void> downloadNewPivotBlock(final SnapSyncProcessState fss) {
     return syncActions
         .downloadPivotBlockHeader(fss)
         .thenAccept(
@@ -168,10 +122,16 @@ public class DynamicPivotBlockSelector {
         .orTimeout(20, TimeUnit.SECONDS);
   }
 
-  private boolean isSamePivotBlock(final PivotSyncState fss) {
-    return lastPivotBlockFound.isPresent()
-        && fss.hasPivotBlockHash()
-        && lastPivotBlockFound.get().getHash().equals(fss.getPivotBlockHash().get());
+  private boolean isSamePivotBlock(final SnapSyncProcessState fss) {
+    final Optional<BlockHeader> currentPivot = syncState.getPivotBlockHeader();
+    if (currentPivot.isEmpty()) {
+      return false;
+    }
+    if (fss.hasPivotBlockHash()) {
+      return currentPivot.get().getHash().equals(fss.getPivotBlockHash().get());
+    }
+    return fss.getPivotBlockNumber().isPresent()
+        && fss.getPivotBlockNumber().getAsLong() == currentPivot.get().getNumber();
   }
 
   private void scheduleNextCheck(final boolean delayNextCheck) {
@@ -183,7 +143,7 @@ public class DynamicPivotBlockSelector {
                 LOG.debug("Is time to check the pivot again");
                 isTimeToCheckAgain.set(true);
               },
-              DEFAULT_CHECK_INTERVAL);
+              CHECK_INTERVAL);
     } else {
       isTimeToCheckAgain.set(true);
     }
@@ -192,25 +152,35 @@ public class DynamicPivotBlockSelector {
   public void switchToNewPivotBlock(final BiConsumer<BlockHeader, Boolean> onSwitchDone) {
     lastPivotBlockFound.ifPresentOrElse(
         blockHeader -> {
-          if (syncState.getPivotBlockHeader().filter(blockHeader::equals).isEmpty()) {
-            LOG.atDebug()
-                .setMessage("Setting new pivot block {} with state root {}")
-                .addArgument(blockHeader::toLogString)
-                .addArgument(blockHeader.getStateRoot())
-                .log();
-            syncState.setCurrentHeader(blockHeader);
-
-            // Notify chain downloader of pivot update
-            if (pivotUpdateListener != null) {
-              pivotUpdateListener.onPivotUpdated(blockHeader);
-              LOG.trace("Notified chain downloader of pivot update: {}", blockHeader.getNumber());
-            }
-
-            lastPivotBlockFound = Optional.empty();
+          LOG.atDebug()
+              .setMessage("Setting new pivot block {} with state root {}")
+              .addArgument(blockHeader::toLogString)
+              .addArgument(blockHeader.getStateRoot())
+              .log();
+          syncState.setCurrentHeader(blockHeader);
+          if (pivotUpdateListener != null) {
+            pivotUpdateListener.onPivotUpdated(blockHeader);
+            LOG.trace("Notified chain downloader of pivot update: {}", blockHeader.getNumber());
           }
+          lastPivotBlockFound = Optional.empty();
           onSwitchDone.accept(blockHeader, true);
         },
-        () -> onSwitchDone.accept(syncState.getPivotBlockHeader().orElseThrow(), false));
+        () -> syncState.getPivotBlockHeader().ifPresent(h -> onSwitchDone.accept(h, false)));
+  }
+
+  private void notifyNewPivotCandidate(final Consumer<BlockHeader> onNewPivotCandidate) {
+    lastPivotBlockFound.ifPresent(
+        blockHeader -> {
+          if (syncState.getPivotBlockHeader().filter(blockHeader::equals).isEmpty()) {
+            onNewPivotCandidate.accept(blockHeader);
+          }
+          lastPivotBlockFound = Optional.empty();
+        });
+  }
+
+  @FunctionalInterface
+  private interface EligiblePivotHandler {
+    void onEligiblePivot();
   }
 
   public boolean isBlockchainBehind() {
