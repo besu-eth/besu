@@ -12,7 +12,7 @@ assignees: ''
 <!--     comply with it, including treating everyone with respect: -->
 <!--     https://github.com/besu-eth/besu/blob/main/CODE_OF_CONDUCT.md -->
 <!--   * Reproduced the issue in the latest version of the software -->
-<!--   * Read the debugging docs: https://besu.hyperledger.org/private-networks/how-to -->
+<!--   * Read the docs: https://docs.besu-eth.org/ -->
 <!--   * Duplicate Issue check:  https://github.com/search?q=+is%3Aissue+repo%3Abesu-eth/besu -->
 
 ### Steps to Reproduce
