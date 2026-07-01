@@ -19,6 +19,8 @@ import static org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordina
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.eth.manager.EthContext;
+import org.hyperledger.besu.ethereum.eth.manager.snap.RetryingGetAccountRangeFromPeerTask;
 import org.hyperledger.besu.ethereum.eth.sync.common.WorldStateHealFinishedListener;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedAccountRangeTracker;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.DownloadedStorageRangeTracker;
@@ -32,6 +34,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2Bytecode
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2StorageRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldDownloadState;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloaderException;
+import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
@@ -49,9 +52,14 @@ import org.hyperledger.besu.services.tasks.Task;
 import org.hyperledger.besu.services.tasks.TaskCollection;
 
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
@@ -89,6 +97,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   private final SnapV2PivotCatchupListener pivotCatchupListener;
   private final SnapV2BlockAccessListApplier blockAccessListApplier;
   private final Blockchain blockchain;
+  private final EthContext ethContext;
 
   // Completes once every in-flight (already-dequeued) world-state task has finished.
   // Non-null only while a pivot catch-up is in progress.
@@ -110,7 +119,8 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
       final WorldStateHealFinishedListener worldStateHealFinishedListener,
       final SnapV2PivotCatchupListener pivotCatchupListener,
       final SnapV2BlockAccessListApplier blockAccessListApplier,
-      final Blockchain blockchain) {
+      final Blockchain blockchain,
+      final EthContext ethContext) {
     super(
         worldStateStorageCoordinator,
         pendingRequests,
@@ -125,6 +135,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
     this.pivotCatchupListener = pivotCatchupListener;
     this.blockAccessListApplier = blockAccessListApplier;
     this.blockchain = blockchain;
+    this.ethContext = ethContext;
 
     accountRangeTracker.setOnRangeCompleted(
         (rangeStart, rangeEnd) ->
@@ -464,8 +475,14 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
         }
       }
       try {
+        final Set<Hash> pendingAffected =
+            blockAccessListApplier.collectPendingStorageAffected(
+                currentPivotBlockHeader, newPivotBlockHeader, accountRangeTracker);
+        final CompletableFuture<Map<Hash, Bytes32>> rootsFuture =
+            fetchAccountStorageRoots(pendingAffected, newPivotBlockHeader);
         applyBlockAccessLists(currentPivotBlockHeader, newPivotBlockHeader);
-        retargetQueuedRequests(newPivotBlockHeader);
+        final Map<Hash, Bytes32> correctRoots = rootsFuture.join();
+        retargetQueuedRequests(newPivotBlockHeader, correctRoots);
         snapSyncState.setCurrentHeader(newPivotBlockHeader);
       } catch (final Throwable e) {
         LOG.error(
@@ -495,10 +512,11 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
         currentPivotBlockHeader, newPivotBlockHeader, accountRangeTracker, storageRangeTracker);
   }
 
-  private void retargetQueuedRequests(final BlockHeader newPivotBlockHeader) {
+  private void retargetQueuedRequests(
+      final BlockHeader newPivotBlockHeader, final Map<Hash, Bytes32> correctRoots) {
     retargetQueuedAccountRequests(newPivotBlockHeader);
-    retargetQueuedStorageRequests(pendingStorageRequests, newPivotBlockHeader);
-    retargetQueuedStorageRequests(pendingLargeStorageRequests, newPivotBlockHeader);
+    retargetQueuedStorageRequests(pendingStorageRequests, newPivotBlockHeader, correctRoots);
+    retargetQueuedStorageRequests(pendingLargeStorageRequests, newPivotBlockHeader, correctRoots);
     retargetQueuedCodeRequests(newPivotBlockHeader);
   }
 
@@ -529,12 +547,17 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   }
 
   private void retargetQueuedStorageRequests(
-      final InMemoryTaskQueue<SnapDataRequest> queue, final BlockHeader newPivotBlockHeader) {
+      final InMemoryTaskQueue<SnapDataRequest> queue,
+      final BlockHeader newPivotBlockHeader,
+      final Map<Hash, Bytes32> correctRoots) {
     final List<SnapDataRequest> queuedRequests = queue.asList();
     queue.clearInternalQueue();
     for (final SnapDataRequest request : queuedRequests) {
       if (request instanceof SnapV2StorageRangeRequest storageRequest) {
-        final Bytes32 newRoot = readStorageRoot(storageRequest.getAccountHash());
+        // Old root is still valid for pending without changes
+        final Bytes32 newRoot =
+            correctRoots.getOrDefault(
+                storageRequest.getAccountHash(), readStorageRoot(storageRequest.getAccountHash()));
         queue.add(storageRequest.retarget(newPivotBlockHeader, newRoot));
       } else {
         throw new IllegalStateException(
@@ -557,6 +580,68 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
                     "Storage root not found for account "
                         + accountHash
                         + " after BAL application during pivot catch-up"));
+  }
+
+  private CompletableFuture<Map<Hash, Bytes32>> fetchAccountStorageRoots(
+      final Set<Hash> accountHashes, final BlockHeader pivotHeader) {
+    if (accountHashes.isEmpty()) {
+      return CompletableFuture.completedFuture(Map.of());
+    }
+
+    final ConcurrentHashMap<Hash, Bytes32> results = new ConcurrentHashMap<>();
+    final List<CompletableFuture<Void>> futures = new ArrayList<>();
+    final WorldStateProofProvider proofProvider =
+        new WorldStateProofProvider(worldStateStorageCoordinator);
+
+    for (final Hash accountHash : accountHashes) {
+      final Bytes32 startKey = Bytes32.wrap(accountHash.getBytes());
+      final Bytes32 endKey = RangeManager.nextKey(startKey);
+
+      futures.add(
+          RetryingGetAccountRangeFromPeerTask.forAccountRange(
+                  ethContext, startKey, endKey, pivotHeader, metricsManager.getMetricsSystem())
+              .run()
+              .orTimeout(10, TimeUnit.SECONDS)
+              .handle(
+                  (response, error) -> {
+                    if (response == null) {
+                      throw storageRootFetchError(
+                          "Failed to fetch storage root for account %s at pivot %s",
+                          accountHash, pivotHeader.getNumber(), error);
+                    }
+                    if (!proofProvider.isValidRangeProof(
+                        startKey,
+                        endKey,
+                        Bytes32.wrap(pivotHeader.getStateRoot().getBytes()),
+                        response.proofs(),
+                        response.accounts())) {
+                      throw storageRootFetchError(
+                          "Invalid range proof for account %s at pivot %s",
+                          accountHash, pivotHeader.getNumber(), null);
+                    }
+                    final Bytes accountData = response.accounts().get(startKey);
+                    if (accountData == null) {
+                      throw storageRootFetchError(
+                          "Account data missing for account %s at pivot %s",
+                          accountHash, pivotHeader.getNumber(), null);
+                    }
+                    final PmtStateTrieAccountValue accountValue =
+                        PmtStateTrieAccountValue.readFrom(RLP.input(accountData));
+                    results.put(
+                        accountHash, Bytes32.wrap(accountValue.getStorageRoot().getBytes()));
+                    return null;
+                  }));
+    }
+
+    return CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new))
+        .thenApply(v -> Map.copyOf(results));
+  }
+
+  private WorldStateDownloaderException storageRootFetchError(
+      final String fmt, final Hash accountHash, final long pivotNumber, final Throwable cause) {
+    final String msg = String.format(fmt, accountHash, pivotNumber);
+    LOG.error(msg, cause);
+    return new WorldStateDownloaderException(msg);
   }
 
   private boolean shouldPauseAccountRequests() {

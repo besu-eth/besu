@@ -173,7 +173,8 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
               worldStateHealFinishedListener,
               pivotCatchupListener,
               blockAccessListApplier,
-              blockchain);
+              blockchain,
+              ethContext);
 
       final Map<Bytes32, Bytes32> ranges = RangeManager.generateAllRanges(16);
       snapsyncMetricsManager.initRange(ranges);

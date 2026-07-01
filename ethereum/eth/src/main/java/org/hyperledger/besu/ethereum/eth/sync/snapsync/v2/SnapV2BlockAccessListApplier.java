@@ -36,9 +36,11 @@ import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -152,6 +154,43 @@ public class SnapV2BlockAccessListApplier {
     }
 
     return changesByHash;
+  }
+
+  public Set<Hash> collectPendingStorageAffected(
+      final BlockHeader currentPivotBlockHeader,
+      final BlockHeader newPivotBlockHeader,
+      final DownloadedAccountRangeTracker accountRangeTracker) {
+
+    final long fromBlock = currentPivotBlockHeader.getNumber() + 1;
+    final long toBlock = newPivotBlockHeader.getNumber();
+    final Set<Hash> pendingAffected = new HashSet<>();
+
+    for (long blockNumber = fromBlock; blockNumber <= toBlock; blockNumber++) {
+      final BlockHeader blockHeader = loadBlockHeader(blockNumber);
+
+      if (!protocolSchedule.getByBlockHeader(blockHeader).isBlockAccessListEnabled()) {
+        continue;
+      }
+
+      final BlockAccessList bal = loadBal(blockNumber, blockHeader);
+      verifyBalHash(blockNumber, blockHeader, bal);
+
+      if (bal.isEmpty()) {
+        continue;
+      }
+
+      for (final BlockAccessListChanges.AccountFinalChanges afc :
+          BlockAccessListChanges.latestChanges(bal)) {
+        final Bytes32 accountHashBytes = asBytes32(afc.address().addressHash());
+
+        if (accountRangeTracker.isAccountHashPending(accountHashBytes)
+            && !afc.storageChanges().isEmpty()) {
+          pendingAffected.add(afc.address().addressHash());
+        }
+      }
+    }
+
+    return pendingAffected;
   }
 
   private MerkleTrie<Bytes, Bytes> openAccountTrie(final BlockHeader pivotHeader) {
