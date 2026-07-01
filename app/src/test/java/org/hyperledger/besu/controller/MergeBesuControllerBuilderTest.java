@@ -47,6 +47,7 @@ import org.hyperledger.besu.ethereum.eth.EthProtocolConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.SyncMode;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
+import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.eth.transactions.TransactionPoolConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetBlockHeaderFunctions;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
@@ -72,6 +73,7 @@ import java.time.Clock;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Random;
 
 import com.google.common.collect.Range;
 import org.apache.tuweni.bytes.Bytes;
@@ -233,12 +235,16 @@ public class MergeBesuControllerBuilderTest {
   }
 
   @Test
-  public void p2pEnabledFalseWithSnapSyncMarksInitialSyncPhaseDone() {
-    when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.SNAP);
+  public void marksInitialSyncPhaseDoneWhenFullSync() {
+    when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.FULL);
+    boolean p2pEnabled = new Random().nextBoolean();
+    assertInitialSyncPhaseDone(p2pEnabled);
+  }
 
+  private void assertInitialSyncPhaseDone(final boolean p2pEnabled) {
     final boolean initialSyncPhaseDone =
         visitWithMockConfigs(new MergeBesuControllerBuilder())
-            .p2pEnabled(false)
+            .p2pEnabled(p2pEnabled)
             .build()
             .getSyncState()
             .isInitialSyncPhaseDone();
@@ -247,7 +253,14 @@ public class MergeBesuControllerBuilderTest {
   }
 
   @Test
-  public void p2pEnabledTrueWithSnapSyncKeepsInitialSyncPhaseInProgress() {
+  public void marksInitialSyncPhaseDoneWhenP2pDisabledAndSnapSync() {
+    when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.SNAP);
+    boolean p2pEnabled = false;
+    assertInitialSyncPhaseDone(p2pEnabled);
+  }
+
+  @Test
+  public void keepsInitialSyncPhaseInProgressWhenP2pEnabledAndSnapSync() {
     when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.SNAP);
 
     final boolean initialSyncPhaseDone =
@@ -261,23 +274,9 @@ public class MergeBesuControllerBuilderTest {
   }
 
   @Test
-  public void p2pEnabledFalseWithSnapSyncReportsNotSyncing() {
-    when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.SNAP);
-
-    final boolean isSyncing =
-        visitWithMockConfigs(new MergeBesuControllerBuilder())
-            .p2pEnabled(false)
-            .build()
-            .getProtocolContext()
-            .getConsensusContext(MergeContext.class)
-            .isSyncing();
-
-    assertThat(isSyncing).isFalse();
-  }
-
-  @Test
-  public void p2pEnabledFalseMarksTerminalDifficultyReachedAtStartup() {
-    when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.SNAP);
+  public void marksTerminalDifficultyReachedWhenP2pDisabled() {
+    when(synchronizerConfiguration.getSyncMode())
+        .thenReturn(new Random().nextBoolean() ? SyncMode.FULL : SyncMode.SNAP);
 
     final Optional<Boolean> ttdReached =
         visitWithMockConfigs(new MergeBesuControllerBuilder())
@@ -290,7 +289,7 @@ public class MergeBesuControllerBuilderTest {
   }
 
   @Test
-  public void p2pEnabledTrueWithFullSyncLeavesTerminalDifficultyUnreached() {
+  public void leavesTerminalDifficultyUnreachedWhenP2pEnabledAndFullSync() {
     when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.FULL);
 
     final Optional<Boolean> ttdReached =
@@ -304,17 +303,51 @@ public class MergeBesuControllerBuilderTest {
   }
 
   @Test
-  public void p2pEnabledTrueWithSnapSyncLeavesTerminalDifficultyUnreached() {
+  public void marksTerminalDifficultyUnreachedWhenP2pEnabledAndSnapSyncAndInitialSyncNotDone() {
     when(synchronizerConfiguration.getSyncMode()).thenReturn(SyncMode.SNAP);
 
-    final Optional<Boolean> ttdReached =
+    final SyncState syncState =
         visitWithMockConfigs(new MergeBesuControllerBuilder())
             .p2pEnabled(true)
             .build()
-            .getSyncState()
-            .hasReachedTerminalDifficulty();
+            .getSyncState();
+    boolean initialSyncPhaseDone = syncState.isInitialSyncPhaseDone();
+    final Optional<Boolean> ttdReached = syncState.hasReachedTerminalDifficulty();
 
+    assertThat(initialSyncPhaseDone).isFalse();
     assertThat(ttdReached).contains(false);
+  }
+
+  @Test
+  public void reportNotSyncingWhenP2pDisabled() {
+    when(synchronizerConfiguration.getSyncMode())
+        .thenReturn(new Random().nextBoolean() ? SyncMode.FULL : SyncMode.SNAP);
+
+    final boolean isSyncing =
+        visitWithMockConfigs(new MergeBesuControllerBuilder())
+            .p2pEnabled(false)
+            .build()
+            .getProtocolContext()
+            .getConsensusContext(MergeContext.class)
+            .isSyncing();
+
+    assertThat(isSyncing).isFalse();
+  }
+
+  @Test
+  public void reportSyncingWhenP2pEnabled() {
+    when(synchronizerConfiguration.getSyncMode())
+        .thenReturn(new Random().nextBoolean() ? SyncMode.FULL : SyncMode.SNAP);
+
+    final boolean isSyncing =
+        visitWithMockConfigs(new MergeBesuControllerBuilder())
+            .p2pEnabled(true)
+            .build()
+            .getProtocolContext()
+            .getConsensusContext(MergeContext.class)
+            .isSyncing();
+
+    assertThat(isSyncing).isTrue();
   }
 
   @Test
