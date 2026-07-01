@@ -375,6 +375,7 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     }
 
     // execute block and return result response
+    final long chainHeadBlockNumber = protocolContext.getBlockchain().getChainHeadBlockNumber();
     final long startTimeNs = System.nanoTime();
     final BlockProcessingResult executionResult =
         mergeCoordinator.rememberBlock(block, maybeBlockAccessList);
@@ -389,6 +390,18 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
               .sum(),
           lastExecutionTimeInNs,
           executionResult.getNbParallelizedTransactions());
+      if (newBlockHeader.getNumber() - chainHeadBlockNumber > 1) {
+        LOG.info(
+            "Advancing chain head after newPayload: block #{} is {} above chain head #{}",
+            newBlockHeader.getNumber(),
+            newBlockHeader.getNumber() - chainHeadBlockNumber,
+            chainHeadBlockNumber);
+        final var blockchain = protocolContext.getBlockchain();
+        mergeCoordinator.updateForkChoice(
+            newBlockHeader,
+            blockchain.getFinalized().orElse(Hash.ZERO),
+            blockchain.getSafeBlock().orElse(Hash.ZERO));
+      }
       return respondWith(reqId, blockParam, newBlockHeader.getHash(), VALID);
     } else {
       if (executionResult.causedBy().isPresent()) {

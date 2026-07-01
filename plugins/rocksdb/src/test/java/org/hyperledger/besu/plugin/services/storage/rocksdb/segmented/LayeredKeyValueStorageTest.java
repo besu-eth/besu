@@ -16,11 +16,8 @@ package org.hyperledger.besu.plugin.services.storage.rocksdb.segmented;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
@@ -338,41 +335,5 @@ public class LayeredKeyValueStorageTest {
     assertArrayEquals(value2, resultList.get(1).getValue());
     assertArrayEquals(key3, resultList.get(2).getKey());
     assertArrayEquals(value3, resultList.get(2).getValue());
-  }
-
-  @Test
-  void isClosedReturnsFalseForOpenLayer() {
-    assertFalse(layeredKeyValueStorage.isClosed());
-  }
-
-  @Test
-  void isClosedReturnsTrueAfterExplicitClose() {
-    layeredKeyValueStorage.close();
-    assertTrue(layeredKeyValueStorage.isClosed());
-  }
-
-  /**
-   * Verifies that isClosed() is O(1): closing a layer does not recurse into the parent chain, and
-   * parent closed state does not propagate to open child layers. This eliminates the O(N) recursion
-   * hot path identified in besu-eth/besu#10498.
-   */
-  @Test
-  void isClosedIsO1AndDoesNotRecurseIntoParent() {
-    // build a chain of depth 100
-    int depth = 100;
-    LayeredKeyValueStorage top = layeredKeyValueStorage;
-    for (int i = 0; i < depth - 1; i++) {
-      top = new LayeredKeyValueStorage(top);
-    }
-
-    // closing the top layer makes it closed without touching the parent mock
-    top.close();
-    assertTrue(top.isClosed());
-
-    // parent was never queried
-    verify(parentStorage, never()).isClosed();
-
-    // open layers below are unaffected
-    assertFalse(layeredKeyValueStorage.isClosed());
   }
 }
