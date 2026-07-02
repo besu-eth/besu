@@ -660,7 +660,8 @@ public class PeerDiscoveryController {
   @VisibleForTesting
   void createPacket(final PacketType type, final PacketData data, final Consumer<Packet> handler) {
     // Creating packets is quite expensive because they have to be cryptographically signed
-    // So ensure the work is done on a worker thread to avoid blocking the vertx event thread.
+    // So ensure the work is done on a worker thread to avoid blocking the discovery dispatch/timer
+    // thread.
     workerExecutor
         .execute(() -> packetFactory.create(type, data, nodeKey))
         .thenAcceptAsync(handler, dispatchExecutor)

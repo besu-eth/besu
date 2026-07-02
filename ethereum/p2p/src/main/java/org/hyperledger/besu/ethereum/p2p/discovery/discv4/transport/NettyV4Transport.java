@@ -51,6 +51,12 @@ public final class NettyV4Transport implements V4Transport {
 
   private static final Logger LOG = LoggerFactory.getLogger(NettyV4Transport.class);
 
+  // Matches the logger LoggingHandler(LogLevel) itself logs through (Netty's InternalLogger for
+  // LoggingHandler.class), so this check reflects exactly whether that handler would actually
+  // produce output before paying its per-packet overhead to install/invoke it.
+  private static final Logger NETTY_LOGGING_HANDLER_LOG =
+      LoggerFactory.getLogger(LoggingHandler.class);
+
   // Netty's parameterless shutdownGracefully() defaults to a 2s quiet period (plus a 15s
   // timeout), unconditionally waited out even when the event loop is already idle. Nothing is
   // legitimately in flight by the time this transport shuts down its (single-thread, dedicated)
@@ -108,7 +114,9 @@ public final class NettyV4Transport implements V4Transport {
               @Override
               protected void initChannel(final NioDatagramChannel ch) {
                 final ChannelPipeline pipeline = ch.pipeline();
-                pipeline.addFirst(new LoggingHandler(LogLevel.TRACE));
+                if (NETTY_LOGGING_HANDLER_LOG.isTraceEnabled()) {
+                  pipeline.addFirst(new LoggingHandler(LogLevel.TRACE));
+                }
                 pipeline.addLast(new V4InboundHandler());
               }
             });

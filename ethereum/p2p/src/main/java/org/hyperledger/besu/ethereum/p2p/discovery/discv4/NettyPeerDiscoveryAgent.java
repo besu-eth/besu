@@ -43,6 +43,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import io.netty.channel.unix.Errors;
 import io.netty.channel.unix.Errors.NativeIoException;
@@ -150,8 +151,11 @@ public class NettyPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
 
   private synchronized ExecutorService cryptoExecutor() {
     if (cryptoExecutor == null) {
+      final AtomicInteger threadCount = new AtomicInteger(0);
       cryptoExecutor =
-          Executors.newFixedThreadPool(2, (ThreadFactory) r -> new Thread(r, "discv4-crypto"));
+          Executors.newFixedThreadPool(
+              2,
+              (ThreadFactory) r -> new Thread(r, "discv4-crypto-" + threadCount.getAndIncrement()));
     }
     return cryptoExecutor;
   }
