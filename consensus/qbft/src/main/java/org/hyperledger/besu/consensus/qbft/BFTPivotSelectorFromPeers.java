@@ -25,7 +25,7 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeerImmutableAttributes;
 import org.hyperledger.besu.ethereum.eth.sync.SynchronizerConfiguration;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredException;
 import org.hyperledger.besu.ethereum.eth.sync.common.PivotSelectorFromPeers;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 
 import java.util.Optional;
@@ -60,6 +60,7 @@ public class BFTPivotSelectorFromPeers extends PivotSelectorFromPeers {
    * @param protocolContext the protocol context
    * @param nodeKey the node key
    * @param blockHeader the block header
+   * @param pivotBlockWindowValidity max distance the pivot can lag behind the head before refresh
    */
   public BFTPivotSelectorFromPeers(
       final EthContext ethContext,
@@ -67,8 +68,9 @@ public class BFTPivotSelectorFromPeers extends PivotSelectorFromPeers {
       final SyncState syncState,
       final ProtocolContext protocolContext,
       final NodeKey nodeKey,
-      final BlockHeader blockHeader) {
-    super(ethContext, syncConfig, syncState);
+      final BlockHeader blockHeader,
+      final int pivotBlockWindowValidity) {
+    super(ethContext, syncConfig, syncState, pivotBlockWindowValidity);
     this.protocolContext = protocolContext;
     this.blockHeader = blockHeader;
     this.nodeKey = nodeKey;
@@ -86,7 +88,7 @@ public class BFTPivotSelectorFromPeers extends PivotSelectorFromPeers {
   }
 
   @Override
-  public CompletableFuture<PivotSyncState> selectNewPivotBlock() {
+  public CompletableFuture<SnapSyncProcessState> selectNewPivotBlock() {
 
     final BftContext bftContext = protocolContext.getConsensusContext(BftContext.class);
     final ValidatorProvider validatorProvider = bftContext.getValidatorProvider();

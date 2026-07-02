@@ -1,9 +1,7 @@
 {
   "config": {
     "chainId": 1,
-    "istanbulBlock": 0,
-    "ethash": {
-    }
+    "istanbulBlock": 0
   },
   "nonce": "0x0",
   "timestamp": "0x5ca916c6",

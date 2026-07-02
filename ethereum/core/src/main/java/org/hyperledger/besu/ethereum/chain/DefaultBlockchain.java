@@ -22,6 +22,7 @@ import static java.util.stream.Collectors.joining;
 import static java.util.stream.Collectors.toList;
 import static org.hyperledger.besu.metrics.BesuMetricCategory.BLOCKCHAIN;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.BlockchainStorage.Updater;
 import org.hyperledger.besu.ethereum.core.Block;
@@ -53,6 +54,7 @@ import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -83,6 +85,8 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   private Comparator<BlockHeader> blockChoiceRule;
 
+  private boolean senderNonceIndexing = false;
+
   private Optional<Cache<Hash, BlockHeader>> blockHeadersCache;
   private Optional<Cache<Hash, BlockBody>> blockBodiesCache;
   private Optional<Cache<Hash, List<TransactionReceipt>>> transactionReceiptsCache;
@@ -99,7 +103,7 @@ public class DefaultBlockchain implements MutableBlockchain {
       final BlockchainStorage blockchainStorage,
       final MetricsSystem metricsSystem,
       final long reorgLoggingThreshold) {
-    this(genesisBlock, blockchainStorage, metricsSystem, reorgLoggingThreshold, null, 0, 0);
+    this(genesisBlock, blockchainStorage, metricsSystem, reorgLoggingThreshold, null, 0, 0, false);
   }
 
   private DefaultBlockchain(
@@ -110,6 +114,26 @@ public class DefaultBlockchain implements MutableBlockchain {
       final String dataDirectory,
       final int numberOfBlocksToCache,
       final int numberOfBlockHeadersToCache) {
+    this(
+        genesisBlock,
+        blockchainStorage,
+        metricsSystem,
+        reorgLoggingThreshold,
+        dataDirectory,
+        numberOfBlocksToCache,
+        numberOfBlockHeadersToCache,
+        false);
+  }
+
+  private DefaultBlockchain(
+      final Optional<Block> genesisBlock,
+      final BlockchainStorage blockchainStorage,
+      final MetricsSystem metricsSystem,
+      final long reorgLoggingThreshold,
+      final String dataDirectory,
+      final int numberOfBlocksToCache,
+      final int numberOfBlockHeadersToCache,
+      final boolean senderNonceIndexingEnabled) {
     checkNotNull(genesisBlock);
     checkNotNull(blockchainStorage);
     checkNotNull(metricsSystem);
@@ -129,6 +153,7 @@ public class DefaultBlockchain implements MutableBlockchain {
 
     this.reorgLoggingThreshold = reorgLoggingThreshold;
     this.blockChoiceRule = heaviestChainBlockChoiceRule;
+    this.senderNonceIndexing = senderNonceIndexingEnabled;
 
     initializeCaches(metricsSystem, numberOfBlockHeadersToCache, numberOfBlocksToCache);
     createCounters(metricsSystem);
@@ -299,7 +324,29 @@ public class DefaultBlockchain implements MutableBlockchain {
         reorgLoggingThreshold,
         dataDirectory,
         numberOfBlocksToCache,
-        numberOfBlockHeadersToCache);
+        numberOfBlockHeadersToCache,
+        false);
+  }
+
+  public static MutableBlockchain createMutable(
+      final Block genesisBlock,
+      final BlockchainStorage blockchainStorage,
+      final MetricsSystem metricsSystem,
+      final long reorgLoggingThreshold,
+      final String dataDirectory,
+      final int numberOfBlocksToCache,
+      final int numberOfBlockHeadersToCache,
+      final boolean senderNonceIndexingEnabled) {
+    checkNotNull(genesisBlock);
+    return new DefaultBlockchain(
+        Optional.of(genesisBlock),
+        blockchainStorage,
+        metricsSystem,
+        reorgLoggingThreshold,
+        dataDirectory,
+        numberOfBlocksToCache,
+        numberOfBlockHeadersToCache,
+        senderNonceIndexingEnabled);
   }
 
   public static Blockchain create(
@@ -310,6 +357,18 @@ public class DefaultBlockchain implements MutableBlockchain {
         validateStorageNonEmpty(blockchainStorage), "Cannot create Blockchain from empty storage");
     return new DefaultBlockchain(
         Optional.empty(), blockchainStorage, metricsSystem, reorgLoggingThreshold);
+  }
+
+  /**
+   * Enables the sender+nonce → transaction hash index. Disabled by default to avoid unexpected
+   * storage growth on existing nodes that have not re-synced with this feature enabled.
+   *
+   * @param enabled whether to maintain the sender-nonce index
+   * @return this instance for chaining
+   */
+  public DefaultBlockchain setSenderNonceIndexingEnabled(final boolean enabled) {
+    this.senderNonceIndexing = enabled;
+    return this;
   }
 
   private static boolean validateStorageNonEmpty(final BlockchainStorage blockchainStorage) {
@@ -405,22 +464,7 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   @Override
   public Optional<BlockHeader> getBlockHeader(final Hash blockHeaderHash) {
-    return blockHeadersCache
-        .map(
-            cache -> {
-              final BlockHeader cached = cache.getIfPresent(blockHeaderHash);
-              if (cached != null) {
-                return Optional.of(cached);
-              }
-              return blockchainStorage
-                  .getBlockHeader(blockHeaderHash)
-                  .map(
-                      header -> {
-                        cache.put(blockHeaderHash, header);
-                        return header;
-                      });
-            })
-        .orElseGet(() -> blockchainStorage.getBlockHeader(blockHeaderHash));
+    return getCached(blockHeadersCache, blockHeaderHash, blockchainStorage::getBlockHeader);
   }
 
   @Override
@@ -435,12 +479,7 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   @Override
   public Optional<BlockBody> getBlockBody(final Hash blockHeaderHash) {
-    return blockBodiesCache
-        .map(
-            cache ->
-                Optional.ofNullable(cache.getIfPresent(blockHeaderHash))
-                    .or(() -> blockchainStorage.getBlockBody(blockHeaderHash)))
-        .orElseGet(() -> blockchainStorage.getBlockBody(blockHeaderHash));
+    return getCached(blockBodiesCache, blockHeaderHash, blockchainStorage::getBlockBody);
   }
 
   @Override
@@ -450,12 +489,30 @@ public class DefaultBlockchain implements MutableBlockchain {
 
   @Override
   public Optional<List<TransactionReceipt>> getTxReceipts(final Hash blockHeaderHash) {
-    return transactionReceiptsCache
+    return getCached(
+        transactionReceiptsCache, blockHeaderHash, blockchainStorage::getTransactionReceipts);
+  }
+
+  private <T> Optional<T> getCached(
+      final Optional<Cache<Hash, T>> cache,
+      final Hash blockHash,
+      final Function<Hash, Optional<T>> storageLookup) {
+    return cache
         .map(
-            cache ->
-                Optional.ofNullable(cache.getIfPresent(blockHeaderHash))
-                    .or(() -> blockchainStorage.getTransactionReceipts(blockHeaderHash)))
-        .orElseGet(() -> blockchainStorage.getTransactionReceipts(blockHeaderHash));
+            c -> {
+              final T cached = c.getIfPresent(blockHash);
+              if (cached != null) {
+                return Optional.of(cached);
+              }
+              return storageLookup
+                  .apply(blockHash)
+                  .map(
+                      value -> {
+                        c.put(blockHash, value);
+                        return value;
+                      });
+            })
+        .orElseGet(() -> storageLookup.apply(blockHash));
   }
 
   @Override
@@ -497,6 +554,11 @@ public class DefaultBlockchain implements MutableBlockchain {
   @Override
   public Optional<TransactionLocation> getTransactionLocation(final Hash transactionHash) {
     return blockchainStorage.getTransactionLocation(transactionHash);
+  }
+
+  @Override
+  public Optional<Hash> getTransactionHashBySenderAndNonce(final Address sender, final long nonce) {
+    return blockchainStorage.getTransactionHashBySenderAndNonce(sender, nonce);
   }
 
   @Override
@@ -638,9 +700,7 @@ public class DefaultBlockchain implements MutableBlockchain {
     updater.putBlockHeader(blockHash, block.getHeader());
     updater.putBlockHash(block.getHeader().getNumber(), blockHash);
     updater.putBlockBody(blockHash, block.getBody());
-    final List<Hash> listOfTxHashes =
-        block.getBody().getTransactions().stream().map(Transaction::getHash).toList();
-    indexTransactionsForBlock(updater, blockHash, listOfTxHashes);
+    indexTransactionsForBlock(updater, blockHash, block.getBody().getTransactions());
     updater.putTransactionReceipts(blockHash, transactionReceipts);
     maybeTotalDifficulty.ifPresent(
         totalDifficulty -> updater.putTotalDifficulty(blockHash, totalDifficulty));
@@ -665,7 +725,7 @@ public class DefaultBlockchain implements MutableBlockchain {
       if (indexTransactions) {
         final List<Hash> listOfTxHashes =
             body.getEncodedTransactions().stream().map(Hash::hash).toList();
-        indexTransactionsForBlock(updater, blockHash, listOfTxHashes);
+        indexTransactionHashesForBlock(updater, blockHash, listOfTxHashes);
       }
     }
     updater.setChainHead(chainHeader.getBlockHash());
@@ -770,11 +830,8 @@ public class DefaultBlockchain implements MutableBlockchain {
     updater.putBlockHash(blockWithReceipts.getNumber(), newBlockHash);
     updater.setChainHead(newBlockHash);
     if (transactionIndexing) {
-      final List<Hash> listOfTxHashes =
-          blockWithReceipts.getBlock().getBody().getTransactions().stream()
-              .map(Transaction::getHash)
-              .toList();
-      indexTransactionsForBlock(updater, newBlockHash, listOfTxHashes);
+      indexTransactionsForBlock(
+          updater, newBlockHash, blockWithReceipts.getBlock().getBody().getTransactions());
     }
     gasUsedCounter.inc(blockWithReceipts.getHeader().getGasUsed());
     numberOfTransactionsCounter.inc(
@@ -863,9 +920,7 @@ public class DefaultBlockchain implements MutableBlockchain {
     // Update indexed transactions
     newTransactions.forEach(
         (blockHash, transactionsInBlock) -> {
-          final List<Hash> listOfTxHashes =
-              transactionsInBlock.stream().map(Transaction::getHash).toList();
-          indexTransactionsForBlock(updater, blockHash, listOfTxHashes);
+          indexTransactionsForBlock(updater, blockHash, transactionsInBlock);
           // Don't remove transactions that are being re-indexed.
           removedTransactions.removeAll(transactionsInBlock);
         });
@@ -1004,7 +1059,23 @@ public class DefaultBlockchain implements MutableBlockchain {
     chainHeadTransactionCount = block.getBody().getTransactions().size();
   }
 
-  private static void indexTransactionsForBlock(
+  private void indexTransactionsForBlock(
+      final BlockchainStorage.Updater updater,
+      final Hash blockHash,
+      final List<Transaction> transactions) {
+    for (int index = 0; index < transactions.size(); index++) {
+      final Transaction tx = transactions.get(index);
+      final TransactionLocation loc = new TransactionLocation(blockHash, index);
+      updater.putTransactionLocation(tx.getHash(), loc);
+      if (senderNonceIndexing) {
+        updater.putTransactionHashBySenderAndNonce(tx.getSender(), tx.getNonce(), tx.getHash());
+      }
+    }
+  }
+
+  // Used during sync where only tx hashes are available (no decoded Transaction objects).
+  // Indexes txHash→location only; sender+nonce index is not populated for this path.
+  private static void indexTransactionHashesForBlock(
       final BlockchainStorage.Updater updater, final Hash blockHash, final List<Hash> txsHashes) {
     for (int index = 0; index < txsHashes.size(); index++) {
       final TransactionLocation loc = new TransactionLocation(blockHash, index);
@@ -1012,10 +1083,13 @@ public class DefaultBlockchain implements MutableBlockchain {
     }
   }
 
-  private static void clearIndexedTransactionsForBlock(
+  private void clearIndexedTransactionsForBlock(
       final BlockchainStorage.Updater updater, final List<Transaction> txs) {
     for (final Transaction tx : txs) {
       updater.removeTransactionLocation(tx.getHash());
+      if (senderNonceIndexing) {
+        updater.removeTransactionHashBySenderAndNonce(tx.getSender(), tx.getNonce());
+      }
     }
   }
 

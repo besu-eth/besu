@@ -14,7 +14,10 @@
  */
 package org.hyperledger.besu.tests.acceptance.plugins;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.catchThrowable;
+import static org.awaitility.Awaitility.await;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.hyperledger.besu.ethereum.core.plugins.ImmutablePluginConfiguration;
@@ -73,13 +76,17 @@ public class DependencyConflictPluginTest extends AcceptanceTestBase {
             "DEBUG");
 
     cluster.startConsoleCapture();
-    cluster.runNodeStart(pluginNode);
 
-    final var exitCode = pluginNode.exitCode();
+    // runNodeStart now throws when the process exits before writing ports files
+    final Throwable thrown = catchThrowable(() -> cluster.runNodeStart(pluginNode));
+    assertThat(thrown).isInstanceOf(IllegalStateException.class);
+
+    // exit code is set asynchronously via process.onExit(); wait for it
+    await().atMost(10, SECONDS).until(() -> pluginNode.exitCode().isPresent());
 
     // exit code != 0 means Besu failed to start
-    assertThat(exitCode).isPresent();
-    assertThat(exitCode.get()).isNotZero();
+    assertThat(pluginNode.exitCode()).isPresent();
+    assertThat(pluginNode.exitCode().get()).isNotZero();
 
     assertTrue(
         cluster
@@ -92,5 +99,11 @@ public class DependencyConflictPluginTest extends AcceptanceTestBase {
                 line ->
                     line.contains(
                         "bring the same dependency org.junit.platform:junit-platform-commons but with different versions")));
+    // The exception message includes captured process output; verify the conflict error was logged
+    assertThat(thrown.getMessage())
+        .contains("dependencyConflict1.jar")
+        .contains("dependencyConflict2.jar")
+        .contains(
+            "bring the same dependency org.junit.platform:junit-platform-commons but with different versions");
   }
 }

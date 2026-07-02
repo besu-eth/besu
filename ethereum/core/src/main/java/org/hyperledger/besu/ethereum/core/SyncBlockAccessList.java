@@ -32,8 +32,8 @@ public class SyncBlockAccessList {
     return rlp;
   }
 
-  public boolean isEmpty() {
-    return rlp.equals(RLP.EMPTY_LIST);
+  public boolean isUnavailable() {
+    return rlp.equals(RLP.NULL);
   }
 
   @Override
@@ -41,10 +41,9 @@ public class SyncBlockAccessList {
     if (obj == this) {
       return true;
     }
-    if (!(obj instanceof SyncBlockAccessList)) {
+    if (!(obj instanceof SyncBlockAccessList other)) {
       return false;
     }
-    final SyncBlockAccessList other = (SyncBlockAccessList) obj;
     return rlp.equals(other.rlp);
   }
 

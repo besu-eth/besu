@@ -71,6 +71,7 @@ import org.hyperledger.besu.cli.options.TransactionPoolOptions;
 import org.hyperledger.besu.cli.options.storage.DataStorageOptions;
 import org.hyperledger.besu.cli.options.storage.PathBasedExtraStorageOptions;
 import org.hyperledger.besu.cli.options.unstable.QBFTOptions;
+import org.hyperledger.besu.cli.options.unstable.UnstableBftOptions;
 import org.hyperledger.besu.cli.presynctasks.PreSynchronizationTaskRunner;
 import org.hyperledger.besu.cli.subcommands.PasswordSubCommand;
 import org.hyperledger.besu.cli.subcommands.PublicKeySubCommand;
@@ -157,9 +158,12 @@ import org.hyperledger.besu.metrics.prometheus.MetricsConfiguration;
 import org.hyperledger.besu.metrics.vertx.VertxMetricsAdapterFactory;
 import org.hyperledger.besu.nat.NatMethod;
 import org.hyperledger.besu.plugin.services.BesuConfiguration;
+import org.hyperledger.besu.plugin.services.HealthCheckService;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.PicoCLIOptions;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
+import org.hyperledger.besu.plugin.services.health.LivenessCheckPlugin;
+import org.hyperledger.besu.plugin.services.health.ReadinessCheckPlugin;
 import org.hyperledger.besu.plugin.services.securitymodule.SecurityModule;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBPlugin;
@@ -298,6 +302,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private final IpcOptions unstableIpcOptions = IpcOptions.create();
   private final ChainPruningOptions unstableChainPruningOptions = ChainPruningOptions.create();
   private final QBFTOptions unstableQbftOptions = QBFTOptions.create();
+  private final UnstableBftOptions unstableBftOptions = UnstableBftOptions.create();
 
   // stable CLI options
   final DataStorageOptions dataStorageOptions = DataStorageOptions.create();
@@ -341,6 +346,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       Suppliers.memoize(this::getApiConfiguration);
 
   private RocksDBPlugin rocksDBPlugin;
+  private LivenessCheckPlugin livenessCheckPlugin;
+  private ReadinessCheckPlugin readinessCheckPlugin;
 
   private int maxPeers;
   private int maxRemoteInitiatedPeers;
@@ -639,6 +646,13 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
   private final Boolean isCacheLastBlockHeadersPreloadEnabled = false;
 
   @CommandLine.Option(
+      names = {"--tx-sender-nonce-index-enabled"},
+      description =
+          "Enable indexing of mined transactions by sender address and nonce, to support"
+              + " eth_getTransactionBySenderAndNonce. (default: ${DEFAULT-VALUE})")
+  private final Boolean txSenderNonceIndexEnabled = true;
+
+  @CommandLine.Option(
       names = {"--cache-precompiles"},
       description = "Specifies whether to cache precompile results (default: ${DEFAULT-VALUE})")
   private final Boolean enablePrecompileCaching = false;
@@ -856,6 +870,25 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       }
       besuPluginContext.initialize(PluginsConfigurationOptions.fromCommandLine(commandLine));
       besuPluginContext.registerPlugins();
+
+      // Register built-in health-check plugins only if no external plugin already claimed the
+      // endpoint. This runs after registerPlugins() so external plugins have had their chance;
+      // the built-in field stays null when an external plugin owns the endpoint, so the
+      // start()/stop() calls skip it (no orphaned SyncStatusListener).
+      besuPluginContext
+          .getService(HealthCheckService.class)
+          .ifPresent(
+              healthCheckService -> {
+                if (!healthCheckService.getHealthCheck("/liveness").isPresent()) {
+                  livenessCheckPlugin = new LivenessCheckPlugin();
+                  livenessCheckPlugin.register(besuPluginContext);
+                }
+                if (!healthCheckService.getHealthCheck("/readiness").isPresent()) {
+                  readinessCheckPlugin = new ReadinessCheckPlugin();
+                  readinessCheckPlugin.register(besuPluginContext);
+                }
+              });
+
       commandLine.setExecutionStrategy(nextStep);
       return commandLine.execute(parseResult.originalArgs().toArray(new String[0]));
     };
@@ -1237,6 +1270,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .put("IPC Options", unstableIpcOptions)
             .put("Chain Data Pruning Options", unstableChainPruningOptions)
             .put("QBFT Options", unstableQbftOptions)
+            .put("BFT Options", unstableBftOptions)
             .build();
 
     UnstableOptionsSubCommand.createUnstableOptions(commandLine, unstableOptions);
@@ -1328,6 +1362,20 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         miningParametersSupplier.get());
 
     besuPluginContext.startPlugins();
+    if (livenessCheckPlugin != null) {
+      try {
+        livenessCheckPlugin.start();
+      } catch (final Exception e) {
+        logger.warn("Failed to start livenessCheckPlugin", e);
+      }
+    }
+    if (readinessCheckPlugin != null) {
+      try {
+        readinessCheckPlugin.start();
+      } catch (final Exception e) {
+        logger.warn("Failed to start readinessCheckPlugin", e);
+      }
+    }
   }
 
   private void setReleaseMetrics() {
@@ -2053,6 +2101,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .clock(Clock.systemUTC())
             .storageProvider(storageProvider)
             .isEarlyRoundChangeEnabled(unstableQbftOptions.isEarlyRoundChangeEnabled())
+            .isLegacyBftProtocolEncodingEnabled(
+                unstableBftOptions.isLegacyProtocolEncodingEnabled())
             .requiredBlocks(requiredBlocks)
             .reorgLoggingThreshold(reorgLoggingThreshold)
             .evmConfiguration(unstableEvmOptions.toDomainObject())
@@ -2063,6 +2113,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .cacheLastBlocks(numberOfBlocksToCache)
             .cacheLastBlockHeaders(numberOfBlockHeadersToCache)
             .isCacheLastBlockHeadersPreloadEnabled(isCacheLastBlockHeadersPreloadEnabled)
+            .senderNonceIndexingEnabled(txSenderNonceIndexEnabled)
+            .p2pEnabled(p2PDiscoveryOptions.p2pEnabled)
             .genesisStateHashCacheEnabled(genesisStateHashCacheEnabled)
             .apiConfiguration(apiConfiguration)
             .balConfiguration(balConfiguration)
@@ -2396,6 +2448,20 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             new Thread(
                 () -> {
                   try {
+                    if (readinessCheckPlugin != null) {
+                      try {
+                        readinessCheckPlugin.stop();
+                      } catch (final Exception e) {
+                        logger.warn("Failed to stop readinessCheckPlugin", e);
+                      }
+                    }
+                    if (livenessCheckPlugin != null) {
+                      try {
+                        livenessCheckPlugin.stop();
+                      } catch (final Exception e) {
+                        logger.warn("Failed to stop livenessCheckPlugin", e);
+                      }
+                    }
                     besuPluginContext.stopPlugins();
                     runner.close();
                     LogConfigurator.shutdown();

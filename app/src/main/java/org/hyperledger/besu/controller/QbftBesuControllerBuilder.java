@@ -282,7 +282,10 @@ public class QbftBesuControllerBuilder extends BesuControllerBuilder {
     final MessageTracker duplicateMessageTracker =
         new MessageTracker(qbftConfig.getDuplicateMessageLimit());
 
-    final MessageFactory messageFactory = new MessageFactory(nodeKey, blockEncoder);
+    final MessageFactory messageFactory =
+        isLegacyBftProtocolEncodingEnabled
+            ? MessageFactory.withLegacyEncoding(nodeKey, blockEncoder)
+            : new MessageFactory(nodeKey, blockEncoder);
 
     QbftRoundFactory qbftRoundFactory =
         new QbftRoundFactory(
@@ -452,7 +455,7 @@ public class QbftBesuControllerBuilder extends BesuControllerBuilder {
     return block ->
         LOG.info(
             String.format(
-                "%s %s #%,d / %d tx / %d pending / %,d (%01.1f%%) gas / (%s)",
+                "%s %-11s #%,d / %d tx / %d pending / %,d (%01.1f%%) gas / (%s)",
                 block.getHeader().getCoinbase().equals(localAddress) ? "Produced" : "Imported",
                 block.getBody().getTransactions().isEmpty() ? "empty block" : "block",
                 block.getHeader().getNumber(),

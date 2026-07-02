@@ -27,7 +27,6 @@ import org.hyperledger.besu.ethereum.eth.manager.EthPeers;
 import org.hyperledger.besu.ethereum.eth.manager.EthScheduler;
 import org.hyperledger.besu.ethereum.eth.manager.MockPeerConnection;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncConfiguration;
-import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.DefaultMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.RawMessage;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
@@ -52,7 +51,6 @@ class SnapProtocolManagerTest {
   @Mock private SnapSyncConfiguration snapConfig;
   @Mock private EthPeers ethPeers;
   @Mock private EthMessages snapMessages;
-  @Mock private ProtocolSchedule protocolSchedule;
   @Mock private ProtocolContext protocolContext;
   @Mock private Synchronizer synchronizer;
   @Mock private EthScheduler ethScheduler;
@@ -63,16 +61,26 @@ class SnapProtocolManagerTest {
   @BeforeEach
   void setUp() {
     when(snapConfig.isSnapServerEnabled()).thenReturn(false);
-    snapProtocolManager =
-        new SnapProtocolManager(
-            worldStateStorageCoordinator,
-            snapConfig,
-            ethPeers,
-            snapMessages,
-            ethScheduler,
-            protocolSchedule,
-            protocolContext,
-            synchronizer);
+    snapProtocolManager = createSnapProtocolManager();
+  }
+
+  @Test
+  void advertisesOnlySnap1WhenSnap2IsDisabled() {
+    when(snapConfig.isSnap2Enabled()).thenReturn(false);
+
+    snapProtocolManager = createSnapProtocolManager();
+
+    assertThat(snapProtocolManager.getSupportedCapabilities()).containsExactly(SnapProtocol.SNAP1);
+  }
+
+  @Test
+  void advertisesSnap2WhenSnap2IsEnabled() {
+    when(snapConfig.isSnap2Enabled()).thenReturn(true);
+
+    snapProtocolManager = createSnapProtocolManager();
+
+    assertThat(snapProtocolManager.getSupportedCapabilities())
+        .containsExactly(SnapProtocol.SNAP1, SnapProtocol.SNAP2);
   }
 
   @Test
@@ -92,5 +100,16 @@ class SnapProtocolManagerTest {
     // ethPeer (mock) receives the disconnect call
     org.mockito.Mockito.verify(ethPeer)
         .disconnect(DisconnectReason.BREACH_OF_PROTOCOL_MALFORMED_MESSAGE_RECEIVED);
+  }
+
+  private SnapProtocolManager createSnapProtocolManager() {
+    return new SnapProtocolManager(
+        worldStateStorageCoordinator,
+        snapConfig,
+        ethPeers,
+        snapMessages,
+        ethScheduler,
+        protocolContext,
+        synchronizer);
   }
 }

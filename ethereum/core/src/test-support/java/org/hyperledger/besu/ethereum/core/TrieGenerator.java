@@ -107,9 +107,8 @@ public class TrieGenerator {
     final Hash keyHash = storageKeyHash(key);
     final Bytes encodedValue = encodeStorageValue(value);
     storageTrie.put(keyHash.getBytes(), encodeStorageValue(value));
-    if (updater instanceof BonsaiWorldStateKeyValueStorage.Updater) {
-      ((BonsaiWorldStateKeyValueStorage.Updater) updater)
-          .putStorageValueBySlotHash(hash, keyHash, encodedValue);
+    if (updater instanceof BonsaiWorldStateKeyValueStorage.Updater bonsaiUpdater) {
+      bonsaiUpdater.putStorageValueBySlotHash(hash, keyHash, encodedValue);
     }
   }
 

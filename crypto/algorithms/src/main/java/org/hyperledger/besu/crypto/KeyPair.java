@@ -90,11 +90,10 @@ public class KeyPair {
 
   @Override
   public boolean equals(final Object other) {
-    if (!(other instanceof KeyPair)) {
+    if (!(other instanceof KeyPair that)) {
       return false;
     }
 
-    final KeyPair that = (KeyPair) other;
     return this.privateKey.equals(that.privateKey) && this.publicKey.equals(that.publicKey);
   }
 

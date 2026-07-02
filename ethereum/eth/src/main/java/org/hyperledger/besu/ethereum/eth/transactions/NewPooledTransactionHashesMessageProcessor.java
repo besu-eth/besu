@@ -93,6 +93,7 @@ public class NewPooledTransactionHashesMessageProcessor {
     try {
       final List<TransactionAnnouncement> incomingAnnouncements =
           transactionsMessage.pendingTransactionAnnouncements();
+
       final var freshAnnouncements =
           transactionTracker.receivedAnnouncements(peer, incomingAnnouncements);
 

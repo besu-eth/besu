@@ -21,7 +21,6 @@ import org.hyperledger.besu.components.BesuComponent;
 import org.hyperledger.besu.config.GenesisConfig;
 import org.hyperledger.besu.config.GenesisConfigOptions;
 import org.hyperledger.besu.consensus.merge.MergeContext;
-import org.hyperledger.besu.consensus.merge.UnverifiedForkchoiceSupplier;
 import org.hyperledger.besu.consensus.qbft.BFTPivotSelectorFromPeers;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.datatypes.Hash;
@@ -86,13 +85,13 @@ import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.ethereum.transaction.TransactionSimulator;
 import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiArchiveWorldStateProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiWorldStateProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMerkleTrieLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiArchiveFlatDbStrategy;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiArchiveWorldStateProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.archive.BonsaiFlatDbToArchiveMigrator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveFlatDbStrategy;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsaiarchive.BonsaiFlatDbToArchiveMigrator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.flat.CodeHashCodeStorageStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogPruner;
@@ -210,6 +209,10 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   private int numberOfBlocksToCache = 0;
   private int numberOfBlockHeadersToCache = 0;
   private boolean isCacheLastBlockHeadersPreloadEnabled;
+  private boolean senderNonceIndexingEnabled = false;
+
+  /** Whether p2p networking is enabled. */
+  protected boolean p2pEnabled = true;
 
   /** whether parallel transaction processing is enabled or not */
   protected boolean isParallelTxProcessingEnabled;
@@ -226,8 +229,15 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   /** When enabled, round changes on f+1 RC messages from higher rounds */
   protected boolean isEarlyRoundChangeEnabled = false;
 
+  /**
+   * When enabled, BFT (QBFT and IBFT2) encoders emit the 25.x wire format when blockAccessList is
+   * absent. Required only for rolling upgrades from Besu 25.x peers; no effect when blockAccessList
+   * is active on the chain.
+   */
+  protected boolean isLegacyBftProtocolEncodingEnabled = false;
+
   /** The global code cache */
-  protected CodeCache codeCache;
+  protected PathBasedCodeCache codeCache;
 
   /** Instantiates a new Besu controller builder. */
   protected BesuControllerBuilder() {}
@@ -505,6 +515,29 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   }
 
   /**
+   * Sets whether the sender-nonce → transaction hash index is maintained.
+   *
+   * @param senderNonceIndexingEnabled {@code true} to enable the index (disabled by default)
+   * @return the besu controller builder
+   */
+  public BesuControllerBuilder senderNonceIndexingEnabled(
+      final boolean senderNonceIndexingEnabled) {
+    this.senderNonceIndexingEnabled = senderNonceIndexingEnabled;
+    return this;
+  }
+
+  /**
+   * Sets whether p2p networking is enabled.
+   *
+   * @param p2pEnabled {@code true} (default) when p2p networking is enabled
+   * @return the besu controller builder
+   */
+  public BesuControllerBuilder p2pEnabled(final boolean p2pEnabled) {
+    this.p2pEnabled = p2pEnabled;
+    return this;
+  }
+
+  /**
    * Sets whether the block header cache should be preloaded.
    *
    * @param isCacheLastBlockHeadersPreloadEnabled {@code true} to enable preloading of the block
@@ -577,6 +610,18 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   }
 
   /**
+   * Configure the BFT (QBFT/IBFT2) encoders to emit the 25.x wire format.
+   *
+   * @param isLegacyBftProtocolEncodingEnabled whether to emit legacy encoding
+   * @return the besu controller builder
+   */
+  public BesuControllerBuilder isLegacyBftProtocolEncodingEnabled(
+      final boolean isLegacyBftProtocolEncodingEnabled) {
+    this.isLegacyBftProtocolEncodingEnabled = isLegacyBftProtocolEncodingEnabled;
+    return this;
+  }
+
+  /**
    * Build besu controller.
    *
    * @return the besu controller
@@ -600,7 +645,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     checkNotNull(dataStorageConfiguration, "Missing data storage configuration");
     checkNotNull(besuComponent, "Must supply a BesuComponent");
 
-    this.codeCache = besuComponent.map(BesuComponent::getCodeCache).orElse(new CodeCache());
+    this.codeCache =
+        besuComponent.map(BesuComponent::getCodeCache).orElse(new PathBasedCodeCache());
     this.codeCache.setupMetricsSystem(metricsSystem);
 
     prepForBuild();
@@ -639,7 +685,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             reorgLoggingThreshold,
             dataDirectory.toString(),
             numberOfBlocksToCache,
-            numberOfBlockHeadersToCache);
+            numberOfBlockHeadersToCache,
+            senderNonceIndexingEnabled);
 
     if (isCacheLastBlockHeadersPreloadEnabled && numberOfBlockHeadersToCache > 0) {
       LOG.info(
@@ -734,7 +781,13 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
     final EthContext ethContext =
         new EthContext(ethPeers, ethMessages, snapMessages, scheduler, peerTaskExecutor);
     final boolean fullSyncDisabled = syncConfig.getSyncMode() != SyncMode.FULL;
-    final SyncState syncState = new SyncState(blockchain, ethPeers, fullSyncDisabled, checkpoint);
+    final boolean hasInitialSyncPhase = fullSyncDisabled && p2pEnabled;
+    final SyncState syncState =
+        new SyncState(blockchain, ethPeers, hasInitialSyncPhase, checkpoint);
+
+    protocolContext
+        .safeConsensusContext(MergeContext.class)
+        .ifPresent(mergeContext -> mergeContext.addNewPayloadListener(syncState));
 
     final ChainPruningStrategy pruningMode = chainPrunerConfiguration.pruningMode();
     final boolean preMergeEnabled = dataStorageConfiguration.getHistoryExpiryPruneEnabled();
@@ -835,7 +888,6 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
 
     final Optional<SnapProtocolManager> maybeSnapProtocolManager =
         createSnapProtocolManager(
-            protocolSchedule,
             protocolContext,
             worldStateStorageCoordinator,
             ethPeers,
@@ -974,7 +1026,7 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   private GenesisState getGenesisState(
       final Optional<BlockHeader> maybeGenesisBlockHeader,
       final ProtocolSchedule protocolSchedule,
-      final CodeCache codeCache) {
+      final PathBasedCodeCache codeCache) {
     final Optional<Hash> maybeGenesisStateRoot =
         genesisStateHashCacheEnabled
             ? maybeGenesisBlockHeader.map(BlockHeader::getStateRoot)
@@ -1089,36 +1141,46 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
           syncState,
           protocolContext,
           nodeKey,
-          blockchain.getChainHeadHeader());
+          blockchain.getChainHeadHeader(),
+          syncConfig.getSnapSyncConfiguration().getPivotBlockWindowValidity());
     } else if (genesisConfigOptions.getTerminalTotalDifficulty().isPresent()) {
       LOG.info("TTD difficulty is present, creating initial sync for PoS");
 
       final MergeContext mergeContext = protocolContext.getConsensusContext(MergeContext.class);
-      final UnverifiedForkchoiceSupplier unverifiedForkchoiceSupplier =
-          new UnverifiedForkchoiceSupplier();
-      final long subscriptionId =
-          mergeContext.addNewUnverifiedForkchoiceListener(unverifiedForkchoiceSupplier);
-
-      final Runnable unsubscribeForkchoiceListener =
-          () -> {
-            mergeContext.removeNewUnverifiedForkchoiceListener(subscriptionId);
-            LOG.info("Initial sync done, unsubscribe forkchoice supplier");
-          };
 
       final SingleBlockHeaderDownloader headerDownloader =
           new SingleBlockHeaderDownloader(ethContext, protocolSchedule);
 
-      return new PivotSelectorFromSafeBlock(
-          protocolContext,
-          protocolSchedule,
-          ethContext,
-          genesisConfigOptions,
-          unverifiedForkchoiceSupplier,
-          unsubscribeForkchoiceListener,
-          headerDownloader);
+      final List<Runnable> cleanups = new ArrayList<>();
+
+      final PivotSelectorFromSafeBlock selector =
+          new PivotSelectorFromSafeBlock(
+              protocolContext,
+              genesisConfigOptions,
+              headerDownloader,
+              protocolSchedule,
+              Clock.systemUTC(),
+              syncConfig.getSnapSyncConfiguration().getPivotBlockWindowValidity(),
+              () -> {
+                cleanups.forEach(Runnable::run);
+                LOG.info("Initial sync done, unsubscribing forkchoice + newPayload listeners");
+              });
+
+      final long newPayloadSubscriptionId = mergeContext.addNewPayloadListener(selector);
+      cleanups.add(() -> mergeContext.removeNewPayloadListener(newPayloadSubscriptionId));
+
+      final long selectorSubscriptionId = mergeContext.addNewUnverifiedForkchoiceListener(selector);
+      cleanups.add(
+          () -> mergeContext.removeNewUnverifiedForkchoiceListener(selectorSubscriptionId));
+
+      return selector;
     } else {
       LOG.info("TTD difficulty is not present, creating initial sync phase for PoW");
-      return new PivotSelectorFromPeers(ethContext, syncConfig, syncState);
+      return new PivotSelectorFromPeers(
+          ethContext,
+          syncConfig,
+          syncState,
+          syncConfig.getSnapSyncConfiguration().getPivotBlockWindowValidity());
     }
   }
 
@@ -1285,7 +1347,6 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
   }
 
   private Optional<SnapProtocolManager> createSnapProtocolManager(
-      final ProtocolSchedule protocolSchedule,
       final ProtocolContext protocolContext,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final EthPeers ethPeers,
@@ -1299,7 +1360,6 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             ethPeers,
             snapMessages,
             ethScheduler,
-            protocolSchedule,
             protocolContext,
             synchronizer));
   }

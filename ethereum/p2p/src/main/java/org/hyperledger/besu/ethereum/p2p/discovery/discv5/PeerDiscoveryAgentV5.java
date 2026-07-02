@@ -161,7 +161,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
   @Override
   public CompletableFuture<Integer> start(final int tcpPort) {
     if (!isEnabled()) {
-      LOG.debug("DiscV5 peer discovery is disabled; not starting agent");
+      LOG.trace("DiscV5 peer discovery is disabled; not starting agent");
       return CompletableFuture.completedFuture(0);
     }
     if (stopped.get()) {
@@ -203,7 +203,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
               } catch (final RejectedExecutionException e) {
                 // Benign: stop() shut down the scheduler between the stopped check and the
                 // schedule call. The agent is stopping so there is nothing to schedule.
-                LOG.debug("Scheduler already shut down; skipping discovery tick scheduling", e);
+                LOG.trace("Scheduler already shut down; skipping discovery tick scheduling", e);
               }
               if (stopped.get()) {
                 throw new IllegalStateException(
@@ -234,7 +234,7 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
                 try {
                   system.stop();
                 } catch (final Exception e) {
-                  LOG.debug("Error while stopping discovery system after failed start", e);
+                  LOG.trace("Error while stopping discovery system after failed start", e);
                 }
                 discoverySystem.set(null);
               }
@@ -530,6 +530,11 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
    * active but RLPx dual-stack is not, the IPv6 ENR fields are omitted rather than advertising an
    * incorrect port.
    *
+   * <p>When dual-stack discovery is bound but {@code --p2p-host-ipv6} is unpinned, the
+   * locally-bound IPv6 RLPx TCP port is registered with {@link NodeRecordManager} as an
+   * auto-discovery hint. The hint carries only the port — never a host — and is consumed once
+   * DiscV5 peers reach consensus on an external IPv6 address.
+   *
    * @param tcpPort the effective IPv4 RLPx TCP port returned by {@link RlpxAgent#start()}
    * @return the initialized local {@link NodeRecord}
    */
@@ -551,10 +556,20 @@ public final class PeerDiscoveryAgentV5 implements PeerDiscoveryAgent {
                                 new HostEndpoint(host, discoveryConfig.getBindPortIpv6(), port)))
             : Optional.empty();
 
+    // When dual-stack is bound but --p2p-host-ipv6 is unpinned, opt the node in to DiscV5
+    // peer-consensus IPv6 auto-discovery by registering the locally-bound IPv6 RLPx TCP
+    // port. The UDP port arrives later via the peer report; the host is never pre-populated, so
+    // nothing leaks into the broadcast ENR until auto-discovery succeeds.
+    final Optional<Integer> ipv6AutoDiscoveryTcpPort =
+        discoveryConfig.isDualStackEnabled() && discoveryConfig.getAdvertisedHostIpv6().isEmpty()
+            ? ipv6TcpPort
+            : Optional.empty();
+
     nodeRecordManager.initializeLocalNode(
         new HostEndpoint(
             discoveryConfig.getAdvertisedHost(), discoveryConfig.getBindPort(), tcpPort),
-        ipv6Endpoint);
+        ipv6Endpoint,
+        ipv6AutoDiscoveryTcpPort);
 
     return nodeRecordManager
         .getLocalNode()

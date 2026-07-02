@@ -38,6 +38,8 @@ import org.hyperledger.besu.ethereum.blockcreation.BlockCreator.BlockCreationRes
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.core.BlockValueCalculator;
+import org.hyperledger.besu.ethereum.core.BlockWithReceipts;
 import org.hyperledger.besu.ethereum.core.MiningConfiguration;
 import org.hyperledger.besu.ethereum.core.Request;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -213,6 +215,15 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
     try {
       final Address coinbase = payloadAttributes.getSuggestedFeeRecipient();
 
+      // The header coinbase is sourced from miningConfiguration (see
+      // BlockHeaderBuilder.createPending), whereas transaction fees and the EIP-7928
+      // block access list are credited to the mining beneficiary derived from the
+      // suggestedFeeRecipient below. Without aligning the two, the built block's header
+      // records the node's configured coinbase (Address.ZERO on a filler) while the BAL
+      // credits suggestedFeeRecipient, so re-execution on engine_newPayload recomputes a
+      // BAL under the header coinbase and the block self-rejects with a BAL hash mismatch.
+      miningConfiguration.setCoinbase(coinbase);
+
       final TestingBlockCreator blockCreator =
           new TestingBlockCreator(
               miningConfiguration,
@@ -265,13 +276,17 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
       final String slotNumberHex =
           block.getHeader().getOptionalSlotNumber().map(Quantity::create).orElse(null);
 
+      final Wei blockValue =
+          BlockValueCalculator.calculateBlockValue(
+              new BlockWithReceipts(block, result.getTransactionSelectionResults().getReceipts()));
+
       final EngineGetPayloadResultV6 responsePayload =
           new EngineGetPayloadResultV6(
               block.getHeader(),
               txsAsHex,
               block.getBody().getWithdrawals(),
               executionRequests,
-              Quantity.create(Wei.ZERO),
+              Quantity.create(blockValue),
               blobsBundle,
               blockAccessListHex,
               slotNumberHex);

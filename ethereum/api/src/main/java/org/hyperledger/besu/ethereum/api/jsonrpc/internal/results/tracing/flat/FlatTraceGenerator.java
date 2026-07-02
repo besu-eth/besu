@@ -573,19 +573,12 @@ public class FlatTraceGenerator {
         return ZERO_ADDRESS_STRING;
       }
     }
-    switch (lastActionBuilder.getCallType()) {
-      case "call":
-      case "staticcall":
-        return lastActionBuilder.getTo();
-      case "delegatecall":
-      case "callcode":
-        return lastActionBuilder.getFrom();
-      case "create":
-      case "create2":
-        return lastContextBuilder.getResultBuilder().getAddress();
-      default:
-        return ZERO_ADDRESS_STRING;
-    }
+    return switch (lastActionBuilder.getCallType()) {
+      case "call", "staticcall" -> lastActionBuilder.getTo();
+      case "delegatecall", "callcode" -> lastActionBuilder.getFrom();
+      case "create", "create2" -> lastContextBuilder.getResultBuilder().getAddress();
+      default -> ZERO_ADDRESS_STRING;
+    };
   }
 
   private static long computeGasUsed(

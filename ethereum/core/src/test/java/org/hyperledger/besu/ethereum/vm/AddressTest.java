@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.Test;
@@ -67,5 +68,17 @@ public class AddressTest {
   public void nullAccountAddress() {
     assertThatThrownBy(() -> Address.fromHexStringStrict(null))
         .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  @Test
+  public void addressHashReturnsCorrectValue() {
+    final Address address = Address.fromHexString("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+    assertThat(address.addressHash()).isEqualTo(Hash.hash(address.getBytes()));
+  }
+
+  @Test
+  public void addressHashIsCached() {
+    final Address address = Address.fromHexString("0x1234567890123456789012345678901234567890");
+    assertThat(address.addressHash()).isSameAs(address.addressHash());
   }
 }

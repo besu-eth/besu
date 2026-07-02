@@ -14,12 +14,14 @@
  */
 package org.hyperledger.besu.ethereum.rlp;
 
+import org.jspecify.annotations.Nullable;
+
 public class RLPException extends RuntimeException {
   public RLPException(final String message) {
     this(message, null);
   }
 
-  RLPException(final String message, final Throwable throwable) {
+  RLPException(final String message, final @Nullable Throwable throwable) {
     super(message, throwable);
   }
 }

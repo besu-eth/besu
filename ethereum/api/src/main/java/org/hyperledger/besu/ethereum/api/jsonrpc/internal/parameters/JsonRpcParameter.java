@@ -14,17 +14,13 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.parameters;
 
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
+
 import java.util.List;
 import java.util.Optional;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonToken;
-import com.fasterxml.jackson.databind.DeserializationContext;
 import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonDeserializer;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.deser.DeserializationProblemHandler;
-import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 
 public class JsonRpcParameter {
 
@@ -33,26 +29,20 @@ public class JsonRpcParameter {
    * must opt out individually via {@code @JsonIgnoreProperties(ignoreUnknown = true)} — without
    * that annotation, an unknown property fails deserialization regardless of its value.
    */
-  private static final ObjectMapper mapperDefault =
-      new ObjectMapper()
-          .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true)
-          .registerModule(new Jdk8Module()); // Handle JDK8 Optionals (de)serialization
+  private static final ObjectMapper mapperDefault = JsonRpcObjectMapperFactory.getParameterMapper();
 
   /**
    * Like mapperDefault but with {@link DeserializationFeature#FAIL_ON_UNKNOWN_PROPERTIES}
-   * explicitly enabled and an {@link IgnoreNullUnknownHandler} attached: unknown JSON properties
-   * whose value is {@code null} are silently dropped, while unknown properties with a non-{@code
-   * null} value still cause deserialization to fail.
+   * explicitly enabled and a handler attached: unknown JSON properties whose value is {@code null}
+   * are silently dropped, while unknown properties with a non-{@code null} value still cause
+   * deserialization to fail.
    */
   private static final ObjectMapper mapperFailOnUnknownButNull =
-      mapperDefault
-          .copy()
-          .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true)
-          .addHandler(new IgnoreNullUnknownHandler());
+      JsonRpcObjectMapperFactory.getParameterMapperIgnoringUnknownNulls();
 
   /**
    * Retrieves a required parameter at the given index interpreted as the given class. Throws
-   * InvalidJsonRpcParameters if parameter is missing or of the wrong type.
+   * InvalidJsonRpcParameters if the parameter is missing or of the wrong type.
    *
    * @param params the list of objects from which to extract a typed object.
    * @param index Which index of the params array to access.
@@ -74,7 +64,7 @@ public class JsonRpcParameter {
     return optional(params, index, paramClass, configuration)
         .orElseThrow(
             () ->
-                new JsonRpcParameterException(
+                new JsonRpcMissingParameterException(
                     "Missing required json rpc parameter at index " + index));
   }
 
@@ -131,6 +121,33 @@ public class JsonRpcParameter {
   public <T> Optional<T> optional(final Object[] params, final int index, final Class<T> paramClass)
       throws JsonRpcParameterException {
     return optional(params, index, paramClass, Configuration.DEFAULT);
+  }
+
+  public <T> List<T> requiredList(final Object[] params, final int index, final Class<T> listClass)
+      throws JsonRpcParameterException {
+    return requiredList(params, index, listClass, Configuration.DEFAULT);
+  }
+
+  public <T> List<T> requiredList(
+      final Object[] params,
+      final int index,
+      final Class<T> listClass,
+      final Configuration configuration)
+      throws JsonRpcParameterException {
+    final Optional<List<T>> value = optionalList(params, index, listClass, configuration);
+    if (value.isPresent()) {
+      return value.get();
+    }
+
+    if (params != null && params.length > index && params[index] != null) {
+      final Object rawParam = params[index];
+      throw new JsonRpcParameterException(
+          String.format(
+              "Invalid json rpc parameter at index %d. Supplied value was: '%s' of type: '%s' - expected a list of '%s'",
+              index, rawParam, rawParam.getClass().getName(), listClass.getName()));
+    }
+    throw new JsonRpcMissingParameterException(
+        "Missing required json rpc parameter at index " + index);
   }
 
   /**
@@ -196,6 +213,12 @@ public class JsonRpcParameter {
     }
   }
 
+  public static class JsonRpcMissingParameterException extends JsonRpcParameterException {
+    public JsonRpcMissingParameterException(final String message) {
+      super(message);
+    }
+  }
+
   /**
    * Controls how Jackson deserializes the raw parameter into the requested target class. Callers
    * pick the configuration that matches the strictness their RPC method needs.
@@ -209,9 +232,9 @@ public class JsonRpcParameter {
     DEFAULT(mapperDefault),
     /**
      * Like {@link #DEFAULT} but with {@link DeserializationFeature#FAIL_ON_UNKNOWN_PROPERTIES}
-     * explicitly enabled and an {@link IgnoreNullUnknownHandler} attached: unknown JSON properties
-     * whose value is {@code null} are silently dropped, while unknown properties with a non-{@code
-     * null} value still cause deserialization to fail.
+     * explicitly enabled and a handler attached: unknown JSON properties whose value is {@code
+     * null} are silently dropped, while unknown properties with a non-{@code null} value still
+     * cause deserialization to fail.
      */
     FAIL_ON_UNKNOWN_BUT_NULL(mapperFailOnUnknownButNull);
 
@@ -219,28 +242,6 @@ public class JsonRpcParameter {
 
     Configuration(final ObjectMapper mapper) {
       this.mapper = mapper;
-    }
-  }
-
-  private static class IgnoreNullUnknownHandler extends DeserializationProblemHandler {
-    @Override
-    public boolean handleUnknownProperty(
-        final DeserializationContext ctxt,
-        final JsonParser p,
-        final JsonDeserializer<?> deserializer,
-        final Object beanOrClass,
-        final String propertyName)
-        throws java.io.IOException {
-      if (p.currentToken() != JsonToken.VALUE_NULL) {
-        return false;
-      }
-      // Per DeserializationProblemHandler contract, the handler must consume the value
-      // when returning true. skipChildren() is the idiomatic call; it is a no-op for
-      // scalar tokens (including VALUE_NULL) but satisfies the contract and protects
-      // against different Jackson code paths that do not advance the parser after
-      // seeing a true return value.
-      p.skipChildren();
-      return true;
     }
   }
 }

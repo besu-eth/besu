@@ -60,6 +60,25 @@ import org.slf4j.LoggerFactory;
 public class RlpxAgent {
   private static final Logger LOG = LoggerFactory.getLogger(RlpxAgent.class);
 
+  /**
+   * Singleton sentinel thrown when no ProtocolManager accepts an outbound connection. Capturing a
+   * full stack trace on every peer-gate rejection allocates ~1-3 KB and calls a JVM native each
+   * time; at high connection-attempt rates this adds measurable GC pressure. Using a stackless
+   * singleton avoids that cost, following the same pattern as Netty's
+   * StacklessClosedChannelException.
+   */
+  // Intentional static Throwable: this is a stackless sentinel used to avoid allocating a fresh
+  // RuntimeException (and capturing a stack trace) on every peer-gate rejection. The singleton
+  // is safe because it carries no mutable state and its stack trace is always empty.
+  @SuppressWarnings("StaticAssignmentOfThrowable")
+  private static final RuntimeException NO_PROTOCOL_MANAGER_EXCEPTION =
+      new RuntimeException("None of the ProtocolManagers wants to connect to this peer") {
+        @Override
+        public synchronized Throwable fillInStackTrace() {
+          return this;
+        }
+      };
+
   private final LocalNode localNode;
   private final PeerConnectionEvents connectionEvents;
   private final ConnectionInitializer connectionInitializer;
@@ -245,10 +264,8 @@ public class RlpxAgent {
         throw new RuntimeException(e);
       }
     } else {
-      final String errorMsg =
-          "None of the ProtocolManagers wants to connect to peer " + peer.getId();
-      LOG.trace(errorMsg);
-      return CompletableFuture.failedFuture((new RuntimeException(errorMsg)));
+      LOG.trace("None of the ProtocolManagers wants to connect to peer {}", peer.getId());
+      return CompletableFuture.failedFuture(NO_PROTOCOL_MANAGER_EXCEPTION);
     }
 
     return peerConnectionCompletableFuture;
@@ -309,8 +326,8 @@ public class RlpxAgent {
 
   private CompletableFuture<PeerConnection> initiateOutboundConnection(final Peer peer) {
     LOG.trace("Initiating connection to peer: {}", peer.getEnodeURL());
-    if (peer instanceof DiscoveryPeer) {
-      ((DiscoveryPeer) peer).setLastAttemptedConnection(System.currentTimeMillis());
+    if (peer instanceof DiscoveryPeer discoveryPeer) {
+      discoveryPeer.setLastAttemptedConnection(System.currentTimeMillis());
     }
 
     return connectionInitializer

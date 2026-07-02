@@ -134,10 +134,9 @@ public class EthGetLogs implements JsonRpcMethod {
           .addArgument(requestContext.getRequest())
           .setCause(ex.get())
           .log();
-      if (ex.get() instanceof InvalidJsonRpcParameters) {
+      if (ex.get() instanceof InvalidJsonRpcParameters invalidJsonRpcParameters) {
         return new JsonRpcErrorResponse(
-            requestContext.getRequest().getId(),
-            ((InvalidJsonRpcParameters) ex.get()).getRpcErrorType());
+            requestContext.getRequest().getId(), invalidJsonRpcParameters.getRpcErrorType());
       } else {
         throw new RuntimeException(ex.get());
       }
