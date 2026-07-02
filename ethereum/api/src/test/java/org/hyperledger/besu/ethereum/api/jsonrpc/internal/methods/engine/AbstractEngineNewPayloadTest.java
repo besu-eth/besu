@@ -334,7 +334,8 @@ public abstract class AbstractEngineNewPayloadTest extends AbstractScheduledApiT
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             Optional.empty());
     Hash chainHeadHash =
-        Hash.fromHexStringLenient("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+        Hash.fromHexStringLenient(
+            "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
     BlockHeader parentHeader = mock(BlockHeader.class);
     when(blockchain.getBlockHeader(mockHeader.getParentHash()))
         .thenReturn(Optional.of(parentHeader));
@@ -362,9 +363,11 @@ public abstract class AbstractEngineNewPayloadTest extends AbstractScheduledApiT
             new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
             Optional.empty());
     Hash chainHeadHash =
-        Hash.fromHexStringLenient("0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+        Hash.fromHexStringLenient(
+            "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
     Hash grandparentHash =
-        Hash.fromHexStringLenient("0xcafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe");
+        Hash.fromHexStringLenient(
+            "0xcafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe");
     BlockHeader parentHeader = mock(BlockHeader.class);
     when(blockchain.getBlockHeader(mockHeader.getParentHash()))
         .thenReturn(Optional.of(parentHeader));

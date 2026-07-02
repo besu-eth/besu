@@ -130,8 +130,8 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    *
    * <p>Use this for pre-execution head advancement during {@code engine_newPayload}, when the
    * parent block was previously received via {@code newPayload} but the chain head was not moved
-   * forward yet. Unlike {@link #updateForkChoice}, this does not apply the legacy "ignore update
-   * to old head" optimization. Unlike {@link #updateForkChoice} and {@link
+   * forward yet. Unlike {@link #updateForkChoice}, this does not apply the legacy "ignore update to
+   * old head" optimization. Unlike {@link #updateForkChoice} and {@link
    * #updateForkChoiceWithoutLegacySkip}, this does not persist finalized or safe block markers.
    *
    * @param newHead the new head
