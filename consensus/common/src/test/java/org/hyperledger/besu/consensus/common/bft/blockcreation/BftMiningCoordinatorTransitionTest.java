@@ -56,7 +56,7 @@ public class BftMiningCoordinatorTransitionTest {
 
   @Test
   @Timeout(value = 30, unit = TimeUnit.SECONDS)
-  public void stopFromEventThreadHaltsEventProcessingWithoutDeadlock() {
+  public void stopFromEventThreadHaltsEventProcessingWithoutDeadlock() throws InterruptedException {
     final BftEventQueue eventQueue = new BftEventQueue(1000);
     eventQueue.start();
 
@@ -100,5 +100,10 @@ public class BftMiningCoordinatorTransitionTest {
         .pollDelay(Duration.ofSeconds(1))
         .atMost(Duration.ofSeconds(5))
         .untilAsserted(() -> assertThat(handledEvents.get()).isEqualTo(1));
+
+    // stop() offloads its blocking teardown to a separate thread when invoked from the event
+    // thread; wait for that teardown to finish so the BftProcessorExecutor/BftTimerExecutor
+    // threads it shuts down don't leak into later tests.
+    bftExecutors.awaitStop();
   }
 }

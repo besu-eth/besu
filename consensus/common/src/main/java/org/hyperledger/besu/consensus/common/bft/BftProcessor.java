@@ -31,7 +31,7 @@ public class BftProcessor implements Runnable {
   private final BftEventQueue incomingQueue;
   private volatile boolean shutdown = false;
   private final EventMultiplexer eventMultiplexer;
-  private final CountDownLatch shutdownLatch = new CountDownLatch(1);
+  private volatile CountDownLatch shutdownLatch = new CountDownLatch(1);
   private volatile Thread processorThread;
 
   /**
@@ -48,6 +48,11 @@ public class BftProcessor implements Runnable {
   /** Indicate to the processor that it can be started */
   public synchronized void start() {
     shutdown = false;
+    // A fresh latch per start/stop cycle: BftMiningCoordinator reuses this processor across
+    // multiple start/stop cycles (e.g. pausing/resuming for sync), and the previous cycle's
+    // latch is already counted down to zero, which would make awaitStop() return immediately
+    // without actually waiting for this cycle's event loop to exit.
+    shutdownLatch = new CountDownLatch(1);
   }
 
   /** Indicate to the processor that it should gracefully stop at its next opportunity */
@@ -78,6 +83,10 @@ public class BftProcessor implements Runnable {
   @Override
   public void run() {
     processorThread = Thread.currentThread();
+    // Snapshot the latch for this run cycle: start() may install a new one for a subsequent
+    // cycle as soon as this thread begins, and this cycle must count down the latch that
+    // callers of awaitStop() are (or will be) waiting on for it, not a later cycle's latch.
+    final CountDownLatch currentShutdownLatch = shutdownLatch;
     try {
       // Start the event queue. Until it is started it won't accept new events from peers
       incomingQueue.start();
@@ -98,7 +107,7 @@ public class BftProcessor implements Runnable {
     }
     // Clean up the executor service the round timer has been utilising
     LOG.info("Shutting down BFT event processor");
-    shutdownLatch.countDown();
+    currentShutdownLatch.countDown();
   }
 
   private Optional<BftEvent> nextEvent() {
