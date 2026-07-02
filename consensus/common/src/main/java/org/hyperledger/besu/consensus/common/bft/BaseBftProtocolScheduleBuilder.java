@@ -104,8 +104,11 @@ public abstract class BaseBftProtocolScheduleBuilder {
     final BftProtocolSchedule bftSchedule =
         new BftProtocolSchedule((DefaultProtocolSchedule) protocolSchedule);
 
-    // Once we have the schedule we can update the fork schedule with the type of each milestone
-    forksSchedule.applyMilestoneTypes(bftSchedule);
+    // Keep transition milestones block-based.
+    // QBFT/IBFT/Clique `transitions` are configured with block numbers, and forcing
+    // timestamp-based fork type selection can incorrectly activate transitions early.
+    // NOTE: this preserves pre-26.x behavior for BFT transitions.
+    // forksSchedule.applyMilestoneTypes(bftSchedule);
 
     return bftSchedule;
   }
