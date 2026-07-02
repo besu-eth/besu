@@ -84,6 +84,16 @@ public class BftMiningCoordinatorTest {
   }
 
   @Test
+  public void stopsMiningWhenDisabledForMergeTransition() {
+    bftMiningCoordinator.enable();
+    bftMiningCoordinator.start();
+    // the merge transition watcher disables then stops the coordinator when TTD is reached
+    bftMiningCoordinator.disable();
+    bftMiningCoordinator.stop();
+    verify(bftProcessor).stop();
+  }
+
+  @Test
   public void restartsMiningAfterStop() {
     assertThat(bftMiningCoordinator.isMining()).isFalse();
     bftMiningCoordinator.stop();
