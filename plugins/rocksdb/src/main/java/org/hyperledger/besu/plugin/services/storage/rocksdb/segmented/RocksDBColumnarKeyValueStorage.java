@@ -15,7 +15,10 @@
 package org.hyperledger.besu.plugin.services.storage.rocksdb.segmented;
 
 import static java.util.stream.Collectors.toUnmodifiableSet;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.BLOCKCHAIN;
+import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -54,7 +57,9 @@ import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.CompressionType;
 import org.rocksdb.ConfigOptions;
 import org.rocksdb.DBOptions;
+import org.rocksdb.DataBlockIndexType;
 import org.rocksdb.Env;
+import org.rocksdb.IndexType;
 import org.rocksdb.LRUCache;
 import org.rocksdb.Options;
 import org.rocksdb.OptionsUtil;
@@ -75,6 +80,42 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   private static final Logger LOG = LoggerFactory.getLogger(RocksDBColumnarKeyValueStorage.class);
   private static final int ROCKSDB_FORMAT_VERSION = 5;
   private static final long ROCKSDB_BLOCK_SIZE = 32768;
+
+  /**
+   * Block size for the flat account state segment. Values are small (~70-150 bytes) and accessed by
+   * random point lookups on hashed keys, so small data blocks reduce read amplification and make
+   * better use of the block cache (less unrelated data pulled in per lookup).
+   */
+  private static final long FLAT_ACCOUNT_BLOCK_SIZE = 4096;
+
+  /** Block size for the flat account storage segment, tuned like the flat account state one. */
+  private static final long FLAT_STORAGE_BLOCK_SIZE = 8192;
+
+  /**
+   * Fraction of in-block hash table slots to use for the hash-based data block index. 0.75 is the
+   * RocksDB recommended starting point: dense enough to keep the index small, sparse enough to keep
+   * collisions (and the resulting binary-search fallback) rare.
+   */
+  private static final double DATA_BLOCK_HASH_TABLE_UTIL_RATIO = 0.75;
+
+  /**
+   * Bloom filter bits per key for flat state segments. Point-lookup-heavy workloads with many
+   * negative lookups benefit from a lower false positive rate (~0.05% at 15 bits vs ~1% at 10
+   * bits), avoiding useless data block reads.
+   */
+  private static final int FLAT_STATE_BLOOM_FILTER_BITS_PER_KEY = 15;
+
+  /** Bloom filter bits per key for the remaining segments (RocksDB's common default of 10). */
+  private static final int DEFAULT_BLOOM_FILTER_BITS_PER_KEY = 10;
+
+  /**
+   * Target size of L1 for state segments (~350 MB). Together with a larger level multiplier this
+   * flattens the LSM tree, so point reads have fewer levels to probe.
+   */
+  private static final long STATE_MAX_BYTES_FOR_LEVEL_BASE = 350 * 1_048_576L;
+
+  /** Level size multiplier for state segments, keeping the LSM shallow (fewer levels to probe). */
+  private static final double STATE_MAX_BYTES_FOR_LEVEL_MULTIPLIER = 30;
 
   /** RocksDb blockcache size when using the high spec option */
   protected static final long ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC = 1_073_741_824L;
@@ -234,12 +275,42 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
             .setCompressionType(CompressionType.LZ4_COMPRESSION)
             .setTableFormatConfig(basedTableConfig)
             .setLevelCompactionDynamicLevelBytes(dynamicLevelBytes);
+    if (isStateSegment(segment)) {
+      // Flatten the LSM for state column families: a larger level base and multiplier mean
+      // fewer levels, so each point lookup has fewer levels to probe.
+      cfOptions
+          .setMaxBytesForLevelBase(STATE_MAX_BYTES_FOR_LEVEL_BASE)
+          .setMaxBytesForLevelMultiplier(STATE_MAX_BYTES_FOR_LEVEL_MULTIPLIER);
+    }
     columnFamilyOptionsList.add(cfOptions);
     if (segment.containsStaticData()) {
       configureBlobDBForSegment(segment, configuration, cfOptions);
     }
 
     return new ColumnFamilyDescriptor(segment.getId(), cfOptions);
+  }
+
+  /**
+   * Flat state segments hold small values (~70-150 bytes) read almost exclusively through random
+   * point lookups on hashed keys, so they get point-lookup-oriented table options.
+   *
+   * @param segment the segment identifier
+   * @return true if the segment stores flat state data
+   */
+  private static boolean isFlatStateSegment(final SegmentIdentifier segment) {
+    return ACCOUNT_INFO_STATE.getName().equals(segment.getName())
+        || ACCOUNT_STORAGE_STORAGE.getName().equals(segment.getName());
+  }
+
+  /**
+   * State segments (flat state and trie nodes) are the read-hot column families during block
+   * processing and benefit from a shallower LSM shape.
+   *
+   * @param segment the segment identifier
+   * @return true if the segment stores world state data
+   */
+  private static boolean isStateSegment(final SegmentIdentifier segment) {
+    return isFlatStateSegment(segment) || TRIE_BRANCH_STORAGE.getName().equals(segment.getName());
   }
 
   private static void configureBlobDBForSegment(
@@ -294,13 +365,40 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
                 ? ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC
                 : config.getCacheCapacity());
     blockCaches.add(cache);
-    return new BlockBasedTableConfig()
-        .setFormatVersion(ROCKSDB_FORMAT_VERSION)
-        .setBlockCache(cache)
-        .setFilterPolicy(new BloomFilter(10, false))
-        .setPartitionFilters(true)
-        .setCacheIndexAndFilterBlocks(segment.isCacheIndexAndFilterBlocks())
-        .setBlockSize(ROCKSDB_BLOCK_SIZE);
+    final BlockBasedTableConfig tableConfig =
+        new BlockBasedTableConfig()
+            .setFormatVersion(ROCKSDB_FORMAT_VERSION)
+            .setBlockCache(cache)
+            .setCacheIndexAndFilterBlocks(segment.isCacheIndexAndFilterBlocks());
+    if (isFlatStateSegment(segment)) {
+      tableConfig
+          .setBlockSize(
+              ACCOUNT_INFO_STATE.getName().equals(segment.getName())
+                  ? FLAT_ACCOUNT_BLOCK_SIZE
+                  : FLAT_STORAGE_BLOCK_SIZE)
+          .setFilterPolicy(new BloomFilter(FLAT_STATE_BLOOM_FILTER_BITS_PER_KEY, false))
+          // A single binary-search index with whole (non-partitioned) filters keeps a point
+          // lookup to one index probe and one filter probe, instead of the extra top-level
+          // index hop that partitioned indexes/filters add on every read.
+          .setIndexType(IndexType.kBinarySearch)
+          .setPartitionFilters(false)
+          // In-block hash index resolves a key inside a data block in O(1) instead of a
+          // binary search over restart points, which pays off for random point lookups.
+          .setDataBlockIndexType(DataBlockIndexType.kDataBlockBinaryAndHash)
+          .setDataBlockHashTableUtilRatio(DATA_BLOCK_HASH_TABLE_UTIL_RATIO)
+          .setPinL0FilterAndIndexBlocksInCache(true);
+    } else {
+      tableConfig
+          .setBlockSize(ROCKSDB_BLOCK_SIZE)
+          .setFilterPolicy(new BloomFilter(DEFAULT_BLOOM_FILTER_BITS_PER_KEY, false))
+          // Partitioned filters/indexes are kept for the remaining (large or scan-oriented)
+          // segments to bound the memory held per SST file.
+          .setPartitionFilters(true);
+      if (TRIE_BRANCH_STORAGE.getName().equals(segment.getName())) {
+        tableConfig.setPinL0FilterAndIndexBlocksInCache(true);
+      }
+    }
+    return tableConfig;
   }
 
   /***
