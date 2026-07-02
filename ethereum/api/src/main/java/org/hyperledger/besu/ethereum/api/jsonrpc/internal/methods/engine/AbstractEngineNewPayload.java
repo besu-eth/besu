@@ -44,6 +44,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePayloadStatusResult;
+import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -374,8 +375,18 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
       return respondWith(reqId, blockParam, null, ACCEPTED);
     }
 
+    final MutableBlockchain blockchain = protocolContext.getBlockchain();
+    if (!newBlockHeader.getParentHash().equals(blockchain.getChainHeadHash())) {
+      maybeParentHeader.ifPresent(
+          parentHeader -> {
+            mergeCoordinator.updateForkChoice(
+                parentHeader,
+                blockchain.getFinalized().orElse(Hash.ZERO),
+                blockchain.getSafeBlock().orElse(Hash.ZERO));
+          });
+    }
+
     // execute block and return result response
-    final long chainHeadBlockNumber = protocolContext.getBlockchain().getChainHeadBlockNumber();
     final long startTimeNs = System.nanoTime();
     final BlockProcessingResult executionResult =
         mergeCoordinator.rememberBlock(block, maybeBlockAccessList);
@@ -390,18 +401,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
               .sum(),
           lastExecutionTimeInNs,
           executionResult.getNbParallelizedTransactions());
-      if (newBlockHeader.getNumber() - chainHeadBlockNumber > 1) {
-        LOG.info(
-            "Advancing chain head after newPayload: block #{} is {} above chain head #{}",
-            newBlockHeader.getNumber(),
-            newBlockHeader.getNumber() - chainHeadBlockNumber,
-            chainHeadBlockNumber);
-        final var blockchain = protocolContext.getBlockchain();
-        mergeCoordinator.updateForkChoice(
-            newBlockHeader,
-            blockchain.getFinalized().orElse(Hash.ZERO),
-            blockchain.getSafeBlock().orElse(Hash.ZERO));
-      }
       return respondWith(reqId, blockParam, newBlockHeader.getHash(), VALID);
     } else {
       if (executionResult.causedBy().isPresent()) {
