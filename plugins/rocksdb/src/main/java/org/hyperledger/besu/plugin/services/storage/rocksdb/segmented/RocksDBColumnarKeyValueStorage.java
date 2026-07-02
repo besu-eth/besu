@@ -108,10 +108,20 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
   private static final int DEFAULT_BLOOM_FILTER_BITS_PER_KEY = 10;
 
   /**
-   * Target size of L1 for state segments (~350 MB). Together with a larger level multiplier this
-   * flattens the LSM tree, so point reads have fewer levels to probe.
+   * Target SST file size for the data-heavy column families (blockchain, flat state, trie nodes).
+   * These column families can grow beyond 100 GiB, which with the RocksDB default target file size
+   * of 64 MiB produces thousands of SST files. That many files thrash the table cache (frequent,
+   * expensive re-opens in TableCache::FindTable on the read path) and multiply per-file metadata
+   * overhead. Larger 256 MiB files keep the file count manageable.
    */
-  private static final long STATE_MAX_BYTES_FOR_LEVEL_BASE = 350 * 1_048_576L;
+  private static final long LARGE_SEGMENT_SST_TARGET_FILE_SIZE = 268_435_456L;
+
+  /**
+   * Target size of L1 for the data-heavy column families: 4x the RocksDB default, scaled with the
+   * 4x target file size so L1 still holds ~4 target-size files.
+   */
+  private static final long LARGE_SEGMENT_MAX_BYTES_FOR_LEVEL_BASE =
+      4 * LARGE_SEGMENT_SST_TARGET_FILE_SIZE;
 
   /** Level size multiplier for state segments, keeping the LSM shallow (fewer levels to probe). */
   private static final double STATE_MAX_BYTES_FOR_LEVEL_MULTIPLIER = 30;
@@ -277,12 +287,17 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
             .setTtl(0)
             .setCompressionType(CompressionType.LZ4_COMPRESSION)
             .setLevelCompactionDynamicLevelBytes(dynamicLevelBytes);
-    if (isStateSegment(segment)) {
-      // Flatten the LSM for state column families: a larger level base and multiplier mean
-      // fewer levels, so each point lookup has fewer levels to probe.
+    if (segment.isEligibleToHighSpecFlag()) {
+      // Data-heavy column families (blockchain + state) get 4x the RocksDB default SST file
+      // size and L1 size, to keep the SST file count (and table-cache pressure) manageable.
       cfOptions
-          .setMaxBytesForLevelBase(STATE_MAX_BYTES_FOR_LEVEL_BASE)
-          .setMaxBytesForLevelMultiplier(STATE_MAX_BYTES_FOR_LEVEL_MULTIPLIER);
+          .setTargetFileSizeBase(LARGE_SEGMENT_SST_TARGET_FILE_SIZE)
+          .setMaxBytesForLevelBase(LARGE_SEGMENT_MAX_BYTES_FOR_LEVEL_BASE);
+    }
+    if (isStateSegment(segment)) {
+      // Flatten the LSM for state column families: a larger level multiplier means fewer
+      // levels, so each point lookup has fewer levels to probe.
+      cfOptions.setMaxBytesForLevelMultiplier(STATE_MAX_BYTES_FOR_LEVEL_MULTIPLIER);
     }
     columnFamilyOptionsList.add(cfOptions);
     if (segment.containsStaticData()) {

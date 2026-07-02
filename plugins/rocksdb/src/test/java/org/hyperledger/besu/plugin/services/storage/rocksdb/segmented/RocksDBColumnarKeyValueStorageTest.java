@@ -301,6 +301,7 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
             new NoOpMetricsSystem(),
             Arrays.asList(
                 KeyValueSegmentIdentifier.DEFAULT,
+                KeyValueSegmentIdentifier.BLOCKCHAIN,
                 KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE,
                 KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE,
                 KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE),
@@ -344,9 +345,39 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
         .contains("prepopulate_block_cache=kDisable")
         .contains("data_block_index_type=kDataBlockBinarySearch")
         .contains("bloomfilter:10");
+
+    // data-heavy segments get larger SST files and L1; state segments a larger multiplier
+    for (final SegmentIdentifier segment :
+        List.of(
+            KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE,
+            KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE,
+            KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE)) {
+      assertThat(cfOptionsSection(testPath, segment))
+          .contains("target_file_size_base=268435456")
+          .contains("max_bytes_for_level_base=1073741824")
+          .contains("max_bytes_for_level_multiplier=30.000000");
+    }
+    // blockchain is data-heavy but not a state segment: bigger files, default multiplier
+    assertThat(cfOptionsSection(testPath, KeyValueSegmentIdentifier.BLOCKCHAIN))
+        .contains("target_file_size_base=268435456")
+        .contains("max_bytes_for_level_base=1073741824")
+        .contains("max_bytes_for_level_multiplier=10.000000");
+    assertThat(cfOptionsSection(testPath, KeyValueSegmentIdentifier.DEFAULT))
+        .contains("target_file_size_base=67108864");
   }
 
   private static String tableOptionsSection(final Path dbPath, final SegmentIdentifier segment)
+      throws Exception {
+    return optionsSection(dbPath, "TableOptions/BlockBasedTable", segment);
+  }
+
+  private static String cfOptionsSection(final Path dbPath, final SegmentIdentifier segment)
+      throws Exception {
+    return optionsSection(dbPath, "CFOptions", segment);
+  }
+
+  private static String optionsSection(
+      final Path dbPath, final String sectionType, final SegmentIdentifier segment)
       throws Exception {
     final String optionsFileName =
         OptionsUtil.getLatestOptionsFileName(dbPath.toString(), Env.getDefault());
@@ -354,12 +385,14 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
     final String content =
         Files.readString(dbPath.resolve(optionsFileName), StandardCharsets.ISO_8859_1);
     final String header =
-        "[TableOptions/BlockBasedTable \""
+        "["
+            + sectionType
+            + " \""
             + new String(segment.getId(), StandardCharsets.ISO_8859_1)
             + "\"]";
     final int start = content.indexOf(header);
     assertThat(start)
-        .as("table options section for segment %s", segment.getName())
+        .as("%s section for segment %s", sectionType, segment.getName())
         .isGreaterThanOrEqualTo(0);
     final int end = content.indexOf('[', start + header.length());
     return end == -1 ? content.substring(start) : content.substring(start, end);

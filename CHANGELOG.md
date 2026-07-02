@@ -28,7 +28,7 @@
 - Upgrade netty dependencies to 4.2.15.Final [#10693](https://github.com/besu-eth/besu/pull/10693) 
 - Besu now falls back to Proof of Stake when the genesis file declares no consensus mechanism (e.g. an empty `"config": {}`). [#10266](https://github.com/besu-eth/besu/pull/10266)
 - Add `HealthCheckService` plugin API enabling custom health check implementations. The plugin-based `/readiness` response body is simplified to `{"status":"UP"|"DOWN"}` and no longer includes the previous `{peers, sync}` detail. [#10167](https://github.com/besu-eth/besu/pull/10167)
-- Tune RocksDB options per column family for point-lookup-heavy state access: smaller data blocks, in-block hash index, non-partitioned index/filters, stronger bloom filters and flush-time block cache prepopulation on flat state segments, plus a flatter LSM shape for state segments
+- Tune RocksDB options per column family for point-lookup-heavy state access: smaller data blocks, in-block hash index, non-partitioned index/filters, stronger bloom filters and flush-time block cache prepopulation on flat state segments, a flatter LSM shape for state segments, and 4x larger SST files (256 MiB) for the data-heavy column families to reduce table-cache thrashing
 
 ## 26.6.1
 
