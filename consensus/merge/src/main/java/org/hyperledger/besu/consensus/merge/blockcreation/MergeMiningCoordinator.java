@@ -126,6 +126,20 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
       final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash);
 
   /**
+   * Move the canonical chain head without updating forkchoice metadata (finalized or safe).
+   *
+   * <p>Use this for pre-execution head advancement during {@code engine_newPayload}, when the
+   * parent block was previously received via {@code newPayload} but the chain head was not moved
+   * forward yet. Unlike {@link #updateForkChoice}, this does not apply the legacy "ignore update
+   * to old head" optimization. Unlike {@link #updateForkChoice} and {@link
+   * #updateForkChoiceWithoutLegacySkip}, this does not persist finalized or safe block markers.
+   *
+   * @param newHead the new head
+   * @return the forkchoice result
+   */
+  ForkchoiceResult updateHeadForExecution(final BlockHeader newHead);
+
+  /**
    * Returns true if the given block hash is a strict ancestor of the currently finalized block
    * (i.e. an older block on the same chain, not finalized itself). Returns false when no finalized
    * block is known, when the candidate hash cannot be located, or when the candidate IS the

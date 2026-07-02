@@ -1082,6 +1082,55 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     verify(blockchain, never()).rewindToBlock(any());
   }
 
+  @Test
+  public void updateHeadForExecutionShouldMoveHeadWithoutUpdatingFinalizedOrSafe() {
+    BlockHeader terminalHeader = terminalPowBlock();
+    sendNewPayloadAndForkchoiceUpdate(
+        new Block(terminalHeader, BlockBody.empty()), Optional.empty(), Hash.ZERO);
+
+    BlockHeader parentHeader = nextBlockHeader(terminalHeader);
+    Block parent = new Block(parentHeader, BlockBody.empty());
+    coordinator.rememberBlock(parent);
+
+    BlockHeader childHeader = nextBlockHeader(parentHeader);
+    Block child = new Block(childHeader, BlockBody.empty());
+    sendNewPayloadAndForkchoiceUpdate(child, Optional.empty(), parent.getHash());
+
+    clearInvocations(blockchain, mergeContext);
+
+    ForkchoiceResult result = coordinator.updateHeadForExecution(parentHeader);
+
+    assertThat(result.shouldNotProceedToPayloadBuildProcess()).isFalse();
+    assertThat(result.getNewHead()).contains(parentHeader);
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(parentHeader.getHash());
+
+    verify(blockchain, never()).setFinalized(any());
+    verify(mergeContext, never()).setFinalized(any());
+    verify(blockchain, never()).setSafeBlock(any());
+    verify(mergeContext, never()).setSafeBlock(any());
+  }
+
+  @Test
+  public void updateHeadForExecutionShouldNotIgnoreAncestorOfChainHead() {
+    BlockHeader terminalHeader = terminalPowBlock();
+    sendNewPayloadAndForkchoiceUpdate(
+        new Block(terminalHeader, BlockBody.empty()), Optional.empty(), Hash.ZERO);
+
+    BlockHeader parentHeader = nextBlockHeader(terminalHeader);
+    Block parent = new Block(parentHeader, BlockBody.empty());
+    sendNewPayloadAndForkchoiceUpdate(parent, Optional.empty(), terminalHeader.getHash());
+
+    BlockHeader childHeader = nextBlockHeader(parentHeader);
+    Block child = new Block(childHeader, BlockBody.empty());
+    sendNewPayloadAndForkchoiceUpdate(child, Optional.empty(), parent.getHash());
+
+    ForkchoiceResult result = coordinator.updateHeadForExecution(parentHeader);
+
+    assertThat(result.getStatus()).isEqualTo(ForkchoiceResult.Status.VALID);
+    assertThat(result.getNewHead()).contains(parentHeader);
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(parentHeader.getHash());
+  }
+
   @ParameterizedTest(name = "{index}: {0}")
   @MethodSource("getGasLimits")
   public void shouldSetCorrectTargetGasLimit(final ArgumentsAccessor argumentsAccessor) {
