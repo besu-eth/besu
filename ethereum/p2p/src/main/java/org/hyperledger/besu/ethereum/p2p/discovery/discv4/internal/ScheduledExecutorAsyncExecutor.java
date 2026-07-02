@@ -30,14 +30,18 @@ public final class ScheduledExecutorAsyncExecutor implements PeerDiscoveryContro
   @Override
   public <T> CompletableFuture<T> execute(final Supplier<T> action) {
     final CompletableFuture<T> result = new CompletableFuture<>();
-    executor.submit(
-        () -> {
-          try {
-            result.complete(action.get());
-          } catch (final Throwable t) {
-            result.completeExceptionally(t);
-          }
-        });
+    try {
+      executor.submit(
+          () -> {
+            try {
+              result.complete(action.get());
+            } catch (final Throwable t) {
+              result.completeExceptionally(t);
+            }
+          });
+    } catch (final RuntimeException e) {
+      result.completeExceptionally(e);
+    }
     return result;
   }
 }

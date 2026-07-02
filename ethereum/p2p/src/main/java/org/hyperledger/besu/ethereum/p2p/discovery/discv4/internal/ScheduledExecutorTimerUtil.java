@@ -20,8 +20,12 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /** JDK-based {@link TimerUtil} backed by a {@link ScheduledExecutorService}. */
 public final class ScheduledExecutorTimerUtil implements TimerUtil {
+  private static final Logger LOG = LoggerFactory.getLogger(ScheduledExecutorTimerUtil.class);
 
   private final ScheduledExecutorService scheduler;
   private final ConcurrentHashMap<Long, ScheduledFuture<?>> timers = new ConcurrentHashMap<>();
@@ -60,10 +64,20 @@ public final class ScheduledExecutorTimerUtil implements TimerUtil {
    * until the scheduler is shut down.
    */
   @Override
-  public long setPeriodic(final long delayInMs, final TimerHandler handler) {
+  public long setPeriodic(final long delayInMs, final String name, final TimerHandler handler) {
     final long id = nextId.incrementAndGet();
     final ScheduledFuture<?> future =
-        scheduler.scheduleAtFixedRate(handler::handle, delayInMs, delayInMs, TimeUnit.MILLISECONDS);
+        scheduler.scheduleAtFixedRate(
+            () -> {
+              try {
+                handler.handle();
+              } catch (final RuntimeException e) {
+                LOG.error("Uncaught exception in periodic timer '{}' (id={})", name, id, e);
+              }
+            },
+            delayInMs,
+            delayInMs,
+            TimeUnit.MILLISECONDS);
     timers.put(id, future);
     return id;
   }

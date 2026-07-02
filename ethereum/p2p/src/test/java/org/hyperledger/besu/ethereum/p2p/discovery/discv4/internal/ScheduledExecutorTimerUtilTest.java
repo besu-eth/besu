@@ -62,7 +62,24 @@ public class ScheduledExecutorTimerUtilTest {
   @Test
   public void setPeriodic_firesRepeatedly() {
     final AtomicInteger count = new AtomicInteger(0);
-    final long id = timerUtil.setPeriodic(10, count::incrementAndGet);
+    final long id = timerUtil.setPeriodic(10, "test-timer", count::incrementAndGet);
+
+    Awaitility.await().atMost(1, TimeUnit.SECONDS).until(() -> count.get() >= 3);
+
+    timerUtil.cancelTimer(id);
+  }
+
+  @Test
+  public void setPeriodic_continuesAfterHandlerThrows() {
+    final AtomicInteger count = new AtomicInteger(0);
+    final long id =
+        timerUtil.setPeriodic(
+            10,
+            "test-timer",
+            () -> {
+              count.incrementAndGet();
+              throw new RuntimeException("boom");
+            });
 
     Awaitility.await().atMost(1, TimeUnit.SECONDS).until(() -> count.get() >= 3);
 
@@ -91,7 +108,7 @@ public class ScheduledExecutorTimerUtilTest {
   @Test
   public void cancelPeriodic_stopsFiring() {
     final AtomicInteger count = new AtomicInteger(0);
-    final long id = timerUtil.setPeriodic(10, count::incrementAndGet);
+    final long id = timerUtil.setPeriodic(10, "test-timer", count::incrementAndGet);
 
     Awaitility.await().atMost(1, TimeUnit.SECONDS).until(() -> count.get() >= 2);
     timerUtil.cancelTimer(id);

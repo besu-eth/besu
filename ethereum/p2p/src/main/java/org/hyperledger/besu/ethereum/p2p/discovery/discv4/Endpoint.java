@@ -22,7 +22,6 @@ import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 import org.hyperledger.besu.plugin.data.EnodeURL;
-import org.hyperledger.besu.util.IllegalPortException;
 import org.hyperledger.besu.util.Preconditions;
 
 import java.net.InetAddress;
@@ -209,6 +208,12 @@ public class Endpoint {
     try {
       endpoint = decodeInline(in, size);
     } catch (final RuntimeException e) {
+      // decodeInline may throw before consuming all of this list's items (e.g. an invalid field
+      // count, or a malformed field partway through). Skip whatever is left so the cursor lands
+      // exactly at the end of this list, keeping the enclosing list's parse position in sync.
+      while (!in.isEndOfCurrentList()) {
+        in.skipNext();
+      }
       in.leaveListLenient();
       throw e;
     }
@@ -227,7 +232,7 @@ public class Endpoint {
   public static Optional<Endpoint> maybeDecodeStandalone(final RLPInput in) {
     try {
       return Optional.of(decodeStandalone(in));
-    } catch (IllegalPortException __) {
+    } catch (final RuntimeException __) {
       return Optional.empty();
     }
   }

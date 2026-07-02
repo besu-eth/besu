@@ -278,12 +278,14 @@ public class PeerDiscoveryController {
     final long refreshTimerId =
         timerUtil.setPeriodic(
             Math.min(REFRESH_CHECK_INTERVAL_MILLIS, tableRefreshIntervalMs),
+            "peer-table-refresh",
             this::refreshTableIfRequired);
     tableRefreshTimerId = OptionalLong.of(refreshTimerId);
 
     cleanTableTimerId =
         OptionalLong.of(
-            timerUtil.setPeriodic(cleanPeerTableIntervalMs, this::cleanPeerTableIfRequired));
+            timerUtil.setPeriodic(
+                cleanPeerTableIntervalMs, "peer-table-clean", this::cleanPeerTableIfRequired));
   }
 
   public CompletableFuture<?> stop() {

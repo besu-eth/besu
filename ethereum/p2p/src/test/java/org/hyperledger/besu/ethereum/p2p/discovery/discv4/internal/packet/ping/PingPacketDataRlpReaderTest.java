@@ -16,7 +16,9 @@ package org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.ping;
 
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.Endpoint;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
+import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
+import java.math.BigInteger;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -54,5 +56,27 @@ public class PingPacketDataRlpReaderTest {
     Assertions.assertEquals(expiration, result.getExpiration());
     Assertions.assertTrue(result.getEnrSeq().isPresent());
     Assertions.assertEquals(enrSeq, result.getEnrSeq().get());
+  }
+
+  @Test
+  public void testReadFrom_malformedToEndpointIsIgnoredNotFatal() {
+    // "to" endpoint list has 1 field instead of the required 2 or 3, so decoding it throws
+    // PeerDiscoveryPacketDecodingException (not IllegalPortException). Per EIP-8, a malformed
+    // "to" field must not prevent processing of the rest of the PING packet.
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.startList();
+    out.writeBigIntegerScalar(BigInteger.valueOf(4));
+    out.startList();
+    out.writeIntScalar(1);
+    out.endList();
+    out.writeLongScalar(123L);
+    out.endList();
+
+    final PingPacketData result = reader.readFrom(new BytesValueRLPInput(out.encoded(), false));
+
+    Assertions.assertNotNull(result);
+    Assertions.assertTrue(result.getFrom().isEmpty());
+    Assertions.assertTrue(result.getTo().isEmpty());
+    Assertions.assertEquals(123L, result.getExpiration());
   }
 }
