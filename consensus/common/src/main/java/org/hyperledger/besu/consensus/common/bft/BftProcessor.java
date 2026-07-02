@@ -32,6 +32,7 @@ public class BftProcessor implements Runnable {
   private volatile boolean shutdown = false;
   private final EventMultiplexer eventMultiplexer;
   private final CountDownLatch shutdownLatch = new CountDownLatch(1);
+  private volatile Thread processorThread;
 
   /**
    * Construct a new BftProcessor
@@ -63,14 +64,32 @@ public class BftProcessor implements Runnable {
     shutdownLatch.await();
   }
 
+  /**
+   * Returns whether the calling thread is the thread currently executing this processor's event
+   * loop. Callers performing a blocking shutdown (e.g. waiting on {@link #awaitStop()}) must not do
+   * so from the event thread itself.
+   *
+   * @return true if the calling thread is the BFT event processing thread
+   */
+  public boolean isEventThread() {
+    return Thread.currentThread() == processorThread;
+  }
+
   @Override
   public void run() {
+    processorThread = Thread.currentThread();
     try {
       // Start the event queue. Until it is started it won't accept new events from peers
       incomingQueue.start();
 
       while (!shutdown) {
-        nextEvent().ifPresent(eventMultiplexer::handleBftEvent);
+        final Optional<BftEvent> event = nextEvent();
+        // Re-check the shutdown flag after polling: stop() may have been requested while
+        // this event was being polled, in which case it must not be dispatched (e.g. a
+        // queued BlockTimerExpiry would otherwise seal one more block after shutdown).
+        if (!shutdown) {
+          event.ifPresent(eventMultiplexer::handleBftEvent);
+        }
       }
 
       incomingQueue.stop();

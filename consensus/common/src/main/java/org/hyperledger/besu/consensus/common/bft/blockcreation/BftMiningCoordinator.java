@@ -65,6 +65,7 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
 
   private long blockAddedObserverId;
   private final AtomicReference<State> state = new AtomicReference<>(State.PAUSED);
+  private volatile boolean started = false;
 
   private SyncState syncState;
 
@@ -127,6 +128,7 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
   public void start() {
     if (state.compareAndSet(State.IDLE, State.RUNNING)
         || state.compareAndSet(State.STOPPED, State.RUNNING)) {
+      started = true;
       bftProcessor.start();
       bftExecutors.start();
       blockAddedObserverId = blockchain.observeBlockAdded(this);
@@ -137,19 +139,39 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
 
   @Override
   public void stop() {
-    if (state.compareAndSet(State.RUNNING, State.STOPPED)) {
+    // A previously started coordinator must also stop from PAUSED: the merge transition
+    // watcher calls disable() (RUNNING -> PAUSED) immediately before stop(). The started
+    // guard keeps stop() a no-op for a coordinator that was never started (initial state
+    // is PAUSED and its processor/executors have never been started).
+    if (state.compareAndSet(State.RUNNING, State.STOPPED)
+        || (started && state.compareAndSet(State.PAUSED, State.STOPPED))) {
       blockchain.removeObserver(blockAddedObserverId);
       bftProcessor.stop();
-      // Make sure the processor has stopped before shutting down the executors
-      try {
-        bftProcessor.awaitStop();
-      } catch (final InterruptedException e) {
-        LOG.debug("Interrupted while waiting for BftProcessor to stop.", e);
-        Thread.currentThread().interrupt();
+      // The merge transition watcher invokes stop() from the BFT event thread itself
+      // (via the block-added observers fired while QBFT imports the terminal block).
+      // The shutdown flag is already set, so no further events will be dispatched;
+      // the blocking teardown must not run on the event thread or awaitStop() would
+      // wait on the thread's own exit.
+      if (bftProcessor.isEventThread()) {
+        final Thread teardown = new Thread(this::completeStop, "BftMiningCoordinator-stop");
+        teardown.setDaemon(true);
+        teardown.start();
+      } else {
+        completeStop();
       }
-      eventHandler.stop();
-      bftExecutors.stop();
     }
+  }
+
+  private void completeStop() {
+    // Make sure the processor has stopped before shutting down the executors
+    try {
+      bftProcessor.awaitStop();
+    } catch (final InterruptedException e) {
+      LOG.debug("Interrupted while waiting for BftProcessor to stop.", e);
+      Thread.currentThread().interrupt();
+    }
+    eventHandler.stop();
+    bftExecutors.stop();
   }
 
   @Override
