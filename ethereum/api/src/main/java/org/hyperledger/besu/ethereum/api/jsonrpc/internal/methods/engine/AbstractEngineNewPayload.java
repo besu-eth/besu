@@ -44,6 +44,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePayloadStatusResult;
+import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -391,6 +392,17 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
           .addArgument(blockParam::getParentHash)
           .log();
       return respondWith(reqId, blockParam, null, SYNCING);
+    }
+
+    final MutableBlockchain blockchain = protocolContext.getBlockchain();
+    if (!newBlockHeader.getParentHash().equals(blockchain.getChainHeadHash())) {
+      maybeParentHeader.ifPresent(
+          parentHeader -> {
+            mergeCoordinator.updateForkChoice(
+                parentHeader,
+                blockchain.getFinalized().orElse(Hash.ZERO),
+                blockchain.getSafeBlock().orElse(Hash.ZERO));
+          });
     }
 
     // execute block and return result response
