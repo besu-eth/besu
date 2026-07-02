@@ -24,9 +24,11 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier;
 import org.hyperledger.besu.kvstore.AbstractKeyValueStorageTest;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.ObservableMetricsSystem;
+import org.hyperledger.besu.metrics.noop.NoOpMetricsSystem;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
@@ -39,6 +41,7 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTran
 import org.hyperledger.besu.services.kvstore.SegmentedKeyValueStorageAdapter;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
@@ -52,6 +55,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.rocksdb.Env;
+import org.rocksdb.OptionsUtil;
 
 public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValueStorageTest {
 
@@ -285,6 +290,79 @@ public abstract class RocksDBColumnarKeyValueStorageTest extends AbstractKeyValu
     } catch (StorageException e) {
       assertThat(e.getMessage()).contains("Unhandled column families");
     }
+  }
+
+  @Test
+  public void flatStateSegmentsUsePointLookupTableOptions(@TempDir final Path testPath)
+      throws Exception {
+    final SegmentedKeyValueStorage store =
+        createSegmentedStore(
+            testPath,
+            new NoOpMetricsSystem(),
+            Arrays.asList(
+                KeyValueSegmentIdentifier.DEFAULT,
+                KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE,
+                KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE,
+                KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE),
+            List.of());
+
+    // sanity check the tuned column families are usable
+    final SegmentedKeyValueStorageTransaction tx = store.startTransaction();
+    tx.put(KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE, bytesOf(1), bytesOf(2));
+    tx.put(KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE, bytesOf(3), bytesOf(4));
+    tx.commit();
+    assertThat(store.get(KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE, bytesOf(1)))
+        .contains(bytesOf(2));
+    assertThat(store.get(KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE, bytesOf(3)))
+        .contains(bytesOf(4));
+    store.close();
+
+    // verify the effective options RocksDB persisted for each column family, including the
+    // ones only settable through the options string mechanism (no RocksJava setter)
+    final String accountInfoOptions =
+        tableOptionsSection(testPath, KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE);
+    assertThat(accountInfoOptions)
+        .contains("block_size=4096")
+        .contains("prepopulate_block_cache=kFlushOnly")
+        .contains("data_block_index_type=kDataBlockBinaryAndHash")
+        .contains("index_type=kBinarySearch")
+        .contains("partition_filters=false")
+        .contains("pin_l0_filter_and_index_blocks_in_cache=true")
+        .contains("bloomfilter:15");
+
+    final String accountStorageOptions =
+        tableOptionsSection(testPath, KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE);
+    assertThat(accountStorageOptions)
+        .contains("block_size=8192")
+        .contains("prepopulate_block_cache=kFlushOnly");
+
+    // control: a non flat-state segment keeps the generic configuration
+    final String trieBranchOptions =
+        tableOptionsSection(testPath, KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE);
+    assertThat(trieBranchOptions)
+        .contains("block_size=32768")
+        .contains("prepopulate_block_cache=kDisable")
+        .contains("data_block_index_type=kDataBlockBinarySearch")
+        .contains("bloomfilter:10");
+  }
+
+  private static String tableOptionsSection(final Path dbPath, final SegmentIdentifier segment)
+      throws Exception {
+    final String optionsFileName =
+        OptionsUtil.getLatestOptionsFileName(dbPath.toString(), Env.getDefault());
+    // ISO-8859-1 keeps the raw column family name bytes intact
+    final String content =
+        Files.readString(dbPath.resolve(optionsFileName), StandardCharsets.ISO_8859_1);
+    final String header =
+        "[TableOptions/BlockBasedTable \""
+            + new String(segment.getId(), StandardCharsets.ISO_8859_1)
+            + "\"]";
+    final int start = content.indexOf(header);
+    assertThat(start)
+        .as("table options section for segment %s", segment.getName())
+        .isGreaterThanOrEqualTo(0);
+    final int end = content.indexOf('[', start + header.length());
+    return end == -1 ? content.substring(start) : content.substring(start, end);
   }
 
   @Test

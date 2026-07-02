@@ -38,6 +38,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
@@ -57,9 +58,7 @@ import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.CompressionType;
 import org.rocksdb.ConfigOptions;
 import org.rocksdb.DBOptions;
-import org.rocksdb.DataBlockIndexType;
 import org.rocksdb.Env;
-import org.rocksdb.IndexType;
 import org.rocksdb.LRUCache;
 import org.rocksdb.Options;
 import org.rocksdb.OptionsUtil;
@@ -267,13 +266,16 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     } catch (RocksDBException ex) {
       // Options file is not found in the database
     }
-    BlockBasedTableConfig basedTableConfig = createBlockBasedTableConfig(segment, configuration);
-
-    final var cfOptions =
-        new ColumnFamilyOptions()
+    // Flat state segments need table options that have no RocksJava setter (e.g.
+    // prepopulate_block_cache), so their whole table factory is built from an options string;
+    // the other segments keep the programmatic BlockBasedTableConfig.
+    final ColumnFamilyOptions cfOptions =
+        (isFlatStateSegment(segment)
+                ? createFlatStateColumnFamilyOptions(segment, configuration)
+                : new ColumnFamilyOptions()
+                    .setTableFormatConfig(createBlockBasedTableConfig(segment, configuration)))
             .setTtl(0)
             .setCompressionType(CompressionType.LZ4_COMPRESSION)
-            .setTableFormatConfig(basedTableConfig)
             .setLevelCompactionDynamicLevelBytes(dynamicLevelBytes);
     if (isStateSegment(segment)) {
       // Flatten the LSM for state column families: a larger level base and multiplier mean
@@ -288,6 +290,67 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     }
 
     return new ColumnFamilyDescriptor(segment.getId(), cfOptions);
+  }
+
+  /**
+   * Create the column family options for a flat state segment. The block-based table options are
+   * built from a RocksDB options string instead of {@link BlockBasedTableConfig} because {@code
+   * prepopulate_block_cache} has no RocksJava setter; the other values mirror what would otherwise
+   * be set programmatically.
+   *
+   * @param segment the flat state segment
+   * @param config RocksDB configuration
+   * @return column family options with point-lookup-oriented table options applied
+   */
+  private ColumnFamilyOptions createFlatStateColumnFamilyOptions(
+      final SegmentIdentifier segment, final RocksDBConfiguration config) {
+    final long blockSize =
+        ACCOUNT_INFO_STATE.getName().equals(segment.getName())
+            ? FLAT_ACCOUNT_BLOCK_SIZE
+            : FLAT_STORAGE_BLOCK_SIZE;
+    final long cacheCapacity =
+        config.isHighSpec() && segment.isEligibleToHighSpecFlag()
+            ? ROCKSDB_BLOCKCACHE_SIZE_HIGH_SPEC
+            : config.getCacheCapacity();
+    final Properties props = new Properties();
+    props.setProperty(
+        "block_based_table_factory",
+        "{format_version="
+            + ROCKSDB_FORMAT_VERSION
+            // block_cache=<capacity> makes RocksDB create an LRU cache of that size for this
+            // column family, matching the per-segment LRUCache used for the other segments.
+            + ";block_cache="
+            + cacheCapacity
+            + ";block_size="
+            + blockSize
+            + ";cache_index_and_filter_blocks="
+            + segment.isCacheIndexAndFilterBlocks()
+            + ";filter_policy=bloomfilter:"
+            + FLAT_STATE_BLOOM_FILTER_BITS_PER_KEY
+            + ":false"
+            // A single binary-search index with whole (non-partitioned) filters keeps a point
+            // lookup to one index probe and one filter probe, instead of the extra top-level
+            // index hop that partitioned indexes/filters add on every read.
+            + ";index_type=kBinarySearch"
+            + ";partition_filters=false"
+            // In-block hash index resolves a key inside a data block in O(1) instead of a
+            // binary search over restart points, which pays off for random point lookups.
+            + ";data_block_index_type=kDataBlockBinaryAndHash"
+            + ";data_block_hash_table_util_ratio="
+            + DATA_BLOCK_HASH_TABLE_UTIL_RATIO
+            + ";pin_l0_filter_and_index_blocks_in_cache=true"
+            // Freshly flushed blocks go straight into the block cache, so recently written
+            // state is served from memory without waiting for a read to warm the cache.
+            + ";prepopulate_block_cache=kFlushOnly}");
+    try (ConfigOptions configOptions = new ConfigOptions().setIgnoreUnknownOptions(false)) {
+      final ColumnFamilyOptions cfOptions =
+          ColumnFamilyOptions.getColumnFamilyOptionsFromProps(configOptions, props);
+      if (cfOptions == null) {
+        throw new StorageException(
+            "Invalid RocksDB options string for segment " + segment.getName());
+      }
+      return cfOptions;
+    }
   }
 
   /**
@@ -369,34 +432,14 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
         new BlockBasedTableConfig()
             .setFormatVersion(ROCKSDB_FORMAT_VERSION)
             .setBlockCache(cache)
-            .setCacheIndexAndFilterBlocks(segment.isCacheIndexAndFilterBlocks());
-    if (isFlatStateSegment(segment)) {
-      tableConfig
-          .setBlockSize(
-              ACCOUNT_INFO_STATE.getName().equals(segment.getName())
-                  ? FLAT_ACCOUNT_BLOCK_SIZE
-                  : FLAT_STORAGE_BLOCK_SIZE)
-          .setFilterPolicy(new BloomFilter(FLAT_STATE_BLOOM_FILTER_BITS_PER_KEY, false))
-          // A single binary-search index with whole (non-partitioned) filters keeps a point
-          // lookup to one index probe and one filter probe, instead of the extra top-level
-          // index hop that partitioned indexes/filters add on every read.
-          .setIndexType(IndexType.kBinarySearch)
-          .setPartitionFilters(false)
-          // In-block hash index resolves a key inside a data block in O(1) instead of a
-          // binary search over restart points, which pays off for random point lookups.
-          .setDataBlockIndexType(DataBlockIndexType.kDataBlockBinaryAndHash)
-          .setDataBlockHashTableUtilRatio(DATA_BLOCK_HASH_TABLE_UTIL_RATIO)
-          .setPinL0FilterAndIndexBlocksInCache(true);
-    } else {
-      tableConfig
-          .setBlockSize(ROCKSDB_BLOCK_SIZE)
-          .setFilterPolicy(new BloomFilter(DEFAULT_BLOOM_FILTER_BITS_PER_KEY, false))
-          // Partitioned filters/indexes are kept for the remaining (large or scan-oriented)
-          // segments to bound the memory held per SST file.
-          .setPartitionFilters(true);
-      if (TRIE_BRANCH_STORAGE.getName().equals(segment.getName())) {
-        tableConfig.setPinL0FilterAndIndexBlocksInCache(true);
-      }
+            .setCacheIndexAndFilterBlocks(segment.isCacheIndexAndFilterBlocks())
+            .setBlockSize(ROCKSDB_BLOCK_SIZE)
+            .setFilterPolicy(new BloomFilter(DEFAULT_BLOOM_FILTER_BITS_PER_KEY, false))
+            // Partitioned filters/indexes are kept for the remaining (large or scan-oriented)
+            // segments to bound the memory held per SST file.
+            .setPartitionFilters(true);
+    if (TRIE_BRANCH_STORAGE.getName().equals(segment.getName())) {
+      tableConfig.setPinL0FilterAndIndexBlocksInCache(true);
     }
     return tableConfig;
   }
