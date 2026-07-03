@@ -173,7 +173,10 @@ public class SnapV2AccountRangeRequest extends SnapV2DataRequest {
                     .notifyRangeProgress(
                         SnapSyncMetricsManager.Step.DOWNLOAD, endKeyHash, endKeyHash));
 
-    for (Map.Entry<Bytes32, Bytes> account : taskElement.keys().entrySet()) {
+    // Peer responses include boundary accounts outside [startKeyHash, endKeyHash] required for
+    // proof verification; only generate children for in-range accounts.
+    for (Map.Entry<Bytes32, Bytes> account :
+        taskElement.keys().subMap(startKeyHash, true, endKeyHash, true).entrySet()) {
       final PmtStateTrieAccountValue accountValue =
           PmtStateTrieAccountValue.readFrom(RLP.input(account.getValue()));
       if (!accountValue.getStorageRoot().equals(Hash.EMPTY_TRIE_HASH)) {

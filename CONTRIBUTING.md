@@ -15,6 +15,7 @@ This document covers everything you need to know to decide whether and how you w
 - [Reporting bugs](#reporting-bugs)
 - [Suggesting enhancements](#suggesting-enhancements)
 - [Pull requests](#pull-requests)
+- [Changelog](#changelog)
 - [Code reviews](#code-reviews)
 - [Developer Certificate of Origin (DCO)](#developer-certificate-of-origin-dco)
 - [Copyright and license](#copyright-and-license)
@@ -156,6 +157,16 @@ Please follow these steps to have your contribution considered by the approvers:
 #### What if the status checks are failing?
 
 - If a status check is failing and you believe the failure is unrelated to your change, leave a comment on the pull request explaining why. A maintainer will re-run the status check for you. If we conclude that the failure was a false positive, we will open an issue to track the problem with our status check suite.
+
+## Changelog
+
+Besu maintains a [`CHANGELOG.md`](CHANGELOG.md) so users can see what changed between releases. Include a changelog entry in the same PR as your change when it introduces any of the following:
+
+- Future breaking changes or deprecated functionality.
+- A new feature, with a short description of the functionality.
+- A fixed bug, with a description of the user impact.
+
+Add your entry under the `## Unreleased` section, in the appropriate subsection (for example, **Breaking Changes**, **Additions and Improvements**, or **Bug fixes**), as a single line ending with a link to your PR or issue. Where several PRs contribute to the same feature, the feature developer can add a single entry covering the whole feature.
 
 ## Code reviews
 
