@@ -69,15 +69,6 @@ public class SStoreOperation extends AbstractOperation {
 
   @Override
   public OperationResult execute(final MessageFrame frame, final EVM evm) {
-
-    final UInt256 key = UInt256.fromBytes(frame.popStackItem());
-    final UInt256 newValue = UInt256.fromBytes(frame.popStackItem());
-
-    final MutableAccount account = getMutableAccount(frame.getRecipientAddress(), frame);
-    if (account == null) {
-      return ILLEGAL_STATE_CHANGE;
-    }
-
     final long remainingGas = frame.getRemainingGas();
 
     if (frame.isStatic()) {
@@ -86,6 +77,14 @@ public class SStoreOperation extends AbstractOperation {
 
     if (remainingGas <= minimumGasRemaining) {
       return new OperationResult(minimumGasRemaining, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+
+    final UInt256 key = UInt256.fromBytes(frame.popStackItem());
+    final UInt256 newValue = UInt256.fromBytes(frame.popStackItem());
+
+    final MutableAccount account = getMutableAccount(frame.getRecipientAddress(), frame);
+    if (account == null) {
+      return ILLEGAL_STATE_CHANGE;
     }
 
     final Address address = account.getAddress();
