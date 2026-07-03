@@ -576,7 +576,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
           "Threshold in milliseconds for slow-block execution-metrics logging: -1 disables "
               + "(default), 0 logs every block, a positive value logs only blocks whose total "
               + "processing time meets or exceeds it (default: ${DEFAULT-VALUE})")
-  private final Long slowBlockThreshold = -1L;
+  private final Long slowBlockThresholdMs = -1L;
 
   // Permission Option Group
   @CommandLine.ArgGroup(validate = false, heading = "@|bold Permissions Options|@%n")
@@ -2102,7 +2102,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     // path. Referencing THRESHOLD_PROPERTY (a JLS constant variable) does NOT initialise
     // SlowBlockTracerConfig, so the holder still reads this freshly-set value at first block
     // import.
-    System.setProperty(SlowBlockTracerConfig.THRESHOLD_PROPERTY, Long.toString(slowBlockThreshold));
+    System.setProperty(SlowBlockTracerConfig.THRESHOLD_PROPERTY, Long.toString(slowBlockThresholdMs));
 
     BesuControllerBuilder besuControllerBuilder =
         controllerBuilder
@@ -2988,7 +2988,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .setEvmV2(unstableEvmOptions.toDomainObject().enableEvmV2())
         .setPluginContext(this.besuPluginContext)
         .setHistoryExpiryPruneEnabled(getDataStorageConfiguration().getHistoryExpiryPruneEnabled())
-        .setBlobDBSettings(rocksDBPlugin.getBlobDBSettings());
+        .setBlobDBSettings(rocksDBPlugin.getBlobDBSettings())
+        .setSlowBlockThresholdMs(slowBlockThresholdMs);
 
     return builder.build();
   }
