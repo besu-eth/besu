@@ -924,15 +924,14 @@ public abstract class AbstractTransactionPoolTest extends AbstractTransactionPoo
 
   @ParameterizedTest
   @ValueSource(booleans = {true, false})
-  public void shouldIgnoreFeeCapIfSetZero(final boolean noLocalPriority) {
-    final Wei twoEthers = Wei.fromEth(2);
+  public void shouldRejectLocalTransactionIfFeeCapSetZero(final boolean noLocalPriority) {
     transactionPool =
         createTransactionPool(b -> b.txFeeCap(Wei.ZERO).noLocalPriority(noLocalPriority));
-    final Transaction transaction = createTransaction(0, twoEthers.add(Wei.of(1)));
+    final Transaction transaction = createTransaction(0, Wei.of(1));
 
     givenTransactionIsValid(transaction);
 
-    addAndAssertTransactionViaApiValid(transaction, noLocalPriority);
+    addAndAssertTransactionViaApiInvalid(transaction, TX_FEECAP_EXCEEDED);
   }
 
   @ParameterizedTest
