@@ -24,8 +24,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitter;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootComputation;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.StorageSubscriber;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.cache.PathBasedCachedWorldStorageManager;
@@ -60,7 +58,7 @@ public abstract class PathBasedWorldState
   protected PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage;
   protected final PathBasedCachedWorldStorageManager cachedWorldStorageManager;
   protected final TrieLogManager trieLogManager;
-  protected PathBasedWorldUpdater updater;
+  protected PathBasedWorldStateUpdateAccumulator<?> accumulator;
 
   protected Hash worldStateRootHash;
   protected Hash worldStateBlockHash;
@@ -98,22 +96,13 @@ public abstract class PathBasedWorldState
   }
 
   /**
-   * Sets the updater strategy for this world state. Called once during construction to solve the
-   * chicken-and-egg problem of needing a world-state reference ({@code this}) when constructing the
-   * updater.
+   * Having a protected method to override the accumulator solves the chicken-egg problem of needing
+   * a worldstate reference (this) when constructing the Accumulator.
    *
-   * @param updater the updater to use (either an accumulator or a BAL-backed updater)
+   * @param accumulator accumulator to use.
    */
-  public void setUpdater(final PathBasedWorldUpdater updater) {
-    this.updater = updater;
-  }
-
-  /**
-   * @deprecated Use {@link #setUpdater(PathBasedWorldUpdater)} instead.
-   */
-  @Deprecated(forRemoval = true)
   public void setAccumulator(final PathBasedWorldStateUpdateAccumulator<?> accumulator) {
-    this.updater = accumulator;
+    this.accumulator = accumulator;
   }
 
   /**
@@ -171,33 +160,8 @@ public abstract class PathBasedWorldState
     return worldStateKeyValueStorage;
   }
 
-  /**
-   * Returns the updater for this world state.
-   *
-   * @return the world state updater
-   */
-  public PathBasedWorldUpdater getUpdater() {
-    return updater;
-  }
-
-  /**
-   * Returns the updater cast to {@link PathBasedWorldStateUpdateAccumulator}. Only valid when the
-   * updater is backed by an accumulator (standard sequential execution). Throws {@link
-   * IllegalStateException} if the world state uses a non-accumulator updater (e.g. BAL mode).
-   *
-   * @return the accumulator
-   * @throws IllegalStateException if the updater is not a {@link PathBasedWorldStateUpdateAccumulator}
-   */
   public PathBasedWorldStateUpdateAccumulator<?> getAccumulator() {
-    if (updater instanceof PathBasedWorldStateUpdateAccumulator<?> acc) {
-      return acc;
-    }
-    throw new IllegalStateException(
-        "World state updater is not an accumulator: " + updater.getClass().getSimpleName());
-  }
-
-  public boolean isTrieDisabled() {
-    return worldStateConfig.isTrieDisabled();
+    return accumulator;
   }
 
   @Override
@@ -221,17 +185,15 @@ public abstract class PathBasedWorldState
     Runnable cacheWorldState = () -> {};
 
     try {
-      final StateRootComputation computation = committer.compute(this, blockHeader);
-      if (!isStorageFrozen()) {
-        computation.applyTo((BonsaiWorldStateKeyValueStorage.Updater) stateUpdater);
-      }
-      final Hash calculatedRootHash = computation.root();
+      final Hash calculatedRootHash =
+          committer.computeRoot(
+              buildStateRootSupplier(stateUpdater, blockHeader), this, stateUpdater, blockHeader);
 
       if (blockHeader != null) {
         verifyWorldStateRoot(calculatedRootHash, blockHeader);
         saveTrieLog =
             () -> {
-              trieLogManager.saveTrieLog(getAccumulator(), calculatedRootHash, blockHeader, this);
+              trieLogManager.saveTrieLog(accumulator, calculatedRootHash, blockHeader, this);
             };
         cacheWorldState =
             () -> cachedWorldStorageManager.addCachedLayer(blockHeader, calculatedRootHash, this);
@@ -273,12 +235,37 @@ public abstract class PathBasedWorldState
           // optionally save the committed worldstate state in the cache
           cacheWorldState.run();
         }
-        updater.reset();
+        accumulator.reset();
       } else {
         stateUpdater.rollback();
-        updater.reset();
+        accumulator.reset();
       }
     }
+  }
+
+  /**
+   * Builds a lazy supplier that, when invoked, applies all accumulated state changes to the trie
+   * and returns the resulting state root hash. This supplier is passed to the {@link
+   * StateRootCommitter}, which may invoke it (sync / BAL-verification) or skip it entirely
+   * (BAL-trusted mode).
+   */
+  private java.util.function.Supplier<Hash> buildStateRootSupplier(
+      final PathBasedWorldStateKeyValueStorage.Updater stateUpdater,
+      final BlockHeader blockHeader) {
+    final Optional<PathBasedWorldStateKeyValueStorage.Updater> updaterForTrie =
+        isStorageFrozen ? Optional.empty() : Optional.of(stateUpdater);
+
+    return () -> {
+      if (blockHeader != null && worldStateConfig.isTrieDisabled()) {
+        LOG.atDebug()
+            .setMessage("Unsafe state root verification for block header {}")
+            .addArgument(blockHeader)
+            .log();
+        calculateRootHash(updaterForTrie, accumulator);
+        return blockHeader.getStateRoot();
+      }
+      return calculateRootHash(updaterForTrie, accumulator);
+    };
   }
 
   protected void verifyWorldStateRoot(final Hash calculatedStateRoot, final BlockHeader header) {
@@ -288,15 +275,15 @@ public abstract class PathBasedWorldState
   }
 
   @Override
-  public PathBasedWorldUpdater updater() {
-    return updater;
+  public PathBasedWorldStateUpdateAccumulator<?> updater() {
+    return accumulator;
   }
 
   @Override
   public Hash rootHash() {
-    if (isStorageFrozen && updater.isAccumulatorStateChanged()) {
-      worldStateRootHash = calculateRootHash(Optional.empty(), updater.copy());
-      updater.resetAccumulatorStateChanged();
+    if (isStorageFrozen && accumulator.isAccumulatorStateChanged()) {
+      worldStateRootHash = calculateRootHash(Optional.empty(), accumulator.copy());
+      accumulator.resetAccumulatorStateChanged();
     }
     return worldStateRootHash;
   }
@@ -434,7 +421,7 @@ public abstract class PathBasedWorldState
 
   public abstract Hash calculateRootHash(
       final Optional<PathBasedWorldStateKeyValueStorage.Updater> maybeStateUpdater,
-      final PathBasedWorldUpdater worldStateUpdater);
+      final PathBasedWorldStateUpdateAccumulator<?> worldStateUpdater);
 
   protected abstract Hash getEmptyTrieHash();
 }

@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai;
 
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiSnapshotWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
@@ -24,11 +25,10 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.PathBasedWor
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldUpdater;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Function;
 
 public class BonsaiCachedWorldStorageManager extends PathBasedCachedWorldStorageManager {
   private final CodeCache codeCache;
@@ -53,32 +53,15 @@ public class BonsaiCachedWorldStorageManager extends PathBasedCachedWorldStorage
   public PathBasedWorldState createWorldState(
       final PathBasedWorldStateProvider archive,
       final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage,
-      final EvmConfiguration evmConfiguration) {
+      final EvmConfiguration evmConfiguration,
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
     return new BonsaiWorldState(
         (BonsaiWorldStateProvider) archive,
         (BonsaiWorldStateKeyValueStorage) worldStateKeyValueStorage,
         evmConfiguration,
         WorldStateConfig.newBuilder(worldStateConfig).build(),
-        codeCache);
-  }
-
-  @Override
-  @SuppressWarnings({"rawtypes", "unchecked"})
-  public PathBasedWorldState createWorldState(
-      final PathBasedWorldStateProvider archive,
-      final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage,
-      final EvmConfiguration evmConfiguration,
-      final Function<PathBasedWorldState, PathBasedWorldUpdater> updaterFactory) {
-    final BonsaiWorldStateProvider bonsaiArchive = (BonsaiWorldStateProvider) archive;
-    return new BonsaiWorldState(
-        (BonsaiWorldStateKeyValueStorage) worldStateKeyValueStorage,
-        bonsaiArchive.getCachedMerkleTrieLoader(),
-        this,
-        archive.getTrieLogManager(),
-        evmConfiguration,
-        WorldStateConfig.newBuilder(worldStateConfig).build(),
         codeCache,
-        (Function<BonsaiWorldState, PathBasedWorldUpdater>) (Function) updaterFactory);
+        maybeBlockAccessListOverlay);
   }
 
   @Override

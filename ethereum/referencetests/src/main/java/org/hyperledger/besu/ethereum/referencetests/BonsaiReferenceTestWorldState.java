@@ -81,7 +81,7 @@ public class BonsaiReferenceTestWorldState extends BonsaiWorldState
     this.refTestStorage = worldStateKeyValueStorage;
     this.preImageProxy = preImageProxy;
     this.evmConfiguration = evmConfiguration;
-    setUpdater(
+    setAccumulator(
         new BonsaiReferenceTestUpdateAccumulator(
             this,
             (addr, value) ->
@@ -199,7 +199,7 @@ public class BonsaiReferenceTestWorldState extends BonsaiWorldState
     BonsaiReferenceTestUpdateAccumulator updaterForState =
         originalUpdater.createDetachedAccumulator();
     try (var bonsaiWorldState = createBonsaiWorldState(isFrozen)) {
-      bonsaiWorldState.setUpdater(updaterForState);
+      bonsaiWorldState.setAccumulator(updaterForState);
       updaterForState.commit();
       bonsaiWorldState.persist(blockHeader);
     }
@@ -303,7 +303,7 @@ public class BonsaiReferenceTestWorldState extends BonsaiWorldState
   }
 
   @Override
-  public Hash hashAndSavePreImage(final Bytes value) {
+  protected Hash hashAndSavePreImage(final Bytes value) {
     // by default do not save has preImages
     return preImageProxy.hashAndSavePreImage(value);
   }
