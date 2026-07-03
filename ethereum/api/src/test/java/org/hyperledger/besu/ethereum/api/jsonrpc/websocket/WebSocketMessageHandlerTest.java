@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.websocket;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -39,9 +41,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
+import io.vertx.core.Context;
 import io.vertx.core.Future;
+import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
 import io.vertx.core.buffer.Buffer;
@@ -295,6 +302,69 @@ public class WebSocketMessageHandlerTest {
     // can verify only after async not before
     verify(websocketMock).writeFrame(argThat(isFrameWithText(Json.encode(expectedResponse))));
     verify(websocketMock).writeFrame(argThat(this::isFinalFrame));
+  }
+
+  @Test
+  public void handlerDoesNotBlockEventLoopWhenWebSocketWriteQueueIsFull() throws Exception {
+    final JsonObject requestJson = new JsonObject().put("id", 1).put("method", "eth_x");
+    final JsonRpcRequestContext expectedRequest =
+        new JsonRpcRequestContext(requestJson.mapTo(WebSocketRpcRequest.class));
+    final JsonRpcSuccessResponse expectedResponse =
+        new JsonRpcSuccessResponse(requestJson.getInteger("id"), "x".repeat(200_000));
+    final AtomicBoolean writeQueueFull = new AtomicBoolean(true);
+    final AtomicReference<Handler<Void>> drainHandler = new AtomicReference<>();
+    final CountDownLatch drainHandlerRegistered = new CountDownLatch(1);
+    final CountDownLatch eventLoopTimerFired = new CountDownLatch(1);
+    final CountDownLatch responseCompleted = new CountDownLatch(1);
+    final AtomicBoolean wroteFromWorkerThread = new AtomicBoolean(false);
+
+    when(jsonRpcMethodMock.response(eq(expectedRequest))).thenReturn(expectedResponse);
+    when(websocketMock.writeQueueFull()).thenAnswer(invocation -> writeQueueFull.get());
+    when(websocketMock.drainHandler(any()))
+        .thenAnswer(
+            invocation -> {
+              drainHandler.set(invocation.getArgument(0));
+              drainHandlerRegistered.countDown();
+              return websocketMock;
+            });
+    when(websocketMock.writeFrame(any(WebSocketFrame.class)))
+        .thenAnswer(
+            invocation -> {
+              wroteFromWorkerThread.set(Context.isOnWorkerThread());
+              final WebSocketFrame frame = invocation.getArgument(0);
+              if (frame.isFinal()) {
+                responseCompleted.countDown();
+              }
+              return Future.succeededFuture();
+            });
+
+    vertx.runOnContext(
+        ignored -> {
+          vertx.setTimer(50, timerId -> eventLoopTimerFired.countDown());
+          handler.handle(websocketMock, requestJson.toBuffer(), Optional.empty());
+        });
+
+    assertThat(drainHandlerRegistered.await(5, TimeUnit.SECONDS)).isTrue();
+
+    final Thread releaser =
+        new Thread(
+            () -> {
+              try {
+                TimeUnit.MILLISECONDS.sleep(500);
+              } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+              }
+              writeQueueFull.set(false);
+              drainHandler.get().handle(null);
+            },
+            "websocket-drain-releaser");
+    releaser.start();
+
+    assertThat(eventLoopTimerFired.await(250, TimeUnit.MILLISECONDS)).isTrue();
+    assertThat(responseCompleted.await(5, TimeUnit.SECONDS)).isTrue();
+    assertThat(wroteFromWorkerThread).isTrue();
+    releaser.join(TimeUnit.SECONDS.toMillis(1));
   }
 
   private ArgumentMatcher<WebSocketFrame> isFrameWithText(final String text) {

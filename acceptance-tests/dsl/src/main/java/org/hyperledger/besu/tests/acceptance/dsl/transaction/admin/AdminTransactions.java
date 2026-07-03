@@ -25,4 +25,8 @@ public class AdminTransactions {
   public AdminPeersTransaction listPeers() {
     return new AdminPeersTransaction();
   }
+
+  public AdminNodeInfoTransaction nodeInfo() {
+    return new AdminNodeInfoTransaction();
+  }
 }

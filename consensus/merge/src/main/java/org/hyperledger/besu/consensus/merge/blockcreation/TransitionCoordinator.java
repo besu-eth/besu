@@ -16,13 +16,10 @@ package org.hyperledger.besu.consensus.merge.blockcreation;
 
 import org.hyperledger.besu.consensus.merge.PostMergeContext;
 import org.hyperledger.besu.consensus.merge.TransitionUtils;
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.BlockProcessingResult;
 import org.hyperledger.besu.ethereum.blockcreation.MiningCoordinator;
-import org.hyperledger.besu.ethereum.blockcreation.PoWMiningCoordinator;
-import org.hyperledger.besu.ethereum.chain.PoWObserver;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.Transaction;
@@ -109,11 +106,6 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
   }
 
   @Override
-  public Optional<Address> getCoinbase() {
-    return dispatchFunctionAccordingToMergeState(MiningCoordinator::getCoinbase);
-  }
-
-  @Override
   public Optional<Block> createBlock(
       final BlockHeader parentHeader,
       final List<Transaction> transactions,
@@ -127,13 +119,6 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
   public Optional<Block> createBlock(final BlockHeader parentHeader, final long timestamp) {
     return dispatchFunctionAccordingToMergeState(
         (MiningCoordinator coordinator) -> coordinator.createBlock(parentHeader, timestamp));
-  }
-
-  @Override
-  public void addEthHashObserver(final PoWObserver observer) {
-    if (this.miningCoordinator instanceof PoWMiningCoordinator) {
-      miningCoordinator.addEthHashObserver(observer);
-    }
   }
 
   @Override
@@ -174,6 +159,11 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
       final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash) {
     return mergeCoordinator.updateForkChoiceWithoutLegacySkip(
         newHead, finalizedBlockHash, safeBlockHash);
+  }
+
+  @Override
+  public ForkchoiceResult updateHeadForExecution(final BlockHeader newHead) {
+    return mergeCoordinator.updateHeadForExecution(newHead);
   }
 
   @Override

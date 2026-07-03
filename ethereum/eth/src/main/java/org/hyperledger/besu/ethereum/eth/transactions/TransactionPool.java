@@ -72,6 +72,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -611,11 +612,6 @@ public class TransactionPool implements BlockAddedObserver {
     return pendingTransactions.getClass();
   }
 
-  @VisibleForTesting
-  SaveRestoreManager getSaveRestoreManager() {
-    return saveRestoreManager;
-  }
-
   public interface TransactionBatchAddedListener {
 
     void onTransactionsAdded(Collection<Transaction> transactions);
@@ -659,10 +655,11 @@ public class TransactionPool implements BlockAddedObserver {
           OptionalLong.of(ethContext.getEthPeers().subscribeConnect(this::handleConnect));
       return saveRestoreManager
           .loadFromDisk()
-          .exceptionally(
-              t -> {
-                LOG.error("Error while restoring transaction pool from disk", t);
-                return null;
+          .whenComplete(
+              (_, t) -> {
+                if (t != null) {
+                  LOG.error("Error while restoring transaction pool from disk", t);
+                }
               });
     }
     return CompletableFuture.completedFuture(null);
@@ -692,10 +689,11 @@ public class TransactionPool implements BlockAddedObserver {
       final CompletableFuture<Void> saveOperation =
           saveRestoreManager
               .saveToDisk(pendingTransactions)
-              .exceptionally(
-                  t -> {
-                    LOG.error("Error while saving transaction pool to disk", t);
-                    return null;
+              .whenComplete(
+                  (_, t) -> {
+                    if (t != null) {
+                      LOG.error("Error while saving transaction pool to disk", t);
+                    }
                   });
       pendingTransactions = new DisabledPendingTransactions();
       logStop();
@@ -786,66 +784,96 @@ public class TransactionPool implements BlockAddedObserver {
   class SaveRestoreManager {
     private final Semaphore diskAccessLock = new Semaphore(1, true);
     private final AtomicReference<CompletableFuture<Void>> writeInProgress =
-        new AtomicReference<>(CompletableFuture.completedFuture(null));
+        new AtomicReference<>(null);
     private final AtomicReference<CompletableFuture<Void>> readInProgress =
-        new AtomicReference<>(CompletableFuture.completedFuture(null));
+        new AtomicReference<>(null);
     private final AtomicBoolean isCancelled = new AtomicBoolean(false);
 
-    @VisibleForTesting
-    Semaphore getDiskAccessLock() {
-      return diskAccessLock;
+    synchronized CompletableFuture<Void> saveToDisk(
+        final PendingTransactions pendingTransactionsToSave) {
+      return cancelInProgressReadOperation()
+          .thenCompose(
+              _ ->
+                  serializeAndDedupOperation(
+                      () -> executeSaveToDisk(pendingTransactionsToSave), writeInProgress));
     }
 
-    CompletableFuture<Void> saveToDisk(final PendingTransactions pendingTransactionsToSave) {
-      cancelInProgressReadOperation();
-      return serializeAndDedupOperation(
-          () -> executeSaveToDisk(pendingTransactionsToSave), writeInProgress);
-    }
-
-    CompletableFuture<Void> loadFromDisk() {
+    synchronized CompletableFuture<Void> loadFromDisk() {
       return serializeAndDedupOperation(this::executeLoadFromDisk, readInProgress);
     }
 
-    private void cancelInProgressReadOperation() {
-      if (!readInProgress.get().isDone()) {
-        LOG.debug("Cancelling in progress read operation");
-        isCancelled.set(true);
-        try {
-          waitUntilReadOperationIsCancelled();
+    private CompletableFuture<Void> cancelInProgressReadOperation() {
+      try {
+        final CompletableFuture<Void> maybeReadInProgress = readInProgress.get();
+        if (maybeReadInProgress != null && !maybeReadInProgress.isDone()) {
+          LOG.debug("Cancelling in progress read operation");
+          isCancelled.set(true);
+          // wait until read operation is canceled
+          maybeReadInProgress.get();
           LOG.debug("In progress read operation cancelled");
-        } catch (InterruptedException | ExecutionException e) {
-          LOG.warn("Error while cancelling in progress read operation", e);
-          throw new RuntimeException(e);
         }
+        return CompletableFuture.completedFuture(null);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return CompletableFuture.failedFuture(
+            new RuntimeException("Error during the cancellation of current read operation", e));
+      } catch (ExecutionException e) {
+        return CompletableFuture.failedFuture(
+            new RuntimeException("Error during the cancellation of current read operation", e));
       }
-    }
-
-    private void waitUntilReadOperationIsCancelled()
-        throws InterruptedException, ExecutionException {
-      readInProgress.get().get();
     }
 
     private CompletableFuture<Void> serializeAndDedupOperation(
         final Runnable operation,
         final AtomicReference<CompletableFuture<Void>> operationInProgress) {
       if (configuration.getEnableSaveRestore()) {
-        try {
-          if (diskAccessLock.tryAcquire(
-              configuration.getUnstable().getSaveRestoreTimeout().toMillis(),
-              TimeUnit.MILLISECONDS)) {
-
-            isCancelled.set(false);
-            operationInProgress.set(
-                CompletableFuture.runAsync(operation)
-                    .whenComplete((res, err) -> diskAccessLock.release()));
-            return operationInProgress.get();
-          } else {
-            return CompletableFuture.failedFuture(
-                new TimeoutException("Timeout waiting for disk access lock"));
-          }
-        } catch (InterruptedException ie) {
-          return CompletableFuture.failedFuture(ie);
+        // only if there is not already an in-progress operation of its kind,
+        // create and run the new one. This ensures that there is only one read or write operation
+        // at a time.
+        CompletableFuture<Void> newOperation = new CompletableFuture<>();
+        if (operationInProgress.compareAndSet(null, newOperation)) {
+          // acquire the lock asynchronously to not block the caller
+          CompletableFuture.runAsync(
+              () -> {
+                boolean lockAcquired = false;
+                Throwable failure = null;
+                try {
+                  lockAcquired =
+                      diskAccessLock.tryAcquire(
+                          configuration.getUnstable().getSaveRestoreTimeout().toMillis(),
+                          TimeUnit.MILLISECONDS);
+                  if (lockAcquired) {
+                    isCancelled.set(false);
+                    operation.run();
+                  } else {
+                    failure = new TimeoutException("Timeout waiting for disk access lock");
+                  }
+                } catch (InterruptedException e) {
+                  Thread.currentThread().interrupt();
+                  failure = e;
+                } catch (Throwable t) {
+                  failure = t;
+                } finally {
+                  if (lockAcquired) {
+                    diskAccessLock.release();
+                  }
+                  if (failure == null) {
+                    newOperation.complete(null);
+                  } else {
+                    newOperation.completeExceptionally(failure);
+                  }
+                  // remove in progress operation, so that the next one can start
+                  operationInProgress.set(null);
+                }
+              });
+          return newOperation;
         }
+        return Objects.requireNonNullElseGet(
+            operationInProgress.get(),
+            () ->
+                CompletableFuture.failedFuture(
+                    new IllegalStateException(
+                        "Save/restore operation completed before it could be reused")));
       }
       return CompletableFuture.completedFuture(null);
     }

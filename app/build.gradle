@@ -26,12 +26,16 @@ jar {
       'Commit-Hash': getGitCommitDetails(40).hash
       )
   }
-
-  dependsOn ':generateArtifactsCatalog'
-  from(project.rootProject.layout.buildDirectory.file('reports/dependencies/besu-artifacts-catalog.json')) {
-    into('META-INF')
-  }
 }
+
+// Copy the catalog into the resources output dir so it is on the classpath when
+// running main() directly from IntelliJ or Gradle without building the jar first.
+tasks.register('copyArtifactsCatalogToResources', Copy) {
+  dependsOn ':generateArtifactsCatalog'
+  from(project.rootProject.layout.buildDirectory.file('reports/dependencies/besu-artifacts-catalog.json'))
+  into(layout.buildDirectory.dir('resources/main/META-INF'))
+}
+processResources.dependsOn copyArtifactsCatalogToResources
 
 dependencies {
   api project(':datatypes')
@@ -62,6 +66,7 @@ dependencies {
   implementation project(':nat')
   implementation project(':plugin-api')
   implementation project(':plugins:rocksdb')
+  implementation project(':plugins:health')
   implementation project(':services:kvstore')
   implementation project(':util')
 

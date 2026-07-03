@@ -141,8 +141,8 @@ public class SubscriptionRequestMapper {
   }
 
   private WebSocketRpcRequest validateRequest(final JsonRpcRequestContext jsonRpcRequestContext) {
-    if (jsonRpcRequestContext.getRequest() instanceof WebSocketRpcRequest) {
-      return (WebSocketRpcRequest) jsonRpcRequestContext.getRequest();
+    if (jsonRpcRequestContext.getRequest() instanceof WebSocketRpcRequest webSocketRpcRequest) {
+      return webSocketRpcRequest;
     } else {
       throw new InvalidRequestException("Invalid request received.");
     }

@@ -56,7 +56,8 @@ public abstract class SnapDataRequest implements TasksPriorityProvider {
 
   public static AccountRangeDataRequest createAccountRangeDataRequest(
       final Hash rootHash, final Bytes32 startKeyHash, final Bytes32 endKeyHash) {
-    return new AccountRangeDataRequest(rootHash, startKeyHash, endKeyHash);
+    return new AccountRangeDataRequest(
+        rootHash, startKeyHash, endKeyHash, Optional.empty(), Optional.empty());
   }
 
   public static AccountFlatDatabaseHealingRangeRequest createAccountFlatHealingRangeRequest(

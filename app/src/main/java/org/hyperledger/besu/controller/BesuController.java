@@ -343,13 +343,15 @@ public class BesuController implements java.io.Closeable {
      */
     public BesuControllerBuilder fromGenesisFile(
         final GenesisConfig genesisConfig, final SyncMode syncMode) {
-      final BesuControllerBuilder builder;
       final var configOptions = genesisConfig.getConfigOptions();
 
       if (configOptions.isConsensusMigration()) {
         return createConsensusScheduleBesuControllerBuilder(genesisConfig);
       }
 
+      final boolean hasTTD = configOptions.getTerminalTotalDifficulty().isPresent();
+
+      final BesuControllerBuilder builder;
       if (configOptions.getPowAlgorithm() != PowAlgorithm.UNSUPPORTED) {
         builder = new MainnetBesuControllerBuilder();
       } else if (configOptions.isIbft2()) {
@@ -360,7 +362,7 @@ public class BesuController implements java.io.Closeable {
       } else if (configOptions.isQbft()) {
         builder = new QbftBesuControllerBuilder();
       } else if (configOptions.isClique()) {
-        if (configOptions.getTerminalTotalDifficulty().isEmpty()) {
+        if (!hasTTD) {
           throw new IllegalStateException(
               """
                  Clique Block Production (mining) is no longer supported.
@@ -368,24 +370,30 @@ public class BesuController implements java.io.Closeable {
                  """);
         }
         builder = new CliqueBesuControllerBuilder();
+      } else if (hasTTD) {
+        // No recognized consensus with TTD present: transition chain (e.g. mainnet) that needs
+        // MainnetBesuControllerBuilder for pre-merge PoW block validation
+        LOG.warn("No consensus mechanism detected in genesis config, using PoS");
+        builder = new MainnetBesuControllerBuilder();
       } else {
-        throw new IllegalArgumentException("Unknown consensus mechanism defined");
+        // No recognized consensus and no TTD: pure PoS chain
+        LOG.warn("No consensus mechanism detected in genesis config, using PoS");
+        return new MergeBesuControllerBuilder().genesisConfig(genesisConfig);
       }
 
       // wrap with TransitionBesuControllerBuilder if we have a terminal total difficulty:
-      if (configOptions.getTerminalTotalDifficulty().isPresent()) {
+      if (hasTTD) {
         // Enable start with vanilla MergeBesuControllerBuilder for PoS checkpoint block
         if (syncMode == SyncMode.SNAP && isCheckpointPoSBlock(configOptions)) {
           return new MergeBesuControllerBuilder().genesisConfig(genesisConfig);
-        } else {
-          // TODO this should be changed to vanilla MergeBesuControllerBuilder and the Transition*
-          // series of classes removed after we successfully transition to PoS
-          // https://github.com/hyperledger/besu/issues/2897
-          return new TransitionBesuControllerBuilder(builder, new MergeBesuControllerBuilder())
-              .genesisConfig(genesisConfig);
         }
-
-      } else return builder.genesisConfig(genesisConfig);
+        // TODO this should be changed to vanilla MergeBesuControllerBuilder and the Transition*
+        // series of classes removed after we successfully transition to PoS
+        // https://github.com/hyperledger/besu/issues/2897
+        return new TransitionBesuControllerBuilder(builder, new MergeBesuControllerBuilder())
+            .genesisConfig(genesisConfig);
+      }
+      return builder.genesisConfig(genesisConfig);
     }
 
     private BesuControllerBuilder createConsensusScheduleBesuControllerBuilder(

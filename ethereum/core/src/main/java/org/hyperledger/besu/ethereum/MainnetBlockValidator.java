@@ -292,8 +292,8 @@ public class MainnetBlockValidator implements BlockValidator {
         String description = result.errorMessage.orElse("Unknown cause");
         final BadBlockCause cause = BadBlockCause.fromValidationFailure(description);
         final Optional<BlockAccessList> generatedBlockAccessList =
-            result instanceof BlockProcessingResult
-                ? ((BlockProcessingResult) result).getGeneratedBlockAccessList()
+            result instanceof BlockProcessingResult blockProcessingResult
+                ? blockProcessingResult.getGeneratedBlockAccessList()
                 : Optional.empty();
         context
             .getBadBlockManager()

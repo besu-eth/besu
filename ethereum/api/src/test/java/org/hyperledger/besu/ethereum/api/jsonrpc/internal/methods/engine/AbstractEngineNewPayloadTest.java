@@ -22,8 +22,10 @@ import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.Executi
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.ExecutionEngineJsonRpcMethod.EngineStatus.VALID;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -71,6 +73,7 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -316,6 +319,82 @@ public abstract class AbstractEngineNewPayloadTest extends AbstractScheduledApiT
     assertThat(res.getStatusAsString()).isEqualTo(SYNCING.name());
     assertThat(res.getError()).isNull();
     verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
+  public void shouldUpdateHeadForExecutionToParentBeforeExecutionWhenParentIsDirectChildOfHead() {
+    BlockHeader mockHeader =
+        setupValidPayload(
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            Optional.empty());
+    Hash chainHeadHash =
+        Hash.fromHexStringLenient(
+            "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+    BlockHeader parentHeader = mock(BlockHeader.class);
+    when(blockchain.getBlockHeader(mockHeader.getParentHash()))
+        .thenReturn(Optional.of(parentHeader));
+    when(blockchain.getChainHeadHash()).thenReturn(chainHeadHash);
+    when(parentHeader.getParentHash()).thenReturn(chainHeadHash);
+    when(mergeCoordinator.updateHeadForExecution(parentHeader))
+        .thenReturn(
+            MergeMiningCoordinator.ForkchoiceResult.withResult(
+                Optional.empty(), Optional.of(parentHeader)));
+
+    var resp = resp(mockEnginePayload(mockHeader, emptyList()));
+
+    assertValidResponse(mockHeader, resp);
+    InOrder inOrder = inOrder(mergeCoordinator);
+    inOrder.verify(mergeCoordinator).updateHeadForExecution(parentHeader);
+    inOrder.verify(mergeCoordinator).rememberBlock(any(), any());
+    verify(mergeCoordinator, never()).updateForkChoice(any(), any(), any());
+    verify(mergeCoordinator, never()).updateForkChoiceWithoutLegacySkip(any(), any(), any());
+  }
+
+  @Test
+  public void shouldNotUpdateForkChoiceBeforeExecutionWhenParentIsNotDirectChildOfHead() {
+    BlockHeader mockHeader =
+        setupValidPayload(
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            Optional.empty());
+    Hash chainHeadHash =
+        Hash.fromHexStringLenient(
+            "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef");
+    Hash grandparentHash =
+        Hash.fromHexStringLenient(
+            "0xcafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe");
+    BlockHeader parentHeader = mock(BlockHeader.class);
+    when(blockchain.getBlockHeader(mockHeader.getParentHash()))
+        .thenReturn(Optional.of(parentHeader));
+    when(blockchain.getChainHeadHash()).thenReturn(chainHeadHash);
+    when(parentHeader.getParentHash()).thenReturn(grandparentHash);
+
+    var resp = resp(mockEnginePayload(mockHeader, emptyList()));
+
+    assertValidResponse(mockHeader, resp);
+    verify(mergeCoordinator, never()).updateHeadForExecution(any());
+    verify(mergeCoordinator, never()).updateForkChoiceWithoutLegacySkip(any(), any(), any());
+    verify(mergeCoordinator, never()).updateForkChoice(any(), any(), any());
+    verify(mergeCoordinator).rememberBlock(any(), any());
+  }
+
+  @Test
+  public void shouldNotUpdateForkChoiceBeforeExecutionWhenParentIsChainHead() {
+    BlockHeader mockHeader =
+        setupValidPayload(
+            new BlockProcessingResult(Optional.of(new BlockProcessingOutputs(null, List.of()))),
+            Optional.empty());
+    BlockHeader parentHeader = mock(BlockHeader.class);
+    when(blockchain.getBlockHeader(mockHeader.getParentHash()))
+        .thenReturn(Optional.of(parentHeader));
+    when(blockchain.getChainHeadHash()).thenReturn(mockHeader.getParentHash());
+
+    var resp = resp(mockEnginePayload(mockHeader, emptyList()));
+
+    assertValidResponse(mockHeader, resp);
+    verify(mergeCoordinator, never()).updateHeadForExecution(any());
+    verify(mergeCoordinator, never()).updateForkChoiceWithoutLegacySkip(any(), any(), any());
+    verify(mergeCoordinator, never()).updateForkChoice(any(), any(), any());
+    verify(mergeCoordinator).rememberBlock(any(), any());
   }
 
   @Test

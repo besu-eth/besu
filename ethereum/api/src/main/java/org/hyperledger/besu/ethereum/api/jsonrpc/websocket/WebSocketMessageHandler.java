@@ -17,6 +17,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.websocket;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_REQUEST;
 
 import org.hyperledger.besu.ethereum.api.handlers.IsAliveHandler;
+import org.hyperledger.besu.ethereum.api.jsonrpc.JsonRpcObjectMapperFactory;
 import org.hyperledger.besu.ethereum.api.jsonrpc.execution.JsonRpcExecutor;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcErrorResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcResponse;
@@ -34,7 +35,6 @@ import com.fasterxml.jackson.core.JsonGenerator.Feature;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
-import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import io.vertx.core.Vertx;
 import io.vertx.core.buffer.Buffer;
 import io.vertx.core.http.ServerWebSocket;
@@ -48,13 +48,11 @@ import org.slf4j.LoggerFactory;
 public class WebSocketMessageHandler {
 
   private static final ObjectMapper jsonObjectMapper =
-      new ObjectMapper()
-          .registerModule(new Jdk8Module()); // Handle JDK8 Optionals (de)serialization
+      JsonRpcObjectMapperFactory.getResponseMapper();
 
   private static final Logger LOG = LoggerFactory.getLogger(WebSocketMessageHandler.class);
   private static final ObjectWriter JSON_OBJECT_WRITER =
-      new ObjectMapper()
-          .registerModule(new Jdk8Module()) // Handle JDK8 Optionals (de)serialization
+      jsonObjectMapper
           .writer()
           .without(Feature.FLUSH_PASSED_TO_STREAM)
           .with(Feature.AUTO_CLOSE_TARGET);
@@ -204,13 +202,21 @@ public class WebSocketMessageHandler {
   }
 
   private void replyToClient(final ServerWebSocket websocket, final Object result) {
-    traceResponse(result);
-    try {
-      // underlying output stream lifecycle is managed by the json object writer
-      JSON_OBJECT_WRITER.writeValue(new JsonResponseStreamer(websocket), result);
-    } catch (IOException ex) {
-      LOG.error("Error streaming JSON-RPC response", ex);
-    }
+    vertx
+        .<Void>executeBlocking(
+            promise -> {
+              try {
+                traceResponse(result);
+                // JsonResponseStreamer may block while waiting for the websocket write queue to
+                // drain, so keep the full response serialization path off the event loop.
+                JSON_OBJECT_WRITER.writeValue(new JsonResponseStreamer(websocket), result);
+                promise.complete();
+              } catch (IOException ex) {
+                promise.fail(ex);
+              }
+            },
+            false)
+        .onFailure(ex -> LOG.error("Error streaming JSON-RPC response", ex));
   }
 
   private JsonRpcResponse errorResponse(final Object id, final RpcErrorType error) {

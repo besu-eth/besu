@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.chain;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -51,6 +52,8 @@ public interface BlockchainStorage {
   Optional<Difficulty> getTotalDifficulty(Hash blockHash);
 
   Optional<TransactionLocation> getTransactionLocation(Hash transactionHash);
+
+  Optional<Hash> getTransactionHashBySenderAndNonce(Address sender, long nonce);
 
   Updater updater();
 
@@ -109,6 +112,10 @@ public interface BlockchainStorage {
     void removeTransactionReceipts(final Hash blockHash);
 
     void removeTransactionLocation(Hash transactionHash);
+
+    void putTransactionHashBySenderAndNonce(Address sender, long nonce, Hash transactionHash);
+
+    void removeTransactionHashBySenderAndNonce(Address sender, long nonce);
 
     void removeTotalDifficulty(final Hash blockHash);
 

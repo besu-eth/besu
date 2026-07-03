@@ -77,7 +77,7 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.metrics.StubMetricsSystem;
 import org.hyperledger.besu.plugin.data.AddedBlockContext.EventType;
@@ -162,7 +162,7 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
 
   private final ProtocolSchedule protocolSchedule = spy(getMergeProtocolSchedule());
   private final GenesisState genesisState =
-      GenesisState.fromConfig(getPosGenesisConfig(), protocolSchedule, new CodeCache());
+      GenesisState.fromConfig(getPosGenesisConfig(), protocolSchedule, new PathBasedCodeCache());
 
   private final WorldStateArchive worldStateArchive = createInMemoryWorldStateArchive();
 
@@ -1080,6 +1080,55 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     assertThat(res.getErrorMessage().isEmpty()).isTrue();
 
     verify(blockchain, never()).rewindToBlock(any());
+  }
+
+  @Test
+  public void updateHeadForExecutionShouldMoveHeadWithoutUpdatingFinalizedOrSafe() {
+    BlockHeader terminalHeader = terminalPowBlock();
+    sendNewPayloadAndForkchoiceUpdate(
+        new Block(terminalHeader, BlockBody.empty()), Optional.empty(), Hash.ZERO);
+
+    BlockHeader parentHeader = nextBlockHeader(terminalHeader);
+    Block parent = new Block(parentHeader, BlockBody.empty());
+    coordinator.rememberBlock(parent);
+
+    BlockHeader childHeader = nextBlockHeader(parentHeader);
+    Block child = new Block(childHeader, BlockBody.empty());
+    sendNewPayloadAndForkchoiceUpdate(child, Optional.empty(), parent.getHash());
+
+    clearInvocations(blockchain, mergeContext);
+
+    ForkchoiceResult result = coordinator.updateHeadForExecution(parentHeader);
+
+    assertThat(result.shouldNotProceedToPayloadBuildProcess()).isFalse();
+    assertThat(result.getNewHead()).contains(parentHeader);
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(parentHeader.getHash());
+
+    verify(blockchain, never()).setFinalized(any());
+    verify(mergeContext, never()).setFinalized(any());
+    verify(blockchain, never()).setSafeBlock(any());
+    verify(mergeContext, never()).setSafeBlock(any());
+  }
+
+  @Test
+  public void updateHeadForExecutionShouldNotIgnoreAncestorOfChainHead() {
+    BlockHeader terminalHeader = terminalPowBlock();
+    sendNewPayloadAndForkchoiceUpdate(
+        new Block(terminalHeader, BlockBody.empty()), Optional.empty(), Hash.ZERO);
+
+    BlockHeader parentHeader = nextBlockHeader(terminalHeader);
+    Block parent = new Block(parentHeader, BlockBody.empty());
+    sendNewPayloadAndForkchoiceUpdate(parent, Optional.empty(), terminalHeader.getHash());
+
+    BlockHeader childHeader = nextBlockHeader(parentHeader);
+    Block child = new Block(childHeader, BlockBody.empty());
+    sendNewPayloadAndForkchoiceUpdate(child, Optional.empty(), parent.getHash());
+
+    ForkchoiceResult result = coordinator.updateHeadForExecution(parentHeader);
+
+    assertThat(result.getStatus()).isEqualTo(ForkchoiceResult.Status.VALID);
+    assertThat(result.getNewHead()).contains(parentHeader);
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(parentHeader.getHash());
   }
 
   @ParameterizedTest(name = "{index}: {0}")

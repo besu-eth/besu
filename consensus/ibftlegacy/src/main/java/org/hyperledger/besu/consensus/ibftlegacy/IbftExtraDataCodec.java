@@ -58,8 +58,8 @@ public class IbftExtraDataCodec extends BftExtraDataCodec {
   @Override
   public IbftLegacyExtraData decode(final BlockHeader blockHeader) {
     final Object inputExtraData = blockHeader.getParsedExtraData();
-    if (inputExtraData instanceof IbftLegacyExtraData) {
-      return (IbftLegacyExtraData) inputExtraData;
+    if (inputExtraData instanceof IbftLegacyExtraData ibftLegacyExtraData) {
+      return ibftLegacyExtraData;
     }
     LOG.warn(
         "Expected a BftExtraData instance but got {}. Reparsing required.",

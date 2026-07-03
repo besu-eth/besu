@@ -26,17 +26,17 @@ import org.hyperledger.besu.ethereum.eth.manager.ChainHeadEstimate;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.manager.peertask.PeerTaskExecutor;
 import org.hyperledger.besu.ethereum.eth.sync.common.NoSyncRequiredState;
-import org.hyperledger.besu.ethereum.eth.sync.common.PivotSyncState;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.FullSyncDownloader;
 import org.hyperledger.besu.ethereum.eth.sync.fullsync.SyncTerminationCondition;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapDownloaderFactory;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncController;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.SnapSyncProcessState;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePersistenceManager;
 import org.hyperledger.besu.ethereum.eth.sync.state.PendingBlocksManager;
 import org.hyperledger.besu.ethereum.eth.sync.state.SyncState;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiWorldStateProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
@@ -226,7 +226,7 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
   @Override
   public void awaitStop() {}
 
-  private CompletableFuture<Void> handleSyncResult(final PivotSyncState result) {
+  private CompletableFuture<Void> handleSyncResult(final SnapSyncProcessState result) {
     if (!running.get()) {
       // We've been shutdown which will have triggered the fast sync future to complete
       return CompletableFuture.completedFuture(null);
@@ -355,10 +355,10 @@ public class DefaultSynchronizer implements Synchronizer, UnverifiedForkchoiceLi
     this.syncState.markResyncNeeded();
     maybeAccountToRepair.ifPresent(
         address -> {
-          if (this.protocolContext.getWorldStateArchive() instanceof BonsaiWorldStateProvider) {
-            ((BonsaiWorldStateProvider) this.protocolContext.getWorldStateArchive())
-                .prepareStateHealing(
-                    org.hyperledger.besu.datatypes.Address.wrap(address.getBytes()), location);
+          if (this.protocolContext.getWorldStateArchive()
+              instanceof BonsaiWorldStateProvider bonsaiWorldStateProvider) {
+            bonsaiWorldStateProvider.prepareStateHealing(
+                org.hyperledger.besu.datatypes.Address.wrap(address.getBytes()), location);
           }
           this.syncState.markAccountToRepair(maybeAccountToRepair);
         });

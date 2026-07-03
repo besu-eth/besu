@@ -1,4 +1,4 @@
-/*
+ /*
  * Copyright Hyperledger Besu Contributors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
@@ -71,7 +71,7 @@ Calculated : ${currentHash}
 tasks.register('checkAPIChanges', FileStateChecker) {
   description = "Checks that the API for the Plugin-API project does not change without deliberate thought"
   files = sourceSets.main.allJava.files
-  knownHash = 'VbU1OyJv+bgX8UaxHi/fNZcXJkTZ/UGaGo0D5t35Z5Y='
+  knownHash = 'nKgL6IVQtUfwVXjf8zg8XtEVZm+ImSiM3BAz9owTLUc='
 }
 check.dependsOn('checkAPIChanges')
 
