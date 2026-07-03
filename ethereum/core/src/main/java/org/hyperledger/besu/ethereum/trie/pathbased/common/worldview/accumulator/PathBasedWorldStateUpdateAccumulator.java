@@ -403,7 +403,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
           if (stateAccessTracer != null) stateAccessTracer.traceAccountRead(true);
           return fromParent.get();
         }
-        long startReadNs = System.nanoTime();
+        long startReadNs = stateAccessTracer != null ? System.nanoTime() : 0;
         final Account account = wrappedWorldView().get(address);
         // cache miss: not found in this accumulator, fetched from world state
         if (stateAccessTracer != null) {

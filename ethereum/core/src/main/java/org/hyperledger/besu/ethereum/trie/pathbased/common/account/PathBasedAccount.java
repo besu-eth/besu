@@ -196,27 +196,27 @@ public abstract class PathBasedAccount implements MutableAccount, AccountValue {
     final Code cachedCode =
         Optional.ofNullable(codeCache).map(c -> c.getIfPresent(codeHash)).orElse(null);
 
-    final StateAccessTracer codeTracer = context.getStateAccessTracer();
+    final StateAccessTracer stateAccessTracer = context.getStateAccessTracer();
 
     // cache hit, overwrite code and return it
     if (cachedCode != null) {
       code = cachedCode;
-      if (codeTracer != null) {
-        codeTracer.traceCodeRead(true);
-        codeTracer.addCodeBytesRead(code.getSize());
+      if (stateAccessTracer != null) {
+        stateAccessTracer.traceCodeRead(true);
+        stateAccessTracer.addCodeBytesRead(code.getSize());
       }
       return code;
     }
 
     // cache miss: get the code from the disk, set it and put it in the cache
-    long startReadNs = System.nanoTime();
+    long startReadNs = stateAccessTracer != null ? System.nanoTime() : 0;
     final Bytes byteCode = context.getCode(address, codeHash).orElse(Bytes.EMPTY);
     code = new Code(byteCode, codeHash);
     Optional.ofNullable(codeCache).ifPresent(c -> c.put(codeHash, code));
-    if (codeTracer != null) {
-      codeTracer.addStateReadTime(System.nanoTime() - startReadNs);
-      codeTracer.traceCodeRead(false);
-      codeTracer.addCodeBytesRead(code.getSize());
+    if (stateAccessTracer != null) {
+      stateAccessTracer.addStateReadTime(System.nanoTime() - startReadNs);
+      stateAccessTracer.traceCodeRead(false);
+      stateAccessTracer.addCodeBytesRead(code.getSize());
     }
 
     return code;
