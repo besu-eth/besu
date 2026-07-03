@@ -12,11 +12,12 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache;
+package org.hyperledger.besu.ethereum.trie.pathbased.bonsai;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -25,12 +26,12 @@ import org.hyperledger.besu.plugin.data.BlockHeader;
 import java.util.Optional;
 import java.util.function.Function;
 
-public class NoOpBonsaiWorldStateCacheManager extends BonsaiWorldStateCacheManager {
+public class NoOpBonsaiCachedWorldStorageManager extends BonsaiCachedWorldStorageManager {
 
-  public NoOpBonsaiWorldStateCacheManager(
+  public NoOpBonsaiCachedWorldStorageManager(
       final BonsaiWorldStateKeyValueStorage bonsaiWorldStateKeyValueStorage,
       final EvmConfiguration evmConfiguration,
-      final PathBasedCodeCache codeCache) {
+      final CodeCache codeCache) {
     super(
         null,
         bonsaiWorldStateKeyValueStorage,
@@ -64,7 +65,8 @@ public class NoOpBonsaiWorldStateCacheManager extends BonsaiWorldStateCacheManag
 
   @Override
   public Optional<PathBasedWorldState> getHeadWorldState(
-      final Function<Hash, Optional<BlockHeader>> hashBlockHeaderFunction) {
+      final Function<Hash, Optional<BlockHeader>> hashBlockHeaderFunction,
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
     return Optional.empty();
   }
 

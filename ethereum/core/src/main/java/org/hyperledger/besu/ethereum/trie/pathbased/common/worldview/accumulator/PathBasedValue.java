@@ -16,26 +16,29 @@ package org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulato
 
 import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
 
+import java.util.function.Supplier;
+
+import com.google.common.base.Suppliers;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 
 public class PathBasedValue<T> implements TrieLog.LogTuple<T> {
-  private T prior;
-  private T updated;
+  private Supplier<T> prior;
+  private Supplier<T> updated;
   private boolean lastStepCleared;
 
   private boolean clearedAtLeastOnce;
 
   public PathBasedValue(final T prior, final T updated) {
-    this.prior = prior;
-    this.updated = updated;
+    this.prior = () -> prior;
+    this.updated = () -> updated;
     this.lastStepCleared = false;
     this.clearedAtLeastOnce = false;
   }
 
   public PathBasedValue(final T prior, final T updated, final boolean lastStepCleared) {
-    this.prior = prior;
-    this.updated = updated;
+    this.prior = () -> prior;
+    this.updated = () -> updated;
     this.lastStepCleared = lastStepCleared;
     this.clearedAtLeastOnce = lastStepCleared;
   }
@@ -45,24 +48,43 @@ public class PathBasedValue<T> implements TrieLog.LogTuple<T> {
       final T updated,
       final boolean lastStepCleared,
       final boolean clearedAtLeastOnce) {
+    this.prior = () -> prior;
+    this.updated = () -> updated;
+    this.lastStepCleared = lastStepCleared;
+    this.clearedAtLeastOnce = clearedAtLeastOnce;
+  }
+
+  public PathBasedValue(
+          final Supplier<T> prior, final Supplier<T> updated,
+          final boolean lastStepCleared,
+          final boolean clearedAtLeastOnce) {
     this.prior = prior;
     this.updated = updated;
     this.lastStepCleared = lastStepCleared;
     this.clearedAtLeastOnce = clearedAtLeastOnce;
   }
 
+  public static <T> PathBasedValue<T> withLazy(final Supplier<T> priorLoader, final Supplier<T> updatedLoader) {
+    return new PathBasedValue<>(priorLoader, updatedLoader, false, false);
+  }
+
+  public static <T> PathBasedValue<T> withLazyPrior(final Supplier<T> priorLoader) {
+    final Supplier<T> memoizedPrior = Suppliers.memoize(priorLoader::get);
+    return new PathBasedValue<>(memoizedPrior, memoizedPrior, false, false);
+  }
+
   @Override
   public T getPrior() {
-    return prior;
+    return prior.get();
   }
 
   @Override
   public T getUpdated() {
-    return updated;
+    return updated.get();
   }
 
   public PathBasedValue<T> setPrior(final T prior) {
-    this.prior = prior;
+    this.prior = () -> prior;
     return this;
   }
 
@@ -71,7 +93,7 @@ public class PathBasedValue<T> implements TrieLog.LogTuple<T> {
     if (lastStepCleared) {
       this.clearedAtLeastOnce = true;
     }
-    this.updated = updated;
+    this.updated =  () -> updated;
     return this;
   }
 

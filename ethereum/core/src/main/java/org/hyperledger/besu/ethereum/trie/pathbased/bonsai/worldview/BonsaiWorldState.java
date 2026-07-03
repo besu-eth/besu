@@ -19,31 +19,32 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.Path
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
+import org.hyperledger.besu.ethereum.core.MutableWorldState;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.NoOpMerkleTrie;
 import org.hyperledger.besu.ethereum.trie.NodeLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.bal.BonsaiBalWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiWorldStateProvider;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMerkleTrieLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoopBonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateLayerStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.NoOpBonsaiCachedMerkleTrieLoader;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedValue;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.cache.PathBasedCachedWorldStorageManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.StorageConsumingMap;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.cache.PathBasedWorldStateCacheManager;
 import org.hyperledger.besu.ethereum.trie.patricia.ParallelStoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
-import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.Map;
 import java.util.Objects;
@@ -64,46 +65,91 @@ import org.apache.tuweni.units.bigints.UInt256;
 public class BonsaiWorldState extends PathBasedWorldState {
 
   protected BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader;
-  private final PathBasedCodeCache codeCache;
+  private final CodeCache codeCache;
 
   public BonsaiWorldState(
       final BonsaiWorldStateProvider archive,
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
       final EvmConfiguration evmConfiguration,
       final WorldStateConfig worldStateConfig,
-      final PathBasedCodeCache codeCache) {
+      final CodeCache codeCache) {
+    this(
+        archive,
+        worldStateKeyValueStorage,
+        evmConfiguration,
+        worldStateConfig,
+        codeCache,
+        Optional.empty());
+  }
+
+  public BonsaiWorldState(
+      final BonsaiWorldStateProvider archive,
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final EvmConfiguration evmConfiguration,
+      final WorldStateConfig worldStateConfig,
+      final CodeCache codeCache,
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
     this(
         worldStateKeyValueStorage,
         archive.getCachedMerkleTrieLoader(),
-        archive.getWorldStateCacheManager(),
+        archive.getCachedWorldStorageManager(),
         archive.getTrieLogManager(),
         evmConfiguration,
         worldStateConfig,
-        codeCache);
+        codeCache,
+        maybeBlockAccessListOverlay);
   }
 
   public BonsaiWorldState(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
       final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
-      final PathBasedWorldStateCacheManager worldStateCacheManager,
+      final PathBasedCachedWorldStorageManager cachedWorldStorageManager,
       final TrieLogManager trieLogManager,
       final EvmConfiguration evmConfiguration,
       final WorldStateConfig worldStateConfig,
-      final PathBasedCodeCache codeCache) {
-    super(worldStateKeyValueStorage, worldStateCacheManager, trieLogManager, worldStateConfig);
+      final CodeCache codeCache) {
+    this(
+        worldStateKeyValueStorage,
+        bonsaiCachedMerkleTrieLoader,
+        cachedWorldStorageManager,
+        trieLogManager,
+        evmConfiguration,
+        worldStateConfig,
+        codeCache,
+        Optional.empty());
+  }
+
+  public BonsaiWorldState(
+      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
+      final PathBasedCachedWorldStorageManager cachedWorldStorageManager,
+      final TrieLogManager trieLogManager,
+      final EvmConfiguration evmConfiguration,
+      final WorldStateConfig worldStateConfig,
+      final CodeCache codeCache,
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
+    super(worldStateKeyValueStorage, cachedWorldStorageManager, trieLogManager, worldStateConfig);
     this.bonsaiCachedMerkleTrieLoader = bonsaiCachedMerkleTrieLoader;
     this.worldStateKeyValueStorage = worldStateKeyValueStorage;
     this.setAccumulator(
-        new BonsaiWorldStateUpdateAccumulator(
-            this,
-            (addr, value) ->
-                this.bonsaiCachedMerkleTrieLoader.preLoadAccount(
-                    getWorldStateStorage(), worldStateRootHash, addr),
-            (addr, value) ->
-                this.bonsaiCachedMerkleTrieLoader.preLoadStorageSlot(
-                    getWorldStateStorage(), addr, value),
-            evmConfiguration,
-            codeCache));
+        maybeBlockAccessListOverlay
+            .map(
+                overlay ->
+                    (BonsaiWorldStateUpdateAccumulator)
+                        new BonsaiBalWorldStateUpdateAccumulator(
+                            this, evmConfiguration, codeCache, overlay))
+            .orElseGet(
+                () ->
+                    new BonsaiWorldStateUpdateAccumulator(
+                        this,
+                        (addr, value) ->
+                            this.bonsaiCachedMerkleTrieLoader.preLoadAccount(
+                                getWorldStateStorage(), worldStateRootHash, addr),
+                        (addr, value) ->
+                            this.bonsaiCachedMerkleTrieLoader.preLoadStorageSlot(
+                                getWorldStateStorage(), addr, value),
+                        evmConfiguration,
+                        codeCache)));
     this.codeCache = codeCache;
   }
 
@@ -478,7 +524,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
   }
 
   public void disableCacheMerkleTrieLoader() {
-    this.bonsaiCachedMerkleTrieLoader = new NoOpBonsaiCachedMerkleTrieLoader();
+    this.bonsaiCachedMerkleTrieLoader = new NoopBonsaiCachedMerkleTrieLoader();
   }
 
   private MerkleTrie<Bytes, Bytes> createTrie(final NodeLoader nodeLoader, final Bytes32 rootHash) {
@@ -504,7 +550,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
   }
 
   @Override
-  public PathBasedCodeCache codeCache() {
+  public CodeCache codeCache() {
     return codeCache;
   }
 }

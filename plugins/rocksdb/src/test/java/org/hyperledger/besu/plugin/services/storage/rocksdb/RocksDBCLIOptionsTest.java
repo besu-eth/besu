@@ -116,6 +116,27 @@ public class RocksDBCLIOptionsTest {
   }
 
   @Test
+  public void tableCacheWarmupEnabledByDefault() {
+    final RocksDBCLIOptions options = RocksDBCLIOptions.create();
+
+    new CommandLine(options).parseArgs();
+
+    final RocksDBFactoryConfiguration configuration = options.toDomainObject();
+    assertThat(configuration.isTableCacheWarmupEnabled()).isTrue();
+  }
+
+  @Test
+  public void tableCacheWarmupCanBeDisabled() {
+    final RocksDBCLIOptions options = RocksDBCLIOptions.create();
+
+    new CommandLine(options)
+        .parseArgs(RocksDBCLIOptions.TABLE_CACHE_WARMUP_ENABLED_FLAG + "=false");
+
+    final RocksDBFactoryConfiguration configuration = options.toDomainObject();
+    assertThat(configuration.isTableCacheWarmupEnabled()).isFalse();
+  }
+
+  @Test
   public void autoMaxOpenFilesUsesMemoryTiers() {
     assertMaxOpenFilesDerivedFromAvailableMemory(2L * GIB, DEFAULT_MAX_OPEN_FILES);
     assertMaxOpenFilesDerivedFromAvailableMemory(4L * GIB, MAX_OPEN_FILES_4GB);

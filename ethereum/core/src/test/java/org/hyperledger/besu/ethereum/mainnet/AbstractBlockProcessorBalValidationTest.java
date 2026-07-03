@@ -34,6 +34,7 @@ import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.core.TransactionReceipt;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
@@ -42,6 +43,7 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListFa
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.mainnet.blockhash.FrontierPreExecutionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.PreprocessingContext;
+import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.mainnet.systemcall.BlockProcessingContext;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
@@ -49,8 +51,8 @@ import org.hyperledger.besu.ethereum.referencetests.ReferenceTestBlockchain;
 import org.hyperledger.besu.ethereum.referencetests.ReferenceTestWorldState;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
-import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -68,8 +70,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 /**
- * Verifies EIP-7928 BAL checks wired in {@link AbstractBlockProcessor}: post-build item-size
- * budget, hash, and related validation.
+ * Verifies EIP-7928 BAL checks wired in {@link AbstractBlockProcessor}: per-transaction item budget
+ * (fail-fast) and post-build hash + size validation.
  */
 @ExtendWith(MockitoExtension.class)
 class AbstractBlockProcessorBalValidationTest {
@@ -98,6 +100,9 @@ class AbstractBlockProcessorBalValidationTest {
         .thenReturn(BlockGasAccountingStrategy.FRONTIER);
     lenient().when(protocolSpec.getGasCalculator()).thenReturn(gasCalculator);
     lenient().when(gasCalculator.getBlobGasPerBlob()).thenReturn(1L);
+    final StateGasCostCalculator stateGasCalc = mock(StateGasCostCalculator.class);
+    lenient().when(gasCalculator.stateGasCostCalculator()).thenReturn(stateGasCalc);
+    lenient().when(stateGasCalc.transactionRegularGasLimit()).thenReturn(Long.MAX_VALUE);
     lenient().when(protocolSpec.getWithdrawalsProcessor()).thenReturn(Optional.empty());
     lenient().when(protocolSpec.getRequestProcessorCoordinator()).thenReturn(Optional.empty());
     lenient()
@@ -166,17 +171,13 @@ class AbstractBlockProcessorBalValidationTest {
   }
 
   @Test
-  void overBudgetBalFailsAfterAllTransactionsAreProcessed() {
+  void perTransactionBalSizeFailFastDoesNotRunFollowingTransactions() {
     lenient().when(gasCalculator.getBlockAccessListItemCost()).thenReturn(2000L);
     final long gasLimit = 16_000L;
     final int maxItems = 8;
     assertThat(gasLimit / 2000L).isEqualTo(maxItems);
 
-    final BlockHeader header =
-        new BlockHeaderTestFixture()
-            .gasLimit(gasLimit)
-            .balHash(Hash.fromHexString("ab".repeat(32)))
-            .buildHeader();
+    final BlockHeader header = new BlockHeaderTestFixture().gasLimit(gasLimit).buildHeader();
 
     final AtomicInteger txCalls = new AtomicInteger(0);
     final IntFunction<PartialBlockAccessView> partialForIndex =
@@ -212,7 +213,7 @@ class AbstractBlockProcessorBalValidationTest {
 
     assertThat(result.isSuccessful()).isFalse();
     assertThat(result.errorMessage.orElse("")).contains("Block access list size exceeds maximum");
-    assertThat(txCalls).hasValue(6);
+    assertThat(txCalls).hasValue(5);
   }
 
   @Test
@@ -276,6 +277,7 @@ class AbstractBlockProcessorBalValidationTest {
     lenient().when(tx.getHash()).thenReturn(Hash.EMPTY);
     lenient().when(tx.getType()).thenReturn(TransactionType.FRONTIER);
     lenient().when(tx.getVersionedHashes()).thenReturn(Optional.empty());
+    lenient().when(tx.getAccessList()).thenReturn(Optional.empty());
     final List<Transaction> txs = new ArrayList<>();
     for (int i = 0; i < txCount; i++) {
       txs.add(tx);

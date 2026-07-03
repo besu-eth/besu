@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.mainnet;
 
+import java.time.Duration;
+
 import org.immutables.value.Value;
 
 /** Configuration options for Block Access List (BAL) processing. */
@@ -21,6 +23,16 @@ import org.immutables.value.Value;
 public interface BalConfiguration {
 
   BalConfiguration DEFAULT = ImmutableBalConfiguration.builder().build();
+
+  /** Configuration with BAL state root disabled (uses standard accumulator-based root). */
+  BalConfiguration DISABLED =
+      ImmutableBalConfiguration.builder().isBalStateRootEnabled(false).build();
+
+  /** Returns whether the BAL-computed state root should be trusted without verification. */
+  @Value.Default
+  default boolean isBalStateRootTrusted() {
+    return true;
+  }
 
   /**
    * Returns whether to use the BAL-based state root commit path when a BAL is available. When
@@ -37,9 +49,53 @@ public interface BalConfiguration {
     return true;
   }
 
+  /**
+   * Returns whether mismatches between BAL and synchronously computed state roots should only log
+   * an error instead of throwing an exception.
+   */
+  @Value.Default
+  default boolean isBalLenientOnStateRootMismatch() {
+    return true;
+  }
+
+  /** Returns whether prefetching of state data based on BAL read operations is enabled. */
+  @Value.Default
+  default boolean isBalPreFetchReadingEnabled() {
+    return true;
+  }
+
+  /** Returns whether BAL sorting optimization should be enabled during prefetch. */
+  @Value.Default
+  default boolean isBalPreFetchSortingEnabled() {
+    return true;
+  }
+
   /** Returns whether the BALs should be logged when a constructed and block's BALs mismatch. */
   @Value.Default
   default boolean shouldLogBalsOnMismatch() {
     return false;
+  }
+
+  /** Returns the timeout to use when waiting for the BAL-computed state root. */
+  @Value.Default
+  default Duration getBalStateRootTimeout() {
+    return Duration.ofSeconds(-1);
+  }
+
+  /** Returns the timeout to use when waiting for BAL transaction processing results. */
+  @Value.Default
+  default Duration getBalProcessingTimeout() {
+    return Duration.ofSeconds(-1);
+  }
+
+  /**
+   * Returns the batch size for prefetch operations. A value of 0 or negative means no batching
+   * (fetch all at once).
+   *
+   * @return the batch size for prefetch operations
+   */
+  @Value.Default
+  default int getBalPreFetchBatchSize() {
+    return 100; // Default: no batching, fetch all at once
   }
 }
