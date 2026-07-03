@@ -20,6 +20,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.proof.WorldStateProof;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
@@ -28,7 +29,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorl
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldUpdater;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.worldstate.PathBasedExtraStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -178,20 +179,18 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
    *
    * <p>The method follows these steps: 1. Check if the query parameters indicate that the world
    * state should update the head. 2. If true, call {@link #getFullWorldStateFromHead(Hash)} with
-   * the block hash from the query parameters. 3. If false, call {@code getFullWorldStateFromCache}
-   * with the block header and optional updater factory from the query
-   * parameters.
+   * the block hash from the query parameters. 3. If false, call {@link
+   * #getFullWorldStateFromCache(BlockHeader, Optional)} with the block header and optional BAL
+   * overlay from the query parameters.
    *
    * @param queryParams the query parameters
    * @return the stateful world state, if available
    */
-  @SuppressWarnings("rawtypes")
   protected Optional<MutableWorldState> getFullWorldState(final WorldStateQueryParams queryParams) {
     return queryParams.shouldWorldStateUpdateHead()
         ? getFullWorldStateFromHead(queryParams.getBlockHash())
         : getFullWorldStateFromCache(
-            queryParams.getBlockHeader(),
-            queryParams.<PathBasedWorldState>getUpdaterFactory());
+            queryParams.getBlockHeader(), queryParams.getBalOverlayQuery());
   }
 
   /**
@@ -212,11 +211,30 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
     return rollFullWorldStateToBlockHash(headWorldState, blockHash);
   }
 
-  @SuppressWarnings("rawtypes")
+  /**
+   * Gets the full world state from the cache based on the provided block header.
+   *
+   * <p>This method attempts to retrieve the world state from the cache using the block header. If
+   * the block header is too old (i.e., the number of blocks between the chain head and the provided
+   * block header exceeds the maximum layers to load), a warning is logged and an empty Optional is
+   * returned.
+   *
+   * <p>The method follows these steps: 1. Check if the world state for the given block header is
+   * available in the cache. 2. If not, attempt to get the nearest world state from the cache. 3. If
+   * still not found, attempt to get the head world state. 4. If a world state is found, roll it to
+   * the block hash of the provided block header. 5. Freeze the world state and return it.
+   *
+   * @param blockHeader the block header
+   * @return the full world state, if available
+   */
   private Optional<MutableWorldState> getFullWorldStateFromCache(
       final BlockHeader blockHeader,
-      final Optional<Function<PathBasedWorldState, PathBasedWorldUpdater>>
-          maybeUpdaterFactory) {
+      final Optional<WorldStateQueryParams.BalOverlayQuery> balOverlayQuery) {
+    final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay =
+        balOverlayQuery.map(
+            q ->
+                new BlockAccessListOverlay(
+                    q.blockAccessListAddressView(), q.maxTxIndexExclusive()));
     final BlockHeader chainHeadBlockHeader = blockchain.getChainHeadHeader();
     if (chainHeadBlockHeader.getNumber() - blockHeader.getNumber()
         >= trieLogManager.getMaxLayersToLoad()) {
@@ -225,54 +243,20 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
           trieLogManager.getMaxLayersToLoad());
       return Optional.empty();
     }
-
-    final Optional<PathBasedWorldState> foundWorldState =
-        cachedWorldStorageManager
-            .getWorldState(blockHeader.getBlockHash())
-            .or(() -> cachedWorldStorageManager.getNearestWorldState(blockHeader))
-            .or(
-                () ->
-                    cachedWorldStorageManager.getHeadWorldState(
-                        blockHeaderHash ->
-                            blockchain
-                                .getBlockHeader(blockHeaderHash)
-                                .map(BlockHeader.class::cast)));
-
-    if (foundWorldState.isEmpty()) {
-      return Optional.empty();
-    }
-
-    final PathBasedWorldState ws = foundWorldState.get();
-    final Optional<MutableWorldState> rolledState =
-        rollFullWorldStateToBlockHash(ws, blockHeader.getBlockHash())
-            .map(MutableWorldState::freezeStorage);
-
-    if (rolledState.isEmpty()) {
-      // Rolling failed; close the freshly-allocated world state to avoid a resource leak.
-      try {
-        ws.close();
-      } catch (final Exception ignored) {
-        // PathBasedWorldState.close() catches internally and never propagates
-      }
-      return Optional.empty();
-    }
-
-    if (maybeUpdaterFactory.isPresent()) {
-      // Rolling via persist() has already added the target block to the cache.
-      // Close the intermediate rolled/frozen state and return a fresh world state
-      // built with the requested updater factory, frozen to prevent accidental writes.
-      try {
-        rolledState.get().close();
-      } catch (final Exception ignored) {
-        // PathBasedWorldState.close() catches internally and never propagates
-      }
-      return cachedWorldStorageManager
-          .getWorldState(blockHeader.getBlockHash(), maybeUpdaterFactory.get())
-          .map(MutableWorldState.class::cast)
-          .map(MutableWorldState::freezeStorage);
-    }
-
-    return rolledState;
+    return cachedWorldStorageManager
+        .getWorldState(blockHeader.getBlockHash(), maybeBlockAccessListOverlay)
+        .or(
+            () ->
+                cachedWorldStorageManager.getNearestWorldState(
+                    blockHeader, maybeBlockAccessListOverlay))
+        .or(
+            () ->
+                cachedWorldStorageManager.getHeadWorldState(
+                    blockHeaderHash ->
+                        blockchain.getBlockHeader(blockHeaderHash).map(BlockHeader.class::cast)))
+        .flatMap(
+            worldState -> rollFullWorldStateToBlockHash(worldState, blockHeader.getBlockHash()))
+        .map(MutableWorldState::freezeStorage);
   }
 
   private Optional<MutableWorldState> rollFullWorldStateToBlockHash(
@@ -325,7 +309,8 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
         }
 
         // attempt the state rolling
-        final var pathBasedUpdater = mutableState.getAccumulator();
+        final PathBasedWorldStateUpdateAccumulator<?> pathBasedUpdater =
+            (PathBasedWorldStateUpdateAccumulator<?>) mutableState.updater();
         try {
           for (final TrieLog rollBack : rollBacks) {
             LOG.debug("Attempting Rollback of {}", rollBack.getBlockHash());

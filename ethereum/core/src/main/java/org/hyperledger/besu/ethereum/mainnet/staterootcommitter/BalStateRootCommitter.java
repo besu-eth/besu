@@ -23,17 +23,17 @@ import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListChanges;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListIndex;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAddressView;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExecutors;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiBalWorldStateUpdater;
+
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.evm.account.Account;
-import org.hyperledger.besu.evm.internal.EvmConfiguration;
+
 import org.hyperledger.besu.plugin.data.BlockHeader;
 
 import java.util.ArrayList;
@@ -96,7 +96,7 @@ import org.apache.tuweni.units.bigints.UInt256;
  *
  * <h2>Storage-root back-propagation</h2>
  *
- * <p>The EVM accumulator ({@link BonsaiWorldStateUpdateAccumulator}) holds mutable {@link
+ * <p>The EVM accumulator (the BAL overlay accumulator) holds mutable {@link
  * org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiAccount} objects whose {@code
  * storageRoot} field defaults to the prior root. After the background computation resolves the new
  * storage roots, {@link #compute} writes them back into the accumulator so that the trie log
@@ -125,9 +125,8 @@ public final class BalStateRootCommitter implements StateRootCommitter {
     this.backgroundComputation =
         CompletableFuture.supplyAsync(
             () -> {
-              final BlockAccessListIndex balIndex = new BlockAccessListIndex(bal);
               try (BonsaiWorldState parent =
-                  openParentWorldState(protocolContext, blockHeader, balIndex)) {
+                  openParentWorldState(protocolContext, blockHeader, bal)) {
                 return runComputation(parent, bal);
               }
             },
@@ -179,7 +178,8 @@ public final class BalStateRootCommitter implements StateRootCommitter {
     if (changes.isEmpty()) {
       return new BackgroundResult(worldState.getWorldStateRootHash(), List.of(), Map.of());
     }
-    final BonsaiBalWorldStateUpdater balUpdater = (BonsaiBalWorldStateUpdater) worldState.updater();
+    final BonsaiWorldStateUpdateAccumulator balUpdater =
+        (BonsaiWorldStateUpdateAccumulator) worldState.getAccumulator();
     return new BalComputation(worldState, changes, balUpdater).execute();
   }
 
@@ -198,7 +198,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
   private BonsaiWorldState openParentWorldState(
       final ProtocolContext protocolContext,
       final BlockHeader blockHeader,
-      final BlockAccessListIndex balIndex) {
+      final BlockAccessList bal) {
     final Hash parentHash = blockHeader.getParentHash();
     final BlockHeader parentHeader =
         protocolContext
@@ -214,9 +214,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
         WorldStateQueryParams.newBuilder()
             .withBlockHeader(parentHeader)
             .withShouldWorldStateUpdateHead(false)
-            .withUpdaterFactory(
-                (BonsaiWorldState ws) ->
-                    new BonsaiBalWorldStateUpdater(balIndex, Long.MAX_VALUE, ws, EvmConfiguration.DEFAULT))
+            .withBalOverlay(BlockAccessListAddressView.of(bal), Long.MAX_VALUE)
             .build();
     return (BonsaiWorldState)
         protocolContext.getWorldStateArchive().getWorldState(queryParams).orElseThrow();
@@ -228,7 +226,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
   /**
    * Applies BAL changes to the parent world state's tries. Storage trie futures are launched
    * eagerly before the account loop so storage I/O overlaps with account-trie writes. Account
-   * field values (nonce, balance, code hash) are read lazily through a {@link BonsaiBalWorldStateUpdater}
+   * field values (nonce, balance, code hash) are read lazily through a the BAL overlay accumulator
    * with {@code txIndex = Long.MAX_VALUE}, which serves them O(1) from the BAL index when present
    * and falls back to the parent DB only for fields not tracked in the BAL.
    */
@@ -241,7 +239,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
      * BAL-backed updater used for lazy field reads. {@code txIndex = Long.MAX_VALUE} makes all
      * BAL entries visible (post-all-transactions final state).
      */
-    private final BonsaiBalWorldStateUpdater balUpdater;
+    private final BonsaiWorldStateUpdateAccumulator balUpdater;
 
     /** Thread-safe; populated concurrently by storage futures and account writes. */
     private final List<StateRootComputation.UpdaterWrite> writes =
@@ -259,7 +257,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
     BalComputation(
         final BonsaiWorldState worldState,
         final List<BlockAccessListChanges.AccountFinalChanges> changes,
-        final BonsaiBalWorldStateUpdater balUpdater) {
+        final BonsaiWorldStateUpdateAccumulator balUpdater) {
       this.worldState = worldState;
       this.changes = changes;
       this.balUpdater = balUpdater;
@@ -297,7 +295,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
 
     /**
      * Resolves the final on-chain account state for {@code change.address()} using the {@link
-     * BonsaiBalWorldStateUpdater} for lazy nonce/balance/code-hash reads, and returns the RLP encoding to
+     * BonsaiWorldStateUpdateAccumulator} for lazy nonce/balance/code-hash reads, and returns the RLP encoding to
      * store in the account trie (or empty to signal account deletion).
      *
      * @param existingRlp the current account RLP from the trie leaf (empty for new accounts)
@@ -307,7 +305,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
         final BlockAccessListChanges.AccountFinalChanges change,
         final Optional<Bytes> existingRlp) {
 
-      // Lazy reads via BalWorldUpdater: BAL-first (O(1)), DB-fallback only when not in BAL.
+      // Lazy reads via overlay-backed accumulator: BAL-first (O(1)), DB-fallback only when not in BAL.
       final Account account = balUpdater.get(change.address());
       final long nonce = account != null ? account.getNonce() : 0L;
       final Wei balance = account != null ? account.getBalance() : Wei.ZERO;

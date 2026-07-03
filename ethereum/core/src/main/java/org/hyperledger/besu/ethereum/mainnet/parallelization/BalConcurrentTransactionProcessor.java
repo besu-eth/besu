@@ -27,15 +27,13 @@ import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListIndex;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAddressView;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.prefetch.BalPrefetcher;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiBalWorldStateUpdater;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldUpdater;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
@@ -64,8 +62,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
   private final MainnetTransactionProcessor transactionProcessor;
   private final BlockAccessList blockAccessList;
-  /** Built once per block in O(accounts + slots); shared across all worker threads. */
-  private final BlockAccessListIndex blockAccessListIndex;
+  private final BlockAccessListAddressView blockAccessListAddressView;
   private final Duration balProcessingTimeout;
   private final Optional<BalPrefetcher> maybePrefetcher;
 
@@ -75,7 +72,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final BalConfiguration balConfiguration) {
     this.transactionProcessor = transactionProcessor;
     this.blockAccessList = blockAccessList;
-    this.blockAccessListIndex = new BlockAccessListIndex(blockAccessList);
+    this.blockAccessListAddressView = BlockAccessListAddressView.of(blockAccessList);
     this.balProcessingTimeout = balConfiguration.getBalProcessingTimeout();
     this.maybePrefetcher =
         balConfiguration.isBalPreFetchReadingEnabled()
@@ -90,8 +87,6 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final ProtocolContext protocolContext,
       final Optional<BlockHeader> maybeParentHeader,
       final int transactionLocation) {
-    final long maxTxIndex = (long) transactionLocation + 1L;
-    final BlockAccessListIndex balIndex = this.blockAccessListIndex;
     return maybeParentHeader.flatMap(
         blockHeader ->
             protocolContext
@@ -100,10 +95,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
                     WorldStateQueryParams.newBuilder()
                         .withBlockHeader(blockHeader)
                         .withShouldWorldStateUpdateHead(false)
-                        .<BonsaiWorldState>withUpdaterFactory(
-                            ws ->
-                                new BonsaiBalWorldStateUpdater(
-                                    balIndex, maxTxIndex, ws, ws.getEvmConfiguration()))
+                        .withBalOverlay(blockAccessListAddressView, (long) transactionLocation + 1L)
                         .build())
                 .map(BonsaiWorldState.class::cast));
   }
@@ -126,11 +118,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
               getWorldState(protocolContext, maybeParentHeader);
           if (maybeWorldState.isPresent()) {
             balPrefetchMechanism
-                .prefetch(
-                    maybeWorldState.get(),
-                    blockAccessList,
-                    BlockProcessingExecutors.ioExecutor(),
-                    BlockProcessingExecutors.ioExecutor())
+                .prefetch(maybeWorldState.get(), blockAccessList, executor)
                 .exceptionally(
                     ex -> {
                       LOG.error("Prefetch failed", ex);
@@ -177,7 +165,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final ParallelizedTransactionContext.Builder ctxBuilder =
           new ParallelizedTransactionContext.Builder();
 
-      final PathBasedWorldUpdater blockUpdater = ws.updater();
+      final PathBasedWorldStateUpdateAccumulator<?> blockUpdater = ws.getAccumulator();
       final WorldUpdater txUpdater = blockUpdater.updater();
       final Optional<AccessLocationTracker> txTracker =
           blockAccessListBuilder.map(

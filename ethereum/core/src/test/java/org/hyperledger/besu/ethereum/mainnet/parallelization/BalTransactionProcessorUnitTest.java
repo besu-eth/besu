@@ -41,6 +41,7 @@ import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
 import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.ValidationResult;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.NoOpBonsaiCachedWorldStorageManager;
@@ -50,7 +51,6 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldSt
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.NoOpTrieLogManager;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldUpdater;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.evm.account.Account;
@@ -97,24 +97,11 @@ class BalTransactionProcessorUnitTest {
       BonsaiWorldState worldState) {}
 
   private BonsaiWorldState createEmptyWorldState() {
-    final BonsaiWorldStateKeyValueStorage storage =
-        new BonsaiWorldStateKeyValueStorage(
-            new InMemoryKeyValueStorageProvider(),
-            new NoOpMetricsSystem(),
-            DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
-
-    return new BonsaiWorldState(
-        storage,
-        new NoopBonsaiCachedMerkleTrieLoader(),
-        new NoOpBonsaiCachedWorldStorageManager(storage, EvmConfiguration.DEFAULT, new CodeCache()),
-        new NoOpTrieLogManager(),
-        EvmConfiguration.DEFAULT,
-        createStatefulConfigWithTrie(),
-        new CodeCache());
+    return createEmptyWorldState(Optional.empty());
   }
 
   private BonsaiWorldState createEmptyWorldState(
-      final java.util.function.Function<BonsaiWorldState, PathBasedWorldUpdater> updaterFactory) {
+      final Optional<BlockAccessListOverlay> blockAccessListOverlay) {
     final BonsaiWorldStateKeyValueStorage storage =
         new BonsaiWorldStateKeyValueStorage(
             new InMemoryKeyValueStorageProvider(),
@@ -129,7 +116,7 @@ class BalTransactionProcessorUnitTest {
         EvmConfiguration.DEFAULT,
         createStatefulConfigWithTrie(),
         new CodeCache(),
-        updaterFactory);
+        blockAccessListOverlay);
   }
 
   private TestEnvironment createTestEnvironment() {
@@ -147,12 +134,14 @@ class BalTransactionProcessorUnitTest {
               if (queryParams == null) {
                 return Optional.empty();
               }
-              final Optional<java.util.function.Function<BonsaiWorldState, PathBasedWorldUpdater>>
-                  maybeFactory = queryParams.getUpdaterFactory();
-              return Optional.of(
-                  maybeFactory.isPresent()
-                      ? createEmptyWorldState(maybeFactory.get())
-                      : createEmptyWorldState());
+              final Optional<BlockAccessListOverlay> overlay =
+                  queryParams
+                      .getBalOverlayQuery()
+                      .map(
+                          q ->
+                              new BlockAccessListOverlay(
+                                  q.blockAccessListAddressView(), q.maxTxIndexExclusive()));
+              return Optional.of(createEmptyWorldState(overlay));
             });
     when(parentHeader.getBlockHash()).thenReturn(Hash.ZERO);
     when(parentHeader.getStateRoot()).thenReturn(Hash.EMPTY_TRIE_HASH);

@@ -18,6 +18,7 @@ import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIden
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
 
 import org.hyperledger.besu.datatypes.Address;
+import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExecutors;
@@ -139,9 +140,8 @@ public class BalPrefetcher {
     final List<byte[]> storageKeys = new ArrayList<>();
 
     for (final BlockAccessList.AccountChanges accountChanges : accounts) {
-      final Address address = accountChanges.address();
-      accountKeys.add(address.addressHash().getBytes().toArrayUnsafe());
-
+      final Hash addressHash = accountChanges.address().addressHash();
+      accountKeys.add(addressHash.getBytes().toArrayUnsafe());
       // Collect unique storage slots
       final Set<StorageSlotKey> uniqueSlots = new HashSet<>();
       accountChanges.storageChanges().forEach(sc -> uniqueSlots.add(sc.slot()));
@@ -158,7 +158,7 @@ public class BalPrefetcher {
       // Build storage keys
       for (var slot : slots) {
         final byte[] storageKey =
-            Bytes.concatenate(address.addressHash().getBytes(), slot.getSlotHash().getBytes())
+            Bytes.concatenate(addressHash.getBytes(), slot.getSlotHash().getBytes())
                 .toArrayUnsafe();
         storageKeys.add(storageKey);
       }

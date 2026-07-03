@@ -36,7 +36,7 @@ public abstract class PathBasedAccount implements MutableAccount, AccountValue {
   protected final PathBasedWorldView context;
   protected boolean immutable;
   protected final Address address;
-  protected final Hash addressHash;
+  protected Hash addressHash;
   protected Hash codeHash;
   protected long nonce;
   protected Wei balance;
@@ -308,4 +308,5 @@ public abstract class PathBasedAccount implements MutableAccount, AccountValue {
         + codeHash
         + '}';
   }
+
 }
