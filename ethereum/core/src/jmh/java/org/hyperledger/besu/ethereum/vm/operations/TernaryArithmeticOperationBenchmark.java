@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.ethereum.vm.operations;
 
+import org.hyperledger.besu.ethereum.utils.Range;
+
 import java.util.Random;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -23,41 +25,22 @@ import org.openjdk.jmh.annotations.Setup;
 public abstract class TernaryArithmeticOperationBenchmark extends TernaryOperationBenchmark {
 
   private static class Case {
-    /** Marker value for {@link #cSizeBytes} when the modulus is a known power of two. */
-    static final int C_POWER_OF_TWO = -2;
-
     final int aSizeBytes;
     final int bSizeBytes;
     final int cSizeBytes;
 
-    /** Set when {@link #cSizeBytes} == {@link #C_POWER_OF_TWO}; the bit position N for 2^N. */
-    final int cPow2Bit;
-
     private Case(final int aSize, final int bSize, final int cSize) {
-      this(aSize, bSize, cSize, -1);
-    }
-
-    private Case(final int aSize, final int bSize, final int cSize, final int cPow2Bit) {
       this.aSizeBytes = aSize;
       this.bSizeBytes = bSize;
       this.cSizeBytes = cSize;
-      this.cPow2Bit = cPow2Bit;
     }
 
+    // format OPCODE_INT_INT_INT
     static Case fromString(final String opcodeName, final String caseName) {
       try {
         String[] splitString = caseName.split("_", 4);
         if (splitString.length < 4 || !opcodeName.equalsIgnoreCase(splitString[0])) {
           throw new IllegalArgumentException();
-        }
-        // `<opcode>_<aSize>_<bSize>_POW2_<N>` builds the modulus as 2^N (e.g. address mask 2^160).
-        if (splitString[3].startsWith("POW2_")) {
-          int bit = Integer.parseInt(splitString[3].substring(5));
-          if (bit < 1 || bit > 255) {
-            throw new IllegalArgumentException("POW2 bit position must be in [1, 255]");
-          }
-          return new Case(
-              parseSizeBytes(splitString[1]), parseSizeBytes(splitString[2]), C_POWER_OF_TWO, bit);
         }
         return new Case(
             parseSizeBytes(splitString[1]),
@@ -66,58 +49,120 @@ public abstract class TernaryArithmeticOperationBenchmark extends TernaryOperati
       } catch (IllegalArgumentException t) {
         throw new IllegalArgumentException(
             String.format(
-                "%s must have the format [%s_size_size_size] or [%s_size_size_POW2_N],"
-                    + " where size is #bits and N is a bit position in [1, 255]",
-                caseName, opcodeName, opcodeName));
+                "%s must have the format [%s_size_size_size] where size is #bits",
+                caseName, opcodeName));
       }
     }
 
-    private static int parseSizeBytes(final String s) {
-      return "RANDOM".equalsIgnoreCase(s) ? -1 : Integer.parseInt(s) / 8;
+    void runSetup(final Bytes[] poolA, final Bytes[] poolB, final Bytes[] poolC) {
+      final Random random = new Random();
+      int aSize;
+      int bSize;
+      int cSize;
+
+      for (int i = 0; i < SAMPLE_SIZE; i++) {
+        if (aSizeBytes < 0) aSize = random.nextInt(1, 33);
+        else aSize = aSizeBytes;
+        if (bSizeBytes < 0) bSize = random.nextInt(1, 33);
+        else bSize = bSizeBytes;
+        if (cSizeBytes < 0) cSize = random.nextInt(1, 33);
+        else cSize = cSizeBytes;
+
+        final byte[] a = new byte[aSize];
+        final byte[] b = new byte[bSize];
+        final byte[] c = new byte[cSize];
+        random.nextBytes(a);
+        random.nextBytes(b);
+        random.nextBytes(c);
+
+        poolA[i] = Bytes.wrap(a);
+        poolB[i] = Bytes.wrap(b);
+        poolC[i] = Bytes.wrap(c);
+      }
     }
+  }
+
+  private static class Pow2Case {
+    final int aSizeBytes;
+    final int bSizeBytes;
+    final Range<Integer> pow2BitRange;
+
+    private Pow2Case(final int aSize, final int bSize, final Range<Integer> pow2BitRange) {
+      this.aSizeBytes = aSize;
+      this.bSizeBytes = bSize;
+      this.pow2BitRange = pow2BitRange;
+    }
+
+    // format OPCODE_INT_INT_POW2_INT_INT
+    static Pow2Case fromString(final String opcodeName, final String caseName) {
+      try {
+        String[] splitString = caseName.split("_", 6);
+        if (splitString.length < 6
+            || !opcodeName.equalsIgnoreCase(splitString[0])
+            || !splitString[3].equalsIgnoreCase("POW2")) {
+          throw new IllegalArgumentException();
+        }
+        Range<Integer> pow2BitRange =
+            new Range<>(
+                Integer.parseInt(splitString[4]),
+                Integer.parseInt(splitString[5]),
+                Integer::compare);
+        if (!pow2BitRange.isWithin(1, 255)) {
+          throw new IllegalArgumentException();
+        }
+        return new Pow2Case(
+            parseSizeBytes(splitString[1]), parseSizeBytes(splitString[2]), pow2BitRange);
+      } catch (IllegalArgumentException t) {
+        throw new IllegalArgumentException(
+            String.format(
+                "%s must have the format [%s_size_size_POW2_bit_bit] where bit_bit is the range of bits to set in the modulus",
+                caseName, opcodeName));
+      }
+    }
+
+    void runSetup(final Bytes[] poolA, final Bytes[] poolB, final Bytes[] poolC) {
+      final Random random = new Random();
+      int aSize;
+      int bSize;
+
+      for (int i = 0; i < SAMPLE_SIZE; i++) {
+        if (aSizeBytes < 0) aSize = random.nextInt(1, 33);
+        else aSize = aSizeBytes;
+        if (bSizeBytes < 0) bSize = random.nextInt(1, 33);
+        else bSize = bSizeBytes;
+
+        final byte[] a = new byte[aSize];
+        final byte[] b = new byte[bSize];
+        random.nextBytes(a);
+        random.nextBytes(b);
+
+        poolA[i] = Bytes.wrap(a);
+        poolB[i] = Bytes.wrap(b);
+        poolC[i] = pow2(random.nextInt(pow2BitRange.minimum, pow2BitRange.maximum + 1));
+      }
+    }
+  }
+
+  private static int parseSizeBytes(final String s) {
+    return "RANDOM".equalsIgnoreCase(s) ? -1 : Integer.parseInt(s) / 8;
   }
 
   @Setup(Level.Iteration)
   @Override
+  @SuppressWarnings("StringCaseLocaleUsage")
   public void setUp() {
     frame = BenchmarkHelper.createMessageCallFrame();
 
-    Case scenario = Case.fromString(opCode(), caseName());
     aPool = new Bytes[SAMPLE_SIZE];
     bPool = new Bytes[SAMPLE_SIZE];
     cPool = new Bytes[SAMPLE_SIZE];
 
-    final Random random = new Random();
-    int aSize;
-    int bSize;
-    int cSize;
-
-    for (int i = 0; i < SAMPLE_SIZE; i++) {
-      if (scenario.aSizeBytes < 0) aSize = random.nextInt(1, 33);
-      else aSize = scenario.aSizeBytes;
-      if (scenario.bSizeBytes < 0) bSize = random.nextInt(1, 33);
-      else bSize = scenario.bSizeBytes;
-      if (scenario.cSizeBytes < 0) cSize = random.nextInt(1, 33);
-      else cSize = scenario.cSizeBytes;
-
-      final byte[] a = new byte[aSize];
-      final byte[] b = new byte[bSize];
-      final byte[] c = new byte[cSize];
-      random.nextBytes(a);
-      random.nextBytes(b);
-      random.nextBytes(c);
-      aPool[i] = Bytes.wrap(a);
-      bPool[i] = Bytes.wrap(b);
-      cPool[i] = Bytes.wrap(c);
+    if (caseName().toLowerCase().matches(".*_\\d+_\\d+_pow2_\\d+_\\d+")) {
+      Pow2Case.fromString(opCode(), caseName()).runSetup(aPool, bPool, cPool);
+    } else {
+      Case.fromString(opCode(), caseName()).runSetup(aPool, bPool, cPool);
     }
 
-    // Replace random c values with the chosen 2^N modulus. setUp is not on the measured path.
-    if (scenario.cSizeBytes == Case.C_POWER_OF_TWO) {
-      final Bytes pow2Modulus = pow2(scenario.cPow2Bit);
-      for (int i = 0; i < cPool.length; i++) {
-        cPool[i] = pow2Modulus;
-      }
-    }
     index = 0;
   }
 
