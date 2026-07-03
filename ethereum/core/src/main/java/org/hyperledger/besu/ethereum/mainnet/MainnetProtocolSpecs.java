@@ -42,6 +42,7 @@ import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.PRAGUE
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SHANGHAI;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.SPURIOUS_DRAGON;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.TANGERINE_WHISTLE;
+import static org.hyperledger.besu.ethereum.mainnet.requests.MainnetRequestsProcessor.amsterdamRequestsProcessors;
 import static org.hyperledger.besu.ethereum.mainnet.requests.MainnetRequestsProcessor.pragueRequestsProcessors;
 
 import org.hyperledger.besu.config.BlobSchedule;
@@ -1203,87 +1204,101 @@ public abstract class MainnetProtocolSpecs {
       final boolean isParallelTxProcessingEnabled,
       final BalConfiguration balConfiguration,
       final MetricsSystem metricsSystem) {
-    return bpo5Definition(
-            chainId,
-            enableRevertReason,
-            genesisConfigOptions,
-            evmConfiguration,
-            miningConfiguration,
-            isParallelTxProcessingEnabled,
-            balConfiguration,
-            metricsSystem)
-        .gasCalculator(AmsterdamGasCalculator::new)
-        // EIP-7708: Override evmBuilder to use Amsterdam EVM with transfer logging
-        .evmBuilder(
-            (gasCalculator, __) ->
-                MainnetEVMs.amsterdam(
-                    gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
-        // EIP-7708: ContractCreationProcessor with transfer log emission enabled
-        .contractCreationProcessorBuilder(
-            evm ->
-                new ContractCreationProcessor(
-                    evm,
-                    true,
-                    List.of(MaxCodeSizeRule.from(evm), PrefixCodeRule.of()),
-                    1,
-                    SPURIOUS_DRAGON_FORCE_DELETE_WHEN_EMPTY_ADDRESSES,
-                    EIP7708TransferLogEmitter.INSTANCE))
-        // EIP-7708: MessageCallProcessor with transfer log emission enabled
-        .messageCallProcessorBuilder(
-            (evm, precompileContractRegistry) ->
-                new MessageCallProcessor(
-                    evm,
-                    precompileContractRegistry,
-                    SPURIOUS_DRAGON_FORCE_DELETE_WHEN_EMPTY_ADDRESSES,
-                    EIP7708TransferLogEmitter.INSTANCE))
-        // EIP-7708: TransactionProcessor configured for Amsterdam with transfer log emission
-        .transactionProcessorBuilder(
-            (gasCalculator,
-                feeMarket,
-                transactionValidator,
-                contractCreationProcessor,
-                messageCallProcessor) ->
-                MainnetTransactionProcessor.builder()
-                    .gasCalculator(gasCalculator)
-                    .transactionValidatorFactory(transactionValidator)
-                    .contractCreationProcessor(contractCreationProcessor)
-                    .messageCallProcessor(messageCallProcessor)
-                    .clearEmptyAccounts(true)
-                    .warmCoinbase(true)
-                    .maxStackSize(evmConfiguration.evmStackSize())
-                    .feeMarket(feeMarket)
-                    .coinbaseFeePriceCalculator(CoinbaseFeePriceCalculator.eip1559())
-                    .codeDelegationProcessor(
-                        new CodeDelegationProcessor(
-                            chainId,
-                            SIGNATURE_ALGORITHM.getHalfCurveOrder(),
-                            new CodeDelegationService()))
-                    .transferLogEmitter(EIP7708TransferLogEmitter.INSTANCE)
-                    .build())
-        .blockAccessListFactory(new BlockAccessListFactory())
-        .blockAccessListValidatorBuilder(MainnetBlockAccessListValidator::create)
-        .stateRootCommitterFactory(new BalStateRootCommitterFactory(balConfiguration))
-        // EIP-8037: Disable validation-time TX_MAX_GAS_LIMIT cap (enforced at runtime on regular
-        // gas)
-        .gasLimitCalculatorBuilder(
-            (feeMarket, gasCalculator, blobSchedule) -> {
-              final long londonForkBlock = genesisConfigOptions.getLondonBlockNumber().orElse(0L);
-              return new AmsterdamTargetingGasLimitCalculator(
-                  londonForkBlock,
-                  (BaseFeeMarket) feeMarket,
-                  gasCalculator,
-                  blobSchedule.getMax(),
-                  blobSchedule.getTarget(),
-                  miningConfiguration.getMaxBlobsPerTransaction(),
-                  miningConfiguration.getMaxBlobsPerBlock());
-            })
-        // EIP-8037: Amsterdam gas calculator with state gas cost support
-        .gasCalculator(AmsterdamGasCalculator::new)
-        // Amsterdam (EIP-7778 + EIP-8037): Pre-refund 2D gas accounting
-        .blockGasAccountingStrategy(BlockGasAccountingStrategy.AMSTERDAM)
-        // Amsterdam: Validator uses pre-refund gas_metered = max(regular, state) from processing
-        .blockGasUsedValidator(BlockGasUsedValidator.AMSTERDAM)
-        .hardforkId(AMSTERDAM);
+    final ProtocolSpecBuilder amsterdamSpecBuilder =
+        bpo5Definition(
+                chainId,
+                enableRevertReason,
+                genesisConfigOptions,
+                evmConfiguration,
+                miningConfiguration,
+                isParallelTxProcessingEnabled,
+                balConfiguration,
+                metricsSystem)
+            .gasCalculator(AmsterdamGasCalculator::new)
+            // EIP-7708: Override evmBuilder to use Amsterdam EVM with transfer logging
+            .evmBuilder(
+                (gasCalculator, __) ->
+                    MainnetEVMs.amsterdam(
+                        gasCalculator, chainId.orElse(BigInteger.ZERO), evmConfiguration))
+            // EIP-7708: ContractCreationProcessor with transfer log emission enabled
+            .contractCreationProcessorBuilder(
+                evm ->
+                    new ContractCreationProcessor(
+                        evm,
+                        true,
+                        List.of(MaxCodeSizeRule.from(evm), PrefixCodeRule.of()),
+                        1,
+                        SPURIOUS_DRAGON_FORCE_DELETE_WHEN_EMPTY_ADDRESSES,
+                        EIP7708TransferLogEmitter.INSTANCE))
+            // EIP-7708: MessageCallProcessor with transfer log emission enabled
+            .messageCallProcessorBuilder(
+                (evm, precompileContractRegistry) ->
+                    new MessageCallProcessor(
+                        evm,
+                        precompileContractRegistry,
+                        SPURIOUS_DRAGON_FORCE_DELETE_WHEN_EMPTY_ADDRESSES,
+                        EIP7708TransferLogEmitter.INSTANCE))
+            // EIP-7708: TransactionProcessor configured for Amsterdam with transfer log emission
+            .transactionProcessorBuilder(
+                (gasCalculator,
+                    feeMarket,
+                    transactionValidator,
+                    contractCreationProcessor,
+                    messageCallProcessor) ->
+                    MainnetTransactionProcessor.builder()
+                        .gasCalculator(gasCalculator)
+                        .transactionValidatorFactory(transactionValidator)
+                        .contractCreationProcessor(contractCreationProcessor)
+                        .messageCallProcessor(messageCallProcessor)
+                        .clearEmptyAccounts(true)
+                        .warmCoinbase(true)
+                        .maxStackSize(evmConfiguration.evmStackSize())
+                        .feeMarket(feeMarket)
+                        .coinbaseFeePriceCalculator(CoinbaseFeePriceCalculator.eip1559())
+                        .codeDelegationProcessor(
+                            new CodeDelegationProcessor(
+                                chainId,
+                                SIGNATURE_ALGORITHM.getHalfCurveOrder(),
+                                new CodeDelegationService()))
+                        .transferLogEmitter(EIP7708TransferLogEmitter.INSTANCE)
+                        .build())
+            .blockAccessListFactory(new BlockAccessListFactory())
+            .blockAccessListValidatorBuilder(MainnetBlockAccessListValidator::create)
+            .stateRootCommitterFactory(new BalStateRootCommitterFactory(balConfiguration))
+            // EIP-8037: Disable validation-time TX_MAX_GAS_LIMIT cap (enforced at runtime on
+            // regular
+            // gas)
+            .gasLimitCalculatorBuilder(
+                (feeMarket, gasCalculator, blobSchedule) -> {
+                  final long londonForkBlock =
+                      genesisConfigOptions.getLondonBlockNumber().orElse(0L);
+                  return new AmsterdamTargetingGasLimitCalculator(
+                      londonForkBlock,
+                      (BaseFeeMarket) feeMarket,
+                      gasCalculator,
+                      blobSchedule.getMax(),
+                      blobSchedule.getTarget(),
+                      miningConfiguration.getMaxBlobsPerTransaction(),
+                      miningConfiguration.getMaxBlobsPerBlock());
+                })
+            // EIP-8037: Amsterdam gas calculator with state gas cost support
+            .gasCalculator(AmsterdamGasCalculator::new)
+            // Amsterdam (EIP-7778 + EIP-8037): Pre-refund 2D gas accounting
+            .blockGasAccountingStrategy(BlockGasAccountingStrategy.AMSTERDAM)
+            // Amsterdam: Validator uses pre-refund gas_metered = max(regular, state) from
+            // processing
+            .blockGasUsedValidator(BlockGasUsedValidator.AMSTERDAM)
+            .hardforkId(AMSTERDAM);
+
+    // EIP-8282: add the builder deposit (0x03) and builder exit (0x04) execution requests on top of
+    // the inherited Prague request processors. Skipped for PoA chains without system contracts.
+    if (!(isPoAConsensus(genesisConfigOptions)
+        && !hasSystemContractAddresses(genesisConfigOptions))) {
+      amsterdamSpecBuilder.requestProcessorCoordinator(
+          amsterdamRequestsProcessors(RequestContractAddresses.fromGenesis(genesisConfigOptions)));
+    }
+
+    return amsterdamSpecBuilder;
   }
 
   private static ProtocolSpecBuilder applyBlobSchedule(

@@ -450,6 +450,26 @@ public interface GenesisConfigOptions {
   Optional<Address> getConsolidationRequestContractAddress();
 
   /**
+   * The EIP-8282 builder deposit request contract address. Defaults to the spec-fixed address when
+   * not configured.
+   *
+   * @return the builder deposit request contract address
+   */
+  default Optional<Address> getBuilderDepositRequestContractAddress() {
+    return Optional.empty();
+  }
+
+  /**
+   * The EIP-8282 builder exit request contract address. Defaults to the spec-fixed address when not
+   * configured.
+   *
+   * @return the builder exit request contract address
+   */
+  default Optional<Address> getBuilderExitRequestContractAddress() {
+    return Optional.empty();
+  }
+
+  /**
    * The blob schedule is a list of hardfork names and their associated target and max blob values.
    *
    * @return the blob schedule
