@@ -89,7 +89,7 @@ public class EIP7778GasAccountingAcceptanceTest extends AcceptanceTestBase {
             .nonce(0)
             .maxPriorityFeePerGas(Wei.of(1_000_000_000))
             .maxFeePerGas(Wei.fromHexString("0x02540BE400"))
-            .gasLimit(21_000)
+            .gasLimit(300_000)
             .to(Address.fromHexStringStrict(recipient.getAddress()))
             .value(transferAmount)
             .payload(Bytes.EMPTY)
@@ -112,7 +112,11 @@ public class EIP7778GasAccountingAcceptanceTest extends AcceptanceTestBase {
 
     final TransactionReceipt receipt = maybeReceiptHolder.get().orElseThrow();
     assertThat(receipt.getStatus()).isEqualTo("0x1");
-    assertThat(receipt.getGasUsed().longValue()).isEqualTo(21000L);
+    // Amsterdam gas model for a value transfer that creates the recipient account:
+    // 18,000 EIP-2780 intrinsic (TX_BASE 12,000 + TX_VALUE_COST 4,244 + TRANSFER_LOG_COST 1,756)
+    // + 3,000 cold recipient access + 183,600 EIP-8037 new-account state gas (120 bytes * 1,530
+    // cost-per-state-byte) = 204,600.
+    assertThat(receipt.getGasUsed().longValue()).isEqualTo(204600L);
   }
 
   /**
@@ -178,7 +182,7 @@ public class EIP7778GasAccountingAcceptanceTest extends AcceptanceTestBase {
             .nonce(0)
             .maxPriorityFeePerGas(Wei.of(1_000_000_000))
             .maxFeePerGas(Wei.fromHexString("0x02540BE400"))
-            .gasLimit(21_000)
+            .gasLimit(300_000)
             .to(Address.fromHexStringStrict(recipient.getAddress()))
             .value(Wei.of(1000))
             .payload(Bytes.EMPTY)
@@ -194,7 +198,7 @@ public class EIP7778GasAccountingAcceptanceTest extends AcceptanceTestBase {
             .nonce(1)
             .maxPriorityFeePerGas(Wei.of(1_000_000_000))
             .maxFeePerGas(Wei.fromHexString("0x02540BE400"))
-            .gasLimit(21_000)
+            .gasLimit(300_000)
             .to(Address.fromHexStringStrict(recipient.getAddress()))
             .value(Wei.of(2000))
             .payload(Bytes.EMPTY)
@@ -229,8 +233,11 @@ public class EIP7778GasAccountingAcceptanceTest extends AcceptanceTestBase {
     assertThat(receipt1.getStatus()).isEqualTo("0x1");
     assertThat(receipt2.getStatus()).isEqualTo("0x1");
 
-    // Verify cumulative gas accounting is correct
-    assertThat(receipt1.getCumulativeGasUsed().longValue()).isEqualTo(21000L);
-    assertThat(receipt2.getCumulativeGasUsed().longValue()).isEqualTo(42000L); // 21000 + 21000
+    // Verify cumulative gas accounting is correct under the Amsterdam gas model.
+    // tx1 creates the recipient account: 204,600 (see shouldProcessSimpleTransferSuccessfully).
+    // tx2 transfers to the now-existing account: 18,000 EIP-2780 intrinsic + 3,000 cold access =
+    // 21,000 (no new-account state gas), so cumulative = 204,600 + 21,000 = 225,600.
+    assertThat(receipt1.getCumulativeGasUsed().longValue()).isEqualTo(204600L);
+    assertThat(receipt2.getCumulativeGasUsed().longValue()).isEqualTo(225600L);
   }
 }

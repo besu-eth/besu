@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doCallRealMethod;
 import static org.mockito.Mockito.doNothing;
@@ -1109,6 +1110,55 @@ public class MergeCoordinatorTest implements MergeGenesisConfigHelper {
     assertThat(res.getErrorMessage().isEmpty()).isTrue();
 
     verify(blockchain, never()).rewindToBlock(any());
+  }
+
+  @Test
+  public void updateHeadForExecutionShouldMoveHeadWithoutUpdatingFinalizedOrSafe() {
+    BlockHeader terminalHeader = terminalPowBlock();
+    sendNewPayloadAndForkchoiceUpdate(
+        new Block(terminalHeader, BlockBody.empty()), Optional.empty(), Hash.ZERO);
+
+    BlockHeader parentHeader = nextBlockHeader(terminalHeader);
+    Block parent = new Block(parentHeader, BlockBody.empty());
+    coordinator.rememberBlock(parent);
+
+    BlockHeader childHeader = nextBlockHeader(parentHeader);
+    Block child = new Block(childHeader, BlockBody.empty());
+    sendNewPayloadAndForkchoiceUpdate(child, Optional.empty(), parent.getHash());
+
+    clearInvocations(blockchain, mergeContext);
+
+    ForkchoiceResult result = coordinator.updateHeadForExecution(parentHeader);
+
+    assertThat(result.shouldNotProceedToPayloadBuildProcess()).isFalse();
+    assertThat(result.getNewHead()).contains(parentHeader);
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(parentHeader.getHash());
+
+    verify(blockchain, never()).setFinalized(any());
+    verify(mergeContext, never()).setFinalized(any());
+    verify(blockchain, never()).setSafeBlock(any());
+    verify(mergeContext, never()).setSafeBlock(any());
+  }
+
+  @Test
+  public void updateHeadForExecutionShouldNotIgnoreAncestorOfChainHead() {
+    BlockHeader terminalHeader = terminalPowBlock();
+    sendNewPayloadAndForkchoiceUpdate(
+        new Block(terminalHeader, BlockBody.empty()), Optional.empty(), Hash.ZERO);
+
+    BlockHeader parentHeader = nextBlockHeader(terminalHeader);
+    Block parent = new Block(parentHeader, BlockBody.empty());
+    sendNewPayloadAndForkchoiceUpdate(parent, Optional.empty(), terminalHeader.getHash());
+
+    BlockHeader childHeader = nextBlockHeader(parentHeader);
+    Block child = new Block(childHeader, BlockBody.empty());
+    sendNewPayloadAndForkchoiceUpdate(child, Optional.empty(), parent.getHash());
+
+    ForkchoiceResult result = coordinator.updateHeadForExecution(parentHeader);
+
+    assertThat(result.getStatus()).isEqualTo(ForkchoiceResult.Status.VALID);
+    assertThat(result.getNewHead()).contains(parentHeader);
+    assertThat(blockchain.getChainHeadHash()).isEqualTo(parentHeader.getHash());
   }
 
   @ParameterizedTest(name = "{index}: {0}")

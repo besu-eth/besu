@@ -105,7 +105,12 @@ public class EIP7708TransferLogAcceptanceTest extends AcceptanceTestBase {
             .nonce(0)
             .maxPriorityFeePerGas(Wei.of(1_000_000_000))
             .maxFeePerGas(Wei.fromHexString("0x02540BE400"))
-            .gasLimit(21_000)
+            // Amsterdam (EIP-2780 + EIP-7708 + EIP-8037) reprices intrinsic gas: a value transfer
+            // is
+            // TX_BASE + TX_VALUE_COST + TRANSFER_LOG_COST regular gas plus new-account state gas,
+            // so
+            // 21,000 is no longer sufficient when the transfer creates the recipient account.
+            .gasLimit(300_000)
             .to(Address.fromHexStringStrict(recipient.getAddress()))
             .value(transferAmount)
             .payload(Bytes.EMPTY)
@@ -497,7 +502,8 @@ public class EIP7708TransferLogAcceptanceTest extends AcceptanceTestBase {
   }
 
   /**
-   * Test that SELFDESTRUCT to SELF for a same-tx-created contract DOES emit a Burn log.
+   * Test that SELFDESTRUCT to SELF for a same-tx-created contract does NOT emit a Burn log under
+   * EIP-8246.
    *
    * <p>This test calls a factory contract (0x7710) that:
    *
@@ -508,16 +514,15 @@ public class EIP7708TransferLogAcceptanceTest extends AcceptanceTestBase {
    * </ol>
    *
    * <p>Under EIP-6780, contracts created in the same transaction CAN be destroyed by SELFDESTRUCT.
-   * Per EIP-7708, when a same-tx-created contract selfdestructs to itself, a Burn log (LOG2) should
-   * be emitted with the destroyed balance.
+   * Pre-EIP-8246 a self-referential destruction burned the balance and emitted a Burn log (LOG2).
+   * EIP-8246 removes that burn: the balance is preserved, so no Burn log is emitted. The genuine
+   * factory-to-child value transfer performed by CREATE still emits a Transfer log (LOG3).
    */
   @Test
-  public void shouldEmitSelfdestructLogForSameTxCreatedContractSelfDestructToSelf()
-      throws IOException {
+  public void shouldNotEmitBurnLogForSameTxCreatedContractSelfDestructToSelf() throws IOException {
     final Address factoryContract =
         Address.fromHexStringStrict("0x0000000000000000000000000000000000007710");
     // Factory has 1 ETH balance which it sends to the created contract
-    final Wei contractBalance = Wei.of(1_000_000_000_000_000_000L);
 
     final Transaction tx =
         Transaction.builder()
@@ -526,7 +531,9 @@ public class EIP7708TransferLogAcceptanceTest extends AcceptanceTestBase {
             .nonce(0)
             .maxPriorityFeePerGas(Wei.of(1_000_000_000))
             .maxFeePerGas(Wei.fromHexString("0x02540BE400"))
-            .gasLimit(200_000)
+            // Amsterdam EIP-8037 adds new-account state gas for the contract this tx creates and
+            // funds, so the pre-EIP 200,000 limit is no longer sufficient.
+            .gasLimit(500_000)
             .to(factoryContract)
             .value(Wei.ZERO)
             .payload(Bytes.EMPTY)
@@ -552,7 +559,8 @@ public class EIP7708TransferLogAcceptanceTest extends AcceptanceTestBase {
 
     final List<Log> logs = receipt.getLogs();
 
-    // Should have at least one Burn log (LOG2 with 2 topics)
+    // EIP-8246: a self-referential SELFDESTRUCT preserves the balance instead of burning it, so no
+    // Burn log (LOG2 with BURN_TOPIC) is emitted.
     final List<Log> selfdestructLogs =
         logs.stream()
             .filter(log -> log.getTopics().size() == 2)
@@ -560,16 +568,11 @@ public class EIP7708TransferLogAcceptanceTest extends AcceptanceTestBase {
             .toList();
 
     assertThat(selfdestructLogs)
-        .as("Same-tx-created contract SELFDESTRUCT to self SHOULD emit a Burn log")
-        .isNotEmpty();
+        .as(
+            "EIP-8246: same-tx-created contract SELFDESTRUCT to self preserves balance and must NOT emit a Burn log")
+        .isEmpty();
 
-    // Verify the Burn log has the correct balance
-    final Log selfdestructLog = selfdestructLogs.getFirst();
-    assertThat(selfdestructLog.getAddress()).isEqualToIgnoringCase(EIP7708_SYSTEM_ADDRESS);
-    assertThat(selfdestructLog.getData())
-        .isEqualToIgnoringCase(Bytes32.leftPad(contractBalance).toHexString());
-
-    // There should also be a Transfer log for the CREATE value transfer (factory -> child)
+    // There should still be a Transfer log for the CREATE value transfer (factory -> child)
     final boolean hasTransferLog =
         logs.stream()
             .anyMatch(

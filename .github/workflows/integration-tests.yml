@@ -8,6 +8,7 @@ on:
       - release-*
       - verkle
       - performance
+      - '*-devnet-*'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

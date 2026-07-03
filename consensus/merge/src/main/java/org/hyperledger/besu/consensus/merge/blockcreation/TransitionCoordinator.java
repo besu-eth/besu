@@ -196,6 +196,11 @@ public class TransitionCoordinator extends TransitionUtils<MiningCoordinator>
   }
 
   @Override
+  public ForkchoiceResult updateHeadForExecution(final BlockHeader newHead) {
+    return mergeCoordinator.updateHeadForExecution(newHead);
+  }
+
+  @Override
   public boolean isAncestorOfFinalized(final Hash candidateHeadHash) {
     return mergeCoordinator.isAncestorOfFinalized(candidateHeadHash);
   }

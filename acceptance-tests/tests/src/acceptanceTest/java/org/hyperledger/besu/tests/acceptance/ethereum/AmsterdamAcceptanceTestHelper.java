@@ -66,12 +66,19 @@ public class AmsterdamAcceptanceTestHelper {
 
     final String payloadId;
     try (final Response buildBlockResponse = buildBlockRequest.execute()) {
-      payloadId =
-          mapper
-              .readTree(buildBlockResponse.body().string())
-              .get("result")
-              .get("payloadId")
-              .asText();
+      final String buildBlockResponseBody = buildBlockResponse.body().string();
+      final JsonNode buildBlockJson = mapper.readTree(buildBlockResponseBody);
+      final JsonNode buildBlockResult = buildBlockJson.get("result");
+      if (buildBlockResult == null) {
+        final JsonNode error = buildBlockJson.get("error");
+        final String errorMsg = error != null ? error.toString() : "Unknown error";
+        throw new RuntimeException(
+            "engine_forkchoiceUpdatedV4 returned null result. Response: "
+                + buildBlockResponseBody
+                + ". Error: "
+                + errorMsg);
+      }
+      payloadId = buildBlockResult.get("payloadId").asText();
 
       assertThat(payloadId).isNotEmpty();
     }

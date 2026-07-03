@@ -1,12 +1,5 @@
 name: docker develop build and test only
 
-# NOTE: This workflow intentionally does not define env.registry (unlike develop.yml).
-# For fork PRs, secrets are not available, so DOCKER_ORG is empty and the Gradle
-# build falls back to default values. For non-fork PRs (branches on the main repo),
-# the DOCKER_ORG secret is available but env.registry is empty, producing an invalid
-# Docker tag (e.g. "/<org>/besu:develop") which causes the build to fail.
-# This is by design — all PRs should be created from forks, not from repo branches.
-
 on:
   pull_request:
     branches:
@@ -14,74 +7,13 @@ on:
       - release-*
       - verkle
       - performance
+      - '*-devnet-*'
 
 jobs:
-  hadolint:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Set up Java
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
-        with:
-          distribution: temurin
-          java-version: 21
-      - name: setup gradle
-        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
-        with:
-          cache-disabled: true
-
-      - name: hadoLint
-        run: docker run --rm -i hadolint/hadolint < docker/Dockerfile
-  buildDocker:
-    needs: hadolint
-    permissions:
-      contents: read
-      packages: write
-
-    strategy:
-      fail-fast: false
-      matrix:
-        platform:
-          - ubuntu-latest
-          - besu-arm64
-    runs-on: ${{ matrix.platform }}
-    steps:
-      - name: Prepare
-        id: prep
-        run: |
-          platform=${{ matrix.platform }}
-          if [ "$platform" = 'ubuntu-latest' ]; then 
-            echo "PLATFORM_PAIR=linux-amd64" >> $GITHUB_OUTPUT
-            echo "ARCH=amd64" >> $GITHUB_OUTPUT
-          else
-            echo "PLATFORM_PAIR=linux-arm64" >> $GITHUB_OUTPUT
-            echo "ARCH=arm64" >> $GITHUB_OUTPUT
-          fi
-
-          # Get the current date and time in the format YY.MM
-          DATE_TIME=$(date +"%y.%-m")
-          # Get the short SHA of the merge commit
-          SHORT_SHA=${GITHUB_SHA::7}
-          # Construct the build target name
-          BUILD_TARGET_NAME="${DATE_TIME}-develop-${SHORT_SHA}"
-          echo "Build Target Name: $BUILD_TARGET_NAME"
-          # Set the build target name as an environment variable
-          echo "BUILD_TARGET_NAME=${BUILD_TARGET_NAME}" >> $GITHUB_ENV
-
-      - name: Checkout Repo
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-      - name: Set up Java
-        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
-        with:
-          distribution: temurin
-          java-version: 25
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
-        with:
-          cache-disabled: true
-      - name: build and test docker
-        env:
-          architecture: ${{ steps.prep.outputs.ARCH }}
-        run: ./gradlew --no-daemon testDocker -PdockerOrgName=${{ env.registry }}/${{ secrets.DOCKER_ORG }} -Pversion=${{ env.BUILD_TARGET_NAME}} -Prelease.releaseVersion=develop
+  docker-build-test:
+    uses: ./.github/workflows/docker.yml
+    with:
+      version: dev-pr
+      push: false
+      cache_scope: develop-pr-build
+    secrets: inherit

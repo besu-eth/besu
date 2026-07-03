@@ -654,11 +654,13 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
 
   @Override
   public BlockProcessingResult validateBlock(final Block block) {
-    return validateBlock(block, Optional.empty());
+    return validateBlock(block, Optional.empty(), false);
   }
 
   private BlockProcessingResult validateBlock(
-      final Block block, final Optional<BlockAccessList> blockAccessList) {
+      final Block block,
+      final Optional<BlockAccessList> blockAccessList,
+      final boolean shouldPersist) {
     final var validationResult =
         protocolSchedule
             .getByBlockHeader(block.getHeader())
@@ -669,7 +671,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                 HeaderValidationMode.FULL,
                 HeaderValidationMode.NONE,
                 blockAccessList,
-                false);
+                shouldPersist);
 
     return validationResult;
   }
@@ -702,15 +704,22 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       final Block block, final Optional<BlockAccessList> blockAccessList) {
     LOG.atDebug().setMessage("Remember block {}").addArgument(block::toLogString).log();
     final var chain = protocolContext.getBlockchain();
-    final var validationResult = validateBlock(block, blockAccessList);
+    final boolean appendToCanonicalChain =
+        block.getHeader().getNumber() - protocolContext.getBlockchain().getChainHeadBlockNumber()
+            > 1;
+    final var validationResult = validateBlock(block, blockAccessList, appendToCanonicalChain);
     validationResult
         .getYield()
         .ifPresentOrElse(
-            result ->
-                chain.storeBlock(
-                    block,
-                    result.getReceipts(),
-                    validationResult.getYield().flatMap(y -> y.getBlockAccessList())),
+            result -> {
+              final Optional<BlockAccessList> processedBlockAccessList =
+                  validationResult.getYield().flatMap(y -> y.getBlockAccessList());
+              if (appendToCanonicalChain) {
+                chain.appendBlock(block, result.getReceipts(), processedBlockAccessList);
+              } else {
+                chain.storeBlock(block, result.getReceipts(), processedBlockAccessList);
+              }
+            },
             () -> LOG.debug("empty yield in blockProcessingResult"));
     return validationResult;
   }
@@ -736,6 +745,27 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   public ForkchoiceResult updateForkChoiceWithoutLegacySkip(
       final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash) {
     return applyForkChoice(newHead, finalizedBlockHash, safeBlockHash);
+  }
+
+  @Override
+  public ForkchoiceResult updateHeadForExecution(final BlockHeader newHead) {
+    final MutableBlockchain blockchain = protocolContext.getBlockchain();
+    final Optional<Hash> latestValid = getLatestValidAncestor(newHead);
+
+    Optional<BlockHeader> parentOfNewHead = blockchain.getBlockHeader(newHead.getParentHash());
+    if (parentOfNewHead.isPresent()
+        && Long.compareUnsigned(newHead.getTimestamp(), parentOfNewHead.get().getTimestamp())
+            <= 0) {
+      return ForkchoiceResult.withFailure(
+          INVALID, "new head timestamp not greater than parent", latestValid);
+    }
+
+    if (!setNewHead(blockchain, newHead)) {
+      LOG.warn("Failed to move world state to new head {}", newHead.toLogString());
+      return ForkchoiceResult.withFailure(INVALID, "Failed to set new head", latestValid);
+    }
+
+    return ForkchoiceResult.withResult(Optional.empty(), Optional.of(newHead));
   }
 
   private ForkchoiceResult applyForkChoice(

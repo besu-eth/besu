@@ -224,7 +224,7 @@ class AbstractBlockProcessorIntegrationTest {
     MutableWorldState worldState = worldStateArchive.getWorldState();
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x3069535f2a6ea7ff3cc6a8edc5e3c1e328a24ee802c47607cbb23ff8a4ddc164",
+            "0x12e2d5cb327081eef6e04e4140c9c41ad3dcbf9e228ea57607f244f8ede32e1f",
             Wei.of(5),
             transactionTransfer1,
             transactionTransfer2);
@@ -422,7 +422,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x5737e1bdeac616f7629e66a66281ff7cb714ea8265ce4df0f8da97916dc9ac96",
+            "0x9443ad1296b19bc6f76eff7f60bd2f9100dcf5268dd99fb92f8defb24a0e1eda",
             Wei.of(5),
             transactionTransfer1,
             transactionTransfer2);
@@ -485,7 +485,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0xc7afde9f46642c3004a8932f7105032278ac5749074d4c6de0f91a4637e37a80",
+            "0xc855d6ac6b443599d47cf53cdd6c36a28df6751f340160ec059aecf8afc1eff5",
             Wei.of(5),
             transferTransaction1,
             transferTransaction2,
@@ -560,7 +560,7 @@ class AbstractBlockProcessorIntegrationTest {
 
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x9ee8e98a9660f19287f0416b78c404be8d470109d8f6eaf2117da9f467973d52",
+            "0x4a7a3523e32584e9efc9e9068c51cff74454287fe5ee576699f731284ec08993",
             Wei.of(5),
             transferTransaction1,
             transferTransaction2);
@@ -587,7 +587,7 @@ class AbstractBlockProcessorIntegrationTest {
         .isEqualTo(
             Wei.of(
                 UInt256.fromHexString(
-                    ("0x00000000000000000000000000000000000000000000003627e8f7123739c024"))));
+                    ("0x00000000000000000000000000000000000000000000003627e8f712372623d4"))));
     assertThat(updatedAccount0x2.getBalance()).isEqualTo(Wei.of(2_000_000_000_000_000_000L));
     assertThat(updatedSenderAccount1.getBalance())
         .isLessThan(transferTransaction1Sender.getBalance());
@@ -640,7 +640,7 @@ class AbstractBlockProcessorIntegrationTest {
         (BonsaiAccount) worldState.get(transferTransaction1.getSender());
     Block blockWithTransactions =
         createBlockWithTransactions(
-            "0x7786ec0aaeb23e822cbce58d22fd35b272217a36d2956b23cf9450db2997db95",
+            "0x6418f2ad534bb875d10abbb51d9ed21c6b6581165e5be463b8447624ea0d2eca",
             Wei.of(5),
             transferTransaction1,
             transferTransaction2);
@@ -662,7 +662,7 @@ class AbstractBlockProcessorIntegrationTest {
         .isEqualTo(
             Wei.of(
                 UInt256.fromHexString(
-                    ("0x0000000000000000000000000000000000000000000000001bc8886498566008"))));
+                    ("0x0000000000000000000000000000000000000000000000001bc88864985bfa68"))));
 
     assertThat(updatedSenderAccount1.getBalance())
         .isLessThan(transferTransaction1Sender.getBalance());

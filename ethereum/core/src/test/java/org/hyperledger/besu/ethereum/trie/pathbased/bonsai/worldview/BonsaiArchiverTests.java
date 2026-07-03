@@ -664,11 +664,14 @@ public class BonsaiArchiverTests {
             new NoOpMetricsSystem(),
             DataStorageConfiguration.DEFAULT_BONSAI_ARCHIVE_CONFIG);
 
+    // Simulate post-migration state: archive migration has completed, mode is ARCHIVE.
+    // Upgrade BEFORE creating the reference-test snapshot: upgradeToArchiveFlatDbMode notifies
+    // subscribers to invalidate (close) stale snapshots, so a snapshot created beforehand would be
+    // closed and unusable. Creating it afterwards lets it inherit ARCHIVE mode cleanly.
+    bonsaiWorldStateKeyValueStorage.upgradeToArchiveFlatDbMode();
+
     final BonsaiReferenceTestWorldStateStorage testWorldStateStorage =
         new BonsaiReferenceTestWorldStateStorage(bonsaiWorldStateKeyValueStorage, preImageProxy);
-
-    // Simulate post-migration state: archive migration has completed, mode is ARCHIVE
-    bonsaiWorldStateKeyValueStorage.upgradeToArchiveFlatDbMode();
     assertThat(testWorldStateStorage.getFlatDbMode()).isEqualTo(FlatDbMode.ARCHIVE);
 
     // Assume we've archived up to block 150L i.e. we're up to date with the chain head
@@ -906,11 +909,14 @@ public class BonsaiArchiverTests {
             new NoOpMetricsSystem(),
             DataStorageConfiguration.DEFAULT_BONSAI_ARCHIVE_CONFIG);
 
+    // Simulate post-migration state: archive migration has completed, mode is ARCHIVE.
+    // Upgrade BEFORE creating the reference-test snapshot: upgradeToArchiveFlatDbMode notifies
+    // subscribers to invalidate (close) stale snapshots, so a snapshot created beforehand would be
+    // closed and unusable. Creating it afterwards lets it inherit ARCHIVE mode cleanly.
+    bonsaiWorldStateKeyValueStorage.upgradeToArchiveFlatDbMode();
+
     final BonsaiReferenceTestWorldStateStorage testWorldStateStorage =
         new BonsaiReferenceTestWorldStateStorage(bonsaiWorldStateKeyValueStorage, preImageProxy);
-
-    // Simulate post-migration state: archive migration has completed, mode is ARCHIVE
-    bonsaiWorldStateKeyValueStorage.upgradeToArchiveFlatDbMode();
     assertThat(testWorldStateStorage.getFlatDbMode()).isEqualTo(FlatDbMode.ARCHIVE);
 
     // Assume we've archived up to block 150L i.e. we're up to date with the chain head

@@ -155,8 +155,7 @@ public class AccountChangesJson {
     }
 
     public NonceChange toNonceChange() {
-      return new NonceChange(
-          parseUnsignedLong(blockAccessIndex), parseUnsignedLong(postNonce));
+      return new NonceChange(parseUnsignedLong(blockAccessIndex), parseUnsignedLong(postNonce));
     }
   }
 
