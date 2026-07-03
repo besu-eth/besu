@@ -349,6 +349,66 @@ class BalTransactionProcessorUnitTest {
           env.worldState().updater().get(readOnlyAddress),
           "Read-only partial BAL entries should not create account writes");
     }
+
+    @Test
+    @DisplayName("Clears accounts made empty by partial BAL view writes")
+    void clearsAccountsMadeEmptyByPartialBalWrites() {
+      final TestEnvironment env = createTestEnvironment();
+      final BlockAccessList blockAccessList = mockEmptyBlockAccessList();
+      final Transaction transaction = mockTransaction();
+      final Address accountAddress =
+          Address.fromHexString("0x1000000000000000000000000000000000000003");
+
+      final WorldUpdater preStateUpdater = env.worldState().updater();
+      preStateUpdater.createAccount(accountAddress, 0L, Wei.ONE);
+      preStateUpdater.commit();
+
+      final PartialBlockAccessView.PartialBlockAccessViewBuilder partialBuilder =
+          new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(0);
+      partialBuilder.getOrCreateAccountBuilder(accountAddress).withPostBalance(Wei.ZERO);
+      final PartialBlockAccessView partialBlockAccessView = partialBuilder.build();
+
+      when(transactionProcessor.processTransaction(
+              any(), any(), any(), any(), any(), any(), any(), any(), any()))
+          .thenReturn(
+              TransactionProcessingResult.successful(
+                  Collections.emptyList(),
+                  0,
+                  0,
+                  Bytes.EMPTY,
+                  Optional.of(partialBlockAccessView),
+                  ValidationResult.valid()));
+      when(transactionProcessor.getClearEmptyAccounts()).thenReturn(true);
+
+      final BalConcurrentTransactionProcessor processor =
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          (__, ___) -> Hash.EMPTY,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      final Optional<TransactionProcessingResult> result =
+          processor.getProcessingResult(
+              env.worldState(),
+              MINING_BENEFICIARY,
+              transaction,
+              0,
+              Optional.empty(),
+              Optional.empty());
+
+      assertTrue(result.isPresent(), "Expected processing result to be present");
+      assertNull(
+          env.worldState().updater().get(accountAddress),
+          "Account zeroed by partial BAL writes should be cleared from the block accumulator");
+    }
   }
 
   @Nested
