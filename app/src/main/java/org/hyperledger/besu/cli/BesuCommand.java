@@ -2102,7 +2102,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     // path. Referencing THRESHOLD_PROPERTY (a JLS constant variable) does NOT initialise
     // SlowBlockTracerConfig, so the holder still reads this freshly-set value at first block
     // import.
-    System.setProperty(SlowBlockTracerConfig.THRESHOLD_PROPERTY, Long.toString(slowBlockThresholdMs));
+    System.setProperty(
+        SlowBlockTracerConfig.THRESHOLD_PROPERTY, Long.toString(slowBlockThresholdMs));
 
     BesuControllerBuilder besuControllerBuilder =
         controllerBuilder

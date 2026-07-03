@@ -227,6 +227,19 @@
       "code": "0x6130FF5F526002601E47F05F5F5F5F5F945AF100",
       "codeDecompiled": "PUSH2 0x30FF PUSH0 MSTORE PUSH1 2 PUSH1 30 SELFBALANCE CREATE PUSH0 PUSH0 PUSH0 PUSH0 PUSH0 SWAP5 GAS CALL STOP",
       "storage": {}
+    },
+    "0x510b000000000000000000000000000000000001": {
+      "comment": "SlowBlockTracer exercise contract: exercises sload, sstore (delete + write), CREATE, and zero-value CALL to trigger all counters",
+      "balance": "0x0",
+      "code": "0x5f54505f5f5560016001556360015ff35f526004601c5ff0505f5f5f5f5f73510b0000000000000000000000000000000000025af15000",
+      "codeDecompiled": "PUSH0 SLOAD POP PUSH0 PUSH0 SSTORE PUSH1 1 PUSH1 1 SSTORE PUSH4 0x60015ff3 PUSH0 MSTORE PUSH1 4 PUSH1 28 PUSH0 CREATE POP PUSH0 PUSH0 PUSH0 PUSH0 PUSH0 PUSH20<0x510b...0002> GAS CALL POP STOP",
+      "storage": {
+        "0x0000000000000000000000000000000000000000000000000000000000000000": "0000000000000000000000000000000000000000000000000000000000000001"
+      }
+    },
+    "0x510b000000000000000000000000000000000002": {
+      "comment": "Empty account for EIP-158 touch-clearing test: zero balance, zero nonce, no code; touched by zero-value CALL from 0x510b...0001",
+      "balance": "0x0"
     }
   },
   "number":"0x0",
