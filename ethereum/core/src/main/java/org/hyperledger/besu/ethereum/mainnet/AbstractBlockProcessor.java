@@ -566,7 +566,11 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       blockTracer.traceEndBlock(blockHeader, blockBody);
 
       try { // TODO SLD newPayload performs trieLogPersist only; FCU persists state
-        worldState.persist(blockHeader, stateRootCommitter, maybeSlowBlockTracer);
+        if (worldState instanceof PathBasedWorldState pbws) {
+          pbws.persist(blockHeader, stateRootCommitter, maybeSlowBlockTracer);
+        } else {
+          worldState.persist(blockHeader, stateRootCommitter);
+        }
       } catch (MerkleTrieException e) {
         LOG.trace("Merkle trie exception during Transaction processing ", e);
         if (worldState instanceof BonsaiWorldState) {

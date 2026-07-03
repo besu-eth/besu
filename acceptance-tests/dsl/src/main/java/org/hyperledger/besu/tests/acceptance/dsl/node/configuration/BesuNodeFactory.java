@@ -519,13 +519,16 @@ public class BesuNodeFactory {
     return createExecutionEngineGenesisNode(name, genesisPath, true, List.of());
   }
 
-  public BesuNode createExecutionEngineGenesisNode(final String name, final String genesisPath, final boolean p2pEnabled)
-          throws IOException {
+  public BesuNode createExecutionEngineGenesisNode(
+      final String name, final String genesisPath, final boolean p2pEnabled) throws IOException {
     return createExecutionEngineGenesisNode(name, genesisPath, p2pEnabled, List.of());
   }
 
   public BesuNode createExecutionEngineGenesisNode(
-      final String name, final String genesisPath, final boolean p2pEnabled, final List<String> extraCLIOptions)
+      final String name,
+      final String genesisPath,
+      final boolean p2pEnabled,
+      final List<String> extraCLIOptions)
       throws IOException {
     final String genesisFile = GenesisConfigurationFactory.readGenesisFile(genesisPath);
 
