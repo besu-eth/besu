@@ -173,7 +173,7 @@ public class SlowBlockTracer implements OperationTracer, StateAccessTracer {
 
     final Address sender = frame.getSenderAddress();
     if (sender != null) {
-      uniqueAccountsTouched.add(recipient);
+      uniqueAccountsTouched.add(sender);
     }
   }
 
