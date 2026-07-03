@@ -20,7 +20,12 @@ import org.hyperledger.besu.plugin.data.BlockHeader;
 
 import java.util.Optional;
 
-public interface StateRootCommitterFactory {
-  StateRootCommitter forBlock(
-      ProtocolContext protocolContext, BlockHeader blockHeader, Optional<BlockAccessList> maybeBal);
+public final class DefaultStateRootCommitterFactory implements StateRootCommitterFactory {
+  @Override
+  public StateRootCommitter forBlock(
+      final ProtocolContext protocolContext,
+      final BlockHeader blockHeader,
+      final Optional<BlockAccessList> maybeBal) {
+    return StateRootCommitter.SYNCHRONOUS;
+  }
 }

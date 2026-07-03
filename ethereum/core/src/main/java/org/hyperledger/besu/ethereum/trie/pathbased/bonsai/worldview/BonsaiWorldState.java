@@ -38,7 +38,6 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.cache.PathBasedCached
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManager;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldUpdater;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.StorageConsumingMap;
@@ -132,7 +131,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
     super(worldStateKeyValueStorage, cachedWorldStorageManager, trieLogManager, worldStateConfig);
     this.bonsaiCachedMerkleTrieLoader = bonsaiCachedMerkleTrieLoader;
     this.worldStateKeyValueStorage = worldStateKeyValueStorage;
-    this.setUpdater(
+    this.setAccumulator(
         maybeBlockAccessListOverlay
             .map(
                 overlay ->
@@ -167,7 +166,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
   @Override
   public Hash calculateRootHash(
       final Optional<PathBasedWorldStateKeyValueStorage.Updater> maybeStateUpdater,
-      final PathBasedWorldUpdater worldStateUpdater) {
+      final PathBasedWorldStateUpdateAccumulator<?> worldStateUpdater) {
     return applyUpdatesAndComputeRoot(
         maybeStateUpdater.map(BonsaiWorldStateKeyValueStorage.Updater.class::cast),
         (BonsaiWorldStateUpdateAccumulator) worldStateUpdater);
@@ -451,14 +450,14 @@ public class BonsaiWorldState extends PathBasedWorldState {
                 noOpTx,
                 worldStateKeyValueStorage.getFlatDbStrategy(),
                 worldStateKeyValueStorage.getComposedWorldStateStorage())),
-        getAccumulator().copy());
+        accumulator.copy());
   }
 
   @Override
   public Account get(final Address address) {
     return getWorldStateStorage()
         .getAccount(address.addressHash())
-        .map(bytes -> BonsaiAccount.fromRLP(getAccumulator(), address, bytes, true, codeCache))
+        .map(bytes -> BonsaiAccount.fromRLP(accumulator, address, bytes, true, codeCache))
         .orElse(null);
   }
 
@@ -466,7 +465,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
     return getWorldStateStorage().getAccountStateTrieNode(location, nodeHash);
   }
 
-  public Optional<Bytes> getStorageTrieNode(
+  protected Optional<Bytes> getStorageTrieNode(
       final Hash accountHash, final Bytes location, final Bytes32 nodeHash) {
     return getWorldStateStorage().getAccountStorageTrieNode(accountHash, location, nodeHash);
   }
@@ -524,22 +523,11 @@ public class BonsaiWorldState extends PathBasedWorldState {
     return this;
   }
 
-
-  public BonsaiCachedMerkleTrieLoader getBonsaiCachedMerkleTrieLoader() {
-    return bonsaiCachedMerkleTrieLoader;
-  }
-
-  public MerkleTrie<Bytes, Bytes> createAccountStateTrie() {
-    return createTrie(
-        (location, key) -> getAccountStateTrieNode(location, key),
-        Bytes32.wrap(worldStateRootHash.getBytes()));
-  }
-
   public void disableCacheMerkleTrieLoader() {
     this.bonsaiCachedMerkleTrieLoader = new NoopBonsaiCachedMerkleTrieLoader();
   }
 
-  public MerkleTrie<Bytes, Bytes> createTrie(final NodeLoader nodeLoader, final Bytes32 rootHash) {
+  private MerkleTrie<Bytes, Bytes> createTrie(final NodeLoader nodeLoader, final Bytes32 rootHash) {
     if (worldStateConfig.isTrieDisabled()) {
       return new NoOpMerkleTrie<>();
     }
@@ -551,7 +539,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
         nodeLoader, rootHash, Function.identity(), Function.identity());
   }
 
-  public Hash hashAndSavePreImage(final Bytes value) {
+  protected Hash hashAndSavePreImage(final Bytes value) {
     // by default do not save has preImages
     return Hash.hash(value);
   }

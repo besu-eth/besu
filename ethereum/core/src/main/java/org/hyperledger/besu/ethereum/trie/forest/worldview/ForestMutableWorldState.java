@@ -18,7 +18,6 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.ForestStateRootCommitter;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitter;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.rlp.RLPException;
@@ -176,20 +175,13 @@ public class ForestMutableWorldState implements MutableWorldState {
   }
 
   @Override
-  public void persist(final BlockHeader blockHeader) {
-    persist(blockHeader, ForestStateRootCommitter.INSTANCE);
-  }
-
-  @Override
   public void persist(final BlockHeader blockHeader, final StateRootCommitter committer) {
-    committer.compute(this, blockHeader);
+    final ForestWorldStateKeyValueStorage.Updater stateUpdater =
+        worldStateKeyValueStorage.updater();
+    committer.computeRoot(() -> applyAndComputeRoot(stateUpdater), this, stateUpdater, blockHeader);
   }
 
-  public Hash applyAndComputeRoot() {
-    return applyAndComputeRoot(worldStateKeyValueStorage.updater());
-  }
-
-  public Hash applyAndComputeRoot(final ForestWorldStateKeyValueStorage.Updater forestUpdater) {
+  private Hash applyAndComputeRoot(final ForestWorldStateKeyValueStorage.Updater forestUpdater) {
     for (final Bytes code : updatedAccountCode.values()) {
       forestUpdater.putCode(code);
     }
