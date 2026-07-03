@@ -43,13 +43,10 @@ import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 import org.hyperledger.besu.plugin.services.metrics.Counter;
 
-import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -65,7 +62,6 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
   private final MainnetTransactionProcessor transactionProcessor;
   private final BlockAccessList blockAccessList;
   private final BlockAccessListAccountLookup blockAccessListAccountLookup;
-  private final Duration balProcessingTimeout;
   private final Optional<BalPrefetcher> maybePrefetcher;
 
   public BalConcurrentTransactionProcessor(
@@ -75,7 +71,6 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
     this.transactionProcessor = transactionProcessor;
     this.blockAccessList = blockAccessList;
     this.blockAccessListAccountLookup = BlockAccessListAccountLookup.of(blockAccessList);
-    this.balProcessingTimeout = balConfiguration.getBalProcessingTimeout();
     this.maybePrefetcher =
         balConfiguration.isBalPreFetchReadingEnabled()
             ? Optional.of(
@@ -219,10 +214,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
     final CompletableFuture<ParallelizedTransactionContext> future = removeFuture(txIndex);
     if (future != null) {
       try {
-        final ParallelizedTransactionContext ctx =
-            balProcessingTimeout.isNegative()
-                ? future.join()
-                : future.get(balProcessingTimeout.toNanos(), TimeUnit.NANOSECONDS);
+        final ParallelizedTransactionContext ctx = future.join();
 
         if (ctx == null) {
           LOG.trace("Transaction context for transaction {} is empty.", txIndex);
@@ -242,24 +234,14 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
         }
 
         applyWritesFromPartialBlockAccessView(
-            maybePartialBlockAccessView.get(), blockAccumulator);
+            maybePartialBlockAccessView.get(),
+            blockAccumulator,
+            transactionProcessor.getClearEmptyAccounts());
 
         confirmedParallelizedTransactionCounter.ifPresent(Counter::inc);
         result.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
 
         return Optional.of(result);
-      } catch (final TimeoutException e) {
-        future.cancel(true);
-        LOG.error(
-            "Timed out waiting {}ms for transaction {} processing result.",
-            balProcessingTimeout.toMillis(),
-            txIndex);
-        return Optional.empty();
-      } catch (final InterruptedException e) {
-        future.cancel(true);
-        Thread.currentThread().interrupt();
-        LOG.error("Interrupted while waiting for transaction {} processing result.", txIndex, e);
-        return Optional.empty();
       } catch (final Exception e) {
         LOG.error(
             "Error integrating transaction processing result for transaction {}.", txIndex, e);
@@ -273,14 +255,18 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
   private void applyWritesFromPartialBlockAccessView(
       final PartialBlockAccessView partialBlockAccessView,
-      final PathBasedWorldStateUpdateAccumulator<?> worldStateUpdater) {
+      final PathBasedWorldStateUpdateAccumulator<?> worldStateUpdater,
+      final boolean clearEmptyAccounts) {
     for (var accountChanges : partialBlockAccessView.accountChanges()) {
       MutableAccount account = null;
+      boolean shouldCheckForEmptyAccount = false;
 
       final Optional<Wei> postBalance = accountChanges.getPostBalance();
       if (postBalance.isPresent()) {
         account = worldStateUpdater.getOrCreate(accountChanges.getAddress());
-        account.setBalance(postBalance.get());
+        final Wei balance = postBalance.get();
+        account.setBalance(balance);
+        shouldCheckForEmptyAccount = clearEmptyAccounts && balance.isZero();
       }
 
       final Optional<Long> nonceChange = accountChanges.getNonceChange();
@@ -288,7 +274,9 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
         if (account == null) {
           account = worldStateUpdater.getOrCreate(accountChanges.getAddress());
         }
-        account.setNonce(nonceChange.get());
+        final long nonce = nonceChange.get();
+        account.setNonce(nonce);
+        shouldCheckForEmptyAccount |= clearEmptyAccounts && nonce == 0L;
       }
 
       final Optional<Bytes> newCode = accountChanges.getNewCode();
@@ -296,7 +284,9 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
         if (account == null) {
           account = worldStateUpdater.getOrCreate(accountChanges.getAddress());
         }
-        account.setCode(newCode.get());
+        final Bytes code = newCode.get();
+        account.setCode(code);
+        shouldCheckForEmptyAccount |= clearEmptyAccounts && code.isEmpty();
       }
 
       for (var slotChange : accountChanges.getStorageChanges()) {
@@ -307,6 +297,10 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
         account.setStorageValue(
             slot.getSlotKey().orElseThrow(),
             slotChange.newValue() != null ? slotChange.newValue() : UInt256.ZERO);
+      }
+
+      if (shouldCheckForEmptyAccount && account != null && account.isEmpty()) {
+        worldStateUpdater.deleteAccount(accountChanges.getAddress());
       }
     }
   }
