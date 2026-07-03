@@ -18,7 +18,6 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedAccount;
 import org.hyperledger.besu.evm.account.MutableAccount;
 
 import java.util.List;
@@ -34,17 +33,17 @@ import org.apache.tuweni.units.bigints.UInt256;
  * Resolves prior-block state from a {@link BlockAccessList} as of the end of transaction {@code
  * maxTxIndexExclusive - 1} (changes with {@code txIndex < maxTxIndexExclusive}).
  *
- * <p>Uses a shared {@link BlockAccessListAddressView} and looks up only the requested address or
- * storage slot — no full-BAL materialization and no database access.
+ * <p>Built per transaction from a shared {@link BlockAccessListAccountLookup}; lookups are address- or
+ * slot-scoped with no database access.
  */
 public final class BlockAccessListOverlay {
 
-  private final BlockAccessListAddressView blockAccessListAddressView;
+  private final BlockAccessListAccountLookup accountLookup;
   private final long maxTxIndexExclusive;
 
   public BlockAccessListOverlay(
-      final BlockAccessListAddressView blockAccessListAddressView, final long maxTxIndexExclusive) {
-    this.blockAccessListAddressView = blockAccessListAddressView;
+      final BlockAccessListAccountLookup accountLookup, final long maxTxIndexExclusive) {
+    this.accountLookup = accountLookup;
     this.maxTxIndexExclusive = maxTxIndexExclusive;
   }
 
@@ -53,7 +52,7 @@ public final class BlockAccessListOverlay {
    * {@code maxTxIndexExclusive}.
    */
   public boolean hasAccountHeaderChanges(final Address address) {
-    return blockAccessListAddressView
+    return accountLookup
         .getAccountChanges(address)
         .map(this::hasAccountHeaderChanges)
         .orElse(false);
@@ -77,8 +76,8 @@ public final class BlockAccessListOverlay {
             .isPresent();
   }
 
-  public BlockAccessListAddressView getAddressView() {
-    return blockAccessListAddressView;
+  public BlockAccessListAccountLookup getAccountLookup() {
+    return accountLookup;
   }
 
   public long getMaxTxIndexExclusive() {
@@ -86,7 +85,7 @@ public final class BlockAccessListOverlay {
   }
 
   public Optional<Wei> getBalance(final Address address) {
-    return blockAccessListAddressView
+    return accountLookup
         .getAccountChanges(address)
         .flatMap(
             accountChanges ->
@@ -98,7 +97,7 @@ public final class BlockAccessListOverlay {
   }
 
   public Optional<Long> getNonce(final Address address) {
-    return blockAccessListAddressView
+    return accountLookup
         .getAccountChanges(address)
         .flatMap(
             accountChanges ->
@@ -110,7 +109,7 @@ public final class BlockAccessListOverlay {
   }
 
   public Optional<Hash> getCodeHash(final Address address) {
-    return blockAccessListAddressView
+    return accountLookup
         .getAccountChanges(address)
         .flatMap(
             accountChanges ->
@@ -122,7 +121,7 @@ public final class BlockAccessListOverlay {
   }
 
   public Optional<Bytes> getCode(final Address address) {
-    return blockAccessListAddressView
+    return accountLookup
         .getAccountChanges(address)
         .flatMap(
             accountChanges ->
@@ -145,19 +144,17 @@ public final class BlockAccessListOverlay {
 
     final Optional<Wei> balance = getBalance(address);
     final Optional<Long> nonce = getNonce(address);
-    final Optional<Hash> codeHash = getCodeHash(address);
+    final Optional<Bytes> code = getCode(address);
 
     final A account = accountSupplier.get();
     balance.ifPresent(account::setBalance);
     nonce.ifPresent(account::setNonce);
-    if (codeHash.isPresent() && account instanceof PathBasedAccount pathBasedAccount) {
-      pathBasedAccount.setCodeHash(codeHash.get());
-    }
+    code.ifPresent(account::setCode);
     return Optional.of(account);
   }
 
   public void applyToCode(final Address address, final Consumer<Bytes> codeApplier) {
-    blockAccessListAddressView
+    accountLookup
         .getAccountChanges(address)
         .flatMap(
             accountChanges ->
@@ -177,7 +174,7 @@ public final class BlockAccessListOverlay {
       final Address address,
       final StorageSlotKey storageSlotKey,
       final Consumer<UInt256> valueApplier) {
-    blockAccessListAddressView
+    accountLookup
         .getSlotChanges(address, storageSlotKey)
         .flatMap(
             slotChanges ->

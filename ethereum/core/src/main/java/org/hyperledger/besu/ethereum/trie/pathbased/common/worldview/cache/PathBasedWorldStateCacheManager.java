@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.trie.pathbased.common.cache;
+package org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.cache;
 
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams.withBlockHeaderAndNoUpdateNodeHead;
 
@@ -20,10 +20,10 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.StorageSubscriber;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedLayeredWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.StorageSubscriber;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
@@ -34,34 +34,27 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
-import com.github.benmanes.caffeine.cache.Cache;
-import com.github.benmanes.caffeine.cache.Caffeine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public abstract class PathBasedCachedWorldStorageManager implements StorageSubscriber {
+public abstract class PathBasedWorldStateCacheManager implements StorageSubscriber {
   public static final long RETAINED_LAYERS = 512; // at least 256 + typical rollbacks
-  private static final Logger LOG =
-      LoggerFactory.getLogger(PathBasedCachedWorldStorageManager.class);
+  private static final Logger LOG = LoggerFactory.getLogger(PathBasedWorldStateCacheManager.class);
   private final PathBasedWorldStateProvider archive;
   private final EvmConfiguration evmConfiguration;
   protected final WorldStateConfig worldStateConfig;
-  private final Cache<Hash, BlockHeader> stateRootToBlockHeaderCache =
-      Caffeine.newBuilder()
-          .maximumSize(RETAINED_LAYERS)
-          .expireAfterWrite(100, TimeUnit.MINUTES)
-          .build();
+  private final Map<Hash, BlockHeader> stateRootToBlockHeaderCache = new ConcurrentHashMap<>();
 
   private final PathBasedWorldStateKeyValueStorage rootWorldStateStorage;
-  private final Map<Hash, PathBasedCachedWorldView> cachedWorldStatesByHash;
+  private final Map<Hash, PathBasedCachedWorldStateView> cachedWorldStatesByHash;
 
-  protected PathBasedCachedWorldStorageManager(
+  protected PathBasedWorldStateCacheManager(
       final PathBasedWorldStateProvider archive,
       final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage,
-      final Map<Hash, PathBasedCachedWorldView> cachedWorldStatesByHash,
+      final Map<Hash, PathBasedCachedWorldStateView> cachedWorldStatesByHash,
       final EvmConfiguration evmConfiguration,
       final WorldStateConfig worldStateConfig) {
     worldStateKeyValueStorage.subscribe(this);
@@ -76,7 +69,7 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
       final BlockHeader blockHeader,
       final Hash worldStateRootHash,
       final PathBasedWorldState forWorldState) {
-    final Optional<PathBasedCachedWorldView> cachedPathBasedWorldView =
+    final Optional<PathBasedCachedWorldStateView> cachedPathBasedWorldView =
         Optional.ofNullable(this.cachedWorldStatesByHash.get(blockHeader.getBlockHash()));
     if (cachedPathBasedWorldView.isPresent()) {
       // only replace if it is a layered storage
@@ -102,13 +95,13 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
       if (forWorldState.isModifyingHeadWorldState()) {
         cachedWorldStatesByHash.put(
             blockHeader.getBlockHash(),
-            new PathBasedCachedWorldView(
+            new PathBasedCachedWorldStateView(
                 blockHeader, createSnapshotKeyValueStorage(forWorldState.getWorldStateStorage())));
       } else {
         // otherwise, add the layer to the cache
         cachedWorldStatesByHash.put(
             blockHeader.getBlockHash(),
-            new PathBasedCachedWorldView(
+            new PathBasedCachedWorldStateView(
                 blockHeader,
                 ((PathBasedLayeredWorldStateKeyValueStorage) forWorldState.getWorldStateStorage())
                     .clone()));
@@ -120,8 +113,8 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
   }
 
   private synchronized void scrubCachedLayers(final long newMaxHeight) {
+    final long waterline = newMaxHeight - RETAINED_LAYERS;
     if (cachedWorldStatesByHash.size() > RETAINED_LAYERS) {
-      final long waterline = newMaxHeight - RETAINED_LAYERS;
       cachedWorldStatesByHash.values().stream()
           .filter(layer -> layer.getBlockNumber() < waterline)
           .toList()
@@ -131,6 +124,7 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
                 layer.close();
               });
     }
+    stateRootToBlockHeaderCache.values().removeIf(h -> h.getNumber() < waterline);
   }
 
   public Optional<PathBasedWorldState> getWorldState(final Hash blockHash) {
@@ -172,7 +166,7 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
 
     return Optional.ofNullable(
             cachedWorldStatesByHash.get(blockHeader.getParentHash())) // search parent block
-        .map(PathBasedCachedWorldView::getWorldStateStorage)
+        .map(PathBasedCachedWorldStateView::getWorldStateStorage)
         .or(
             () -> {
               // or else search the nearest state in the cache
@@ -181,13 +175,13 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
                   .addArgument(blockHeader::toLogString)
                   .log();
 
-              final List<PathBasedCachedWorldView> cachedPathBasedWorldViews =
+              final List<PathBasedCachedWorldStateView> cachedPathBasedWorldViews =
                   new ArrayList<>(cachedWorldStatesByHash.values());
               return cachedPathBasedWorldViews.stream()
                   .sorted(
                       Comparator.comparingLong(
                           view -> Math.abs(blockHeader.getNumber() - view.getBlockNumber())))
-                  .map(PathBasedCachedWorldView::getWorldStateStorage)
+                  .map(PathBasedCachedWorldStateView::getWorldStateStorage)
                   .findFirst();
             })
         .map(
@@ -197,6 +191,11 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
                     createLayeredKeyValueStorage(storage),
                     evmConfiguration,
                     maybeBlockAccessListOverlay));
+  }
+
+  public Optional<PathBasedWorldState> getHeadWorldState(
+      final Function<Hash, Optional<BlockHeader>> hashBlockHeaderFunction) {
+    return getHeadWorldState(hashBlockHeaderFunction, Optional.empty());
   }
 
   public Optional<PathBasedWorldState> getHeadWorldState(
@@ -225,6 +224,7 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
 
   public void reset() {
     this.cachedWorldStatesByHash.clear();
+    this.stateRootToBlockHeaderCache.clear();
   }
 
   public void primeRootToBlockHashCache(final Blockchain blockchain, final int numEntries) {
@@ -247,11 +247,11 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
    */
   public synchronized Optional<PathBasedWorldStateKeyValueStorage> getStorageByRootHash(
       final Hash rootHash) {
-    return Optional.ofNullable(stateRootToBlockHeaderCache.getIfPresent(rootHash))
+    return Optional.ofNullable(stateRootToBlockHeaderCache.get(rootHash))
         .flatMap(
             header ->
                 Optional.ofNullable(cachedWorldStatesByHash.get(header.getBlockHash()))
-                    .map(PathBasedCachedWorldView::getWorldStateStorage)
+                    .map(PathBasedCachedWorldStateView::getWorldStateStorage)
                     .or(
                         () -> {
                           // if not cached already, maybe fetch and cache this worldstate
@@ -268,26 +268,31 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
   @Override
   public void onClearStorage() {
     this.cachedWorldStatesByHash.clear();
+    this.stateRootToBlockHeaderCache.clear();
   }
 
   @Override
   public void onClearFlatDatabaseStorage() {
     this.cachedWorldStatesByHash.clear();
+    this.stateRootToBlockHeaderCache.clear();
   }
 
   @Override
   public void onClearTrieLog() {
     this.cachedWorldStatesByHash.clear();
+    this.stateRootToBlockHeaderCache.clear();
   }
 
   @Override
   public void onClearTrie() {
     this.cachedWorldStatesByHash.clear();
+    this.stateRootToBlockHeaderCache.clear();
   }
 
   @Override
   public void onCloseStorage() {
     this.cachedWorldStatesByHash.clear();
+    this.stateRootToBlockHeaderCache.clear();
   }
 
   public PathBasedWorldState createWorldState(

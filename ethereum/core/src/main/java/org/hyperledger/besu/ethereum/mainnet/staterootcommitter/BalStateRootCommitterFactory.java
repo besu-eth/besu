@@ -16,11 +16,12 @@ package org.hyperledger.besu.ethereum.mainnet.staterootcommitter;
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.ProtocolContext;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
+import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.trie.forest.ForestWorldStateArchive;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BalStateRootCalculator;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.bal.BlockAccessListStateRootCalculator;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedLayeredWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
@@ -65,7 +66,7 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
     }
 
     final CompletableFuture<BalRootComputation> balFuture =
-        BalStateRootCalculator.computeAsync(protocolContext, blockHeader, maybeBal.get());
+        BlockAccessListStateRootCalculator.computeAsync(protocolContext, blockHeader, maybeBal.get());
     final Duration timeout = balConfiguration.getBalStateRootTimeout();
 
     if (balConfiguration.isBalStateRootTrusted()) {

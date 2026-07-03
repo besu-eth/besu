@@ -21,8 +21,8 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
-import org.hyperledger.besu.ethereum.mainnet.parallelization.BlockProcessingExecutors;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 
 import java.util.ArrayList;
@@ -33,6 +33,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
@@ -49,7 +50,7 @@ public class BalPrefetcher {
 
   private static final Logger LOG = LoggerFactory.getLogger(BalPrefetcher.class);
 
-  private static final Executor DEFAULT_PREFETCH_EXECUTOR = BlockProcessingExecutors.ioExecutor();
+  private static final Executor DEFAULT_PREFETCH_EXECUTOR = ForkJoinPool.commonPool();
 
   private final boolean isSortingEnabled;
   private final int batchSize;
@@ -218,11 +219,10 @@ public class BalPrefetcher {
       futures.add(
           CompletableFuture.runAsync(
               () -> {
-                final List<Optional<byte[]>> multipleKeys =
-                    worldState.getWorldStateStorage().getMultipleKeys(segment, keys);
+                prefetchKeys(worldState, segment, keys);
                 LOG.debug(
                     "Prefetch: fetched {} {} keys in single batch",
-                    multipleKeys.size(),
+                    keys.size(),
                     segmentName);
               },
               fetchExecutor));
@@ -236,14 +236,13 @@ public class BalPrefetcher {
         futures.add(
             CompletableFuture.runAsync(
                 () -> {
-                  final List<Optional<byte[]>> multipleKeys =
-                      worldState.getWorldStateStorage().getMultipleKeys(segment, batch);
+                  prefetchKeys(worldState, segment, batch);
                   LOG.trace(
                       "Prefetch: fetched {} batch {}/{} ({} keys)",
                       segmentName,
                       batchNumber + 1,
                       batchCount,
-                      multipleKeys.size());
+                      batch.size());
                 },
                 fetchExecutor));
       }
@@ -252,6 +251,15 @@ public class BalPrefetcher {
     }
 
     return futures;
+  }
+
+  private void prefetchKeys(
+      final BonsaiWorldState worldState,
+      final SegmentIdentifier segment,
+      final List<byte[]> keys) {
+    final SegmentedKeyValueStorage storage =
+        worldState.getWorldStateStorage().getComposedWorldStateStorage();
+    keys.forEach(key -> storage.get(segment, key));
   }
 
   private boolean shouldBatch() {

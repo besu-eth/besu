@@ -24,25 +24,25 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * Address-indexed view of a {@link BlockAccessList}, built once per block. Does not resolve
- * transaction indices or materialize state — use {@link BlockAccessListOverlay} for per-transaction
- * prior state.
+ * Account and storage-slot lookup over a {@link BlockAccessList}, built once per block and shared
+ * across all transactions. Does not resolve transaction boundaries; use {@link
+ * BlockAccessListOverlay} to read state as of a specific transaction index.
  */
-public final class BlockAccessListAddressView {
+public final class BlockAccessListAccountLookup {
 
   private final Map<Address, AccountEntry> accountEntries;
 
-  private BlockAccessListAddressView(final Map<Address, AccountEntry> accountEntries) {
+  private BlockAccessListAccountLookup(final Map<Address, AccountEntry> accountEntries) {
     this.accountEntries = accountEntries;
   }
 
-  public static BlockAccessListAddressView of(final BlockAccessList blockAccessList) {
+  public static BlockAccessListAccountLookup of(final BlockAccessList blockAccessList) {
     final List<BlockAccessList.AccountChanges> accountChanges = blockAccessList.accountChanges();
     final Map<Address, AccountEntry> entries = HashMap.newHashMap(accountChanges.size());
     for (final BlockAccessList.AccountChanges changes : accountChanges) {
       entries.put(changes.address(), new AccountEntry(changes));
     }
-    return new BlockAccessListAddressView(entries);
+    return new BlockAccessListAccountLookup(entries);
   }
 
   public Optional<BlockAccessList.AccountChanges> getAccountChanges(final Address address) {

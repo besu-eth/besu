@@ -12,33 +12,34 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.trie.pathbased.bonsai;
+package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache;
 
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.provider.BonsaiWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiSnapshotWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateLayerStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.cache.PathBasedCachedWorldStorageManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.cache.PathBasedWorldStateCacheManager;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class BonsaiCachedWorldStorageManager extends PathBasedCachedWorldStorageManager {
-  private final CodeCache codeCache;
+public class BonsaiWorldStateCacheManager extends PathBasedWorldStateCacheManager {
+  private final PathBasedCodeCache codeCache;
 
-  public BonsaiCachedWorldStorageManager(
+  public BonsaiWorldStateCacheManager(
       final BonsaiWorldStateProvider archive,
       final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage,
       final EvmConfiguration evmConfiguration,
       final WorldStateConfig worldStateConfig,
-      final CodeCache codeCache) {
+      final PathBasedCodeCache codeCache) {
     super(
         archive,
         worldStateKeyValueStorage,
@@ -47,6 +48,14 @@ public class BonsaiCachedWorldStorageManager extends PathBasedCachedWorldStorage
         worldStateConfig);
 
     this.codeCache = codeCache;
+  }
+
+  @Override
+  public PathBasedWorldState createWorldState(
+      final PathBasedWorldStateProvider archive,
+      final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage,
+      final EvmConfiguration evmConfiguration) {
+    return createWorldState(archive, worldStateKeyValueStorage, evmConfiguration, Optional.empty());
   }
 
   @Override

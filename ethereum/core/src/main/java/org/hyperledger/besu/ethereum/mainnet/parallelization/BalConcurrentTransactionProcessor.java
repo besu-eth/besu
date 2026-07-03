@@ -19,7 +19,7 @@ import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
-import org.hyperledger.besu.ethereum.core.MutableWorldState;
+import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.MainnetTransactionProcessor;
@@ -27,7 +27,8 @@ import org.hyperledger.besu.ethereum.mainnet.TransactionValidationParams;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.AccessLocationTracker;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.BlockAccessListBuilder;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAddressView;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.mainnet.parallelization.prefetch.BalPrefetcher;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
@@ -63,7 +64,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
 
   private final MainnetTransactionProcessor transactionProcessor;
   private final BlockAccessList blockAccessList;
-  private final BlockAccessListAddressView blockAccessListAddressView;
+  private final BlockAccessListAccountLookup blockAccessListAccountLookup;
   private final Duration balProcessingTimeout;
   private final Optional<BalPrefetcher> maybePrefetcher;
 
@@ -73,7 +74,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final BalConfiguration balConfiguration) {
     this.transactionProcessor = transactionProcessor;
     this.blockAccessList = blockAccessList;
-    this.blockAccessListAddressView = BlockAccessListAddressView.of(blockAccessList);
+    this.blockAccessListAccountLookup = BlockAccessListAccountLookup.of(blockAccessList);
     this.balProcessingTimeout = balConfiguration.getBalProcessingTimeout();
     this.maybePrefetcher =
         balConfiguration.isBalPreFetchReadingEnabled()
@@ -96,7 +97,9 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
                     WorldStateQueryParams.newBuilder()
                         .withBlockHeader(blockHeader)
                         .withShouldWorldStateUpdateHead(false)
-                        .withBalOverlay(blockAccessListAddressView, (long) transactionLocation + 1L)
+                        .withBalOverlay(
+                            new BlockAccessListOverlay(
+                                blockAccessListAccountLookup, (long) transactionLocation + 1L))
                         .build())
                 .map(BonsaiWorldState.class::cast));
   }
@@ -116,7 +119,16 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
     maybePrefetcher.ifPresent(
         balPrefetchMechanism -> {
           final Optional<BonsaiWorldState> maybeWorldState =
-              getWorldState(protocolContext, maybeParentHeader);
+              maybeParentHeader.flatMap(
+                  parentHeader ->
+                      protocolContext
+                          .getWorldStateArchive()
+                          .getWorldState(
+                              WorldStateQueryParams.newBuilder()
+                                  .withBlockHeader(parentHeader)
+                                  .withShouldWorldStateUpdateHead(false)
+                                  .build())
+                          .map(BonsaiWorldState.class::cast));
           if (maybeWorldState.isPresent()) {
             balPrefetchMechanism
                 .prefetch(maybeWorldState.get(), blockAccessList, executor)

@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator;
 
-import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import org.hyperledger.besu.datatypes.AccountValue;
 import org.hyperledger.besu.datatypes.Address;
@@ -23,13 +22,10 @@ import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedAccount;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedValue;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.account.PathBasedAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogLayer;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldView;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldUpdater;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.AccountConsumingMap;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.Consumer;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.StorageConsumingMap;
@@ -51,6 +47,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
@@ -61,7 +58,7 @@ import org.slf4j.LoggerFactory;
 @SuppressWarnings("unchecked")
 public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathBasedAccount>
     extends AbstractWorldUpdater<PathBasedWorldView, ACCOUNT>
-    implements PathBasedWorldUpdater {
+    implements PathBasedWorldView, TrieLogAccumulator {
   private static final Logger LOG =
       LoggerFactory.getLogger(PathBasedWorldStateUpdateAccumulator.class);
   protected final Consumer<PathBasedValue<ACCOUNT>> accountPreloader;
@@ -284,7 +281,6 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     return codeToUpdate;
   }
 
-  @Override
   public Set<Address> getStorageToClear() {
     return storageToClear;
   }
@@ -535,9 +531,9 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
   public Optional<Bytes> getCode(final Address address, final Hash codeHash) {
     final PathBasedValue<Bytes> localCode = codeToUpdate.get(address);
     if (localCode == null) {
-      final Supplier<Bytes> loader = Suppliers.memoize(()->wrappedWorldView().getCode(address, codeHash).orElse(null));
-      final PathBasedValue<Bytes> codeValue =
-          PathBasedValue.withLazy(loader, loader);
+      final Supplier<Bytes> loader =
+          Suppliers.memoize(() -> wrappedWorldView().getCode(address, codeHash).orElse(null));
+      final PathBasedValue<Bytes> codeValue = PathBasedValue.withLazy(loader, loader);
       onCodeValueLoaded(address, codeValue);
       codeToUpdate.put(address, codeValue);
       if (codeValue.getUpdated() == null && !codeHash.equals(Hash.EMPTY)) {
@@ -572,16 +568,17 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       }
     }
     try {
-      final Supplier<UInt256> loader = Suppliers.memoize(() ->
-              (wrappedWorldView() instanceof PathBasedWorldState worldState)
+      final Supplier<UInt256> loader =
+          Suppliers.memoize(
+              () ->
+                  (wrappedWorldView() instanceof PathBasedWorldState worldState)
                       ? worldState
-                      .getStorageValueByStorageSlotKey(address, storageSlotKey)
-                      .orElse(null)
+                          .getStorageValueByStorageSlotKey(address, storageSlotKey)
+                          .orElse(null)
                       : wrappedWorldView()
-                      .getStorageValueByStorageSlotKey(address, storageSlotKey)
-                      .orElse(null));
-      final PathBasedValue<UInt256> storageValue =
-          PathBasedValue.withLazy(loader,loader);
+                          .getStorageValueByStorageSlotKey(address, storageSlotKey)
+                          .orElse(null));
+      final PathBasedValue<UInt256> storageValue = PathBasedValue.withLazy(loader, loader);
       onStorageValueLoaded(address, storageSlotKey, storageValue);
 
       storageToUpdate
@@ -593,6 +590,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
 
       return Optional.ofNullable(storageValue.getUpdated());
     } catch (MerkleTrieException e) {
+      // need to throw to trigger the heal
       throw new MerkleTrieException(
           e.getMessage(), Optional.of(address), e.getHash(), e.getLocation());
     }
@@ -760,10 +758,8 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     try {
       final Account parentAccount = wrappedWorldView().get(address);
       if (parentAccount instanceof PathBasedAccount account) {
-        final ACCOUNT priorAccount = copyAccount((ACCOUNT) account);
-        final ACCOUNT updatedAccount = copyAccount((ACCOUNT) account, this, true);
         final PathBasedValue<ACCOUNT> loadedAccountValue =
-            new PathBasedValue<>(priorAccount, updatedAccount);
+            new PathBasedValue<>(copyAccount((ACCOUNT) account), ((ACCOUNT) account));
         accountsToUpdate.put(address, loadedAccountValue);
         return loadedAccountValue;
       } else {
@@ -914,12 +910,10 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     return Objects.equals(sanitizedExpectedValue, sanitizedExistingSlotValue);
   }
 
-  @Override
   public boolean isAccumulatorStateChanged() {
     return isAccumulatorStateChanged;
   }
 
-  @Override
   public void resetAccumulatorStateChanged() {
     isAccumulatorStateChanged = false;
   }
@@ -969,7 +963,6 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     return hash;
   }
 
-  @Override
   public abstract PathBasedWorldStateUpdateAccumulator<ACCOUNT> copy();
 
   protected abstract ACCOUNT copyAccount(final ACCOUNT account);

@@ -27,10 +27,12 @@ import java.util.List;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 
-class BlockAccessListAddressViewTest {
+class BlockAccessListAccountLookupTest {
 
   private static final Address ADDRESS =
       Address.fromHexString("0x00000000000000000000000000000000000000aa");
+  private static final Address ABSENT_ADDRESS =
+      Address.fromHexString("0x00000000000000000000000000000000000000ee");
   private static final StorageSlotKey SLOT = new StorageSlotKey(UInt256.ONE);
 
   @Test
@@ -48,13 +50,29 @@ class BlockAccessListAddressViewTest {
                     List.of()),
                 new AccountChanges(other, List.of(), List.of(), List.of(), List.of(), List.of())));
 
-    final BlockAccessListAddressView addressView = BlockAccessListAddressView.of(bal);
+    final BlockAccessListAccountLookup index = BlockAccessListAccountLookup.of(bal);
 
-    assertThat(addressView.getAccountChanges(ADDRESS)).isPresent();
-    assertThat(addressView.getAccountChanges(other)).isPresent();
-    assertThat(addressView.getAddressHash(ADDRESS)).contains(ADDRESS.addressHash());
-    assertThat(addressView.getSlotChanges(ADDRESS, SLOT).map(BlockAccessList.SlotChanges::slot))
+    assertThat(index.getAccountChanges(ADDRESS)).isPresent();
+    assertThat(index.getAccountChanges(other)).isPresent();
+    assertThat(index.getAddressHash(ADDRESS)).contains(ADDRESS.addressHash());
+    assertThat(index.getSlotChanges(ADDRESS, SLOT).map(BlockAccessList.SlotChanges::slot))
         .contains(SLOT);
-    assertThat(addressView.getSlotChanges(other, SLOT)).isEmpty();
+    // "other" is in the BAL but has no storage changes
+    assertThat(index.getSlotChanges(other, SLOT)).isEmpty();
+  }
+
+  @Test
+  void returnsEmptyForAddressAbsentFromBal() {
+    final BlockAccessList bal =
+        new BlockAccessList(
+            List.of(
+                new AccountChanges(
+                    ADDRESS, List.of(), List.of(), List.of(), List.of(), List.of())));
+
+    final BlockAccessListAccountLookup index = BlockAccessListAccountLookup.of(bal);
+
+    assertThat(index.getAccountChanges(ABSENT_ADDRESS)).isEmpty();
+    assertThat(index.getAddressHash(ABSENT_ADDRESS)).isEmpty();
+    assertThat(index.getSlotChanges(ABSENT_ADDRESS, SLOT)).isEmpty();
   }
 }

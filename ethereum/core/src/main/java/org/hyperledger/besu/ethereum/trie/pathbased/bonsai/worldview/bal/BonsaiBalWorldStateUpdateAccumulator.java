@@ -19,11 +19,11 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiAccount;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldStateUpdateAccumulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedValue;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldView;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedValue;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedWorldStateUpdateAccumulator;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
@@ -42,7 +42,7 @@ public class BonsaiBalWorldStateUpdateAccumulator extends BonsaiWorldStateUpdate
   public BonsaiBalWorldStateUpdateAccumulator(
       final PathBasedWorldView world,
       final EvmConfiguration evmConfiguration,
-      final CodeCache codeCache,
+      final PathBasedCodeCache codeCache,
       final BlockAccessListOverlay blockAccessListOverlay) {
     super(
         world,
@@ -78,7 +78,7 @@ public class BonsaiBalWorldStateUpdateAccumulator extends BonsaiWorldStateUpdate
           }
           final Hash addressHash =
               blockAccessListOverlay
-                  .getAddressView()
+                  .getAccountLookup()
                   .getAddressHash(address)
                   .orElseGet(() -> hashAndSaveAccountPreImage(address));
           return createAccount(

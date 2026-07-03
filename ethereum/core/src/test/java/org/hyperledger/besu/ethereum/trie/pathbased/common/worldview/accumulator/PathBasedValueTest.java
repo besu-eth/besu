@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.trie.pathbased.common;
+package org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator;
 
 import static org.assertj.core.api.Assertions.assertThat;
 

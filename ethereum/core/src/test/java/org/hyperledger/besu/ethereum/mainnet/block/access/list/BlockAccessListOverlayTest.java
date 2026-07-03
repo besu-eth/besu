@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -29,8 +30,8 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.C
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.NonceChange;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedAccount;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedValue;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.account.PathBasedAccount;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedValue;
 
 import java.util.List;
 
@@ -67,7 +68,7 @@ class BlockAccessListOverlayTest {
 
     final BlockAccessListOverlay overlay =
         new BlockAccessListOverlay(
-            BlockAccessListAddressView.of(new BlockAccessList(List.of(accountChanges))), 2L);
+            BlockAccessListAccountLookup.of(new BlockAccessList(List.of(accountChanges))), 2L);
 
     final PathBasedValue<UInt256> storageValue =
         new PathBasedValue<>(UInt256.valueOf(99), UInt256.valueOf(99));
@@ -82,7 +83,7 @@ class BlockAccessListOverlayTest {
     assertThat(overlay.applyToAccountState(ADDRESS, () -> account)).contains(account);
     verify(account).setBalance(Wei.of(200));
     verify(account).setNonce(1L);
-    verify(account).setCodeHash(Hash.hash(Bytes.fromHexString("0xBB")));
+    verify(account).setCode(Bytes.fromHexString("0xBB"));
   }
 
   @Test
@@ -98,7 +99,7 @@ class BlockAccessListOverlayTest {
 
     final BlockAccessListOverlay overlay =
         new BlockAccessListOverlay(
-            BlockAccessListAddressView.of(new BlockAccessList(List.of(accountChanges))), 2L);
+            BlockAccessListAccountLookup.of(new BlockAccessList(List.of(accountChanges))), 2L);
 
     final PathBasedValue<UInt256> storageValue =
         new PathBasedValue<>(UInt256.valueOf(42), UInt256.valueOf(42));
@@ -111,8 +112,8 @@ class BlockAccessListOverlayTest {
 
     final PathBasedAccount account = mock(PathBasedAccount.class);
     assertThat(overlay.applyToAccountState(ADDRESS, () -> account)).isEmpty();
-    verify(account, never()).setBalance(org.mockito.ArgumentMatchers.any());
-    verify(account, never()).setCodeHash(org.mockito.ArgumentMatchers.any());
+    verify(account, never()).setBalance(any());
+    verify(account, never()).setCode(any());
   }
 
   @Test
@@ -130,7 +131,7 @@ class BlockAccessListOverlayTest {
 
     final BlockAccessListOverlay overlay =
         new BlockAccessListOverlay(
-            BlockAccessListAddressView.of(new BlockAccessList(List.of(accountChanges))), 2L);
+            BlockAccessListAccountLookup.of(new BlockAccessList(List.of(accountChanges))), 2L);
 
     final PathBasedValue<UInt256> storageValue =
         new PathBasedValue<>(UInt256.valueOf(99), UInt256.valueOf(99));

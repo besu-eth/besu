@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.PathBasedWorldStateProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
@@ -26,6 +27,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateC
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.LongStream;
 
@@ -128,6 +130,15 @@ class PathBasedWorldStateCacheManagerTest {
           map,
           EvmConfiguration.DEFAULT,
           WorldStateConfig.createStatefulConfigWithTrie());
+    }
+
+    @Override
+    public PathBasedWorldState createWorldState(
+        final PathBasedWorldStateProvider archive,
+        final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage,
+        final EvmConfiguration evmConfiguration,
+        final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
+      throw new UnsupportedOperationException();
     }
 
     @Override

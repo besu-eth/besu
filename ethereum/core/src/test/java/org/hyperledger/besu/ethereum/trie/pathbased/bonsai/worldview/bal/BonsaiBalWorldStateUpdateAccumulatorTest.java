@@ -12,7 +12,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator;
+package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.bal;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -29,12 +29,13 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.B
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.NonceChange;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAddressView;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.BonsaiAccount;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAccountLookup;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.account.BonsaiAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldStateUpdateAccumulator;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedValue;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedValue;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.plugin.services.storage.DataStorageFormat;
 
@@ -46,7 +47,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-class BlockAccessListOverlayAccumulatorTest {
+class BonsaiBalWorldStateUpdateAccumulatorTest {
 
   private static final Address ADDRESS =
       Address.fromHexString("0x00000000000000000000000000000000000000aa");
@@ -71,7 +72,7 @@ class BlockAccessListOverlayAccumulatorTest {
   }
 
   @Test
-  void firstReadAppliesBalOverlayWithoutChangingPrior() {
+  void firstAccountReadAppliesBalOverlayWithoutChangingPrior() {
     final Wei balBalance = Wei.of(2_000);
     final long balNonce = 5L;
 
@@ -104,36 +105,7 @@ class BlockAccessListOverlayAccumulatorTest {
   }
 
   @Test
-  void firstStorageReadAppliesBalOverlayWithoutChangingPrior() {
-    final Address address = Address.fromHexString("0x00000000000000000000000000000000000000dd");
-    final StorageSlotKey slotKey = new StorageSlotKey(UInt256.valueOf(7));
-    final UInt256 balValue = UInt256.valueOf(99);
-
-    final BlockAccessList bal =
-        new BlockAccessList(
-            List.of(
-                new AccountChanges(
-                    address,
-                    List.of(new SlotChanges(slotKey, List.of(new StorageChange(0, balValue)))),
-                    List.of(),
-                    List.of(),
-                    List.of(),
-                    List.of())));
-
-    withAccumulator(
-        bal,
-        1L,
-        accumulator -> {
-          assertThat(accumulator.getStorageValue(address, UInt256.valueOf(7))).isEqualTo(balValue);
-
-          final var slotValue = accumulator.getStorageToUpdate().get(address).get(slotKey);
-          assertThat(slotValue.getPrior()).isNull();
-          assertThat(slotValue.getUpdated()).isEqualTo(balValue);
-        });
-  }
-
-  @Test
-  void missingAccountInParentIsCreatedFromBalOnFirstRead() {
+  void createsMissingAccountFromBalOnFirstRead() {
     final Address balOnlyAddress =
         Address.fromHexString("0x00000000000000000000000000000000000000bb");
     final Wei balBalance = Wei.of(5_000);
@@ -167,17 +139,16 @@ class BlockAccessListOverlayAccumulatorTest {
   }
 
   @Test
-  void missingStorageSlotInParentUsesBalValueInUpdated() {
-    final Address balOnlyAddress =
-        Address.fromHexString("0x00000000000000000000000000000000000000cc");
+  void firstStorageReadAppliesBalOverlayWithoutChangingPrior() {
+    final Address address = Address.fromHexString("0x00000000000000000000000000000000000000dd");
     final StorageSlotKey slotKey = new StorageSlotKey(UInt256.valueOf(7));
-    final UInt256 balValue = UInt256.valueOf(77);
+    final UInt256 balValue = UInt256.valueOf(99);
 
     final BlockAccessList bal =
         new BlockAccessList(
             List.of(
                 new AccountChanges(
-                    balOnlyAddress,
+                    address,
                     List.of(new SlotChanges(slotKey, List.of(new StorageChange(0, balValue)))),
                     List.of(),
                     List.of(),
@@ -188,10 +159,9 @@ class BlockAccessListOverlayAccumulatorTest {
         bal,
         1L,
         accumulator -> {
-          assertThat(accumulator.getStorageValue(balOnlyAddress, UInt256.valueOf(7)))
-              .isEqualTo(balValue);
+          assertThat(accumulator.getStorageValue(address, UInt256.valueOf(7))).isEqualTo(balValue);
 
-          final var slotValue = accumulator.getStorageToUpdate().get(balOnlyAddress).get(slotKey);
+          final var slotValue = accumulator.getStorageToUpdate().get(address).get(slotKey);
           assertThat(slotValue.getPrior()).isNull();
           assertThat(slotValue.getUpdated()).isEqualTo(balValue);
         });
@@ -256,7 +226,9 @@ class BlockAccessListOverlayAccumulatorTest {
                     WorldStateQueryParams.newBuilder()
                         .withBlockHeader(chainHeadHeader)
                         .withShouldWorldStateUpdateHead(false)
-                        .withBalOverlay(BlockAccessListAddressView.of(bal), maxTxIndexExclusive)
+                        .withBalOverlay(
+                            new BlockAccessListOverlay(
+                                BlockAccessListAccountLookup.of(bal), maxTxIndexExclusive))
                         .build())
                 .orElseThrow();
     try {

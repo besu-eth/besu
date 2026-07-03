@@ -44,11 +44,11 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.PartialBlockAccessView;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.NoOpBonsaiCachedWorldStorageManager;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.NoopBonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.NoOpBonsaiCachedMerkleTrieLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.cache.NoOpBonsaiWorldStateCacheManager;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.WorldStateQueryParams;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.NoOpTrieLogManager;
 import org.hyperledger.besu.ethereum.worldstate.DataStorageConfiguration;
@@ -110,12 +110,13 @@ class BalTransactionProcessorUnitTest {
 
     return new BonsaiWorldState(
         storage,
-        new NoopBonsaiCachedMerkleTrieLoader(),
-        new NoOpBonsaiCachedWorldStorageManager(storage, EvmConfiguration.DEFAULT, new CodeCache()),
+        new NoOpBonsaiCachedMerkleTrieLoader(),
+        new NoOpBonsaiWorldStateCacheManager(
+            storage, EvmConfiguration.DEFAULT, new PathBasedCodeCache()),
         new NoOpTrieLogManager(),
         EvmConfiguration.DEFAULT,
         createStatefulConfigWithTrie(),
-        new CodeCache(),
+        new PathBasedCodeCache(),
         blockAccessListOverlay);
   }
 
@@ -134,14 +135,7 @@ class BalTransactionProcessorUnitTest {
               if (queryParams == null) {
                 return Optional.empty();
               }
-              final Optional<BlockAccessListOverlay> overlay =
-                  queryParams
-                      .getBalOverlayQuery()
-                      .map(
-                          q ->
-                              new BlockAccessListOverlay(
-                                  q.blockAccessListAddressView(), q.maxTxIndexExclusive()));
-              return Optional.of(createEmptyWorldState(overlay));
+              return Optional.of(createEmptyWorldState(queryParams.getBlockAccessListOverlay()));
             });
     when(parentHeader.getBlockHash()).thenReturn(Hash.ZERO);
     when(parentHeader.getStateRoot()).thenReturn(Hash.EMPTY_TRIE_HASH);

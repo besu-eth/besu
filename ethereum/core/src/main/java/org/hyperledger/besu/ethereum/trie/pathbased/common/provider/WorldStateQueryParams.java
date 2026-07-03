@@ -15,7 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.common.provider;
 
 import org.hyperledger.besu.datatypes.Hash;
-import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListAddressView;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 
 import java.util.Objects;
@@ -24,21 +24,11 @@ import java.util.Optional;
 /** Parameters for querying the world state. */
 public class WorldStateQueryParams {
 
-  /**
-   * BAL overlay applied when the world state's accumulator is created (parallel execution).
-   *
-   * @param blockAccessListAddressView per-block address-indexed view of the current block's BAL
-   * @param maxTxIndexExclusive index of the transaction about to execute; overlay includes changes
-   *     with {@code txIndex < maxTxIndexExclusive}
-   */
-  public record BalOverlayQuery(
-      BlockAccessListAddressView blockAccessListAddressView, long maxTxIndexExclusive) {}
-
   private final BlockHeader blockHeader;
   private final boolean shouldWorldStateUpdateHead;
   private final Hash blockHash;
   private final Optional<Hash> stateRoot;
-  private final Optional<BalOverlayQuery> balOverlayQuery;
+  private final Optional<BlockAccessListOverlay> blockAccessListOverlay;
 
   /**
    * Private constructor to enforce the use of the Builder.
@@ -50,7 +40,7 @@ public class WorldStateQueryParams {
     this.shouldWorldStateUpdateHead = builder.shouldWorldStateUpdateHead;
     this.blockHash = builder.blockHash;
     this.stateRoot = builder.stateRoot;
-    this.balOverlayQuery = builder.balOverlayQuery;
+    this.blockAccessListOverlay = builder.blockAccessListOverlay;
   }
 
   /**
@@ -89,13 +79,9 @@ public class WorldStateQueryParams {
     return stateRoot;
   }
 
-  /**
-   * Optional BAL overlay to configure on the new world state's accumulator at creation time.
-   *
-   * @return BAL overlay query parameters, if any
-   */
-  public Optional<BalOverlayQuery> getBalOverlayQuery() {
-    return balOverlayQuery;
+  /** Optional BAL overlay applied when the queried world state's accumulator is created. */
+  public Optional<BlockAccessListOverlay> getBlockAccessListOverlay() {
+    return blockAccessListOverlay;
   }
 
   /**
@@ -180,13 +166,13 @@ public class WorldStateQueryParams {
         && Objects.equals(blockHeader, that.blockHeader)
         && Objects.equals(blockHash, that.blockHash)
         && Objects.equals(stateRoot, that.stateRoot)
-        && Objects.equals(balOverlayQuery, that.balOverlayQuery);
+        && Objects.equals(blockAccessListOverlay, that.blockAccessListOverlay);
   }
 
   @Override
   public int hashCode() {
     return Objects.hash(
-        blockHeader, shouldWorldStateUpdateHead, blockHash, stateRoot, balOverlayQuery);
+        blockHeader, shouldWorldStateUpdateHead, blockHash, stateRoot, blockAccessListOverlay);
   }
 
   public static class Builder {
@@ -194,7 +180,7 @@ public class WorldStateQueryParams {
     private boolean shouldWorldStateUpdateHead = false;
     private Hash blockHash;
     private Optional<Hash> stateRoot = Optional.empty();
-    private Optional<BalOverlayQuery> balOverlayQuery = Optional.empty();
+    private Optional<BlockAccessListOverlay> blockAccessListOverlay = Optional.empty();
 
     private Builder() {}
 
@@ -248,15 +234,11 @@ public class WorldStateQueryParams {
     /**
      * Applies a BAL overlay when the queried world state's accumulator is created.
      *
-     * @param blockAccessListAddressView per-block address-indexed view of the current block's BAL
-     * @param maxTxIndexExclusive index of the transaction about to execute
+     * @param blockAccessListOverlay the overlay to configure on the accumulator
      * @return the builder
      */
-    public Builder withBalOverlay(
-        final BlockAccessListAddressView blockAccessListAddressView,
-        final long maxTxIndexExclusive) {
-      this.balOverlayQuery =
-          Optional.of(new BalOverlayQuery(blockAccessListAddressView, maxTxIndexExclusive));
+    public Builder withBalOverlay(final BlockAccessListOverlay blockAccessListOverlay) {
+      this.blockAccessListOverlay = Optional.of(blockAccessListOverlay);
       return this;
     }
 
