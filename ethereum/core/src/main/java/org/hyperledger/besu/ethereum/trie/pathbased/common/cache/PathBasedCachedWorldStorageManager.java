@@ -18,6 +18,7 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.World
 
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.StorageSubscriber;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.provider.PathBasedWorldStateProvider;
@@ -25,7 +26,6 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedLaye
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.WorldStateConfig;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldUpdater;
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.plugin.data.BlockHeader;
 
@@ -134,27 +134,13 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
   }
 
   public Optional<PathBasedWorldState> getWorldState(final Hash blockHash) {
-    if (cachedWorldStatesByHash.containsKey(blockHash)) {
-      return Optional.ofNullable(cachedWorldStatesByHash.get(blockHash))
-          .map(
-              cached ->
-                  createWorldState(
-                      archive,
-                      createLayeredKeyValueStorage(cached.getWorldStateStorage()),
-                      evmConfiguration));
-    }
-    LOG.atDebug()
-        .setMessage("did not find worldstate in cache for {}")
-        .addArgument(blockHash.getBytes().toShortHexString())
-        .log();
-    return Optional.empty();
+    return getWorldState(blockHash, Optional.empty());
   }
 
-  @SuppressWarnings("rawtypes")
   public Optional<PathBasedWorldState> getWorldState(
-      final Hash blockHash,
-      final Function<PathBasedWorldState, PathBasedWorldUpdater> updaterFactory) {
+      final Hash blockHash, final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
     if (cachedWorldStatesByHash.containsKey(blockHash)) {
+      // return a new worldstate using worldstate storage and an isolated copy of the updater
       return Optional.ofNullable(cachedWorldStatesByHash.get(blockHash))
           .map(
               cached ->
@@ -162,16 +148,23 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
                       archive,
                       createLayeredKeyValueStorage(cached.getWorldStateStorage()),
                       evmConfiguration,
-                      updaterFactory));
+                      maybeBlockAccessListOverlay));
     }
     LOG.atDebug()
         .setMessage("did not find worldstate in cache for {}")
         .addArgument(blockHash.getBytes().toShortHexString())
         .log();
+
     return Optional.empty();
   }
 
   public Optional<PathBasedWorldState> getNearestWorldState(final BlockHeader blockHeader) {
+    return getNearestWorldState(blockHeader, Optional.empty());
+  }
+
+  public Optional<PathBasedWorldState> getNearestWorldState(
+      final BlockHeader blockHeader,
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
     LOG.atDebug()
         .setMessage("getting nearest worldstate for {}")
         .addArgument(blockHeader::toLogString)
@@ -199,12 +192,16 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
             })
         .map(
             storage ->
-                createWorldState(
-                    archive, createLayeredKeyValueStorage(storage), evmConfiguration));
+                createWorldState( // wrap the state in a layered worldstate
+                    archive,
+                    createLayeredKeyValueStorage(storage),
+                    evmConfiguration,
+                    maybeBlockAccessListOverlay));
   }
 
   public Optional<PathBasedWorldState> getHeadWorldState(
-      final Function<Hash, Optional<BlockHeader>> hashBlockHeaderFunction) {
+      final Function<Hash, Optional<BlockHeader>> hashBlockHeaderFunction,
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
 
     LOG.atDebug().setMessage("getting head worldstate").log();
 
@@ -218,7 +215,7 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
                   blockHeader,
                   blockHeader.getStateRoot(),
                   createWorldState(archive, rootWorldStateStorage, evmConfiguration));
-              return getWorldState(blockHeader.getBlockHash());
+              return getWorldState(blockHeader.getBlockHash(), maybeBlockAccessListOverlay);
             });
   }
 
@@ -293,28 +290,18 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
     this.cachedWorldStatesByHash.clear();
   }
 
-  public abstract PathBasedWorldState createWorldState(
+  public PathBasedWorldState createWorldState(
       final PathBasedWorldStateProvider archive,
       final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage,
-      final EvmConfiguration evmConfiguration);
+      final EvmConfiguration evmConfiguration) {
+    return createWorldState(archive, worldStateKeyValueStorage, evmConfiguration, Optional.empty());
+  }
 
-  /**
-   * Creates a new {@link PathBasedWorldState} whose accumulator is produced by {@code
-   * updaterFactory}. Implementations should call the world-state constructor that takes an explicit
-   * factory function.
-   *
-   * @param archive the world state provider (archive)
-   * @param worldStateKeyValueStorage the (typically layered) KV storage for this world state
-   * @param evmConfiguration the EVM configuration
-   * @param updaterFactory called once with the new world state to produce its accumulator
-   * @return a freshly constructed world state with the injected accumulator strategy
-   */
-  @SuppressWarnings("rawtypes")
   public abstract PathBasedWorldState createWorldState(
       final PathBasedWorldStateProvider archive,
       final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage,
       final EvmConfiguration evmConfiguration,
-      final Function<PathBasedWorldState, PathBasedWorldUpdater> updaterFactory);
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay);
 
   public abstract PathBasedWorldStateKeyValueStorage createLayeredKeyValueStorage(
       final PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage);
