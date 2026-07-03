@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
@@ -65,6 +66,13 @@ public class NoOpBonsaiCachedWorldStorageManager extends BonsaiCachedWorldStorag
   @Override
   public Optional<PathBasedWorldState> getHeadWorldState(
       final Function<Hash, Optional<BlockHeader>> hashBlockHeaderFunction) {
+    return Optional.empty();
+  }
+
+  @Override
+  public Optional<PathBasedWorldState> getHeadWorldState(
+      final Function<Hash, Optional<BlockHeader>> hashBlockHeaderFunction,
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
     return Optional.empty();
   }
 

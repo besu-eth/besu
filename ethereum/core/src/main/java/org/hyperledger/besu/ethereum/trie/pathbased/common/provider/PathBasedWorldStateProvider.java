@@ -253,7 +253,8 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
             () ->
                 cachedWorldStorageManager.getHeadWorldState(
                     blockHeaderHash ->
-                        blockchain.getBlockHeader(blockHeaderHash).map(BlockHeader.class::cast)))
+                        blockchain.getBlockHeader(blockHeaderHash).map(BlockHeader.class::cast),
+                    maybeBlockAccessListOverlay))
         .flatMap(
             worldState -> rollFullWorldStateToBlockHash(worldState, blockHeader.getBlockHash()))
         .map(MutableWorldState::freezeStorage);

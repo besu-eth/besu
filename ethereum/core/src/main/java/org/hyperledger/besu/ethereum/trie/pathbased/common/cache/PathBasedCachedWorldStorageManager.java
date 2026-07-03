@@ -200,7 +200,8 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
   }
 
   public Optional<PathBasedWorldState> getHeadWorldState(
-      final Function<Hash, Optional<BlockHeader>> hashBlockHeaderFunction) {
+      final Function<Hash, Optional<BlockHeader>> hashBlockHeaderFunction,
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
 
     LOG.atDebug().setMessage("getting head worldstate").log();
 
@@ -214,7 +215,7 @@ public abstract class PathBasedCachedWorldStorageManager implements StorageSubsc
                   blockHeader,
                   blockHeader.getStateRoot(),
                   createWorldState(archive, rootWorldStateStorage, evmConfiguration));
-              return getWorldState(blockHeader.getBlockHash());
+              return getWorldState(blockHeader.getBlockHash(), maybeBlockAccessListOverlay);
             });
   }
 
