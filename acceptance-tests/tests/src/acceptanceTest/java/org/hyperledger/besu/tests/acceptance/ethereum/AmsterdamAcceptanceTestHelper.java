@@ -222,7 +222,8 @@ public class AmsterdamAcceptanceTestHelper {
               + "      \"parentBeaconBlockRoot\": \"0x0000000000000000000000000000000000000000000000000000000000000000\","
               + "      \"slotNumber\": \""
               + (maybeSlotNum.isPresent() ? "0x" + Long.toHexString(maybeSlotNum.get()) : "0x0")
-              + "\""
+              + "\","
+              + "      \"targetGasLimit\": \"0x1c9c380\""
               + "    }";
     }
 

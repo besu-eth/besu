@@ -28,6 +28,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult;
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
@@ -54,6 +55,7 @@ import java.util.OptionalLong;
 import java.util.stream.Stream;
 
 import io.vertx.core.Vertx;
+import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -244,6 +246,34 @@ public class EngineForkchoiceUpdatedV4Test {
     assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
     verify(mergeCoordinator, times(1))
         .updateForkChoiceWithoutLegacySkip(head, Hash.ZERO, Hash.ZERO);
+  }
+
+  @Test
+  public void shouldReturnInvalidTargetGasLimitParamsWhenTargetGasLimitMissing() {
+    final BlockHeader head =
+        blockHeaderBuilder.number(50L).timestamp(AMSTERDAM_MILESTONE + 1).buildHeader();
+    when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), Hash.ZERO))
+        .thenReturn(Optional.of(head));
+    when(mergeCoordinator.computeReorgDepth(head)).thenReturn(OptionalLong.of(0L));
+
+    final EngineForkchoiceUpdatedParameter param =
+        new EngineForkchoiceUpdatedParameter(head.getHash(), Hash.ZERO, Hash.ZERO);
+
+    final EnginePayloadAttributesParameter attrs =
+        new EnginePayloadAttributesParameter(
+            "0x" + Long.toHexString(head.getTimestamp() + 1),
+            Bytes32.ZERO.toHexString(),
+            Address.ZERO.toHexString(),
+            null,
+            Bytes32.ZERO.toHexString(),
+            "0x1",
+            null);
+
+    final JsonRpcResponse resp = resp(param, Optional.of(attrs));
+
+    assertThat(resp.getType()).isEqualTo(RpcResponseType.ERROR);
+    final JsonRpcErrorResponse err = (JsonRpcErrorResponse) resp;
+    assertThat(err.getErrorType()).isEqualTo(RpcErrorType.INVALID_TARGET_GAS_LIMIT_PARAMS);
   }
 
   private void setupValidForkchoiceState(final BlockHeader head, final BlockHeader finalized) {
