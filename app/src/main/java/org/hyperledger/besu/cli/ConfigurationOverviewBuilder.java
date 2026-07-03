@@ -82,6 +82,7 @@ public class ConfigurationOverviewBuilder {
   private Integer rocksDbMaxOpenFiles;
   private boolean rocksDbMaxOpenFilesExplicitlySet;
   private static final String SNAP_SYNC_MODE = "SNAP";
+  private Long slowBlockThresholdMs;
 
   /**
    * Create a new ConfigurationOverviewBuilder.
@@ -472,6 +473,18 @@ public class ConfigurationOverviewBuilder {
   }
 
   /**
+   * Sets the slow block logging threshold.
+   *
+   * @param slowBlockThresholdMs threshold in milliseconds; negative values disable slow-block
+   *     logging
+   * @return the builder
+   */
+  public ConfigurationOverviewBuilder setSlowBlockThresholdMs(final Long slowBlockThresholdMs) {
+    this.slowBlockThresholdMs = slowBlockThresholdMs;
+    return this;
+  }
+
+  /**
    * Build configuration overview as a framed, human-readable block.
    *
    * @return the string representing configuration overview
@@ -535,7 +548,7 @@ public class ConfigurationOverviewBuilder {
       lines.add("Sync mode: " + syncMode);
       if (syncMode.equalsIgnoreCase(SNAP_SYNC_MODE)) {
         final String snapServerStatus = isSnapServerEnabled ? "enabled" : "disabled";
-        lines.add("  SNAP Sync server " + snapServerStatus);
+        lines.add("SNAP Sync server " + snapServerStatus);
       }
     }
 
@@ -578,6 +591,14 @@ public class ConfigurationOverviewBuilder {
       lines.add("Parallel transaction processing enabled");
     } else {
       lines.add("Parallel transaction processing disabled");
+    }
+
+    if (slowBlockThresholdMs != null) {
+      if (slowBlockThresholdMs >= 0) {
+        lines.add("Slow block logging enabled (threshold: " + slowBlockThresholdMs + "ms)");
+      } else {
+        lines.add("Slow block logging disabled");
+      }
     }
 
     if (isLimitTrieLogsEnabled) {
