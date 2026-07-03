@@ -124,6 +124,10 @@ public class AccessLocationTracker implements Eip7928AccessList {
           accountBuilder.addStorageRead(new StorageSlotKey(slot));
         }
         if (isDeleted) {
+          // The account was self-destructed or emptied: it must be removed from the world state,
+          // not just balance-zeroed. Record the deletion so the parallel BAL-apply path deletes it
+          // (otherwise a stale account is left behind and the computed state root diverges).
+          accountBuilder.markDeleted();
           final Account originalAccount = findOriginalAccount(stackedUpdater, address);
           if (originalAccount != null && !originalAccount.getBalance().isZero()) {
             accountBuilder.withPostBalance(Wei.ZERO);

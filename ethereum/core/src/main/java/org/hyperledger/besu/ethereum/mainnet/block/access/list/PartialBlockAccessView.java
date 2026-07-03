@@ -101,6 +101,7 @@ public final class PartialBlockAccessView {
     private final Optional<Bytes> newCode;
     private final List<StorageSlotKey> storageReads;
     private final List<SlotChange> storageChanges;
+    private final boolean deleted;
 
     public AccountChanges(
         final Address address,
@@ -108,17 +109,29 @@ public final class PartialBlockAccessView {
         final Optional<Long> nonceChange,
         final Optional<Bytes> newCode,
         final List<StorageSlotKey> storageReads,
-        final List<SlotChange> storageChanges) {
+        final List<SlotChange> storageChanges,
+        final boolean deleted) {
       this.address = address;
       this.postBalance = postBalance;
       this.nonceChange = nonceChange;
       this.newCode = newCode;
       this.storageReads = storageReads;
       this.storageChanges = storageChanges;
+      this.deleted = deleted;
     }
 
     public Address getAddress() {
       return address;
+    }
+
+    /**
+     * Whether the account was deleted (self-destructed or emptied) by the transaction. A deleted
+     * account must be removed from the world state, not merely have its fields zeroed.
+     *
+     * @return true if the account was deleted
+     */
+    public boolean isDeleted() {
+      return deleted;
     }
 
     public Optional<Wei> getPostBalance() {
@@ -199,9 +212,15 @@ public final class PartialBlockAccessView {
     private Optional<Bytes> newCode = Optional.empty();
     private final List<StorageSlotKey> storageReads = new ArrayList<>();
     private final List<SlotChange> storageChanges = new ArrayList<>();
+    private boolean deleted = false;
 
     public AccountChangesBuilder(final Address address) {
       this.address = address;
+    }
+
+    public AccountChangesBuilder markDeleted() {
+      this.deleted = true;
+      return this;
     }
 
     public AccountChangesBuilder withPostBalance(final Wei postBalance) {
@@ -232,7 +251,7 @@ public final class PartialBlockAccessView {
 
     public AccountChanges build() {
       return new AccountChanges(
-          address, postBalance, nonceChange, newCode, storageReads, storageChanges);
+          address, postBalance, nonceChange, newCode, storageReads, storageChanges, deleted);
     }
   }
 }

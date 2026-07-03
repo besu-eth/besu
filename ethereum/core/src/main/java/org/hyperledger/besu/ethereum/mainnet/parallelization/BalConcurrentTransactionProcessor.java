@@ -244,6 +244,14 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final PartialBlockAccessView partialBlockAccessView,
       final PathBasedWorldStateUpdateAccumulator<?> worldStateUpdater) {
     for (var accountChanges : partialBlockAccessView.accountChanges()) {
+      if (accountChanges.isDeleted()) {
+        // Account was self-destructed or emptied during execution: remove it from the world state.
+        // The accumulator's commit() turns this into a full account+storage+code deletion. Skipping
+        // it would leave a stale account behind and diverge the computed state root.
+        worldStateUpdater.deleteAccount(accountChanges.getAddress());
+        continue;
+      }
+
       MutableAccount account = null;
 
       final Optional<Wei> postBalance = accountChanges.getPostBalance();

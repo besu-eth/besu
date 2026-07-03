@@ -349,6 +349,66 @@ class BalTransactionProcessorUnitTest {
           env.worldState().updater().get(readOnlyAddress),
           "Read-only partial BAL entries should not create account writes");
     }
+
+    @Test
+    @DisplayName("Deleted account is removed from the world state, not left as a zero-balance stub")
+    void deletedAccountIsRemovedNotZeroed() {
+      final TestEnvironment env = createTestEnvironment();
+      final BlockAccessList blockAccessList = mockEmptyBlockAccessList();
+      final Transaction transaction = mockTransaction();
+
+      final Address deletedAddress =
+          Address.fromHexString("0x2000000000000000000000000000000000000001");
+
+      // Mirror AccessLocationTracker for a self-destructed / emptied account: the partial view
+      // marks it deleted and (since it previously held a balance) records a zero post-balance.
+      final PartialBlockAccessView.PartialBlockAccessViewBuilder partialBuilder =
+          new PartialBlockAccessView.PartialBlockAccessViewBuilder().withTxIndex(0);
+      partialBuilder.getOrCreateAccountBuilder(deletedAddress).markDeleted().withPostBalance(Wei.ZERO);
+      final PartialBlockAccessView partialBlockAccessView = partialBuilder.build();
+
+      when(transactionProcessor.processTransaction(
+              any(), any(), any(), any(), any(), any(), any(), any(), any()))
+          .thenReturn(
+              TransactionProcessingResult.successful(
+                  Collections.emptyList(),
+                  0,
+                  0,
+                  Bytes.EMPTY,
+                  Optional.of(partialBlockAccessView),
+                  ValidationResult.valid()));
+
+      final BalConcurrentTransactionProcessor processor =
+          new BalConcurrentTransactionProcessor(
+              transactionProcessor, blockAccessList, BalConfiguration.DEFAULT);
+
+      processor.runAsyncBlock(
+          env.protocolContext(),
+          env.blockHeader(),
+          Collections.singletonList(transaction),
+          MINING_BENEFICIARY,
+          (__, ___) -> Hash.EMPTY,
+          BLOB_GAS_PRICE,
+          sameThreadExecutor,
+          Optional.empty(),
+          env.maybeParentHeader());
+
+      final Optional<TransactionProcessingResult> result =
+          processor.getProcessingResult(
+              env.worldState(),
+              MINING_BENEFICIARY,
+              transaction,
+              0,
+              Optional.empty(),
+              Optional.empty());
+
+      assertTrue(result.isPresent(), "Expected processing result to be present");
+      // Regression guard for the parallel BAL-apply path: a deleted account must be removed, not
+      // re-created with a zero balance (which leaves a stale account and diverges the state root).
+      assertNull(
+          env.worldState().updater().get(deletedAddress),
+          "Deleted account must be removed from the world state, not left as a zero-balance stub");
+    }
   }
 
   @Nested
