@@ -312,6 +312,27 @@ public class UInt256PropertyBasedTest {
   }
 
   @Property
+  void property_addMod_byPowerOfTwo_matchesBigInteger(
+      @ForAll("unsigned1to32") final byte[] a,
+      @ForAll("unsigned1to32") final byte[] b,
+      @ForAll("powerOfTwoExponent") final int k) {
+    // Arrange
+    final BigInteger M = BigInteger.ONE.shiftLeft(k);
+    final UInt256 ua = UInt256.fromBytesBE(a);
+    final UInt256 ub = UInt256.fromBytesBE(b);
+    final UInt256 um = UInt256.fromBytesBE(bigUnsignedToBytes32(M));
+
+    // Act
+    byte[] got = ua.addMod(ub, um).toBytesBE();
+
+    // Assert
+    BigInteger A = toBigUnsigned(a);
+    BigInteger B = toBigUnsigned(b);
+    byte[] exp = bigUnsignedToBytes32(A.add(B).mod(M));
+    assertThat(got).containsExactly(exp);
+  }
+
+  @Property
   void property_mulMod_matchesBigInteger(
       @ForAll("unsigned1to32") final byte[] a,
       @ForAll("unsigned1to32") final byte[] b,

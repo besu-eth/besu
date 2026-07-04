@@ -683,6 +683,12 @@ public record UInt256(long u3, long u2, long u1, long u0) {
     if (isZero()) return other.mod(modulus);
     if (other.isZero()) return this.mod(modulus);
     if (modulus.isZeroOrOne()) return ZERO;
+    // Fast path: when the modulus is a power of two, reduction is a bitmask of the low bits.
+    // A non-zero value x is a power of two iff (x & (x - 1)) == 0. Subtracting 1 from a power of
+    // two flips its single set bit to 0 and sets all lower bits to 1 (e.g. 0b1000 - 1 == 0b0111),
+    // so x and x - 1 share no bits and the AND is 0. For any non-power-of-two there are at least
+    // two set bits; the lowest stays set in x - 1, so the AND is non-zero. The highest non-zero
+    // limb must be a power of two and every lower limb must be zero for the whole value to qualify.
     if (modulus.u3 != 0) {
       if ((modulus.u3 & (modulus.u3 - 1)) == 0 && (modulus.u2 | modulus.u1 | modulus.u0) == 0) {
         return add(other).maskLow(192 + Long.numberOfTrailingZeros(modulus.u3));
