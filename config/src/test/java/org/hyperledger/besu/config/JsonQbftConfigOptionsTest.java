@@ -42,4 +42,47 @@ public class JsonQbftConfigOptionsTest {
 
     assertThat(configOptions.asMap()).isEmpty();
   }
+
+  @Test
+  public void getTransactionGasLimitAbsent() {
+    final ObjectNode objectNode = objectMapper.createObjectNode();
+    final JsonQbftConfigOptions configOptions = new JsonQbftConfigOptions(objectNode);
+
+    assertThat(configOptions.getTransactionGasLimit()).isEmpty();
+  }
+
+  @Test
+  public void getTransactionGasLimitZero() {
+    final ObjectNode objectNode =
+        objectMapper.createObjectNode().put(JsonBftConfigOptions.TRANSACTION_GAS_LIMIT, 0);
+    final JsonQbftConfigOptions configOptions = new JsonQbftConfigOptions(objectNode);
+
+    assertThat(configOptions.getTransactionGasLimit()).hasValue(0L);
+  }
+
+  @Test
+  public void getTransactionGasLimitValue() {
+    final ObjectNode objectNode =
+        objectMapper.createObjectNode().put(JsonBftConfigOptions.TRANSACTION_GAS_LIMIT, 33554432);
+    final JsonQbftConfigOptions configOptions = new JsonQbftConfigOptions(objectNode);
+
+    assertThat(configOptions.getTransactionGasLimit()).hasValue(33554432L);
+  }
+
+  @Test
+  public void asMapIncludesTransactionGasLimitWhenPresent() {
+    final ObjectNode objectNode =
+        objectMapper.createObjectNode().put(JsonBftConfigOptions.TRANSACTION_GAS_LIMIT, 33554432);
+    final JsonQbftConfigOptions configOptions = new JsonQbftConfigOptions(objectNode);
+
+    assertThat(configOptions.asMap()).containsKey("transactionGasLimit");
+  }
+
+  @Test
+  public void asMapDoesNotIncludeTransactionGasLimitWhenAbsent() {
+    final ObjectNode objectNode = objectMapper.createObjectNode();
+    final JsonQbftConfigOptions configOptions = new JsonQbftConfigOptions(objectNode);
+
+    assertThat(configOptions.asMap()).doesNotContainKey("transactionGasLimit");
+  }
 }
