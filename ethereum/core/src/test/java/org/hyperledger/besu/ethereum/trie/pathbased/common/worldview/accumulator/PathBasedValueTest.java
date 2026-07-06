@@ -17,21 +17,24 @@ package org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulato
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
+import com.google.common.base.Suppliers;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 
 class PathBasedValueTest {
 
   @Test
-  void lazyPriorDefersLoadUntilAccessed() {
+  void withLazyDefersLoadUntilAccessed() {
     final AtomicInteger loads = new AtomicInteger();
-    final PathBasedValue<UInt256> value =
-        PathBasedValue.withLazyPrior(
+    final Supplier<UInt256> loader =
+        Suppliers.memoize(
             () -> {
               loads.incrementAndGet();
               return UInt256.valueOf(42);
             });
+    final PathBasedValue<UInt256> value = PathBasedValue.withLazy(loader, loader);
 
     assertThat(loads).hasValue(0);
     assertThat(value.getUpdated()).isEqualTo(UInt256.valueOf(42));
@@ -41,14 +44,15 @@ class PathBasedValueTest {
   }
 
   @Test
-  void explicitUpdatedSkipsPriorLoadOnGetUpdated() {
+  void explicitUpdatedSkipsLoadOnGetUpdated() {
     final AtomicInteger loads = new AtomicInteger();
-    final PathBasedValue<UInt256> value =
-        PathBasedValue.withLazyPrior(
+    final Supplier<UInt256> loader =
+        Suppliers.memoize(
             () -> {
               loads.incrementAndGet();
               return UInt256.valueOf(42);
             });
+    final PathBasedValue<UInt256> value = PathBasedValue.withLazy(loader, loader);
 
     value.setUpdated(UInt256.valueOf(99));
 
@@ -57,14 +61,15 @@ class PathBasedValueTest {
   }
 
   @Test
-  void getPriorMaterializesLazyPrior() {
+  void getPriorMaterializesLazyLoader() {
     final AtomicInteger loads = new AtomicInteger();
-    final PathBasedValue<UInt256> value =
-        PathBasedValue.withLazyPrior(
+    final Supplier<UInt256> loader =
+        Suppliers.memoize(
             () -> {
               loads.incrementAndGet();
               return UInt256.valueOf(42);
             });
+    final PathBasedValue<UInt256> value = PathBasedValue.withLazy(loader, loader);
 
     value.setUpdated(UInt256.valueOf(99));
     assertThat(loads).hasValue(0);

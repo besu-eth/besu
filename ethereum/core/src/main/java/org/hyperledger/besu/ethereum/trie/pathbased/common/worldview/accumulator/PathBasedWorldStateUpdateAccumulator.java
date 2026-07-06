@@ -14,7 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator;
 
-import com.google.common.base.Suppliers;
 import org.hyperledger.besu.datatypes.AccountValue;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -49,6 +48,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
+import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -297,8 +297,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
   }
 
   protected Optional<ACCOUNT> loadAccountFromParentAccumulator(
-      final Address address,
-      final Function<PathBasedValue<ACCOUNT>, ACCOUNT> accountFunction) {
+      final Address address, final Function<PathBasedValue<ACCOUNT>, ACCOUNT> accountFunction) {
     if (wrappedWorldView() instanceof PathBasedWorldStateUpdateAccumulator<?> parentAccumulator) {
       @SuppressWarnings("unchecked")
       final PathBasedWorldStateUpdateAccumulator<ACCOUNT> parent =
@@ -536,13 +535,6 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       final PathBasedValue<Bytes> codeValue = PathBasedValue.withLazy(loader, loader);
       onCodeValueLoaded(address, codeValue);
       codeToUpdate.put(address, codeValue);
-      if (codeValue.getUpdated() == null && !codeHash.equals(Hash.EMPTY)) {
-        throw new MerkleTrieException(
-            "invalid account code",
-            Optional.of(address),
-            Bytes32.wrap(codeHash.getBytes()),
-            Bytes.EMPTY);
-      }
       return Optional.ofNullable(codeValue.getUpdated());
     } else {
       return Optional.ofNullable(localCode.getUpdated());

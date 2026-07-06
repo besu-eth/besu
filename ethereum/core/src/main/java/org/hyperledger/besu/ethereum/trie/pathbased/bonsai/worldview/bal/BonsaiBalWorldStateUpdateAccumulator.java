@@ -44,12 +44,7 @@ public class BonsaiBalWorldStateUpdateAccumulator extends BonsaiWorldStateUpdate
       final EvmConfiguration evmConfiguration,
       final PathBasedCodeCache codeCache,
       final BlockAccessListOverlay blockAccessListOverlay) {
-    super(
-        world,
-        (address, value) -> {},
-        (address, slot) -> {},
-        evmConfiguration,
-        codeCache);
+    super(world, (address, value) -> {}, (address, slot) -> {}, evmConfiguration, codeCache);
     this.blockAccessListOverlay = blockAccessListOverlay;
   }
 
@@ -69,28 +64,22 @@ public class BonsaiBalWorldStateUpdateAccumulator extends BonsaiWorldStateUpdate
   @Override
   protected void onAccountValueLoaded(
       final Address address, final PathBasedValue<BonsaiAccount> accountValue) {
-    blockAccessListOverlay.applyToAccountState(
-        address,
-        () -> {
-          final BonsaiAccount updated = accountValue.getUpdated();
-          if (updated != null) {
-            return updated;
-          }
-          final Hash addressHash =
-              blockAccessListOverlay
-                  .getAccountLookup()
-                  .getAddressHash(address)
-                  .orElseGet(() -> hashAndSaveAccountPreImage(address));
-          return createAccount(
-              this,
-              address,
-              addressHash,
-              0,
-              Wei.ZERO,
-              Hash.EMPTY_TRIE_HASH,
-              Hash.EMPTY,
-              true);
-        })
+    blockAccessListOverlay
+        .applyToAccountState(
+            address,
+            () -> {
+              final BonsaiAccount updated = accountValue.getUpdated();
+              if (updated != null) {
+                return updated;
+              }
+              final Hash addressHash =
+                  blockAccessListOverlay
+                      .getAccountLookup()
+                      .getAddressHash(address)
+                      .orElseGet(() -> hashAndSaveAccountPreImage(address));
+              return createAccount(
+                  this, address, addressHash, 0, Wei.ZERO, Hash.EMPTY_TRIE_HASH, Hash.EMPTY, true);
+            })
         .ifPresent(accountValue::setUpdated);
   }
 

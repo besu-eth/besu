@@ -67,6 +67,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
 
   protected BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader;
   private final PathBasedCodeCache codeCache;
+  private final EvmConfiguration evmConfiguration;
 
   public BonsaiWorldState(
       final BonsaiWorldStateProvider archive,
@@ -74,22 +75,6 @@ public class BonsaiWorldState extends PathBasedWorldState {
       final EvmConfiguration evmConfiguration,
       final WorldStateConfig worldStateConfig,
       final PathBasedCodeCache codeCache) {
-    this(
-        archive,
-        worldStateKeyValueStorage,
-        evmConfiguration,
-        worldStateConfig,
-        codeCache,
-        Optional.empty());
-  }
-
-  public BonsaiWorldState(
-      final BonsaiWorldStateProvider archive,
-      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
-      final EvmConfiguration evmConfiguration,
-      final WorldStateConfig worldStateConfig,
-      final PathBasedCodeCache codeCache,
-      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
     this(
         worldStateKeyValueStorage,
         archive.getCachedMerkleTrieLoader(),
@@ -97,8 +82,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
         archive.getTrieLogManager(),
         evmConfiguration,
         worldStateConfig,
-        codeCache,
-        maybeBlockAccessListOverlay);
+        codeCache);
   }
 
   public BonsaiWorldState(
@@ -109,49 +93,29 @@ public class BonsaiWorldState extends PathBasedWorldState {
       final EvmConfiguration evmConfiguration,
       final WorldStateConfig worldStateConfig,
       final PathBasedCodeCache codeCache) {
-    this(
-        worldStateKeyValueStorage,
-        bonsaiCachedMerkleTrieLoader,
-        worldStateCacheManager,
-        trieLogManager,
-        evmConfiguration,
-        worldStateConfig,
-        codeCache,
-        Optional.empty());
-  }
-
-  public BonsaiWorldState(
-      final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
-      final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
-      final PathBasedWorldStateCacheManager worldStateCacheManager,
-      final TrieLogManager trieLogManager,
-      final EvmConfiguration evmConfiguration,
-      final WorldStateConfig worldStateConfig,
-      final PathBasedCodeCache codeCache,
-      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
     super(worldStateKeyValueStorage, worldStateCacheManager, trieLogManager, worldStateConfig);
     this.bonsaiCachedMerkleTrieLoader = bonsaiCachedMerkleTrieLoader;
     this.worldStateKeyValueStorage = worldStateKeyValueStorage;
+    this.evmConfiguration = evmConfiguration;
     this.setAccumulator(
-        maybeBlockAccessListOverlay
-            .map(
-                overlay ->
-                    (BonsaiWorldStateUpdateAccumulator)
-                        new BonsaiBalWorldStateUpdateAccumulator(
-                            this, evmConfiguration, codeCache, overlay))
-            .orElseGet(
-                () ->
-                    new BonsaiWorldStateUpdateAccumulator(
-                        this,
-                        (addr, value) ->
-                            this.bonsaiCachedMerkleTrieLoader.preLoadAccount(
-                                getWorldStateStorage(), worldStateRootHash, addr),
-                        (addr, value) ->
-                            this.bonsaiCachedMerkleTrieLoader.preLoadStorageSlot(
-                                getWorldStateStorage(), addr, value),
-                        evmConfiguration,
-                        codeCache)));
+        new BonsaiWorldStateUpdateAccumulator(
+            this,
+            (addr, value) ->
+                this.bonsaiCachedMerkleTrieLoader.preLoadAccount(
+                    getWorldStateStorage(), worldStateRootHash, addr),
+            (addr, value) ->
+                this.bonsaiCachedMerkleTrieLoader.preLoadStorageSlot(
+                    getWorldStateStorage(), addr, value),
+            evmConfiguration,
+            codeCache));
     this.codeCache = codeCache;
+  }
+
+  @Override
+  public void applyBlockAccessListOverlay(final BlockAccessListOverlay blockAccessListOverlay) {
+    setAccumulator(
+        new BonsaiBalWorldStateUpdateAccumulator(
+            this, evmConfiguration, codeCache, blockAccessListOverlay));
   }
 
   @Override

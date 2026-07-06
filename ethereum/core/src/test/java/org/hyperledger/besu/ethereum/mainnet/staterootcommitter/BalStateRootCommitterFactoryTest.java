@@ -45,7 +45,6 @@ import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
-import java.util.concurrent.Executor;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;

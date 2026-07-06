@@ -58,7 +58,8 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
     }
 
     final CompletableFuture<BalRootComputation> balFuture =
-        BlockAccessListStateRootCalculator.computeAsync(protocolContext, blockHeader, maybeBal.get());
+        BlockAccessListStateRootCalculator.computeAsync(
+            protocolContext, blockHeader, maybeBal.get());
     return new BalCommitter(balFuture);
   }
 

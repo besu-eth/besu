@@ -293,5 +293,4 @@ public abstract class PathBasedAccount implements MutableAccount, AccountValue {
         + codeHash
         + '}';
   }
-
 }

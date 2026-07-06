@@ -17,19 +17,17 @@ package org.hyperledger.besu.ethereum.mainnet.parallelization.prefetch;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
 
-import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
-import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
+import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -220,10 +218,7 @@ public class BalPrefetcher {
           CompletableFuture.runAsync(
               () -> {
                 prefetchKeys(worldState, segment, keys);
-                LOG.debug(
-                    "Prefetch: fetched {} {} keys in single batch",
-                    keys.size(),
-                    segmentName);
+                LOG.debug("Prefetch: fetched {} {} keys in single batch", keys.size(), segmentName);
               },
               fetchExecutor));
     } else {
@@ -254,9 +249,7 @@ public class BalPrefetcher {
   }
 
   private void prefetchKeys(
-      final BonsaiWorldState worldState,
-      final SegmentIdentifier segment,
-      final List<byte[]> keys) {
+      final BonsaiWorldState worldState, final SegmentIdentifier segment, final List<byte[]> keys) {
     final SegmentedKeyValueStorage storage =
         worldState.getWorldStateStorage().getComposedWorldStateStorage();
     keys.forEach(key -> storage.get(segment, key));

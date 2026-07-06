@@ -33,8 +33,8 @@ import org.apache.tuweni.units.bigints.UInt256;
  * Resolves prior-block state from a {@link BlockAccessList} as of the end of transaction {@code
  * maxTxIndexExclusive - 1} (changes with {@code txIndex < maxTxIndexExclusive}).
  *
- * <p>Built per transaction from a shared {@link BlockAccessListAccountLookup}; lookups are address- or
- * slot-scoped with no database access.
+ * <p>Built per transaction from a shared {@link BlockAccessListAccountLookup}; lookups are address-
+ * or slot-scoped with no database access.
  */
 public final class BlockAccessListOverlay {
 

@@ -208,7 +208,8 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
    * @return the full world state, if available
    */
   private Optional<MutableWorldState> getFullWorldStateFromHead(final Hash blockHash) {
-    return rollFullWorldStateToBlockHash(headWorldState, blockHash);
+    return rollFullWorldStateToBlockHash(headWorldState, blockHash)
+        .map(MutableWorldState.class::cast);
   }
 
   /**
@@ -239,20 +240,26 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
       return Optional.empty();
     }
     return worldStateCacheManager
-        .getWorldState(blockHeader.getBlockHash(), maybeBlockAccessListOverlay)
-        .or(() -> worldStateCacheManager.getNearestWorldState(blockHeader, maybeBlockAccessListOverlay))
+        .getWorldState(blockHeader.getBlockHash())
+        .or(() -> worldStateCacheManager.getNearestWorldState(blockHeader))
         .or(
             () ->
                 worldStateCacheManager.getHeadWorldState(
                     blockHeaderHash ->
-                        blockchain.getBlockHeader(blockHeaderHash).map(BlockHeader.class::cast),
-                    maybeBlockAccessListOverlay))
+                        blockchain.getBlockHeader(blockHeaderHash).map(BlockHeader.class::cast)))
         .flatMap(
             worldState -> rollFullWorldStateToBlockHash(worldState, blockHeader.getBlockHash()))
+        .map(
+            worldState -> {
+              // the BAL overlay is attached only once the world state has been rolled to the
+              // target block, so overlay values never interfere with trie-log replay
+              maybeBlockAccessListOverlay.ifPresent(worldState::applyBlockAccessListOverlay);
+              return worldState;
+            })
         .map(MutableWorldState::freezeStorage);
   }
 
-  private Optional<MutableWorldState> rollFullWorldStateToBlockHash(
+  private Optional<PathBasedWorldState> rollFullWorldStateToBlockHash(
       final PathBasedWorldState mutableState, final Hash blockHash) {
     if (blockHash.equals(mutableState.blockHash())) {
       return Optional.of(mutableState);
