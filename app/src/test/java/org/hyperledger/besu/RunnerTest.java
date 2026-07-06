@@ -413,7 +413,6 @@ public final class RunnerTest {
                         DEFAULT_IS_HIGH_SPEC,
                         DEFAULT_ENABLE_READ_CACHE_FOR_SNAPSHOTS,
                         false,
-                        false,
                         Optional.empty(),
                         Optional.empty()),
                 Arrays.asList(KeyValueSegmentIdentifier.values()),
