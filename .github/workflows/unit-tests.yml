@@ -1,28 +1,29 @@
 # SPDX-License-Identifier: Apache-2.0
-name: integration-tests
+name: unit-tests
 
 on:
   workflow_call:
 
 env:
-  GRADLE_OPTS: "-Xmx6g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
+  GRADLE_OPTS: "-Xmx6g -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
 
 permissions:
   actions: read
   contents: read
 
 jobs:
-  integrationTests:
-    runs-on: ubuntu-latest
+  unitTests:
+    runs-on: besu-research-ubuntu-16
     timeout-minutes: 30
     permissions:
-      statuses: write
       checks: write
+      statuses: write
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
       - name: Set up Java
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
@@ -32,13 +33,33 @@ jobs:
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
           cache-disabled: true
-      - name: Run integration tests and compile JMH benchmarks
-        run: ./gradlew integrationTest compileJmh
 
-  integrationTestsPassed:
-    name: integrationTestsPassed
+      - name: Run unit tests
+        env:
+          # limit forks to reduce JVM setup overhead (SignatureAlgorithm etc)
+          GRADLE_MAX_TEST_FORKS: 2
+        run: ./gradlew test
+
+      - name: Upload test results
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: always()
+        with:
+          name: unit-test-results
+          path: '**/test-results/**/TEST-*.xml'
+          retention-days: 1
+
+      - name: Upload HTML reports
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        if: success() || failure()
+        with:
+          name: unit-test-html-reports
+          path: '**/build/reports/tests/test/**'
+          retention-days: 1
+
+  unitTestsPassed:
+    name: unitTestsPassed
     runs-on: ubuntu-latest
-    needs: [integrationTests]
+    needs: [unitTests]
     permissions:
       checks: write
       statuses: write
