@@ -377,8 +377,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
       return respondWith(reqId, blockParam, null, ACCEPTED);
     }
 
-
-
     // execute block and return result response
     final long startTimeNs = System.nanoTime();
     final BlockProcessingResult executionResult =
