@@ -747,27 +747,6 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     return applyForkChoice(newHead, finalizedBlockHash, safeBlockHash);
   }
 
-  @Override
-  public ForkchoiceResult updateHeadForExecution(final BlockHeader newHead) {
-    final MutableBlockchain blockchain = protocolContext.getBlockchain();
-    final Optional<Hash> latestValid = getLatestValidAncestor(newHead);
-
-    Optional<BlockHeader> parentOfNewHead = blockchain.getBlockHeader(newHead.getParentHash());
-    if (parentOfNewHead.isPresent()
-        && Long.compareUnsigned(newHead.getTimestamp(), parentOfNewHead.get().getTimestamp())
-            <= 0) {
-      return ForkchoiceResult.withFailure(
-          INVALID, "new head timestamp not greater than parent", latestValid);
-    }
-
-    if (!setNewHead(blockchain, newHead)) {
-      LOG.warn("Failed to move world state to new head {}", newHead.toLogString());
-      return ForkchoiceResult.withFailure(INVALID, "Failed to set new head", latestValid);
-    }
-
-    return ForkchoiceResult.withResult(Optional.empty(), Optional.of(newHead));
-  }
-
   private ForkchoiceResult applyForkChoice(
       final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash) {
     final MutableBlockchain blockchain = protocolContext.getBlockchain();

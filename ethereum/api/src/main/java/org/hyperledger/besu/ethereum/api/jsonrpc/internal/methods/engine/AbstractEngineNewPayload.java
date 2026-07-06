@@ -72,7 +72,6 @@ import java.security.InvalidParameterException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -377,14 +376,15 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     }
 
     final MutableBlockchain blockchain = protocolContext.getBlockchain();
-    final Hash chainHeadHash = blockchain.getChainHeadHash();
-    maybeParentHeader
-        .filter(
-            parentHeader ->
-                chainHeadHash != null
-                    && !Objects.equals(newBlockHeader.getParentHash(), chainHeadHash)
-                    && Objects.equals(parentHeader.getParentHash(), chainHeadHash))
-        .ifPresent(mergeCoordinator::updateHeadForExecution);
+    if (!newBlockHeader.getParentHash().equals(blockchain.getChainHeadHash())) {
+      maybeParentHeader.ifPresent(
+          parentHeader -> {
+            mergeCoordinator.updateForkChoice(
+                parentHeader,
+                blockchain.getFinalized().orElse(Hash.ZERO),
+                blockchain.getSafeBlock().orElse(Hash.ZERO));
+          });
+    }
 
     // execute block and return result response
     final long startTimeNs = System.nanoTime();
