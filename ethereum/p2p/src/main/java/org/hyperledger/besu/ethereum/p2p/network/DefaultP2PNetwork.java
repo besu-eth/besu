@@ -379,10 +379,15 @@ public class DefaultP2PNetwork implements P2PNetwork {
 
   @VisibleForTesting
   DNSDaemonListener createDaemonListener() {
-    return (seq, records) ->
-        records.stream()
-            .map(DiscoveryPeerFactory::fromEthereumNodeRecord)
-            .forEach(peerDiscoveryAgent::addPeer);
+    return (seq, records) -> {
+      for (final EthereumNodeRecord record : records) {
+        try {
+          peerDiscoveryAgent.addPeer(DiscoveryPeerFactory.fromEthereumNodeRecord(record));
+        } catch (final RuntimeException e) {
+          LOG.debug("Ignoring unusable ENR from DNS discovery: {}", e.getMessage());
+        }
+      }
+    };
   }
 
   @VisibleForTesting
