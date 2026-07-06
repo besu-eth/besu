@@ -18,7 +18,6 @@ import org.hyperledger.besu.plugin.services.trielogs.TrieLog;
 
 import java.util.function.Supplier;
 
-import com.google.common.base.Suppliers;
 import org.apache.commons.lang3.builder.EqualsBuilder;
 import org.apache.commons.lang3.builder.HashCodeBuilder;
 
@@ -66,11 +65,6 @@ public class PathBasedValue<T> implements TrieLog.LogTuple<T> {
 
   public static <T> PathBasedValue<T> withLazy(final Supplier<T> priorLoader, final Supplier<T> updatedLoader) {
     return new PathBasedValue<>(priorLoader, updatedLoader, false, false);
-  }
-
-  public static <T> PathBasedValue<T> withLazyPrior(final Supplier<T> priorLoader) {
-    final Supplier<T> memoizedPrior = Suppliers.memoize(priorLoader::get);
-    return new PathBasedValue<>(memoizedPrior, memoizedPrior, false, false);
   }
 
   @Override

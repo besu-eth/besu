@@ -65,8 +65,7 @@ public class NoOpBonsaiCachedWorldStorageManager extends BonsaiCachedWorldStorag
 
   @Override
   public Optional<PathBasedWorldState> getHeadWorldState(
-      final Function<Hash, Optional<BlockHeader>> hashBlockHeaderFunction,
-      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
+      final Function<Hash, Optional<BlockHeader>> hashBlockHeaderFunction) {
     return Optional.empty();
   }
 

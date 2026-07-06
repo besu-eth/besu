@@ -14,8 +14,6 @@
  */
 package org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator;
 
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import org.hyperledger.besu.datatypes.AccountValue;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
@@ -29,7 +27,6 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorl
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogLayer;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldView;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldUpdater;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.AccountConsumingMap;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.Consumer;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.preload.StorageConsumingMap;
@@ -51,7 +48,9 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
+import com.google.common.base.Suppliers;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -61,7 +60,7 @@ import org.slf4j.LoggerFactory;
 @SuppressWarnings("unchecked")
 public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathBasedAccount>
     extends AbstractWorldUpdater<PathBasedWorldView, ACCOUNT>
-    implements PathBasedWorldUpdater {
+    implements PathBasedWorldView, TrieLogAccumulator {
   private static final Logger LOG =
       LoggerFactory.getLogger(PathBasedWorldStateUpdateAccumulator.class);
   protected final Consumer<PathBasedValue<ACCOUNT>> accountPreloader;
@@ -540,13 +539,6 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
           PathBasedValue.withLazy(loader, loader);
       onCodeValueLoaded(address, codeValue);
       codeToUpdate.put(address, codeValue);
-      if (codeValue.getUpdated() == null && !codeHash.equals(Hash.EMPTY)) {
-        throw new MerkleTrieException(
-            "invalid account code",
-            Optional.of(address),
-            Bytes32.wrap(codeHash.getBytes()),
-            Bytes.EMPTY);
-      }
       return Optional.ofNullable(codeValue.getUpdated());
     } else {
       return Optional.ofNullable(localCode.getUpdated());
