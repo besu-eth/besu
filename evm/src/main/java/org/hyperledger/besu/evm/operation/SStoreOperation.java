@@ -101,7 +101,8 @@ public class SStoreOperation extends AbstractOperation {
         Suppliers.memoize(() -> account.getOriginalStorageValue(key));
 
     final long cost =
-        gasCalculator().calculateStorageCost(newValue, currentValueSupplier, originalValueSupplier) + sloadCost;
+        gasCalculator().calculateStorageCost(newValue, currentValueSupplier, originalValueSupplier)
+            + sloadCost;
     if (remainingGas < cost) {
       return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
