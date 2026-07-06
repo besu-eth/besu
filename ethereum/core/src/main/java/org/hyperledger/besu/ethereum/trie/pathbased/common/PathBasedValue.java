@@ -110,9 +110,9 @@ public class PathBasedValue<T> implements TrieLog.LogTuple<T> {
   public String toString() {
     return "PathBasedValue{"
         + "prior="
-        + prior
+        + getPrior()
         + ", updated="
-        + updated
+        + getUpdated()
         + ", cleared="
         + lastStepCleared
         + '}';
@@ -129,17 +129,19 @@ public class PathBasedValue<T> implements TrieLog.LogTuple<T> {
     PathBasedValue<?> that = (PathBasedValue<?>) o;
     return new EqualsBuilder()
         .append(lastStepCleared, that.lastStepCleared)
-        .append(prior, that.prior)
-        .append(updated, that.updated)
+        .append(clearedAtLeastOnce, that.clearedAtLeastOnce)
+        .append(getPrior(), that.getPrior())
+        .append(getUpdated(), that.getUpdated())
         .isEquals();
   }
 
   @Override
   public int hashCode() {
     return new HashCodeBuilder(17, 37)
-        .append(prior)
-        .append(updated)
+        .append(getPrior())
+        .append(getUpdated())
         .append(lastStepCleared)
+        .append(clearedAtLeastOnce)
         .toHashCode();
   }
 
