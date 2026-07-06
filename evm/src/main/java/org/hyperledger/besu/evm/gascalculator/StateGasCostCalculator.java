@@ -80,13 +80,6 @@ public interface StateGasCostCalculator {
   long storageSetStateGas();
 
   /**
-   * Returns the regular gas for storage set (replacing the 20000 SSTORE_SET_GAS).
-   *
-   * @return the regular gas for storage set
-   */
-  long storageSetRegularGas();
-
-  /**
    * Returns the state gas for EIP-7702 auth base (23 * cpsb).
    *
    * @return the state gas for auth base
@@ -174,11 +167,6 @@ public interface StateGasCostCalculator {
 
         @Override
         public long storageSetStateGas() {
-          return 0L;
-        }
-
-        @Override
-        public long storageSetRegularGas() {
           return 0L;
         }
 

@@ -88,11 +88,6 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
   }
 
   @Override
-  public long storageSetRegularGas() {
-    return STORAGE_SET_REGULAR_GAS;
-  }
-
-  @Override
   public long authBaseStateGas() {
     return STATE_BYTES_PER_AUTH * costPerStateByte();
   }

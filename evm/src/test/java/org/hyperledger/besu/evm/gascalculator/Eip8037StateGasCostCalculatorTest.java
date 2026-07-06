@@ -74,7 +74,6 @@ class Eip8037StateGasCostCalculatorTest {
 
   @Test
   void constantRegularGasCosts() {
-    assertThat(calculator.storageSetRegularGas()).isEqualTo(2_900L);
     assertThat(calculator.authBaseRegularGas()).isEqualTo(7_500L);
     assertThat(calculator.transactionRegularGasLimit()).isEqualTo(16_777_216L);
   }
@@ -90,7 +89,6 @@ class Eip8037StateGasCostCalculatorTest {
     assertThat(none.newAccountStateGas()).isEqualTo(0L);
     assertThat(none.authBaseStateGas()).isEqualTo(0L);
     assertThat(none.emptyAccountDelegationStateGas()).isEqualTo(0L);
-    assertThat(none.storageSetRegularGas()).isEqualTo(0L);
     assertThat(none.authBaseRegularGas()).isEqualTo(0L);
     assertThat(none.transactionRegularGasLimit()).isEqualTo(Long.MAX_VALUE);
   }
