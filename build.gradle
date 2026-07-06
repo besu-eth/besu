@@ -1534,3 +1534,45 @@ artifactoryPublish.dependsOn verifyDistributions
 artifactoryPublish.mustRunAfter(distTar)
 artifactoryPublish.mustRunAfter(distZip)
 artifactoryPublish.mustRunAfter(javadocJar)
+
+// The org.web3j.solidity plugin resolves solc through web3j-sokt, which parses an upstream
+// release index with a strict JSON reader that rejects keys its model does not know; a newer
+// index added such a key, breaking every compileSolidity task, and there is no sokt release
+// that tolerates it. We sidestep the resolver via the plugin's `executable` option:
+// solcExecutable() returns the path a given solc version is downloaded to, and
+// registerSolcDownload() wires a shared, cached download task that compileSolidity depends on.
+ext.solcExecutable = { String version ->
+  def suffix = System.getProperty('os.name').toLowerCase().contains('win') ? '.exe' : ''
+  new File(rootProject.layout.buildDirectory.get().asFile, "solc/solc-${version}${suffix}")
+}
+
+ext.registerSolcDownload = { String version ->
+  def taskName = "downloadSolc_${version.replace('.', '_')}"
+  // Shared across projects that pin the same solc version (e.g. shanghai and osaka both 0.8.25).
+  def existing = rootProject.tasks.findByName(taskName)
+  if (existing != null) {
+    return rootProject.tasks.named(taskName)
+  }
+  return rootProject.tasks.register(taskName) {
+    group = 'build setup'
+    description = "Downloads solc ${version} (bypasses the broken web3j-sokt release index)"
+    def target = rootProject.solcExecutable(version)
+    // Match sokt's own behaviour: select the solc asset by OS only (there are no arm64
+    // static builds for the old pinned versions, and CI runs on linux x64).
+    def os = System.getProperty('os.name').toLowerCase()
+    def asset = os.contains('win') ? 'solc-windows.exe' : os.contains('mac') ? 'solc-macos' : 'solc-static-linux'
+    def url = "https://github.com/ethereum/solidity/releases/download/v${version}/${asset}"
+    outputs.file(target)
+    onlyIf { !target.exists() }
+    doLast {
+      target.parentFile.mkdirs()
+      logger.lifecycle("Downloading solc ${version} from ${url}")
+      target.withOutputStream { out ->
+        new URL(url).withInputStream { input ->
+          out << input
+        }
+      }
+      target.setExecutable(true)
+    }
+  }
+}
