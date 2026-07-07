@@ -31,6 +31,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2AccountR
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2BytecodeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2StorageRangeRequest;
 import org.hyperledger.besu.ethereum.rlp.RLP;
+import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.plugin.services.exception.StorageException;
@@ -43,7 +44,6 @@ import java.util.NavigableMap;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
-import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -189,17 +189,18 @@ public class SnapV2PersistDataStep {
                 + lastReceivedAccount);
       }
 
-      coveredEnd = prevKey(continuationStart);
+      coveredEnd = RangeManager.prevKey(continuationStart);
     } else {
       coveredEnd = accountRequest.getEndKeyHash();
     }
 
     final int childCount = children.size() - continuationCount;
 
-    accountRangeTracker.registerPending(rangeStart, coveredEnd, childCount);
-
+    // Peer responses include boundary accounts outside [rangeStart, coveredEnd] required for
+    // proof verification; only track in-range accounts.
     accountRequest
         .getAccounts()
+        .subMap(rangeStart, true, coveredEnd, true)
         .forEach(
             (accountHash, accountData) -> {
               final PmtStateTrieAccountValue accountValue =
@@ -208,6 +209,8 @@ public class SnapV2PersistDataStep {
                 storageRangeTracker.registerSlotRange(accountHash, MIN_RANGE, MAX_RANGE);
               }
             });
+
+    accountRangeTracker.registerPending(rangeStart, coveredEnd, childCount);
   }
 
   private void trackStorageRange(
@@ -238,7 +241,7 @@ public class SnapV2PersistDataStep {
                 + ", last received "
                 + slots.lastKey());
       }
-      coveredEnd = prevKey(continuationStart);
+      coveredEnd = RangeManager.prevKey(continuationStart);
     } else {
       coveredEnd = storageRequest.getEndKeyHash();
     }
@@ -250,9 +253,5 @@ public class SnapV2PersistDataStep {
     } else {
       accountRangeTracker.adjustPendingChildren(rangeStart, continuationCount - 1);
     }
-  }
-
-  private static Bytes32 prevKey(final Bytes32 key) {
-    return UInt256.fromBytes(key).subtract(UInt256.ONE);
   }
 }

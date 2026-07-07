@@ -36,18 +36,6 @@ public interface WorldStateArchive extends Closeable {
   boolean isWorldStateAvailable(Hash rootHash, Hash blockHash);
 
   /**
-   * Returns true if the world state for the given block hash is immediately available without
-   * requiring trie-log replay (i.e., it is in the in-memory layered cache or is the current head).
-   * For non-Bonsai archives, always returns true.
-   *
-   * @param blockHash the block hash to check
-   * @return true if the world state is immediately cached
-   */
-  default boolean isWorldStateImmediatelyCached(final Hash blockHash) {
-    return true;
-  }
-
-  /**
    * Gets a mutable world state based on the provided query parameters.
    *
    * <p>This method retrieves the mutable world state using the provided query parameters. The query

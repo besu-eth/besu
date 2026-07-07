@@ -14,12 +14,29 @@
  */
 package org.hyperledger.besu.ethereum.core;
 
+import static com.google.common.base.Preconditions.checkArgument;
+
 import org.hyperledger.besu.datatypes.RequestType;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonValue;
 import org.apache.tuweni.bytes.Bytes;
 
 public record Request(RequestType type, Bytes data)
     implements org.hyperledger.besu.plugin.data.Request {
+
+  @JsonCreator
+  public static Request fromBytes(final Bytes bytes) {
+    checkArgument(!bytes.isEmpty(), "Request cannot be empty");
+
+    final RequestType type = RequestType.of(bytes.get(0));
+    final Bytes data = bytes.slice(1);
+
+    checkArgument(!data.isEmpty(), "Request must be at least 1 byte");
+
+    return new Request(type, data);
+  }
+
   @Override
   public RequestType getType() {
     return type();
@@ -35,7 +52,8 @@ public record Request(RequestType type, Bytes data)
    *
    * @return the serialized request as a byte.
    */
+  @JsonValue
   public Bytes getEncodedRequest() {
-    return Bytes.concatenate(Bytes.of(getType().ordinal()), getData());
+    return Bytes.concatenate(Bytes.of(getType().getSerializedType()), getData());
   }
 }

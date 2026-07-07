@@ -49,7 +49,6 @@ class GenesisConfigTest {
   void shouldLoadMainnetConfigFile() {
     final GenesisConfig config = GenesisConfig.mainnet();
     // Sanity check some basic properties to confirm this is the mainnet file.
-    assertThat(config.getConfigOptions().isEthHash()).isTrue();
     assertThat(config.getConfigOptions().getChainId()).hasValue(MAINNET_CHAIN_ID);
     assertThat(
             config

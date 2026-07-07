@@ -44,6 +44,7 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePayloadStatusResult;
+import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -71,6 +72,7 @@ import java.security.InvalidParameterException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -377,21 +379,15 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
       return respondWith(reqId, blockParam, null, ACCEPTED);
     }
 
-    // If the parent world state is not immediately in the Bonsai layered cache, executing
-    // this block would require expensive trie-log replay on the vert.x worker thread,
-    // potentially blocking for tens of seconds and accumulating unbounded LayeredKeyValueStorage
-    // chains. Return SYNCING so the CL retries after sending FCU, which fills the cache.
-    if (!protocolContext
-        .getWorldStateArchive()
-        .isWorldStateImmediatelyCached(blockParam.getParentHash())) {
-      LOG.atDebug()
-          .setMessage(
-              "Parent world state not immediately cached for block {}, parentHash={}, returning SYNCING")
-          .addArgument(blockParam::getBlockHash)
-          .addArgument(blockParam::getParentHash)
-          .log();
-      return respondWith(reqId, blockParam, null, SYNCING);
-    }
+    final MutableBlockchain blockchain = protocolContext.getBlockchain();
+    final Hash chainHeadHash = blockchain.getChainHeadHash();
+    maybeParentHeader
+        .filter(
+            parentHeader ->
+                chainHeadHash != null
+                    && !Objects.equals(newBlockHeader.getParentHash(), chainHeadHash)
+                    && Objects.equals(parentHeader.getParentHash(), chainHeadHash))
+        .ifPresent(mergeCoordinator::updateHeadForExecution);
 
     // execute block and return result response
     final long startTimeNs = System.nanoTime();

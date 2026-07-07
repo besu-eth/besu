@@ -315,6 +315,12 @@ public class TransactionSimulator {
               Optional.empty()));
 
     } catch (final Exception e) {
+      LOG.atDebug()
+          .setMessage("Transaction simulation failed for block {}: {}")
+          .addArgument(header::toLogString)
+          .addArgument(e::toString)
+          .setCause(e)
+          .log();
       return Optional.empty();
     }
   }

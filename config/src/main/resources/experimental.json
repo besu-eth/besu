@@ -3,8 +3,6 @@
     "chainId": 2023,
     "experimentalEipsTime": 0,
     "contractSizeLimit": 2147483647,
-    "ethash": {
-    },
     "terminalTotalDifficulty": 0,
     "checkpoint": {
       "hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
