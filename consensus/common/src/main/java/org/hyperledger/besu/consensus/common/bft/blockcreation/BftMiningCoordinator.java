@@ -192,7 +192,7 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
       return;
     }
     syncState.subscribeSyncStatus(
-        syncStatus -> {
+            _ -> {
           if (syncState.syncTarget().isPresent() || !syncState.isInitialSyncPhaseDone()) {
             // We're syncing so stop doing other stuff
             LOG.info("Stopping BFT mining coordinator while we are syncing");
@@ -230,26 +230,20 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
   public boolean enable() {
     // Return true if we're already running or idle, or successfully switch to idle. UNINITIALIZED
     // (the initial state) is treated the same as PAUSED here: neither has ever been started.
-    if (state.get() == State.RUNNING
-        || state.get() == State.IDLE
-        || state.compareAndSet(State.PAUSED, State.IDLE)
-        || state.compareAndSet(State.UNINITIALIZED, State.IDLE)) {
-      return true;
-    }
-    return false;
+      return state.get() == State.RUNNING
+              || state.get() == State.IDLE
+              || state.compareAndSet(State.PAUSED, State.IDLE)
+              || state.compareAndSet(State.UNINITIALIZED, State.IDLE);
   }
 
   @Override
   public boolean disable() {
     // UNINITIALIZED (the initial state) is already at rest, same as PAUSED: report success
     // without transitioning, there being nothing to disable.
-    if (state.get() == State.PAUSED
-        || state.get() == State.UNINITIALIZED
-        || state.compareAndSet(State.IDLE, State.PAUSED)
-        || state.compareAndSet(State.RUNNING, State.PAUSED)) {
-      return true;
-    }
-    return false;
+      return state.get() == State.PAUSED
+              || state.get() == State.UNINITIALIZED
+              || state.compareAndSet(State.IDLE, State.PAUSED)
+              || state.compareAndSet(State.RUNNING, State.PAUSED);
   }
 
   @Override
