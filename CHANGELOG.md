@@ -22,7 +22,7 @@
 ### Bug fixes
 - Fix `eth_getBlockByNumber("safe"/"finalized")` returning `Unknown block` on nodes with a complete chain but no peers. The FCU handler now only returns `SYNCING` when the head block is genuinely not found. [#10658](https://github.com/besu-eth/besu/issues/10658)
 - `--api-gas-price-blocks` fixed to treat `0` as "sample zero blocks" [#10642](https://github.com/besu-eth/besu/pull/10642)
-- Fix QBFT/IBFT mining continuing to seal blocks after the merge terminal total difficulty (TTD) is reached
+- Fix QBFT/IBFT mining continuing to seal blocks after the merge terminal total difficulty (TTD) is reached [#10733](https://github.com/besu-eth/besu/pull/10733)
 
 ### Additions and Improvements
 - Upgrade web3j dependencies to 5.0.3 [#10627](https://github.com/besu-eth/besu/pull/10627)

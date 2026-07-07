@@ -65,6 +65,12 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
 
   private long blockAddedObserverId;
   private final AtomicReference<State> state = new AtomicReference<>(State.PAUSED);
+  // Deliberately never reset back to false once set: it only distinguishes "has this
+  // coordinator's processor/executors ever been started" (in which case PAUSED->STOPPED must
+  // also tear them down, see stop()) from "never started" (in which case PAUSED->STOPPED must
+  // stay a no-op, since there is nothing to tear down). That distinction does not change across
+  // subsequent start/stop/restart cycles of an already-started coordinator, so this is not a
+  // mirror of the RUNNING/PAUSED/STOPPED state and must not be reset alongside it.
   private volatile boolean started = false;
 
   private SyncState syncState;
