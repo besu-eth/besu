@@ -477,6 +477,17 @@ public interface GasCalculator {
   }
 
   /**
+   * Returns the cold access surcharge charged for an SSTORE to a storage slot not previously
+   * accessed in the TX context. By default this equals the cold SLOAD cost; EIP-8038 overrides it
+   * to exclude the warm access base already included in {@link #calculateStorageCost}.
+   *
+   * @return the SSTORE cold access surcharge.
+   */
+  default long getSStoreColdAccessGasCost() {
+    return getColdSloadCost();
+  }
+
+  /**
    * Returns the cost to access an account not previously accessed in the TX context.
    *
    * @return the cost to access an account not previously accessed in the TX context.

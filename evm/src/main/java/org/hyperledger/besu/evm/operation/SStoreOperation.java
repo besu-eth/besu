@@ -85,7 +85,7 @@ public class SStoreOperation extends AbstractOperation {
     final Address address = frame.getRecipientAddress();
 
     final long sloadCost =
-        frame.warmUpStorage(address, key) ? 0L : gasCalculator().getColdSloadCost();
+        frame.warmUpStorage(address, key) ? 0L : gasCalculator().getSStoreColdAccessGasCost();
     if (remainingGas < sloadCost) {
       return new OperationResult(sloadCost, ExceptionalHaltReason.INSUFFICIENT_GAS);
     }
