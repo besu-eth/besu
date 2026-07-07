@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  contents: read
   pull-requests: read # allows SonarCloud to decorate PRs with analysis results
 
 jobs:

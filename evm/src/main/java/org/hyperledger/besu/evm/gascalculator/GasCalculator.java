@@ -14,6 +14,8 @@
  */
 package org.hyperledger.besu.evm.gascalculator;
 
+import static org.hyperledger.besu.evm.internal.Words.clampedAdd;
+
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Transaction;
@@ -531,6 +533,24 @@ public interface GasCalculator {
    * @return the transaction's intrinsic gas cost
    */
   long transactionIntrinsicGasCost(Transaction transaction, long baselineGas);
+
+  /**
+   * Returns the regular-dimension intrinsic gas cost of a transaction, including the gas for its
+   * access list and EIP-7702 code-delegation authorizations.
+   *
+   * <p>This is the single entry point for callers that have a {@link Transaction} and want the full
+   * regular intrinsic cost: it derives the access-list and code-delegation baseline internally and
+   * delegates to {@link #transactionIntrinsicGasCost(Transaction, long)}, so the summing lives in
+   * one place rather than at every call site.
+   *
+   * @param transaction the transaction
+   * @return the transaction's regular intrinsic gas cost
+   */
+  default long transactionIntrinsicRegularGas(final Transaction transaction) {
+    final long accessListGas = accessListGasCost(transaction.getAccessList().orElse(List.of()));
+    final long codeDelegationGas = delegateCodeGasCost(transaction.codeDelegationListSize());
+    return transactionIntrinsicGasCost(transaction, clampedAdd(accessListGas, codeDelegationGas));
+  }
 
   /**
    * Returns the floor gas cost of a transaction, i.e. the minimum gas cost that a transaction will

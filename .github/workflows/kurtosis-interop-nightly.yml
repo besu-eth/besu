@@ -1,4 +1,4 @@
-name: nightly kurtosis interop
+name: kurtosis-interop-nightly
 
 on:
   schedule:

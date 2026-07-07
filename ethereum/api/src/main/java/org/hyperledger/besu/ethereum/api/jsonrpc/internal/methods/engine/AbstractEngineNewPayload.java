@@ -44,7 +44,6 @@ import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcRespon
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.JsonRpcSuccessResponse;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType;
 import org.hyperledger.besu.ethereum.api.jsonrpc.internal.results.EnginePayloadStatusResult;
-import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
@@ -72,7 +71,6 @@ import java.security.InvalidParameterException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -378,16 +376,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     if (latestValidAncestor.isEmpty()) {
       return respondWith(reqId, blockParam, null, ACCEPTED);
     }
-
-    final MutableBlockchain blockchain = protocolContext.getBlockchain();
-    final Hash chainHeadHash = blockchain.getChainHeadHash();
-    maybeParentHeader
-        .filter(
-            parentHeader ->
-                chainHeadHash != null
-                    && !Objects.equals(newBlockHeader.getParentHash(), chainHeadHash)
-                    && Objects.equals(parentHeader.getParentHash(), chainHeadHash))
-        .ifPresent(mergeCoordinator::updateHeadForExecution);
 
     // execute block and return result response
     final long startTimeNs = System.nanoTime();
