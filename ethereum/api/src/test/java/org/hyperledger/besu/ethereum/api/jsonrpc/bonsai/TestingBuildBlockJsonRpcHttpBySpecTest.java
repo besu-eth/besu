@@ -38,16 +38,7 @@ import java.util.List;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes32;
-import org.junit.jupiter.api.Disabled;
 
-// TODO(EIP-8282): the pre-generated chain-data/blocks.bin chain was built before EIP-8282 builder
-// execution requests were added to Amsterdam. Its Amsterdam blocks now fail to import because the
-// builder deposit/exit system calls have no predeploy in the genesis, and the genesis cannot simply
-// gain those predeploys (or be downgraded to Prague) without changing the genesis hash the chain is
-// bound to. Re-enable once blocks.bin is regenerated against the current EIP-8282 Amsterdam rules
-// (add the builder predeploys to the genesis, rebuild the chain, and refresh the spec responses via
-// -Dbesu.test.update.specs=true).
-@Disabled("EIP-8282: chain-data/blocks.bin must be regenerated for the EIP-8282 Amsterdam rules")
 public class TestingBuildBlockJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
 
   private static final BigInteger CHAIN_ID = BigInteger.valueOf(3503995874084926L);
