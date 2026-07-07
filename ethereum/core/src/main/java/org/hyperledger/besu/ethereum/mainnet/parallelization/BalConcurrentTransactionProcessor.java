@@ -166,7 +166,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
       final ParallelizedTransactionContext.Builder ctxBuilder =
           new ParallelizedTransactionContext.Builder();
 
-      final PathBasedWorldStateUpdateAccumulator<?> blockUpdater = ws.getAccumulator();
+      final PathBasedWorldStateUpdateAccumulator<?> blockUpdater = ws.updater();
       final WorldUpdater txUpdater = blockUpdater.updater();
       final Optional<AccessLocationTracker> txTracker =
           blockAccessListBuilder.map(
