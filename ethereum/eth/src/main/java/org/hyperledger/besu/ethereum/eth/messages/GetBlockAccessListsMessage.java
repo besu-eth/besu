@@ -23,8 +23,8 @@ import org.apache.tuweni.bytes.Bytes;
 public final class GetBlockAccessListsMessage extends AbstractMessageData {
 
   public static GetBlockAccessListsMessage readFrom(final MessageData message) {
-    if (message instanceof GetBlockAccessListsMessage) {
-      return (GetBlockAccessListsMessage) message;
+    if (message instanceof GetBlockAccessListsMessage msg) {
+      return msg;
     }
     final int code = message.getCode();
     if (code != EthProtocolMessages.GET_BLOCK_ACCESS_LISTS) {

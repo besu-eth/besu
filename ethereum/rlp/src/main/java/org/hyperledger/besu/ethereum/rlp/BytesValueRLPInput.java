@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.rlp;
 
 import static com.google.common.base.Preconditions.checkState;
+import static java.util.Objects.requireNonNull;
 
 import java.math.BigInteger;
 import java.net.InetAddress;
@@ -29,6 +30,7 @@ import org.apache.tuweni.bytes.MutableBytes;
 import org.apache.tuweni.bytes.MutableBytes32;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.apache.tuweni.units.bigints.UInt64;
+import org.jspecify.annotations.Nullable;
 
 /** An {@link RLPInput} that reads RLP encoded data from a {@link Bytes}. */
 public class BytesValueRLPInput implements RLPInput {
@@ -44,7 +46,7 @@ public class BytesValueRLPInput implements RLPInput {
   // Information on the item the input currently is at (next thing to read).
   private long
       currentItem; // Offset in value to the beginning of the item (or value.size() if done)
-  private RLPDecodingHelpers.Kind currentKind; // Kind of the item.
+  private RLPDecodingHelpers.@Nullable Kind currentKind; // Kind of the item.
   private long currentPayloadOffset; // Offset to the beginning of the current item payload.
   private int currentPayloadSize; // Size of the current item payload.
   private int currentRlpSize; // Size of the current item.
@@ -78,7 +80,7 @@ public class BytesValueRLPInput implements RLPInput {
     // sooner).
     size = inputSize;
     prepareCurrentItem();
-    if (currentKind.isList()) {
+    if (requireNonNull(currentKind).isList()) {
       size = nextItem();
     }
 
@@ -275,7 +277,7 @@ public class BytesValueRLPInput implements RLPInput {
     if (isEndOfCurrentList()) {
       throw error("Cannot read a %s, reached end of current list", what);
     }
-    if (currentKind.isList()) {
+    if (requireNonNull(currentKind).isList()) {
       throw error("Cannot read a %s, current item is a list", what);
     }
   }
@@ -510,7 +512,7 @@ public class BytesValueRLPInput implements RLPInput {
     if (currentItem >= size) {
       throw error("Cannot enter a lists, input is fully consumed");
     }
-    if (!currentKind.isList()) {
+    if (!requireNonNull(currentKind).isList()) {
       throw error("Expected current item to be a list, but it is: " + currentKind);
     }
 
@@ -618,7 +620,7 @@ public class BytesValueRLPInput implements RLPInput {
     if (currentItem >= size) {
       throw error("Cannot read list, input is fully consumed");
     }
-    if (!currentKind.isList()) {
+    if (!requireNonNull(currentKind).isList()) {
       throw error("Cannot read list, current item is not a list list");
     }
 

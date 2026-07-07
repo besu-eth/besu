@@ -19,6 +19,7 @@ import static org.hyperledger.besu.ethereum.eth.sync.StorageExceptionManager.err
 import static org.hyperledger.besu.ethereum.eth.sync.StorageExceptionManager.getRetryableErrorCounter;
 
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
+import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapRequestContext;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.heal.TrieNodeHealingRequest;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
@@ -37,14 +38,14 @@ public class PersistDataStep {
 
   private final SnapSyncProcessState snapSyncState;
   private final WorldStateStorageCoordinator worldStateStorageCoordinator;
-  private final SnapWorldDownloadState downloadState;
+  private final SnapRequestContext downloadState;
 
   private final SnapSyncConfiguration snapSyncConfiguration;
 
   public PersistDataStep(
       final SnapSyncProcessState snapSyncState,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
-      final SnapWorldDownloadState downloadState,
+      final SnapRequestContext downloadState,
       final SnapSyncConfiguration snapSyncConfiguration) {
     this.snapSyncState = snapSyncState;
     this.worldStateStorageCoordinator = worldStateStorageCoordinator;

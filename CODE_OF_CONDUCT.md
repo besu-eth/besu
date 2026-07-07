@@ -1,24 +1,24 @@
-# [Hyperledger Code of Conduct](https://wiki.hyperledger.org/community/hyperledger-project-code-of-conduct)
+# Besu Code of Conduct
 
-Hyperledger is a collaborative project at The Linux Foundation. It is an open-source and open
+Besu is a collaborative project at The Linux Foundation. It is an open-source and open
 community project where participants choose to work together, and in that process experience
 differences in language, location, nationality, and experience. In such a diverse environment,
 misunderstandings and disagreements happen, which in most cases can be resolved informally. In rare
 cases, however, behavior can intimidate, harass, or otherwise disrupt one or more people in the
-community, which Hyperledger will not tolerate.
+community, which Besu will not tolerate.
 
 A **Code of Conduct** is useful to define accepted and acceptable behaviors and to promote high
 standards of professional practice. It also provides a benchmark for self evaluation and acts as a
 vehicle for better identity of the organization.
 
-This code (**CoC**) applies to any member of the Hyperledger community – developers, participants in
+This code (**CoC**) applies to any member of the Besu community – developers, participants in
 meetings, teleconferences, mailing lists, conferences or functions, etc. Note that this code
 complements rather than replaces legal rights and obligations pertaining to any particular
 situation.
 
 ## Statement of Intent
 
-Hyperledger is committed to maintain a **positive** [work environment](#work-environment). This
+Besu is committed to maintain a **positive** [work environment](#work-environment). This
 commitment calls for a workplace where [participants](#participant) at all levels behave according
 to the rules of the following code. A foundational concept of this code is that we all share
 responsibility for our work environment.
@@ -57,7 +57,7 @@ responsibility for our work environment.
     discussions. Remember when you update an issue or respond to an email you are potentially
     sending to a large number of people.
 
-11. Step down considerately: Members of every project come and go, and the Hyperledger is no
+11. Step down considerately: Members of every project come and go, and Besu is no
     different. When you leave or disengage from the project, in whole or in part, we ask that you do
     so in a way that minimizes disruption to the project. This means you should tell people you are
     leaving and take the proper steps to ensure that others can pick up where you left off.
@@ -100,13 +100,13 @@ includes the following persons:
 - Developers
 - Member representatives
 - Staff members
-- Anyone from the Public partaking in the Hyperledger work environment (e.g. contribute code,
+- Anyone from the Public partaking in the Besu work environment (e.g. contribute code,
   comment on our code or specs, email us, attend our conferences, functions, etc)
 
 ### Respect
 
 is the genuine consideration you have for someone (if only because of their status as participant in
-Hyperledger, like yourself), and that you show by treating them in a polite and kind way.
+Besu, like yourself), and that you show by treating them in a polite and kind way.
 
 ### Sexual Harassment
 
@@ -164,3 +164,4 @@ in the event of a misunderstanding.
 This code is based on the
 [W3C’s Code of Ethics and Professional Conduct](https://www.w3.org/Consortium/cepc) with some
 additions from the [Cloud Foundry](https://www.cloudfoundry.org/)‘s Code of Conduct.
+This project also follows the [Hyperledger Project Code of Conduct](https://wiki.hyperledger.org/community/hyperledger-project-code-of-conduct).

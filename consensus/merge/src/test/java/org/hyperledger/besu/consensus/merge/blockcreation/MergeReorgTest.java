@@ -42,7 +42,7 @@ import org.hyperledger.besu.ethereum.mainnet.BlockHeaderValidator;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.BaseFeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
 import org.hyperledger.besu.testutil.DeterministicEthScheduler;
 import org.hyperledger.besu.util.LogConfigurator;
@@ -69,7 +69,8 @@ public class MergeReorgTest implements MergeGenesisConfigHelper {
   private final MergeContext mergeContext = new PostMergeContext();
   private final ProtocolSchedule mockProtocolSchedule = getMergeProtocolSchedule();
   private final GenesisState genesisState =
-      GenesisState.fromConfig(getPowGenesisConfig(), mockProtocolSchedule, new CodeCache());
+      GenesisState.fromConfig(
+          getPowGenesisConfig(), mockProtocolSchedule, new PathBasedCodeCache());
 
   private final WorldStateArchive worldStateArchive = createInMemoryWorldStateArchive();
   private final MutableBlockchain blockchain = createInMemoryBlockchain(genesisState.getBlock());

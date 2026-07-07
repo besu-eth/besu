@@ -127,8 +127,8 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
           hashValueStore.computeIfAbsent(segmentId, __ -> newSegmentMap()).get(key);
 
       if (foundKey == null) {
-        if (parent instanceof LayeredKeyValueStorage) {
-          return ((LayeredKeyValueStorage) parent).get(segmentId, key, cacheGetFunction);
+        if (parent instanceof LayeredKeyValueStorage layered) {
+          return layered.get(segmentId, key, cacheGetFunction);
         }
         if (cacheGetFunction != null) {
           return cacheGetFunction.apply(parent);

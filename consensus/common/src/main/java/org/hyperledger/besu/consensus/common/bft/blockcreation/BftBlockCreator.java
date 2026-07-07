@@ -35,6 +35,8 @@ import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import java.util.Collections;
 import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes32;
+
 /** The Bft block creator. */
 // This class is responsible for creating a block without committer seals (basically it was just
 // too hard to coordinate with the state machine).
@@ -85,7 +87,16 @@ public class BftBlockCreator extends AbstractBlockCreator {
     if (protocolSpec.getWithdrawalsProcessor().isPresent()) {
       return createEmptyWithdrawalsBlock(timestamp, parentHeader);
     } else {
-      return createBlock(Optional.empty(), Optional.empty(), timestamp, parentHeader);
+      return createBlock(
+          Optional.empty(),
+          Optional.empty(),
+          Optional.empty(),
+          Optional.of(Bytes32.wrap(BftHelpers.EXPECTED_MIX_HASH.getBytes())),
+          Optional.empty(),
+          Optional.empty(),
+          timestamp,
+          true,
+          parentHeader);
     }
   }
 
@@ -116,7 +127,11 @@ public class BftBlockCreator extends AbstractBlockCreator {
         Optional.empty(),
         Optional.empty(),
         Optional.of(Collections.emptyList()),
+        Optional.of(Bytes32.wrap(BftHelpers.EXPECTED_MIX_HASH.getBytes())),
+        Optional.empty(),
+        Optional.empty(),
         timestamp,
+        true,
         parentHeader);
   }
 

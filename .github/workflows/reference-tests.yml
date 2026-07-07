@@ -1,27 +1,18 @@
 name: reference-tests
+
 on:
-  workflow_dispatch:
-  merge_group:
-  pull_request:
-    branches:
-      - main
-      - release-*
-      - verkle
-      - performance
+  workflow_call:
 
 env:
   GRADLE_OPTS: "-Xmx6g -Dorg.gradle.daemon=false -Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
   total-runners: 4
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  referenceTestEthereum:
+  referenceTests:
     runs-on: besu-research-ubuntu-8 # since eest-v5.1.0 this job needs more disk space
     timeout-minutes: 30
     permissions:
+      contents: read
       statuses: write
       checks: write
       packages: read
@@ -38,8 +29,8 @@ jobs:
       - name: Set up Java
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
-          distribution: semeru # IBM Semeru with OpenJ9
-          java-version: 21
+          distribution: temurin
+          java-version: 25
       - name: setup gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
         with:
@@ -51,7 +42,7 @@ jobs:
       - name: list test files written
         run: find ethereum/referencetests/src/reference-test/java -name "*.java" | sort >> filenames.txt
       - name: Split tests
-        run: ./.github/workflows/splitList.sh filenames.txt ${{env.total-runners}}
+        run: ./.github/scripts/splitList.sh filenames.txt ${{env.total-runners}}
       - name: echo test file count
         run: cat group_${{matrix.runner_index}}.txt | wc
       - name: convert to test suite classnames
@@ -77,10 +68,11 @@ jobs:
         with:
           name: reference-test-node-${{matrix.runner_index}}-results
           path: '**/build/test-results/referenceTests/TEST-*.xml'
-  reftests-passed:
-    name: "reftests-passed"
+
+  referenceTestsPassed:
+    name: referenceTestsPassed
     runs-on: ubuntu-latest
-    needs: [ referenceTestEthereum ]
+    needs: [ referenceTests ]
     permissions:
       checks: write
       statuses: write

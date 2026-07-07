@@ -63,6 +63,8 @@ import org.assertj.core.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
@@ -335,6 +337,19 @@ public final class DefaultP2PNetworkTest {
     testClass.start();
     // ensure DnsDaemon is NOT present:
     assertThat(testClass.getDnsDaemon()).isNotPresent();
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"", "  ", "\t"})
+  public void shouldNotStartDnsDiscoveryWhenDnsURLIsBlank(final String url) {
+    final DiscoveryConfiguration disco = DiscoveryConfiguration.create().setDnsDiscoveryURL(url);
+    final NetworkingConfiguration blankUrlConfig =
+        when(spy(config).discoveryConfiguration()).thenReturn(disco).getMock();
+    final DefaultP2PNetwork testClass =
+        (DefaultP2PNetwork) builder().config(blankUrlConfig).build();
+    testClass.start();
+    assertThat(testClass.getDnsDaemon()).isNotPresent();
+    testClass.stop();
   }
 
   @Test

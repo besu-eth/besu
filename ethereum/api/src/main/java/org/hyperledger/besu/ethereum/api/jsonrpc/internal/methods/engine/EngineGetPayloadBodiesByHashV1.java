@@ -80,7 +80,10 @@ public class EngineGetPayloadBodiesByHashV1 extends AbstractEngineGetPayloadBodi
 
     final EngineGetPayloadBodiesResultV1 engineGetPayloadBodiesResultV1 =
         blockResultFactory.payloadBodiesCompleteV1(
-            Arrays.stream(blockHashes).map(blockchain::getBlockBody).collect(Collectors.toList()));
+            Arrays.stream(blockHashes)
+                .parallel()
+                .map(blockchain::getBlockBody)
+                .collect(Collectors.toList()));
 
     return new JsonRpcSuccessResponse(reqId, engineGetPayloadBodiesResultV1);
   }

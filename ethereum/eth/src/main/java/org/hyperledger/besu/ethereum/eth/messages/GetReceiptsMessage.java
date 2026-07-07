@@ -34,8 +34,8 @@ public class GetReceiptsMessage extends AbstractMessageData {
   }
 
   public static GetReceiptsMessage readFrom(final MessageData message) {
-    if (message instanceof GetReceiptsMessage) {
-      return (GetReceiptsMessage) message;
+    if (message instanceof GetReceiptsMessage getReceiptsMessage) {
+      return getReceiptsMessage;
     }
     final int code = message.getCode();
     if (code != EthProtocolMessages.GET_RECEIPTS) {

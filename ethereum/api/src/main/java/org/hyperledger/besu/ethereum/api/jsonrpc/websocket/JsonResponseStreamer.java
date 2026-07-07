@@ -96,7 +96,7 @@ class JsonResponseStreamer extends OutputStream {
     Throwable t = failure.get();
     if (t != null) {
       LOG.debug("Stop writing to remote address {} due to a failure", response.remoteAddress(), t);
-      throw (t instanceof IOException) ? (IOException) t : new IOException(t);
+      throw (t instanceof IOException ioException) ? ioException : new IOException(t);
     }
   }
 

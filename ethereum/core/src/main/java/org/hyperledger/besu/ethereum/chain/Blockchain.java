@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.chain;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.core.Block;
 import org.hyperledger.besu.ethereum.core.BlockBody;
@@ -130,6 +131,20 @@ public interface Blockchain {
   }
 
   /**
+   * Checks whether both given blocks are on the canonical chain.
+   *
+   * @param firstBlockHeaderHash The hash of the first block to check.
+   * @param secondBlockHeaderHash The hash of the second block to check.
+   * @return true if both blocks are on the canonical chain, false otherwise (including when either
+   *     block is unknown to the local chain).
+   */
+  default boolean areBothBlocksOnCanonicalChain(
+      final Hash firstBlockHeaderHash, final Hash secondBlockHeaderHash) {
+    return blockIsOnCanonicalChain(firstBlockHeaderHash)
+        && blockIsOnCanonicalChain(secondBlockHeaderHash);
+  }
+
+  /**
    * Returns the block header corresponding to the given block number on the canonical chain.
    *
    * @param blockNumber The reference block number whose header we want to retrieve.
@@ -238,6 +253,15 @@ public interface Blockchain {
    * @return The transaction location associated with the corresponding hash.
    */
   Optional<TransactionLocation> getTransactionLocation(Hash transactionHash);
+
+  /**
+   * Returns the transaction hash for a given sender address and nonce.
+   *
+   * @param sender The sender address.
+   * @param nonce The transaction nonce.
+   * @return The transaction hash, if indexed.
+   */
+  Optional<Hash> getTransactionHashBySenderAndNonce(Address sender, long nonce);
 
   /**
    * Adds an observer that will get called when a new block is added.
