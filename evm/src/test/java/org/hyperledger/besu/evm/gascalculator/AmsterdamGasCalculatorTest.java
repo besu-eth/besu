@@ -15,11 +15,14 @@
 package org.hyperledger.besu.evm.gascalculator;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Transaction;
+import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.evm.account.Account;
 
 import java.util.List;
 import java.util.Optional;
@@ -152,5 +155,38 @@ class AmsterdamGasCalculatorTest {
     when(transaction.getAccessList()).thenReturn(Optional.of(List.of(entryA, entryB, entryC)));
 
     assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(24288L);
+  }
+
+  @Test
+  void eip8246SelfDestructBalancePreserved() {
+    // EIP-8246: Amsterdam preserves the originator's balance on SELFDESTRUCT instead of burning it.
+    assertThat(amsterdamGasCalculator.isSelfDestructBalancePreserved()).isTrue();
+  }
+
+  @Test
+  void eip8246SelfDestructOperationGasCost() {
+    // EIP-8038/EIP-8246: static SELFDESTRUCT cost is 5,000; sending a positive balance to a new
+    // (non-existent or empty) beneficiary adds ACCOUNT_WRITE (8,000) => 13,000. The cold-access
+    // surcharge and NEW_ACCOUNT state gas are charged elsewhere (in SelfDestructOperation).
+
+    // null beneficiary + positive balance => 5,000 + 8,000 = 13,000
+    assertThat(amsterdamGasCalculator.selfDestructOperationGasCost(null, Wei.ONE))
+        .isEqualTo(13_000L);
+
+    // empty beneficiary + positive balance => 5,000 + 8,000 = 13,000
+    final Account emptyBeneficiary = mock(Account.class);
+    when(emptyBeneficiary.isEmpty()).thenReturn(true);
+    assertThat(amsterdamGasCalculator.selfDestructOperationGasCost(emptyBeneficiary, Wei.ONE))
+        .isEqualTo(13_000L);
+
+    // existing (non-empty) beneficiary + positive balance => static 5,000 only
+    final Account aliveBeneficiary = mock(Account.class);
+    when(aliveBeneficiary.isEmpty()).thenReturn(false);
+    assertThat(amsterdamGasCalculator.selfDestructOperationGasCost(aliveBeneficiary, Wei.ONE))
+        .isEqualTo(5_000L);
+
+    // null beneficiary + zero balance (nothing sent) => static 5,000 only
+    assertThat(amsterdamGasCalculator.selfDestructOperationGasCost(null, Wei.ZERO))
+        .isEqualTo(5_000L);
   }
 }
