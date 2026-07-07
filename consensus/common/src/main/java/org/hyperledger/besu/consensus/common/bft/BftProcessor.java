@@ -61,11 +61,16 @@ public class BftProcessor implements Runnable {
   }
 
   /**
-   * Await stop.
+   * Await stop. Returns immediately if {@link #run()} has never executed (no thread was ever
+   * scheduled), since there is then nothing to wait for and {@link #shutdownLatch} would never be
+   * counted down.
    *
    * @throws InterruptedException the interrupted exception
    */
   public void awaitStop() throws InterruptedException {
+    if (processorThread == null) {
+      return;
+    }
     shutdownLatch.await();
   }
 

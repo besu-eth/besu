@@ -106,4 +106,25 @@ public class BftMiningCoordinatorTransitionTest {
     // threads it shuts down don't leak into later tests.
     bftExecutors.awaitStop();
   }
+
+  @Test
+  @Timeout(value = 10, unit = TimeUnit.SECONDS)
+  public void stopReturnsPromptlyWhenEnabledButNeverStarted() throws InterruptedException {
+    // enable() alone reaches IDLE without start() ever having run: BftProcessor.run() never
+    // executed, so its shutdownLatch would never be counted down. stop() must not block on
+    // BftProcessor.awaitStop() in this case, or this test would hang until the @Timeout fires.
+    final BftEventQueue eventQueue = new BftEventQueue(1000);
+    final BftExecutors bftExecutors =
+        BftExecutors.create(new NoOpMetricsSystem(), BftExecutors.ConsensusType.QBFT);
+    final EventMultiplexer eventMultiplexer = new EventMultiplexer(eventHandler);
+    final BftProcessor bftProcessor = new BftProcessor(eventQueue, eventMultiplexer);
+    final BftMiningCoordinator coordinator =
+        new BftMiningCoordinator(
+            bftExecutors, eventHandler, bftProcessor, blockCreatorFactory, blockchain, eventQueue);
+
+    coordinator.enable();
+    coordinator.stop();
+
+    assertThat(coordinator.isMining()).isFalse();
+  }
 }
