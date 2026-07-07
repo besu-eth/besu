@@ -33,6 +33,8 @@ import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
 import org.hyperledger.besu.evm.processor.MessageCallProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
@@ -62,6 +64,9 @@ public class MainnetBlockContextProcessorTest {
     when(mockTransactionProcessor.getMessageProcessor(any())).thenReturn(mockMessageCallProcessor);
     when(mockMessageCallProcessor.getOrCreateCachedJumpDest(any(), any()))
         .thenReturn(Code.EMPTY_CODE);
+    final GasCalculator mockGasCalculator = mock(GasCalculator.class);
+    when(mockGasCalculator.stateGasCostCalculator()).thenReturn(StateGasCostCalculator.NONE);
+    when(mockTransactionProcessor.getGasCalculator()).thenReturn(mockGasCalculator);
   }
 
   @Test

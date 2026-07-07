@@ -199,7 +199,10 @@ configure(allprojects - project(':platform')) {
     }
     exclusiveContent {
       forRepositories(ethExecSpecTestsRepo)
-      filter { includeModule('ethereum', 'execution-spec-tests')}
+      filter {
+        includeModule('ethereum', 'execution-spec-tests')
+        includeModule('ethereum', 'execution-specs')
+      }
     }
   }
 

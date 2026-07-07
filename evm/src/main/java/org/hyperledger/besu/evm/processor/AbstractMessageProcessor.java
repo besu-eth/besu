@@ -27,6 +27,8 @@ import java.util.ArrayList;
 import java.util.Set;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A skeletal class for instantiating message processors.
@@ -64,6 +66,8 @@ import org.apache.tuweni.bytes.Bytes;
  * </table>
  */
 public abstract class AbstractMessageProcessor {
+
+  private static final Logger LOG = LoggerFactory.getLogger(AbstractMessageProcessor.class);
 
   // List of addresses to force delete when they are touched but empty
   // when the state changes in the message are were not meant to be committed.
@@ -135,108 +139,42 @@ public abstract class AbstractMessageProcessor {
   }
 
   /**
-   * EIP-8037: Handles state gas spill on revert/halt. When state changes are rolled back, the state
-   * gas that was consumed is restored. Any "spill" (state gas that had overflowed from the
-   * reservoir into gasRemaining) is routed back: for child frames it returns to the reservoir for
-   * parent re-use; for the initial frame it is tracked in stateGasSpillBurned for transaction-level
-   * gas accounting.
-   *
-   * <p>For the initial (top-level) frame, the reservoir must be preserved for transaction-level
-   * refund. If child frames had restored state gas to the reservoir during the initial frame's
-   * execution (via their own revert/halt), that refund must not be lost when the initial frame
-   * subsequently reverts or halts. We therefore restore the reservoir to the higher of the
-   * pre-rollback value (which may include child refunds) and the post-rollback value (which
-   * reflects any reservoir drain that rollback undid). We also compute the spill contribution only
-   * from the positive part of reservoirRestored so that child-refunded gas is never counted as
-   * burned spill.
-   *
-   * @param frame The message frame
+   * EIP-8037 state-gas accounting on frame failure (REVERT or exceptional HALT). Rolls back the
+   * frame's UndoScalar state-gas mutations, then credits any gas-left spill back to the reservoir
+   * so the parent (or sender, on top-level failure) recovers it. Halt and revert share this path
+   * because both propagate the full state_gas_used back via incorporate_child_on_error.
    */
-  private void handleStateGasSpill(final MessageFrame frame, final boolean isInitialFrame) {
+  private void handleStateGasOnFrameFailure(final MessageFrame frame) {
     final long stateGasUsedBefore = frame.getStateGasUsed();
     final long reservoirBefore = frame.getStateGasReservoir();
-
     clearAccumulatedStateBesidesGasAndOutput(frame);
-
     final long stateGasRestored = stateGasUsedBefore - frame.getStateGasUsed();
     final long reservoirRestored = frame.getStateGasReservoir() - reservoirBefore;
-
-    if (isInitialFrame) {
-      // EIP-8037: For initial-frame halt/revert, state gas consumed by ops is final for block
-      // accounting (spec: `tx_state_gas = intrinsic_state_gas + state_gas_used`). The portion
-      // that spilled from gasRemaining is already accounted via stateGasSpillBurned below; the
-      // portion drained from the reservoir (reservoirRestored) was rolled back by the undo but
-      // must still count as consumed state gas, so add it back to stateGasUsed. Then preserve
-      // the actual pre-rollback reservoir value so drain is reflected in total gas returned to
-      // the sender.
-      if (reservoirRestored > 0) {
-        frame.incrementStateGasUsed(reservoirRestored);
-      }
-      frame.setStateGasReservoir(reservoirBefore);
-      // Only burn the portion of state gas that actually spilled into gasRemaining (not the
-      // portion that was drawn from the reservoir and has already been restored, and not the
-      // portion that child frames had refunded to the reservoir).
-      final long spill = Math.max(0L, stateGasRestored - Math.max(0L, reservoirRestored));
-      if (spill > 0) {
-        frame.accumulateStateGasSpillBurned(spill);
-      }
-    } else {
-      final long spill = Math.max(0L, stateGasRestored - reservoirRestored);
-      if (spill > 0) {
-        // Child frame: return spill to reservoir for parent to re-use
-        frame.incrementStateGasReservoir(spill);
-      }
+    final long spill = stateGasRestored - reservoirRestored;
+    if (spill > 0) {
+      frame.incrementStateGasReservoir(spill);
     }
   }
 
-  /**
-   * Snapshots the initial frame's gasRemaining into {@code initialFrameRegularHaltBurn} when a
-   * pre-execution halt fires on the initial frame (e.g. EIP-684 CREATE collision) so that gas paid
-   * by the sender but never spent on regular or state work is excluded from block regular gas. When
-   * opcode execution has already run on the frame, the halt-burn must remain in block regular gas
-   * (no-op here).
-   *
-   * @param frame the initial (depth-0) message frame
-   */
-  private static void recordInitialFrameRegularHaltBurn(final MessageFrame frame) {
-    if (frame.isCodeExecuted()) {
-      return;
-    }
-    final long haltBurn = frame.getRemainingGas();
-    if (haltBurn > 0) {
-      frame.accumulateInitialFrameRegularHaltBurn(haltBurn);
-    }
-  }
-
-  /**
-   * Gets called when the message frame encounters an exceptional halt.
-   *
-   * @param frame The message frame
-   */
   private void exceptionalHalt(final MessageFrame frame) {
-    final boolean isInitialFrame = frame.getMessageFrameStack().size() == 1;
+    handleStateGasOnFrameFailure(frame);
 
-    handleStateGasSpill(frame, isInitialFrame);
-
-    if (isInitialFrame) {
-      recordInitialFrameRegularHaltBurn(frame);
-    }
-
+    frame.setState(MessageFrame.State.COMPLETED_FAILED);
+    traceFrameExit(frame, "HALT");
     frame.clearGasRemaining();
     frame.clearOutputData();
-    frame.setState(MessageFrame.State.COMPLETED_FAILED);
   }
 
   /**
-   * Gets called when the message frame requests a revert.
+   * Gets called when the message frame reverts.
    *
    * @param frame The message frame
    */
   protected void revert(final MessageFrame frame) {
-    final boolean isInitialFrame = frame.getMessageFrameStack().size() == 1;
-    handleStateGasSpill(frame, isInitialFrame);
+    handleStateGasOnFrameFailure(frame);
 
     frame.setState(MessageFrame.State.COMPLETED_FAILED);
+    traceFrameExit(frame, "REVERT");
   }
 
   /**
@@ -246,8 +184,21 @@ public abstract class AbstractMessageProcessor {
    */
   private void completedSuccess(final MessageFrame frame) {
     frame.getWorldUpdater().commit();
+    traceFrameExit(frame, "SUCCESS");
     frame.getMessageFrameStack().removeFirst();
     frame.notifyCompletion();
+  }
+
+  private static void traceFrameExit(final MessageFrame frame, final String status) {
+    final var contractAddress = frame.getContractAddress();
+    LOG.trace(
+        "EIP-8037 FRAME_EXIT depth={} contractAddress={} status={} gasLeft={} reservoir={} stateGasUsed={}",
+        frame.getDepth(),
+        contractAddress == null ? "" : contractAddress.toHexString(),
+        status,
+        frame.getRemainingGas(),
+        frame.getStateGasReservoir(),
+        frame.getStateGasUsed());
   }
 
   /**
@@ -267,7 +218,6 @@ public abstract class AbstractMessageProcessor {
    * @param operationTracer The tracer recording execution
    */
   private void codeExecute(final MessageFrame frame, final OperationTracer operationTracer) {
-    frame.markCodeExecuted();
     try {
       evm.runToHalt(frame, operationTracer);
     } catch (final ModificationNotAllowedException e) {
@@ -282,6 +232,16 @@ public abstract class AbstractMessageProcessor {
    * @param operationTracer the operation tracer
    */
   public void process(final MessageFrame frame, final OperationTracer operationTracer) {
+    if (frame.getState() == MessageFrame.State.NOT_STARTED) {
+      final var contractAddress = frame.getContractAddress();
+      LOG.trace(
+          "EIP-8037 FRAME_ENTER depth={} contractAddress={} gasLimit={} reservoir={} stateGasUsed={}",
+          frame.getDepth(),
+          contractAddress == null ? "" : contractAddress.toHexString(),
+          frame.getRemainingGas(),
+          frame.getStateGasReservoir(),
+          frame.getStateGasUsed());
+    }
     if (operationTracer != null) {
       if (frame.getState() == MessageFrame.State.NOT_STARTED) {
         operationTracer.traceContextEnter(frame);
