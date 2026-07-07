@@ -96,6 +96,31 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   /** Per-word copy cost used for EXTCODECOPY memory-copy accounting. */
   private static final long COPY_WORD_GAS_COST = 3L;
 
+  // --- EIP-2780: resource-based intrinsic transaction gas ---
+
+  /** EIP-2780: sender cost (ECDSA recovery + sender access + sender write). Replaces 21,000. */
+  private static final long TX_BASE = 12_000L;
+
+  /** EIP-2780: per data token; a calldata token is 1 (zero byte) or 4 (non-zero byte). */
+  private static final long TX_DATA_TOKEN_STANDARD = 4L;
+
+  /** EIP-2780: recipient balance-write cost charged in intrinsic gas on a value transfer. */
+  private static final long TX_VALUE_COST = 4_244L;
+
+  /** EIP-2780/EIP-7708: transfer-log cost charged in intrinsic gas on a value transfer. */
+  private static final long TRANSFER_LOG_COST = 1_756L;
+
+  /**
+   * EIP-2780: regular gas per EIP-7702 authorization, in addition to {@link #ACCOUNT_WRITE}:
+   * AUTH_TUPLE_BYTES(101) * TX_DATA_TOKEN_FLOOR(16) + ECRECOVER(3000) + COLD_ACCOUNT_ACCESS(3000) +
+   * 2 * WARM_ACCESS(100) = 7,816.
+   */
+  private static final long REGULAR_PER_AUTH_BASE_COST =
+      101L * 16L + 3_000L + COLD_ACCOUNT_ACCESS + 2L * 100L;
+
+  /** EIP-3860 init code word cost (2 gas per 32-byte word), charged in intrinsic for creations. */
+  private static final long CODE_INIT_PER_WORD = 2L;
+
   /**
    * EIP-7928: gas cost per item for block access list size limit (bal_items <= block_gas_limit /
    * ITEM_COST).
@@ -161,6 +186,56 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
         clampedMultiply(addresses, clampedAdd(COLD_ACCOUNT_ACCESS, ACCESS_LIST_ADDRESS_FLOOR_COST)),
         clampedMultiply(
             storageSlots, clampedAdd(COLD_STORAGE_ACCESS, ACCESS_LIST_STORAGE_KEY_FLOOR_COST)));
+  }
+
+  @Override
+  public long getMinimumTransactionCost() {
+    // EIP-2780: TX_BASE replaces the flat 21,000 minimum.
+    return TX_BASE;
+  }
+
+  @Override
+  public long transactionIntrinsicGasCost(final Transaction transaction, final long baselineGas) {
+    // EIP-2780: regular intrinsic gas =
+    //   TX_BASE + data_cost + recipient_regular + access_list_cost + auth_regular
+    // where baselineGas already carries access_list_cost + auth_regular (accessListGasCost +
+    // delegateCodeGasCost from transactionIntrinsicRegularGas).
+    final int payloadSize = transaction.getPayload().size();
+    final long zeroBytes = transaction.getPayloadZeroBytes();
+    final long nonZeroBytes = payloadSize - zeroBytes;
+    // tokens_in_calldata = zeroBytes * 1 + nonZeroBytes * 4; data_cost = tokens * TX_DATA_TOKEN_STD
+    final long tokens = clampedAdd(zeroBytes, nonZeroBytes * 4L);
+    final long dataCost = tokens * TX_DATA_TOKEN_STANDARD;
+
+    final long recipientRegular;
+    final boolean valueTransfer = transaction.getValue().getAsBigInteger().signum() > 0;
+    if (transaction.isContractCreation()) {
+      long create = CREATE_ACCESS + initCodeCost(payloadSize);
+      if (valueTransfer) {
+        create += TRANSFER_LOG_COST;
+      }
+      recipientRegular = create;
+    } else if (isSelfTransfer(transaction)) {
+      recipientRegular = 0L;
+    } else {
+      long call = COLD_ACCOUNT_ACCESS;
+      if (valueTransfer) {
+        call += TRANSFER_LOG_COST + TX_VALUE_COST;
+      }
+      recipientRegular = call;
+    }
+
+    return clampedAdd(clampedAdd(TX_BASE, dataCost), clampedAdd(recipientRegular, baselineGas));
+  }
+
+  /** EIP-2780: a self-transfer (sender == recipient) skips the recipient and value charges. */
+  private static boolean isSelfTransfer(final Transaction transaction) {
+    return transaction.getTo().map(to -> to.equals(transaction.getSender())).orElse(false);
+  }
+
+  /** EIP-3860 init code cost: CODE_INIT_PER_WORD * ceil(len / 32). */
+  private static long initCodeCost(final int initCodeLength) {
+    return CODE_INIT_PER_WORD * ((initCodeLength + 31L) / 32L);
   }
 
   private static long accessListBytes(final List<AccessListEntry> accessList) {
@@ -274,8 +349,9 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
 
   @Override
   public long delegateCodeGasCost(final int delegateCodeListLength) {
-    // 7,500 per delegation (regular portion only, state gas charged separately)
-    return stateGasCostCalc.authBaseRegularGas() * delegateCodeListLength;
+    // EIP-2780: (ACCOUNT_WRITE + REGULAR_PER_AUTH_BASE_COST) = 8,000 + 7,816 = 15,816 per
+    // delegation (regular portion only; state gas charged separately).
+    return (ACCOUNT_WRITE + REGULAR_PER_AUTH_BASE_COST) * delegateCodeListLength;
   }
 
   @Override

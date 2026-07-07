@@ -35,6 +35,7 @@ import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
+import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.gascalculator.GasCalculator;
 import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
@@ -416,6 +417,21 @@ public class MainnetTransactionProcessor {
                 .code(code)
                 .eip2930AccessListWarmAddresses(eip2930WarmAddressList)
                 .build();
+
+        // EIP-2780: charge NEW_ACCOUNT state gas on the depth-0 frame for a positive value transfer
+        // to a non-alive recipient (mirrors AbstractCallOperation's call-site charge and EELS
+        // process_message_call). Contract creations charge their creation state gas separately, so
+        // this only applies to message calls. On insufficient gas the frame halts before execution.
+        if (stateGasCalc.isActive() && !transaction.getValue().isZero()) {
+          final Account recipient = worldState.get(to);
+          if (recipient == null || recipient.isEmpty()) {
+            if (!initialFrame.consumeStateGas(stateGasCalc.newAccountStateGas())) {
+              initialFrame.setExceptionalHaltReason(
+                  Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
+              initialFrame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
+            }
+          }
+        }
       }
       Deque<MessageFrame> messageFrameStack = initialFrame.getMessageFrameStack();
       while (!messageFrameStack.isEmpty()) {
