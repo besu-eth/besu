@@ -32,7 +32,7 @@ WORKDIR /opt/besu
 
 COPY --chown=besu:besu besu /opt/besu/
 # support for pyroscope
-ADD --chown=besu:besu https://github.com/grafana/pyroscope-java/releases/download/v2.1.2/pyroscope.jar /opt/besu/pyroscope/pyroscope.jar
+ADD --chown=besu:besu https://github.com/grafana/pyroscope-java/releases/download/v2.6.0/pyroscope.jar /opt/besu/pyroscope/pyroscope.jar
 COPY --chown=besu:besu pyroscope.properties /etc/besu/pyroscope.properties
 # https://grafana.com/docs/pyroscope/latest/configure-client/language-sdks/java/
 # override the config vars as needed.

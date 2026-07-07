@@ -14,8 +14,15 @@ sourceSets.main.solidity.srcDirs = [
   "$projectDir/shanghaicontracts"
 ]
 
+// Provide solc directly rather than through web3j-sokt's broken release index (see the root
+// build.gradle for details).
+def solcDownload = rootProject.registerSolcDownload('0.8.25')
+
 solidity {
   resolvePackages = false
   version = '0.8.25'
+  executable = rootProject.solcExecutable('0.8.25').absolutePath
   evmVersion = 'shanghai'
 }
+
+tasks.named('compileSolidity').configure { dependsOn solcDownload }
