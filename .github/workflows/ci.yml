@@ -32,6 +32,23 @@ env:
 #                  → allTestsPassed (PR merge gate).
 
 jobs:
+  check-no-binaries:
+    name: "No binaries check"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+      - name: Check for binary files
+        run: |
+          binaries=$(git ls-files -z | xargs -0 file | awk -F': ' 'tolower($2) ~ /elf|mach-o|pe32|ms-dos|compiled/' || true)
+          extensions=$(git ls-files | grep -iE '\.(exe|dll|so|dylib|class|pyc)$' || true)
+          if [ -n "$binaries" ] || [ -n "$extensions" ]; then
+            echo "Binary files found:"
+            [ -n "$binaries" ] && echo "$binaries"
+            [ -n "$extensions" ] && echo "$extensions"
+            exit 1
+          fi
 
   repoLint:
     name: "Repository Linting"
@@ -102,7 +119,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [spotless, checkLicense, gradleWrapper, repoLint]
+    needs: [spotless, checkLicense, gradleWrapper, repoLint, check-no-binaries]
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -148,7 +165,7 @@ jobs:
     name: "Verify Dependency Source Metadata"
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    needs: [spotless, checkLicense, gradleWrapper, repoLint]
+    needs: [spotless, checkLicense, gradleWrapper, repoLint, check-no-binaries]
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -170,7 +187,7 @@ jobs:
   # Each suite has its suite-tests-passed job in the file directly
   unitTests:
     if: github.event_name == 'pull_request'
-    needs: [spotless, checkLicense, gradleWrapper, repoLint]
+    needs: [spotless, checkLicense, gradleWrapper, repoLint, check-no-binaries]
     permissions:
       actions: read
       contents: read
