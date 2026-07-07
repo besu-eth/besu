@@ -82,17 +82,16 @@ public class SStoreOperation extends AbstractOperation {
     final UInt256 key = UInt256.fromBytes(frame.popStackItem());
     final UInt256 newValue = UInt256.fromBytes(frame.popStackItem());
 
-    final MutableAccount account = getMutableAccount(frame.getRecipientAddress(), frame);
-    if (account == null) {
-      return ILLEGAL_STATE_CHANGE;
-    }
+    final Address address = frame.getRecipientAddress();
 
-    final Address address = account.getAddress();
-    final boolean slotIsWarm = frame.warmUpStorage(address, key);
-    final long sloadCost = slotIsWarm ? 0L : gasCalculator().getColdSloadCost();
-
+    final long sloadCost = frame.warmUpStorage(address, key) ? 0L : gasCalculator().getColdSloadCost();
     if (remainingGas < sloadCost) {
       return new OperationResult(sloadCost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+
+    final MutableAccount account = getMutableAccount(address, frame);
+    if (account == null) {
+      return ILLEGAL_STATE_CHANGE;
     }
 
     final Supplier<UInt256> currentValueSupplier =
