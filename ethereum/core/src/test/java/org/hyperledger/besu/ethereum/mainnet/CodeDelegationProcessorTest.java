@@ -77,6 +77,8 @@ class CodeDelegationProcessorTest {
 
     // Assert
     assertThat(result.alreadyExistingDelegators()).isZero();
+    // EIP-7702: an invalid chain id makes the whole authorization invalid.
+    assertThat(result.invalidAuthorizations()).isEqualTo(1);
     verify(worldUpdater, never()).createAccount(any());
     verify(worldUpdater, never()).getAccount(any());
   }
@@ -92,6 +94,8 @@ class CodeDelegationProcessorTest {
 
     // Assert
     assertThat(result.alreadyExistingDelegators()).isZero();
+    // EIP-7702: a MAX_NONCE authorization is invalid.
+    assertThat(result.invalidAuthorizations()).isEqualTo(1);
     verify(worldUpdater, never()).createAccount(any());
     verify(worldUpdater, never()).getAccount(any());
   }
@@ -109,6 +113,7 @@ class CodeDelegationProcessorTest {
 
     // Assert
     assertThat(result.alreadyExistingDelegators()).isZero();
+    assertThat(result.invalidAuthorizations()).isZero();
     verify(worldUpdater).createAccount(any());
     verify(authority).incrementNonce();
   }
@@ -125,6 +130,8 @@ class CodeDelegationProcessorTest {
 
     // Assert
     assertThat(result.alreadyExistingDelegators()).isZero();
+    // EIP-7702: a new-account authorization with a non-zero nonce is invalid.
+    assertThat(result.invalidAuthorizations()).isEqualTo(1);
     verify(worldUpdater, never()).createAccount(any());
     verify(authority, never()).incrementNonce();
   }
@@ -144,6 +151,7 @@ class CodeDelegationProcessorTest {
 
     // Assert
     assertThat(result.alreadyExistingDelegators()).isEqualTo(1);
+    assertThat(result.invalidAuthorizations()).isZero();
     verify(worldUpdater, never()).createAccount(any());
     verify(authority).incrementNonce();
     verify(codeDelegationService).processCodeDelegation(authority, DELEGATE_ADDRESS);
@@ -163,6 +171,8 @@ class CodeDelegationProcessorTest {
 
     // Assert
     assertThat(result.alreadyExistingDelegators()).isZero();
+    // EIP-7702: a nonce that doesn't match the existing account is invalid.
+    assertThat(result.invalidAuthorizations()).isEqualTo(1);
     verify(worldUpdater, never()).getAccount(any());
     verify(authority, never()).incrementNonce();
     verify(codeDelegationService, never()).processCodeDelegation(any(), any());
@@ -208,6 +218,9 @@ class CodeDelegationProcessorTest {
 
     // Assert
     assertThat(result.alreadyExistingDelegators()).isZero();
+    // EIP-7702: cd1 (new account, nonce 2) and cd3 (existing account nonce 1, auth nonce 0) are
+    // both invalid; only cd2 (new account, nonce 0) is valid.
+    assertThat(result.invalidAuthorizations()).isEqualTo(2);
     verify(authority, times(1)).incrementNonce();
     verify(codeDelegationService, times(1)).processCodeDelegation(any(), any());
   }
@@ -224,6 +237,8 @@ class CodeDelegationProcessorTest {
 
     // Assert
     assertThat(result.alreadyExistingDelegators()).isZero();
+    // EIP-7702: an S value above the half curve order is invalid.
+    assertThat(result.invalidAuthorizations()).isEqualTo(1);
     verify(authority, never()).incrementNonce();
     verify(codeDelegationService, never()).processCodeDelegation(any(), any());
   }
@@ -242,6 +257,8 @@ class CodeDelegationProcessorTest {
 
     // Assert
     assertThat(result.alreadyExistingDelegators()).isZero();
+    // EIP-7702: an unrecoverable authority (bad recId) makes the authorization invalid.
+    assertThat(result.invalidAuthorizations()).isEqualTo(1);
     verify(authority, never()).incrementNonce();
     verify(codeDelegationService, never()).processCodeDelegation(any(), any());
   }
@@ -262,6 +279,8 @@ class CodeDelegationProcessorTest {
 
     // Assert
     assertThat(result.alreadyExistingDelegators()).isZero();
+    // EIP-7702: an empty authorizer (unrecoverable signature) is invalid.
+    assertThat(result.invalidAuthorizations()).isEqualTo(1);
     verify(authority, never()).incrementNonce();
     verify(codeDelegationService, never()).processCodeDelegation(any(), any());
   }
@@ -279,6 +298,8 @@ class CodeDelegationProcessorTest {
 
     // Assert
     assertThat(result.alreadyExistingDelegators()).isZero();
+    // EIP-7702: canSetCodeDelegation == false makes the authorization invalid.
+    assertThat(result.invalidAuthorizations()).isEqualTo(1);
     verify(worldUpdater, never()).getAccount(any());
     verify(authority, never()).incrementNonce();
     verify(codeDelegationService, never()).processCodeDelegation(any(), any());

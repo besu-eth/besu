@@ -324,8 +324,16 @@ public class MainnetTransactionProcessor {
                 .get()
                 .process(delegationUpdater, transaction, accessLocationTracker);
         eip2930WarmAddressList.addAll(codeDelegationResult.accessedDelegatorAddresses());
-        alreadyExistingDelegators = codeDelegationResult.alreadyExistingDelegators();
-        authBaseRefundCount = codeDelegationResult.authBaseRefundCount();
+        // EIP-7702 (#11715): an invalid authorization grows no state, so under the Amsterdam gas
+        // regime it refunds its full worst-case intrinsic charge — exactly like an authority whose
+        // account already existed. It thus folds into both the already-existing counter (regular
+        // ACCOUNT_WRITE + state NEW_ACCOUNT) and the AUTH_BASE state refund counter. Pre-Amsterdam
+        // forks refund none.
+        final long invalidAuthorizations =
+            stateGasCalc.isActive() ? codeDelegationResult.invalidAuthorizations() : 0L;
+        alreadyExistingDelegators =
+            codeDelegationResult.alreadyExistingDelegators() + invalidAuthorizations;
+        authBaseRefundCount = codeDelegationResult.authBaseRefundCount() + invalidAuthorizations;
         codeDelegationRefund =
             gasCalculator.calculateDelegateCodeGasRefund(alreadyExistingDelegators);
         delegationUpdater.commit();

@@ -181,4 +181,18 @@ class AmsterdamGasCalculatorTest {
     assertThat(amsterdamGasCalculator.selfDestructOperationGasCost(null, Wei.ZERO))
         .isEqualTo(5_000L);
   }
+
+  @Test
+  void eip7702DelegateCodeGasRefund() {
+    // EIP-7702: intrinsic gas charges ACCOUNT_WRITE (8,000) per authorization worst-case (assuming
+    // each grows a new delegated account). Authorizations whose authority account already existed —
+    // or that were invalid — grow no new account, so their ACCOUNT_WRITE is refunded via the
+    // regular refund counter. refund = ACCOUNT_WRITE * count.
+    // no refundable authorizations => 0
+    assertThat(amsterdamGasCalculator.calculateDelegateCodeGasRefund(0L)).isZero();
+    // 1 refundable authorization => 8,000 * 1 = 8,000
+    assertThat(amsterdamGasCalculator.calculateDelegateCodeGasRefund(1L)).isEqualTo(8_000L);
+    // 3 refundable authorizations => 8,000 * 3 = 24,000
+    assertThat(amsterdamGasCalculator.calculateDelegateCodeGasRefund(3L)).isEqualTo(24_000L);
+  }
 }

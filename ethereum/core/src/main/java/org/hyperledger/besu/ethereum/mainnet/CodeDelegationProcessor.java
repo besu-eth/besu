@@ -92,13 +92,19 @@ public class CodeDelegationProcessor {
       final Optional<AccessLocationTracker> eip7928AccessList) {
     LOG.trace("Processing code delegation: {}", codeDelegation);
 
+    // EIP-7702 (#11715): an invalid authorization grows no state, so its full worst-case intrinsic
+    // charge (NEW_ACCOUNT + AUTH_BASE state gas, plus the regular ACCOUNT_WRITE) is refunded — the
+    // wiring in MainnetTransactionProcessor folds invalidAuthorizations into both the
+    // already-existing (ACCOUNT_WRITE / NEW_ACCOUNT) and AUTH_BASE refund counters.
     if (!isCodeDelegationValid(codeDelegation)) {
+      result.incrementInvalidAuthorization();
       return;
     }
 
     final Optional<Address> maybeAuthorizer = codeDelegation.authorizer();
     if (maybeAuthorizer.isEmpty()) {
       LOG.trace("Invalid signature for code delegation");
+      result.incrementInvalidAuthorization();
       return;
     }
 
@@ -114,6 +120,7 @@ public class CodeDelegationProcessor {
     result.addAccessedDelegatorAddress(authorizer);
 
     if (!canSetCodeDelegation(codeDelegation, maybeExistingAccount)) {
+      result.incrementInvalidAuthorization();
       return;
     }
 
