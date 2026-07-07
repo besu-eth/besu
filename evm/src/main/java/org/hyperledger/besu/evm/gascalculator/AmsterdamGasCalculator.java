@@ -39,6 +39,7 @@ import org.apache.tuweni.units.bigints.UInt256;
  *
  * <UL>
  *   <LI>EIP-8038: state-access gas repricing (cold access, account/storage write, CALL value)
+ *   <LI>EIP-8246: SELFDESTRUCT no longer burns the originator's balance
  *   <LI>EIP-7928: gas cost per item for block access list size limit
  *   <LI>EIP-7976: calldata floor cost raised to 64 gas per byte
  *   <LI>EIP-7981: access list data priced at the 64 gas/byte floor
@@ -351,9 +352,23 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   }
 
   @Override
+  public boolean isSelfDestructBalancePreserved() {
+    // EIP-8246: SELFDESTRUCT no longer burns the originator's balance. A same-tx-created account is
+    // cleared (nonce/code/storage) at finalization with its balance preserved (EIP-161 then removes
+    // it only if the balance is zero), so no Burn closure log is emitted.
+    return true;
+  }
+
+  @Override
   public long selfDestructOperationGasCost(final Account recipient, final Wei inheritance) {
-    // Always static cost (5,000). State gas (112 * cpsb) for new accounts charged separately.
-    return selfDestructOperationStaticGasCost();
+    // EIP-8038: static cost (5,000) plus ACCOUNT_WRITE (8,000) when a positive balance is sent to a
+    // new (non-existent or empty) beneficiary. The cold-access surcharge is added by the operation;
+    // the NEW_ACCOUNT state gas is charged at the call site in SelfDestructOperation.
+    long cost = selfDestructOperationStaticGasCost();
+    if ((recipient == null || recipient.isEmpty()) && !inheritance.isZero()) {
+      cost += ACCOUNT_WRITE;
+    }
+    return cost;
   }
 
   @Override
