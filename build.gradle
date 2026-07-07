@@ -199,7 +199,10 @@ configure(allprojects - project(':platform')) {
     }
     exclusiveContent {
       forRepositories(ethExecSpecTestsRepo)
-      filter { includeModule('ethereum', 'execution-spec-tests')}
+      filter {
+        includeModule('ethereum', 'execution-spec-tests')
+        includeModule('ethereum', 'execution-specs')
+      }
     }
   }
 
@@ -799,6 +802,7 @@ subprojects {
     jmh {
       jmhVersion = '1.37'
       fork = 3
+      resultFormat = 'JSON'
       var inc = _strListCmdArg('includes', [''])
       includes = inc.size() > 1 ? [".*(${inc.join('|')}).*"] : inc
       excludes = _strListCmdArg('excludes', [])

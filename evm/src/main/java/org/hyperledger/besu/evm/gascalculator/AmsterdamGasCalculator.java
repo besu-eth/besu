@@ -181,7 +181,7 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
       final Address recipientAddress,
       final boolean accountIsWarm) {
     // Same as SpuriousDragon but do NOT add newAccountGasCost().
-    // State gas for new accounts (112 * cpsb) is charged via chargeCallNewAccountStateGas.
+    // State gas for new accounts (112 * cpsb) is charged at the call site (AbstractCallOperation).
     return staticCallCost;
   }
 
@@ -229,7 +229,7 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
       final long codeDelegationRefund) {
 
     final long gasLimit = transaction.getGasLimit();
-    // EIP-8037: Include leftover reservoir in remaining gas so unspent state gas is returned.
+    // EIP-8037: leftover reservoir is unspent state gas returned to the user.
     final long totalRemaining =
         initialFrame.getRemainingGas() + initialFrame.getStateGasReservoir();
     final long totalConsumed = gasLimit - totalRemaining;

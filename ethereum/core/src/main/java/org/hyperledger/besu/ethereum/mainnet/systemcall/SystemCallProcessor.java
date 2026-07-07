@@ -26,6 +26,7 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.evm.processor.AbstractMessageProcessor;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -46,6 +47,13 @@ public class SystemCallProcessor {
    * independent of the gas limit of the block
    */
   private static final long SYSTEM_CALL_GAS_LIMIT = 30_000_000L;
+
+  /**
+   * EIP-8037: maximum number of SSTOREs the state-gas reservoir of a system call must be sized to
+   * cover. The reservoir gets {@code STATE_BYTES_PER_STORAGE_SLOT * cpsb *
+   * SYSTEM_MAX_SSTORES_PER_CALL} extra gas on top of {@link #SYSTEM_CALL_GAS_LIMIT}.
+   */
+  private static final long SYSTEM_MAX_SSTORES_PER_CALL = 16L;
 
   /** The system address */
   static final Address SYSTEM_ADDRESS =
@@ -153,6 +161,12 @@ public class SystemCallProcessor {
             .inputData(inputData)
             .sender(SYSTEM_ADDRESS)
             .blockHashLookup(blockHashLookup)
+            // EIP-8037: seed the state-gas reservoir so state-gas growth alone cannot OOG the call.
+            // The reservoir is sized to cover up to SYSTEM_MAX_SSTORES_PER_CALL storage-set
+            // charges.
+            // Pre-Amsterdam storageSetStateGas() is 0, so this seeds an empty reservoir (no
+            // effect).
+            .initialStateGasReservoir(systemCallStateGasReservoir())
             .code(getCode(worldUpdater.get(callAddress), processor));
 
     maybeAccessLocationTracker.ifPresent(
@@ -162,6 +176,12 @@ public class SystemCallProcessor {
         });
 
     return builder.build();
+  }
+
+  private long systemCallStateGasReservoir() {
+    final StateGasCostCalculator stateGasCalc =
+        mainnetTransactionProcessor.getGasCalculator().stateGasCostCalculator();
+    return stateGasCalc.storageSetStateGas() * SYSTEM_MAX_SSTORES_PER_CALL;
   }
 
   private Code getCode(final Account contract, final AbstractMessageProcessor processor) {
