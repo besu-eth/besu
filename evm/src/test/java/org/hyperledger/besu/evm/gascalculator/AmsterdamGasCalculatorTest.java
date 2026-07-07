@@ -23,9 +23,11 @@ import org.hyperledger.besu.datatypes.Transaction;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -67,6 +69,32 @@ class AmsterdamGasCalculatorTest {
     assertThat(amsterdamGasCalculator.accessListGasCost(1, 1)).isEqualTo(7628L);
     // Three addresses + five keys = 3*3680 + 5*(1900+2048) = 11040 + 19740 = 30780
     assertThat(amsterdamGasCalculator.accessListGasCost(3, 5)).isEqualTo(30780L);
+  }
+
+  @Test
+  void eip8038StateAccessGasRepricing() {
+    // EIP-8038: cold access raised to 3,000 (account was 2,600, storage slot was 2,100).
+    assertThat(amsterdamGasCalculator.getColdAccountAccessCost()).isEqualTo(3_000L);
+    assertThat(amsterdamGasCalculator.getColdSloadCost()).isEqualTo(3_000L);
+    // SSTORE cold surcharge excludes the warm base (100) folded into calculateStorageCost:
+    // COLD_STORAGE_ACCESS 3,000 - WARM_ACCESS 100 = 2,900.
+    assertThat(amsterdamGasCalculator.getSStoreColdAccessGasCost()).isEqualTo(2_900L);
+    // CALL value cost = ACCOUNT_WRITE (8,000) + CALL_STIPEND (2,300) = 10,300.
+    assertThat(amsterdamGasCalculator.callValueTransferGasCost()).isEqualTo(10_300L);
+    // EXTCODESIZE base = extra WARM_ACCESS "code reading cost" (100).
+    assertThat(amsterdamGasCalculator.getExtCodeSizeOperationGasCost()).isEqualTo(100L);
+  }
+
+  @Test
+  void eip8038SStoreFlatWriteCost() {
+    final Supplier<UInt256> zero = () -> UInt256.ZERO;
+    final Supplier<UInt256> nonZero = () -> UInt256.valueOf(42);
+    // No change: warm access base only (100).
+    assertThat(amsterdamGasCalculator.calculateStorageCost(UInt256.valueOf(42), nonZero, nonZero))
+        .isEqualTo(100L);
+    // First change (0 -> nonzero): warm base (100) + flat STORAGE_WRITE (10,000) = 10,100.
+    assertThat(amsterdamGasCalculator.calculateStorageCost(UInt256.valueOf(42), zero, zero))
+        .isEqualTo(10_100L);
   }
 
   @Test
