@@ -1,4 +1,4 @@
-name: container security scan
+name: docker-security-scan-daily
 
 on:
   workflow_dispatch:
