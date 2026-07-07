@@ -568,9 +568,13 @@ public class MainnetTransactionProcessor {
       final Set<Address> effectiveSelfDestructs =
           txSucceeded ? initialFrame.getSelfDestructs() : Set.of();
 
-      // EIP-7708: Emit closure logs for accounts with remaining balance before deletion
-      // Noop before Amsterdam
-      transferLogEmitter.emitClosureLogs(worldState, effectiveSelfDestructs, initialFrame::addLog);
+      // EIP-7708: Emit closure (burn) logs for self-destructed accounts whose balance is burned.
+      // Noop before Amsterdam. EIP-8246 preserves the balance instead of burning it, so no
+      // closure log is emitted then.
+      if (!gasCalculator.isSelfDestructBalancePreserved()) {
+        transferLogEmitter.emitClosureLogs(
+            worldState, effectiveSelfDestructs, initialFrame::addLog);
+      }
 
       operationTracer.traceEndTransaction(
           worldState.updater(),
@@ -582,7 +586,7 @@ public class MainnetTransactionProcessor {
           effectiveSelfDestructs,
           0L);
 
-      effectiveSelfDestructs.forEach(worldState::deleteAccount);
+      settleSelfDestructs(worldState, effectiveSelfDestructs);
 
       if (clearEmptyAccounts) {
         worldState.clearAccountsThatAreEmpty();
@@ -696,6 +700,32 @@ public class MainnetTransactionProcessor {
   private static void haltForInsufficientGas(final MessageFrame frame) {
     frame.setExceptionalHaltReason(Optional.of(ExceptionalHaltReason.INSUFFICIENT_GAS));
     frame.setState(MessageFrame.State.EXCEPTIONAL_HALT);
+  }
+
+  /**
+   * Settles accounts marked for self-destruction at transaction finalization. Under EIP-8246 each
+   * account is cleared (nonce reset, code and storage removed) but keeps its balance — EIP-161
+   * state clearing (via {@code clearAccountsThatAreEmpty}) then removes any account left with a
+   * zero balance. Pre-EIP-8246 the accounts are deleted outright.
+   *
+   * @param worldState the world state updater
+   * @param selfDestructs the addresses marked for self-destruction
+   */
+  private void settleSelfDestructs(
+      final WorldUpdater worldState, final Set<Address> selfDestructs) {
+    if (gasCalculator.isSelfDestructBalancePreserved()) {
+      selfDestructs.forEach(
+          address -> {
+            final MutableAccount account = worldState.getAccount(address);
+            if (account != null) {
+              account.setNonce(0L);
+              account.setCode(Bytes.EMPTY);
+              account.clearStorage();
+            }
+          });
+    } else {
+      selfDestructs.forEach(worldState::deleteAccount);
+    }
   }
 
   /**
