@@ -99,7 +99,10 @@ public abstract class AbstractOperation implements Operation {
    */
   protected Account getAccount(final Address address, final MessageFrame frame) {
     final Account account = frame.getWorldUpdater().get(address);
-    frame.getEip7928AccessList().ifPresent(t -> t.addTouchedAccount(address));
+    final var accessList = frame.getEip7928AccessList();
+    if (accessList.isPresent()) {
+      accessList.get().addTouchedAccount(address);
+    }
     return account;
   }
 
@@ -114,7 +117,10 @@ public abstract class AbstractOperation implements Operation {
    */
   protected MutableAccount getMutableAccount(final Address address, final MessageFrame frame) {
     final MutableAccount account = frame.getWorldUpdater().getAccount(address);
-    frame.getEip7928AccessList().ifPresent(t -> t.addTouchedAccount(address));
+    final var accessList = frame.getEip7928AccessList();
+    if (accessList.isPresent()) {
+      accessList.get().addTouchedAccount(address);
+    }
     return account;
   }
 
@@ -130,7 +136,10 @@ public abstract class AbstractOperation implements Operation {
    */
   protected MutableAccount getOrCreateAccount(final Address address, final MessageFrame frame) {
     final MutableAccount account = frame.getWorldUpdater().getOrCreate(address);
-    frame.getEip7928AccessList().ifPresent(t -> t.addTouchedAccount(address));
+    final var accessList = frame.getEip7928AccessList();
+    if (accessList.isPresent()) {
+      accessList.get().addTouchedAccount(address);
+    }
     return account;
   }
 
@@ -144,7 +153,10 @@ public abstract class AbstractOperation implements Operation {
    */
   protected MutableAccount getSenderAccount(final MessageFrame frame) {
     final MutableAccount account = frame.getWorldUpdater().getSenderAccount(frame);
-    frame.getEip7928AccessList().ifPresent(t -> t.addTouchedAccount(account.getAddress()));
+    final var accessList = frame.getEip7928AccessList();
+    if (accessList.isPresent()) {
+      accessList.get().addTouchedAccount(account.getAddress());
+    }
     return account;
   }
 
@@ -161,9 +173,10 @@ public abstract class AbstractOperation implements Operation {
   protected UInt256 getStorageValue(
       final Account account, final UInt256 slotKey, final MessageFrame frame) {
     final UInt256 slotValue = account.getStorageValue(slotKey);
-    frame
-        .getEip7928AccessList()
-        .ifPresent(t -> t.addSlotAccessForAccount(account.getAddress(), slotKey));
+    final var accessList = frame.getEip7928AccessList();
+    if (accessList.isPresent()) {
+      accessList.get().addSlotAccessForAccount(account.getAddress(), slotKey);
+    }
     return slotValue;
   }
 }

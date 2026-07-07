@@ -31,6 +31,7 @@ import java.util.function.Function;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.bytes.MutableBytes;
+import org.apache.tuweni.units.bigints.UInt256;
 
 /**
  * This class helps to generate ranges according to several parameters (the start and the end of the
@@ -238,5 +239,17 @@ public class RangeManager {
       path.set(j + 1, (byte) (b & 0x0f));
     }
     return path;
+  }
+
+  public static Bytes32 prevKey(final Bytes32 key) {
+    return UInt256.fromBytes(key).subtract(UInt256.ONE);
+  }
+
+  public static Bytes32 nextKey(final Bytes32 key) {
+    final UInt256 next = UInt256.fromBytes(key).add(UInt256.ONE);
+    if (next.isZero()) {
+      throw new IllegalArgumentException("Hash overflow: " + key);
+    }
+    return next;
   }
 }
