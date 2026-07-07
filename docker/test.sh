@@ -63,4 +63,25 @@ bash $TEST_PATH/dgoss run --sysctl net.ipv6.conf.all.disable_ipv6=1 -v besu-data
 --network=dev \
 > ./reports/02.xml
 
+# Test that Besu container started and entered main loop
+echo "Running test 03: Besu container started and entered main loop"
+GOSS_FILES_PATH=$TEST_PATH/03 \
+bash $TEST_PATH/dgoss run --sysctl net.ipv6.conf.all.disable_ipv6=1 $DOCKER_IMAGE \
+--network=dev \
+--rpc-http-enabled \
+> ./reports/03.xml
+
+# Test that Besu version matches expected version (only when EXPECTED_VERSION is explicitly set)
+if [ -n "$EXPECTED_VERSION" ]; then
+  echo "Running test 04: Besu version is correct"
+  GOSS_FILES_PATH=$TEST_PATH/04 \
+  bash $TEST_PATH/dgoss run --sysctl net.ipv6.conf.all.disable_ipv6=1 \
+  -e EXPECTED_VERSION=$EXPECTED_VERSION \
+  $DOCKER_IMAGE \
+  --network=dev \
+  > ./reports/04.xml
+else
+  echo "Skipping test 04: EXPECTED_VERSION not set"
+fi
+
 echo "All tests passed successfully"
