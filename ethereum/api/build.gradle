@@ -181,3 +181,106 @@ tasks.register('generateTestBlockchain') {
   dependsOn exportTestBlocks
 }
 test.dependsOn(generateTestBlockchain)
+
+// Guards the fixed chain that TestingBuildBlockJsonRpcHttpBySpecTest loads. genesis.json fixes the
+// genesis hash that blocks.bin and the spec files are bound to, and blocks.bin is a generated
+// artifact. Changing either is only correct alongside regenerated spec responses, so this check
+// fails the build (mirroring the plugin-API checkAPIChanges guard) until the change is made
+// deliberate by updating knownHash below. See the fixture README for the regeneration procedure.
+class FileStateChecker extends DefaultTask {
+
+  @Input
+  Set<File> files
+
+  @Input
+  String knownHash
+
+  @TaskAction
+  def checkState() {
+    def digestor = java.security.MessageDigest.getInstance("SHA-256")
+
+    this.files.toSorted(Comparator.comparing({ it.canonicalPath })).each {
+      digestor.update(it.readBytes())
+    }
+    def currentHash = digestor.digest().encodeBase64().toString()
+    if (this.knownHash != currentHash) {
+      throw new GradleException("""The testing_buildBlockV1 chain-data fixtures changed unexpectedly.
+
+blocks.bin and/or genesis.json for TestingBuildBlockJsonRpcHttpBySpecTest no longer match the
+expected checksum. If this is a deliberate regeneration, run the task described in the fixture
+README, then update "Expected" to "Calculated" as the knownHash for the
+checkTestingBuildBlockChainData task in ethereum/api/build.gradle.
+README     : ethereum/api/src/test/resources/org/hyperledger/besu/ethereum/api/jsonrpc/testing_buildBlockV1/README.md
+Expected   : ${this.knownHash}
+Calculated : ${currentHash}
+""")
+    }
+  }
+}
+
+def testingBuildBlockDir = 'src/test/resources/org/hyperledger/besu/ethereum/api/jsonrpc/testing_buildBlockV1'
+def testingBuildBlockChainData = "$testingBuildBlockDir/chain-data"
+def testingBuildBlockBuildDir = "$buildDir/resources/test/org/hyperledger/besu/ethereum/api/jsonrpc/testing_buildBlockV1"
+
+tasks.register('checkTestingBuildBlockChainData', FileStateChecker) {
+  description = "Checks that the testing_buildBlockV1 chain-data fixtures do not change without deliberate thought"
+  files = [
+    file("$testingBuildBlockChainData/genesis.json"),
+    file("$testingBuildBlockChainData/blocks.bin")
+  ] as Set
+  knownHash = 'IsmkwZ3T3D7EuAiwm98MFwJaZ9xMU70OD0Wp1vMVSWA='
+}
+check.dependsOn('checkTestingBuildBlockChainData')
+
+// One-command regeneration of the testing_buildBlockV1 fixtures after editing genesis.json.
+// Rebuilds blocks.bin, swaps the old genesis hash for the new one across the spec files, and
+// rewrites chain-data/checksum.sha256 (the guard above). No source or build-script edits required.
+tasks.register('regenerateTestingBuildBlockChainBin', JavaExec) {
+  description = "Rebuilds testing_buildBlockV1 blocks.bin, swaps the genesis hash in the specs, and refreshes checksum.sha256"
+  group = "fixture generation"
+  mainClass = 'org.hyperledger.besu.ethereum.api.jsonrpc.bonsai.TestingBuildBlockChainDataGenerator'
+  classpath = sourceSets.test.runtimeClasspath
+  dependsOn processTestResources, testClasses
+  doLast {
+    // Sync the regenerated src fixtures into the test build output so the spec-refresh test below
+    // reads the new blocks.bin and the genesis-hash-swapped requests.
+    copy {
+      from testingBuildBlockDir
+      into testingBuildBlockBuildDir
+    }
+  }
+}
+
+// Refreshes the spec response bodies (stateRoot / blockHash / blockAccessList, ...) against the
+// rebuilt chain, using the same besu.test.update.specs mechanism as an IDE run.
+tasks.register('updateTestingBuildBlockSpecs', Test) {
+  description = "Refreshes testing_buildBlockV1 spec responses against the rebuilt chain"
+  group = "fixture generation"
+  testClassesDirs = sourceSets.test.output.classesDirs
+  classpath = sourceSets.test.runtimeClasspath
+  useJUnitPlatform()
+  filter { includeTestsMatching 'org.hyperledger.besu.ethereum.api.jsonrpc.bonsai.TestingBuildBlockJsonRpcHttpBySpecTest' }
+  systemProperty 'besu.test.update.specs', 'true'
+  outputs.upToDateWhen { false }
+  mustRunAfter 'regenerateTestingBuildBlockChainBin'
+}
+
+tasks.register('regenerateTestingBuildBlockChainData') {
+  description = "Regenerates all testing_buildBlockV1 fixtures after editing genesis.json (blocks.bin, spec hashes/responses, checksum)"
+  group = "fixture generation"
+  dependsOn 'regenerateTestingBuildBlockChainBin', 'updateTestingBuildBlockSpecs'
+}
+
+// Surface the regeneration README on the Gradle console when the by-spec test fails (Gradle hides
+// test logs by default, so the in-test TestWatcher hint is only visible from an IDE run).
+tasks.named('test').configure {
+  afterTest { descriptor, result ->
+    if (result.resultType.toString() == 'FAILURE'
+      && descriptor.className == 'org.hyperledger.besu.ethereum.api.jsonrpc.bonsai.TestingBuildBlockJsonRpcHttpBySpecTest') {
+      logger.error(
+        "\nTestingBuildBlockJsonRpcHttpBySpecTest failed. If this is caused by a protocol-rule change "
+        + "affecting the fixed test chain, the fixtures need regenerating — see\n"
+        + "  ethereum/api/src/test/resources/org/hyperledger/besu/ethereum/api/jsonrpc/testing_buildBlockV1/README.md\n")
+    }
+  }
+}

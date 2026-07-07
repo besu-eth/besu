@@ -38,8 +38,32 @@ import java.util.List;
 import java.util.Optional;
 
 import org.apache.tuweni.bytes.Bytes32;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.extension.ExtensionContext;
+import org.junit.jupiter.api.extension.TestWatcher;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
+@ExtendWith(TestingBuildBlockJsonRpcHttpBySpecTest.RegenerationHint.class)
 public class TestingBuildBlockJsonRpcHttpBySpecTest extends AbstractJsonRpcHttpBySpecTest {
+
+  /**
+   * On any failure, points to the fixture README. A failure here often means the fixed test chain
+   * ({@code chain-data/genesis.json} + {@code blocks.bin}) is out of date with the protocol rules
+   * and must be regenerated; the README documents the one-command procedure.
+   */
+  public static class RegenerationHint implements TestWatcher {
+    private static final Logger LOG = LoggerFactory.getLogger(RegenerationHint.class);
+
+    @Override
+    public void testFailed(final ExtensionContext context, final Throwable cause) {
+      LOG.error(
+          "TestingBuildBlockJsonRpcHttpBySpecTest failed. If this is caused by a protocol-rule "
+              + "change affecting the fixed test chain, the fixtures need regenerating — see "
+              + "ethereum/api/src/test/resources/org/hyperledger/besu/ethereum/api/jsonrpc/"
+              + "testing_buildBlockV1/README.md");
+    }
+  }
 
   private static final BigInteger CHAIN_ID = BigInteger.valueOf(3503995874084926L);
   private static final String PRIVATE_KEY =
