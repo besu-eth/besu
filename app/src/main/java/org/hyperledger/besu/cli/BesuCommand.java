@@ -2114,6 +2114,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             .cacheLastBlockHeaders(numberOfBlockHeadersToCache)
             .isCacheLastBlockHeadersPreloadEnabled(isCacheLastBlockHeadersPreloadEnabled)
             .senderNonceIndexingEnabled(txSenderNonceIndexEnabled)
+            .p2pEnabled(p2PDiscoveryOptions.p2pEnabled)
             .genesisStateHashCacheEnabled(genesisStateHashCacheEnabled)
             .apiConfiguration(apiConfiguration)
             .balConfiguration(balConfiguration)

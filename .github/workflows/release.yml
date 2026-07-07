@@ -1,0 +1,227 @@
+name: Release
+
+# Job flow:
+#
+#   build               ← validate tag (X.Y.Z or X.Y.Z-RCN, inline), gradle assemble,
+#                         sha256 hashes, upload distribution artifacts (14-day retention)
+#     │
+#   docker-build-test   ← checkout tag, distDockerCopy, build amd64, goss tests (no push)
+#     │
+#   draft-release       ← gh release create --draft + release notes template + artifacts
+#     │               
+#     │                 ← burn in happens here
+#     │               
+#   releaseGate        ← environment: "release-approval" — blocks for maintainer approval
+#     │
+#     │
+#   publish-artifactory ← gradle artifactoryPublish)
+#     │               
+#   verify-artifactory  
+#     │     
+#   publish-docker             
+#   (multi-arch push, cosign sign + attest)
+#     │
+#   finalize-release  ← gh release edit --draft=false
+
+
+on:
+  push:
+    # match tags X.Y.Z and X.Y.Z-RCn
+    tags:
+      - '[0-9]*.[0-9]*.[0-9]*'
+
+env:
+  GRADLE_OPTS: "-Dorg.gradle.parallel=true -Dorg.gradle.caching=true"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate tag format
+        run: |
+          [[ "${{ github.ref_name }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-RC[0-9]+)?$ ]] \
+            || { echo "Tag '${{ github.ref_name }}' does not match X.Y.Z or X.Y.Z-RCN format"; exit 1; }
+
+      - name: Checkout tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Set up Java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+        with:
+          cache-disabled: true
+
+      - name: Assemble release
+        run: ./gradlew -Prelease.releaseVersion=${{ github.ref_name }} -Pversion=${{ github.ref_name }} assemble
+
+      - name: Compute sha256 hashes
+        run: |
+          cd build/distributions
+          shasum -a 256 besu-${{ github.ref_name }}.tar.gz > besu-${{ github.ref_name }}.tar.gz.sha256
+          shasum -a 256 besu-${{ github.ref_name }}.zip > besu-${{ github.ref_name }}.zip.sha256
+
+      - name: Upload tar.gz
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: besu-${{ github.ref_name }}.tar.gz
+          path: build/distributions/besu-${{ github.ref_name }}.tar.gz
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload zip
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: besu-${{ github.ref_name }}.zip
+          path: build/distributions/besu-${{ github.ref_name }}.zip
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload tar.gz sha256
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: besu-${{ github.ref_name }}.tar.gz.sha256
+          path: build/distributions/besu-${{ github.ref_name }}.tar.gz.sha256
+          retention-days: 14
+
+      - name: Upload zip sha256
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: besu-${{ github.ref_name }}.zip.sha256
+          path: build/distributions/besu-${{ github.ref_name }}.zip.sha256
+          retention-days: 14
+
+  dockerBuildTest:
+    needs: build
+    uses: ./.github/workflows/docker-build-test.yml
+    with:
+      version: ${{ github.ref_name }}
+      cache_scope: release-build
+
+  draftRelease:
+    needs: [build, dockerBuildTest]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: besu-${{ github.ref_name }}*
+          merge-multiple: true
+
+      - name: Draft release notes
+        run: |
+          cat > draft-release-notes.md << 'NOTES'
+          ## Upcoming Breaking Changes
+
+          ## Breaking Changes
+
+          ## Additions and Improvements
+
+          ## Bug fixes
+
+          NOTES
+          cat besu-${{ github.ref_name }}.zip.sha256 >> draft-release-notes.md
+          cat besu-${{ github.ref_name }}.tar.gz.sha256 >> draft-release-notes.md
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create \
+            --draft \
+            --title="${{ github.ref_name }}" \
+            --notes-file draft-release-notes.md \
+            --verify-tag ${{ github.ref_name }} \
+            besu-${{ github.ref_name }}.tar.gz \
+            besu-${{ github.ref_name }}.zip \
+            besu-${{ github.ref_name }}.zip.sha256 \
+            besu-${{ github.ref_name }}.tar.gz.sha256
+
+  # maintainer needs to approve this after burnin tests
+  releaseGate:
+    needs: draftRelease
+    runs-on: ubuntu-latest
+    environment: release-approval
+    steps:
+      - run: echo "Release ${{ github.ref_name }} approved"
+
+  publishArtifactory:
+    needs: releaseGate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.ref_name }}
+
+      - name: Set up Java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+        with:
+          cache-disabled: true
+
+      - name: Publish to Artifactory
+        env:
+          ARTIFACTORY_USER: ${{ secrets.BESU_ARTIFACTORY_USER }}
+          ARTIFACTORY_KEY: ${{ secrets.BESU_ARTIFACTORY_TOKEN }}
+        run: ./gradlew -Prelease.releaseVersion=${{ github.ref_name }} -Pversion=${{ github.ref_name }} artifactoryPublish
+
+  verifyArtifactory:
+    runs-on: ubuntu-latest
+    needs: publishArtifactory
+    steps:
+      - name: checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.ref_name }}
+
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: pip install requests argparse
+
+      - name: Run the script
+        run: python3 .github/scripts/verifyArtifacts.py --besu_version="${{ github.ref_name }}"
+
+  publishDocker:
+    needs: [publishArtifactory, verifyArtifactory]
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      version: ${{ github.ref_name }}
+      cache_scope: release-build
+    secrets: inherit
+
+
+  finalizeRelease:
+    needs: [publishArtifactory, verifyArtifactory, publishDocker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${{ github.ref_name }}" --repo ${{ github.repository }} --draft=false
