@@ -66,11 +66,12 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
   private long blockAddedObserverId;
   private final AtomicReference<State> state = new AtomicReference<>(State.PAUSED);
   // Deliberately never reset back to false once set: it only distinguishes "has this
-  // coordinator's processor/executors ever been started" (in which case PAUSED->STOPPED must
-  // also tear them down, see stop()) from "never started" (in which case PAUSED->STOPPED must
-  // stay a no-op, since there is nothing to tear down). That distinction does not change across
-  // subsequent start/stop/restart cycles of an already-started coordinator, so this is not a
-  // mirror of the RUNNING/PAUSED/STOPPED state and must not be reset alongside it.
+  // coordinator's processor/executors ever been started" (in which case PAUSED/IDLE->STOPPED
+  // must also tear them down, see stop()) from "never started" (in which case PAUSED/IDLE->
+  // STOPPED must stay a no-op, since there is nothing to tear down). That distinction does not
+  // change across subsequent start/stop/restart cycles of an already-started coordinator, so
+  // this is not a mirror of the RUNNING/PAUSED/IDLE/STOPPED state and must not be reset
+  // alongside it.
   private volatile boolean started = false;
 
   private SyncState syncState;
@@ -145,12 +146,17 @@ public class BftMiningCoordinator implements MiningCoordinator, BlockAddedObserv
 
   @Override
   public void stop() {
-    // A previously started coordinator must also stop from PAUSED: the merge transition
-    // watcher calls disable() (RUNNING -> PAUSED) immediately before stop(). The started
-    // guard keeps stop() a no-op for a coordinator that was never started (initial state
-    // is PAUSED and its processor/executors have never been started).
+    // A previously started coordinator must also stop from PAUSED or IDLE: the merge
+    // transition watcher calls disable() (RUNNING -> PAUSED) immediately before stop(), and
+    // disable()/enable() never actually touch the processor/executors themselves (they only
+    // flip this flag), so a coordinator that was started and then disabled/re-enabled without
+    // an intervening stop() can still be sitting in IDLE with its processor genuinely running.
+    // The started guard keeps stop() a no-op for a coordinator that was never started (initial
+    // state is PAUSED and its processor/executors have never been started).
     if (state.compareAndSet(State.RUNNING, State.STOPPED)
-        || (started && state.compareAndSet(State.PAUSED, State.STOPPED))) {
+        || (started
+            && (state.compareAndSet(State.PAUSED, State.STOPPED)
+                || state.compareAndSet(State.IDLE, State.STOPPED)))) {
       blockchain.removeObserver(blockAddedObserverId);
       bftProcessor.stop();
       // The merge transition watcher invokes stop() from the BFT event thread itself

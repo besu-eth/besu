@@ -94,6 +94,19 @@ public class BftMiningCoordinatorTest {
   }
 
   @Test
+  public void stopsMiningWhenIdleAfterHavingBeenStarted() {
+    bftMiningCoordinator.enable();
+    bftMiningCoordinator.start();
+    // disable()/enable() only flip the tracked state, they never touch the processor/executors
+    // themselves, so a previously started coordinator can be sitting in IDLE (not just PAUSED)
+    // while its processor is genuinely still running.
+    bftMiningCoordinator.disable();
+    bftMiningCoordinator.enable();
+    bftMiningCoordinator.stop();
+    verify(bftProcessor).stop();
+  }
+
+  @Test
   public void restartsMiningAfterStop() {
     assertThat(bftMiningCoordinator.isMining()).isFalse();
     bftMiningCoordinator.stop();
