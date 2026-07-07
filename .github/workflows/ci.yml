@@ -194,6 +194,7 @@ jobs:
       checks: write
       statuses: write
     uses: ./.github/workflows/unit-tests.yml
+    secrets: inherit
 
   integrationTests:
     if: github.event_name == 'pull_request'
@@ -204,6 +205,7 @@ jobs:
       checks: write
       statuses: write      
     uses: ./.github/workflows/integration-tests.yml
+    secrets: inherit
 
   referenceTests:
     if: github.event_name == 'pull_request'
@@ -213,7 +215,7 @@ jobs:
       contents: read
       packages: read
       checks: write
-      statuses: write      
+      statuses: write
     uses: ./.github/workflows/reference-tests.yml
     secrets: inherit
 
