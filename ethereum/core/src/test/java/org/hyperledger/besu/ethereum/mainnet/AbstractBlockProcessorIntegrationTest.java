@@ -85,7 +85,7 @@ class AbstractBlockProcessorIntegrationTest {
   private static final Address CONSOLIDATION_CONTRACT =
       Address.fromHexString("0x00b42dbf2194e931e80326d950320f7d9dbeac02");
   // EIP-8282 builder request predeploys: the Amsterdam requests processor invokes an empty-data
-  // system call on each every block, so both appear in every block's access list.
+  // system call on every block, so both appear in every block's access list.
   private static final Address BUILDER_DEPOSIT_CONTRACT =
       Address.fromHexString("0x0000884d2aa32eaa155f59a2f24efa73d9008282");
   private static final Address BUILDER_EXIT_CONTRACT =
