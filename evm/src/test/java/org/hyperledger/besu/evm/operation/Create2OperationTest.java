@@ -246,7 +246,8 @@ public class Create2OperationTest {
   @Test
   void amsterdamMaxInitCodeSizeCreate() {
     final UInt256 memoryOffset = UInt256.fromHexString("0xFF");
-    final UInt256 memoryLength = UInt256.fromHexString("0x10000");
+    // exactly MAX_INITCODE_SIZE_AMSTERDAM (0x20000)
+    final UInt256 memoryLength = UInt256.fromHexString("0x20000");
     final MessageFrame messageFrame = testMemoryFrame(memoryOffset, memoryLength);
 
     when(account.getNonce()).thenReturn(55L);
