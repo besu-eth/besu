@@ -230,12 +230,9 @@ public class BlockHeaderBuilder {
       final Optional<Long> maybeTargetGasLimit) {
 
     final long newBlockNumber = parentHeader.getNumber() + 1;
-    final long targetGasLimit;
-    if (maybeTargetGasLimit.isPresent()) {
-      targetGasLimit = maybeTargetGasLimit.get();
-    } else {
-      targetGasLimit = miningConfiguration.getTargetGasLimit().orElse(parentHeader.getGasLimit());
-    }
+    final long targetGasLimit =
+        maybeTargetGasLimit.orElseGet(
+            () -> miningConfiguration.getTargetGasLimit().orElse(parentHeader.getGasLimit()));
     final long gasLimit =
         protocolSpec
             .getGasLimitCalculator()

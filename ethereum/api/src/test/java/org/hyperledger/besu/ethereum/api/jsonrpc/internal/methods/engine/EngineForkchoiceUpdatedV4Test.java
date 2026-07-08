@@ -14,6 +14,7 @@
  */
 package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine;
 
+import static java.util.Collections.emptyList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.CANCUN;
@@ -28,6 +29,8 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.consensus.merge.MergeContext;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator;
 import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.ForkchoiceResult;
+import org.hyperledger.besu.consensus.merge.blockcreation.MergeMiningCoordinator.PreparePayloadArgs;
+import org.hyperledger.besu.consensus.merge.blockcreation.PayloadIdentifier;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.Wei;
@@ -59,6 +62,7 @@ import org.apache.tuweni.bytes.Bytes32;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -274,6 +278,39 @@ public class EngineForkchoiceUpdatedV4Test {
     assertThat(resp.getType()).isEqualTo(RpcResponseType.ERROR);
     final JsonRpcErrorResponse err = (JsonRpcErrorResponse) resp;
     assertThat(err.getErrorType()).isEqualTo(RpcErrorType.INVALID_TARGET_GAS_LIMIT_PARAMS);
+  }
+
+  @Test
+  public void shouldForwardTargetGasLimitToPreparePayload() {
+    final BlockHeader head =
+        blockHeaderBuilder.number(50L).timestamp(AMSTERDAM_MILESTONE + 1).buildHeader();
+    when(mergeCoordinator.getOrSyncHeadByHash(head.getHash(), Hash.ZERO))
+        .thenReturn(Optional.of(head));
+    when(mergeCoordinator.computeReorgDepth(head)).thenReturn(OptionalLong.of(0L));
+    when(mergeCoordinator.updateForkChoiceWithoutLegacySkip(head, Hash.ZERO, Hash.ZERO))
+        .thenReturn(ForkchoiceResult.withResult(Optional.empty(), Optional.of(head)));
+    when(mergeCoordinator.preparePayload(any())).thenReturn(new PayloadIdentifier(1L));
+
+    final EngineForkchoiceUpdatedParameter param =
+        new EngineForkchoiceUpdatedParameter(head.getHash(), Hash.ZERO, Hash.ZERO);
+
+    final EnginePayloadAttributesParameter attrs =
+        new EnginePayloadAttributesParameter(
+            "0x" + Long.toHexString(head.getTimestamp() + 1),
+            Bytes32.ZERO.toHexString(),
+            Address.ZERO.toHexString(),
+            emptyList(),
+            Bytes32.ZERO.toHexString(),
+            "0x1",
+            "0x1c9c380");
+
+    final JsonRpcResponse resp = resp(param, Optional.of(attrs));
+
+    assertThat(resp.getType()).isEqualTo(RpcResponseType.SUCCESS);
+    final ArgumentCaptor<PreparePayloadArgs> argsCaptor =
+        ArgumentCaptor.forClass(PreparePayloadArgs.class);
+    verify(mergeCoordinator).preparePayload(argsCaptor.capture());
+    assertThat(argsCaptor.getValue().targetGasLimit()).contains(30_000_000L);
   }
 
   private void setupValidForkchoiceState(final BlockHeader head, final BlockHeader finalized) {
