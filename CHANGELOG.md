@@ -18,6 +18,7 @@
 - BFT option `xemptyblockperiodseconds` has been taken out of experimental and been renamed `emptyblockperiodseconds`. The old config option is deprecated and will be removed in a future release.
 
 ### Bug fixes
+- `testing_buildBlockV1` now sets the mining coinbase to the requested `suggestedFeeRecipient` before building, so the block header coinbase matches the account credited transaction fees and the EIP-7928 block access list. Previously the header used the node's configured coinbase (`Address.ZERO` on a block builder), so a non-zero `suggestedFeeRecipient` produced a block that self-rejected on `engine_newPayload` re-execution with a block access list hash mismatch.
 
 ### Additions and Improvements
 - The option to set a different block period for empty BFT blocks (`emptyblockperiodseconds`) is no longer experimental. The experimental flag `xemptyblockperiodseconds` will be removed in a future release.

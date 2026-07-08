@@ -68,7 +68,8 @@ public record BlockAccessList(List<AccountChanges> accountChanges, Optional<Byte
 
   public long eip7928ItemCount() {
     long totalStorageKeys = 0;
-    for (AccountChanges accountChange : accountChanges) {
+    for (int i = 0, accountChangesSize = accountChanges.size(); i < accountChangesSize; i++) {
+      AccountChanges accountChange = accountChanges.get(i);
       totalStorageKeys += accountChange.storageChanges().size();
       totalStorageKeys += accountChange.storageReads().size();
     }

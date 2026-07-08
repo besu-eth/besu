@@ -14,9 +14,11 @@
  */
 package org.hyperledger.besu.plugin.services.storage.rocksdb.configuration;
 
+import java.lang.management.ManagementFactory;
 import java.util.Optional;
 
 import com.google.common.base.MoreObjects;
+import com.sun.management.OperatingSystemMXBean;
 import picocli.CommandLine;
 
 /** The RocksDb cli options. */
@@ -24,6 +26,20 @@ public class RocksDBCLIOptions {
 
   /** The constant DEFAULT_MAX_OPEN_FILES. */
   public static final int DEFAULT_MAX_OPEN_FILES = 1024;
+
+  /** Max open files for machines with at least 4 GiB available memory. */
+  public static final int MAX_OPEN_FILES_4GB = 2048;
+
+  /** Max open files for machines with at least 8 GiB available memory. */
+  public static final int MAX_OPEN_FILES_8GB = 4096;
+
+  /** Max open files for machines with at least 16 GiB available memory. */
+  public static final int MAX_OPEN_FILES_16GB = 8192;
+
+  /** Max open files for machines with at least 32 GiB available memory. */
+  public static final int MAX_OPEN_FILES_32GB = 16384;
+
+  private static final long GIB = 1024L * 1024L * 1024L;
 
   /** The constant DEFAULT_CACHE_CAPACITY. */
   public static final long DEFAULT_CACHE_CAPACITY = 134217728;
@@ -36,6 +52,9 @@ public class RocksDBCLIOptions {
 
   /** The default value indicating whether read caching is enabled for snapshot access. */
   public static final boolean DEFAULT_ENABLE_READ_CACHE_FOR_SNAPSHOTS = false;
+
+  /** The default value indicating whether the startup table cache warm-up is enabled. */
+  public static final boolean DEFAULT_IS_TABLE_CACHE_WARMUP_ENABLED = true;
 
   /** The constant MAX_OPEN_FILES_FLAG. */
   public static final String MAX_OPEN_FILES_FLAG = "--Xplugin-rocksdb-max-open-files";
@@ -54,6 +73,10 @@ public class RocksDBCLIOptions {
   public static final String ENABLE_READ_CACHE_FOR_SNAPSHOTS =
       "--Xplugin-rocksdb-read-cache-snapshots-enabled";
 
+  /** The constant TABLE_CACHE_WARMUP_ENABLED_FLAG. */
+  public static final String TABLE_CACHE_WARMUP_ENABLED_FLAG =
+      "--Xplugin-rocksdb-table-cache-warmup-enabled";
+
   /** Key name for configuring blockchain_blob_garbage_collection_enabled */
   public static final String BLOB_BLOCKCHAIN_GARBAGE_COLLECTION_ENABLED =
       "--Xplugin-rocksdb-blockchain-blob-garbage-collection-enabled";
@@ -70,10 +93,10 @@ public class RocksDBCLIOptions {
   @CommandLine.Option(
       names = {MAX_OPEN_FILES_FLAG},
       hidden = true,
-      defaultValue = "1024",
       paramLabel = "<INTEGER>",
-      description = "Max number of files RocksDB will open (default: ${DEFAULT-VALUE})")
-  int maxOpenFiles;
+      description =
+          "Max number of files RocksDB will open. If unset, derives a value from available memory.")
+  Optional<Integer> maxOpenFiles = Optional.empty();
 
   /** The Cache capacity. */
   @CommandLine.Option(
@@ -110,6 +133,15 @@ public class RocksDBCLIOptions {
       description =
           "Enable read caching during snapshot access for better RPC performance (default: ${DEFAULT-VALUE}). May slow block processing.")
   boolean enableReadCacheForSnapshots;
+
+  /** Enables the startup table cache warm-up. */
+  @CommandLine.Option(
+      names = {TABLE_CACHE_WARMUP_ENABLED_FLAG},
+      hidden = true,
+      paramLabel = "<BOOLEAN>",
+      description =
+          "At startup, open the table readers of all live SST files to populate the RocksDB table cache with their footers, indexes and filters (default: ${DEFAULT-VALUE})")
+  boolean isTableCacheWarmupEnabled = DEFAULT_IS_TABLE_CACHE_WARMUP_ENABLED;
 
   /** The Blob blockchain garbage collection enabled. */
   @CommandLine.Option(
@@ -163,11 +195,12 @@ public class RocksDBCLIOptions {
    */
   public static RocksDBCLIOptions fromConfig(final RocksDBConfiguration config) {
     final RocksDBCLIOptions options = create();
-    options.maxOpenFiles = config.getMaxOpenFiles();
+    options.maxOpenFiles = Optional.of(config.getMaxOpenFiles());
     options.cacheCapacity = config.getCacheCapacity();
     options.backgroundThreadCount = config.getBackgroundThreadCount();
     options.isHighSpec = config.isHighSpec();
     options.enableReadCacheForSnapshots = config.isReadCacheEnabledForSnapshots();
+    options.isTableCacheWarmupEnabled = config.isTableCacheWarmupEnabled();
     options.isBlockchainGarbageCollectionEnabled = config.isBlockchainGarbageCollectionEnabled();
     options.blobGarbageCollectionAgeCutoff = config.getBlobGarbageCollectionAgeCutoff();
     options.blobGarbageCollectionForceThreshold = config.getBlobGarbageCollectionForceThreshold();
@@ -181,11 +214,12 @@ public class RocksDBCLIOptions {
    */
   public RocksDBFactoryConfiguration toDomainObject() {
     return new RocksDBFactoryConfiguration(
-        maxOpenFiles,
+        maxOpenFiles.orElseGet(RocksDBCLIOptions::deriveMaxOpenFilesFromAvailableMemory),
         backgroundThreadCount,
         cacheCapacity,
         isHighSpec,
         enableReadCacheForSnapshots,
+        isTableCacheWarmupEnabled,
         isBlockchainGarbageCollectionEnabled,
         blobGarbageCollectionAgeCutoff,
         blobGarbageCollectionForceThreshold);
@@ -198,6 +232,31 @@ public class RocksDBCLIOptions {
    */
   public boolean isHighSpec() {
     return isHighSpec;
+  }
+
+  public static int deriveMaxOpenFilesFromAvailableMemory() {
+    final java.lang.management.OperatingSystemMXBean osBean =
+        ManagementFactory.getOperatingSystemMXBean();
+    if (osBean instanceof OperatingSystemMXBean operatingSystemMXBean) {
+      return calculateMaxOpenFiles(operatingSystemMXBean.getFreeMemorySize());
+    }
+    return DEFAULT_MAX_OPEN_FILES;
+  }
+
+  public static int calculateMaxOpenFiles(final long availableMemoryBytes) {
+    if (availableMemoryBytes >= 32L * GIB) {
+      return MAX_OPEN_FILES_32GB;
+    }
+    if (availableMemoryBytes >= 16L * GIB) {
+      return MAX_OPEN_FILES_16GB;
+    }
+    if (availableMemoryBytes >= 8L * GIB) {
+      return MAX_OPEN_FILES_8GB;
+    }
+    if (availableMemoryBytes >= 4L * GIB) {
+      return MAX_OPEN_FILES_4GB;
+    }
+    return DEFAULT_MAX_OPEN_FILES;
   }
 
   /**
@@ -220,6 +279,7 @@ public class RocksDBCLIOptions {
         .add("backgroundThreadCount", backgroundThreadCount)
         .add("isHighSpec", isHighSpec)
         .add("enableReadCacheForSnapshots", enableReadCacheForSnapshots)
+        .add("isTableCacheWarmupEnabled", isTableCacheWarmupEnabled)
         .add("isBlockchainGarbageCollectionEnabled", isBlockchainGarbageCollectionEnabled)
         .add("blobGarbageCollectionAgeCutoff", blobGarbageCollectionAgeCutoff)
         .add("blobGarbageCollectionForceThreshold", blobGarbageCollectionForceThreshold)

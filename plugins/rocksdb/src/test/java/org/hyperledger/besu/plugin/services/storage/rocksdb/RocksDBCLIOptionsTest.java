@@ -21,6 +21,10 @@ import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_IS_HIGH_SPEC;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.DEFAULT_MAX_OPEN_FILES;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.IS_HIGH_SPEC;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.MAX_OPEN_FILES_16GB;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.MAX_OPEN_FILES_32GB;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.MAX_OPEN_FILES_4GB;
+import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.MAX_OPEN_FILES_8GB;
 import static org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions.MAX_OPEN_FILES_FLAG;
 
 import org.hyperledger.besu.plugin.services.storage.rocksdb.configuration.RocksDBCLIOptions;
@@ -41,7 +45,8 @@ public class RocksDBCLIOptionsTest {
     assertThat(configuration).isNotNull();
     assertThat(configuration.getBackgroundThreadCount()).isEqualTo(DEFAULT_BACKGROUND_THREAD_COUNT);
     assertThat(configuration.getCacheCapacity()).isEqualTo(DEFAULT_CACHE_CAPACITY);
-    assertThat(configuration.getMaxOpenFiles()).isEqualTo(DEFAULT_MAX_OPEN_FILES);
+    assertThat(configuration.getMaxOpenFiles())
+        .isEqualTo(RocksDBCLIOptions.deriveMaxOpenFilesFromAvailableMemory());
     assertThat(configuration.isHighSpec()).isEqualTo(DEFAULT_IS_HIGH_SPEC);
   }
 
@@ -58,7 +63,8 @@ public class RocksDBCLIOptionsTest {
     assertThat(configuration).isNotNull();
     assertThat(configuration.getBackgroundThreadCount()).isEqualTo(expectedBackgroundThreadCount);
     assertThat(configuration.getCacheCapacity()).isEqualTo(DEFAULT_CACHE_CAPACITY);
-    assertThat(configuration.getMaxOpenFiles()).isEqualTo(DEFAULT_MAX_OPEN_FILES);
+    assertThat(configuration.getMaxOpenFiles())
+        .isEqualTo(RocksDBCLIOptions.deriveMaxOpenFilesFromAvailableMemory());
     assertThat(configuration.isHighSpec()).isEqualTo(DEFAULT_IS_HIGH_SPEC);
   }
 
@@ -73,7 +79,8 @@ public class RocksDBCLIOptionsTest {
     assertThat(configuration).isNotNull();
     assertThat(configuration.getBackgroundThreadCount()).isEqualTo(DEFAULT_BACKGROUND_THREAD_COUNT);
     assertThat(configuration.getCacheCapacity()).isEqualTo(expectedCacheCapacity);
-    assertThat(configuration.getMaxOpenFiles()).isEqualTo(DEFAULT_MAX_OPEN_FILES);
+    assertThat(configuration.getMaxOpenFiles())
+        .isEqualTo(RocksDBCLIOptions.deriveMaxOpenFilesFromAvailableMemory());
     assertThat(configuration.isHighSpec()).isEqualTo(DEFAULT_IS_HIGH_SPEC);
   }
 
@@ -103,5 +110,37 @@ public class RocksDBCLIOptionsTest {
     assertThat(configuration.getBackgroundThreadCount()).isEqualTo(DEFAULT_BACKGROUND_THREAD_COUNT);
     assertThat(configuration.getCacheCapacity()).isEqualTo(DEFAULT_CACHE_CAPACITY);
     assertThat(configuration.isHighSpec()).isEqualTo(Boolean.TRUE);
+  }
+
+  @Test
+  public void tableCacheWarmupEnabledByDefault() {
+    final RocksDBCLIOptions options = RocksDBCLIOptions.create();
+
+    new CommandLine(options).parseArgs();
+
+    final RocksDBFactoryConfiguration configuration = options.toDomainObject();
+    assertThat(configuration.isTableCacheWarmupEnabled()).isTrue();
+  }
+
+  @Test
+  public void tableCacheWarmupCanBeDisabled() {
+    final RocksDBCLIOptions options = RocksDBCLIOptions.create();
+
+    new CommandLine(options)
+        .parseArgs(RocksDBCLIOptions.TABLE_CACHE_WARMUP_ENABLED_FLAG + "=false");
+
+    final RocksDBFactoryConfiguration configuration = options.toDomainObject();
+    assertThat(configuration.isTableCacheWarmupEnabled()).isFalse();
+  }
+
+  @Test
+  public void autoMaxOpenFilesUsesMemoryTiers() {
+    final long gib = 1024L * 1024L * 1024L;
+
+    assertThat(RocksDBCLIOptions.calculateMaxOpenFiles(2L * gib)).isEqualTo(DEFAULT_MAX_OPEN_FILES);
+    assertThat(RocksDBCLIOptions.calculateMaxOpenFiles(4L * gib)).isEqualTo(MAX_OPEN_FILES_4GB);
+    assertThat(RocksDBCLIOptions.calculateMaxOpenFiles(8L * gib)).isEqualTo(MAX_OPEN_FILES_8GB);
+    assertThat(RocksDBCLIOptions.calculateMaxOpenFiles(16L * gib)).isEqualTo(MAX_OPEN_FILES_16GB);
+    assertThat(RocksDBCLIOptions.calculateMaxOpenFiles(32L * gib)).isEqualTo(MAX_OPEN_FILES_32GB);
   }
 }

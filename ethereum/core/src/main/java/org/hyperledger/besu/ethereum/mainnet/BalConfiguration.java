@@ -24,6 +24,10 @@ public interface BalConfiguration {
 
   BalConfiguration DEFAULT = ImmutableBalConfiguration.builder().build();
 
+  /** Configuration with BAL state root disabled (uses standard accumulator-based root). */
+  BalConfiguration DISABLED =
+      ImmutableBalConfiguration.builder().isBalStateRootEnabled(false).build();
+
   /** Returns whether the BAL-computed state root should be trusted without verification. */
   @Value.Default
   default boolean isBalStateRootTrusted() {

@@ -39,7 +39,6 @@ public class BonsaiWorldStateUpdateAccumulator
       final EvmConfiguration evmConfiguration,
       final CodeCache codeCache) {
     super(world, accountPreloader, storagePreloader, evmConfiguration);
-
     this.codeCache = codeCache;
   }
 

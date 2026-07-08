@@ -36,7 +36,7 @@ public abstract class PathBasedAccount implements MutableAccount, AccountValue {
   protected final PathBasedWorldView context;
   protected boolean immutable;
   protected final Address address;
-  protected final Hash addressHash;
+  protected Hash addressHash;
   protected Hash codeHash;
   protected long nonce;
   protected Wei balance;
@@ -236,6 +236,21 @@ public abstract class PathBasedAccount implements MutableAccount, AccountValue {
     Optional.ofNullable(codeCache).ifPresent(c -> c.put(codeHash, this.code));
   }
 
+  /**
+   * Updates the code hash without loading bytecode. The code is resolved lazily on the next read.
+   */
+  public void setCodeHash(final Hash newCodeHash) {
+    if (immutable) {
+      throw new ModificationNotAllowedException();
+    }
+    this.codeHash = newCodeHash;
+    if (newCodeHash.equals(Hash.EMPTY)) {
+      this.code = Code.EMPTY_CODE;
+    } else {
+      this.code = null;
+    }
+  }
+
   @Override
   public Hash getCodeHash() {
     return codeHash;
@@ -293,4 +308,5 @@ public abstract class PathBasedAccount implements MutableAccount, AccountValue {
         + codeHash
         + '}';
   }
+
 }

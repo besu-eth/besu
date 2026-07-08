@@ -664,16 +664,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
       preloadBlockHeaderCache(blockchain, scheduler);
     }
 
-    boolean balStateRootTrusted = balConfiguration.isBalStateRootTrusted();
-    final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader;
-    if (balStateRootTrusted) {
-      bonsaiCachedMerkleTrieLoader = new NoopBonsaiCachedMerkleTrieLoader();
-    } else {
-      bonsaiCachedMerkleTrieLoader =
-          besuComponent
-              .map(BesuComponent::getCachedMerkleTrieLoader)
-              .orElseGet(() -> new BonsaiCachedMerkleTrieLoader(metricsSystem));
-    }
+    final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader =
+        new NoopBonsaiCachedMerkleTrieLoader();
 
     final var worldStateHealerSupplier = new AtomicReference<WorldStateHealer>();
 
