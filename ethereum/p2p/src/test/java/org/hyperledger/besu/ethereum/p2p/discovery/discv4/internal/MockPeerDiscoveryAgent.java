@@ -20,7 +20,7 @@ import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.p2p.config.DiscoveryConfiguration;
 import org.hyperledger.besu.ethereum.p2p.discovery.NodeRecordManager;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.PeerDiscoveryAgentV4;
-import org.hyperledger.besu.ethereum.p2p.discovery.discv4.V4Transport;
+import org.hyperledger.besu.ethereum.p2p.discovery.discv4.Transport;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.DaggerPacketPackage;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.Packet;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.PacketPackage;
@@ -85,13 +85,13 @@ public class MockPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
             new InMemoryKeyValueStorageProvider(), nodeKey, forkIdManager, natService),
         rlpxAgent,
         new PeerTable(nodeKey.getPublicKey().getEncodedBytes()),
-        new MockV4Transport(agentNetwork, config),
+        new MockTransport(agentNetwork, config),
         packetPackage.packetSerializer(),
         packetPackage.packetDeserializer());
-    // Post-construction attach, mirroring V4Transport.setInboundHandler(...) /
+    // Post-construction attach, mirroring Transport.setInboundHandler(...) /
     // PeerDiscoveryAgentV4.prepareHandlers() — 'this' isn't available until after super()
-    // returns, so MockV4Transport can't be handed the owning agent at construction time.
-    ((MockV4Transport) transport).setOwner(this);
+    // returns, so MockTransport can't be handed the owning agent at construction time.
+    ((MockTransport) transport).setOwner(this);
   }
 
   public void processIncomingPacket(final MockPeerDiscoveryAgent fromAgent, final Packet packet) {
@@ -176,14 +176,14 @@ public class MockPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
     }
   }
 
-  /** Test-only V4Transport that routes outbound packets directly to the target mock agent. */
-  private static class MockV4Transport implements V4Transport {
+  /** Test-only Transport that routes outbound packets directly to the target mock agent. */
+  private static class MockTransport implements Transport {
     private final Map<Bytes, MockPeerDiscoveryAgent> agentNetwork;
     private final InetSocketAddress listenAddress;
     private MockPeerDiscoveryAgent owner;
     private boolean isRunning = false;
 
-    MockV4Transport(
+    MockTransport(
         final Map<Bytes, MockPeerDiscoveryAgent> agentNetwork,
         final DiscoveryConfiguration config) {
       this.agentNetwork = agentNetwork;

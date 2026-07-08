@@ -20,7 +20,7 @@ import java.util.concurrent.CompletableFuture;
 import org.apache.tuweni.bytes.Bytes;
 
 /** Transport abstraction for DiscV4 UDP send/receive. */
-public interface V4Transport {
+public interface Transport {
 
   CompletableFuture<InetSocketAddress> start();
 

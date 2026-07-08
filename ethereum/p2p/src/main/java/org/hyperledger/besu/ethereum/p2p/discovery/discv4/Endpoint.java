@@ -211,6 +211,9 @@ public class Endpoint {
       // decodeInline may throw before consuming all of this list's items (e.g. an invalid field
       // count, or a malformed field partway through). Skip whatever is left so the cursor lands
       // exactly at the end of this list, keeping the enclosing list's parse position in sync.
+      // This matters because maybeDecodeStandalone() below swallows this exception and keeps
+      // reading the enclosing PING packet's remaining fields (expiration, enrSeq) from the same
+      // RLPInput - without this, a malformed "to"/"from" would desync the cursor for those.
       while (!in.isEndOfCurrentList()) {
         in.skipNext();
       }

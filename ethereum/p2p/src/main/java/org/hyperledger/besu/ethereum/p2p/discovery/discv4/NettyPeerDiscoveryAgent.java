@@ -70,7 +70,7 @@ public class NettyPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
       final NodeRecordManager nodeRecordManager,
       final RlpxAgent rlpxAgent,
       final PeerTable peerTable,
-      final V4Transport transport,
+      final Transport transport,
       final PacketSerializer packetSerializer,
       final PacketDeserializer packetDeserializer) {
     super(
@@ -88,7 +88,7 @@ public class NettyPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
     addPeerRequirement(() -> rlpxAgent.getConnectionCount() >= rlpxAgent.getMaxPeers());
   }
 
-  /** Creates an agent with a pre-built {@link V4Transport}. */
+  /** Creates an agent with a pre-built {@link Transport}. */
   public static NettyPeerDiscoveryAgent createWithTransport(
       final NodeKey nodeKey,
       final DiscoveryConfiguration config,
@@ -98,7 +98,7 @@ public class NettyPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
       final NodeRecordManager nodeRecordManager,
       final ForkIdManager forkIdManager,
       final RlpxAgent rlpxAgent,
-      final V4Transport transport) {
+      final Transport transport) {
     final PacketPackage packetPackage = DaggerPacketPackage.create();
     final PeerTable peerTable = new PeerTable(nodeKey.getPublicKey().getEncodedBytes());
     return new NettyPeerDiscoveryAgent(
@@ -227,7 +227,7 @@ public class NettyPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
     }
     if (err instanceof NativeIoException nativeErr) {
       if (nativeErr.expectedErr() == Errors.ERROR_ENETUNREACH_NEGATIVE) {
-        LOG.atDebug()
+        LOG.atTrace()
             .setMessage("Peer {} is unreachable, native error code {}, packet: {}, stacktrace: {}")
             .addArgument(peer)
             .addArgument(nativeErr::expectedErr)
@@ -245,7 +245,7 @@ public class NettyPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
             .log();
       }
     } else if (err instanceof SocketException && err.getMessage().contains("unreachable")) {
-      LOG.atDebug()
+      LOG.atTrace()
           .setMessage("Peer {} is unreachable, packet: {}")
           .addArgument(peer)
           .addArgument(() -> packetSerializer.encode(packet))

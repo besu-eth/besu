@@ -35,6 +35,7 @@ import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.neighb
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.neighbors.NeighborsPacketDataRlpReader;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.neighbors.NeighborsPacketDataRlpWriter;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.ping.PingPacketData;
+import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.ping.PingPacketDataFactory;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.ping.PingPacketDataRlpReader;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.ping.PingPacketDataRlpWriter;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.pong.PongPacketData;
@@ -42,6 +43,7 @@ import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.pong.P
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.pong.PongPacketDataRlpReader;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.pong.PongPacketDataRlpWriter;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.validation.DiscoveryPeersValidator;
+import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.validation.EndpointValidator;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.validation.ExpiryValidator;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.validation.NodeRecordValidator;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.validation.RequestHashValidator;
@@ -68,7 +70,8 @@ public class PacketDeserializerTest {
   @BeforeEach
   public void beforeTest() {
     PingPacketDataRlpReader pingPacketDataRlpReader =
-        new PingPacketDataRlpReader(new ExpiryValidator(clock));
+        new PingPacketDataRlpReader(
+            new PingPacketDataFactory(new EndpointValidator(), new ExpiryValidator(clock), clock));
     PongPacketDataRlpReader pongPacketDataRlpReader =
         new PongPacketDataRlpReader(new PongPacketDataFactory(new ExpiryValidator(clock), clock));
     FindNeighborsPacketDataRlpReader findNeighborsPacketDataRlpReader =

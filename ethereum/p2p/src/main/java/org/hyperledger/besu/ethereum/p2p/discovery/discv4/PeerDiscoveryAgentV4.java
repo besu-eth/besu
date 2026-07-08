@@ -91,7 +91,7 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
 
   private final NodeRecordManager nodeRecordManager;
 
-  protected final V4Transport transport;
+  protected final Transport transport;
   protected final PacketSerializer packetSerializer;
   protected final PacketDeserializer packetDeserializer;
 
@@ -124,7 +124,7 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
       final NodeRecordManager nodeRecordManager,
       final RlpxAgent rlpxAgent,
       final PeerTable peerTable,
-      final V4Transport transport,
+      final Transport transport,
       final PacketSerializer packetSerializer,
       final PacketDeserializer packetDeserializer) {
     this.metricsSystem = metricsSystem;

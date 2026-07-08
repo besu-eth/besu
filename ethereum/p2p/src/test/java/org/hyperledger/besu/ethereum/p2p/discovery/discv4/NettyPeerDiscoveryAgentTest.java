@@ -62,13 +62,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 class NettyPeerDiscoveryAgentTest {
 
   private NettyPeerDiscoveryAgent agent;
-  private TrackingV4Transport transport;
+  private TrackingTransport transport;
   private DiscoveryPeerV4 peer;
   private Packet packet;
 
   @BeforeEach
   void setUp() {
-    transport = new TrackingV4Transport();
+    transport = new TrackingTransport();
 
     final NodeKey nodeKey = NodeKeyUtils.generate();
     final DiscoveryConfiguration config = new DiscoveryConfiguration();
@@ -121,8 +121,6 @@ class NettyPeerDiscoveryAgentTest {
     packet = packetPackage.packetFactory().create(PacketType.PING, pingData, nodeKey);
   }
 
-  // --- Gap 2: stopGate in sendOutgoingPacket ---
-
   @Test
   void sendOutgoingPacket_completesWithoutCallingTransport_afterStop() {
     agent.stop().join();
@@ -141,8 +139,6 @@ class NettyPeerDiscoveryAgentTest {
     assertThat(transport.sendCallCount.get()).isOne();
   }
 
-  // --- Gap 2: stopGate in handleOutgoingPacketError ---
-
   @Test
   void handleOutgoingPacketError_doesNotThrow_afterStop() {
     agent.stop().join();
@@ -150,8 +146,6 @@ class NettyPeerDiscoveryAgentTest {
             () -> agent.handleOutgoingPacketError(new RuntimeException("test error"), peer, packet))
         .doesNotThrowAnyException();
   }
-
-  // --- Gap 1: handleOutgoingPacketError branches ---
 
   static Stream<Throwable> knownOutgoingErrors() {
     return Stream.of(
@@ -168,7 +162,7 @@ class NettyPeerDiscoveryAgentTest {
         .doesNotThrowAnyException();
   }
 
-  private static class TrackingV4Transport implements V4Transport {
+  private static class TrackingTransport implements Transport {
     final AtomicInteger sendCallCount = new AtomicInteger(0);
 
     @Override

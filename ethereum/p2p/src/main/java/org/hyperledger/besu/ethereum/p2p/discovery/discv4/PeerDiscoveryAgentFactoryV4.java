@@ -20,7 +20,7 @@ import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.discovery.NodeRecordManager;
 import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryAgent;
 import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryAgentFactory;
-import org.hyperledger.besu.ethereum.p2p.discovery.discv4.transport.NettyV4Transport;
+import org.hyperledger.besu.ethereum.p2p.discovery.discv4.transport.NettyTransport;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
@@ -63,7 +63,7 @@ public class PeerDiscoveryAgentFactoryV4 implements PeerDiscoveryAgentFactory {
         new NodeRecordManager(storageProvider, nodeKey, forkIdManager, natService);
     final InetSocketAddress bindAddress =
         new InetSocketAddress(discoveryConfig.getBindHost(), discoveryConfig.getBindPort());
-    final V4Transport transport = NettyV4Transport.create(bindAddress);
+    final Transport transport = NettyTransport.create(bindAddress);
     return NettyPeerDiscoveryAgent.createWithTransport(
         nodeKey,
         discoveryConfig,

@@ -15,7 +15,7 @@
 package org.hyperledger.besu.ethereum.p2p.discovery.discv4.transport;
 
 import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryServiceException;
-import org.hyperledger.besu.ethereum.p2p.discovery.discv4.V4Transport;
+import org.hyperledger.besu.ethereum.p2p.discovery.discv4.Transport;
 
 import java.io.IOException;
 import java.net.BindException;
@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelFactory;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInitializer;
@@ -41,15 +42,16 @@ import io.netty.channel.socket.SocketProtocolFamily;
 import io.netty.channel.socket.nio.NioDatagramChannel;
 import io.netty.handler.logging.LogLevel;
 import io.netty.handler.logging.LoggingHandler;
+import io.netty.util.concurrent.Future;
 import org.apache.tuweni.bytes.Bytes;
 import org.ethereum.beacon.discovery.util.DecodeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Netty-backed {@link V4Transport} that binds and owns its own UDP socket. */
-public final class NettyV4Transport implements V4Transport {
+/** Netty-backed {@link Transport} that binds and owns its own UDP socket. */
+public final class NettyTransport implements Transport {
 
-  private static final Logger LOG = LoggerFactory.getLogger(NettyV4Transport.class);
+  private static final Logger LOG = LoggerFactory.getLogger(NettyTransport.class);
 
   // Matches the logger LoggingHandler(LogLevel) itself logs through (Netty's InternalLogger for
   // LoggingHandler.class), so this check reflects exactly whether that handler would actually
@@ -76,12 +78,12 @@ public final class NettyV4Transport implements V4Transport {
   private final AtomicBoolean started = new AtomicBoolean(false);
   private final AtomicBoolean stopped = new AtomicBoolean(false);
 
-  private NettyV4Transport(final InetSocketAddress bindAddress) {
+  private NettyTransport(final InetSocketAddress bindAddress) {
     this.bindAddress = bindAddress;
   }
 
-  public static NettyV4Transport create(final InetSocketAddress bindAddress) {
-    return new NettyV4Transport(bindAddress);
+  public static NettyTransport create(final InetSocketAddress bindAddress) {
+    return new NettyTransport(bindAddress);
   }
 
   @Override
@@ -93,7 +95,7 @@ public final class NettyV4Transport implements V4Transport {
   public CompletableFuture<InetSocketAddress> start() {
     if (!started.compareAndSet(false, true)) {
       return CompletableFuture.failedFuture(
-          new IllegalStateException("NettyV4Transport already started"));
+          new IllegalStateException("NettyTransport already started"));
     }
 
     this.eventLoopGroup =
@@ -107,7 +109,7 @@ public final class NettyV4Transport implements V4Transport {
         // DiscV4 is IPv4-only; pin the family explicitly so 0.0.0.0 binds don't
         // open an IPv6 socket on Java 17+ (per Netty default).
         .channelFactory(
-            (io.netty.channel.ChannelFactory<NioDatagramChannel>)
+            (ChannelFactory<NioDatagramChannel>)
                 () -> new NioDatagramChannel(SocketProtocolFamily.INET))
         .handler(
             new ChannelInitializer<NioDatagramChannel>() {
@@ -191,13 +193,12 @@ public final class NettyV4Transport implements V4Transport {
         .whenComplete((v, ex) -> LOG.info("DiscV4 event loop group shut down"));
   }
 
-  private static io.netty.util.concurrent.Future<?> shutdownEventLoopGroup(
-      final EventLoopGroup group) {
+  private static Future<?> shutdownEventLoopGroup(final EventLoopGroup group) {
     return group.shutdownGracefully(
         SHUTDOWN_QUIET_PERIOD_MS, SHUTDOWN_TIMEOUT_MS, TimeUnit.MILLISECONDS);
   }
 
-  private static CompletableFuture<Void> toFuture(final io.netty.util.concurrent.Future<?> f) {
+  private static CompletableFuture<Void> toFuture(final Future<?> f) {
     final CompletableFuture<Void> cf = new CompletableFuture<>();
     f.addListener(
         result -> {

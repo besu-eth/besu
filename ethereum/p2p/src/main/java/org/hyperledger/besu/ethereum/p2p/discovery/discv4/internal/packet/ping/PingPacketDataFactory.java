@@ -57,6 +57,20 @@ public class PingPacketDataFactory {
     return new PingPacketData(maybeFrom, Optional.of(to), getDefaultExpirationTime(), enrSeq);
   }
 
+  /**
+   * Builds a {@link PingPacketData} from a decoded wire packet. Per EIP-8, a malformed {@code to}
+   * (or {@code from}) field must not prevent packet processing, so unlike {@link #create(Optional,
+   * Endpoint, long, UInt64)} the endpoints are not validated here.
+   */
+  public PingPacketData createFromWire(
+      final Optional<Endpoint> maybeFrom,
+      final Optional<Endpoint> maybeTo,
+      final long expiration,
+      final UInt64 enrSeq) {
+    expiryValidator.validate(expiration);
+    return new PingPacketData(maybeFrom, maybeTo, expiration, enrSeq);
+  }
+
   private long getDefaultExpirationTime() {
     return clock.instant().getEpochSecond() + PacketData.DEFAULT_EXPIRATION_PERIOD_SEC;
   }

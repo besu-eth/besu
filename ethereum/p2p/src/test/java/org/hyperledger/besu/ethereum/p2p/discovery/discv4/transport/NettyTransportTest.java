@@ -27,10 +27,10 @@ import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
-public class NettyV4TransportTest {
+public class NettyTransportTest {
 
-  private NettyV4Transport transport1;
-  private NettyV4Transport transport2;
+  private NettyTransport transport1;
+  private NettyTransport transport2;
 
   @AfterEach
   public void tearDown() throws Exception {
@@ -46,8 +46,8 @@ public class NettyV4TransportTest {
   public void twoTransports_exchangePackets() throws Exception {
     final InetSocketAddress ephemeral = new InetSocketAddress(InetAddress.getLoopbackAddress(), 0);
 
-    transport1 = NettyV4Transport.create(ephemeral);
-    transport2 = NettyV4Transport.create(ephemeral);
+    transport1 = NettyTransport.create(ephemeral);
+    transport2 = NettyTransport.create(ephemeral);
 
     final AtomicReference<Bytes> receivedByTransport2 = new AtomicReference<>();
     transport2.setInboundHandler((sender, data) -> receivedByTransport2.set(data));
@@ -70,8 +70,8 @@ public class NettyV4TransportTest {
   public void sendCompletionFuture_resolvesOnSuccess() throws Exception {
     final InetSocketAddress ephemeral = new InetSocketAddress(InetAddress.getLoopbackAddress(), 0);
 
-    transport1 = NettyV4Transport.create(ephemeral);
-    transport2 = NettyV4Transport.create(ephemeral);
+    transport1 = NettyTransport.create(ephemeral);
+    transport2 = NettyTransport.create(ephemeral);
 
     transport2.setInboundHandler((sender, data) -> {});
 
@@ -87,7 +87,7 @@ public class NettyV4TransportTest {
   @Test
   public void start_returnsActualBoundAddress() throws Exception {
     final InetSocketAddress ephemeral = new InetSocketAddress(InetAddress.getLoopbackAddress(), 0);
-    transport1 = NettyV4Transport.create(ephemeral);
+    transport1 = NettyTransport.create(ephemeral);
 
     final InetSocketAddress bound = transport1.start().get(5, TimeUnit.SECONDS);
 
@@ -98,7 +98,7 @@ public class NettyV4TransportTest {
   @Test
   public void stop_completesCleanly() throws Exception {
     final InetSocketAddress ephemeral = new InetSocketAddress(InetAddress.getLoopbackAddress(), 0);
-    transport1 = NettyV4Transport.create(ephemeral);
+    transport1 = NettyTransport.create(ephemeral);
     transport1.start().get(5, TimeUnit.SECONDS);
 
     final CompletableFuture<Void> stopFuture = transport1.stop();
