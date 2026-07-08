@@ -43,14 +43,16 @@ jobs:
         with:
           distribution: temurin
           java-version: 25
-      - name: Setup Gradle
-        if: ${{ inputs.assemble_run_id == '' }}
-        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
-        with:
-          cache-disabled: true
       - name: Stage Docker build context
         run: |
-          if [[ -n "${{ inputs.version }}" ]]; then
+          if [[ -n "${{ inputs.assemble_run_id }}" ]]; then
+            TAR_FILE=$(find build/distributions -name "besu-*.tar.gz" | head -1)
+            mkdir -p build/docker-besu
+            tar -xzf "$TAR_FILE" -C build/docker-besu/
+            rm -rf build/docker-besu/besu
+            mv build/docker-besu/besu-* build/docker-besu/besu
+            cp docker/Dockerfile docker/pyroscope.properties build/docker-besu/
+          elif [[ -n "${{ inputs.version }}" ]]; then
             ./gradlew --no-daemon -Prelease.releaseVersion=${{ inputs.version }} -Pversion=${{ inputs.version }} distDockerCopy
           else
             ./gradlew --no-daemon distDockerCopy

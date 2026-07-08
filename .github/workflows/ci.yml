@@ -32,7 +32,7 @@ env:
 #                  → allTestsPassed (PR merge gate).
 
 jobs:
-  check-no-binaries:
+  checkNoBinaries:
     name: "No binaries check"
     runs-on: ubuntu-latest
     steps:
@@ -119,7 +119,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [spotless, checkLicense, gradleWrapper, repoLint, check-no-binaries]
+    needs: [spotless, checkLicense, gradleWrapper, repoLint, checkNoBinaries]
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -165,7 +165,7 @@ jobs:
     name: "Verify Dependency Source Metadata"
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    needs: [spotless, checkLicense, gradleWrapper, repoLint, check-no-binaries]
+    needs: [spotless, checkLicense, gradleWrapper, repoLint, checkNoBinaries]
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -187,29 +187,27 @@ jobs:
   # Each suite has its suite-tests-passed job in the file directly
   unitTests:
     if: github.event_name == 'pull_request'
-    needs: [spotless, checkLicense, gradleWrapper, repoLint, check-no-binaries]
+    needs: [spotless, checkLicense, gradleWrapper, repoLint, checkNoBinaries]
     permissions:
       actions: read
       contents: read
       checks: write
       statuses: write
     uses: ./.github/workflows/unit-tests.yml
-    secrets: inherit
 
   integrationTests:
     if: github.event_name == 'pull_request'
-    needs: [spotless, checkLicense, gradleWrapper, repoLint]
+    needs: [spotless, checkLicense, gradleWrapper, repoLint, checkNoBinaries]
     permissions:
       actions: read
       contents: read
       checks: write
       statuses: write      
     uses: ./.github/workflows/integration-tests.yml
-    secrets: inherit
 
   referenceTests:
     if: github.event_name == 'pull_request'
-    needs: [spotless, checkLicense, gradleWrapper, repoLint]
+    needs: [spotless, checkLicense, gradleWrapper, repoLint, checkNoBinaries]
     permissions:
       actions: read
       contents: read
@@ -221,7 +219,7 @@ jobs:
 
   acceptanceTests:
     if: github.event_name == 'pull_request'
-    needs: [spotless, checkLicense, gradleWrapper, repoLint]
+    needs: [spotless, checkLicense, gradleWrapper, repoLint, checkNoBinaries]
     permissions:
       actions: read
       contents: read
