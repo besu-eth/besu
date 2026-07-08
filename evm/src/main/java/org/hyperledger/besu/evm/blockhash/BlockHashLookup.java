@@ -39,6 +39,8 @@ public interface BlockHashLookup extends BiFunction<MessageFrame, Long, Hash> {
   /**
    * Returns a lookup instance safe for use by a single parallel transaction worker. The default
    * returns {@code this} for stateless implementations.
+   *
+   * @return a lookup instance for the current parallel worker
    */
   default BlockHashLookup forkForParallelWorker() {
     return this;
