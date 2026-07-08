@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.mainnet.block.access.list;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -29,8 +30,8 @@ import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.C
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.NonceChange;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.SlotChanges;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList.StorageChange;
-import org.hyperledger.besu.ethereum.trie.pathbased.common.account.PathBasedAccount;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator.PathBasedValue;
+import org.hyperledger.besu.evm.account.MutableAccount;
 
 import java.util.List;
 
@@ -78,11 +79,11 @@ class BlockAccessListOverlayTest {
     overlay.applyToCode(ADDRESS, codeValue::setUpdated);
     assertThat(codeValue.getUpdated()).isEqualTo(Bytes.fromHexString("0xBB"));
 
-    final PathBasedAccount account = mock(PathBasedAccount.class);
+    final MutableAccount account = mock(MutableAccount.class);
     assertThat(overlay.applyToAccountState(ADDRESS, () -> account)).contains(account);
     verify(account).setBalance(Wei.of(200));
     verify(account).setNonce(1L);
-    verify(account).setCode(Bytes.fromHexString("0xBB"));
+    verify(account).setCode(eq(Bytes.fromHexString("0xBB")));
   }
 
   @Test
@@ -109,10 +110,10 @@ class BlockAccessListOverlayTest {
     overlay.applyToCode(ADDRESS, codeValue::setUpdated);
     assertThat(codeValue.getUpdated()).isEqualTo(Bytes.EMPTY);
 
-    final PathBasedAccount account = mock(PathBasedAccount.class);
+    final MutableAccount account = mock(MutableAccount.class);
     assertThat(overlay.applyToAccountState(ADDRESS, () -> account)).isEmpty();
     verify(account, never()).setBalance(any());
-    verify(account, never()).setCode(any());
+    verify(account, never()).setCode(any(Bytes.class));
   }
 
   @Test

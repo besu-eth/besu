@@ -70,14 +70,14 @@ public class BalPrefetcher {
    *
    * @param worldState the world state to prefetch data into
    * @param blockAccessList the block access list containing read operations
-   * @param outerExecutor the executor for the outer async operation
+   * @param orchestrationExecutor the executor that runs the prefetch orchestration task
    * @return a completable future that completes when prefetching is done
    */
   public CompletableFuture<Void> prefetch(
       final BonsaiWorldState worldState,
       final BlockAccessList blockAccessList,
-      final Executor outerExecutor) {
-    return prefetch(worldState, blockAccessList, outerExecutor, DEFAULT_PREFETCH_EXECUTOR);
+      final Executor orchestrationExecutor) {
+    return prefetch(worldState, blockAccessList, orchestrationExecutor, DEFAULT_PREFETCH_EXECUTOR);
   }
 
   /**
@@ -85,14 +85,14 @@ public class BalPrefetcher {
    *
    * @param worldState the world state to prefetch data into
    * @param blockAccessList the block access list containing read operations
-   * @param outerExecutor the executor for the outer async operation
+   * @param orchestrationExecutor the executor that runs the prefetch orchestration task
    * @param fetchExecutor the executor for fetch operations
    * @return a completable future that completes when prefetching is done
    */
   public CompletableFuture<Void> prefetch(
       final BonsaiWorldState worldState,
       final BlockAccessList blockAccessList,
-      final Executor outerExecutor,
+      final Executor orchestrationExecutor,
       final Executor fetchExecutor) {
 
     return CompletableFuture.runAsync(
@@ -130,7 +130,7 @@ public class BalPrefetcher {
             throw e;
           }
         },
-        outerExecutor);
+        orchestrationExecutor);
   }
 
   /** Collect all account and storage keys from the block access list. */

@@ -32,7 +32,7 @@ import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Supplier;
 
 @SuppressWarnings({"rawtypes", "unchecked"})
@@ -117,9 +117,12 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
 
   private static BalRootComputation awaitBal(final CompletableFuture<BalRootComputation> future) {
     try {
-      return future.join();
-    } catch (final CompletionException e) {
+      return future.get();
+    } catch (final ExecutionException e) {
       throw new IllegalStateException("Failed to compute BAL state root", e.getCause());
+    } catch (final InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("Interrupted while waiting for BAL state root", e);
     }
   }
 

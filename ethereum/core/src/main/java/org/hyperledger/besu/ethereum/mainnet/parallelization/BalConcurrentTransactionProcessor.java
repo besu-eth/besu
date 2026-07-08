@@ -213,7 +213,7 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
     final CompletableFuture<ParallelizedTransactionContext> future = removeFuture(txIndex);
     if (future != null) {
       try {
-        final ParallelizedTransactionContext ctx = future.join();
+        final ParallelizedTransactionContext ctx = future.get();
 
         if (ctx == null) {
           LOG.trace("Transaction context for transaction {} is empty.", txIndex);
@@ -241,6 +241,10 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
         result.setIsProcessedInParallel(Optional.of(Boolean.TRUE));
 
         return Optional.of(result);
+      } catch (final InterruptedException e) {
+        Thread.currentThread().interrupt();
+        LOG.error("Interrupted while waiting for transaction {} processing result.", txIndex, e);
+        return Optional.empty();
       } catch (final Exception e) {
         LOG.error(
             "Error integrating transaction processing result for transaction {}.", txIndex, e);

@@ -18,6 +18,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.datatypes.Wei;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.account.PathBasedAccount;
 import org.hyperledger.besu.evm.account.MutableAccount;
 
 import java.util.List;
@@ -45,35 +46,6 @@ public final class BlockAccessListOverlay {
       final BlockAccessListAccountLookup accountLookup, final long maxTxIndexExclusive) {
     this.accountLookup = accountLookup;
     this.maxTxIndexExclusive = maxTxIndexExclusive;
-  }
-
-  /**
-   * Returns whether the BAL has balance, nonce, or code-hash changes for {@code address} before
-   * {@code maxTxIndexExclusive}.
-   */
-  public boolean hasAccountHeaderChanges(final Address address) {
-    return accountLookup
-        .getAccountChanges(address)
-        .map(this::hasAccountHeaderChanges)
-        .orElse(false);
-  }
-
-  private boolean hasAccountHeaderChanges(final BlockAccessList.AccountChanges accountChanges) {
-    return findLatestBeforeMax(
-                accountChanges.balanceChanges(),
-                maxTxIndexExclusive,
-                BlockAccessList.BalanceChange::txIndex)
-            .isPresent()
-        || findLatestBeforeMax(
-                accountChanges.nonceChanges(),
-                maxTxIndexExclusive,
-                BlockAccessList.NonceChange::txIndex)
-            .isPresent()
-        || findLatestBeforeMax(
-                accountChanges.codeChanges(),
-                maxTxIndexExclusive,
-                BlockAccessList.CodeChange::txIndex)
-            .isPresent();
   }
 
   public BlockAccessListAccountLookup getAccountLookup() {
@@ -108,18 +80,6 @@ public final class BlockAccessListOverlay {
                     .map(BlockAccessList.NonceChange::newNonce));
   }
 
-  public Optional<Hash> getCodeHash(final Address address) {
-    return accountLookup
-        .getAccountChanges(address)
-        .flatMap(
-            accountChanges ->
-                findLatestBeforeMax(
-                        accountChanges.codeChanges(),
-                        maxTxIndexExclusive,
-                        BlockAccessList.CodeChange::txIndex)
-                    .map(BlockAccessListOverlay::codeHashFromChange));
-  }
-
   public Optional<Bytes> getCode(final Address address) {
     return accountLookup
         .getAccountChanges(address)
@@ -138,19 +98,48 @@ public final class BlockAccessListOverlay {
    */
   public <A extends MutableAccount> Optional<A> applyToAccountState(
       final Address address, final Supplier<A> accountSupplier) {
-    if (!hasAccountHeaderChanges(address)) {
-      return Optional.empty();
+    return accountLookup
+        .getAccountChanges(address)
+        .flatMap(
+            accountChanges -> {
+              final Optional<Wei> balance =
+                  findLatestBeforeMax(
+                          accountChanges.balanceChanges(),
+                          maxTxIndexExclusive,
+                          BlockAccessList.BalanceChange::txIndex)
+                      .map(BlockAccessList.BalanceChange::postBalance);
+              final Optional<Long> nonce =
+                  findLatestBeforeMax(
+                          accountChanges.nonceChanges(),
+                          maxTxIndexExclusive,
+                          BlockAccessList.NonceChange::txIndex)
+                      .map(BlockAccessList.NonceChange::newNonce);
+              final Optional<BlockAccessList.CodeChange> codeChange =
+                  findLatestBeforeMax(
+                      accountChanges.codeChanges(),
+                      maxTxIndexExclusive,
+                      BlockAccessList.CodeChange::txIndex);
+
+              if (balance.isEmpty() && nonce.isEmpty() && codeChange.isEmpty()) {
+                return Optional.empty();
+              }
+
+              final A account = accountSupplier.get();
+              balance.ifPresent(account::setBalance);
+              nonce.ifPresent(account::setNonce);
+              codeChange.ifPresent(change -> applyCodeChange(account, change));
+              return Optional.of(account);
+            });
+  }
+
+  private static void applyCodeChange(
+      final MutableAccount account, final BlockAccessList.CodeChange change) {
+    final Bytes code = change.newCode() != null ? change.newCode() : Bytes.EMPTY;
+    if (account instanceof PathBasedAccount pathBasedAccount) {
+      pathBasedAccount.setCodeHash(code.isEmpty() ? Hash.EMPTY : Hash.hash(code));
+      return;
     }
-
-    final Optional<Wei> balance = getBalance(address);
-    final Optional<Long> nonce = getNonce(address);
-    final Optional<Bytes> code = getCode(address);
-
-    final A account = accountSupplier.get();
-    balance.ifPresent(account::setBalance);
-    nonce.ifPresent(account::setNonce);
-    code.ifPresent(account::setCode);
-    return Optional.of(account);
+    account.setCode(code);
   }
 
   public void applyToCode(final Address address, final Consumer<Bytes> codeApplier) {
@@ -163,11 +152,6 @@ public final class BlockAccessListOverlay {
                     maxTxIndexExclusive,
                     BlockAccessList.CodeChange::txIndex))
         .ifPresent(change -> codeApplier.accept(change.newCode()));
-  }
-
-  private static Hash codeHashFromChange(final BlockAccessList.CodeChange change) {
-    final Bytes code = change.newCode();
-    return code == null || code.isEmpty() ? Hash.EMPTY : Hash.hash(code);
   }
 
   public void applyToStorage(
