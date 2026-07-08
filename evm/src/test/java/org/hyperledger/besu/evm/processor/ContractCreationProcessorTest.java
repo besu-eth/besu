@@ -162,7 +162,8 @@ class ContractCreationProcessorTest
         Bytes.fromHexString("00".repeat(EvmSpecVersion.AMSTERDAM.getMaxCodeSize()));
     final MessageFrame messageFrame = new TestMessageFrameBuilder().build();
     messageFrame.setOutputData(contractCode);
-    messageFrame.setGasRemaining(10_000_000L);
+    // EIP-7954: 64KiB code deposit costs 200 * 0x10000 = 13_107_200 regular gas.
+    messageFrame.setGasRemaining(15_000_000L);
 
     processor.codeSuccess(messageFrame, OperationTracer.NO_TRACING);
     assertThat(messageFrame.getState()).isEqualTo(COMPLETED_SUCCESS);
