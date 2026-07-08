@@ -21,9 +21,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Typed thread pools for block processing: one for CPU work (tx execution), one for IO (RocksDB
- * prefetch), one for BAL state-root.
- * Sizes can be set with system properties {@code besu.block.cpuThreads}, {@code besu.block.ioThreads},
- * {@code besu.block.stateRootThreads}. All threads are daemon.
+ * prefetch), one for BAL state-root. Sizes can be set with system properties {@code
+ * besu.block.cpuThreads}, {@code besu.block.ioThreads}, {@code besu.block.stateRootThreads}. All
+ * threads are daemon.
  */
 public final class BlockProcessingExecutors {
 

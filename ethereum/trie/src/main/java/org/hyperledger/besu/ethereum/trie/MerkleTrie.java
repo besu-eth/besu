@@ -91,8 +91,8 @@ public interface MerkleTrie<K, V> {
    * the returned value or removes the key if the merger returns empty.
    *
    * @param key the key to update
-   * @param merger called with the existing value (or empty if absent); returning present updates the
-   *     key, returning empty removes it
+   * @param merger called with the existing value (or empty if absent); returning present updates
+   *     the key, returning empty removes it
    */
   default void putDeferred(final K key, final UnaryOperator<Optional<V>> merger) {
     final Optional<V> merged = merger.apply(get(key));

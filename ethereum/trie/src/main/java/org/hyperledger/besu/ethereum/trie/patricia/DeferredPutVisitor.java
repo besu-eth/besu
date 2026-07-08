@@ -61,8 +61,7 @@ public class DeferredPutVisitor<V> implements PathNodeVisitor<V> {
         : "Visiting path doesn't end with a non-matching terminator";
 
     if (commonPathLength == extensionPath.size()) {
-      final Node<V> newChild =
-          extensionNode.getChild().accept(this, path.slice(commonPathLength));
+      final Node<V> newChild = extensionNode.getChild().accept(this, path.slice(commonPathLength));
       return extensionNode.replaceChild(newChild);
     }
 

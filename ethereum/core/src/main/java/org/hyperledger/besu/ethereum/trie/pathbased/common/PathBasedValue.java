@@ -54,16 +54,18 @@ public class PathBasedValue<T> implements TrieLog.LogTuple<T> {
   }
 
   public PathBasedValue(
-          final Supplier<T> prior, final Supplier<T> updated,
-          final boolean lastStepCleared,
-          final boolean clearedAtLeastOnce) {
+      final Supplier<T> prior,
+      final Supplier<T> updated,
+      final boolean lastStepCleared,
+      final boolean clearedAtLeastOnce) {
     this.prior = prior;
     this.updated = updated;
     this.lastStepCleared = lastStepCleared;
     this.clearedAtLeastOnce = clearedAtLeastOnce;
   }
 
-  public static <T> PathBasedValue<T> withLazy(final Supplier<T> priorLoader, final Supplier<T> updatedLoader) {
+  public static <T> PathBasedValue<T> withLazy(
+      final Supplier<T> priorLoader, final Supplier<T> updatedLoader) {
     return new PathBasedValue<>(priorLoader, updatedLoader, false, false);
   }
 
@@ -87,7 +89,7 @@ public class PathBasedValue<T> implements TrieLog.LogTuple<T> {
     if (lastStepCleared) {
       this.clearedAtLeastOnce = true;
     }
-    this.updated =  () -> updated;
+    this.updated = () -> updated;
     return this;
   }
 

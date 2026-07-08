@@ -222,10 +222,10 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
       // Ensure root is fully loaded (not a lazy StoredNode reference)
       this.root = loadNode(root);
 
-      // Convert pending puts/removes and deferred operations to UpdateEntry objects with nibble paths
+      // Convert pending puts/removes and deferred operations to UpdateEntry objects with nibble
+      // paths
       final List<UpdateEntry<V>> entries = new ArrayList<>();
-      pendingUpdates.forEach(
-          (k, v) -> entries.add(new UpdateEntry<>(bytesToPath(k), v, null)));
+      pendingUpdates.forEach((k, v) -> entries.add(new UpdateEntry<>(bytesToPath(k), v, null)));
       pendingDeferredUpdates.forEach(
           (k, merger) -> entries.add(new UpdateEntry<>(bytesToPath(k), Optional.empty(), merger)));
 
@@ -712,10 +712,10 @@ public class ParallelStoredMerklePatriciaTrie<K extends Bytes, V>
    *
    * @param path the full nibble path to the key
    * @param value optional value for put/remove entries (ignored for deferred entries)
-   * @param merger non-null for deferred entries; called with the existing leaf value during traversal
+   * @param merger non-null for deferred entries; called with the existing leaf value during
+   *     traversal
    */
-  private record UpdateEntry<V>(
-      Bytes path, Optional<V> value, UnaryOperator<Optional<V>> merger) {
+  private record UpdateEntry<V>(Bytes path, Optional<V> value, UnaryOperator<Optional<V>> merger) {
     boolean isMerge() {
       return merger != null;
     }
