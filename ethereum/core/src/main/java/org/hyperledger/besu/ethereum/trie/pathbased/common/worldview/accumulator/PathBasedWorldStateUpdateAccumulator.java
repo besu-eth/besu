@@ -283,7 +283,6 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     return codeToUpdate;
   }
 
-  @Override
   public Set<Address> getStorageToClear() {
     return storageToClear;
   }
@@ -906,12 +905,10 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     return Objects.equals(sanitizedExpectedValue, sanitizedExistingSlotValue);
   }
 
-  @Override
   public boolean isAccumulatorStateChanged() {
     return isAccumulatorStateChanged;
   }
 
-  @Override
   public void resetAccumulatorStateChanged() {
     isAccumulatorStateChanged = false;
   }
@@ -961,7 +958,6 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     return hash;
   }
 
-  @Override
   public abstract PathBasedWorldStateUpdateAccumulator<ACCOUNT> copy();
 
   protected abstract ACCOUNT copyAccount(final ACCOUNT account);

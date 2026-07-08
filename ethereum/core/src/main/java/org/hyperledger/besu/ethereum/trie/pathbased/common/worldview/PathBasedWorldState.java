@@ -23,6 +23,7 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.core.MutableWorldState;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitter;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.StorageSubscriber;
@@ -422,6 +423,15 @@ public abstract class PathBasedWorldState
   public abstract Hash calculateRootHash(
       final Optional<PathBasedWorldStateKeyValueStorage.Updater> maybeStateUpdater,
       final PathBasedWorldStateUpdateAccumulator<?> worldStateUpdater);
+
+  /**
+   * Attaches a Block Access List overlay to this world state, replacing its accumulator with a
+   * BAL-aware one. Must be called after the world state has been resolved (and rolled) to the
+   * target block, so that overlay values never interfere with trie-log replay.
+   *
+   * @param blockAccessListOverlay the overlay to attach
+   */
+  public abstract void applyBlockAccessListOverlay(BlockAccessListOverlay blockAccessListOverlay);
 
   protected abstract Hash getEmptyTrieHash();
 }

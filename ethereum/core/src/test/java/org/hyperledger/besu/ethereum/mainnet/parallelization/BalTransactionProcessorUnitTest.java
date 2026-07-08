@@ -123,15 +123,18 @@ class BalTransactionProcessorUnitTest {
             new NoOpMetricsSystem(),
             DataStorageConfiguration.DEFAULT_BONSAI_CONFIG);
 
-    return new BonsaiWorldState(
-        storage,
-        new NoopBonsaiCachedMerkleTrieLoader(),
-        new NoOpBonsaiCachedWorldStorageManager(storage, EvmConfiguration.DEFAULT, new CodeCache()),
-        new NoOpTrieLogManager(),
-        EvmConfiguration.DEFAULT,
-        createStatefulConfigWithTrie(),
-        new CodeCache(),
-        blockAccessListOverlay);
+    final BonsaiWorldState worldState =
+        new BonsaiWorldState(
+            storage,
+            new NoopBonsaiCachedMerkleTrieLoader(),
+            new NoOpBonsaiCachedWorldStorageManager(
+                storage, EvmConfiguration.DEFAULT, new CodeCache()),
+            new NoOpTrieLogManager(),
+            EvmConfiguration.DEFAULT,
+            createStatefulConfigWithTrie(),
+            new CodeCache());
+    blockAccessListOverlay.ifPresent(worldState::applyBlockAccessListOverlay);
+    return worldState;
   }
 
   private TestEnvironment createTestEnvironment() {

@@ -17,8 +17,6 @@ package org.hyperledger.besu.cli.options;
 import org.hyperledger.besu.ethereum.mainnet.BalConfiguration;
 import org.hyperledger.besu.ethereum.mainnet.ImmutableBalConfiguration;
 
-import java.time.Duration;
-
 import picocli.CommandLine;
 
 /** Command-line options for configuring Block Access List behaviour. */
@@ -48,20 +46,6 @@ public class BalConfigurationOptions {
   boolean balLogBalsOnMismatch = false;
 
   @CommandLine.Option(
-      names = {"--Xbal-state-root-timeout"},
-      hidden = true,
-      paramLabel = "<INTEGER>",
-      description = "Timeout in milliseconds when waiting for the BAL-computed state root.")
-  private long balStateRootTimeoutMs = -1;
-
-  @CommandLine.Option(
-      names = {"--Xbal-processing-timeout"},
-      hidden = true,
-      paramLabel = "<INTEGER>",
-      description = "Timeout in milliseconds when waiting for BAL transaction processing results.")
-  private long balProcessingTimeoutMs = -1;
-
-  @CommandLine.Option(
       names = {"--Xbal-prefetch-reading-enabled"},
       hidden = true,
       description = "Enable prefetching of state data based on BAL read operations.")
@@ -78,7 +62,7 @@ public class BalConfigurationOptions {
       names = {"--Xbal-prefetch-batch-size"},
       hidden = true,
       description = "Enable custom BAL prefetch batch size (default: ${DEFAULT-VALUE}).")
-  int balPreFetchBatch = 100;
+  int balPreFetchBatch = 8;
 
   /**
    * Builds the immutable {@link BalConfiguration} corresponding to the parsed CLI options.
@@ -93,8 +77,6 @@ public class BalConfigurationOptions {
         .isBalPreFetchReadingEnabled(balPreFetchReadingEnabled)
         .isBalPreFetchSortingEnabled(balPreFetchSortingEnabled)
         .balPreFetchBatchSize(balPreFetchBatch)
-        .balStateRootTimeout(Duration.ofMillis(balStateRootTimeoutMs))
-        .balProcessingTimeout(Duration.ofMillis(balProcessingTimeoutMs))
         .build();
   }
 }
