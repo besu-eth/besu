@@ -39,23 +39,33 @@ public interface BlockGasAccountingStrategy {
   long calculateTransactionRegularGas(Transaction transaction, TransactionProcessingResult result);
 
   /**
-   * Check whether the block has capacity for a transaction with the given gas limit. For 1D gas
-   * (pre-EIP-8037), this checks regular gas only. For 2D gas (EIP-8037), the tx gas limit must fit
-   * within the remaining capacity of each dimension independently, since gas_metered =
-   * max(cumulative_regular, cumulative_state) must stay within the block gas limit.
+   * Check whether the block has capacity for a transaction. The default (1D, pre-EIP-8037)
+   * implementation checks the regular gas dimension only: the tx gas limit must fit within the
+   * block's remaining regular-gas budget (capped at zero defensively). EIP-8037 strategies override
+   * this to enforce per-dimension worst-case consumption — the worst-case regular consumption is
+   * {@code min(txMaxGasLimit, tx.gas - intrinsic_state_gas)} (regular gas is runtime-capped at
+   * {@code TX_MAX_GAS_LIMIT}) and the worst-case state consumption is {@code tx.gas -
+   * intrinsic_regular_gas}, each fitting its own remaining budget.
    *
    * @param txGasLimit the gas limit of the candidate transaction
-   * @param cumulativeRegularGas cumulative regular gas used so far
-   * @param cumulativeStateGas cumulative state gas used so far
+   * @param intrinsicRegularGas intrinsic regular gas for the transaction
+   * @param intrinsicStateGas intrinsic state gas for the transaction (0 for pre-EIP-8037)
+   * @param txMaxGasLimit runtime cap on regular gas per tx (EIP-7825 TX_MAX_GAS_LIMIT)
+   * @param cumulativeRegularGas cumulative regular gas used in the block so far
+   * @param cumulativeStateGas cumulative state gas used in the block so far
    * @param blockGasLimit the block gas limit
    * @return true if the block has capacity for this transaction
    */
   default boolean hasBlockCapacity(
       final long txGasLimit,
+      final long intrinsicRegularGas,
+      final long intrinsicStateGas,
+      final long txMaxGasLimit,
       final long cumulativeRegularGas,
       final long cumulativeStateGas,
       final long blockGasLimit) {
-    return txGasLimit <= blockGasLimit - cumulativeRegularGas;
+    final long remainingRegular = Math.max(0, blockGasLimit - cumulativeRegularGas);
+    return txGasLimit <= remainingRegular;
   }
 
   /**
@@ -97,16 +107,22 @@ public interface BlockGasAccountingStrategy {
         @Override
         public boolean hasBlockCapacity(
             final long txGasLimit,
+            final long intrinsicRegularGas,
+            final long intrinsicStateGas,
+            final long txMaxGasLimit,
             final long cumulativeRegularGas,
             final long cumulativeStateGas,
             final long blockGasLimit) {
-          // EIP-8037: Only check regular gas dimension. State gas is validated at block level
-          // via effectiveGasUsed() = max(regular, state) after transaction execution.
-          // The tx gas limit is not an accurate proxy for state gas usage, so checking it
-          // against remaining state capacity would reject valid blocks where individual txs
-          // exceed the state gas budget but the block total is within limits.
-          final long remainingRegular = Math.max(0, blockGasLimit - cumulativeRegularGas);
-          return txGasLimit <= remainingRegular;
+          // EIP-8037: per-dimension block gas limit enforcement.
+          // Worst-case regular consumption is capped at TX_MAX_GAS_LIMIT and at
+          // tx.gas - intrinsic_state_gas; worst-case state consumption is tx.gas -
+          // intrinsic_regular_gas. Both must fit in their respective remaining budgets.
+          final long regularAvailable = Math.max(0L, blockGasLimit - cumulativeRegularGas);
+          final long stateAvailable = Math.max(0L, blockGasLimit - cumulativeStateGas);
+          final long worstCaseRegular =
+              Math.min(txMaxGasLimit, Math.max(0L, txGasLimit - intrinsicStateGas));
+          final long worstCaseState = Math.max(0L, txGasLimit - intrinsicRegularGas);
+          return worstCaseRegular <= regularAvailable && worstCaseState <= stateAvailable;
         }
 
         @Override
