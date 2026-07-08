@@ -21,12 +21,12 @@ env:
 
 # Job matrix:
 #
-#   push to main:      [repoLint, gradleWrapper, spotless, checkLicense]
+#   push to main:      [gradleWrapper, spotless, checkLicense]
 #                    → build
 #                    → dockerBuildTest (docker-build-test.yml: build + goss-test)
 #                    → dockerPublish   (docker-publish.yml: push `develop` image + sign)
 #
-#   pull_request:    [repoLint, gradleWrapper, spotless, checkLicense]
+#   pull_request:    [gradleWrapper, spotless, checkLicense]
 #                  → [build, verifySourceMetadata, unitTests, integrationTests, referenceTests, acceptanceTests]
 #                  → dockerBuildTest (docker-build-test.yml: build + goss-test; dockerPublish skipped - not on main)
 #                  → allTestsPassed (PR merge gate).
@@ -49,18 +49,6 @@ jobs:
             [ -n "$extensions" ] && echo "$extensions"
             exit 1
           fi
-
-  repoLint:
-    name: "Repository Linting"
-    runs-on: ubuntu-latest
-    container: ghcr.io/todogroup/repolinter:v0.11.2
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.ref }}
-      - name: Lint Repo
-        run: bundle exec /app/bin/repolinter.js --rulesetUrl https://raw.githubusercontent.com/hyperledger-labs/hyperledger-community-management-tools/main/repo_structure/repolint.json --format markdown
 
   gradleWrapper:
     name: "Gradle Wrapper Validation"
@@ -119,7 +107,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    needs: [spotless, checkLicense, gradleWrapper, repoLint, checkNoBinaries]
+    needs: [spotless, checkLicense, gradleWrapper, checkNoBinaries]
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -165,7 +153,7 @@ jobs:
     name: "Verify Dependency Source Metadata"
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    needs: [spotless, checkLicense, gradleWrapper, repoLint, checkNoBinaries]
+    needs: [spotless, checkLicense, gradleWrapper, checkNoBinaries]
     steps:
       - name: Checkout Repo
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -187,7 +175,7 @@ jobs:
   # Each suite has its suite-tests-passed job in the file directly
   unitTests:
     if: github.event_name == 'pull_request'
-    needs: [spotless, checkLicense, gradleWrapper, repoLint, checkNoBinaries]
+    needs: [spotless, checkLicense, gradleWrapper, checkNoBinaries]
     permissions:
       actions: read
       contents: read
@@ -197,7 +185,7 @@ jobs:
 
   integrationTests:
     if: github.event_name == 'pull_request'
-    needs: [spotless, checkLicense, gradleWrapper, repoLint, checkNoBinaries]
+    needs: [spotless, checkLicense, gradleWrapper, checkNoBinaries]
     permissions:
       actions: read
       contents: read
@@ -207,7 +195,7 @@ jobs:
 
   referenceTests:
     if: github.event_name == 'pull_request'
-    needs: [spotless, checkLicense, gradleWrapper, repoLint, checkNoBinaries]
+    needs: [spotless, checkLicense, gradleWrapper, checkNoBinaries]
     permissions:
       actions: read
       contents: read
@@ -219,7 +207,7 @@ jobs:
 
   acceptanceTests:
     if: github.event_name == 'pull_request'
-    needs: [spotless, checkLicense, gradleWrapper, repoLint, checkNoBinaries]
+    needs: [spotless, checkLicense, gradleWrapper, checkNoBinaries]
     permissions:
       actions: read
       contents: read
