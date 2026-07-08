@@ -409,11 +409,9 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
                     }));
   }
 
-  /** Runs the configured startup warm-ups when enabled. */
+  /** Runs the startup table cache warm-up. */
   public void warmUpAtStartup() {
-    if (configuration.isTableCacheWarmupEnabled()) {
-      warmUpTableCache();
-    }
+    warmUpTableCache();
   }
 
   /**
@@ -427,7 +425,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
    */
   protected void warmUpTableCache() {
     try {
-      final long start = System.currentTimeMillis();
+      final long start = System.nanoTime();
       final List<LiveFileMetaData> files = getDB().getLiveFilesMetaData();
       LOG.debug("Table cache warm-up starting: {} live files", files.size());
       final int maxOpenFiles = configuration.getMaxOpenFiles();
@@ -482,7 +480,7 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
       LOG.debug(
           "Table cache warm-up complete: {} files in {} ms; table readers mem: {}",
           seeks.get(),
-          System.currentTimeMillis() - start,
+          TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start),
           getDB().getProperty("rocksdb.estimate-table-readers-mem"));
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();

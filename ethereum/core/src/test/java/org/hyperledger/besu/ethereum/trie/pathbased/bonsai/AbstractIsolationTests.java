@@ -215,7 +215,6 @@ public abstract class AbstractIsolationTests {
                         false,
                         false,
                         false,
-                        false,
                         Optional.empty(),
                         Optional.empty()),
                 Arrays.asList(KeyValueSegmentIdentifier.values()),
