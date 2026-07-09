@@ -142,6 +142,13 @@ public class LayeredKeyValueStorage extends SegmentedInMemoryKeyValueStorage
   }
 
   @Override
+  public NearestSeekScope openNearestSeekScope() {
+    // The in-memory layer's near-seek is a cheap NavigableMap lookup; the cost is in the parent
+    // chain (ultimately RocksDB), so delegate the scope down to it.
+    return parent.openNearestSeekScope();
+  }
+
+  @Override
   public Optional<NearestKeyValue> getNearestBefore(
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
     return getNearest(

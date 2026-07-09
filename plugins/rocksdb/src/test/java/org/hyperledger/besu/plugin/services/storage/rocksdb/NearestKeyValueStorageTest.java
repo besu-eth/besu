@@ -427,6 +427,78 @@ public class NearestKeyValueStorageTest {
         .isEqualTo("0XBB0000000000000000AA");
   }
 
+  @Test
+  public void testNearestSeekScopeMatchesUnscopedResultsAndReusesAcrossCalls(
+      @TempDir final Path isolatedTempDir) throws Exception {
+    Utils.createDatabaseMetadataV2(isolatedTempDir, DataStorageFormat.BONSAI, 2);
+    final SegmentedKeyValueStorage rocksDBKeyValueStorage =
+        getRocksDBKeyValueStorageAt(isolatedTempDir, TRIE_BRANCH_STORAGE);
+    final SegmentedKeyValueStorageTransaction tx = rocksDBKeyValueStorage.startTransaction();
+    IntStream.range(1, 20)
+        .forEach(
+            i -> {
+              final byte[] key =
+                  Bytes.fromHexString("0x00" + String.format("%02x", i)).toArrayUnsafe();
+              final byte[] value =
+                  Bytes.fromHexString("0FFF" + String.format("%02x", i)).toArrayUnsafe();
+              tx.put(TRIE_BRANCH_STORAGE, key, value);
+            });
+    tx.commit();
+
+    // Capture unscoped results first as the reference.
+    final java.util.List<Optional<NearestKeyValue>> unscopedBefore = new java.util.ArrayList<>();
+    final java.util.List<Optional<NearestKeyValue>> unscopedMatchLength =
+        new java.util.ArrayList<>();
+    for (int i = 1; i < 20; i++) {
+      final Bytes probe = Bytes.fromHexString("0x00" + String.format("%02x", i));
+      unscopedBefore.add(rocksDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, probe));
+      unscopedMatchLength.add(
+          rocksDBKeyValueStorage.getNearestBeforeMatchLength(TRIE_BRANCH_STORAGE, probe));
+    }
+
+    // Now repeat the same lookups within a single scope: every call reuses the same cursor.
+    try (var scope = rocksDBKeyValueStorage.openNearestSeekScope()) {
+      assertThat(scope).isNotNull();
+      for (int i = 1; i < 20; i++) {
+        final Bytes probe = Bytes.fromHexString("0x00" + String.format("%02x", i));
+        assertThat(
+                isNearestKeyValueTheSame(
+                    unscopedBefore.get(i - 1),
+                    rocksDBKeyValueStorage.getNearestBefore(TRIE_BRANCH_STORAGE, probe)))
+            .isTrue();
+        assertThat(
+                isNearestKeyValueTheSame(
+                    unscopedMatchLength.get(i - 1),
+                    rocksDBKeyValueStorage.getNearestBeforeMatchLength(TRIE_BRANCH_STORAGE, probe)))
+            .isTrue();
+      }
+    }
+
+    // After the scope is closed, lookups still work (fall back to per-call iterators).
+    assertThat(
+            isNearestKeyValueTheSame(
+                unscopedBefore.get(0),
+                rocksDBKeyValueStorage.getNearestBefore(
+                    TRIE_BRANCH_STORAGE, Bytes.fromHexString("0x0001"))))
+        .isTrue();
+  }
+
+  @Test
+  public void testNearestSeekScopePropagatesThroughLayeredStorage(
+      @TempDir final Path isolatedTempDir) throws Exception {
+    Utils.createDatabaseMetadataV2(isolatedTempDir, DataStorageFormat.BONSAI, 2);
+    final SegmentedKeyValueStorage rocksDBKeyValueStorage =
+        getRocksDBKeyValueStorageAt(isolatedTempDir, TRIE_BRANCH_STORAGE);
+    final LayeredKeyValueStorage layered = new LayeredKeyValueStorage(rocksDBKeyValueStorage);
+    // Opening a scope on the layer must not throw and must return a closeable that is safe to
+    // close.
+    try (var scope = layered.openNearestSeekScope()) {
+      assertThat(scope).isNotNull();
+      assertThat(layered.getNearestBefore(TRIE_BRANCH_STORAGE, Bytes.fromHexString("0x0001")))
+          .isNotNull();
+    }
+  }
+
   private SegmentedKeyValueStorage getRocksDBKeyValueStorage(final SegmentIdentifier segment) {
     return rocksdbStorageFactory.create(
         List.of(segment), commonConfiguration, new NoOpMetricsSystem());

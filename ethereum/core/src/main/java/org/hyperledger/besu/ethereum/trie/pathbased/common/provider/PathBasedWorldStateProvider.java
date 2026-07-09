@@ -393,9 +393,15 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
         final WorldStateProofProvider worldStateProofProvider =
             new WorldStateProofProvider(
                 new WorldStateStorageCoordinator(ws.getWorldStateStorage()));
-        return mapper.apply(
-            worldStateProofProvider.getAccountProof(
-                ws.getWorldStateRootHash(), accountAddress, accountStorageKeys));
+        // Reuse a single near-seek cursor per segment for the duration of the proof. Bonsai-archive
+        // proofs resolve every trie node and flat entry via seekForPrev; without this each lookup
+        // opens and closes its own RocksDB iterator. No-op for non-archive/non-RocksDB storage.
+        try (var ignored =
+            ws.getWorldStateStorage().getComposedWorldStateStorage().openNearestSeekScope()) {
+          return mapper.apply(
+              worldStateProofProvider.getAccountProof(
+                  ws.getWorldStateRootHash(), accountAddress, accountStorageKeys));
+        }
       }
     } catch (Exception ex) {
       LOG.error(

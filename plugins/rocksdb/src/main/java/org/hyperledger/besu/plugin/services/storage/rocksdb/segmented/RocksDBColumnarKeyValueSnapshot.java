@@ -26,6 +26,8 @@ import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDBMetrics;
 import org.hyperledger.besu.plugin.services.storage.rocksdb.RocksDbIterator;
 
 import java.io.IOException;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -70,6 +72,14 @@ public class RocksDBColumnarKeyValueSnapshot
   private final RocksDBMetrics metrics;
   private final Function<SegmentIdentifier, ColumnFamilyHandle> columnFamilyMapper;
   private final ReadOptions readOptions;
+
+  // When a near-seek scope is open on the current thread this holds one reusable RocksIterator per
+  // segment, avoiding a newIterator() per getNearestBefore* call. Null when no scope is active.
+  // Instance (not static) field: iterators belong to this snapshot and must not be shared across
+  // snapshot instances. The scope is always closed via try-with-resources on the same thread.
+  @SuppressWarnings("ThreadLocalUsage")
+  private final ThreadLocal<Map<SegmentIdentifier, RocksIterator>> scopedNearestIterators =
+      new ThreadLocal<>();
 
   /**
    * Instantiates a new RocksDb columnar key value snapshot.
@@ -141,29 +151,55 @@ public class RocksDBColumnarKeyValueSnapshot
   @Override
   public Optional<NearestKeyValue> getNearestBefore(
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
-
-    try (final RocksIterator rocksIterator =
-        db.newIterator(columnFamilyMapper.apply(segmentIdentifier), readOptions)) {
-      rocksIterator.seekForPrev(key.toArrayUnsafe());
-      return Optional.of(rocksIterator)
-          .filter(AbstractRocksIterator::isValid)
-          .map(it -> new NearestKeyValue(Bytes.of(it.key()), Optional.of(it.value())));
-    }
+    return nearestBefore(segmentIdentifier, key, false);
   }
 
   @Override
   public Optional<NearestKeyValue> getNearestBeforeMatchLength(
       final SegmentIdentifier segmentIdentifier, final Bytes key) throws StorageException {
+    return nearestBefore(segmentIdentifier, key, true);
+  }
+
+  private Optional<NearestKeyValue> nearestBefore(
+      final SegmentIdentifier segmentIdentifier, final Bytes key, final boolean matchLength)
+      throws StorageException {
+    final Map<SegmentIdentifier, RocksIterator> scoped = scopedNearestIterators.get();
+    if (scoped != null) {
+      final RocksIterator rocksIterator =
+          scoped.computeIfAbsent(
+              segmentIdentifier, s -> db.newIterator(columnFamilyMapper.apply(s), readOptions));
+      return seekForPrevOn(rocksIterator, key, matchLength);
+    }
     try (final RocksIterator rocksIterator =
         db.newIterator(columnFamilyMapper.apply(segmentIdentifier), readOptions)) {
-      rocksIterator.seekForPrev(key.toArrayUnsafe());
+      return seekForPrevOn(rocksIterator, key, matchLength);
+    }
+  }
+
+  private static Optional<NearestKeyValue> seekForPrevOn(
+      final RocksIterator rocksIterator, final Bytes key, final boolean matchLength) {
+    rocksIterator.seekForPrev(key.toArrayUnsafe());
+    if (matchLength) {
       while (rocksIterator.isValid() && key.size() != rocksIterator.key().length) {
         rocksIterator.prev();
       }
-      return Optional.of(rocksIterator)
-          .filter(AbstractRocksIterator::isValid)
-          .map(it -> new NearestKeyValue(Bytes.of(it.key()), Optional.of(it.value())));
     }
+    return Optional.of(rocksIterator)
+        .filter(AbstractRocksIterator::isValid)
+        .map(it -> new NearestKeyValue(Bytes.of(it.key()), Optional.of(it.value())));
+  }
+
+  @Override
+  public NearestSeekScope openNearestSeekScope() {
+    if (scopedNearestIterators.get() != null) {
+      return NearestSeekScope.NO_OP;
+    }
+    final Map<SegmentIdentifier, RocksIterator> iterators = new HashMap<>();
+    scopedNearestIterators.set(iterators);
+    return () -> {
+      scopedNearestIterators.remove();
+      iterators.values().forEach(RocksIterator::close);
+    };
   }
 
   @Override

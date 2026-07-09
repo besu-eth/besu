@@ -86,6 +86,38 @@ public interface SegmentedKeyValueStorage extends Closeable {
       throws StorageException;
 
   /**
+   * Opens a scope in which repeated {@link #getNearestBefore} / {@link #getNearestBeforeMatchLength}
+   * calls made on the current thread may reuse a single backing cursor per segment instead of
+   * creating (and destroying) one per call. This is a performance hint: correctness does not depend
+   * on it, and the default implementation is a no-op.
+   *
+   * <p>The returned scope is bound to the calling thread and MUST be closed on the same thread,
+   * ideally via try-with-resources. Nested scopes on the same thread are permitted; only the
+   * outermost scope owns the underlying cursors.
+   *
+   * <p>Reuse is only safe when the near-seek results are fully materialised before the next call
+   * (as the archive proof path does): the cursor is re-seeked on every call, so no caller may hold a
+   * live reference to a previous cursor position across calls.
+   *
+   * @return an {@link NearestSeekScope} that releases any reused cursors when closed.
+   */
+  default NearestSeekScope openNearestSeekScope() {
+    return NearestSeekScope.NO_OP;
+  }
+
+  /**
+   * A thread-bound scope during which near-seek cursors may be reused across calls. Closing the
+   * scope releases any cursors that were opened for it.
+   */
+  interface NearestSeekScope extends AutoCloseable {
+    /** A no-op scope used by implementations that do not support cursor reuse. */
+    NearestSeekScope NO_OP = () -> {};
+
+    @Override
+    void close();
+  }
+
+  /**
    * Contains key.
    *
    * @param segment the segment
