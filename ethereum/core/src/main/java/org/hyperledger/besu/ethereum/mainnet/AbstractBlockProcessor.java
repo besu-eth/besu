@@ -156,16 +156,7 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
                   });
     }
 
-    BlockAwareOperationTracer maybePluginTracer =
-        blockImportTracerProvider.getBlockImportTracer(header);
-    BlockAwareOperationTracer blockImportTracer = maybePluginTracer;
-    // TODO SLD
-    boolean slowBlockTracerEnabled = true;
-    if (slowBlockTracerEnabled) {
-      blockImportTracer = new SlowBlockTracer(maybePluginTracer);
-    }
-
-    return blockImportTracer;
+    return blockImportTracerProvider.getBlockImportTracer(header);
   }
 
   /**
