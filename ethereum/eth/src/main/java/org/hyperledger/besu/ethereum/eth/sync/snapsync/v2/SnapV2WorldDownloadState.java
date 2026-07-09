@@ -37,11 +37,9 @@ import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloaderExc
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.rlp.RLP;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
-import org.hyperledger.besu.ethereum.trie.NodeLoader;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.trie.common.PmtStateTrieAccountValue;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
-import org.hyperledger.besu.ethereum.trie.patricia.StoredMerklePatriciaTrie;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.SyncDurationMetrics;
@@ -62,7 +60,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
-import java.util.function.Function;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -212,51 +209,60 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   }
 
   private void persistWorldStateRoot(final BlockHeader header) {
+    final Bytes32 expectedRoot = Bytes32.wrap(header.getStateRoot().getBytes());
     final Bytes nodeData =
-        rootNodeData != null
-            ? rootNodeData
-            : worldStateStorageCoordinator
-                .getAccountStateTrieNode(
-                    Bytes.EMPTY, Bytes32.wrap(header.getStateRoot().getBytes()))
-                .orElseThrow(
-                    () ->
-                        new WorldStateDownloaderException(
-                            "Unable to persist snap/2 world state root: root node was not downloaded"));
+        worldStateStorageCoordinator
+            .getAccountStateTrieNode(Bytes.EMPTY, expectedRoot)
+            .orElseThrow(
+                () ->
+                    new WorldStateDownloaderException(
+                        "Unable to persist snap/2 world state root: root node not found in "
+                            + "storage at EMPTY matching state root "
+                            + expectedRoot
+                            + " (pivot block "
+                            + header.getNumber()
+                            + ")"));
 
     final WorldStateKeyValueStorage.Updater updater = worldStateStorageCoordinator.updater();
     applyForStrategy(
         updater,
-        onBonsai ->
-            onBonsai.saveWorldState(
-                header.getHash().getBytes(),
-                Bytes32.wrap(header.getStateRoot().getBytes()),
-                nodeData),
-        onForest ->
-            onForest.saveWorldState(Bytes32.wrap(header.getStateRoot().getBytes()), nodeData));
+        onBonsai -> onBonsai.saveWorldState(header.getHash().getBytes(), expectedRoot, nodeData),
+        onForest -> onForest.saveWorldState(expectedRoot, nodeData));
     updater.commit();
   }
 
   private boolean verifyWorldStateRoot(final BlockHeader header) {
-    final Function<Bytes, Bytes> identity = Function.identity();
-    final NodeLoader accountNodeLoader =
-        (location, hash) -> worldStateStorageCoordinator.getAccountStateTrieNode(location, hash);
-    final MerkleTrie<Bytes, Bytes> accountTrie =
-        new StoredMerklePatriciaTrie<>(
-            accountNodeLoader, Bytes32.wrap(header.getStateRoot().getBytes()), identity, identity);
-    final Hash actualRoot = Hash.wrap(accountTrie.getRootHash());
-    final Hash expectedRoot = header.getStateRoot();
-    if (!actualRoot.equals(expectedRoot)) {
+    final Bytes32 expectedRoot = Bytes32.wrap(header.getStateRoot().getBytes());
+    if (expectedRoot.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
+      LOG.info("Snap/2 world state root is empty at pivot block {}", header.getNumber());
+      return true;
+    }
+    final Optional<Bytes> rootNode =
+        worldStateStorageCoordinator.getAccountStateTrieNode(Bytes.EMPTY, expectedRoot);
+    if (rootNode.isEmpty()) {
       LOG.error(
-          "Snap/2 state root verification failed at sync completion for pivot block {}: expected {}, actual {}",
+          "Snap/2 state root verification failed at sync completion for pivot block {}: "
+              + "no account trie root node found at EMPTY matching state root {}",
           header.getNumber(),
-          expectedRoot,
-          actualRoot);
+          expectedRoot);
       internalFuture.completeExceptionally(
-          new StateRootMismatchException(expectedRoot, actualRoot));
+          new StateRootMismatchException(header.getStateRoot(), Hash.EMPTY));
+      return false;
+    }
+    final Hash actualRoot = Hash.hash(rootNode.get());
+    if (!actualRoot.getBytes().equals(expectedRoot)) {
+      LOG.error(
+          "Snap/2 state root verification failed at sync completion for pivot block {}: "
+              + "root node RLP hashes to {} but expected state root {}",
+          header.getNumber(),
+          actualRoot,
+          expectedRoot);
+      internalFuture.completeExceptionally(
+          new StateRootMismatchException(header.getStateRoot(), actualRoot));
       return false;
     }
     LOG.info(
-        "Snap/2 world state root verified at pivot block {}: {}", header.getNumber(), actualRoot);
+        "Snap/2 world state root verified at pivot block {}: {}", header.getNumber(), expectedRoot);
     return true;
   }
 
@@ -503,11 +509,15 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   private void applyBlockAccessLists(
       final BlockHeader currentPivotBlockHeader, final BlockHeader newPivotBlockHeader) {
     LOG.info(
-        "Snap/2 applying BALs: pivot {} -> {} (completed ranges: {}, pending ranges: {})",
+        "Snap/2 applying BALs: pivot {} -> {} (ranges: completed={}, pending={}) outstanding=[account={}, storage={}, largeStorage={}, code={}]",
         currentPivotBlockHeader.getNumber(),
         newPivotBlockHeader.getNumber(),
         accountRangeTracker.completedRangeCount(),
-        accountRangeTracker.pendingRangeCount());
+        accountRangeTracker.pendingRangeCount(),
+        pendingAccountRequests.outstandingTaskCount(),
+        pendingStorageRequests.outstandingTaskCount(),
+        pendingLargeStorageRequests.outstandingTaskCount(),
+        pendingCodeRequests.outstandingTaskCount());
     blockAccessListApplier.applyBlockAccessLists(
         currentPivotBlockHeader, newPivotBlockHeader, accountRangeTracker, storageRangeTracker);
   }
