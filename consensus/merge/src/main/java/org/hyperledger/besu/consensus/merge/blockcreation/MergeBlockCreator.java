@@ -73,6 +73,7 @@ class MergeBlockCreator extends AbstractBlockCreator {
    * @param withdrawals optional list of withdrawals
    * @param parentBeaconBlockRoot optional root hash of the parent beacon block
    * @param slotNumber optional slot number (EIP-7843)
+   * @param targetGasLimit optional CL-supplied target gas limit for this payload
    * @return the block creation result
    */
   public BlockCreationResult createBlock(
@@ -82,6 +83,7 @@ class MergeBlockCreator extends AbstractBlockCreator {
       final Optional<List<Withdrawal>> withdrawals,
       final Optional<Bytes32> parentBeaconBlockRoot,
       final Optional<Long> slotNumber,
+      final Optional<Long> targetGasLimit,
       final BlockHeader parentHeader) {
 
     return createBlock(
@@ -91,6 +93,7 @@ class MergeBlockCreator extends AbstractBlockCreator {
         Optional.of(random),
         parentBeaconBlockRoot,
         slotNumber,
+        targetGasLimit,
         timestamp,
         false,
         parentHeader);

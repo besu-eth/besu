@@ -50,6 +50,7 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    * @param withdrawals the withdrawals, if present
    * @param parentBeaconBlockRoot the parent beacon block root, if present
    * @param slotNumber the consensus-layer slot number, if present
+   * @param targetGasLimit the CL-supplied target gas limit, if present
    */
   @Value.Builder
   record PreparePayloadArgs(
@@ -59,7 +60,8 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
       Address feeRecipient,
       Optional<List<Withdrawal>> withdrawals,
       Optional<Bytes32> parentBeaconBlockRoot,
-      Optional<Long> slotNumber) {}
+      Optional<Long> slotNumber,
+      Optional<Long> targetGasLimit) {}
 
   /**
    * Prepare payload identifier.
@@ -124,20 +126,6 @@ public interface MergeMiningCoordinator extends MiningCoordinator {
    */
   ForkchoiceResult updateForkChoiceWithoutLegacySkip(
       final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash);
-
-  /**
-   * Move the canonical chain head without updating forkchoice metadata (finalized or safe).
-   *
-   * <p>Use this for pre-execution head advancement during {@code engine_newPayload}, when the
-   * parent block was previously received via {@code newPayload} but the chain head was not moved
-   * forward yet. Unlike {@link #updateForkChoice}, this does not apply the legacy "ignore update to
-   * old head" optimization. Unlike {@link #updateForkChoice} and {@link
-   * #updateForkChoiceWithoutLegacySkip}, this does not persist finalized or safe block markers.
-   *
-   * @param newHead the new head
-   * @return the forkchoice result
-   */
-  ForkchoiceResult updateHeadForExecution(final BlockHeader newHead);
 
   /**
    * Returns true if the given block hash is a strict ancestor of the currently finalized block
