@@ -201,7 +201,7 @@ jobs:
       contents: read
       packages: read
       checks: write
-      statuses: write
+      statuses: write      
     uses: ./.github/workflows/reference-tests.yml
     secrets: inherit
 
