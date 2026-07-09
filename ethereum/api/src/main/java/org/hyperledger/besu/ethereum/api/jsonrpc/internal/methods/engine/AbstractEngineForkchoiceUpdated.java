@@ -225,6 +225,7 @@ public abstract class AbstractEngineForkchoiceUpdated extends ExecutionEngineJso
                         .parentBeaconBlockRoot(
                             Optional.ofNullable(payloadAttributes.getParentBeaconBlockRoot()))
                         .slotNumber(Optional.ofNullable(payloadAttributes.getSlotNumber()))
+                        .targetGasLimit(Optional.empty())
                         .build()));
 
     payloadId.ifPresent(
