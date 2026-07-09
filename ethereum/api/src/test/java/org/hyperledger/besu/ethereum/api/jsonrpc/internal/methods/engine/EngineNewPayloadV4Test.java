@@ -141,8 +141,7 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
   @Test
   public void shouldReturnInvalidParamsIfBlockAccessListPresentOnV4() {
     final BlockHeader header = createValidBlockHeader(Optional.empty());
-    final EnginePayloadParameter payload =
-        mockEnginePayload(header, emptyList(), null, "0xc0");
+    final EnginePayloadParameter payload = mockEnginePayload(header, emptyList(), null, "0xc0");
 
     var resp = resp(payload);
 

@@ -233,8 +233,7 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     } catch (final InvalidBlockAccessListException e) {
       return new JsonRpcErrorResponse(
           reqId,
-          ValidationResult.invalid(
-              RpcErrorType.INVALID_ENGINE_NEW_PAYLOAD_PARAMS, e.getMessage()));
+          ValidationResult.invalid(RpcErrorType.INVALID_ENGINE_NEW_PAYLOAD_PARAMS, e.getMessage()));
     }
 
     if (mergeContext.get().isSyncing()) {

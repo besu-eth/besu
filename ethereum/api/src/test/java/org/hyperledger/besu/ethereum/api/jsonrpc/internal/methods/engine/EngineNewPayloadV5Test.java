@@ -135,8 +135,7 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
   @Override
   @Test
   @Disabled("blockAccessList is valid on engine_newPayloadV5")
-  public void shouldReturnInvalidParamsIfBlockAccessListPresentOnV4() {
-  }
+  public void shouldReturnInvalidParamsIfBlockAccessListPresentOnV4() {}
 
   @Test
   public void shouldReturnInvalidIfBlockAccessListHasInvalidHexEncoding() {
