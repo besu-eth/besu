@@ -45,6 +45,7 @@ import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.Executor;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt256;
@@ -53,6 +54,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 class BalStateRootCommitterFactoryTest {
+
+  /** Queues BAL work without running it so cancel-before-persist tests are deterministic. */
+  private static final Executor BAL_ASYNC_BLOCKED_FOR_CANCEL_TESTS = __ -> {};
 
   private ExecutionContextTestFixture contextTestFixture;
   private ProtocolContext protocolContext;
@@ -200,7 +204,8 @@ class BalStateRootCommitterFactoryTest {
 
     final BalConfiguration balConfig = BalConfiguration.DEFAULT;
 
-    final StateRootCommitterFactory factory = new BalStateRootCommitterFactory(balConfig);
+    final StateRootCommitterFactory factory =
+        new BalStateRootCommitterFactory(balConfig, BAL_ASYNC_BLOCKED_FOR_CANCEL_TESTS);
     final StateRootCommitter committer =
         factory.forBlock(protocolContext, blockHeader, Optional.of(bal));
 

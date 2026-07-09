@@ -31,17 +31,27 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
 
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
 import java.util.function.Supplier;
 
 @SuppressWarnings({"rawtypes", "unchecked"})
 public final class BalStateRootCommitterFactory implements StateRootCommitterFactory {
 
   private final BalConfiguration balConfiguration;
+  private final Executor balAsyncExecutor;
 
   public BalStateRootCommitterFactory(final BalConfiguration balConfiguration) {
+    this(balConfiguration, ForkJoinPool.commonPool());
+  }
+
+  public BalStateRootCommitterFactory(
+      final BalConfiguration balConfiguration, final Executor balAsyncExecutor) {
     this.balConfiguration = balConfiguration;
+    this.balAsyncExecutor = balAsyncExecutor;
   }
 
   @Override
@@ -59,7 +69,7 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
 
     final CompletableFuture<BalRootComputation> balFuture =
         BlockAccessListStateRootCalculator.computeAsync(
-            protocolContext, blockHeader, maybeBal.get());
+            protocolContext, blockHeader, maybeBal.get(), balAsyncExecutor);
     return new BalCommitter(balFuture);
   }
 
@@ -123,6 +133,8 @@ public final class BalStateRootCommitterFactory implements StateRootCommitterFac
     } catch (final InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new IllegalStateException("Interrupted while waiting for BAL state root", e);
+    } catch (final CancellationException e) {
+      throw new IllegalStateException("BAL state root computation was cancelled", e);
     }
   }
 
