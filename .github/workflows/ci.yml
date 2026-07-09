@@ -190,7 +190,7 @@ jobs:
       actions: read
       contents: read
       checks: write
-      statuses: write      
+      statuses: write
     uses: ./.github/workflows/integration-tests.yml
 
   referenceTests:
@@ -201,7 +201,7 @@ jobs:
       contents: read
       packages: read
       checks: write
-      statuses: write      
+      statuses: write
     uses: ./.github/workflows/reference-tests.yml
     secrets: inherit
 
