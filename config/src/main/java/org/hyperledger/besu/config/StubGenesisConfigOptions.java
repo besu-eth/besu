@@ -371,8 +371,6 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
       builder.put("clique", getCliqueConfigOptions().asMap());
     }
     if (isEthHash()) {
-      // Output under "ethash" for backwards compatibility; genesis files may use either
-      // "ethash" or "fixeddifficulty" as the config key.
       builder.put("ethash", getFixedDifficultyConfigOptions().asMap());
     }
     if (isIbftLegacy()) {
@@ -387,11 +385,6 @@ public class StubGenesisConfigOptions implements GenesisConfigOptions, Cloneable
   @Override
   public TransitionsConfigOptions getTransitions() {
     return transitions;
-  }
-
-  @Override
-  public PowAlgorithm getPowAlgorithm() {
-    return isEthHash() ? PowAlgorithm.ETHASH : PowAlgorithm.UNSUPPORTED;
   }
 
   @Override

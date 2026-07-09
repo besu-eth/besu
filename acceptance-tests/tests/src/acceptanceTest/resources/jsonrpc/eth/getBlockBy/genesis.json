@@ -13,7 +13,6 @@
     "berlinBlock":0,
     "londonBlock":0,
     "shanghaiTime":10,
-    "ethash": {},
     "terminalTotalDifficulty":0
   },
   "nonce":"0x42",

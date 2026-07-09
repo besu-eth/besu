@@ -19,6 +19,7 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.common.provider.World
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.proof.WorldStateProof;
 import org.hyperledger.besu.ethereum.proof.WorldStateProofProvider;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
@@ -132,12 +133,6 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
             Bytes32.wrap(rootHash.getBytes()), blockHash);
   }
 
-  @Override
-  public boolean isWorldStateImmediatelyCached(final Hash blockHash) {
-    return worldStateCacheManager.contains(blockHash)
-        || headWorldState.blockHash().equals(blockHash);
-  }
-
   /**
    * Gets a mutable world state based on the provided query parameters.
    *
@@ -185,7 +180,8 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
    * <p>The method follows these steps: 1. Check if the query parameters indicate that the world
    * state should update the head. 2. If true, call {@link #getFullWorldStateFromHead(Hash)} with
    * the block hash from the query parameters. 3. If false, call {@link
-   * #getFullWorldStateFromCache(BlockHeader)} with the block header from the query parameters.
+   * #getFullWorldStateFromCache(BlockHeader, Optional)} with the block header and optional BAL
+   * overlay from the query parameters.
    *
    * @param queryParams the query parameters
    * @return the stateful world state, if available
@@ -193,7 +189,8 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
   protected Optional<MutableWorldState> getFullWorldState(final WorldStateQueryParams queryParams) {
     return queryParams.shouldWorldStateUpdateHead()
         ? getFullWorldStateFromHead(queryParams.getBlockHash())
-        : getFullWorldStateFromCache(queryParams.getBlockHeader());
+        : getFullWorldStateFromCache(
+            queryParams.getBlockHeader(), queryParams.getBlockAccessListOverlay());
   }
 
   /**
@@ -211,7 +208,8 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
    * @return the full world state, if available
    */
   private Optional<MutableWorldState> getFullWorldStateFromHead(final Hash blockHash) {
-    return rollFullWorldStateToBlockHash(headWorldState, blockHash);
+    return rollFullWorldStateToBlockHash(headWorldState, blockHash)
+        .map(MutableWorldState.class::cast);
   }
 
   /**
@@ -230,7 +228,9 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
    * @param blockHeader the block header
    * @return the full world state, if available
    */
-  private Optional<MutableWorldState> getFullWorldStateFromCache(final BlockHeader blockHeader) {
+  private Optional<MutableWorldState> getFullWorldStateFromCache(
+      final BlockHeader blockHeader,
+      final Optional<BlockAccessListOverlay> maybeBlockAccessListOverlay) {
     final BlockHeader chainHeadBlockHeader = blockchain.getChainHeadHeader();
     if (chainHeadBlockHeader.getNumber() - blockHeader.getNumber()
         >= trieLogManager.getMaxLayersToLoad()) {
@@ -249,10 +249,17 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
                         blockchain.getBlockHeader(blockHeaderHash).map(BlockHeader.class::cast)))
         .flatMap(
             worldState -> rollFullWorldStateToBlockHash(worldState, blockHeader.getBlockHash()))
+        .map(
+            worldState -> {
+              // the BAL overlay is attached only once the world state has been rolled to the
+              // target block, so overlay values never interfere with trie-log replay
+              maybeBlockAccessListOverlay.ifPresent(worldState::applyBlockAccessListOverlay);
+              return worldState;
+            })
         .map(MutableWorldState::freezeStorage);
   }
 
-  private Optional<MutableWorldState> rollFullWorldStateToBlockHash(
+  private Optional<PathBasedWorldState> rollFullWorldStateToBlockHash(
       final PathBasedWorldState mutableState, final Hash blockHash) {
     if (blockHash.equals(mutableState.blockHash())) {
       return Optional.of(mutableState);
