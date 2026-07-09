@@ -79,6 +79,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractEngineForkchoiceUpdat
             Address.ECREC.toString(),
             null,
             null,
+            null,
             null);
 
     final JsonRpcResponse resp =
@@ -107,6 +108,7 @@ public class EngineForkchoiceUpdatedV1Test extends AbstractEngineForkchoiceUpdat
             String.valueOf(mockHeader.getTimestamp()),
             Bytes32.fromHexStringLenient("0xDEADBEEF").toHexString(),
             Address.ECREC.toString(),
+            null,
             null,
             null,
             null);

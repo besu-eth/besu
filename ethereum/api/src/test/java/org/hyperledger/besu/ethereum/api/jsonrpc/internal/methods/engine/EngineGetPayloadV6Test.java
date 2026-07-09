@@ -133,6 +133,7 @@ public class EngineGetPayloadV6Test extends AbstractEngineGetPayloadTest {
             Address.fromHexString("0x42"),
             Optional.empty(),
             Optional.empty(),
+            Optional.empty(),
             Optional.empty());
 
     final List<Request> requests =
@@ -177,6 +178,7 @@ public class EngineGetPayloadV6Test extends AbstractEngineGetPayloadTest {
             header.getTimestamp(),
             Bytes32.random(),
             Address.fromHexString("0x42"),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty());
