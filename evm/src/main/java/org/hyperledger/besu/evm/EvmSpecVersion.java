@@ -104,11 +104,11 @@ public enum EvmSpecVersion {
     /** Maximum initcode size: 48KiB (EIP-3860, Shanghai through Osaka). */
     int MAX_INITCODE_SIZE_SHANGHAI = 0xC000;
 
-    /** Maximum deployed code size: 32KiB (EIP-7954, Amsterdam onwards). */
-    int MAX_CODE_SIZE_AMSTERDAM = 0x8000;
+    /** Maximum deployed code size: 64KiB (EIP-7954, Amsterdam onwards). */
+    int MAX_CODE_SIZE_AMSTERDAM = 0x10000;
 
-    /** Maximum initcode size: 64KiB (EIP-7954, Amsterdam onwards). */
-    int MAX_INITCODE_SIZE_AMSTERDAM = 0x10000;
+    /** Maximum initcode size: 128KiB = 2 × max code size (EIP-7954, Amsterdam onwards). */
+    int MAX_INITCODE_SIZE_AMSTERDAM = 0x20000;
   }
 
   private static final Logger LOGGER = LoggerFactory.getLogger(EvmSpecVersion.class);
