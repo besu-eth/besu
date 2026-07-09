@@ -17,14 +17,17 @@ package org.hyperledger.besu.ethereum.trie.pathbased.bonsai;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.TRIE_BRANCH_STORAGE;
 import static org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage.ARCHIVE_PROOF_BLOCK_NUMBER_KEY;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.chain.Blockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
+import org.hyperledger.besu.ethereum.proof.WorldStateProof;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.cache.CodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiArchiveWorldStateLayerStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveReadContext;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveReadFlatDbStrategyProvider;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiArchiveTrieNodeStrategy;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.flat.BonsaiTrieNodeStrategy;
@@ -47,10 +50,12 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.units.bigints.UInt256;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -142,6 +147,20 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
           queryParams.getBlockHeader().getBlockHash());
     }
     return super.getWorldState(queryParams);
+  }
+
+  @Override
+  public <U> Optional<U> getAccountProof(
+      final org.hyperledger.besu.plugin.data.BlockHeader blockHeader,
+      final Address accountAddress,
+      final List<UInt256> accountStorageKeys,
+      final Function<Optional<WorldStateProof>, ? extends Optional<U>> mapper) {
+    // The archive read contexts (block-number key suffixes) are constant for the whole proof.
+    // Open a proof-scoped memo so they're resolved from storage once rather than on every
+    // trie-node and flat-DB read.
+    try (var ignored = BonsaiArchiveReadContext.open()) {
+      return super.getAccountProof(blockHeader, accountAddress, accountStorageKeys, mapper);
+    }
   }
 
   private BonsaiWorldState newFrozenArchiveWorldState(final WorldStateConfig config) {

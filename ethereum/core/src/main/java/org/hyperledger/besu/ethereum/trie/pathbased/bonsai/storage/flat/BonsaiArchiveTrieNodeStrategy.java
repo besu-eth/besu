@@ -182,12 +182,17 @@ public class BonsaiArchiveTrieNodeStrategy implements TrieNodeStrategy {
    */
   private Optional<BonsaiContext> getStateTrieArchiveContextForRead(
       final SegmentedKeyValueStorage storage) {
-    Optional<byte[]> proofTrieContext =
-        storage.get(TRIE_BRANCH_STORAGE, ARCHIVE_PROOF_BLOCK_NUMBER_KEY);
-    if (proofTrieContext.isPresent()) {
-      return Optional.of(new BonsaiContext(Bytes.wrap(proofTrieContext.get()).toLong()));
-    }
-    return BonsaiArchiveKeyUtil.getStateArchiveContextForRead(storage);
+    // The context is constant for the duration of a proof; memoize it per proof (no-op outside a
+    // proof scope) so it isn't re-resolved from storage on every trie-node read.
+    return BonsaiArchiveReadContext.trieReadContext(
+        () -> {
+          Optional<byte[]> proofTrieContext =
+              storage.get(TRIE_BRANCH_STORAGE, ARCHIVE_PROOF_BLOCK_NUMBER_KEY);
+          if (proofTrieContext.isPresent()) {
+            return Optional.of(new BonsaiContext(Bytes.wrap(proofTrieContext.get()).toLong()));
+          }
+          return BonsaiArchiveKeyUtil.getStateArchiveContextForRead(storage);
+        });
   }
 
   private BonsaiContext getStateTrieArchiveContextForWrite(final SegmentedKeyValueStorage storage) {

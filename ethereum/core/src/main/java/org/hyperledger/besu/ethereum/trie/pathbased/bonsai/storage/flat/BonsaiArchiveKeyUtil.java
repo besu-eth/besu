@@ -42,17 +42,23 @@ public class BonsaiArchiveKeyUtil {
 
   public static Optional<BonsaiContext> getStateArchiveContextForRead(
       final SegmentedKeyValueStorage storage) {
-    Optional<byte[]> archiveContext = storage.get(TRIE_BRANCH_STORAGE, WORLD_BLOCK_NUMBER_KEY);
-    if (archiveContext.isPresent()) {
-      try {
-        return Optional.of(new BonsaiContext(Bytes.wrap(archiveContext.get()).toLong()));
-      } catch (NumberFormatException e) {
-        throw new IllegalStateException(
-            "World state archive context invalid format: "
-                + new String(archiveContext.get(), StandardCharsets.UTF_8));
-      }
-    }
-    return Optional.empty();
+    // Memoized per proof (no-op outside a proof scope) so it isn't re-resolved from storage on
+    // every flat-DB read.
+    return BonsaiArchiveReadContext.flatReadContext(
+        () -> {
+          Optional<byte[]> archiveContext =
+              storage.get(TRIE_BRANCH_STORAGE, WORLD_BLOCK_NUMBER_KEY);
+          if (archiveContext.isPresent()) {
+            try {
+              return Optional.of(new BonsaiContext(Bytes.wrap(archiveContext.get()).toLong()));
+            } catch (NumberFormatException e) {
+              throw new IllegalStateException(
+                  "World state archive context invalid format: "
+                      + new String(archiveContext.get(), StandardCharsets.UTF_8));
+            }
+          }
+          return Optional.empty();
+        });
   }
 
   public static Bytes calculateArchiveKeyWithMaxSuffix(
