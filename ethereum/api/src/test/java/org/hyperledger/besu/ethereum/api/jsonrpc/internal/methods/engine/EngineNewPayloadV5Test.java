@@ -143,6 +143,7 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
     assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
     assertThat(jsonRpcError.getMessage()).isEqualTo(INVALID_ENGINE_NEW_PAYLOAD_PARAMS.getMessage());
+    assertThat(jsonRpcError.getData()).isEqualTo("Missing block access list field");
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
@@ -162,6 +163,7 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
     assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
     assertThat(jsonRpcError.getMessage()).isEqualTo(INVALID_ENGINE_NEW_PAYLOAD_PARAMS.getMessage());
+    assertThat(jsonRpcError.getData()).isEqualTo("Invalid block access list encoding");
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
@@ -175,6 +177,7 @@ public class EngineNewPayloadV5Test extends EngineNewPayloadV4Test {
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
     assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
     assertThat(jsonRpcError.getMessage()).isEqualTo(INVALID_ENGINE_NEW_PAYLOAD_PARAMS.getMessage());
+    assertThat(jsonRpcError.getData()).isEqualTo("Invalid block access list encoding");
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 

@@ -148,9 +148,10 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
 
     var resp = resp(payload);
 
-    assertThat(fromErrorResp(resp).getCode()).isEqualTo(INVALID_PARAMS.getCode());
-    assertThat(fromErrorResp(resp).getMessage())
-        .isEqualTo(INVALID_ENGINE_NEW_PAYLOAD_PARAMS.getMessage());
+    final JsonRpcError jsonRpcError = fromErrorResp(resp);
+    assertThat(jsonRpcError.getCode()).isEqualTo(INVALID_PARAMS.getCode());
+    assertThat(jsonRpcError.getMessage()).isEqualTo(INVALID_ENGINE_NEW_PAYLOAD_PARAMS.getMessage());
+    assertThat(jsonRpcError.getData()).isEqualTo("Unexpected block access list field");
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
