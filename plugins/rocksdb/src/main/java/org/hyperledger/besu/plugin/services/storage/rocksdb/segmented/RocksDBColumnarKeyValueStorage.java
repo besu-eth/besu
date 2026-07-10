@@ -461,11 +461,12 @@ public abstract class RocksDBColumnarKeyValueStorage implements SegmentedKeyValu
     if (scoped != null) {
       // Reuse (or lazily open) the scope's iterator for this segment; the scope closes it.
       final RocksIterator rocksIterator =
-          scoped.computeIfAbsent(segmentIdentifier, s -> getDB().newIterator(safeColumnHandle(s)));
+          scoped.computeIfAbsent(
+              segmentIdentifier, s -> getDB().newIterator(safeColumnHandle(s), readOptions));
       return seekForPrevOn(rocksIterator, key, matchLength);
     }
     try (final RocksIterator rocksIterator =
-        getDB().newIterator(safeColumnHandle(segmentIdentifier))) {
+        getDB().newIterator(safeColumnHandle(segmentIdentifier), readOptions)) {
       return seekForPrevOn(rocksIterator, key, matchLength);
     }
   }
