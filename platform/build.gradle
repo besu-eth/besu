@@ -185,7 +185,7 @@ dependencies {
 
     api 'org.xerial.snappy:snappy-java:1.1.10.7'
 
-    api 'io.consensys.protocols:jc-kzg-4844:2.1.6'
+    api 'io.consensys.protocols:jc-kzg-4844:2.1.8'
 
     api 'io.consensys.protocols:discovery:26.6.0'
   }
