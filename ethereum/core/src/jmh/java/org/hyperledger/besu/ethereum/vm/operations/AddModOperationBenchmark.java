@@ -48,6 +48,8 @@ public class AddModOperationBenchmark extends TernaryArithmeticOperationBenchmar
     "ADDMOD_256_32_32",
     "ADDMOD_256_64_32",
     "ADDMOD_256_64_64",
+    "ADDMOD_256_64_128",
+    "ADDMOD_256_64_192",
     "ADDMOD_256_128_32",
     "ADDMOD_256_128_64",
     "ADDMOD_256_128_128",
