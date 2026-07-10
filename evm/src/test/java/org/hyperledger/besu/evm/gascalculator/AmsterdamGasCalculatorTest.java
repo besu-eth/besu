@@ -62,13 +62,21 @@ class AmsterdamGasCalculatorTest {
 
   @Test
   void accessListGasCostIncludesDataFloor() {
-    // EIP-2930: 2400/address + 1900/key; EIP-7981: +1280/address + 2048/key
-    // One address + zero keys  = 2400 + 1280 = 3680
-    assertThat(amsterdamGasCalculator.accessListGasCost(1, 0)).isEqualTo(3680L);
-    // One address + one key    = 3680 + 1900 + 2048 = 7628
-    assertThat(amsterdamGasCalculator.accessListGasCost(1, 1)).isEqualTo(7628L);
-    // Three addresses + five keys = 3*3680 + 5*(1900+2048) = 11040 + 19740 = 30780
-    assertThat(amsterdamGasCalculator.accessListGasCost(3, 5)).isEqualTo(30780L);
+    // EIP-8038: per-entry access cost raised to COLD_ACCESS (3,000) for both addresses and keys.
+    // EIP-7981 data floor: +1280/address + 2048/key.
+    // One address + zero keys  = 3000 + 1280 = 4280
+    assertThat(amsterdamGasCalculator.accessListGasCost(1, 0)).isEqualTo(4280L);
+    // One address + one key    = 4280 + 3000 + 2048 = 9328
+    assertThat(amsterdamGasCalculator.accessListGasCost(1, 1)).isEqualTo(9328L);
+    // Three addresses + five keys = 3*4280 + 5*(3000+2048) = 12840 + 25240 = 38080
+    assertThat(amsterdamGasCalculator.accessListGasCost(3, 5)).isEqualTo(38080L);
+  }
+
+  @Test
+  void eip8038CreateAccessGasCost() {
+    // EIP-8038: CREATE/CREATE2 regular-gas cost = CREATE_ACCESS = ACCOUNT_WRITE (8,000)
+    // + COLD_STORAGE_ACCESS (3,000) = 11,000.
+    assertThat(amsterdamGasCalculator.txCreateCost()).isEqualTo(11_000L);
   }
 
   @Test

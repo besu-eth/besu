@@ -38,7 +38,8 @@ import org.apache.tuweni.units.bigints.UInt256;
  * is reduced.
  *
  * <UL>
- *   <LI>EIP-8038: state-access gas repricing (cold access, account/storage write, CALL value)
+ *   <LI>EIP-8038: state-access gas repricing (cold access, account/storage write, CALL value,
+ *       CREATE/CREATE2 access, access-list per-entry cost)
  *   <LI>EIP-7928: gas cost per item for block access list size limit
  *   <LI>EIP-7976: calldata floor cost raised to 64 gas per byte
  *   <LI>EIP-7981: access list data priced at the 64 gas/byte floor
@@ -84,6 +85,13 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   /** Refund for clearing a slot: {@code (STORAGE_WRITE + COLD_STORAGE_ACCESS) * 4800 / 5000}. */
   private static final long STORAGE_CLEAR_REFUND =
       (STORAGE_WRITE + COLD_STORAGE_ACCESS) * 4800L / 5000L;
+
+  /**
+   * Regular-gas state-access cost for {@code CREATE}/{@code CREATE2}: {@code ACCOUNT_WRITE +
+   * COLD_ACCOUNT_ACCESS}. The new-account state creation cost is charged separately as state gas
+   * (see {@link Eip8037StateGasCostCalculator}).
+   */
+  private static final long CREATE_ACCESS = ACCOUNT_WRITE + COLD_ACCOUNT_ACCESS;
 
   /** Per-word copy cost used for EXTCODECOPY memory-copy accounting. */
   private static final long COPY_WORD_GAS_COST = 3L;
@@ -146,14 +154,13 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
 
   @Override
   public long accessListGasCost(final int addresses, final int storageSlots) {
-    // EIP-2930 baseline (2400 per address, 1900 per key) plus EIP-7981 data floor
-    // (1280 per address, 2048 per storage key), so access list data is always charged
-    // at floor rate regardless of which branch of the gasUsed max() wins.
+    // EIP-8038: per-entry access cost is the cold access cost for both addresses and storage keys.
+    // EIP-7981: plus the access-list data floor, so the data is always charged at the floor rate
+    // regardless of which branch of the gasUsed max() wins.
     return clampedAdd(
-        super.accessListGasCost(addresses, storageSlots),
-        clampedAdd(
-            clampedMultiply(addresses, ACCESS_LIST_ADDRESS_FLOOR_COST),
-            clampedMultiply(storageSlots, ACCESS_LIST_STORAGE_KEY_FLOOR_COST)));
+        clampedMultiply(addresses, clampedAdd(COLD_ACCOUNT_ACCESS, ACCESS_LIST_ADDRESS_FLOOR_COST)),
+        clampedMultiply(
+            storageSlots, clampedAdd(COLD_STORAGE_ACCESS, ACCESS_LIST_STORAGE_KEY_FLOOR_COST)));
   }
 
   private static long accessListBytes(final List<AccessListEntry> accessList) {
@@ -210,7 +217,10 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
 
   @Override
   public long txCreateCost() {
-    return TX_CREATE_COST;
+    // EIP-8038: CREATE/CREATE2 opcodes are charged CREATE_ACCESS in regular gas (plus the
+    // new-account state-creation cost as state gas). The transaction-intrinsic create cost is
+    // repriced separately by EIP-2780; txCreateExtraGasCost() below keeps the EIP-8037 value.
+    return CREATE_ACCESS;
   }
 
   @Override
