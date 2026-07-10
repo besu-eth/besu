@@ -646,7 +646,7 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       }
     }
     try {
-      long startReadNs = System.nanoTime();
+      long startReadNs = stateAccessTracer != null ? System.nanoTime() : 0;
       final Supplier<UInt256> loader =
           Suppliers.memoize(
               () ->
