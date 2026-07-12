@@ -699,7 +699,7 @@ public class EthPeers implements PeerSelector {
   }
 
   private int compareConnectionInitiationTimes(final PeerConnection a, final PeerConnection b) {
-    return Math.toIntExact(a.getInitiatedAt() - b.getInitiatedAt());
+    return Long.compare(a.getInitiatedAt(), b.getInitiatedAt());
   }
 
   private int compareByMaskedNodeId(final PeerConnection a, final PeerConnection b) {
