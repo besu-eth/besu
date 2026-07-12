@@ -188,6 +188,7 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
   public synchronized boolean checkCompletion(final BlockHeader header) {
     if (!isStateDownloadFinished()
         && !isPivotCatchupInProgress()
+        && accountRangeTracker.completedRangeCount() > 0
         && pendingAccountRequests.allTasksCompleted()
         && pendingCodeRequests.allTasksCompleted()
         && pendingStorageRequests.allTasksCompleted()
@@ -210,18 +211,23 @@ public class SnapV2WorldDownloadState extends WorldDownloadState<SnapDataRequest
 
   private void persistWorldStateRoot(final BlockHeader header) {
     final Bytes32 expectedRoot = Bytes32.wrap(header.getStateRoot().getBytes());
-    final Bytes nodeData =
-        worldStateStorageCoordinator
-            .getAccountStateTrieNode(Bytes.EMPTY, expectedRoot)
-            .orElseThrow(
-                () ->
-                    new WorldStateDownloaderException(
-                        "Unable to persist snap/2 world state root: root node not found in "
-                            + "storage at EMPTY matching state root "
-                            + expectedRoot
-                            + " (pivot block "
-                            + header.getNumber()
-                            + ")"));
+    final Bytes nodeData;
+    if (expectedRoot.equals(MerkleTrie.EMPTY_TRIE_NODE_HASH)) {
+      nodeData = MerkleTrie.EMPTY_TRIE_NODE;
+    } else {
+      nodeData =
+          worldStateStorageCoordinator
+              .getAccountStateTrieNode(Bytes.EMPTY, expectedRoot)
+              .orElseThrow(
+                  () ->
+                      new WorldStateDownloaderException(
+                          "Unable to persist snap/2 world state root: root node not found in "
+                              + "storage at EMPTY matching state root "
+                              + expectedRoot
+                              + " (pivot block "
+                              + header.getNumber()
+                              + ")"));
+    }
 
     final WorldStateKeyValueStorage.Updater updater = worldStateStorageCoordinator.updater();
     applyForStrategy(
