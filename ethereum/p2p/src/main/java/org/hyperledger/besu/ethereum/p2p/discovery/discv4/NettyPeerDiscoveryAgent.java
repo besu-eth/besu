@@ -44,6 +44,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 
 import io.netty.channel.unix.Errors;
 import io.netty.channel.unix.Errors.NativeIoException;
@@ -244,15 +245,15 @@ public class NettyPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
             .addArgument(err)
             .log();
       }
-    } else if (err instanceof SocketException && err.getMessage().contains("unreachable")) {
+    } else if (isSocketExceptionWithMessage(err, message -> message.contains("unreachable"))) {
       LOG.atTrace()
           .setMessage("Peer {} is unreachable, packet: {}")
           .addArgument(peer)
           .addArgument(() -> packetSerializer.encode(packet))
           .addArgument(err)
           .log();
-    } else if (err instanceof SocketException
-        && err.getMessage().contentEquals("Operation not permitted")) {
+    } else if (isSocketExceptionWithMessage(
+        err, message -> message.contentEquals("Operation not permitted"))) {
       LOG.debug(
           "Operation not permitted sending to peer {}, this might be caused by firewall rules blocking traffic to a specific route.",
           peer,
@@ -272,5 +273,12 @@ public class NettyPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
           .addArgument(err)
           .log();
     }
+  }
+
+  private static boolean isSocketExceptionWithMessage(
+      final Throwable err, final Predicate<String> messageTest) {
+    return err instanceof SocketException
+        && err.getMessage() != null
+        && messageTest.test(err.getMessage());
   }
 }

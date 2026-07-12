@@ -19,6 +19,7 @@ import org.hyperledger.besu.ethereum.p2p.discovery.discv4.Transport;
 
 import java.io.IOException;
 import java.net.BindException;
+import java.net.Inet6Address;
 import java.net.InetSocketAddress;
 import java.net.SocketException;
 import java.util.concurrent.CompletableFuture;
@@ -93,6 +94,10 @@ public final class NettyTransport implements Transport {
 
   @Override
   public CompletableFuture<InetSocketAddress> start() {
+    if (stopped.get()) {
+      return CompletableFuture.failedFuture(
+          new IllegalStateException("NettyTransport already stopped"));
+    }
     if (!started.compareAndSet(false, true)) {
       return CompletableFuture.failedFuture(
           new IllegalStateException("NettyTransport already started"));
@@ -102,15 +107,19 @@ public final class NettyTransport implements Transport {
         new MultiThreadIoEventLoopGroup(
             1, (ThreadFactory) r -> new Thread(r, "discv4-eventloop"), NioIoHandler.newFactory());
 
+    // Pin the channel's family to match the configured bind address explicitly, rather than
+    // letting Netty infer it: on Java 17+, the default NioDatagramChannel opens an IPv6 socket
+    // even for a 0.0.0.0 (IPv4) bind, which then rejects that bind.
+    final SocketProtocolFamily family =
+        bindAddress.getAddress() instanceof Inet6Address
+            ? SocketProtocolFamily.INET6
+            : SocketProtocolFamily.INET;
+
     final CompletableFuture<InetSocketAddress> future = new CompletableFuture<>();
     final Bootstrap bootstrap = new Bootstrap();
     bootstrap
         .group(eventLoopGroup)
-        // DiscV4 is IPv4-only; pin the family explicitly so 0.0.0.0 binds don't
-        // open an IPv6 socket on Java 17+ (per Netty default).
-        .channelFactory(
-            (ChannelFactory<NioDatagramChannel>)
-                () -> new NioDatagramChannel(SocketProtocolFamily.INET))
+        .channelFactory((ChannelFactory<NioDatagramChannel>) () -> new NioDatagramChannel(family))
         .handler(
             new ChannelInitializer<NioDatagramChannel>() {
               @Override

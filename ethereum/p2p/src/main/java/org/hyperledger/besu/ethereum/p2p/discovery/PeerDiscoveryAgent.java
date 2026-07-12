@@ -27,14 +27,6 @@ import org.ethereum.beacon.discovery.schema.NodeRecord;
 public interface PeerDiscoveryAgent {
 
   /**
-   * Wires the inbound packet handler(s) without starting the transport.
-   *
-   * <p>Implementations that need pre-bind handler registration override this. Default is a no-op.
-   * Implementations must be idempotent.
-   */
-  default void prepareHandlers() {}
-
-  /**
    * Starts the peer discovery service on the specified TCP port.
    *
    * @param tcpPort The TCP port to start the service on.

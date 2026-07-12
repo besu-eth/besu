@@ -106,4 +106,25 @@ public class NettyTransportTest {
 
     assertThat(stopFuture).succeedsWithin(5, TimeUnit.SECONDS);
   }
+
+  @Test
+  public void start_bindsSuccessfully_onIpv6WildcardAddress() throws Exception {
+    final InetSocketAddress ipv6Wildcard = new InetSocketAddress(InetAddress.getByName("::"), 0);
+    transport1 = NettyTransport.create(ipv6Wildcard);
+
+    final InetSocketAddress bound = transport1.start().get(5, TimeUnit.SECONDS);
+
+    assertThat(bound.getPort()).isGreaterThan(0);
+  }
+
+  @Test
+  public void start_afterStop_failsInsteadOfLeakingEventLoop() throws Exception {
+    final InetSocketAddress ephemeral = new InetSocketAddress(InetAddress.getLoopbackAddress(), 0);
+    transport1 = NettyTransport.create(ephemeral);
+
+    transport1.stop().get(5, TimeUnit.SECONDS);
+    final CompletableFuture<InetSocketAddress> restart = transport1.start();
+
+    assertThat(restart).failsWithin(5, TimeUnit.SECONDS);
+  }
 }

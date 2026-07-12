@@ -169,8 +169,7 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
   /**
    * Wires the V4 inbound handler and lazily initialises worker + dispatch executors. Idempotent.
    */
-  @Override
-  public void prepareHandlers() {
+  private void prepareHandlers() {
     if (workerExecutor == null) {
       workerExecutor = createWorkerExecutor();
     }
@@ -218,7 +217,11 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
               if (err == null) {
                 final Endpoint endpoint =
                     new Endpoint(sender.getHostString(), sender.getPort(), Optional.empty());
-                handleIncomingPacket(endpoint, packet);
+                try {
+                  handleIncomingPacket(endpoint, packet);
+                } catch (final RuntimeException e) {
+                  LOG.error("Encountered error while handling packet", e);
+                }
               } else {
                 if (err instanceof PeerDiscoveryPacketDecodingException
                     || err instanceof DecodeException
