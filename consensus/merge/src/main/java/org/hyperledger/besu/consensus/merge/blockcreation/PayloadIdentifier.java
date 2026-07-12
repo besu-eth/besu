@@ -62,6 +62,7 @@ public class PayloadIdentifier implements Quantity {
    * @param withdrawals the optional withdrawals
    * @param parentBeaconBlockRoot the optional parent beacon block root
    * @param slotNumber the optional beacon slot number
+   * @param targetGasLimit the optional target gas limit
    * @return the payload identifier
    */
   public static PayloadIdentifier forPayloadParams(
@@ -71,7 +72,8 @@ public class PayloadIdentifier implements Quantity {
       final Address feeRecipient,
       final Optional<List<Withdrawal>> withdrawals,
       final Optional<Bytes32> parentBeaconBlockRoot,
-      final Optional<Long> slotNumber) {
+      final Optional<Long> slotNumber,
+      final Optional<Long> targetGasLimit) {
 
     // normally timestamp and parentHash should be enough to uniquely identify a payload
     // but in special cases, reorgs, CL configuration changes (feeRecipient), or other edge case
@@ -87,6 +89,8 @@ public class PayloadIdentifier implements Quantity {
 
     final long slotNumberPart = slotNumber.orElse(-1L);
 
+    final long targetGasLimitPart = targetGasLimit.orElse(-1L);
+
     // we finally spread all the values over 64bit, rotating only values where the shift could lose
     // bits
     return new PayloadIdentifier(
@@ -98,7 +102,9 @@ public class PayloadIdentifier implements Quantity {
             ^ slotNumberPart << 40
             ^ slotNumberPart >> 24
             ^ withdrawalPart << 48
-            ^ withdrawalPart >> 16);
+            ^ withdrawalPart >> 16
+            ^ targetGasLimitPart << 56
+            ^ targetGasLimitPart >> 8);
   }
 
   @Override

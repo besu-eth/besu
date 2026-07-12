@@ -239,6 +239,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
     final Optional<List<Withdrawal>> withdrawals = preparePayloadArgs.withdrawals();
     final Optional<Bytes32> parentBeaconBlockRoot = preparePayloadArgs.parentBeaconBlockRoot();
     final Optional<Long> slotNumber = preparePayloadArgs.slotNumber();
+    final Optional<Long> targetGasLimit = preparePayloadArgs.targetGasLimit();
 
     // we assume that preparePayload is always called sequentially, since the RPC Engine calls
     // are sequential, if this assumption changes then more synchronization should be added to
@@ -252,7 +253,8 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
             feeRecipient,
             withdrawals,
             parentBeaconBlockRoot,
-            slotNumber);
+            slotNumber,
+            targetGasLimit);
 
     if (blockCreationTasks.containsKey(payloadIdentifier)) {
       LOG.debug(
@@ -275,6 +277,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
             withdrawals,
             parentBeaconBlockRoot,
             slotNumber,
+            targetGasLimit,
             parentHeader);
     final Block emptyBlock = emptyBlockResult.getBlock();
 
@@ -311,6 +314,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
         withdrawals,
         parentBeaconBlockRoot,
         slotNumber,
+        targetGasLimit,
         parentHeader);
 
     return payloadIdentifier;
@@ -414,6 +418,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
       final Optional<List<Withdrawal>> withdrawals,
       final Optional<Bytes32> parentBeaconBlockRoot,
       final Optional<Long> slotNumber,
+      final Optional<Long> targetGasLimit,
       final BlockHeader parentHeader) {
 
     final Supplier<BlockCreationResult> blockCreator =
@@ -425,6 +430,7 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
                 withdrawals,
                 parentBeaconBlockRoot,
                 slotNumber,
+                targetGasLimit,
                 parentHeader);
 
     LOG.debug(
@@ -725,27 +731,6 @@ public class MergeCoordinator implements MergeMiningCoordinator, BadChainListene
   public ForkchoiceResult updateForkChoiceWithoutLegacySkip(
       final BlockHeader newHead, final Hash finalizedBlockHash, final Hash safeBlockHash) {
     return applyForkChoice(newHead, finalizedBlockHash, safeBlockHash);
-  }
-
-  @Override
-  public ForkchoiceResult updateHeadForExecution(final BlockHeader newHead) {
-    final MutableBlockchain blockchain = protocolContext.getBlockchain();
-    final Optional<Hash> latestValid = getLatestValidAncestor(newHead);
-
-    Optional<BlockHeader> parentOfNewHead = blockchain.getBlockHeader(newHead.getParentHash());
-    if (parentOfNewHead.isPresent()
-        && Long.compareUnsigned(newHead.getTimestamp(), parentOfNewHead.get().getTimestamp())
-            <= 0) {
-      return ForkchoiceResult.withFailure(
-          INVALID, "new head timestamp not greater than parent", latestValid);
-    }
-
-    if (!setNewHead(blockchain, newHead)) {
-      LOG.warn("Failed to move world state to new head {}", newHead.toLogString());
-      return ForkchoiceResult.withFailure(INVALID, "Failed to set new head", latestValid);
-    }
-
-    return ForkchoiceResult.withResult(Optional.empty(), Optional.of(newHead));
   }
 
   private ForkchoiceResult applyForkChoice(

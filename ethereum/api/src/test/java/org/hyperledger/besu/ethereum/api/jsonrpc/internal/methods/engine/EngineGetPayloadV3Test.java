@@ -109,6 +109,7 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
             Address.fromHexString("0x42"),
             Optional.empty(),
             Optional.empty(),
+            Optional.empty(),
             Optional.empty());
 
     BlockWithReceipts shanghaiBlock =
@@ -148,6 +149,7 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
             cancunHardfork.milestone(),
             Bytes32.random(),
             Address.fromHexString("0x42"),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty());
@@ -191,6 +193,7 @@ public class EngineGetPayloadV3Test extends AbstractEngineGetPayloadTest {
             cancunHardfork.milestone(),
             Bytes32.random(),
             Address.fromHexString("0x42"),
+            Optional.empty(),
             Optional.empty(),
             Optional.empty(),
             Optional.empty());

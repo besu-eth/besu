@@ -18,7 +18,10 @@ import org.hyperledger.besu.ethereum.blockcreation.txselection.BlockSelectionCon
 import org.hyperledger.besu.ethereum.blockcreation.txselection.TransactionEvaluationContext;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.ethereum.mainnet.BlockGasAccountingStrategy;
+import org.hyperledger.besu.ethereum.mainnet.TransactionIntrinsicGas;
 import org.hyperledger.besu.ethereum.processing.TransactionProcessingResult;
+import org.hyperledger.besu.evm.gascalculator.GasCalculator;
+import org.hyperledger.besu.evm.gascalculator.StateGasCostCalculator;
 import org.hyperledger.besu.plugin.data.TransactionSelectionResult;
 import org.hyperledger.besu.plugin.services.txselection.SelectorsStateManager;
 
@@ -40,12 +43,16 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
 
   private final long blockGasLimit;
   private final BlockGasAccountingStrategy gasAccountingStrategy;
+  private final GasCalculator gasCalculator;
+  private final StateGasCostCalculator stateGasCostCalculator;
 
   public BlockSizeTransactionSelector(
       final BlockSelectionContext context, final SelectorsStateManager selectorsStateManager) {
     super(context, selectorsStateManager, GasState.ZERO, GasState::duplicate);
     this.blockGasLimit = context.pendingBlockHeader().getGasLimit();
     this.gasAccountingStrategy = context.protocolSpec().getBlockGasAccountingStrategy();
+    this.gasCalculator = context.gasCalculator();
+    this.stateGasCostCalculator = gasCalculator.stateGasCostCalculator();
   }
 
   /**
@@ -83,6 +90,7 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
     final long txRegularGasUsed =
         gasAccountingStrategy.calculateTransactionRegularGas(
             evaluationContext.getTransaction(), processingResult);
+    // EIP-8037: block accounting uses the worst-case immutable intrinsic_state_gas.
     final long stateGasUsed = processingResult.getStateGasUsed();
 
     final GasState state = getWorkingState();
@@ -121,8 +129,15 @@ public class BlockSizeTransactionSelector extends AbstractStatefulTransactionSel
    * @return True if the transaction is too large for the block, false otherwise.
    */
   private boolean transactionTooLargeForBlock(final Transaction transaction, final GasState state) {
+    final var intrinsic = TransactionIntrinsicGas.of(transaction, gasCalculator);
     return !gasAccountingStrategy.hasBlockCapacity(
-        transaction.getGasLimit(), state.regularGas(), state.stateGas(), blockGasLimit);
+        transaction.getGasLimit(),
+        intrinsic.regularGas(),
+        intrinsic.stateGas(),
+        stateGasCostCalculator.transactionRegularGasLimit(),
+        state.regularGas(),
+        state.stateGas(),
+        blockGasLimit);
   }
 
   /**

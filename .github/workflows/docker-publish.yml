@@ -1,0 +1,129 @@
+name: docker-publish
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+      cache_scope:
+        required: false
+        type: string
+        default: 'docker-build'
+    outputs:
+      image_digest:
+        description: "Published image digest"
+        value: ${{ jobs.publishDocker.outputs.image_digest }}
+
+jobs:
+  publishDocker:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      image_digest: ${{ steps.dockerBuildPush.outputs.digest }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: 'recursive'
+      - name: Set up Java
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: 25
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+        with:
+          cache-disabled: true
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - name: Stage Docker build context
+        run: |
+          if [[ "${{ inputs.version }}" =~ ^[0-9] ]]; then
+            ./gradlew --no-daemon -Prelease.releaseVersion=${{ inputs.version }} -Pversion=${{ inputs.version }} distDockerCopy
+          else
+            ./gradlew --no-daemon distDockerCopy
+          fi
+      - name: Compute Docker tags
+        id: dockertags
+        run: |
+          TAGS="${{ secrets.DOCKER_ORG }}/besu:${{ inputs.version }}"
+          if [[ "${{ inputs.version }}" =~ ^[0-9] ]] && \
+             [[ "${TAGS^^}" != *"-RC"* ]]; then
+            TAGS="$TAGS,${{ secrets.DOCKER_ORG }}/besu:latest"
+          fi
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+      - name: Login to Docker Hub
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          username: ${{ secrets.DOCKER_USER_RW }}
+          password: ${{ secrets.DOCKER_PASSWORD_RW }}
+      - name: Build and push multi-arch image
+        id: dockerBuildPush
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+        env:
+          DOCKER_BUILD_SUMMARY: false
+        with:
+          context: build/docker-besu
+          platforms: linux/amd64,linux/arm64
+          provenance: false
+          push: true
+          cache-from: type=gha,scope=${{ inputs.cache_scope }}-amd64
+          build-args: |
+            VERSION=${{ inputs.version }}
+            VCS_REF=${{ github.sha }}
+          tags: ${{ steps.dockertags.outputs.tags }}
+
+  signAndAttest:
+    runs-on: ubuntu-24.04
+    needs: publishDocker
+    permissions:
+      id-token: write
+    steps:
+      - name: Login to Docker Hub
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          username: ${{ secrets.DOCKER_USER_RW }}
+          password: ${{ secrets.DOCKER_PASSWORD_RW }}
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6
+      - name: Sign image
+        run: cosign sign --yes docker.io/${{ secrets.DOCKER_ORG }}/besu@${{ needs.publishDocker.outputs.image_digest }}
+      - name: Generate provenance
+        run: |
+          BUILD_STARTED_ON="${{ github.event.head_commit.timestamp }}"
+          if [ -z "$BUILD_STARTED_ON" ]; then
+            BUILD_STARTED_ON=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          fi
+          BUILD_FINISHED_ON=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          cat > provenance.json <<'EOF'
+          {
+            "buildType": "https://slsa.dev/container/v1",
+            "builder": {
+              "id": "https://github.com/${{ github.repository }}/.github/workflows/${{ github.workflow_ref }}"
+            },
+            "invocation": {
+              "parameters": {
+                "git_ref": "${{ github.ref }}",
+                "git_sha": "${{ github.sha }}",
+                "build_run_id": "${{ github.run_id }}",
+                "build_run_number": "${{ github.run_number }}"
+              }
+            },
+            "metadata": {
+              "buildStartedOn": "__BUILD_STARTED_ON__",
+              "buildFinishedOn": "__BUILD_FINISHED_ON__"
+            },
+            "source": {
+              "repository": "https://github.com/${{ github.repository }}",
+              "revision": "${{ github.sha }}"
+            }
+          }
+          EOF
+          sed -i "s/__BUILD_STARTED_ON__/$BUILD_STARTED_ON/" provenance.json
+          sed -i "s/__BUILD_FINISHED_ON__/$BUILD_FINISHED_ON/" provenance.json
+      - name: Attest provenance
+        run: cosign attest --yes --predicate provenance.json --type slsaprovenance docker.io/${{ secrets.DOCKER_ORG }}/besu@${{ needs.publishDocker.outputs.image_digest }}

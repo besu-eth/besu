@@ -1,4 +1,4 @@
-name: container security scan
+name: docker-security-scan-daily
 
 on:
   workflow_dispatch:
@@ -16,6 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
       security-events: write
 
     steps:

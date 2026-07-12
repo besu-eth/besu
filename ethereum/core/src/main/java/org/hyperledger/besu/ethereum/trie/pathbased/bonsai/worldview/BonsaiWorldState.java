@@ -19,6 +19,7 @@ import static org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.Path
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
+import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.NoOpMerkleTrie;
@@ -30,6 +31,7 @@ import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldSt
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.BonsaiCachedMerkleTrieLoader;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.preload.NoOpBonsaiCachedMerkleTrieLoader;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.bal.BonsaiBalWorldStateUpdateAccumulator;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.code.PathBasedCodeCache;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.trielog.TrieLogManager;
@@ -65,6 +67,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
 
   protected BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader;
   private final PathBasedCodeCache codeCache;
+  private final EvmConfiguration evmConfiguration;
 
   public BonsaiWorldState(
       final BonsaiWorldStateProvider archive,
@@ -93,6 +96,7 @@ public class BonsaiWorldState extends PathBasedWorldState {
     super(worldStateKeyValueStorage, worldStateCacheManager, trieLogManager, worldStateConfig);
     this.bonsaiCachedMerkleTrieLoader = bonsaiCachedMerkleTrieLoader;
     this.worldStateKeyValueStorage = worldStateKeyValueStorage;
+    this.evmConfiguration = evmConfiguration;
     this.setAccumulator(
         new BonsaiWorldStateUpdateAccumulator(
             this,
@@ -105,6 +109,13 @@ public class BonsaiWorldState extends PathBasedWorldState {
             evmConfiguration,
             codeCache));
     this.codeCache = codeCache;
+  }
+
+  @Override
+  public void applyBlockAccessListOverlay(final BlockAccessListOverlay blockAccessListOverlay) {
+    setAccumulator(
+        new BonsaiBalWorldStateUpdateAccumulator(
+            this, evmConfiguration, codeCache, blockAccessListOverlay));
   }
 
   @Override
