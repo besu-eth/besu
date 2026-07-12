@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 26.7.0
 
 ### Breaking Changes
 - Sunsetting features is now complete - for more context on the reasoning behind these removals, read [this blog post](https://www.lfdecentralizedtrust.org/blog/sunsetting-tessera-and-simplifying-hyperledger-besu)

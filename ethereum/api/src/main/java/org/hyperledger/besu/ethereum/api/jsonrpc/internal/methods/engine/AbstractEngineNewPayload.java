@@ -230,12 +230,9 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     try {
       maybeBlockAccessList = extractBlockAccessList(blockParam);
     } catch (final InvalidBlockAccessListException e) {
-      return respondWithInvalid(
+      return new JsonRpcErrorResponse(
           reqId,
-          blockParam,
-          mergeCoordinator.getLatestValidAncestor(blockParam.getParentHash()).orElse(null),
-          INVALID,
-          e.getMessage());
+          ValidationResult.invalid(RpcErrorType.INVALID_ENGINE_NEW_PAYLOAD_PARAMS, e.getMessage()));
     }
 
     final List<Transaction> transactions;
