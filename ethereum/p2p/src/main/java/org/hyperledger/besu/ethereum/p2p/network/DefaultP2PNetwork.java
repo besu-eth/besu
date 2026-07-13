@@ -384,7 +384,7 @@ public class DefaultP2PNetwork implements P2PNetwork {
         try {
           peerDiscoveryAgent.addPeer(DiscoveryPeerFactory.fromEthereumNodeRecord(record));
         } catch (final RuntimeException e) {
-          LOG.debug(
+          LOG.trace(
               "Ignoring unusable ENR from DNS discovery for {}: {}",
               record.publicKey(),
               e.getMessage());
