@@ -32,7 +32,6 @@ import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.Packet
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.packet.PacketSerializer;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
-import org.hyperledger.besu.nat.NatService;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
 import java.net.SocketException;
@@ -94,7 +93,6 @@ public class NettyPeerDiscoveryAgent extends PeerDiscoveryAgentV4 {
       final NodeKey nodeKey,
       final DiscoveryConfiguration config,
       final PeerPermissions peerPermissions,
-      final NatService natService,
       final MetricsSystem metricsSystem,
       final NodeRecordManager nodeRecordManager,
       final ForkIdManager forkIdManager,

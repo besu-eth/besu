@@ -68,7 +68,6 @@ public class PeerDiscoveryAgentFactoryV4 implements PeerDiscoveryAgentFactory {
         nodeKey,
         discoveryConfig,
         peerPermissions,
-        natService,
         metricsSystem,
         nodeRecordManager,
         forkIdManager,

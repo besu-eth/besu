@@ -32,6 +32,7 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 
 import org.apache.tuweni.bytes.Bytes;
+import org.apache.tuweni.bytes.MutableBytes;
 
 @Singleton
 public class PacketSerializer {
@@ -61,6 +62,7 @@ public class PacketSerializer {
   }
 
   public Bytes encode(final Packet packet) {
+    final Bytes hash = packet.getHash();
     final Bytes encodedSignature = packetSignatureEncoder.encodeSignature(packet.getSignature());
     final BytesValueRLPOutput encodedData = new BytesValueRLPOutput();
     switch (packet.getType()) {
@@ -84,10 +86,15 @@ public class PacketSerializer {
               packet.getPacketData(EnrResponsePacketData.class).orElseThrow(), encodedData);
     }
 
-    return Bytes.concatenate(
-        packet.getHash(),
-        encodedSignature,
-        Bytes.of(packet.getType().getValue()),
-        encodedData.encoded());
+    // Write directly into one pre-sized buffer rather than allocating encodedData's own buffer
+    // via encoded() and then copying that into a second, concatenated buffer.
+    final int headerSize = hash.size() + encodedSignature.size() + 1;
+    final int rlpSize = encodedData.encodedSize();
+    final MutableBytes result = MutableBytes.create(headerSize + rlpSize);
+    hash.copyTo(result, 0);
+    encodedSignature.copyTo(result, hash.size());
+    result.set(hash.size() + encodedSignature.size(), packet.getType().getValue());
+    encodedData.writeEncoded(result.mutableSlice(headerSize, rlpSize));
+    return result;
   }
 }

@@ -103,7 +103,6 @@ class NettyPeerDiscoveryAgentTest {
             nodeKey,
             config,
             PeerPermissions.noop(),
-            natService,
             new NoOpMetricsSystem(),
             nodeRecordManager,
             forkIdManager,
@@ -200,9 +199,11 @@ class NettyPeerDiscoveryAgentTest {
     final InetSocketAddress sender = new InetSocketAddress(InetAddress.getLoopbackAddress(), 30303);
     transport.inboundHandler.onPacket(sender, agent.packetSerializer.encode(packet));
 
-    // Give the (separate) decode executor thread time to decode and enqueue its continuation
-    // behind the blocker, before simulating stop() happening while it's still queued.
-    Thread.sleep(200);
+    // Deterministically wait for the real decode task to finish: since decodeExecutorService
+    // is single-threaded and FIFO, a no-op submitted after the real decode only completes once
+    // the real decode (and its synchronous submission to the dispatch executor) has already
+    // happened — avoiding a fixed sleep that could be too short under CI load.
+    agent.createDecodeExecutor().execute(() -> null).get(5, TimeUnit.SECONDS);
     agent.stopGate.set(true);
     releaseDispatchThread.countDown();
 
