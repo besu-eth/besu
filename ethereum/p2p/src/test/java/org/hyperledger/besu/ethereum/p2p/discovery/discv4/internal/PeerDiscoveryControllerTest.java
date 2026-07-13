@@ -69,9 +69,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
@@ -86,6 +91,7 @@ import org.apache.tuweni.bytes.MutableBytes;
 import org.apache.tuweni.units.bigints.UInt256;
 import org.apache.tuweni.units.bigints.UInt64;
 import org.assertj.core.api.Assertions;
+import org.awaitility.Awaitility;
 import org.ethereum.beacon.discovery.schema.EnrField;
 import org.ethereum.beacon.discovery.schema.IdentitySchema;
 import org.ethereum.beacon.discovery.schema.IdentitySchemaInterpreter;
@@ -1832,6 +1838,96 @@ public class PeerDiscoveryControllerTest {
     return nodeRecord;
   }
 
+  @Test
+  public void createPacket_completionHandlerRunsOnDispatchExecutor() throws Exception {
+    final List<NodeKey> nodeKeys = PeerDiscoveryTestHelper.generateNodeKeys(1);
+    final List<DiscoveryPeerV4> peers = helper.createDiscoveryPeers(nodeKeys);
+
+    final ExecutorService dispatchExecutor =
+        Executors.newSingleThreadExecutor(r -> new Thread(r, "test-dispatch-thread"));
+    try {
+      controller = getControllerBuilder().peers(peers).dispatchExecutor(dispatchExecutor).build();
+
+      final PingPacketData pingPacketData =
+          packetPackage
+              .pingPacketDataFactory()
+              .create(
+                  Optional.ofNullable(localPeer.getEndpoint()),
+                  peers.get(0).getEndpoint(),
+                  UInt64.ONE);
+
+      final AtomicReference<Thread> handlerThread = new AtomicReference<>();
+      final CountDownLatch latch = new CountDownLatch(1);
+      controller.createPacket(
+          PacketType.PING,
+          pingPacketData,
+          packet -> {
+            handlerThread.set(Thread.currentThread());
+            latch.countDown();
+          });
+
+      // Proves createPacket()'s completion handler actually runs on the configured
+      // dispatchExecutor rather than inline on the calling thread (the production default,
+      // which every other test in this class implicitly relies on).
+      assertThat(latch.await(2, TimeUnit.SECONDS)).isTrue();
+      assertThat(handlerThread.get().getName()).isEqualTo("test-dispatch-thread");
+      assertThat(handlerThread.get()).isNotSameAs(Thread.currentThread());
+    } finally {
+      dispatchExecutor.shutdownNow();
+    }
+  }
+
+  @Test
+  public void enrRequest_resolvesCorrectly_withRealDispatchExecutor() throws Exception {
+    final List<NodeKey> nodeKeys = PeerDiscoveryTestHelper.generateNodeKeys(1);
+    final List<DiscoveryPeerV4> peers = helper.createDiscoveryPeers(nodeKeys);
+    final DiscoveryPeerV4 peer = peers.get(0);
+
+    final ExecutorService dispatchExecutor =
+        Executors.newSingleThreadExecutor(r -> new Thread(r, "test-dispatch-thread"));
+    try {
+      final AtomicReference<Bytes> enrRequestHash = new AtomicReference<>();
+      final OutboundMessageHandler outboundMessageHandler =
+          (dp, packet) -> {
+            if (packet.getType() == PacketType.ENR_REQUEST) {
+              enrRequestHash.set(packet.getHash());
+            }
+          };
+
+      controller =
+          getControllerBuilder()
+              .peers(peer)
+              .outboundMessageHandler(outboundMessageHandler)
+              .dispatchExecutor(dispatchExecutor)
+              .build();
+
+      // Real (unmocked) packet creation and signing, unlike mockPingPacketCreation()-style tests
+      // elsewhere in this class — exercises the actual async workerExecutor -> dispatchExecutor
+      // hop this PR introduced, rather than the synchronous inline default.
+      controller.requestENR(peer);
+
+      Awaitility.await().atMost(2, TimeUnit.SECONDS).until(() -> enrRequestHash.get() != null);
+
+      final NodeRecord nodeRecord = createNodeRecord(nodeKeys.get(0), false);
+      final EnrResponsePacketData enrResponsePacketData =
+          packetPackage.enrResponsePacketDataFactory().create(enrRequestHash.get(), nodeRecord);
+      final Packet enrResponsePacket =
+          packetPackage
+              .packetFactory()
+              .create(PacketType.ENR_RESPONSE, enrResponsePacketData, nodeKeys.get(0));
+
+      // Dispatch the "inbound" response the same way NettyPeerDiscoveryAgent does in production:
+      // via the shared dispatchExecutor, not directly on the test's calling thread.
+      dispatchExecutor.execute(() -> controller.onMessage(enrResponsePacket, peer));
+
+      Awaitility.await()
+          .atMost(2, TimeUnit.SECONDS)
+          .untilAsserted(() -> assertThat(peer.getNodeRecord()).isPresent());
+    } finally {
+      dispatchExecutor.shutdownNow();
+    }
+  }
+
   private Packet mockPingPacket(final DiscoveryPeerV4 from, final DiscoveryPeerV4 to) {
     final Packet packet = mock(Packet.class);
 
@@ -1906,6 +2002,7 @@ public class PeerDiscoveryControllerTest {
         CacheBuilder.newBuilder().maximumSize(50).expireAfterWrite(10, TimeUnit.SECONDS).build();
     private boolean filterOnForkId = false;
     private RlpxAgent rlpxAgent;
+    private Executor dispatchExecutor = Runnable::run;
 
     public static ControllerBuilder create() {
       return new ControllerBuilder();
@@ -1966,6 +2063,11 @@ public class PeerDiscoveryControllerTest {
       return this;
     }
 
+    public ControllerBuilder dispatchExecutor(final Executor dispatchExecutor) {
+      this.dispatchExecutor = dispatchExecutor;
+      return this;
+    }
+
     PeerDiscoveryController build() {
       checkNotNull(nodeKey);
       if (localPeer == null) {
@@ -1991,6 +2093,7 @@ public class PeerDiscoveryControllerTest {
               .cacheForEnrRequests(enrs)
               .filterOnEnrForkId(filterOnForkId)
               .rlpxAgent(rlpxAgent)
+              .dispatchExecutor(dispatchExecutor)
               .build());
     }
   }

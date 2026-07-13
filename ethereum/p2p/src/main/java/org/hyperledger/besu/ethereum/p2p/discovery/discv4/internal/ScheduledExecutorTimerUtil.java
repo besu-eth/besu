@@ -43,6 +43,8 @@ public final class ScheduledExecutorTimerUtil implements TimerUtil {
             () -> {
               try {
                 handler.handle();
+              } catch (final RuntimeException e) {
+                LOG.error("Uncaught exception in timer (id={})", id, e);
               } finally {
                 timers.remove(id);
               }

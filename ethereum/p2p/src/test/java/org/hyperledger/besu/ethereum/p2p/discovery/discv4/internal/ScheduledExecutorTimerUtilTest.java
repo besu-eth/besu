@@ -60,6 +60,27 @@ public class ScheduledExecutorTimerUtilTest {
   }
 
   @Test
+  public void setTimer_logsButDoesNotPropagateWhenHandlerThrows() {
+    final AtomicInteger count = new AtomicInteger(0);
+    timerUtil.setTimer(
+        10,
+        () -> {
+          count.incrementAndGet();
+          throw new RuntimeException("boom");
+        });
+
+    Awaitility.await().atMost(1, TimeUnit.SECONDS).until(() -> count.get() == 1);
+
+    // wait a bit longer to confirm the throwing handler didn't crash the scheduler
+    try {
+      Thread.sleep(50);
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+    }
+    assertThat(count.get()).isEqualTo(1);
+  }
+
+  @Test
   public void setPeriodic_firesRepeatedly() {
     final AtomicInteger count = new AtomicInteger(0);
     final long id = timerUtil.setPeriodic(10, "test-timer", count::incrementAndGet);

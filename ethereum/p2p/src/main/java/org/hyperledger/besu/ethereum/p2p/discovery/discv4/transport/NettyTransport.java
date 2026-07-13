@@ -151,6 +151,16 @@ public final class NettyTransport implements Transport {
             return;
           }
           this.channel = (NioDatagramChannel) bindFuture.channel();
+          if (stopped.get()) {
+            // stop() ran while this bind was in flight and saw no channel to close, so it
+            // already shut down the event loop group. Tear down the now-bound channel too,
+            // instead of reporting a successful start after stop() already reported done.
+            channel.close();
+            shutdownEventLoopGroup(eventLoopGroup);
+            future.completeExceptionally(
+                new IllegalStateException("NettyTransport stopped during start()"));
+            return;
+          }
           final InetSocketAddress bound = channel.localAddress();
           LOG.info(
               "DiscV4 UDP transport started, listening on {}:{}",
