@@ -21,6 +21,7 @@ import org.hyperledger.besu.ethereum.rlp.BytesValueRLPInput;
 import org.hyperledger.besu.ethereum.rlp.BytesValueRLPOutput;
 
 import java.math.BigInteger;
+import java.net.InetAddress;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -86,6 +87,58 @@ public class PingPacketDataRlpReaderTest {
     Assertions.assertTrue(result.getFrom().isEmpty());
     Assertions.assertTrue(result.getTo().isEmpty());
     Assertions.assertEquals(123L, result.getExpiration());
+  }
+
+  @Test
+  public void testReadFrom_malformedToEndpointWithInvalidPort_isIgnoredNotFatal() throws Exception {
+    // "to" endpoint has a valid field count but an out-of-range port, so decoding it throws
+    // IllegalPortException. Per EIP-8, a malformed "to" field must not prevent processing of the
+    // rest of the PING packet.
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.startList();
+    out.writeBigIntegerScalar(BigInteger.valueOf(4));
+    out.startList();
+    out.writeInetAddress(InetAddress.getByName("10.0.0.2"));
+    out.writeIntScalar(70000); // outside the valid 1-65535 range
+    out.endList();
+    out.writeLongScalar(123L);
+    out.writeBigIntegerScalar(BigInteger.valueOf(123456789));
+    out.endList();
+
+    final PingPacketData result = reader.readFrom(new BytesValueRLPInput(out.encoded(), false));
+
+    Assertions.assertNotNull(result);
+    Assertions.assertTrue(result.getFrom().isEmpty());
+    Assertions.assertTrue(result.getTo().isEmpty());
+    Assertions.assertEquals(123L, result.getExpiration());
+    Assertions.assertTrue(result.getEnrSeq().isPresent());
+    Assertions.assertEquals(UInt64.valueOf(123456789), result.getEnrSeq().get());
+  }
+
+  @Test
+  public void testReadFrom_malformedToEndpointWithInvalidAddressBytes_isIgnoredNotFatal() {
+    // "to" endpoint's address field is 5 raw bytes - neither a 4-byte IPv4 nor 16-byte IPv6
+    // address - so decoding it throws RLPException. Per EIP-8, a malformed "to" field must not
+    // prevent processing of the rest of the PING packet.
+    final BytesValueRLPOutput out = new BytesValueRLPOutput();
+    out.startList();
+    out.writeBigIntegerScalar(BigInteger.valueOf(4));
+    out.startList();
+    out.writeBytes(Bytes.fromHexString("0x0102030405"));
+    out.writeIntScalar(30303);
+    out.endList();
+    out.writeLongScalar(123L);
+    out.writeBigIntegerScalar(BigInteger.valueOf(123456789));
+    out.endList();
+
+    final PingPacketData result = reader.readFrom(new BytesValueRLPInput(out.encoded(), false));
+
+    Assertions.assertNotNull(result);
+    Assertions.assertTrue(result.getFrom().isEmpty());
+    Assertions.assertTrue(result.getTo().isEmpty());
+    Assertions.assertEquals(123L, result.getExpiration());
+    Assertions.assertTrue(result.getEnrSeq().isPresent());
+    Assertions.assertEquals(UInt64.valueOf(123456789), result.getEnrSeq().get());
   }
 
   @Test
