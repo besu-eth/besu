@@ -15,6 +15,9 @@
 package org.hyperledger.besu.ethereum.p2p.discovery.discv4.transport;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
+
+import org.hyperledger.besu.util.NetworkUtility;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -109,6 +112,8 @@ public class NettyTransportTest {
 
   @Test
   public void start_bindsSuccessfully_onIpv6WildcardAddress() throws Exception {
+    assumeTrue(NetworkUtility.isIPv6Available(), "IPv6 not available on this host");
+
     final InetSocketAddress ipv6Wildcard = new InetSocketAddress(InetAddress.getByName("::"), 0);
     transport1 = NettyTransport.create(ipv6Wildcard);
 
@@ -126,5 +131,24 @@ public class NettyTransportTest {
     final CompletableFuture<InetSocketAddress> restart = transport1.start();
 
     assertThat(restart).failsWithin(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void start_afterBindFailure_canRetry() throws Exception {
+    final InetSocketAddress ephemeral = new InetSocketAddress(InetAddress.getLoopbackAddress(), 0);
+    transport1 = NettyTransport.create(ephemeral);
+    final InetSocketAddress boundAddress = transport1.start().get(5, TimeUnit.SECONDS);
+
+    // transport2 tries to bind to the port transport1 already holds, so this start() fails.
+    transport2 = NettyTransport.create(boundAddress);
+    assertThat(transport2.start()).failsWithin(5, TimeUnit.SECONDS);
+
+    // Freeing the port and retrying should succeed, proving the failed start() didn't leave
+    // transport2 permanently stuck in the "already started" state.
+    transport1.stop().get(5, TimeUnit.SECONDS);
+    transport1 = null;
+
+    final InetSocketAddress retryBound = transport2.start().get(5, TimeUnit.SECONDS);
+    assertThat(retryBound.getPort()).isEqualTo(boundAddress.getPort());
   }
 }

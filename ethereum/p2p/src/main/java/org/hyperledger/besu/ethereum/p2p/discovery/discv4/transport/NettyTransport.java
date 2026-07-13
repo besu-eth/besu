@@ -137,6 +137,8 @@ public final class NettyTransport implements Transport {
         result -> {
           if (!result.isSuccess()) {
             shutdownEventLoopGroup(eventLoopGroup);
+            this.eventLoopGroup = null;
+            started.set(false);
             Throwable cause = result.cause();
             if (cause instanceof BindException || cause instanceof SocketException) {
               cause =
