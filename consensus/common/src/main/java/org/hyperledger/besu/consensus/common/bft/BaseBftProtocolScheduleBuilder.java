@@ -165,7 +165,7 @@ public abstract class BaseBftProtocolScheduleBuilder {
     }
 
     final long cap = perTxGasLimit.getAsLong();
-    if (cap < 0 || (cap > 0 && cap > blockGasLimit)) {
+    if (cap < 0 || cap > blockGasLimit) {
       throw new IllegalArgumentException(
           "config.bft."
               + JsonBftConfigOptions.TRANSACTION_GAS_LIMIT
