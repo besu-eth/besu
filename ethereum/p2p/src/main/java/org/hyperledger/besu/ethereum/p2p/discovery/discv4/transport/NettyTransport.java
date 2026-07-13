@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.p2p.discovery.discv4.transport;
 
 import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryServiceException;
+import org.hyperledger.besu.ethereum.p2p.discovery.discv4.PeerDiscoveryAgentV4;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.Transport;
 
 import java.io.IOException;
@@ -240,9 +241,17 @@ public final class NettyTransport implements Transport {
       if (handler == null) {
         return;
       }
+      final int size = msg.content().readableBytes();
+      if (size > PeerDiscoveryAgentV4.MAX_PACKET_SIZE_BYTES) {
+        // Drop before allocating/copying: a UDP datagram can be up to ~64KiB, so an oversized
+        // packet would otherwise always be duplicated in memory even though it's immediately
+        // discarded once the agent applies this same size check.
+        LOG.trace("Discarding over-sized packet. Actual size (bytes): {}", size);
+        return;
+      }
       final InetSocketAddress sender = msg.sender();
       // Copy before SimpleChannelInboundHandler releases the buffer
-      final byte[] bytes = new byte[msg.content().readableBytes()];
+      final byte[] bytes = new byte[size];
       msg.content().readBytes(bytes);
       handler.onPacket(sender, Bytes.wrap(bytes));
     }

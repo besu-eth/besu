@@ -108,6 +108,16 @@ public class ScheduledExecutorTimerUtilTest {
   }
 
   @Test
+  public void setPeriodic_zeroMsInterval_doesNotThrowAndFiresRepeatedly() {
+    final AtomicInteger count = new AtomicInteger(0);
+    final long id = timerUtil.setPeriodic(0, "test-timer", count::incrementAndGet);
+
+    Awaitility.await().atMost(1, TimeUnit.SECONDS).until(() -> count.get() >= 3);
+
+    timerUtil.cancelTimer(id);
+  }
+
+  @Test
   public void cancelTimer_preventsFiring() {
     final AtomicInteger count = new AtomicInteger(0);
     final long id = timerUtil.setTimer(100, count::incrementAndGet);

@@ -68,8 +68,9 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
   private static final Logger LOG = LoggerFactory.getLogger(PeerDiscoveryAgentV4.class);
 
   // The devp2p specification says only accept packets up to 1280, but some
-  // clients ignore that, so we add in a little extra padding.
-  private static final int MAX_PACKET_SIZE_BYTES = 1600;
+  // clients ignore that, so we add in a little extra padding. Also used by NettyTransport to
+  // drop oversized datagrams before copying them off the channel's buffer.
+  public static final int MAX_PACKET_SIZE_BYTES = 1600;
   protected final List<DiscoveryPeerV4> bootstrapPeers;
   private final List<PeerRequirement> peerRequirements = new CopyOnWriteArrayList<>();
   private final PeerPermissions peerPermissions;

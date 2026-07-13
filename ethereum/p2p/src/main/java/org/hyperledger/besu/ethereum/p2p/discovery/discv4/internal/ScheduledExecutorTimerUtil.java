@@ -68,6 +68,10 @@ public final class ScheduledExecutorTimerUtil implements TimerUtil {
   @Override
   public long setPeriodic(final long delayInMs, final String name, final TimerHandler handler) {
     final long id = nextId.incrementAndGet();
+    // scheduleAtFixedRate requires a strictly positive period; clamp so a 0ms configured
+    // interval (the controller builder allows >= 0) doesn't throw, matching the tolerance of
+    // the prior Vert.x-based timer.
+    final long periodMs = Math.max(1, delayInMs);
     final ScheduledFuture<?> future =
         scheduler.scheduleAtFixedRate(
             () -> {
@@ -78,7 +82,7 @@ public final class ScheduledExecutorTimerUtil implements TimerUtil {
               }
             },
             delayInMs,
-            delayInMs,
+            periodMs,
             TimeUnit.MILLISECONDS);
     timers.put(id, future);
     return id;

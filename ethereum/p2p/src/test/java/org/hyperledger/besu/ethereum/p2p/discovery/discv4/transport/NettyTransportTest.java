@@ -17,11 +17,14 @@ package org.hyperledger.besu.ethereum.p2p.discovery.discv4.transport;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+import org.hyperledger.besu.ethereum.p2p.discovery.discv4.PeerDiscoveryAgentV4;
 import org.hyperledger.besu.util.NetworkUtility;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -150,5 +153,33 @@ public class NettyTransportTest {
 
     final InetSocketAddress retryBound = transport2.start().get(5, TimeUnit.SECONDS);
     assertThat(retryBound.getPort()).isEqualTo(boundAddress.getPort());
+  }
+
+  @Test
+  public void oversizedDatagram_isDroppedNotDelivered() throws Exception {
+    final InetSocketAddress ephemeral = new InetSocketAddress(InetAddress.getLoopbackAddress(), 0);
+    transport1 = NettyTransport.create(ephemeral);
+    transport2 = NettyTransport.create(ephemeral);
+
+    final List<Bytes> receivedByTransport2 = new CopyOnWriteArrayList<>();
+    transport2.setInboundHandler((sender, data) -> receivedByTransport2.add(data));
+
+    final InetSocketAddress addr1 = transport1.start().get(5, TimeUnit.SECONDS);
+    final InetSocketAddress addr2 = transport2.start().get(5, TimeUnit.SECONDS);
+    assertThat(addr1.getPort()).isGreaterThan(0);
+
+    final Bytes oversized = Bytes.wrap(new byte[PeerDiscoveryAgentV4.MAX_PACKET_SIZE_BYTES + 1]);
+    transport1.send(addr2, oversized).get(5, TimeUnit.SECONDS);
+
+    // A legitimately-sized packet sent afterward confirms transport2 is still alive and that
+    // the oversized packet was dropped rather than merely delayed.
+    final Bytes payload = Bytes.fromHexString("0xdeadbeef");
+    transport1.send(addr2, payload).get(5, TimeUnit.SECONDS);
+
+    Awaitility.await()
+        .atMost(2, TimeUnit.SECONDS)
+        .untilAsserted(() -> assertThat(receivedByTransport2).contains(payload));
+
+    assertThat(receivedByTransport2).containsExactly(payload);
   }
 }
