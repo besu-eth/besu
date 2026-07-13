@@ -55,7 +55,8 @@ public class QbftProtocolScheduleBuilder extends BaseBftProtocolScheduleBuilder 
    * @param balConfiguration configuration related to block-level access lists
    * @param metricsSystem A metricSystem instance to be able to expose metrics in the underlying
    *     calls
-   * @param blockGasLimit the genesis block gas limit
+   * @param blockGasLimit the genesis block gas limit, to compare against any configured per-tx gas
+   *     limit
    * @return the protocol schedule
    */
   public static BftProtocolSchedule create(
@@ -98,7 +99,8 @@ public class QbftProtocolScheduleBuilder extends BaseBftProtocolScheduleBuilder 
    * @param balConfiguration configuration related to block-level access lists
    * @param metricsSystem A metricSystem instance to be able to expose metrics in the underlying
    *     calls
-   * @param blockGasLimit the genesis block gas limit
+   * @param blockGasLimit the genesis block gas limit, to compare against any configured per-tx gas
+   *     limit
    * @return the protocol schedule
    */
   public static BftProtocolSchedule create(
@@ -140,7 +142,8 @@ public class QbftProtocolScheduleBuilder extends BaseBftProtocolScheduleBuilder 
    * @param balConfiguration configuration related to block-level access lists
    * @param metricsSystem A metricSystem instance to be able to expose metrics in the underlying
    *     calls
-   * @param blockGasLimit the genesis block gas limit
+   * @param blockGasLimit the genesis block gas limit, to compare against any configured per-tx gas
+   *     limit
    * @return the protocol schedule
    */
   public BftProtocolSchedule createProtocolSchedule(

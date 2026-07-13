@@ -230,6 +230,27 @@ public class QbftForksSchedulesFactoryTest
         .hasValue(16_000_000L);
   }
 
+  @Test
+  public void transitionChangesTransactionGasLimitHex() {
+    final ObjectNode qbftConfigNode =
+        JsonUtil.objectNodeFromMap(Map.of(JsonBftConfigOptions.TRANSACTION_GAS_LIMIT, 8_000_000));
+    final JsonQbftConfigOptions qbftConfig = new JsonQbftConfigOptions(qbftConfigNode);
+
+    final MutableQbftConfigOptions configOptions = new MutableQbftConfigOptions(qbftConfig);
+
+    final ObjectNode fork =
+        JsonUtil.objectNodeFromMap(
+            Map.of(BftFork.FORK_BLOCK_KEY, 5, BftFork.TRANSACTION_GAS_LIMIT_KEY, "0x1312D00"));
+
+    final ForksSchedule<QbftConfigOptions> forksSchedule =
+        QbftForksSchedulesFactory.create(createGenesisConfig(configOptions, fork));
+
+    assertThat(forksSchedule.getFork(0, 0).getValue().getTransactionGasLimit())
+        .hasValue(8_000_000L);
+    assertThat(forksSchedule.getFork(5, 0).getValue().getTransactionGasLimit())
+        .hasValue(20_000_000L);
+  }
+
   @Override
   protected GenesisConfigOptions createGenesisConfig(
       final QbftConfigOptions configOptions, final ObjectNode... forks) {

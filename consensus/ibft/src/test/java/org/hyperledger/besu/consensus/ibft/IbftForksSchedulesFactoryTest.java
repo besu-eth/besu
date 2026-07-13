@@ -97,6 +97,24 @@ public class IbftForksSchedulesFactoryTest
         .hasValue(16_000_000L);
   }
 
+  @Test
+  public void transitionChangesTransactionGasLimitHex() {
+    final BftConfigOptions configOptions =
+        createBftOptions(o -> o.setTransactionGasLimit(OptionalLong.of(8_000_000)));
+
+    final ObjectNode fork =
+        JsonUtil.objectNodeFromMap(
+            Map.of(BftFork.FORK_BLOCK_KEY, 10, BftFork.TRANSACTION_GAS_LIMIT_KEY, "0x1312D00"));
+
+    final ForksSchedule<BftConfigOptions> forksSchedule =
+        IbftForksSchedulesFactory.create(createGenesisConfig(configOptions, fork));
+
+    assertThat(forksSchedule.getFork(0, 0).getValue().getTransactionGasLimit())
+        .hasValue(8_000_000L);
+    assertThat(forksSchedule.getFork(10, 0).getValue().getTransactionGasLimit())
+        .hasValue(20_000_000L);
+  }
+
   @Override
   protected GenesisConfigOptions createGenesisConfig(
       final BftConfigOptions configOptions, final ObjectNode... fork) {

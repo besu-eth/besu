@@ -137,39 +137,31 @@ public abstract class BaseBftProtocolScheduleBuilder {
       throw new IllegalArgumentException("Bft Block reward in config cannot be negative");
     }
 
-    return applyConsensusSpecificChanges(
-        builder
-            .blockHeaderValidatorBuilder(
-                (feeMarket, gasCalculator, gasLimitCalculator) ->
-                    createBlockHeaderRuleset(configOptions, feeMarket))
-            .ommerHeaderValidatorBuilder(
-                (feeMarket, gasCalculator, gasLimitCalculator) ->
-                    createBlockHeaderRuleset(configOptions, feeMarket))
-            .blockBodyValidatorBuilder(MainnetBlockBodyValidator::new)
-            .blockValidatorBuilder(MainnetBlockValidatorBuilder::frontier)
-            .blockImporterBuilder(MainnetBlockImporter::new)
-            .difficultyCalculator((time, parent) -> BigInteger.ONE)
-            .skipZeroBlockRewards(true)
-            .blockHeaderFunctions(BftBlockHeaderFunctions.forOnchainBlock(bftExtraDataCodec))
-            .blockReward(Wei.of(configOptions.getBlockRewardWei()))
-            .withdrawalsValidator(new WithdrawalsValidator.NotApplicableWithdrawals())
-            .miningBeneficiaryCalculator(
-                header -> configOptions.getMiningBeneficiary().orElseGet(header::getCoinbase)),
-        configOptions);
+    return builder
+        .blockHeaderValidatorBuilder(
+            (feeMarket, gasCalculator, gasLimitCalculator) ->
+                createBlockHeaderRuleset(configOptions, feeMarket))
+        .ommerHeaderValidatorBuilder(
+            (feeMarket, gasCalculator, gasLimitCalculator) ->
+                createBlockHeaderRuleset(configOptions, feeMarket))
+        .blockBodyValidatorBuilder(MainnetBlockBodyValidator::new)
+        .blockValidatorBuilder(MainnetBlockValidatorBuilder::frontier)
+        .blockImporterBuilder(MainnetBlockImporter::new)
+        .difficultyCalculator((time, parent) -> BigInteger.ONE)
+        .skipZeroBlockRewards(true)
+        .blockHeaderFunctions(BftBlockHeaderFunctions.forOnchainBlock(bftExtraDataCodec))
+        .blockReward(Wei.of(configOptions.getBlockRewardWei()))
+        .withdrawalsValidator(new WithdrawalsValidator.NotApplicableWithdrawals())
+        .miningBeneficiaryCalculator(
+            header -> configOptions.getMiningBeneficiary().orElseGet(header::getCoinbase))
+        .gasLimitCalculatorBuilder(createCustomGasCalculator(builder, configOptions));
   }
 
-  /**
-   * Apply consensus-specific changes to the protocol spec builder.
-   *
-   * @param builder the builder
-   * @param configOptions the config options
-   * @return the updated builder
-   */
-  protected ProtocolSpecBuilder applyConsensusSpecificChanges(
+  private ProtocolSpecBuilder.GasLimitCalculatorBuilder createCustomGasCalculator(
       final ProtocolSpecBuilder builder, final BftConfigOptions configOptions) {
     final OptionalLong perTxGasLimit = configOptions.getTransactionGasLimit();
     if (perTxGasLimit.isEmpty()) {
-      return builder;
+      return builder.getGasLimitCalculatorBuilder();
     }
 
     final long cap = perTxGasLimit.getAsLong();
@@ -179,7 +171,7 @@ public abstract class BaseBftProtocolScheduleBuilder {
               + JsonBftConfigOptions.TRANSACTION_GAS_LIMIT
               + " ("
               + cap
-              + ") must be >= 0 and, when > 0, <= the genesis block gas limit ("
+              + ") must be >= 0 and <= the genesis block gas limit ("
               + blockGasLimit
               + ")");
     }
@@ -188,11 +180,10 @@ public abstract class BaseBftProtocolScheduleBuilder {
 
     final ProtocolSpecBuilder.GasLimitCalculatorBuilder delegateBuilder =
         builder.getGasLimitCalculatorBuilder();
-    return builder.gasLimitCalculatorBuilder(
-        (feeMarket, gasCalculator, blobSchedule) -> {
-          final GasLimitCalculator delegate =
-              delegateBuilder.apply(feeMarket, gasCalculator, blobSchedule);
-          return new TransactionGasLimitOverrideGasLimitCalculator(delegate, effectiveCap);
-        });
+    return (feeMarket, gasCalculator, blobSchedule) -> {
+      final GasLimitCalculator delegate =
+          delegateBuilder.apply(feeMarket, gasCalculator, blobSchedule);
+      return new TransactionGasLimitOverrideGasLimitCalculator(delegate, effectiveCap);
+    };
   }
 }

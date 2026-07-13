@@ -179,7 +179,7 @@ public class JsonBftConfigOptions implements BftConfigOptions {
 
   @Override
   public OptionalLong getTransactionGasLimit() {
-    return JsonUtil.getLong(bftConfigRoot, TRANSACTION_GAS_LIMIT);
+    return JsonUtil.getHexOrDecimalLong(bftConfigRoot, TRANSACTION_GAS_LIMIT);
   }
 
   @Override

@@ -15,6 +15,7 @@
 package org.hyperledger.besu.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.hyperledger.besu.config.JsonQbftConfigOptions.VALIDATOR_CONTRACT_ADDRESS;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -84,5 +85,39 @@ public class JsonQbftConfigOptionsTest {
     final JsonQbftConfigOptions configOptions = new JsonQbftConfigOptions(objectNode);
 
     assertThat(configOptions.asMap()).doesNotContainKey("transactionGasLimit");
+  }
+
+  @Test
+  public void getTransactionGasLimitHex() {
+    final ObjectNode objectNode =
+        objectMapper
+            .createObjectNode()
+            .put(JsonBftConfigOptions.TRANSACTION_GAS_LIMIT, "0x1312D00");
+    final JsonQbftConfigOptions configOptions = new JsonQbftConfigOptions(objectNode);
+
+    assertThat(configOptions.getTransactionGasLimit()).hasValue(20_000_000L);
+  }
+
+  @Test
+  public void getTransactionGasLimitHexZero() {
+    final ObjectNode objectNode =
+        objectMapper.createObjectNode().put(JsonBftConfigOptions.TRANSACTION_GAS_LIMIT, "0x0");
+    final JsonQbftConfigOptions configOptions = new JsonQbftConfigOptions(objectNode);
+
+    assertThat(configOptions.getTransactionGasLimit()).hasValue(0L);
+  }
+
+  @Test
+  public void getTransactionGasLimitMalformed() {
+    final ObjectNode objectNode =
+        objectMapper
+            .createObjectNode()
+            .put(JsonBftConfigOptions.TRANSACTION_GAS_LIMIT, "not-a-number");
+    final JsonQbftConfigOptions configOptions = new JsonQbftConfigOptions(objectNode);
+
+    assertThatThrownBy(configOptions::getTransactionGasLimit)
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("pertxgaslimit")
+        .hasMessageContaining("not-a-number");
   }
 }

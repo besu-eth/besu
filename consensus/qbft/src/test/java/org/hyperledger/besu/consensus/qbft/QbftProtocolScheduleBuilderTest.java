@@ -106,7 +106,7 @@ public class QbftProtocolScheduleBuilderTest {
             () -> createProtocolSchedule(genesisConfig, List.of(new ForkSpec<>(0, qbftConfig))))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining(
-            "config.bft.pertxgaslimit (-1) must be >= 0 and, when > 0, <= the genesis block gas limit");
+            "config.bft.pertxgaslimit (-1) must be >= 0 and <= the genesis block gas limit");
   }
 
   @Test
@@ -126,7 +126,7 @@ public class QbftProtocolScheduleBuilderTest {
         .hasMessageContaining(
             "config.bft.pertxgaslimit ("
                 + cap
-                + ") must be >= 0 and, when > 0, <= the genesis block gas limit");
+                + ") must be >= 0 and <= the genesis block gas limit");
   }
 
   @Test

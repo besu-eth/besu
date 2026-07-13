@@ -239,6 +239,6 @@ public class BftFork implements Fork {
    * @return the transaction gas limit
    */
   public OptionalLong getTransactionGasLimit() {
-    return JsonUtil.getLong(forkConfigRoot, TRANSACTION_GAS_LIMIT_KEY);
+    return JsonUtil.getHexOrDecimalLong(forkConfigRoot, TRANSACTION_GAS_LIMIT_KEY);
   }
 }
