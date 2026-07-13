@@ -215,6 +215,12 @@ public abstract class PeerDiscoveryAgentV4 implements PeerDiscoveryAgent {
         .<Packet>execute(() -> packetDeserializer.decode(data))
         .whenCompleteAsync(
             (packet, err) -> {
+              if (stopGate.get()) {
+                // stop() was called after this decode was already queued; drop the late
+                // completion instead of forwarding it into a PeerDiscoveryController that may
+                // already be stopped.
+                return;
+              }
               if (err == null) {
                 final Endpoint endpoint =
                     new Endpoint(sender.getHostString(), sender.getPort(), Optional.empty());

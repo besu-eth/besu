@@ -16,10 +16,16 @@ package org.hyperledger.besu.ethereum.p2p.discovery.discv4.transport;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.PeerDiscoveryAgentV4;
 import org.hyperledger.besu.util.NetworkUtility;
 
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.List;
@@ -28,6 +34,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import io.netty.channel.EventLoopGroup;
+import io.netty.util.concurrent.Future;
+import io.netty.util.concurrent.GlobalEventExecutor;
 import org.apache.tuweni.bytes.Bytes;
 import org.awaitility.Awaitility;
 import org.junit.jupiter.api.AfterEach;
@@ -181,5 +190,22 @@ public class NettyTransportTest {
         .untilAsserted(() -> assertThat(receivedByTransport2).contains(payload));
 
     assertThat(receivedByTransport2).containsExactly(payload);
+  }
+
+  @Test
+  public void closeChannelThenShutdownGroup_shutsDownGroupEvenWhenChannelCloseFails()
+      throws Exception {
+    final EventLoopGroup group = mock(EventLoopGroup.class);
+    final Future<Void> shutdownFuture = GlobalEventExecutor.INSTANCE.newSucceededFuture(null);
+    when(group.shutdownGracefully(anyLong(), anyLong(), any())).thenAnswer(inv -> shutdownFuture);
+
+    final Future<Void> failedCloseFuture =
+        GlobalEventExecutor.INSTANCE.newFailedFuture(new IOException("close boom"));
+
+    final CompletableFuture<Void> result =
+        NettyTransport.closeChannelThenShutdownGroup(failedCloseFuture, group);
+
+    assertThat(result).succeedsWithin(5, TimeUnit.SECONDS);
+    verify(group).shutdownGracefully(anyLong(), anyLong(), any());
   }
 }

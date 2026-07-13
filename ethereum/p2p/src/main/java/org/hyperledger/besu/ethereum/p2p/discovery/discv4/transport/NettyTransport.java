@@ -28,6 +28,7 @@ import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import com.google.common.annotations.VisibleForTesting;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelFactory;
@@ -209,8 +210,27 @@ public final class NettyTransport implements Transport {
       return toFuture(shutdownEventLoopGroup(group))
           .whenComplete((v, ex) -> LOG.info("DiscV4 event loop group shut down"));
     }
-    return toFuture(ch.close())
-        .whenComplete((v, ex) -> LOG.info("DiscV4 UDP channel closed"))
+    return closeChannelThenShutdownGroup(ch.close(), group);
+  }
+
+  /**
+   * Shuts down {@code group} unconditionally once {@code closeFuture} completes, regardless of
+   * whether the channel close itself succeeded — a failed close must not leak the event loop
+   * thread.
+   */
+  @VisibleForTesting
+  static CompletableFuture<Void> closeChannelThenShutdownGroup(
+      final Future<?> closeFuture, final EventLoopGroup group) {
+    return toFuture(closeFuture)
+        .handle(
+            (v, ex) -> {
+              if (ex != null) {
+                LOG.warn("Failed to close DiscV4 UDP channel", ex);
+              } else {
+                LOG.info("DiscV4 UDP channel closed");
+              }
+              return null;
+            })
         .thenCompose(v -> toFuture(shutdownEventLoopGroup(group)))
         .whenComplete((v, ex) -> LOG.info("DiscV4 event loop group shut down"));
   }

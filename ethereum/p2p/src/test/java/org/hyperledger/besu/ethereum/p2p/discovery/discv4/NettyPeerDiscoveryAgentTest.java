@@ -16,8 +16,12 @@ package org.hyperledger.besu.ethereum.p2p.discovery.discv4;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.cryptoservices.NodeKeyUtils;
@@ -46,6 +50,9 @@ import java.nio.channels.UnsupportedAddressTypeException;
 import java.util.Collections;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Stream;
 
@@ -162,8 +169,55 @@ class NettyPeerDiscoveryAgentTest {
         .doesNotThrowAnyException();
   }
 
+  @Test
+  void handleRawIncoming_dropsLateDecodeCompletion_afterStopGateSetWhileQueued() throws Exception {
+    // Spy before start(): prepareHandlers() captures a `this::handleRawIncoming` reference bound
+    // to whichever instance start() is called on, and handleRawIncoming's internal call to the
+    // (protected, overridable) handleIncomingPacket(...) is virtually dispatched through the spy.
+    agent = spy(agent);
+    agent.start(30303).join();
+
+    final Executor dispatchExecutor = agent.createDispatchExecutor();
+
+    // Occupy the single dispatch thread so the real decode-completion continuation (triggered
+    // below) queues behind this blocker instead of running immediately.
+    final CountDownLatch releaseDispatchThread = new CountDownLatch(1);
+    final CountDownLatch blockerRunning = new CountDownLatch(1);
+    dispatchExecutor.execute(
+        () -> {
+          blockerRunning.countDown();
+          try {
+            releaseDispatchThread.await(5, TimeUnit.SECONDS);
+          } catch (final InterruptedException e) {
+            Thread.currentThread().interrupt();
+          }
+        });
+    assertThat(blockerRunning.await(5, TimeUnit.SECONDS)).isTrue();
+
+    // Feed a real, validly-encoded PING packet through the transport's captured inbound handler,
+    // simulating an incoming UDP datagram. stopGate is still false, so it passes the entry guard
+    // and its decode-completion continuation queues behind the blocker above.
+    final InetSocketAddress sender = new InetSocketAddress(InetAddress.getLoopbackAddress(), 30303);
+    transport.inboundHandler.onPacket(sender, agent.packetSerializer.encode(packet));
+
+    // Give the (separate) decode executor thread time to decode and enqueue its continuation
+    // behind the blocker, before simulating stop() happening while it's still queued.
+    Thread.sleep(200);
+    agent.stopGate.set(true);
+    releaseDispatchThread.countDown();
+
+    // Drain the dispatch thread: since it's a single FIFO executor, waiting for this sentinel
+    // guarantees the real continuation (queued earlier) has already run.
+    final CountDownLatch sentinelRan = new CountDownLatch(1);
+    dispatchExecutor.execute(sentinelRan::countDown);
+    assertThat(sentinelRan.await(5, TimeUnit.SECONDS)).isTrue();
+
+    verify(agent, never()).handleIncomingPacket(any(), any());
+  }
+
   private static class TrackingTransport implements Transport {
     final AtomicInteger sendCallCount = new AtomicInteger(0);
+    volatile InboundV4Handler inboundHandler;
 
     @Override
     public CompletableFuture<InetSocketAddress> start() {
@@ -183,6 +237,8 @@ class NettyPeerDiscoveryAgentTest {
     }
 
     @Override
-    public void setInboundHandler(final InboundV4Handler handler) {}
+    public void setInboundHandler(final InboundV4Handler handler) {
+      this.inboundHandler = handler;
+    }
   }
 }
