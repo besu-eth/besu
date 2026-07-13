@@ -371,6 +371,13 @@ public abstract class AbstractBlockCreator implements AsyncBlockCreator {
     } catch (final CancellationException | StorageException ex) {
       throw ex;
     } catch (final Exception ex) {
+      LOG.atError()
+          .setMessage(
+              "Block creation failed unexpectedly for parent block {}, timestamp {}. Will restart on next block added to chain.")
+          .addArgument(parentHeader::toLogString)
+          .addArgument(timestamp)
+          .setCause(ex)
+          .log();
       throw new IllegalStateException(
           "Block creation failed unexpectedly. Will restart on next block added to chain.", ex);
     }

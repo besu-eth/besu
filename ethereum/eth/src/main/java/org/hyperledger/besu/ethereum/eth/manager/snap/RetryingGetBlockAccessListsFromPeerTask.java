@@ -32,9 +32,14 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 import com.google.common.annotations.VisibleForTesting;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class RetryingGetBlockAccessListsFromPeerTask
     extends AbstractRetryingSwitchingPeerTask<List<SyncBlockAccessList>> {
+
+  private static final Logger LOG =
+      LoggerFactory.getLogger(RetryingGetBlockAccessListsFromPeerTask.class);
 
   public static final int MAX_RETRIES = 16;
 
@@ -66,15 +71,29 @@ public class RetryingGetBlockAccessListsFromPeerTask
     }
 
     final List<Integer> requestedIndexes = List.copyOf(pendingIndexes);
+    LOG.debug(
+        "Requesting {} block access list(s) from peer {} (attempt {}/{}, {} of {} still pending)",
+        requestedIndexes.size(),
+        peer.getLoggableId(),
+        getRetryCount() + 1,
+        getMaxRetries(),
+        pendingIndexes.size(),
+        blockHeaders.size());
     return requestBlockAccessListsFromPeer(peer, requestedIndexes)
         .thenApply(
             receivedBlockAccessLists -> {
               final int pendingCountBeforeProcessing = pendingIndexes.size();
               processBlockAccessLists(requestedIndexes, receivedBlockAccessLists);
               if (pendingIndexes.isEmpty()) {
+                LOG.debug("All {} block access list(s) fetched from peers", blockHeaders.size());
                 return completedBlockAccessLists();
               }
               if (pendingIndexes.size() < pendingCountBeforeProcessing) {
+                LOG.debug(
+                    "Block access list partial progress: {}/{} fetched, {} still pending, retrying",
+                    blockHeaders.size() - pendingIndexes.size(),
+                    blockHeaders.size(),
+                    pendingIndexes.size());
                 resetRetryCount();
               }
               throw new IncompleteResultsException(
