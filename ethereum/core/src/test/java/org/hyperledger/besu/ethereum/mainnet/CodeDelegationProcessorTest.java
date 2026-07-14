@@ -28,6 +28,7 @@ import org.hyperledger.besu.datatypes.CodeDelegation;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
 import org.hyperledger.besu.evm.worldstate.CodeDelegationService;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
@@ -35,6 +36,7 @@ import java.math.BigInteger;
 import java.util.List;
 import java.util.Optional;
 
+import org.apache.tuweni.bytes.Bytes;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -282,15 +284,121 @@ class CodeDelegationProcessorTest {
     verify(codeDelegationService, never()).processCodeDelegation(any(), any());
   }
 
+  @Test
+  void shouldNotRefundAuthBaseForNewAccountWithNonZeroDelegateAddress() {
+    // Arrange
+    CodeDelegation codeDelegation = createCodeDelegation(CHAIN_ID, 0L);
+    when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
+    when(worldUpdater.get(any())).thenReturn(null);
+    when(worldUpdater.createAccount(any())).thenReturn(authority);
+
+    // Act
+    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+
+    // Assert
+    assertThat(result.authBaseRefundCount()).isZero();
+    assertThat(result.alreadyExistingDelegators()).isZero();
+    verify(authority).incrementNonce();
+  }
+
+  @Test
+  void shouldRefundAuthBaseForNewAccountClearingDelegation() {
+    // Arrange
+    CodeDelegation codeDelegation =
+        createCodeDelegation(CHAIN_ID, 0L, BigInteger.ONE, Address.ZERO);
+    when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
+    when(worldUpdater.get(any())).thenReturn(null);
+    when(worldUpdater.createAccount(any())).thenReturn(authority);
+
+    // Act
+    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+
+    // Assert
+    assertThat(result.authBaseRefundCount()).isEqualTo(1);
+    assertThat(result.alreadyExistingDelegators()).isZero();
+    verify(authority).incrementNonce();
+  }
+
+  @Test
+  void shouldRefundAuthBaseForExistingAccountWithExistingDelegation() {
+    // Arrange
+    CodeDelegation codeDelegation = createCodeDelegation(CHAIN_ID, 1L);
+    when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
+    when(worldUpdater.get(any())).thenReturn(authority);
+    when(worldUpdater.getAccount(any())).thenReturn(authority);
+    when(authority.getNonce()).thenReturn(1L);
+    when(authority.getCode())
+        .thenReturn(
+            Bytes.concatenate(CodeDelegationHelper.CODE_DELEGATION_PREFIX, Bytes.random(20)));
+    when(codeDelegationService.canSetCodeDelegation(any())).thenReturn(true);
+
+    // Act
+    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+
+    // Assert
+    assertThat(result.authBaseRefundCount()).isEqualTo(1);
+    assertThat(result.alreadyExistingDelegators()).isEqualTo(1);
+    verify(authority).incrementNonce();
+  }
+
+  @Test
+  void shouldNotRefundAuthBaseForExistingAccountWithoutDelegation() {
+    // Arrange
+    CodeDelegation codeDelegation = createCodeDelegation(CHAIN_ID, 1L);
+    when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
+    when(worldUpdater.get(any())).thenReturn(authority);
+    when(worldUpdater.getAccount(any())).thenReturn(authority);
+    when(authority.getNonce()).thenReturn(1L);
+    when(authority.getCode()).thenReturn(Bytes.EMPTY);
+    when(codeDelegationService.canSetCodeDelegation(any())).thenReturn(true);
+
+    // Act
+    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+
+    // Assert
+    assertThat(result.authBaseRefundCount()).isZero();
+    assertThat(result.alreadyExistingDelegators()).isEqualTo(1);
+    verify(authority).incrementNonce();
+  }
+
+  @Test
+  void shouldTreatPresentButEmptyAccountAsNewLeaf() {
+    // Arrange: an account that exists in the updater but is empty (nonce 0, balance 0, no code).
+    // Per the spec (account_exists_and_is_non_empty) this must be treated like a brand-new leaf:
+    // no already-existing-delegator refund.
+    CodeDelegation codeDelegation = createCodeDelegation(CHAIN_ID, 0L);
+    when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
+    when(worldUpdater.get(any())).thenReturn(authority);
+    when(worldUpdater.getAccount(any())).thenReturn(authority);
+    when(authority.isEmpty()).thenReturn(true);
+    when(authority.getNonce()).thenReturn(0L);
+    when(authority.getCode()).thenReturn(Bytes.EMPTY);
+    when(codeDelegationService.canSetCodeDelegation(any())).thenReturn(true);
+
+    // Act
+    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+
+    // Assert
+    assertThat(result.alreadyExistingDelegators()).isZero();
+    assertThat(result.authBaseRefundCount()).isZero();
+    verify(worldUpdater, never()).createAccount(any());
+    verify(authority).incrementNonce();
+  }
+
   private CodeDelegation createCodeDelegation(final BigInteger chainId, final long nonce) {
     return createCodeDelegation(chainId, nonce, BigInteger.ONE);
   }
 
   private CodeDelegation createCodeDelegation(
       final BigInteger chainId, final long nonce, final BigInteger s) {
+    return createCodeDelegation(chainId, nonce, s, CodeDelegationProcessorTest.DELEGATE_ADDRESS);
+  }
+
+  private CodeDelegation createCodeDelegation(
+      final BigInteger chainId, final long nonce, final BigInteger s, final Address address) {
     final SECPSignature signature = new SECPSignature(BigInteger.ONE, s, (byte) 0);
 
     return new org.hyperledger.besu.ethereum.core.CodeDelegation(
-        chainId, CodeDelegationProcessorTest.DELEGATE_ADDRESS, nonce, signature);
+        chainId, address, nonce, signature);
   }
 }

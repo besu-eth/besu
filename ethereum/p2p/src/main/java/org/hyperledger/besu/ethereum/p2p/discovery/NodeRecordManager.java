@@ -69,6 +69,10 @@ public class NodeRecordManager {
   private final VariablesStorage variablesStorage;
   private final NodeKey nodeKey;
   private final Bytes nodeId;
+  // 33-byte compressed public key stored in the ENR under the curve name (e.g. "secp256k1").
+  // The raw nodeId is 64 bytes; record.get(curveName) returns the compressed form, so we must
+  // compare against the compressed key or the equality check always fails.
+  private final Bytes compressedPublicKey;
   private final Supplier<List<Bytes>> forkIdSupplier;
   private final NatService natService;
 
@@ -103,6 +107,8 @@ public class NodeRecordManager {
     this.variablesStorage = storageProvider.createVariablesStorage();
     this.nodeKey = nodeKey;
     this.nodeId = nodeKey.getPublicKey().getEncodedBytes();
+    this.compressedPublicKey =
+        SIGNATURE_ALGORITHM.compressPublicKey(SIGNATURE_ALGORITHM.createPublicKey(nodeId));
     this.forkIdSupplier = () -> forkIdManager.getForkIdForChainHead().getForkIdAsBytesList();
     this.natService = natService;
   }
@@ -360,18 +366,23 @@ public class NodeRecordManager {
     final Optional<Bytes> ipv6AddressBytes =
         ipv6Endpoint.map(ep -> Bytes.of(InetAddresses.forString(ep.host()).getAddress()));
 
+    // The eth fork-id ENR field is stored as a single-element wrapper list (see
+    // createAndPersistNodeRecord). Wrap the local forkId the same way so the equality check
+    // against record.get(FORK_ID_ENR_FIELD) matches when the fork has not changed.
+    final List<List<Bytes>> wrappedForkId = Collections.singletonList(forkId);
+
     // Reuse the existing ENR if all relevant fields are unchanged.
     final NodeRecord nodeRecord =
         existingRecord
             .filter(
                 record ->
-                    nodeId.equals(record.get(EnrField.PKEY_SECP256K1))
+                    compressedPublicKey.equals(record.get(SIGNATURE_ALGORITHM.getCurveName()))
                         && (primaryEndpoint.isIpv4()
                             ? primaryIpv4AddressMatches(
                                 record, ipAddressBytes, discoveryPort, listeningPort)
                             : primaryIpv6AddressMatches(
                                 record, ipAddressBytes, discoveryPort, listeningPort))
-                        && forkId.equals(record.get(FORK_ID_ENR_FIELD))
+                        && wrappedForkId.equals(record.get(FORK_ID_ENR_FIELD))
                         && (!primaryEndpoint.isIpv4() || ipv6FieldsMatch(record, ipv6AddressBytes)))
             // Otherwise, create a new ENR with an incremented sequence number,
             // sign it with the local node key, and persist it to disk.

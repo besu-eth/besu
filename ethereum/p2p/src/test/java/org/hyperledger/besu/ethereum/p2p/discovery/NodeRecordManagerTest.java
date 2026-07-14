@@ -15,6 +15,8 @@
 package org.hyperledger.besu.ethereum.p2p.discovery;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -29,6 +31,7 @@ import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.nat.NatService;
 
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.apache.tuweni.bytes.Bytes;
 import org.ethereum.beacon.discovery.schema.EnrField;
@@ -55,9 +58,16 @@ class NodeRecordManagerTest {
     forkIdManager = mock(ForkIdManager.class);
     natService = new NatService(Optional.empty());
 
+    // Backed by a real reference so getLocalEnrSeqno() reflects the most recent
+    // setLocalEnrSeqno() write, the same way real disk-backed storage would across a restart.
+    final AtomicReference<Bytes> persistedEnr = new AtomicReference<>();
     when(storageProvider.createVariablesStorage()).thenReturn(variablesStorage);
-    when(variablesStorage.getLocalEnrSeqno()).thenReturn(Optional.empty());
+    when(variablesStorage.getLocalEnrSeqno())
+        .thenAnswer(invocation -> Optional.ofNullable(persistedEnr.get()));
     when(variablesStorage.updater()).thenReturn(updater);
+    doAnswer(invocation -> persistedEnr.getAndSet(invocation.getArgument(0)))
+        .when(updater)
+        .setLocalEnrSeqno(any());
     when(forkIdManager.getForkIdForChainHead()).thenReturn(new ForkId(Bytes.EMPTY, Bytes.EMPTY));
 
     manager = new NodeRecordManager(storageProvider, nodeKey, forkIdManager, natService);
@@ -157,6 +167,24 @@ class NodeRecordManagerTest {
 
     // Sequence number should not change since fields are identical
     assertThat(second.getSeq()).isEqualTo(first.getSeq());
+  }
+
+  @Test
+  void restartWithUnchangedFields_doesNotIncrementSeq() {
+    // First "process": writes the initial ENR to the (shared, stateful) storage.
+    manager.initializeLocalNode(new HostEndpoint("127.0.0.1", 30303, 30303), Optional.empty());
+    final NodeRecord beforeRestart = getNodeRecord();
+
+    // Second "process": a fresh NodeRecordManager instance reading the same persisted storage,
+    // simulating a restart with identical configuration. This must reuse the persisted ENR
+    // rather than incrementing seq, which is the exact regression this PR fixes (compressed
+    // pubkey comparison and fork-id wrapper-list shape previously never matched, so seq
+    // incremented on every restart even though nothing changed).
+    manager = new NodeRecordManager(storageProvider, nodeKey, forkIdManager, natService);
+    manager.initializeLocalNode(new HostEndpoint("127.0.0.1", 30303, 30303), Optional.empty());
+    final NodeRecord afterRestart = getNodeRecord();
+
+    assertThat(afterRestart.getSeq()).isEqualTo(beforeRestart.getSeq());
   }
 
   @Test

@@ -526,7 +526,7 @@ public class EIP7708TransferLogAcceptanceTest extends AcceptanceTestBase {
             .nonce(0)
             .maxPriorityFeePerGas(Wei.of(1_000_000_000))
             .maxFeePerGas(Wei.fromHexString("0x02540BE400"))
-            .gasLimit(200_000)
+            .gasLimit(500_000)
             .to(factoryContract)
             .value(Wei.ZERO)
             .payload(Bytes.EMPTY)
