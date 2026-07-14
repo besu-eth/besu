@@ -75,7 +75,7 @@ jobs:
           name: test-args-${{ matrix.runner_index }}.txt
           path: '*.txt'
       - name: Clean to prove cache usage over incremental builds
-        run: ./gradle clean
+        run: ./gradlew clean
       - name: run acceptance tests
         run: ./gradlew acceptanceTest `cat gradleArgs.txt`
       - name: Remove downloaded test results
