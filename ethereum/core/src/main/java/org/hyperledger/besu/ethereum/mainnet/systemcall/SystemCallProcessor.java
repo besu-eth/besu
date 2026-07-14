@@ -81,12 +81,18 @@ public class SystemCallProcessor {
     WorldUpdater blockUpdater = context.getWorldState().updater();
     WorldUpdater systemCallUpdater = blockUpdater.updater();
     final Account maybeContract = systemCallUpdater.get(callAddress);
-    if (maybeContract == null) {
-      throw new SystemCallNoCodeAtAddressException("Invalid system call address: " + callAddress);
-    }
-    if (maybeContract.getCode().isEmpty()) {
+    // EIP-7928: the system call reads the contract's account before it can know whether there is
+    // code to run, so an absent or codeless system contract is still recorded in the block access
+    // list — as an entry with no changes. Record it before bailing out, or the address would be
+    // missing from the BAL entirely. Unreachable on mainnet (these contracts are deployed at
+    // genesis), but consensus-relevant on custom and test chains.
+    if (maybeContract == null || maybeContract.getCode().isEmpty()) {
+      accessLocationTracker.ifPresent(tracker -> tracker.addTouchedAccount(callAddress));
+      flushAccessList(context, accessLocationTracker, systemCallUpdater);
       throw new SystemCallNoCodeAtAddressException(
-          "Invalid system call, no code at address " + callAddress);
+          maybeContract == null
+              ? "Invalid system call address: " + callAddress
+              : "Invalid system call, no code at address " + callAddress);
     }
 
     final AbstractMessageProcessor processor =
@@ -105,11 +111,7 @@ public class SystemCallProcessor {
       processor.process(stack.peekFirst(), OperationTracer.NO_TRACING);
     }
 
-    accessLocationTracker.ifPresent(
-        tracker ->
-            context
-                .getBlockAccessListBuilder()
-                .ifPresent(builder -> builder.apply(tracker, systemCallUpdater)));
+    flushAccessList(context, accessLocationTracker, systemCallUpdater);
 
     if (frame.getState() == MessageFrame.State.COMPLETED_SUCCESS) {
       systemCallUpdater.commit();
@@ -129,6 +131,18 @@ public class SystemCallProcessor {
             .map(haltReason -> "System call halted: " + haltReason.getDescription())
             .orElse("System call did not execute to completion");
     throw new RuntimeException(errorMessage);
+  }
+
+  /** Folds the system call's recorded accesses into the block access list under construction. */
+  private void flushAccessList(
+      final BlockProcessingContext context,
+      final Optional<AccessLocationTracker> accessLocationTracker,
+      final WorldUpdater systemCallUpdater) {
+    accessLocationTracker.ifPresent(
+        tracker ->
+            context
+                .getBlockAccessListBuilder()
+                .ifPresent(builder -> builder.apply(tracker, systemCallUpdater)));
   }
 
   private MessageFrame createMessageFrame(

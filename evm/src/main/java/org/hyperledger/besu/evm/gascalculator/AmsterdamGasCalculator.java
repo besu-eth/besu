@@ -24,6 +24,7 @@ import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.function.Supplier;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -175,8 +176,13 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
     final long calldataBytes = transaction.getPayload().size();
     final long accessListBytes =
         transaction.getAccessList().map(AmsterdamGasCalculator::accessListBytes).orElse(0L);
+    // EIP-3120: anchor the floor on the decomposed EIP-2780 regular base (TX_BASE + recipient
+    // access + value) rather than TX_BASE alone, matching the EIP so the floor never undercuts
+    // the transaction's own intrinsic base.
+    final long baseRegularGas =
+        clampedAdd(getMinimumTransactionCost(), baseRecipientRegularGas(transaction));
     return clampedAdd(
-        getMinimumTransactionCost(), (calldataBytes + accessListBytes) * TOTAL_COST_FLOOR_PER_BYTE);
+        baseRegularGas, (calldataBytes + accessListBytes) * TOTAL_COST_FLOOR_PER_BYTE);
   }
 
   @Override
@@ -243,30 +249,40 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
     final long tokens = clampedAdd(zeroBytes, nonZeroBytes * 4L);
     final long dataCost = tokens * TX_DATA_TOKEN_STANDARD;
 
-    final long recipientRegular;
-    final boolean valueTransfer = transaction.getValue().getAsBigInteger().signum() > 0;
-    if (transaction.isContractCreation()) {
-      long create = CREATE_ACCESS + initCodeCost(payloadSize);
-      if (valueTransfer) {
-        create += TRANSFER_LOG_COST;
-      }
-      recipientRegular = create;
-    } else if (isSelfTransfer(transaction)) {
-      recipientRegular = 0L;
-    } else {
-      long call = COLD_ACCOUNT_ACCESS;
-      if (valueTransfer) {
-        call += TRANSFER_LOG_COST + TX_VALUE_COST;
-      }
-      recipientRegular = call;
-    }
+    // EIP-2780: the recipient regular gas is the decomposed base (access + value) plus, for a
+    // contract creation, the EIP-3860 init code cost. The init code is not part of the floor
+    // anchor (EIP-3120), so it is kept separate from baseRecipientRegularGas().
+    final long recipientRegular =
+        baseRecipientRegularGas(transaction)
+            + (transaction.isContractCreation() ? initCodeCost(payloadSize) : 0L);
 
     return clampedAdd(clampedAdd(TX_BASE, dataCost), clampedAdd(recipientRegular, baselineGas));
   }
 
+  /**
+   * EIP-2780/EIP-3120: the decomposed regular-gas intrinsic base contributed by the recipient —
+   * recipient access and value primitives — excluding calldata, init code, access list, and
+   * authorizations. Used both for the intrinsic recipient charge and to anchor the EIP-7623
+   * calldata floor so the floor never undercuts the transaction's own intrinsic base.
+   */
+  private long baseRecipientRegularGas(final Transaction transaction) {
+    // Quantity exposes only getAsBigInteger(), so there is no allocation-free zero test here.
+    final boolean valueTransfer = transaction.getValue().getAsBigInteger().signum() > 0;
+    if (transaction.isContractCreation()) {
+      return valueTransfer ? CREATE_ACCESS + TRANSFER_LOG_COST : CREATE_ACCESS;
+    }
+    if (isSelfTransfer(transaction)) {
+      return 0L;
+    }
+    return valueTransfer
+        ? COLD_ACCOUNT_ACCESS + TRANSFER_LOG_COST + TX_VALUE_COST
+        : COLD_ACCOUNT_ACCESS;
+  }
+
   /** EIP-2780: a self-transfer (sender == recipient) skips the recipient and value charges. */
   private static boolean isSelfTransfer(final Transaction transaction) {
-    return transaction.getTo().map(to -> to.equals(transaction.getSender())).orElse(false);
+    final Optional<? extends Address> to = transaction.getTo();
+    return to.isPresent() && to.get().equals(transaction.getSender());
   }
 
   /** EIP-3860 init code cost: CODE_INIT_PER_WORD * ceil(len / 32). */
@@ -326,6 +342,11 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   }
 
   @Override
+  public long getAccountWriteGasCost() {
+    return ACCOUNT_WRITE;
+  }
+
+  @Override
   public long getSStoreColdAccessGasCost() {
     // EIP-8038: SSTORE access is a full cold/warm cost (3,000 / 100), so the cold surcharge added
     // on top of the warm base baked into calculateStorageCost is COLD_STORAGE_ACCESS - WARM_ACCESS.
@@ -366,17 +387,19 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
 
   @Override
   public long delegateCodeGasCost(final int delegateCodeListLength) {
-    // EIP-2780: (ACCOUNT_WRITE + REGULAR_PER_AUTH_BASE_COST) = 8,000 + 7,816 = 15,816 per
-    // delegation (regular portion only; state gas charged separately).
-    return (ACCOUNT_WRITE + REGULAR_PER_AUTH_BASE_COST) * delegateCodeListLength;
+    // EIP-2780 (devnet-7 rework): the intrinsic authorization cost is now only the
+    // state-independent REGULAR_PER_AUTH_BASE_COST (7,816) per tuple. The state-dependent
+    // ACCOUNT_WRITE (first write to the authority) and the NEW_ACCOUNT/AUTH_BASE state gas are
+    // charged at the top frame by the delegation runtime charge, keyed on the authority's
+    // pre-transaction state, with no refund.
+    return REGULAR_PER_AUTH_BASE_COST * delegateCodeListLength;
   }
 
   @Override
   public long calculateDelegateCodeGasRefund(final long alreadyExistingAccounts) {
-    // EIP-7702: the worst-case ACCOUNT_WRITE charged per authorization in intrinsic gas is refunded
-    // (via the regular refund counter) for authorizations whose authority account already existed
-    // or that were invalid — neither grows a new account.
-    return ACCOUNT_WRITE * alreadyExistingAccounts;
+    // EIP-2780 (devnet-7 rework): authorizations are charged at the top frame on their actual
+    // pre-state, so there is no worst-case ACCOUNT_WRITE to refund.
+    return 0L;
   }
 
   @Override

@@ -214,26 +214,6 @@ public interface StateGasCostCalculator {
   }
 
   /**
-   * Charges state gas for EIP-7702 code delegation intrinsic costs.
-   *
-   * @param frame the message frame
-   * @param totalDelegations total number of code delegations
-   * @param alreadyExistingDelegators number of delegators that already existed
-   * @param authBaseRefundCount number of authorizations that don't write new delegation-indicator
-   *     bytes — either the authority already has a delegation designator (overwritten in place) or
-   *     {@code auth.address} is zero (no indicator written). The AUTH_BASE portion is refundable
-   *     for these.
-   * @return true if gas was successfully charged, false if insufficient gas
-   */
-  default boolean chargeCodeDelegationStateGas(
-      final MessageFrame frame,
-      final long totalDelegations,
-      final long alreadyExistingDelegators,
-      final long authBaseRefundCount) {
-    return true;
-  }
-
-  /**
    * Charges the EIP-2780 transaction-entry costs on the depth-0 frame of a non-create transaction,
    * before any opcode runs (mirrors EELS {@code process_message_call}): NEW_ACCOUNT state gas for a
    * positive value transfer to a non-alive recipient (precompiles included, per EIP-2780), plus a
@@ -279,13 +259,23 @@ public interface StateGasCostCalculator {
   default void refundCreateStateGas(final MessageFrame frame) {}
 
   /**
-   * Refunds the EIP-8037 intrinsic NEW_ACCOUNT × CPSB state gas charged at the start of a
-   * contract-creation transaction when the top-level CREATE ends in revert or exceptional halt: no
-   * account persists, so the intrinsic charge is returned to the reservoir.
+   * Refunds a top-frame state-gas charge whose state effect rolls back when the transaction fails —
+   * the created contract's NEW_ACCOUNT, or the recipient's NEW_ACCOUNT when value materialised an
+   * empty leaf. Neither leaf persists, so the state-gas dimension nets to zero. An authorization's
+   * state gas is NOT refunded this way: its delegation survives a dispatch failure.
    *
-   * @param initialFrame the initial (depth-0) frame after the failed contract-creation transaction
+   * <p>Where the credit lands decides who pays. The reservoir-drawn part is restored, but the part
+   * that spilled out of gasRemaining follows gasRemaining: a revert preserves it (the sender gets
+   * it back), while an exceptional halt burns it. Pass that spilled amount as {@code burnedSpill}
+   * on a halt so it is dropped from the credit — parking it in the reservoir, which is never
+   * burned, would let the sender underpay. Pass 0 on a revert.
+   *
+   * @param initialFrame the initial (depth-0) frame of the failed transaction
+   * @param amount the top-frame state gas that was charged
+   * @param burnedSpill the spilled portion that is burned rather than credited back
    */
-  default void refundTxCreateIntrinsicStateGas(final MessageFrame initialFrame) {}
+  default void refundFailedTopFrameStateGas(
+      final MessageFrame initialFrame, final long amount, final long burnedSpill) {}
 
   /**
    * Computes the intrinsic state gas for a transaction. This is the worst-case state gas charged

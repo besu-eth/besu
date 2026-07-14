@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.mainnet;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -25,6 +26,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.crypto.SECPSignature;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.CodeDelegation;
+import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.core.Transaction;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
@@ -62,6 +64,9 @@ class CodeDelegationProcessorTest {
   void setUp() {
     processor =
         new CodeDelegationProcessor(Optional.of(CHAIN_ID), HALF_CURVE_ORDER, codeDelegationService);
+    // Zero-value tx: seeds writtenAccounts with the sender only (recipient added only when
+    // value>0).
+    lenient().when(transaction.getValue()).thenReturn(Wei.ZERO);
   }
 
   @Test
@@ -71,10 +76,10 @@ class CodeDelegationProcessorTest {
     when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
 
     // Act
-    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+    CodeDelegationResult result = processor.process(worldUpdater, transaction);
 
     // Assert
-    assertThat(result.alreadyExistingDelegators()).isZero();
+    assertThat(result.accountWriteCount()).isZero();
     verify(worldUpdater, never()).createAccount(any());
     verify(worldUpdater, never()).getAccount(any());
   }
@@ -86,10 +91,10 @@ class CodeDelegationProcessorTest {
     when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
 
     // Act
-    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+    CodeDelegationResult result = processor.process(worldUpdater, transaction);
 
     // Assert
-    assertThat(result.alreadyExistingDelegators()).isZero();
+    assertThat(result.accountWriteCount()).isZero();
     verify(worldUpdater, never()).createAccount(any());
     verify(worldUpdater, never()).getAccount(any());
   }
@@ -103,10 +108,13 @@ class CodeDelegationProcessorTest {
     when(worldUpdater.createAccount(any())).thenReturn(authority);
 
     // Act
-    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+    CodeDelegationResult result = processor.process(worldUpdater, transaction);
 
     // Assert
-    assertThat(result.alreadyExistingDelegators()).isZero();
+    // New authority leaf, first write, net-new delegation.
+    assertThat(result.newAccountCount()).isEqualTo(1);
+    assertThat(result.accountWriteCount()).isEqualTo(1);
+    assertThat(result.authBaseCount()).isEqualTo(1);
     verify(worldUpdater).createAccount(any());
     verify(authority).incrementNonce();
   }
@@ -119,10 +127,10 @@ class CodeDelegationProcessorTest {
     when(worldUpdater.get(any())).thenReturn(null);
 
     // Act
-    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+    CodeDelegationResult result = processor.process(worldUpdater, transaction);
 
     // Assert
-    assertThat(result.alreadyExistingDelegators()).isZero();
+    assertThat(result.accountWriteCount()).isZero();
     verify(worldUpdater, never()).createAccount(any());
     verify(authority, never()).incrementNonce();
   }
@@ -138,10 +146,13 @@ class CodeDelegationProcessorTest {
     when(codeDelegationService.canSetCodeDelegation(any())).thenReturn(true);
 
     // Act
-    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+    CodeDelegationResult result = processor.process(worldUpdater, transaction);
 
     // Assert
-    assertThat(result.alreadyExistingDelegators()).isEqualTo(1);
+    // Existing authority leaf (no NEW_ACCOUNT), first write, net-new delegation.
+    assertThat(result.newAccountCount()).isZero();
+    assertThat(result.accountWriteCount()).isEqualTo(1);
+    assertThat(result.authBaseCount()).isEqualTo(1);
     verify(worldUpdater, never()).createAccount(any());
     verify(authority).incrementNonce();
     verify(codeDelegationService).processCodeDelegation(authority, DELEGATE_ADDRESS);
@@ -157,10 +168,10 @@ class CodeDelegationProcessorTest {
     when(codeDelegationService.canSetCodeDelegation(any())).thenReturn(true);
 
     // Act
-    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+    CodeDelegationResult result = processor.process(worldUpdater, transaction);
 
     // Assert
-    assertThat(result.alreadyExistingDelegators()).isZero();
+    assertThat(result.accountWriteCount()).isZero();
     verify(worldUpdater, never()).getAccount(any());
     verify(authority, never()).incrementNonce();
     verify(codeDelegationService, never()).processCodeDelegation(any(), any());
@@ -202,10 +213,12 @@ class CodeDelegationProcessorTest {
     when(codeDelegationService.canSetCodeDelegation(any())).thenReturn(true);
 
     // Act
-    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+    CodeDelegationResult result = processor.process(worldUpdater, transaction);
 
     // Assert
-    assertThat(result.alreadyExistingDelegators()).isZero();
+    // Only the second (valid, new-account) delegation applies.
+    assertThat(result.newAccountCount()).isEqualTo(1);
+    assertThat(result.accountWriteCount()).isEqualTo(1);
     verify(authority, times(1)).incrementNonce();
     verify(codeDelegationService, times(1)).processCodeDelegation(any(), any());
   }
@@ -218,10 +231,10 @@ class CodeDelegationProcessorTest {
     when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
 
     // Act
-    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+    CodeDelegationResult result = processor.process(worldUpdater, transaction);
 
     // Assert
-    assertThat(result.alreadyExistingDelegators()).isZero();
+    assertThat(result.accountWriteCount()).isZero();
     verify(authority, never()).incrementNonce();
     verify(codeDelegationService, never()).processCodeDelegation(any(), any());
   }
@@ -236,10 +249,10 @@ class CodeDelegationProcessorTest {
     when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
 
     // Act
-    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+    CodeDelegationResult result = processor.process(worldUpdater, transaction);
 
     // Assert
-    assertThat(result.alreadyExistingDelegators()).isZero();
+    assertThat(result.accountWriteCount()).isZero();
     verify(authority, never()).incrementNonce();
     verify(codeDelegationService, never()).processCodeDelegation(any(), any());
   }
@@ -256,10 +269,10 @@ class CodeDelegationProcessorTest {
     when(transaction.getCodeDelegationList()).thenReturn(Optional.of(List.of(codeDelegation)));
 
     // Act
-    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+    CodeDelegationResult result = processor.process(worldUpdater, transaction);
 
     // Assert
-    assertThat(result.alreadyExistingDelegators()).isZero();
+    assertThat(result.accountWriteCount()).isZero();
     verify(authority, never()).incrementNonce();
     verify(codeDelegationService, never()).processCodeDelegation(any(), any());
   }
@@ -273,10 +286,10 @@ class CodeDelegationProcessorTest {
     when(codeDelegationService.canSetCodeDelegation(any())).thenReturn(false);
 
     // Act
-    CodeDelegationResult result = processor.process(worldUpdater, transaction, Optional.empty());
+    CodeDelegationResult result = processor.process(worldUpdater, transaction);
 
     // Assert
-    assertThat(result.alreadyExistingDelegators()).isZero();
+    assertThat(result.accountWriteCount()).isZero();
     verify(worldUpdater, never()).getAccount(any());
     verify(authority, never()).incrementNonce();
     verify(codeDelegationService, never()).processCodeDelegation(any(), any());

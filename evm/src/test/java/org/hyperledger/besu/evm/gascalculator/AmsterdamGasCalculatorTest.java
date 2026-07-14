@@ -20,6 +20,7 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.datatypes.AccessListEntry;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Transaction;
+import org.hyperledger.besu.datatypes.Wei;
 
 import java.util.List;
 import java.util.Optional;
@@ -68,24 +69,28 @@ class AmsterdamGasCalculatorTest {
 
   @Test
   void transactionFloorCostWithoutAccessListMatchesCalldataOnlyFloor() {
+    // Zero-value simple call: EIP-3120 anchors the floor on TX_BASE + COLD_ACCOUNT_ACCESS.
     when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x1, 256));
     when(transaction.getAccessList()).thenReturn(Optional.empty());
+    when(transaction.getValue()).thenReturn(Wei.ZERO);
 
-    // 12000 + 256 * 64 = 28384
-    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(28384L);
+    // (12000 + 3000) + 256 * 64 = 15000 + 16384 = 31384
+    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(31384L);
   }
 
   @Test
   void transactionFloorCostIncludesAccessListBytes() {
+    // Zero-value simple call: anchor = TX_BASE + COLD_ACCOUNT_ACCESS = 15000 (EIP-3120).
     // 10 calldata bytes + 1 address (20 bytes) + 2 keys (2*32 = 64 bytes) = 94 bytes
-    // 12000 + 94 * 64 = 12000 + 6016 = 18016
+    // 15000 + 94 * 64 = 15000 + 6016 = 21016
     final AccessListEntry entry =
         new AccessListEntry(
             Address.fromHexString("0x00000000000000000000000000000000000000aa"),
             List.of(Bytes32.ZERO, Bytes32.ZERO));
     when(transaction.getPayload()).thenReturn(Bytes.repeat((byte) 0x1, 10));
     when(transaction.getAccessList()).thenReturn(Optional.of(List.of(entry)));
+    when(transaction.getValue()).thenReturn(Wei.ZERO);
 
-    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(18016L);
+    assertThat(amsterdamGasCalculator.transactionFloorCost(transaction)).isEqualTo(21016L);
   }
 }

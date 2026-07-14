@@ -123,6 +123,9 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
   public static final Address DEFAULT_DEPOSIT_CONTRACT_ADDRESS =
       Address.fromHexString("0x00000000219ab540356cbb839cbe05303d7705fa");
 
+  private static final Address BEACON_ROOTS_ADDRESS =
+      Address.fromHexString("0x000F3df6D732807Ef1319fB7B8bB8522d0Beac02");
+
   protected final GenesisConfig genesisConfig =
       GenesisConfig.fromResource("/block-creation-genesis.json");
 
@@ -353,22 +356,27 @@ class AbstractBlockCreatorTest extends TrustedSetupClassLoaderExtension {
     assertThat(maybeBlockAccessList).isNotEmpty();
     final BlockAccessList blockAccessList = maybeBlockAccessList.get();
     final List<AccountChanges> accountChanges = blockAccessList.accountChanges();
-    assertThat(accountChanges.size()).isEqualTo(3);
-    final AccountChanges accountChange1 = accountChanges.get(0);
-    assertThat(accountChange1.address()).isIn(sender.address(), recipient.address(), coinbase);
-    assertThat(accountChange1.balanceChanges().size()).isEqualTo(1);
-    assertThat(accountChange1.balanceChanges().get(0).postBalance()).isNotEqualTo(Bytes.of(0));
-    assertThat(accountChange1.balanceChanges().get(0).txIndex()).isGreaterThanOrEqualTo(0);
-    final AccountChanges accountChange2 = accountChanges.get(1);
-    assertThat(accountChange2.address()).isIn(sender.address(), recipient.address(), coinbase);
-    assertThat(accountChange2.balanceChanges().size()).isEqualTo(1);
-    assertThat(accountChange2.balanceChanges().get(0).postBalance()).isNotEqualTo(Bytes.of(0));
-    assertThat(accountChange2.balanceChanges().get(0).txIndex()).isGreaterThanOrEqualTo(0);
-    final AccountChanges accountChange3 = accountChanges.get(2);
-    assertThat(accountChange3.address()).isIn(sender.address(), recipient.address(), coinbase);
-    assertThat(accountChange3.balanceChanges().size()).isEqualTo(1);
-    assertThat(accountChange3.balanceChanges().get(0).postBalance()).isNotEqualTo(Bytes.of(0));
-    assertThat(accountChange3.balanceChanges().get(0).txIndex()).isGreaterThanOrEqualTo(0);
+    assertThat(accountChanges.size()).isEqualTo(4);
+
+    // This genesis does not deploy the EIP-4788 beacon roots contract, so its system call fails
+    // silently. The call reads the account before it can see there is no code to run, so the
+    // address is still recorded in the block access list — with no changes.
+    assertThat(changesFor(accountChanges, BEACON_ROOTS_ADDRESS).hasAnyChange()).isFalse();
+
+    for (final Address address : List.of(sender.address(), recipient.address(), coinbase)) {
+      final AccountChanges changes = changesFor(accountChanges, address);
+      assertThat(changes.balanceChanges().size()).isEqualTo(1);
+      assertThat(changes.balanceChanges().get(0).postBalance()).isNotEqualTo(Bytes.of(0));
+      assertThat(changes.balanceChanges().get(0).txIndex()).isGreaterThanOrEqualTo(0);
+    }
+  }
+
+  private static AccountChanges changesFor(
+      final List<AccountChanges> accountChanges, final Address address) {
+    return accountChanges.stream()
+        .filter(changes -> changes.address().equals(address))
+        .findFirst()
+        .orElseThrow(() -> new AssertionError("no block access list entry for " + address));
   }
 
   @Test

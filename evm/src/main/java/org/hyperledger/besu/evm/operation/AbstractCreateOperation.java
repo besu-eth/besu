@@ -23,7 +23,9 @@ import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.Code;
 import org.hyperledger.besu.evm.EVM;
+import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.account.MutableAccount;
+import org.hyperledger.besu.evm.frame.Eip7928AccessList;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
 import org.hyperledger.besu.evm.frame.SoftFailureReason;
@@ -99,25 +101,13 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
       return new OperationResult(cost, ExceptionalHaltReason.CODE_TOO_LARGE);
     }
 
-    // EIP-8037: Deduct regular gas before charging state gas (ordering requirement).
-    frame.decrementRemainingGas(cost);
-
-    // EIP-8037: Charge state gas for CREATE operation.
-    if (!gasCalculator().stateGasCostCalculator().chargeCreateStateGas(frame)) {
-      return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
-    }
-
-    // Add regular gas back — the EVM loop will deduct it via the OperationResult.
-    frame.incrementRemainingGas(cost);
-
     final boolean insufficientBalance = value.compareTo(account.getBalance()) > 0;
     final boolean maxDepthReached = frame.getDepth() >= 1024;
     final boolean invalidState = account.getNonce() == -1 || code == null;
 
     if (insufficientBalance || maxDepthReached || invalidState) {
-      // EIP-8037: on opcode-level silent failure no account
-      // is created, so refund the 112 × cpsb account-creation state gas to the reservoir.
-      gasCalculator().stateGasCostCalculator().refundCreateStateGas(frame);
+      // EIP-8037 (#3116): a silent create failure occurs before any state gas is charged, so there
+      // is nothing to refund.
       fail(frame);
       // Set soft failure reason for callTracer compatibility
       final SoftFailureReason softFailureReason =
@@ -128,9 +118,41 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     }
 
     account.incrementNonce();
-    frame.decrementRemainingGas(cost);
 
-    spawnChildMessage(frame, code);
+    // EIP-8037 (#3116): charge the created account's NEW_ACCOUNT state gas only when its leaf does
+    // not already exist (decided by existence alone, independent of the collision outcome). An
+    // already-alive target is charged nothing; a storage-only collision is charged here and
+    // refilled
+    // when the create frame fails. complete() reads back the liveness recorded on the frame, since
+    // a
+    // successful create to an already-alive target adds no leaf and so owes no NEW_ACCOUNT.
+    final Address contractAddress = generateTargetContractAddress(frame, code);
+    // EIP-7928: deciding whether to charge reads the target's account, so the target is recorded
+    // before the charge can run out of gas — it stays in the block access list (with no changes)
+    // even
+    // when the NEW_ACCOUNT charge below fails. Mirrors EELS generic_create, which adds the address
+    // to
+    // the accessed set and probes its liveness ahead of charge_state_gas.
+    final Optional<Eip7928AccessList> accessList = frame.getEip7928AccessList();
+    if (accessList.isPresent()) {
+      accessList.get().addTouchedAccount(contractAddress);
+    }
+    final Account existingTarget = frame.getWorldUpdater().get(contractAddress);
+    final boolean targetAlive = existingTarget != null && !existingTarget.isEmpty();
+    frame.setCreateTargetWasAlive(targetAlive);
+
+    if (!targetAlive) {
+      // EIP-8037: Deduct regular gas before charging state gas (ordering requirement), then
+      // restore.
+      frame.decrementRemainingGas(cost);
+      if (!gasCalculator().stateGasCostCalculator().chargeCreateStateGas(frame)) {
+        return new OperationResult(cost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+      }
+      frame.incrementRemainingGas(cost);
+    }
+
+    frame.decrementRemainingGas(cost);
+    spawnChildMessage(frame, code, contractAddress);
     frame.incrementRemainingGas(cost);
 
     return new OperationResult(cost, null, getPcIncrement());
@@ -186,17 +208,10 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
     frame.pushStackItem(Bytes.EMPTY);
   }
 
-  private void spawnChildMessage(final MessageFrame parent, final Code code) {
+  private void spawnChildMessage(
+      final MessageFrame parent, final Code code, final Address contractAddress) {
     final Wei value = Wei.wrap(parent.getStackItem(0));
-
-    final Address contractAddress = generateTargetContractAddress(parent, code);
     final Bytes inputData = getInputData(parent);
-
-    // EIP-8037: capture whether the target address is already alive (exists and non-empty) before
-    // the creation. On a successful create to an already-alive target the NEW_ACCOUNT state gas is
-    // refunded in complete() — the account's existence was already paid for.
-    final var existingTarget = parent.getWorldUpdater().get(contractAddress);
-    parent.setCreateTargetWasAlive(existingTarget != null && !existingTarget.isEmpty());
 
     final long childGasStipend =
         gasCalculator().gasAvailableForChildCreate(parent.getRemainingGas());
@@ -252,22 +267,20 @@ public abstract class AbstractCreateOperation extends AbstractOperation {
       // refund routes back to gasRemaining (LIFO) over the combined spill — matching the EELS order
       // of incorporate_child_on_success then credit_state_gas_refund.
       frame.incrementStateGasSpilled(childFrame.getStateGasSpilled());
-      // If the target address was already alive before this CREATE/CREATE2 (e.g. a pre-funded
-      // account), no new account was added to the state trie, so the NEW_ACCOUNT state gas charged
-      // up-front is refunded in LIFO order.
-      if (frame.wasCreateTargetAlive()) {
-        gasCalculator().stateGasCostCalculator().refundCreateStateGas(frame);
-      }
+      // EIP-8037 (#3116): the NEW_ACCOUNT state gas was charged only when the target was not alive,
+      // and a successful create adds the account, so the charge stands — no refund on success.
       frame.pushStackItem(Words.fromAddress(createdAddress));
       frame.setReturnData(Bytes.EMPTY);
       onSuccess(frame, createdAddress);
     } else {
-      // EIP-8037: on child frame revert or exceptional
-      // halt, the account-creation state gas (112 × cpsb) charged at this CREATE/CREATE2 opcode
-      // is refunded to the reservoir — no account was created so no state gas should be paid.
+      // EIP-8037 (#3116): on child frame revert or exceptional halt no account was created, so the
+      // NEW_ACCOUNT state gas is refilled — but only if it was charged (target was not alive; an
+      // already-alive target or storage-only collision that was charged is refilled here).
       // The child's own state gas charges (e.g. inner SSTOREs, code deposits) are already
       // refunded into the reservoir by handleStateGasSpill in AbstractMessageProcessor.
-      gasCalculator().stateGasCostCalculator().refundCreateStateGas(frame);
+      if (!frame.wasCreateTargetAlive()) {
+        gasCalculator().stateGasCostCalculator().refundCreateStateGas(frame);
+      }
       frame.setReturnData(childFrame.getOutputData());
       frame.pushStackItem(Bytes.EMPTY);
       onFailure(frame, childFrame.getExceptionalHaltReason());

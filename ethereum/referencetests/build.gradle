@@ -340,7 +340,7 @@ dependencies {
     )
   devnetTarConfig(
     group: 'ethereum', name: 'execution-specs',
-    version: 'tests-glamsterdam-devnet@v6.1.0', classifier: 'fixtures_glamsterdam-devnet', ext: 'tar.gz'
+    version: 'tests-glamsterdam-devnet@v7.2.0', classifier: 'fixtures_glamsterdam-devnet', ext: 'tar.gz'
     )
   referenceTestImplementation 'com.fasterxml.jackson.core:jackson-databind'
   referenceTestImplementation 'com.google.guava:guava'
@@ -371,6 +371,23 @@ tasks.register('referenceTestsDevnet', Test) {
   description = 'Runs execution-spec-tests pre-release (devnet) reference tests.'
   testClassesDirs = sourceSets.referenceTestDevnet.output.classesDirs
   classpath = sourceSets.referenceTestDevnet.runtimeClasspath
+
+  // Forward the EIP-8037 state-gas diagnostic trace into the forked test JVM
+  // (-Deip8037.trace=true [-Deip8037.trace.file=/path]). No-op unless set. When tracing, run
+  // single-forked so the emitted lines are not interleaved across workers.
+  // test.ethereum.include narrows the run to test cases matching a regex, so a trace covers one case.
+  [
+    'eip8037.trace',
+    'eip8037.trace.file',
+    'test.ethereum.include'
+  ].each { p ->
+    if (System.getProperty(p) != null) {
+      systemProperty p, System.getProperty(p)
+    }
+  }
+  if (Boolean.getBoolean('eip8037.trace')) {
+    maxParallelForks = 1
+  }
 }
 
 tasks.register('validateReferenceTestSubmodule') {

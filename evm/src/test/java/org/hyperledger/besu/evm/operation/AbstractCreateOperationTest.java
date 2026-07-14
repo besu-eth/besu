@@ -255,6 +255,9 @@ class AbstractCreateOperationTest {
 
     when(account.getNonce()).thenReturn(55L);
     when(account.getBalance()).thenReturn(Wei.ZERO);
+    // EIP-8037 (#3116): NEW_ACCOUNT state gas is charged only when the target is not alive, so the
+    // deployment target must read as empty for the spill-below-cost scenario to trigger the charge.
+    when(account.isEmpty()).thenReturn(true);
     when(worldUpdater.getAccount(any())).thenReturn(account);
     when(worldUpdater.get(any())).thenReturn(account);
     when(worldUpdater.getSenderAccount(any())).thenReturn(account);

@@ -506,6 +506,17 @@ public interface GasCalculator {
   }
 
   /**
+   * Returns the regular gas charged for the first write to an account leaf (EIP-2780
+   * ACCOUNT_WRITE), used for the top-frame EIP-7702 authorization charge. Zero for forks without
+   * state-gas metering.
+   *
+   * @return the ACCOUNT_WRITE regular gas cost
+   */
+  default long getAccountWriteGasCost() {
+    return 0L;
+  }
+
+  /**
    * Returns the cost of a SLOAD to a storage slot that has previously been loaded in the TX
    * context.
    *

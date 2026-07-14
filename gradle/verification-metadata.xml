@@ -2144,6 +2144,21 @@
             <sha256 value="42dde24de4eb61ca01af781896b064e26200a0a040aa4f33a6336d82eefc0459" origin="Manual"/>
          </artifact>
       </component>
+      <component group="ethereum" name="execution-specs" version="tests-glamsterdam-devnet@v7.0.0">
+         <artifact name="execution-specs-tests-glamsterdam-devnet@v7.0.0-fixtures_glamsterdam-devnet.tar.gz">
+            <sha256 value="4f88914afa1876a815fb96a85ea422de9623a967d73050e2e6e13a1d2036e127" origin="Manual, verified against GitHub release digest"/>
+         </artifact>
+      </component>
+      <component group="ethereum" name="execution-specs" version="tests-glamsterdam-devnet@v7.1.0">
+         <artifact name="execution-specs-tests-glamsterdam-devnet@v7.1.0-fixtures_glamsterdam-devnet.tar.gz">
+            <sha256 value="ba833a4c0a956bcc7d00118cd9aa817b8715ea4357ded9d3393d37ba89b182a9" origin="Manual, verified against GitHub release digest"/>
+         </artifact>
+      </component>
+      <component group="ethereum" name="execution-specs" version="tests-glamsterdam-devnet@v7.2.0">
+         <artifact name="execution-specs-tests-glamsterdam-devnet@v7.2.0-fixtures_glamsterdam-devnet.tar.gz">
+            <sha256 value="29ba214eaf37c880c845179994cb62e82a0fb63e58f83e6c640d85f3e7d7a796" origin="Manual, verified against GitHub release digest"/>
+         </artifact>
+      </component>
       <component group="ethereum" name="execution-spec-tests" version="v5.3.0">
          <artifact name="execution-spec-tests-v5.3.0-fixtures_develop.tar.gz">
             <sha256 value="5dd08fee0fb41bc2a59bc4ab1dc75b19723fc71fe6af2f855454d3283fba09b9" origin="Manual"/>

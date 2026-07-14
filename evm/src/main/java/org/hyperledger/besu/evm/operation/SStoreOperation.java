@@ -85,6 +85,19 @@ public class SStoreOperation extends AbstractOperation {
 
     final Address address = account.getAddress();
     final boolean slotIsWarm = frame.warmUpStorage(address, key);
+
+    // EIP-8038: post-repricing the SSTORE access cost (cold 3,000 / warm 100) can exceed the
+    // EIP-2200 stipend, so the stipend sentry above no longer guarantees the access is
+    // affordable. Confirm the access cost is covered BEFORE the implicit current-value read
+    // records the slot in the Block Access List (EIP-7928); an unaffordable access must halt
+    // with INSUFFICIENT_GAS without recording the read.
+    final long accessCost =
+        gasCalculator().getWarmStorageReadCost()
+            + (slotIsWarm ? 0L : gasCalculator().getSStoreColdAccessGasCost());
+    if (remainingGas < accessCost) {
+      return new OperationResult(accessCost, ExceptionalHaltReason.INSUFFICIENT_GAS);
+    }
+
     final Supplier<UInt256> currentValueSupplier =
         Suppliers.memoize(() -> getStorageValue(account, key, frame));
     final Supplier<UInt256> originalValueSupplier =

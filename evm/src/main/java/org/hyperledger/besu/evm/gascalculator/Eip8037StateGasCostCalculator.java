@@ -21,6 +21,7 @@ import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.evm.account.Account;
 import org.hyperledger.besu.evm.frame.ExceptionalHaltReason;
 import org.hyperledger.besu.evm.frame.MessageFrame;
+import org.hyperledger.besu.evm.worldstate.CodeDelegationHelper;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
 
 import java.util.Optional;
@@ -197,29 +198,14 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
   }
 
   @Override
-  public boolean chargeCodeDelegationStateGas(
-      final MessageFrame frame,
-      final long totalDelegations,
-      final long alreadyExistingDelegators,
-      final long authBaseRefundCount) {
-    // Charge the full worst-case intrinsic up-front so block_regular = tx_gas -
-    // intrinsic_state_gas regardless of authority pre-state. Refunds below restore the actual
-    // state growth to both the reservoir (for the sender) and stateGasUsed (for block accounting).
-    final long perAuthIntrinsic = authBaseStateGas() + emptyAccountDelegationStateGas();
-    if (!frame.consumeStateGas(perAuthIntrinsic * totalDelegations)) {
-      return false;
-    }
-    long refund = emptyAccountDelegationStateGas() * alreadyExistingDelegators;
-    refund += authBaseStateGas() * authBaseRefundCount;
-    if (refund > 0L) {
-      // EELS set_delegation credits the authorization refund directly to the reservoir
-      // (message.state_gas_reservoir += refund) at message entry — not in LIFO order — so it is
-      // observable by a sub-call that can only draw state gas from the reservoir. Decrement
-      // stateGasUsed by the same amount (EELS state_refund) for block state-gas accounting.
-      frame.incrementStateGasReservoir(refund);
-      frame.decrementStateGasUsed(refund);
-    }
-    return true;
+  public long transactionIntrinsicStateGas(
+      final boolean isContractCreation, final long codeDelegationCount) {
+    // EIP-2780 (devnet-7): all state-dependent costs — the contract-creation NEW_ACCOUNT and the
+    // per-authorization NEW_ACCOUNT/AUTH_BASE — are charged at the top frame on the transaction's
+    // pre-state, not pre-consumed in the intrinsic. The intrinsic state gas is therefore zero, so
+    // the intrinsic gas-limit validity check no longer reserves them; an unaffordable runtime
+    // charge instead halts the top frame with out-of-gas.
+    return 0L;
   }
 
   @Override
@@ -242,11 +228,26 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
     if (!initialFrame.getValue().isZero() && (recipient == null || recipient.isEmpty())) {
       outOfGas = !initialFrame.consumeStateGas(newAccountStateGas());
     }
-    // EIP-7702: top-level access to a delegated recipient's target costs cold account access.
+    // EIP-2780 (devnet-7, #3045): top-level access to a delegated recipient's target is warm/cold
+    // aware — WARM_ACCESS when the target is already in the access list (e.g. via the tx access
+    // list), otherwise COLD_ACCOUNT_ACCESS with the target added to the warm set.
     if (!outOfGas && recipient != null && hasCodeDelegation(recipient.getCode())) {
-      final long delegationAccessCost = gasCalculator.getColdAccountAccessCost();
+      final Address target = CodeDelegationHelper.getTargetAddress(recipient.getCode());
+      // EELS prepare_message seeds the top-frame accessed set with all precompiles, so a delegation
+      // to a precompile resolves warm. warmUpAddress still records the target (its side effect must
+      // stand for a subsequent access), but a precompile counts as already warm regardless.
+      final boolean targetWasWarm =
+          initialFrame.warmUpAddress(target) || gasCalculator.isPrecompile(target);
+      final long delegationAccessCost =
+          targetWasWarm
+              ? gasCalculator.getWarmStorageReadCost()
+              : gasCalculator.getColdAccountAccessCost();
       if (initialFrame.getRemainingGas() >= delegationAccessCost) {
         initialFrame.decrementRemainingGas(delegationAccessCost);
+        // EIP-7928: the target is loaded only once its access is paid for, so it enters the block
+        // access list here and not during the frame's eager code resolution — an access charge that
+        // runs out of gas leaves the target out of the list entirely.
+        initialFrame.getEip7928AccessList().ifPresent(bal -> bal.addTouchedAccount(target));
       } else {
         outOfGas = true;
       }
@@ -263,8 +264,17 @@ public class Eip8037StateGasCostCalculator implements StateGasCostCalculator {
   }
 
   @Override
-  public void refundTxCreateIntrinsicStateGas(final MessageFrame initialFrame) {
-    creditStateGasRefund(initialFrame, createStateGas());
+  public void refundFailedTopFrameStateGas(
+      final MessageFrame initialFrame, final long amount, final long burnedSpill) {
+    // stateGasUsed always drops by the full charge (the leaf did not persist), but only the part
+    // that is not burned with gasRemaining is credited back as spendable gas.
+    final long credited = Math.max(0L, amount - burnedSpill);
+    if (credited > 0L) {
+      creditStateGasRefund(initialFrame, credited);
+    }
+    if (burnedSpill > 0L) {
+      initialFrame.decrementStateGasUsed(burnedSpill);
+    }
   }
 
   @Override

@@ -41,7 +41,7 @@ public abstract class TransactionGasAccounting {
    * @param gasUsedByTransaction floored 2D gas (max(regular, floor) + state) for
    *     estimation/receipts
    * @param usedGas post-refund gas the sender pays
-   * @param regularGas the unfloored regular gas dimension (execution - state) for block accounting
+   * @param regularGas the regular gas dimension for block accounting: max(execution - state, floor)
    */
   public record GasResult(
       long effectiveStateGas, long gasUsedByTransaction, long usedGas, long regularGas) {}
@@ -80,7 +80,10 @@ public abstract class TransactionGasAccounting {
   public GasResult calculate() {
     if (regularGasLimitExceeded()) {
       return new GasResult(
-          stateGasUsed(), txGasLimit(), txGasLimit(), Math.max(0L, txGasLimit() - stateGasUsed()));
+          stateGasUsed(),
+          txGasLimit(),
+          txGasLimit(),
+          Math.max(txGasLimit() - stateGasUsed(), floorCost()));
     }
 
     final long executionGas = txGasLimit() - remainingGas() - stateGasReservoir();
@@ -93,8 +96,13 @@ public abstract class TransactionGasAccounting {
           executionGas,
           stateGas);
     }
-    final long gasUsedByTransaction = Math.max(regularGas, floorCost()) + stateGas;
+    // EIP-8037 (v7.2.0, ethereum/EIPs#11908): the calldata floor binds the regular-gas dimension.
+    // State gas is subtracted first (regularGas already excludes it), so a transaction's state
+    // spending cannot discount the floor. Both the block regular-gas dimension and the
+    // sender-facing 2D total use this floored regular gas.
+    final long flooredRegularGas = Math.max(regularGas, floorCost());
+    final long gasUsedByTransaction = flooredRegularGas + stateGas;
     final long usedGas = txGasLimit() - refundedGas();
-    return new GasResult(stateGas, gasUsedByTransaction, usedGas, Math.max(0L, regularGas));
+    return new GasResult(stateGas, gasUsedByTransaction, usedGas, flooredRegularGas);
   }
 }

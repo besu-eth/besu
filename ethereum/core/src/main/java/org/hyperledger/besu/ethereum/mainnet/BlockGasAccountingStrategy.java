@@ -120,8 +120,10 @@ public interface BlockGasAccountingStrategy {
         @Override
         public long calculateTransactionRegularGas(
             final Transaction transaction, final TransactionProcessingResult result) {
-          // EIP-7976/EIP-8037: the calldata floor raises the gas the sender pays but does not
-          // count toward the block's regular gas dimension, so use the unfloored regular gas.
+          // EIP-8037 (v7.2.0, ethereum/EIPs#11908): the calldata floor binds the block's regular
+          // gas dimension. getRegularGasUsedForBlock() already returns max(regular, floor) with
+          // state gas subtracted first (computed in TransactionGasAccounting), so the floor is not
+          // discounted by the transaction's state spending.
           return result.getRegularGasUsedForBlock();
         }
 
