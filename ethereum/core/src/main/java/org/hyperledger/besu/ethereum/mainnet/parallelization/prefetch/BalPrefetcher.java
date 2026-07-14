@@ -17,7 +17,7 @@ package org.hyperledger.besu.ethereum.mainnet.parallelization.prefetch;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_INFO_STATE;
 import static org.hyperledger.besu.ethereum.storage.keyvalue.KeyValueSegmentIdentifier.ACCOUNT_STORAGE_STORAGE;
 
-import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessList;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
@@ -25,15 +25,14 @@ import org.hyperledger.besu.plugin.services.storage.SegmentIdentifier;
 import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorage;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ForkJoinPool;
 
-import org.apache.tuweni.bytes.Bytes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,8 +47,7 @@ public class BalPrefetcher {
 
   private static final Logger LOG = LoggerFactory.getLogger(BalPrefetcher.class);
 
-  private static final Executor DEFAULT_PREFETCH_EXECUTOR = ForkJoinPool.commonPool();
-
+  private static final Comparator<byte[]> STORAGE_KEY_COMPARATOR = Arrays::compareUnsigned;
   private final boolean isSortingEnabled;
   private final int batchSize;
 
@@ -71,21 +69,6 @@ public class BalPrefetcher {
    * @param worldState the world state to prefetch data into
    * @param blockAccessList the block access list containing read operations
    * @param orchestrationExecutor the executor that runs the prefetch orchestration task
-   * @return a completable future that completes when prefetching is done
-   */
-  public CompletableFuture<Void> prefetch(
-      final BonsaiWorldState worldState,
-      final BlockAccessList blockAccessList,
-      final Executor orchestrationExecutor) {
-    return prefetch(worldState, blockAccessList, orchestrationExecutor, DEFAULT_PREFETCH_EXECUTOR);
-  }
-
-  /**
-   * Prefetch world state data based on the block access list.
-   *
-   * @param worldState the world state to prefetch data into
-   * @param blockAccessList the block access list containing read operations
-   * @param orchestrationExecutor the executor that runs the prefetch orchestration task
    * @param fetchExecutor the executor for fetch operations
    * @return a completable future that completes when prefetching is done
    */
@@ -95,74 +78,83 @@ public class BalPrefetcher {
       final Executor orchestrationExecutor,
       final Executor fetchExecutor) {
 
-    return CompletableFuture.runAsync(
-        () -> {
-          try {
-            worldState.disableCacheMerkleTrieLoader();
+    return CompletableFuture.supplyAsync(
+            () -> {
+              worldState.disableCacheMerkleTrieLoader();
 
-            // Collect and optionally sort account changes
-            final List<BlockAccessList.AccountChanges> accounts =
-                isSortingEnabled
-                    ? blockAccessList.accountChanges().stream()
-                        .sorted(Comparator.comparing(ac -> ac.address().addressHash()))
-                        .toList()
-                    : new ArrayList<>(blockAccessList.accountChanges());
+              // Collect and optionally sort account changes
+              final List<BlockAccessList.AccountChanges> accounts =
+                  isSortingEnabled
+                      ? blockAccessList.accountChanges().stream()
+                          .sorted(Comparator.comparing(ac -> ac.address().addressHash()))
+                          .toList()
+                      : new ArrayList<>(blockAccessList.accountChanges());
 
-            // Collect all keys to prefetch
-            final PrefetchKeys keys = collectKeys(accounts);
+              // Collect all keys to prefetch
+              final PrefetchKeys keys = collectKeys(accounts);
 
-            LOG.debug(
-                "Prefetch: collected {} account keys and {} storage keys",
-                keys.accountKeys.size(),
-                keys.storageKeys.size());
+              LOG.debug(
+                  "Prefetch: collected {} account keys and {} storage keys",
+                  keys.accountKeys.size(),
+                  keys.storageKeys.size());
 
-            // Unified fetch with optional batching
-            fetchKeys(worldState, keys, fetchExecutor);
-
-            LOG.info(
-                "Prefetch completed: {} accounts + {} storage slots{}",
-                keys.accountKeys.size(),
-                keys.storageKeys.size(),
-                shouldBatch() ? " in batches of " + batchSize : " in single batch");
-
-          } catch (final Exception e) {
-            LOG.error("Error during prefetch", e);
-            throw e;
-          }
-        },
-        orchestrationExecutor);
+              return keys;
+            },
+            orchestrationExecutor)
+        .thenCompose(
+            keys ->
+                fetchKeysAsync(worldState, keys, fetchExecutor)
+                    .thenRun(
+                        () ->
+                            LOG.info(
+                                "Prefetch completed: {} accounts + {} storage slots{}",
+                                keys.accountKeys.size(),
+                                keys.storageKeys.size(),
+                                shouldBatch()
+                                    ? " in batches of " + batchSize
+                                    : " in single batch")))
+        .whenComplete(
+            (result, ex) -> {
+              if (ex != null) {
+                LOG.error("Error during prefetch", ex);
+              }
+            });
   }
 
   /** Collect all account and storage keys from the block access list. */
   private PrefetchKeys collectKeys(final List<BlockAccessList.AccountChanges> accounts) {
-    final List<byte[]> accountKeys = new ArrayList<>();
+    final List<byte[]> accountKeys = new ArrayList<>(accounts.size());
     final List<byte[]> storageKeys = new ArrayList<>();
-
     for (final BlockAccessList.AccountChanges accountChanges : accounts) {
-      final Hash addressHash = accountChanges.address().addressHash();
-      accountKeys.add(addressHash.getBytes().toArrayUnsafe());
-      // Collect unique storage slots
-      final Set<StorageSlotKey> uniqueSlots = new HashSet<>();
-      accountChanges.storageChanges().forEach(sc -> uniqueSlots.add(sc.slot()));
-      accountChanges.storageReads().forEach(sr -> uniqueSlots.add(sr.slot()));
-
-      // Optionally sort storage slots
-      final List<StorageSlotKey> slots =
-          isSortingEnabled
-              ? uniqueSlots.stream()
-                  .sorted(Comparator.comparing(StorageSlotKey::getSlotHash))
-                  .toList()
-              : new ArrayList<>(uniqueSlots);
-
-      // Build storage keys
-      for (var slot : slots) {
-        final byte[] storageKey =
-            Bytes.concatenate(addressHash.getBytes(), slot.getSlotHash().getBytes())
-                .toArrayUnsafe();
+      final Address address = accountChanges.address();
+      final byte[] addressHash = address.addressHash().getBytes().toArrayUnsafe();
+      accountKeys.add(addressHash);
+      final List<BlockAccessList.SlotChanges> storageChanges = accountChanges.storageChanges();
+      final List<BlockAccessList.SlotRead> storageReads = accountChanges.storageReads();
+      final int rawSlotCount = storageChanges.size() + storageReads.size();
+      if (rawSlotCount == 0) {
+        continue;
+      }
+      // Deduplicate storage slots by hash without streams/lambdas (plain iterator loops).
+      final Set<StorageSlotKey> uniqueSlots = HashSet.newHashSet(rawSlotCount);
+      for (final BlockAccessList.SlotChanges storageChange : storageChanges) {
+        uniqueSlots.add(storageChange.slot());
+      }
+      for (final BlockAccessList.SlotRead storageRead : storageReads) {
+        uniqueSlots.add(storageRead.slot());
+      }
+      final int rangeStart = storageKeys.size();
+      for (final StorageSlotKey slot : uniqueSlots) {
+        final byte[] slotHash = slot.getSlotHash().getBytes().toArrayUnsafe();
+        final byte[] storageKey = new byte[addressHash.length + slotHash.length];
+        System.arraycopy(addressHash, 0, storageKey, 0, addressHash.length);
+        System.arraycopy(slotHash, 0, storageKey, addressHash.length, slotHash.length);
         storageKeys.add(storageKey);
       }
+      if (isSortingEnabled) {
+        storageKeys.subList(rangeStart, storageKeys.size()).sort(STORAGE_KEY_COMPARATOR);
+      }
     }
-
     return new PrefetchKeys(accountKeys, storageKeys);
   }
 
@@ -172,8 +164,10 @@ public class BalPrefetcher {
    * <p>If batchSize <= 0, fetches all keys in parallel (2 futures: accounts + storage).
    *
    * <p>If batchSize > 0, splits into multiple batches and fetches them in parallel.
+   *
+   * @return a future that completes when all fetch operations finish
    */
-  private void fetchKeys(
+  private CompletableFuture<Void> fetchKeysAsync(
       final BonsaiWorldState worldState, final PrefetchKeys keys, final Executor fetchExecutor) {
 
     // Fetch accounts (with optional batching)
@@ -189,8 +183,7 @@ public class BalPrefetcher {
               worldState, ACCOUNT_STORAGE_STORAGE, keys.storageKeys, "storage", fetchExecutor));
     }
 
-    // Wait for all fetches to complete
-    CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+    return CompletableFuture.allOf(futures.toArray(CompletableFuture[]::new));
   }
 
   /**

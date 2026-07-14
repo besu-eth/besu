@@ -125,7 +125,11 @@ public class BalConcurrentTransactionProcessor extends ParallelBlockTransactionP
                           .map(BonsaiWorldState.class::cast));
           if (maybeWorldState.isPresent()) {
             balPrefetchMechanism
-                .prefetch(maybeWorldState.get(), blockAccessList, executor)
+                .prefetch(
+                    maybeWorldState.get(),
+                    blockAccessList,
+                    BlockProcessingExecutors.ioExecutor(),
+                    BlockProcessingExecutors.ioExecutor())
                 .exceptionally(
                     ex -> {
                       LOG.error("Prefetch failed", ex);
