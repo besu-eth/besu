@@ -58,7 +58,7 @@ public class PingPacketDataFactoryTest {
     Mockito.verify(expiryValidator).validate(expiration);
 
     Assertions.assertEquals(maybeFrom, result.getFrom());
-    Assertions.assertEquals(to, result.getTo());
+    Assertions.assertEquals(Optional.of(to), result.getTo());
     Assertions.assertEquals(expiration, result.getExpiration());
     Assertions.assertTrue(result.getEnrSeq().isPresent());
     Assertions.assertEquals(enrSeq, result.getEnrSeq().get());
@@ -109,7 +109,7 @@ public class PingPacketDataFactoryTest {
     Mockito.verifyNoInteractions(expiryValidator);
 
     Assertions.assertEquals(maybeFrom, result.getFrom());
-    Assertions.assertEquals(to, result.getTo());
+    Assertions.assertEquals(Optional.of(to), result.getTo());
     Assertions.assertEquals(clock.instant().getEpochSecond() + 60, result.getExpiration());
     Assertions.assertTrue(result.getEnrSeq().isPresent());
     Assertions.assertEquals(enrSeq, result.getEnrSeq().get());

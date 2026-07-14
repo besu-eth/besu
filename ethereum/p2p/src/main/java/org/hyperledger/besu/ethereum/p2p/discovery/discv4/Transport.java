@@ -1,5 +1,5 @@
 /*
- * Copyright ConsenSys AG.
+ * Copyright contributors to Besu.
  *
  * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with
  * the License. You may obtain a copy of the License at
@@ -12,17 +12,26 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-package org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal;
+package org.hyperledger.besu.ethereum.p2p.discovery.discv4;
 
-public interface TimerUtil {
-  long setPeriodic(long delayInMs, String name, TimerHandler handler);
+import java.net.InetSocketAddress;
+import java.util.concurrent.CompletableFuture;
 
-  long setTimer(long delayInMs, TimerHandler handler);
+import org.apache.tuweni.bytes.Bytes;
 
-  void cancelTimer(long timerId);
+/** Transport abstraction for DiscV4 UDP send/receive. */
+public interface Transport {
+
+  CompletableFuture<InetSocketAddress> start();
+
+  CompletableFuture<Void> stop();
+
+  CompletableFuture<Void> send(InetSocketAddress recipient, Bytes data);
+
+  void setInboundHandler(InboundV4Handler handler);
 
   @FunctionalInterface
-  interface TimerHandler {
-    void handle();
+  interface InboundV4Handler {
+    void onPacket(InetSocketAddress sender, Bytes data);
   }
 }
