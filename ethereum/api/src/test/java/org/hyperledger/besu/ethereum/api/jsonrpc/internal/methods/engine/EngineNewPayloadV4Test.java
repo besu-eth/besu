@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 import static org.hyperledger.besu.ethereum.api.graphql.internal.response.GraphQLError.INVALID_PARAMS;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.engine.EngineTestSupport.fromErrorResp;
+import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_ENGINE_NEW_PAYLOAD_PARAMS;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.INVALID_EXECUTION_REQUESTS_PARAMS;
 import static org.hyperledger.besu.ethereum.api.jsonrpc.internal.response.RpcErrorType.UNSUPPORTED_FORK;
 import static org.mockito.ArgumentMatchers.any;
@@ -134,6 +135,19 @@ public class EngineNewPayloadV4Test extends EngineNewPayloadV3Test {
 
     final JsonRpcError jsonRpcError = fromErrorResp(resp);
     assertThat(jsonRpcError.getCode()).isEqualTo(UNSUPPORTED_FORK.getCode());
+    verify(engineCallListener, times(1)).executionEngineCalled();
+  }
+
+  @Test
+  public void shouldReturnInvalidParamsIfBlockAccessListPresentOnV4() {
+    final BlockHeader header = createValidBlockHeader(Optional.empty());
+    final EnginePayloadParameter payload = mockEnginePayload(header, emptyList(), null, "0xc0");
+
+    var resp = resp(payload);
+
+    assertThat(fromErrorResp(resp).getCode()).isEqualTo(INVALID_PARAMS.getCode());
+    assertThat(fromErrorResp(resp).getMessage())
+        .isEqualTo(INVALID_ENGINE_NEW_PAYLOAD_PARAMS.getMessage());
     verify(engineCallListener, times(1)).executionEngineCalled();
   }
 
