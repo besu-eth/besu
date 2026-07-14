@@ -215,7 +215,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
         for (Map.Entry<Address, BlockAccessListAddressView.AccountEntry> entry : blockAccessListAddressView.getAccountEntries().entrySet()) {
             if (entry.getValue().hasStorageChanges()) {
                 final Address address = entry.getKey();
-                final Hash accountHash = worldState.hashAndSavePreImage(address.getBytes());
+                final Hash accountHash = address.addressHash();
                 storageFutures.put(
                         address,
                         CompletableFuture.supplyAsync(() -> updateStorageTrie(address, accountHash, blockAccessListAddressView)));
@@ -225,7 +225,7 @@ public final class BalStateRootCommitter implements StateRootCommitter {
       // Step 2: for each changed account, stage a deferred update — the trie passes the existing leaf RLP.
       for (Map.Entry<Address, BlockAccessListAddressView.AccountEntry> entry : blockAccessListAddressView.getAccountEntries().entrySet()) {
             final Address address = entry.getKey();
-            final Hash accountHash = worldState.hashAndSavePreImage(address.getBytes());
+            final Hash accountHash = address.addressHash();
             accountTrie.putDeferred(
                     accountHash.getBytes(),
                     existingRlp -> resolveAccount(accountHash, address, entry.getValue(), existingRlp));
