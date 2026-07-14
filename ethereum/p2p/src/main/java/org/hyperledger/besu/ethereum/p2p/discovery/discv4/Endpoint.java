@@ -19,10 +19,10 @@ import static org.hyperledger.besu.util.NetworkUtility.checkPort;
 import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryPacketDecodingException;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.DiscoveryPeerV4;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
+import org.hyperledger.besu.ethereum.rlp.RLPException;
 import org.hyperledger.besu.ethereum.rlp.RLPInput;
 import org.hyperledger.besu.ethereum.rlp.RLPOutput;
 import org.hyperledger.besu.plugin.data.EnodeURL;
-import org.hyperledger.besu.util.IllegalPortException;
 import org.hyperledger.besu.util.Preconditions;
 
 import java.net.InetAddress;
@@ -205,7 +205,24 @@ public class Endpoint {
    */
   public static Endpoint decodeStandalone(final RLPInput in) {
     final int size = in.enterList();
-    final Endpoint endpoint = decodeInline(in, size);
+    final Endpoint endpoint;
+    try {
+      endpoint = decodeInline(in, size);
+    } catch (final RLPException
+        | PeerDiscoveryPacketDecodingException
+        | IllegalArgumentException e) {
+      // decodeInline may throw before consuming all of this list's items (e.g. an invalid field
+      // count, or a malformed field partway through). Skip whatever is left so the cursor lands
+      // exactly at the end of this list, keeping the enclosing list's parse position in sync.
+      // This matters because maybeDecodeStandalone() below swallows this exception and keeps
+      // reading the enclosing PING packet's remaining fields (expiration, enrSeq) from the same
+      // RLPInput - without this, a malformed "to"/"from" would desync the cursor for those.
+      while (!in.isEndOfCurrentList()) {
+        in.skipNext();
+      }
+      in.leaveListLenient();
+      throw e;
+    }
     in.leaveList();
     return endpoint;
   }
@@ -221,7 +238,9 @@ public class Endpoint {
   public static Optional<Endpoint> maybeDecodeStandalone(final RLPInput in) {
     try {
       return Optional.of(decodeStandalone(in));
-    } catch (IllegalPortException __) {
+    } catch (final RLPException
+        | PeerDiscoveryPacketDecodingException
+        | IllegalArgumentException __) {
       return Optional.empty();
     }
   }

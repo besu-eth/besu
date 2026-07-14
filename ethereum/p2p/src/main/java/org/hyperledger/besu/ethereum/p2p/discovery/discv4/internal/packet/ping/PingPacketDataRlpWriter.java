@@ -30,7 +30,7 @@ public class PingPacketDataRlpWriter {
     if (pingPacketData.getFrom().isPresent()) {
       pingPacketData.getFrom().get().encodeStandalone(out);
     }
-    pingPacketData.getTo().encodeStandalone(out);
+    pingPacketData.getTo().orElseThrow().encodeStandalone(out);
     out.writeLongScalar(pingPacketData.getExpiration());
     out.writeBigIntegerScalar(
         pingPacketData.getEnrSeq().map(seq -> seq.toBigInteger()).orElseThrow());
