@@ -1,6 +1,21 @@
 # Changelog
 
-## Unreleased
+## Unreleased Changes
+
+### Breaking Changes
+
+### Upcoming Breaking Changes
+- `--min-block-occupancy-ratio` is deprecated and will be removed in a future release
+- Plugin API
+  - `PluginTransactionSelectorFactory.create(final SelectorsStateManager selectorsStateManager)` is deprecated for removal
+- `--Xmax-tracked-seen-txs-per-peer` renamed to `--Xmax-tracked-seen-txs` (old name kept as deprecated alias will be removed in a future release)
+- BFT option `xemptyblockperiodseconds` has been taken out of experimental and been renamed `emptyblockperiodseconds`. The old config option is deprecated and will be removed in a future release.
+- `--Xbft-legacy-protocol-encoding` will be removed once Besu 25.x is no longer supported. [#10499](https://github.com/besu-eth/besu/pull/10499)
+- `--Xsnapsync-synchronizer-pivot-block-distance-before-caching` is deprecated and will be removed in a future release; the flag is now a silent no-op.
+- `--rpc-tx-feecap` will treat a value of 0 as limiting fees to 0. Today it treats 0 as "do not cap fees". To achieve similar behaviour set it to a suitably large value to effectively prevent any fee capping.
+
+### Bug fixes
+- Skip DNS discovery records that fail enode conversion (e.g. out-of-range port) instead of dropping the rest of the batch [#10752](https://github.com/besu-eth/besu/pull/10752)
 
 ### Additions and Improvements
 - Migrate the DiscV4 peer discovery UDP transport from Vert.x to Netty. The `vertx_eventloop_pending_tasks` metric is dropped with no replacement (it was Vert.x-specific); all other discovery metrics (`besu_network_discovery_*`) are unaffected. [#10716](https://github.com/besu-eth/besu/pull/10716)
@@ -27,7 +42,6 @@
 
 ### Bug fixes
 - Fix `eth_getBlockByNumber("safe"/"finalized")` returning `Unknown block` on nodes with a complete chain but no peers. The FCU handler now only returns `SYNCING` when the head block is genuinely not found. [#10658](https://github.com/besu-eth/besu/issues/10658)
-- Skip DNS discovery records that fail enode conversion (e.g. out-of-range port) instead of dropping the rest of the batch [#10752](https://github.com/besu-eth/besu/pull/10752)
 - `--api-gas-price-blocks` fixed to treat `0` as "sample zero blocks" [#10642](https://github.com/besu-eth/besu/pull/10642)
 - Reverted: Return `SYNCING` from `engine_newPayload` when the parent block's world state is not immediately available in the Bonsai cache, preventing worker thread blocking during CL backfill or post-restart catch-up. [#10600](https://github.com/besu-eth/besu/pull/10600) since replaced by [#10731](https://github.com/besu-eth/besu/pull/10731)
 
