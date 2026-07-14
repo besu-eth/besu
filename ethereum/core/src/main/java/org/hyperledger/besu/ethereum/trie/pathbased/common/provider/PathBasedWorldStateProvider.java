@@ -100,14 +100,11 @@ public abstract class PathBasedWorldStateProvider implements WorldStateArchive {
     this.cachedWorldStorageManager = cachedWorldStorageManager;
   }
 
-  protected void loadHeadWorldState(final PathBasedWorldState headWorldState) {
+  protected void loadHeadWorldState(
+      final BlockHeader blockHeader, final PathBasedWorldState headWorldState) {
     this.headWorldState = headWorldState;
-    blockchain
-        .getBlockHeader(headWorldState.getWorldStateBlockHash())
-        .ifPresent(
-            blockHeader ->
-                this.cachedWorldStorageManager.addCachedLayer(
-                    blockHeader, headWorldState.getWorldStateRootHash(), headWorldState));
+    this.cachedWorldStorageManager.addCachedLayer(
+        blockHeader, headWorldState.getWorldStateRootHash(), headWorldState);
   }
 
   @Override

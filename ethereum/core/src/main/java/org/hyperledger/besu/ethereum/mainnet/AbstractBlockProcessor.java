@@ -250,10 +250,6 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
             .map(BlockAccessListFactory::newBlockAccessListBuilder);
 
     try {
-      if (blockAccessList.isPresent() && worldState instanceof BonsaiWorldState bonsaiWorldState) {
-        bonsaiWorldState.disableCacheMerkleTrieLoader();
-      }
-
       final Optional<AccessLocationTracker> preExecutionAccessLocationTracker =
           blockAccessListBuilder.map(
               b -> BlockAccessListBuilder.createPreExecutionAccessLocationTracker());

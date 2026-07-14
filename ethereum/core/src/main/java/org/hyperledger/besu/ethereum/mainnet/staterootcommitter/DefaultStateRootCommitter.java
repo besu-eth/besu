@@ -36,10 +36,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Stream;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
-import com.google.common.annotations.VisibleForTesting;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.rlp.RLP;
@@ -48,15 +48,8 @@ import org.apache.tuweni.units.bigints.UInt256;
 /** Bonsai path-based root from accumulated block updates (no BAL background). */
 public final class DefaultStateRootCommitter implements StateRootCommitter {
 
-    public DefaultStateRootCommitter() {
-    }
+  public DefaultStateRootCommitter() {}
 
-
-  /**
-   * Computes the state root from the given accumulator. When {@code accumulatorOverride} is
-   * non-null it is used instead of the world state's live accumulator (e.g. dry-run {@code
-   * rootHash()} on a copy).
-   */
   @Override
   public StateRootComputation compute(
       final MutableWorldState mutableWorldState,
@@ -67,142 +60,124 @@ public final class DefaultStateRootCommitter implements StateRootCommitter {
     final BonsaiWorldState bonsai = (BonsaiWorldState) mutableWorldState;
     final boolean storageFrozen = mutableWorldState.isStorageFrozen();
     final List<StateRootComputation.UpdaterWrite> writes = new ArrayList<>();
+    final Hash root =
+        new DefaultComputation(bonsai, (BonsaiWorldStateUpdateAccumulator) accumulator, storageFrozen)
+            .executeInto(writes);
     if (blockHeader != null && bonsai.isTrieDisabled()) {
-      executeComputation(bonsai, writes, accumulator, storageFrozen);
       return StateRootComputation.pathBased(blockHeader.getStateRoot(), writes);
     }
-    final Hash root = executeComputation(bonsai, writes, accumulator,storageFrozen);
     return StateRootComputation.pathBased(root, writes);
   }
 
-  private Hash executeComputation(
-          final BonsaiWorldState bonsai,
-          final List<StateRootComputation.UpdaterWrite> writes,
-          final PathBasedWorldStateUpdateAccumulator<?> accumulator, final boolean storageFrozen) {
+  private static final class DefaultComputation {
 
-    final BonsaiWorldStateUpdateAccumulator worldStateUpdater = (BonsaiWorldStateUpdateAccumulator) accumulator;
+    private final BonsaiWorldState bonsai;
+    private final BonsaiWorldStateUpdateAccumulator worldStateUpdater;
+    private final boolean storageFrozen;
 
-    clearStorage(writes, worldStateUpdater, bonsai);
+    /** Lock-free queue; storage futures and account staging may append concurrently. */
+    private final ConcurrentLinkedQueue<StateRootComputation.UpdaterWrite> writes =
+        new ConcurrentLinkedQueue<>();
 
-    // Parallel storage trie updates are only safe when flat-DB writes are deferred (frozen /
-    // dry-run), matching the previous BonsaiWorldState behaviour where parallelization was enabled
-    // only when no state updater was supplied.
-    Stream<Map.Entry<Address, StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>>>>
-        storageUpdates = worldStateUpdater.getStorageToUpdate().entrySet().stream();
-    if (storageFrozen) {
-      storageUpdates = storageUpdates.parallel();
-    }
-    writes.addAll(
-        storageUpdates
-            .flatMap(
-                entry ->
-                    collectAccountStorageWrites(worldStateUpdater, entry, bonsai, storageFrozen)
-                        .stream())
-            .toList());
+    /**
+     * Futures for storage-trie updates, keyed by address. Launched eagerly so storage I/O overlaps
+     * with the sequential account trie staging loop.
+     */
+    private final Map<Address, CompletableFuture<Hash>> storageFutures = new ConcurrentHashMap<>();
 
-    if(!storageFrozen){
-      updateCode(writes, worldStateUpdater);
+    DefaultComputation(
+        final BonsaiWorldState bonsai,
+        final BonsaiWorldStateUpdateAccumulator worldStateUpdater,
+        final boolean storageFrozen) {
+      this.bonsai = bonsai;
+      this.worldStateUpdater = worldStateUpdater;
+      this.storageFrozen = storageFrozen;
     }
 
-    final MerkleTrie<Bytes, Bytes> accountTrie = bonsai.createAccountStateTrie();
+    Hash executeInto(final List<StateRootComputation.UpdaterWrite> writeSink) {
+      clearStorage();
+      if (!storageFrozen) {
+        collectCodeWrites();
+      }
 
-    updateAccounts(writes, worldStateUpdater, accountTrie, bonsai, storageFrozen);
-    if(!storageFrozen) {
-      accountTrie.commit(
-              (location, hash, value) ->
-                      writes.add(u -> u.putAccountStateTrieNode(location, hash, value)));
-    }
-    return Hash.wrap(accountTrie.getRootHash());
-  }
+      final MerkleTrie<Bytes, Bytes> accountTrie = bonsai.createAccountStateTrie();
 
-  private void updateAccounts(
-          final List<StateRootComputation.UpdaterWrite> writes,
-          final BonsaiWorldStateUpdateAccumulator worldStateUpdater,
-          final MerkleTrie<Bytes, Bytes> accountTrie,
-          final BonsaiWorldState bonsai,
-          final boolean storageFrozen) {
-    for (final Map.Entry<Address, PathBasedValue<BonsaiAccount>> accountUpdate :
-        worldStateUpdater.getAccountsToUpdate().entrySet()) {
-      final Bytes accountKey = accountUpdate.getKey().getBytes();
-      final PathBasedValue<BonsaiAccount> bonsaiValue = accountUpdate.getValue();
-      final BonsaiAccount updatedAccount = bonsaiValue.getUpdated();
-      try {
-        if (updatedAccount == null) {
-          final Hash addressHash = bonsai.hashAndSavePreImage(accountKey);
-          accountTrie.remove(addressHash.getBytes());
-          if(!storageFrozen) {
-            writes.add(updater -> updater.removeAccountInfoState(addressHash));
-          }
-        } else {
-          final Hash addressHash = updatedAccount.getAddressHash();
-          final Bytes accountValue = updatedAccount.serializeAccount();
-          final Hash preImageHash = bonsai.hashAndSavePreImage(accountKey);
-          if(!storageFrozen) {
-            writes.add(updater -> updater.putAccountInfoState(preImageHash, accountValue));
-          }
-          accountTrie.put(addressHash.getBytes(), accountValue);
+      // Step 1: launch storage trie updates concurrently for every touched account.
+      for (final Map.Entry<Address, StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>>>
+          storageAccountUpdate : worldStateUpdater.getStorageToUpdate().entrySet()) {
+        final Address address = storageAccountUpdate.getKey();
+        if (worldStateUpdater.getAccountsToUpdate().containsKey(address)) {
+          storageFutures.put(
+              address,
+              CompletableFuture.supplyAsync(
+                  () -> updateStorageTrie(address, storageAccountUpdate.getValue())));
         }
-      } catch (MerkleTrieException e) {
-        throw new MerkleTrieException(
-            e.getMessage(), Optional.of(Address.wrap(accountKey)), e.getHash(), e.getLocation());
       }
+
+      // Step 2: stage account trie updates via putDeferred; join storage futures inside the callback.
+      for (final Map.Entry<Address, PathBasedValue<BonsaiAccount>> accountUpdate :
+          worldStateUpdater.getAccountsToUpdate().entrySet()) {
+        final Address address = accountUpdate.getKey();
+        final PathBasedValue<BonsaiAccount> accountValue = accountUpdate.getValue();
+        final Hash addressHash = address.addressHash();
+        try {
+          accountTrie.putDeferred(
+              addressHash.getBytes(),
+              maybeRlp -> resolveAccount(address, addressHash, accountValue, maybeRlp));
+        } catch (MerkleTrieException e) {
+          throw new MerkleTrieException(
+              e.getMessage(), Optional.of(address), e.getHash(), e.getLocation());
+        }
+      }
+
+      if (!storageFrozen) {
+        accountTrie.commit(
+            (location, hash, value) ->
+                writes.add(u -> u.putAccountStateTrieNode(location, hash, value)));
+      }
+      writeSink.addAll(writes);
+      return Hash.wrap(accountTrie.getRootHash());
     }
-  }
 
-  @VisibleForTesting
-  public void updateCode(
-      final List<StateRootComputation.UpdaterWrite> writes,
-      final BonsaiWorldStateUpdateAccumulator worldStateUpdater) {
-    for (final Map.Entry<Address, PathBasedValue<Bytes>> codeUpdate :
-        worldStateUpdater.getCodeToUpdate().entrySet()) {
-      final Bytes updatedCode = codeUpdate.getValue().getUpdated();
-      final Hash accountHash = codeUpdate.getKey().addressHash();
-      final Bytes priorCode = codeUpdate.getValue().getPrior();
-
-      if (Objects.equals(priorCode, updatedCode)
-          || (codeIsEmpty(priorCode) && codeIsEmpty(updatedCode))) {
-        continue;
+    @SuppressWarnings("UnusedVariable")
+    private Optional<Bytes> resolveAccount(
+        final Address address,
+        final Hash addressHash,
+        final PathBasedValue<BonsaiAccount> accountValue,
+        final Optional<Bytes> maybeRlp) {
+      final BonsaiAccount updatedAccount = accountValue.getUpdated();
+      final CompletableFuture<Hash> storageFuture = storageFutures.get(address);
+      if (updatedAccount == null) {
+        if (storageFuture != null) {
+          storageFuture.join();
+        }
+        if (!storageFrozen) {
+          writes.add(updater -> updater.removeAccountInfoState(addressHash));
+        }
+        // DeferredPutVisitor removes the account leaf when the merger returns empty.
+        return Optional.empty();
       }
 
-      if (codeIsEmpty(updatedCode)) {
-        final Hash priorCodeHash = Hash.hash(priorCode);
-        writes.add(updater -> updater.removeCode(accountHash, priorCodeHash));
-      } else {
-        final Hash codeHash = Hash.hash(updatedCode);
-        writes.add(updater -> updater.putCode(accountHash, codeHash, updatedCode));
+      if (storageFuture != null) {
+        final Hash newStorageRoot = storageFuture.join();
+        if (!bonsai.isTrieDisabled()) {
+          updatedAccount.setStorageRoot(newStorageRoot);
+        }
       }
+
+      final Bytes accountValueBytes = updatedAccount.serializeAccount();
+      if (!storageFrozen) {
+        writes.add(updater -> updater.putAccountInfoState(addressHash, accountValueBytes));
+      }
+      return Optional.of(accountValueBytes);
     }
-  }
 
-  private boolean codeIsEmpty(final Bytes value) {
-    return value == null || value.isEmpty();
-  }
-
-  private List<StateRootComputation.UpdaterWrite> collectAccountStorageWrites(
-      final BonsaiWorldStateUpdateAccumulator worldStateUpdater,
-      final Map.Entry<Address, StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>>>
-          storageAccountUpdate,
-      final BonsaiWorldState bonsai,
-      final boolean storageFrozen) {
-    final List<StateRootComputation.UpdaterWrite> localWrites = new ArrayList<>();
-    updateAccountStorageState(
-        localWrites, worldStateUpdater, storageAccountUpdate, bonsai, storageFrozen);
-    return localWrites;
-  }
-
-  private void updateAccountStorageState(
-      final List<StateRootComputation.UpdaterWrite> writes,
-          final BonsaiWorldStateUpdateAccumulator worldStateUpdater,
-          final Map.Entry<Address, StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>>>
-          storageAccountUpdate,
-          final BonsaiWorldState bonsai,
-          final boolean storageFrozen) {
-    final Address updatedAddress = storageAccountUpdate.getKey();
-    final Hash updatedAddressHash = updatedAddress.addressHash();
-    if (worldStateUpdater.getAccountsToUpdate().containsKey(updatedAddress)) {
-      final PathBasedValue<BonsaiAccount> accountValue =
-          worldStateUpdater.getAccountsToUpdate().get(updatedAddress);
-      final BonsaiAccount accountOriginal = accountValue.getPrior();
+    private Hash updateStorageTrie(
+        final Address updatedAddress,
+        final StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> storageUpdates) {
+      final Hash updatedAddressHash = updatedAddress.addressHash();
+      final BonsaiAccount accountOriginal =
+          worldStateUpdater.getAccountsToUpdate().get(updatedAddress).getPrior();
       final Hash storageRoot =
           (accountOriginal == null
                   || worldStateUpdater.getStorageToClear().contains(updatedAddress))
@@ -218,23 +193,23 @@ public final class DefaultStateRootCommitter implements StateRootCommitter {
               Bytes32.wrap(storageRoot.getBytes()));
 
       for (final Map.Entry<StorageSlotKey, PathBasedValue<UInt256>> storageUpdate :
-          storageAccountUpdate.getValue().entrySet()) {
+          storageUpdates.entrySet()) {
         final Hash slotHash = storageUpdate.getKey().getSlotHash();
         final UInt256 updatedStorage = storageUpdate.getValue().getUpdated();
         try {
           if (!storageUpdate.getValue().isUnchanged()) {
             if (updatedStorage == null || updatedStorage.equals(UInt256.ZERO)) {
-              if(!storageFrozen) {
+              if (!storageFrozen) {
                 writes.add(
-                        updater -> updater.removeStorageValueBySlotHash(updatedAddressHash, slotHash));
+                    updater -> updater.removeStorageValueBySlotHash(updatedAddressHash, slotHash));
               }
               storageTrie.remove(slotHash.getBytes());
             } else {
-              if(!storageFrozen) {
+              if (!storageFrozen) {
                 writes.add(
-                        updater ->
-                                updater.putStorageValueBySlotHash(
-                                        updatedAddressHash, slotHash, updatedStorage));
+                    updater ->
+                        updater.putStorageValueBySlotHash(
+                            updatedAddressHash, slotHash, updatedStorage));
               }
               storageTrie.put(slotHash.getBytes(), encodeTrieValue(updatedStorage));
             }
@@ -245,97 +220,120 @@ public final class DefaultStateRootCommitter implements StateRootCommitter {
         }
       }
 
-      final BonsaiAccount accountUpdated = accountValue.getUpdated();
-      if (accountUpdated != null) {
-        if(!storageFrozen) {
-          storageTrie.commit(
-                  (location, nodeHash, value) ->
-                          writes.add(
-                                  u ->
-                                          u.putAccountStorageTrieNode(
-                                                  updatedAddressHash, location, nodeHash, value)));
+      final boolean accountDeleted =
+          worldStateUpdater.getAccountsToUpdate().get(updatedAddress).getUpdated() == null;
+
+      if (!storageFrozen && !accountDeleted) {
+        storageTrie.commit(
+            (location, nodeHash, value) ->
+                writes.add(
+                    u ->
+                        u.putAccountStorageTrieNode(
+                            updatedAddressHash, location, nodeHash, value)));
+      }
+      return accountDeleted ? Hash.EMPTY_TRIE_HASH : Hash.wrap(storageTrie.getRootHash());
+    }
+
+    private void clearStorage() {
+      for (final Address address : worldStateUpdater.getStorageToClear()) {
+        final BonsaiAccount oldAccount =
+            bonsai
+                .getWorldStateStorage()
+                .getAccount(address.addressHash())
+                .map(
+                    bytes ->
+                        BonsaiAccount.fromRLP(bonsai, address, bytes, true, bonsai.codeCache()))
+                .orElse(null);
+        if (oldAccount == null) {
+          continue;
         }
-        if (!bonsai.isTrieDisabled()) {
-          accountUpdated.setStorageRoot(Hash.wrap(storageTrie.getRootHash()));
+        final Hash addressHash = address.addressHash();
+        final MerkleTrie<Bytes, Bytes> storageTrie =
+            bonsai.createTrie(
+                (location, key) -> bonsai.getStorageTrieNode(addressHash, location, key),
+                Bytes32.wrap(oldAccount.getStorageRoot().getBytes()));
+        try {
+          StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> storageToDelete = null;
+          Bytes32 nextKeyHash = Bytes32.ZERO;
+          while (true) {
+            final Map<Bytes32, Bytes> entriesToDelete = storageTrie.entriesFrom(nextKeyHash, 256);
+            if (entriesToDelete.isEmpty()) {
+              break;
+            }
+            if (storageToDelete == null) {
+              storageToDelete =
+                  worldStateUpdater
+                      .getStorageToUpdate()
+                      .computeIfAbsent(
+                          address,
+                          add ->
+                              new StorageConsumingMap<>(
+                                  address,
+                                  new ConcurrentHashMap<>(),
+                                  worldStateUpdater.getStoragePreloader()));
+            }
+            Bytes32 lastKeyHash = null;
+            for (final Map.Entry<Bytes32, Bytes> slot : entriesToDelete.entrySet()) {
+              final StorageSlotKey storageSlotKey =
+                  new StorageSlotKey(Hash.wrap(slot.getKey()), Optional.empty());
+              final UInt256 slotValue =
+                  UInt256.fromBytes(Bytes32.leftPad(RLP.decodeValue(slot.getValue())));
+              writes.add(
+                  updater ->
+                      updater.removeStorageValueBySlotHash(
+                          addressHash, storageSlotKey.getSlotHash()));
+              storageToDelete
+                  .computeIfAbsent(
+                      storageSlotKey, key -> new PathBasedValue<>(slotValue, null, true))
+                  .setPrior(slotValue);
+              lastKeyHash = slot.getKey();
+            }
+            entriesToDelete.keySet().forEach(storageTrie::remove);
+            if (entriesToDelete.size() < 256) {
+              break;
+            }
+            final Optional<Bytes32> maybeNextKeyHash = incrementBytes32(lastKeyHash);
+            if (maybeNextKeyHash.isEmpty()) {
+              break;
+            }
+            nextKeyHash = maybeNextKeyHash.get();
+          }
+        } catch (MerkleTrieException e) {
+          throw new MerkleTrieException(
+              e.getMessage(), Optional.of(address), e.getHash(), e.getLocation());
         }
       }
     }
-  }
 
-  private void clearStorage(
-      final List<StateRootComputation.UpdaterWrite> writes,
-      final BonsaiWorldStateUpdateAccumulator worldStateUpdater,
-      final BonsaiWorldState bonsai) {
-    for (final Address address : worldStateUpdater.getStorageToClear()) {
-      final BonsaiAccount oldAccount =
-          bonsai
-              .getWorldStateStorage()
-              .getAccount(address.addressHash())
-              .map(bytes -> BonsaiAccount.fromRLP(bonsai, address, bytes, true, bonsai.codeCache()))
-              .orElse(null);
-      if (oldAccount == null) {
-        continue;
-      }
-      final Hash addressHash = address.addressHash();
-      final MerkleTrie<Bytes, Bytes> storageTrie =
-          bonsai.createTrie(
-              (location, key) -> bonsai.getStorageTrieNode(addressHash, location, key),
-              Bytes32.wrap(oldAccount.getStorageRoot().getBytes()));
-      try {
-        StorageConsumingMap<StorageSlotKey, PathBasedValue<UInt256>> storageToDelete = null;
-        Bytes32 nextKeyHash = Bytes32.ZERO;
-        while (true) {
-          final Map<Bytes32, Bytes> entriesToDelete = storageTrie.entriesFrom(nextKeyHash, 256);
-          if (entriesToDelete.isEmpty()) {
-            break;
-          }
-          if (storageToDelete == null) {
-            storageToDelete =
-                worldStateUpdater
-                    .getStorageToUpdate()
-                    .computeIfAbsent(
-                        address,
-                        add ->
-                            new StorageConsumingMap<>(
-                                address,
-                                new ConcurrentHashMap<>(),
-                                worldStateUpdater.getStoragePreloader()));
-          }
-          Bytes32 lastKeyHash = null;
-          for (final Map.Entry<Bytes32, Bytes> slot : entriesToDelete.entrySet()) {
-            final StorageSlotKey storageSlotKey =
-                new StorageSlotKey(Hash.wrap(slot.getKey()), Optional.empty());
-            final UInt256 slotValue =
-                UInt256.fromBytes(Bytes32.leftPad(RLP.decodeValue(slot.getValue())));
-            writes.add(
-                updater ->
-                    updater.removeStorageValueBySlotHash(
-                        addressHash, storageSlotKey.getSlotHash()));
-            storageToDelete
-                .computeIfAbsent(storageSlotKey, key -> new PathBasedValue<>(slotValue, null, true))
-                .setPrior(slotValue);
-            lastKeyHash = slot.getKey();
-          }
-          entriesToDelete.keySet().forEach(storageTrie::remove);
-          if (entriesToDelete.size() < 256) {
-            break;
-          }
-          final Optional<Bytes32> maybeNextKeyHash = incrementBytes32(lastKeyHash);
-          if (maybeNextKeyHash.isEmpty()) {
-            break;
-          }
-          nextKeyHash = maybeNextKeyHash.get();
+    private void collectCodeWrites() {
+      for (final Map.Entry<Address, PathBasedValue<Bytes>> codeUpdate :
+          worldStateUpdater.getCodeToUpdate().entrySet()) {
+        final Bytes updatedCode = codeUpdate.getValue().getUpdated();
+        final Hash accountHash = codeUpdate.getKey().addressHash();
+        final Bytes priorCode = codeUpdate.getValue().getPrior();
+
+        if (Objects.equals(priorCode, updatedCode)
+            || (codeIsEmpty(priorCode) && codeIsEmpty(updatedCode))) {
+          continue;
         }
-      } catch (MerkleTrieException e) {
-        throw new MerkleTrieException(
-            e.getMessage(), Optional.of(address), e.getHash(), e.getLocation());
+
+        if (codeIsEmpty(updatedCode)) {
+          final Hash priorCodeHash = Hash.hash(priorCode);
+          writes.add(updater -> updater.removeCode(accountHash, priorCodeHash));
+        } else {
+          final Hash codeHash = Hash.hash(updatedCode);
+          writes.add(updater -> updater.putCode(accountHash, codeHash, updatedCode));
+        }
       }
     }
-  }
 
-  @VisibleForTesting
-  public Optional<Bytes32> incrementBytes32(final Bytes32 value) {
-    final UInt256 incremented = UInt256.fromBytes(value).add(UInt256.ONE);
-    return incremented.isZero() ? Optional.empty() : Optional.of(incremented);
+    private static boolean codeIsEmpty(final Bytes value) {
+      return value == null || value.isEmpty();
+    }
+
+    private Optional<Bytes32> incrementBytes32(final Bytes32 value) {
+      final UInt256 incremented = UInt256.fromBytes(value).add(UInt256.ONE);
+      return incremented.isZero() ? Optional.empty() : Optional.of(incremented);
+    }
   }
 }

@@ -15,6 +15,7 @@
 package org.hyperledger.besu.controller;
 
 import static com.google.common.base.Preconditions.checkNotNull;
+import static org.hyperledger.besu.datatypes.HardforkId.MainnetHardforkId.AMSTERDAM;
 
 import org.hyperledger.besu.chainimport.BlockHeadersCachePreload;
 import org.hyperledger.besu.components.BesuComponent;
@@ -675,7 +676,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             worldStateStorageCoordinator,
             blockchain,
             bonsaiCachedMerkleTrieLoader,
-            worldStateHealerSupplier::get);
+            worldStateHealerSupplier::get,
+            protocolSchedule);
 
     if (maybeStoredGenesisBlockHash.isEmpty()) {
       genesisState.writeStateTo(worldStateArchive.getWorldState());
@@ -1342,7 +1344,9 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
       final Blockchain blockchain,
       final BonsaiCachedMerkleTrieLoader bonsaiCachedMerkleTrieLoader,
-      final Supplier<WorldStateHealer> worldStateHealerSupplier) {
+      final Supplier<WorldStateHealer> worldStateHealerSupplier,
+      final ProtocolSchedule protocolSchedule) {
+    final Optional<Long> amsterdamMilestone = protocolSchedule.milestoneFor(AMSTERDAM);
     return switch (dataStorageConfiguration.getDataStorageFormat()) {
       case BONSAI -> {
         final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage =
@@ -1356,7 +1360,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             besuComponent.map(BesuComponent::getBesuPluginContext).orElse(null),
             evmConfiguration,
             worldStateHealerSupplier,
-            codeCache);
+            codeCache,
+            amsterdamMilestone);
       }
       case X_BONSAI_ARCHIVE -> {
         final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage =
@@ -1370,7 +1375,8 @@ public abstract class BesuControllerBuilder implements MiningConfigurationOverri
             besuComponent.map(BesuComponent::getBesuPluginContext).orElse(null),
             evmConfiguration,
             worldStateHealerSupplier,
-            codeCache);
+            codeCache,
+            amsterdamMilestone);
       }
       case FOREST -> {
         final WorldStatePreimageStorage preimageStorage =

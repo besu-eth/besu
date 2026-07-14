@@ -15,6 +15,8 @@
 package org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -22,14 +24,14 @@ import static org.mockito.Mockito.when;
 import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitter;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootComputation;
+import org.hyperledger.besu.ethereum.trie.MerkleTrie;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
+import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.PathBasedValue;
 
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import org.apache.tuweni.bytes.Bytes;
@@ -45,8 +47,10 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 @ExtendWith(MockitoExtension.class)
 class BonsaiWorldStateTest {
+  @Mock BonsaiWorldState bonsaiWorldState;
   @Mock BonsaiWorldStateUpdateAccumulator bonsaiWorldStateUpdateAccumulator;
   @Mock BonsaiWorldStateKeyValueStorage.Updater bonsaiUpdater;
+  @Mock MerkleTrie<Bytes, Bytes> accountTrie;
 
   private static final Bytes CODE = Bytes.of(10);
   private static final Hash CODE_HASH = Hash.hash(CODE);
@@ -56,9 +60,15 @@ class BonsaiWorldStateTest {
   private final DefaultStateRootCommitter committer = new DefaultStateRootCommitter();
 
   private void applyCodeUpdate(final BonsaiWorldStateUpdateAccumulator accumulator) {
-    final List<StateRootComputation.UpdaterWrite> writes = new ArrayList<>();
-    committer.updateCode(writes, accumulator);
-    writes.forEach(w -> w.applyTo(bonsaiUpdater));
+    when(accumulator.getAccountsToUpdate()).thenReturn(Map.of());
+    when(accumulator.getStorageToUpdate()).thenReturn(Map.of());
+    when(accumulator.getStorageToClear()).thenReturn(Set.of());
+    when(bonsaiWorldState.isStorageFrozen()).thenReturn(false);
+    when(bonsaiWorldState.createAccountStateTrie()).thenReturn(accountTrie);
+    when(accountTrie.getRootHash()).thenReturn(Bytes32.ZERO);
+    doAnswer(invocation -> null).when(accountTrie).commit(any());
+
+    committer.compute(bonsaiWorldState, null, accumulator).applyTo(bonsaiUpdater);
   }
 
   @ParameterizedTest
