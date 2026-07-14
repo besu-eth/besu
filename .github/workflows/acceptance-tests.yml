@@ -35,7 +35,7 @@ jobs:
       - name: setup gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
       - name: List all acceptance tests
-        run: ./gradlew acceptanceTest --test-dry-run -Dorg.gradle.parallel=true -Dorg.gradle.caching=false
+        run: ./gradlew acceptanceTest --test-dry-run -Dorg.gradle.parallel=true
       - name: Extract current test list
         run: mkdir tmp; find . -type f -name TEST-*.xml | xargs -I{} bash -c "xmlstarlet sel -t -v '/testsuite/testcase[1]/@classname' '{}'; echo ' acceptanceTest'" | tee tmp/currentTests.list
       # Downloads the timing baseline produced by update-acceptance-tests-timing-reports.yml on the last merge to main.
@@ -73,7 +73,7 @@ jobs:
           name: test-args-${{ matrix.runner_index }}.txt
           path: '*.txt'
       - name: run acceptance tests
-        run: ./gradlew acceptanceTest `cat gradleArgs.txt` -Dorg.gradle.caching=false
+        run: ./gradlew acceptanceTest `cat gradleArgs.txt`
       - name: Remove downloaded test results
         run: rm -rf tmp/junit-xml-reports-downloaded
       - name: Upload Acceptance Test Results
