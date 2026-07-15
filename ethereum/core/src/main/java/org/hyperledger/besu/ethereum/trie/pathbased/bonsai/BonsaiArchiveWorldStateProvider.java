@@ -158,7 +158,16 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
     // The archive read contexts (block-number key suffixes) are constant for the whole proof.
     // Open a proof-scoped memo so they're resolved from storage once rather than on every
     // trie-node and flat-DB read.
-    try (var ignored = BonsaiArchiveReadContext.open()) {
+    //
+    // Also reuse a single near-seek cursor per archive column family for the WHOLE proof. The base
+    // getAccountProof only scopes the final proof traversal, but the bulk of the seekForPrev reads
+    // happen earlier in getWorldState() — the roll-forward/backward across the checkpoint window and
+    // the persist() that rebuilds the historical trie. Without a scope covering those, every
+    // getNearestBefore there opens and closes its own RocksDB iterator (a superversion pin plus SST
+    // metadata snapshot per call), which dominates proof latency on busy windows. Opening the scope
+    // here on the shared archive storage makes the nested scope in super.getAccountProof a no-op.
+    try (var seekScope = archiveReadStorage.getComposedWorldStateStorage().openNearestSeekScope();
+        var ignored = BonsaiArchiveReadContext.open()) {
       return super.getAccountProof(blockHeader, accountAddress, accountStorageKeys, mapper);
     }
   }
