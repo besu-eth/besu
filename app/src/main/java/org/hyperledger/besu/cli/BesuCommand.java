@@ -149,6 +149,7 @@ import org.hyperledger.besu.evm.precompile.AbstractPrecompiledContract;
 import org.hyperledger.besu.evm.precompile.BigIntegerModularExponentiationPrecompiledContract;
 import org.hyperledger.besu.evm.precompile.KZGPointEvalPrecompiledContract;
 import org.hyperledger.besu.evm.precompile.P256VerifyPrecompiledContract;
+import org.hyperledger.besu.evm.tracing.SlowBlockTracerConfig;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
 import org.hyperledger.besu.metrics.MetricCategoryRegistryImpl;
 import org.hyperledger.besu.metrics.MetricsProtocol;
@@ -567,6 +568,15 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
       description =
           "How deep a chain reorganization must be in order for it to be logged (default: ${DEFAULT-VALUE})")
   private final Long reorgLoggingThreshold = 6L;
+
+  @Option(
+      names = {"--slow-block-threshold"},
+      paramLabel = "<MILLISECONDS>",
+      description =
+          "Threshold in milliseconds for slow-block execution-metrics logging: -1 disables "
+              + "(default), 0 logs every block, a positive value logs only blocks whose total "
+              + "processing time meets or exceeds it (default: ${DEFAULT-VALUE})")
+  private final Long slowBlockThresholdMs = -1L;
 
   // Permission Option Group
   @CommandLine.ArgGroup(validate = false, heading = "@|bold Permissions Options|@%n")
@@ -2088,6 +2098,12 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
     final KeyValueStorageProvider storageProvider = keyValueStorageProvider(keyValueStorageName);
     final ApiConfiguration apiConfiguration = apiConfigurationSupplier.get();
     final BalConfiguration balConfiguration = balConfigurationOptions.toDomainObject();
+    // Resolve the slow-block enable/threshold at startup so the JVM constant-folds the disabled
+    // path. Referencing THRESHOLD_PROPERTY (a JLS constant variable) does NOT initialise
+    // SlowBlockTracerConfig, so the holder still reads this freshly-set value at first block
+    // import.
+    System.setProperty(
+        SlowBlockTracerConfig.THRESHOLD_PROPERTY, Long.toString(slowBlockThresholdMs));
 
     BesuControllerBuilder besuControllerBuilder =
         controllerBuilder
@@ -2973,7 +2989,8 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .setEvmV2(unstableEvmOptions.toDomainObject().enableEvmV2())
         .setPluginContext(this.besuPluginContext)
         .setHistoryExpiryPruneEnabled(getDataStorageConfiguration().getHistoryExpiryPruneEnabled())
-        .setBlobDBSettings(rocksDBPlugin.getBlobDBSettings());
+        .setBlobDBSettings(rocksDBPlugin.getBlobDBSettings())
+        .setSlowBlockThresholdMs(slowBlockThresholdMs);
 
     return builder.build();
   }

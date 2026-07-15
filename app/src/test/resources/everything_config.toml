@@ -15,6 +15,7 @@ color-enabled=false
 node-private-key-file="./path/to/privateKey"
 pid-path="~/.pid"
 reorg-logging-threshold=0
+slow-block-threshold=500
 static-nodes-file="~/besudata/static-nodes.json"
 version-compatibility-protection=true
 

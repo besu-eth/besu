@@ -44,8 +44,11 @@ import org.hyperledger.besu.ethereum.trie.MerkleTrieException;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.BonsaiWorldState;
 import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.worldview.accumulator.BonsaiWorldStateUpdateAccumulator;
+import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.PathBasedWorldState;
 import org.hyperledger.besu.evm.blockhash.BlockHashLookup;
 import org.hyperledger.besu.evm.tracing.OperationTracer;
+import org.hyperledger.besu.evm.tracing.SlowBlockTracer;
+import org.hyperledger.besu.evm.tracing.SlowBlockTracerConfig;
 import org.hyperledger.besu.evm.worldstate.StackedUpdater;
 import org.hyperledger.besu.evm.worldstate.WorldState;
 import org.hyperledger.besu.evm.worldstate.WorldUpdater;
@@ -234,10 +237,36 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
     final BlockAwareOperationTracer blockTracer =
         getBlockImportTracer(protocolContext, blockHeader);
 
+    // translate BlockAwareOperationTracer.NO_TRACING to OperationTracer.NO_TRACING to avoid
+    // megamorphism
+    OperationTracer effectiveTracer =
+        !blockTracer.isEnabled() ? OperationTracer.NO_TRACING : blockTracer;
+
+    SlowBlockTracer maybeSlowBlockTracer = null;
+    final boolean slowBlockTracerEnabled = SlowBlockTracerConfig.ENABLED;
+    if (slowBlockTracerEnabled) {
+      // if slow block tracer exists, enforce it to be only tracer.
+      if (blockTracer.isEnabled()) {
+        throw new IllegalStateException(
+            "SlowBlockTracer is not compatible with other tracers. Please disable other tracers "
+                + "(e.g. --slow-block-threshold=-1) to use them.");
+      }
+      effectiveTracer =
+          maybeSlowBlockTracer = new SlowBlockTracer(SlowBlockTracerConfig.THRESHOLD_MS);
+    }
+
+    // Wire state-access tracking on the serial path only (NoPreprocessing = no parallel tx).
+    if (maybeSlowBlockTracer != null
+        && preprocessingBlockFunction instanceof NoPreprocessing
+        && worldState instanceof PathBasedWorldState pbws) {
+      pbws.getAccumulator().setStateAccessTracer(maybeSlowBlockTracer);
+    }
+
     final Address miningBeneficiary = miningBeneficiaryCalculator.calculateBeneficiary(blockHeader);
 
     LOG.trace("traceStartBlock for {}", blockHeader.getNumber());
     blockTracer.traceStartBlock(worldState, blockHeader, miningBeneficiary);
+    if (maybeSlowBlockTracer != null) maybeSlowBlockTracer.traceStartBlock();
 
     final StateRootCommitter stateRootCommitter =
         protocolSpec
@@ -254,13 +283,14 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       final Optional<AccessLocationTracker> preExecutionAccessLocationTracker =
           blockAccessListBuilder.map(
               b -> BlockAccessListBuilder.createPreExecutionAccessLocationTracker());
+
       final BlockProcessingContext blockProcessingContext =
           new BlockProcessingContext(
               blockHeader,
               worldState,
               protocolSpec,
               blockHashLookup,
-              !blockTracer.isEnabled() ? OperationTracer.NO_TRACING : blockTracer,
+              effectiveTracer,
               blockAccessListBuilder);
       protocolSpec
           .getPreExecutionProcessor()
@@ -526,8 +556,12 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       LOG.trace("traceEndBlock for {}", blockHeader.getNumber());
       blockTracer.traceEndBlock(blockHeader, blockBody);
 
-      try {
-        worldState.persist(blockHeader, stateRootCommitter);
+      try { // TODO SLD newPayload performs trieLogPersist only; FCU persists state
+        if (worldState instanceof PathBasedWorldState pbws) {
+          pbws.persist(blockHeader, stateRootCommitter, maybeSlowBlockTracer);
+        } else {
+          worldState.persist(blockHeader, stateRootCommitter);
+        }
       } catch (MerkleTrieException e) {
         LOG.trace("Merkle trie exception during Transaction processing ", e);
         if (worldState instanceof BonsaiWorldState) {
@@ -546,6 +580,11 @@ public abstract class AbstractBlockProcessor implements BlockProcessor {
       } catch (Exception e) {
         LOG.error("failed persisting block", e);
         return new BlockProcessingResult(Optional.empty(), e);
+      } finally {
+        if (maybeSlowBlockTracer != null) {
+          maybeSlowBlockTracer.traceEndBlockPersist(
+              blockHeader.getNumber(), blockHeader.getBlockHash(), blockHeader.getGasUsed());
+        }
       }
 
       // EIP-8037: gas_metered = max(cumulative_regular, cumulative_state)
