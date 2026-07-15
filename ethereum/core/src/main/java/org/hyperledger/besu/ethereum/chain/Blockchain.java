@@ -131,6 +131,20 @@ public interface Blockchain {
   }
 
   /**
+   * Checks whether both given blocks are on the canonical chain.
+   *
+   * @param firstBlockHeaderHash The hash of the first block to check.
+   * @param secondBlockHeaderHash The hash of the second block to check.
+   * @return true if both blocks are on the canonical chain, false otherwise (including when either
+   *     block is unknown to the local chain).
+   */
+  default boolean areBothBlocksOnCanonicalChain(
+      final Hash firstBlockHeaderHash, final Hash secondBlockHeaderHash) {
+    return blockIsOnCanonicalChain(firstBlockHeaderHash)
+        && blockIsOnCanonicalChain(secondBlockHeaderHash);
+  }
+
+  /**
    * Returns the block header corresponding to the given block number on the canonical chain.
    *
    * @param blockNumber The reference block number whose header we want to retrieve.

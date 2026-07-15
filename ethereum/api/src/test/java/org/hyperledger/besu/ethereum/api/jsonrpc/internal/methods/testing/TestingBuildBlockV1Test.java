@@ -16,6 +16,7 @@ package org.hyperledger.besu.ethereum.api.jsonrpc.internal.methods.testing;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import org.hyperledger.besu.datatypes.Address;
@@ -147,6 +148,31 @@ class TestingBuildBlockV1Test {
     assertThat(response).isInstanceOf(JsonRpcErrorResponse.class);
     final JsonRpcErrorResponse errorResponse = (JsonRpcErrorResponse) response;
     assertThat(errorResponse.getError().getCode()).isEqualTo(RpcErrorType.INVALID_PARAMS.getCode());
+  }
+
+  @Test
+  void shouldPropagateSuggestedFeeRecipientToMiningCoinbase() {
+    // The built block header coinbase is sourced from the mining configuration (see
+    // BlockHeaderBuilder.createPending), whereas transaction fees and the EIP-7928 block
+    // access list are credited to the mining beneficiary derived from suggestedFeeRecipient.
+    // Building must propagate suggestedFeeRecipient into the mining configuration so the two
+    // agree; otherwise the built header records the node's configured coinbase (Address.ZERO
+    // on a block-builder node) while the block access list credits suggestedFeeRecipient, and
+    // the block self-rejects on engine_newPayload re-execution with a BAL hash mismatch.
+    final BlockHeader parentHeader =
+        new BlockHeaderTestFixture().timestamp(DEFAULT_TIMESTAMP).buildHeader();
+    when(blockchain.getBlockHeader(any(Hash.class))).thenReturn(Optional.of(parentHeader));
+    final Address suggestedFeeRecipient =
+        Address.fromHexString("0x2adc25665018aa1fe0e6bc666dac8fc2697ff9ba");
+
+    // Block creation itself fails fast under the mocked protocol schedule, but the coinbase
+    // must already have been propagated to the mining configuration before the build is
+    // attempted.
+    method.response(
+        requestWithSuggestedFeeRecipient(
+            parentHeader.getHash().toHexString(), DEFAULT_TIMESTAMP + 1, suggestedFeeRecipient));
+
+    verify(miningConfiguration).setCoinbase(suggestedFeeRecipient);
   }
 
   @Test
@@ -350,6 +376,22 @@ class TestingBuildBlockV1Test {
             "2.0",
             "testing_buildBlockV1",
             new Object[] {parentHash, payloadAttributes, transactions, null}));
+  }
+
+  private JsonRpcRequestContext requestWithSuggestedFeeRecipient(
+      final String parentHash, final long timestamp, final Address suggestedFeeRecipient) {
+    final Map<String, Object> payloadAttributes = new LinkedHashMap<>();
+    payloadAttributes.put("timestamp", Bytes.ofUnsignedLong(timestamp).toQuantityHexString());
+    payloadAttributes.put("prevRandao", Hash.ZERO.toHexString());
+    payloadAttributes.put("suggestedFeeRecipient", suggestedFeeRecipient.toHexString());
+    payloadAttributes.put("withdrawals", Collections.emptyList());
+    payloadAttributes.put("parentBeaconBlockRoot", Bytes32.ZERO.toHexString());
+
+    return new JsonRpcRequestContext(
+        new JsonRpcRequest(
+            "2.0",
+            "testing_buildBlockV1",
+            new Object[] {parentHash, payloadAttributes, new String[0], null}));
   }
 
   private JsonRpcRequestContext requestWithMissingSuggestedFeeRecipient(

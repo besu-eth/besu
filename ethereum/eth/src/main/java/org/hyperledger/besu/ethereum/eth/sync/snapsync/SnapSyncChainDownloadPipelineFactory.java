@@ -251,6 +251,12 @@ public class SnapSyncChainDownloadPipelineFactory {
                 "action"),
             true,
             "forwardBal")
+        .thenProcess(
+            "filterBalEnabledHeaders",
+            headers ->
+                headers.stream()
+                    .filter(h -> protocolSchedule.getByBlockHeader(h).isBlockAccessListEnabled())
+                    .toList())
         .thenProcessAsyncOrdered(
             "downloadBlockAccessLists", downloadBlockAccessListsStep, downloaderParallelism)
         .andFinishWith("finishBal", headers -> {});

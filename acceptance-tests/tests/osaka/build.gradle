@@ -14,15 +14,19 @@ sourceSets.main.solidity.srcDirs = [
   "$projectDir/osakacontracts"
 ]
 
+// Provide solc directly rather than through web3j-sokt's broken release index (see the root
+// build.gradle for details).
+def solcDownload = rootProject.registerSolcDownload('0.8.25')
+
 solidity {
   resolvePackages = false
   version = '0.8.25'
+  executable = rootProject.solcExecutable('0.8.25').absolutePath
   // 'cancun' is intentional - the osaka contracts currently only use tstore/tload (EIP-1153, introduced in Cancun)
   // and 0.8.25 doesn't support osaka
   evmVersion = 'cancun'
 }
 
-// Both subprojects download solc 0.8.25 to the same path; serialise to avoid a race condition.
-tasks.named('compileSolidity') {
-  dependsOn ':acceptance-tests:tests:shanghai:compileSolidity'
-}
+// shanghai and osaka share the single downloadSolc_0_8_25 task, so the previous serialisation
+// on shanghai's compile (added to avoid a solc download race) is no longer needed.
+tasks.named('compileSolidity').configure { dependsOn solcDownload }

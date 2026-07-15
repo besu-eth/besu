@@ -15,6 +15,7 @@
 package org.hyperledger.besu.ethereum.eth.sync.snapsync.v2;
 
 import org.hyperledger.besu.datatypes.Hash;
+import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.eth.manager.EthContext;
 import org.hyperledger.besu.ethereum.eth.sync.ChainDownloader;
@@ -28,6 +29,7 @@ import org.hyperledger.besu.ethereum.eth.sync.snapsync.context.SnapSyncStatePers
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.SnapDataRequest;
 import org.hyperledger.besu.ethereum.eth.sync.snapsync.request.v2.SnapV2AccountRangeRequest;
 import org.hyperledger.besu.ethereum.eth.sync.worldstate.WorldStateDownloader;
+import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.trie.RangeManager;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateStorageCoordinator;
 import org.hyperledger.besu.metrics.BesuMetricCategory;
@@ -62,15 +64,19 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
   private final int maxOutstandingRequests;
   private final int maxNodeRequestsWithoutProgress;
   private final WorldStateStorageCoordinator worldStateStorageCoordinator;
+  private final MutableBlockchain blockchain;
   private final AtomicReference<SnapV2WorldDownloadState> downloadState = new AtomicReference<>();
   private final SyncDurationMetrics syncDurationMetrics;
   private volatile WorldStateHealFinishedListener worldStateHealFinishedListener;
   private volatile SnapV2PivotCatchupListener pivotCatchupListener;
+  private final SnapV2BlockAccessListApplier blockAccessListApplier;
 
   public SnapV2WorldStateDownloader(
       final EthContext ethContext,
       final SnapSyncStatePersistenceManager snapContext,
+      final MutableBlockchain blockchain,
       final WorldStateStorageCoordinator worldStateStorageCoordinator,
+      final ProtocolSchedule protocolSchedule,
       final InMemoryTasksPriorityQueues<SnapDataRequest> snapTaskCollection,
       final SnapSyncConfiguration snapSyncConfiguration,
       final int maxOutstandingRequests,
@@ -81,6 +87,7 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
       final SyncDurationMetrics syncDurationMetrics) {
     this.ethContext = ethContext;
     this.worldStateStorageCoordinator = worldStateStorageCoordinator;
+    this.blockchain = blockchain;
     this.snapContext = snapContext;
     this.snapTaskCollection = snapTaskCollection;
     this.snapSyncConfiguration = snapSyncConfiguration;
@@ -90,6 +97,9 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
     this.clock = clock;
     this.metricsSystem = metricsSystem;
     this.syncDurationMetrics = syncDurationMetrics;
+    this.blockAccessListApplier =
+        new SnapV2BlockAccessListApplier(
+            worldStateStorageCoordinator, blockchain, protocolSchedule);
 
     metricsSystem.createIntegerGauge(
         BesuMetricCategory.SYNCHRONIZER,
@@ -166,7 +176,10 @@ public class SnapV2WorldStateDownloader implements WorldStateDownloader {
               clock,
               syncDurationMetrics,
               worldStateHealFinishedListener,
-              pivotCatchupListener);
+              pivotCatchupListener,
+              blockAccessListApplier,
+              blockchain,
+              ethContext);
 
       final Map<Bytes32, Bytes32> ranges = RangeManager.generateAllRanges(16);
       snapsyncMetricsManager.initRange(ranges);

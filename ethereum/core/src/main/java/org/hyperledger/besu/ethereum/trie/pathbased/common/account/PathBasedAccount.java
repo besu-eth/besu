@@ -236,6 +236,17 @@ public abstract class PathBasedAccount implements MutableAccount, AccountValue {
     Optional.ofNullable(codeCache).ifPresent(c -> c.put(codeHash, this.code));
   }
 
+  /**
+   * Updates the code hash without loading bytecode. The code is resolved lazily on the next read.
+   */
+  public void setCodeHash(final Hash newCodeHash) {
+    if (immutable) {
+      throw new ModificationNotAllowedException();
+    }
+    this.codeHash = newCodeHash;
+    this.code = null;
+  }
+
   @Override
   public Hash getCodeHash() {
     return codeHash;

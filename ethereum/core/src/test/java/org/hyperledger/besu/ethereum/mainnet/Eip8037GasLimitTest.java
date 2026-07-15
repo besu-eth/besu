@@ -200,7 +200,10 @@ class Eip8037GasLimitTest {
               // stateGas = 5M
               // regularConsumed = 19M - 5M = 14M < TX_MAX_GAS_LIMIT -> passes
               frame.setGasRemaining(1_000_000L);
-              frame.incrementStateGasUsed(5_000_000L);
+              // Simulate 5M of state gas consumed: seed the reservoir and draw it down so
+              // stateGasUsed reaches 5M without touching the 1M of regular gas left.
+              frame.setStateGasReservoir(5_000_000L);
+              frame.consumeStateGas(5_000_000L);
               frame.getMessageFrameStack().pop();
               return null;
             })

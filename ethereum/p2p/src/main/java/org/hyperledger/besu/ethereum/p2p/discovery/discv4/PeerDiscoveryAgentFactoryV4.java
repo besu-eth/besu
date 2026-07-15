@@ -17,19 +17,20 @@ package org.hyperledger.besu.ethereum.p2p.discovery.discv4;
 import org.hyperledger.besu.cryptoservices.NodeKey;
 import org.hyperledger.besu.ethereum.forkid.ForkIdManager;
 import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
+import org.hyperledger.besu.ethereum.p2p.discovery.NodeRecordManager;
 import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryAgent;
 import org.hyperledger.besu.ethereum.p2p.discovery.PeerDiscoveryAgentFactory;
+import org.hyperledger.besu.ethereum.p2p.discovery.discv4.transport.NettyTransport;
 import org.hyperledger.besu.ethereum.p2p.permissions.PeerPermissions;
 import org.hyperledger.besu.ethereum.p2p.rlpx.RlpxAgent;
 import org.hyperledger.besu.ethereum.storage.StorageProvider;
 import org.hyperledger.besu.nat.NatService;
 import org.hyperledger.besu.plugin.services.MetricsSystem;
 
-import io.vertx.core.Vertx;
+import java.net.InetSocketAddress;
 
 public class PeerDiscoveryAgentFactoryV4 implements PeerDiscoveryAgentFactory {
 
-  private final Vertx vertx;
   private final NodeKey nodeKey;
   private final NetworkingConfiguration config;
   private final PeerPermissions peerPermissions;
@@ -39,7 +40,6 @@ public class PeerDiscoveryAgentFactoryV4 implements PeerDiscoveryAgentFactory {
   private final ForkIdManager forkIdManager;
 
   public PeerDiscoveryAgentFactoryV4(
-      final Vertx vertx,
       final NodeKey nodeKey,
       final NetworkingConfiguration config,
       final PeerPermissions peerPermissions,
@@ -47,7 +47,6 @@ public class PeerDiscoveryAgentFactoryV4 implements PeerDiscoveryAgentFactory {
       final MetricsSystem metricsSystem,
       final StorageProvider storageProvider,
       final ForkIdManager forkIdManager) {
-    this.vertx = vertx;
     this.nodeKey = nodeKey;
     this.config = config;
     this.peerPermissions = peerPermissions;
@@ -59,15 +58,20 @@ public class PeerDiscoveryAgentFactoryV4 implements PeerDiscoveryAgentFactory {
 
   @Override
   public PeerDiscoveryAgent create(final RlpxAgent rlpxAgent) {
-    return VertxPeerDiscoveryAgent.create(
-        vertx,
+    final var discoveryConfig = config.discoveryConfiguration();
+    final NodeRecordManager nodeRecordManager =
+        new NodeRecordManager(storageProvider, nodeKey, forkIdManager, natService);
+    final InetSocketAddress bindAddress =
+        new InetSocketAddress(discoveryConfig.getBindHost(), discoveryConfig.getBindPort());
+    final Transport transport = NettyTransport.create(bindAddress);
+    return NettyPeerDiscoveryAgent.createWithTransport(
         nodeKey,
-        config.discoveryConfiguration(),
+        discoveryConfig,
         peerPermissions,
-        natService,
         metricsSystem,
-        storageProvider,
+        nodeRecordManager,
         forkIdManager,
-        rlpxAgent);
+        rlpxAgent,
+        transport);
   }
 }
