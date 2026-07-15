@@ -186,7 +186,7 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
 
   @Override
   public long getSStoreColdAccessGasCost() {
-    // The warm access base is already folded into calculateStorageCost, so SSTORE adds only the
+    // The warm access base is already folded into slotAccessCost, so SSTORE adds only the
     // cold surcharge on top of it: full cold access minus that warm base.
     return COLD_STORAGE_ACCESS - WARM_STORAGE_READ_COST;
   }
