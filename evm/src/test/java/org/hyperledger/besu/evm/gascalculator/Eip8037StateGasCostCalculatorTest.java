@@ -20,75 +20,30 @@ import org.junit.jupiter.api.Test;
 
 class Eip8037StateGasCostCalculatorTest {
 
-  private static final long DEVNET_CPSB = 1174L;
+  private static final long AMSTERDAM_CPSB = 1530L;
 
   private final Eip8037StateGasCostCalculator calculator = new Eip8037StateGasCostCalculator();
 
-  // --- Devnet-3: hardcoded cpsb tests ---
-
   @Test
-  void costPerStateByteReturnsHardcodedValue() {
-    // Devnet-3: cpsb is hardcoded to 1174 regardless of block gas limit
-    assertThat(calculator.costPerStateByte(36_000_000L)).isEqualTo(DEVNET_CPSB);
-    assertThat(calculator.costPerStateByte(60_000_000L)).isEqualTo(DEVNET_CPSB);
-    assertThat(calculator.costPerStateByte(100_000_000L)).isEqualTo(DEVNET_CPSB);
-    assertThat(calculator.costPerStateByte(0L)).isEqualTo(DEVNET_CPSB);
-  }
-
-  // --- Dynamic cpsb calculation tests (for devnet-4 re-enablement) ---
-
-  @Test
-  void dynamicCostPerStateByteAt36MGasLimit() {
-    // raw cpsb = ceil(440.607...) = 441, quantized with offset 9578 → 150
-    assertThat(Eip8037StateGasCostCalculator.costPerStateByteFromGasLimit(36_000_000L))
-        .isEqualTo(150L);
+  void costPerStateByteReturnsDynamicValue() {
+    assertThat(calculator.costPerStateByte()).isEqualTo(AMSTERDAM_CPSB);
   }
 
   @Test
-  void dynamicCostPerStateByteAt60MGasLimit() {
-    assertThat(Eip8037StateGasCostCalculator.costPerStateByteFromGasLimit(60_000_000L))
-        .isEqualTo(662L);
-  }
-
-  @Test
-  void dynamicCostPerStateByteAt100MGasLimit() {
-    assertThat(Eip8037StateGasCostCalculator.costPerStateByteFromGasLimit(100_000_000L))
-        .isEqualTo(1174L);
-  }
-
-  @Test
-  void dynamicCostPerStateByteAtZeroGasLimit() {
-    assertThat(Eip8037StateGasCostCalculator.costPerStateByteFromGasLimit(0L)).isEqualTo(0L);
-  }
-
-  @Test
-  void dynamicCostPerStateByteAtMinimalGasLimits() {
-    // gasLimit=1: (1/2)=0 in integer division, numerator=0, raw=0, return 0
-    assertThat(Eip8037StateGasCostCalculator.costPerStateByteFromGasLimit(1L)).isEqualTo(0L);
-    // gasLimit=2: raw=1, shifted=9579, bitLen=14, shift=9,
-    // ((9579>>9)<<9) = 18*512 = 9216, 9216-9578 = -362, max(-362, 1) = 1
-    assertThat(Eip8037StateGasCostCalculator.costPerStateByteFromGasLimit(2L)).isEqualTo(1L);
-  }
-
-  // --- Derived cost tests (use hardcoded cpsb) ---
-
-  @Test
-  void createStateGas() {
-    // 112 bytes per account * cpsb(1174) = 131_488
-    assertThat(calculator.createStateGas(100_000_000L)).isEqualTo(112L * DEVNET_CPSB);
+  void newContractStateGas() {
+    assertThat(calculator.newContractStateGas()).isEqualTo(120L * AMSTERDAM_CPSB);
   }
 
   @Test
   void storageSetStateGas() {
-    // 32 bytes per storage slot * cpsb(1174) = 37_568
-    assertThat(calculator.storageSetStateGas(100_000_000L)).isEqualTo(32L * DEVNET_CPSB);
+    assertThat(calculator.storageSetStateGas()).isEqualTo(64L * AMSTERDAM_CPSB);
   }
 
   @Test
   void codeDepositStateGas() {
     // cpsb * codeSize
-    assertThat(calculator.codeDepositStateGas(100, 100_000_000L)).isEqualTo(DEVNET_CPSB * 100L);
-    assertThat(calculator.codeDepositStateGas(0, 100_000_000L)).isEqualTo(0L);
+    assertThat(calculator.codeDepositStateGas(100)).isEqualTo(AMSTERDAM_CPSB * 100L);
+    assertThat(calculator.codeDepositStateGas(0)).isEqualTo(0L);
   }
 
   @Test
@@ -103,25 +58,22 @@ class Eip8037StateGasCostCalculatorTest {
 
   @Test
   void newAccountStateGasMatchesCreate() {
-    assertThat(calculator.newAccountStateGas(100_000_000L))
-        .isEqualTo(calculator.createStateGas(100_000_000L));
+    assertThat(calculator.newAccountStateGas()).isEqualTo(calculator.newContractStateGas());
   }
 
   @Test
   void authBaseStateGas() {
-    // 23 bytes per auth * cpsb(1174) = 27_002
-    assertThat(calculator.authBaseStateGas(100_000_000L)).isEqualTo(23L * DEVNET_CPSB);
+    assertThat(calculator.authBaseStateGas()).isEqualTo(23L * AMSTERDAM_CPSB);
   }
 
   @Test
   void emptyAccountDelegationStateGasMatchesCreate() {
-    assertThat(calculator.emptyAccountDelegationStateGas(100_000_000L))
-        .isEqualTo(calculator.createStateGas(100_000_000L));
+    assertThat(calculator.emptyAccountDelegationStateGas())
+        .isEqualTo(calculator.newContractStateGas());
   }
 
   @Test
   void constantRegularGasCosts() {
-    assertThat(calculator.storageSetRegularGas()).isEqualTo(2_900L);
     assertThat(calculator.authBaseRegularGas()).isEqualTo(7_500L);
     assertThat(calculator.transactionRegularGasLimit()).isEqualTo(16_777_216L);
   }
@@ -129,15 +81,14 @@ class Eip8037StateGasCostCalculatorTest {
   @Test
   void noneImplementationReturnsZeroForAllCosts() {
     final StateGasCostCalculator none = StateGasCostCalculator.NONE;
-    assertThat(none.costPerStateByte(100_000_000L)).isEqualTo(0L);
-    assertThat(none.createStateGas(100_000_000L)).isEqualTo(0L);
-    assertThat(none.storageSetStateGas(100_000_000L)).isEqualTo(0L);
-    assertThat(none.codeDepositStateGas(100, 100_000_000L)).isEqualTo(0L);
+    assertThat(none.costPerStateByte()).isEqualTo(0L);
+    assertThat(none.newContractStateGas()).isEqualTo(0L);
+    assertThat(none.storageSetStateGas()).isEqualTo(0L);
+    assertThat(none.codeDepositStateGas(100)).isEqualTo(0L);
     assertThat(none.codeDepositHashGas(100)).isEqualTo(0L);
-    assertThat(none.newAccountStateGas(100_000_000L)).isEqualTo(0L);
-    assertThat(none.authBaseStateGas(100_000_000L)).isEqualTo(0L);
-    assertThat(none.emptyAccountDelegationStateGas(100_000_000L)).isEqualTo(0L);
-    assertThat(none.storageSetRegularGas()).isEqualTo(0L);
+    assertThat(none.newAccountStateGas()).isEqualTo(0L);
+    assertThat(none.authBaseStateGas()).isEqualTo(0L);
+    assertThat(none.emptyAccountDelegationStateGas()).isEqualTo(0L);
     assertThat(none.authBaseRegularGas()).isEqualTo(0L);
     assertThat(none.transactionRegularGasLimit()).isEqualTo(Long.MAX_VALUE);
   }

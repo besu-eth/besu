@@ -22,6 +22,7 @@ import java.util.Set;
 public class CodeDelegationResult {
   private final Set<Address> accessedDelegatorAddresses = new HashSet<>(Address.SIZE);
   private long alreadyExistingDelegators = 0L;
+  private long authBaseRefundCount = 0L;
 
   public void addAccessedDelegatorAddress(final Address address) {
     accessedDelegatorAddresses.add(address);
@@ -31,11 +32,24 @@ public class CodeDelegationResult {
     alreadyExistingDelegators += 1;
   }
 
+  public void incrementAuthBaseRefundCount() {
+    authBaseRefundCount += 1;
+  }
+
   public Set<Address> accessedDelegatorAddresses() {
     return accessedDelegatorAddresses;
   }
 
   public long alreadyExistingDelegators() {
     return alreadyExistingDelegators;
+  }
+
+  /**
+   * Returns the count of authorizations that don't write new delegation-indicator bytes — either
+   * the authority already had a delegation designator (overwritten in place) or {@code
+   * auth.address} is zero (no indicator written). The AUTH_BASE state gas is refunded for these.
+   */
+  public long authBaseRefundCount() {
+    return authBaseRefundCount;
   }
 }

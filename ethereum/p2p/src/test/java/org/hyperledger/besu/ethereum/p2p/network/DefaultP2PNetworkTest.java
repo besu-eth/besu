@@ -35,6 +35,8 @@ import org.hyperledger.besu.ethereum.p2p.config.NetworkingConfiguration;
 import org.hyperledger.besu.ethereum.p2p.config.RlpxConfiguration;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.PeerDiscoveryAgentV4;
 import org.hyperledger.besu.ethereum.p2p.discovery.discv4.internal.DiscoveryPeerV4;
+import org.hyperledger.besu.ethereum.p2p.discovery.dns.DNSDaemonListener;
+import org.hyperledger.besu.ethereum.p2p.discovery.dns.EthereumNodeRecord;
 import org.hyperledger.besu.ethereum.p2p.peers.EnodeURLImpl;
 import org.hyperledger.besu.ethereum.p2p.peers.MaintainedPeers;
 import org.hyperledger.besu.ethereum.p2p.peers.Peer;
@@ -49,6 +51,7 @@ import org.hyperledger.besu.nat.NatService;
 import org.hyperledger.besu.nat.core.domain.NetworkProtocol;
 import org.hyperledger.besu.nat.upnp.UpnpNatManager;
 
+import java.net.InetAddress;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -57,9 +60,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.stream.Stream;
 
 import io.vertx.core.Vertx;
+import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.bytes.Bytes32;
 import org.apache.tuweni.crypto.SECP256K1;
 import org.assertj.core.api.Assertions;
+import org.ethereum.beacon.discovery.schema.NodeRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -446,6 +451,37 @@ public final class DefaultP2PNetworkTest {
                   network.awaitStop();
                 }))
         .succeedsWithin(Duration.ofSeconds(5));
+  }
+
+  @Test
+  public void dnsDaemonListenerSkipsRecordsFailingEnodeConversion() throws Exception {
+    final DefaultP2PNetwork network = network();
+    final DNSDaemonListener listener = network.createDaemonListener();
+
+    final EthereumNodeRecord recordWithInvalidPort =
+        new EthereumNodeRecord(
+            Bytes.random(64),
+            Optional.of(InetAddress.getByName("192.0.2.1")),
+            Optional.of(70000),
+            Optional.of(30303),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            mock(NodeRecord.class));
+    final EthereumNodeRecord validRecord =
+        new EthereumNodeRecord(
+            Bytes.random(64),
+            Optional.of(InetAddress.getByName("192.0.2.2")),
+            Optional.of(30303),
+            Optional.of(30303),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty(),
+            mock(NodeRecord.class));
+
+    listener.newRecords(1L, List.of(recordWithInvalidPort, validRecord));
+
+    verify(discoveryAgent, times(1)).addPeer(any());
   }
 
   private DefaultP2PNetwork network() {

@@ -789,7 +789,6 @@ public class RunnerBuilder {
 
     PeerDiscoveryAgentFactory peerDiscoveryAgentFactory =
         DefaultPeerDiscoveryAgentFactory.builder()
-            .vertx(vertx)
             .nodeKey(nodeKey)
             .config(networkingConfiguration)
             .peerPermissions(peerPermissions)

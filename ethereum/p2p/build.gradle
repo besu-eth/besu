@@ -43,6 +43,8 @@ dependencies {
   annotationProcessor 'com.google.dagger:dagger-compiler'
   implementation 'com.google.dagger:dagger'
   implementation 'dnsjava:dnsjava'
+  implementation 'io.netty:netty-handler'
+  implementation 'io.netty:netty-transport'
   implementation 'io.netty:netty-transport-native-unix-common'
   implementation 'io.vertx:vertx-core'
   implementation 'javax.inject:javax.inject'
