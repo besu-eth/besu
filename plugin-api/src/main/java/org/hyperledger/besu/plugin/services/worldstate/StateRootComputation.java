@@ -20,7 +20,11 @@ import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 /** Result of state-root computation: root hash and deferred storage writes. */
 public interface StateRootComputation {
 
-  /** The computed state root hash. */
+  /**
+   * The computed state root hash.
+   *
+   * @return the computed state root hash
+   */
   Hash root();
 
   /**
