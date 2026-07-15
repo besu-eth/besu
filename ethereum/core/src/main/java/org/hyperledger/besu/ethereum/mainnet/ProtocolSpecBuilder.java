@@ -30,7 +30,6 @@ import org.hyperledger.besu.ethereum.mainnet.feemarket.FeeMarket;
 import org.hyperledger.besu.ethereum.mainnet.requests.ProhibitedRequestValidator;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestProcessorCoordinator;
 import org.hyperledger.besu.ethereum.mainnet.requests.RequestsValidator;
-import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.StateRootCommitterFactory;
 import org.hyperledger.besu.ethereum.mainnet.transactionpool.TransactionPoolPreProcessor;
 import org.hyperledger.besu.evm.EVM;
@@ -97,7 +96,7 @@ public class ProtocolSpecBuilder {
   private TransactionPoolPreProcessor transactionPoolPreProcessor;
   private BlockAccessListFactory blockAccessListFactory;
   private StateRootCommitterFactory stateRootCommitterFactory =
-      new DefaultStateRootCommitterFactory();
+      new StateRootCommitterFactory(BalConfiguration.DISABLED);
   private BalConfiguration balConfiguration = BalConfiguration.DEFAULT;
   private BlockGasAccountingStrategy blockGasAccountingStrategy =
       BlockGasAccountingStrategy.FRONTIER;

@@ -43,7 +43,7 @@ public interface WorldStateArchive extends Closeable {
    * @param worldState the mutable world state to prepare for block processing
    */
   default void prepareWorldStateForBlock(
-          final BlockHeader blockHeader, final MutableWorldState worldState) {}
+      final BlockHeader blockHeader, final MutableWorldState worldState) {}
 
   /**
    * Gets a mutable world state based on the provided query parameters.

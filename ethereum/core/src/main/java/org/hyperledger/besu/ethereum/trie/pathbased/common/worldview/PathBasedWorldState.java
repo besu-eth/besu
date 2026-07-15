@@ -24,8 +24,6 @@ import org.hyperledger.besu.datatypes.Hash;
 import org.hyperledger.besu.datatypes.StorageSlotKey;
 import org.hyperledger.besu.ethereum.mainnet.block.access.list.BlockAccessListOverlay;
 import org.hyperledger.besu.ethereum.mainnet.staterootcommitter.DefaultStateRootCommitter;
-import org.hyperledger.besu.plugin.services.worldstate.StateRootComputation;
-import org.hyperledger.besu.ethereum.trie.pathbased.bonsai.storage.BonsaiWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.common.StateRootMismatchException;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedLayeredWorldStateKeyValueStorage;
 import org.hyperledger.besu.ethereum.trie.pathbased.common.storage.PathBasedSnapshotWorldStateKeyValueStorage;
@@ -43,6 +41,7 @@ import org.hyperledger.besu.plugin.services.storage.SegmentedKeyValueStorageTran
 import org.hyperledger.besu.plugin.services.storage.WorldStateKeyValueStorage;
 import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import org.hyperledger.besu.plugin.services.worldstate.StateRootCommitter;
+import org.hyperledger.besu.plugin.services.worldstate.StateRootComputation;
 
 import java.util.Optional;
 import java.util.stream.Stream;
@@ -60,7 +59,7 @@ public abstract class PathBasedWorldState
   private static final Logger LOG = LoggerFactory.getLogger(PathBasedWorldState.class);
 
   protected static final DefaultStateRootCommitter DEFAULT_STATE_ROOT_COMMITTER =
-          new DefaultStateRootCommitter();
+      new DefaultStateRootCommitter();
 
   protected PathBasedWorldStateKeyValueStorage worldStateKeyValueStorage;
   protected final PathBasedWorldStateCacheManager worldStateCacheManager;
@@ -375,19 +374,19 @@ public abstract class PathBasedWorldState
 
   @Override
   public Hash frontierRootHash() {
-    return DEFAULT_STATE_ROOT_COMMITTER
-            .compute(this, null, accumulator.copy())
-            .root();
+    return DEFAULT_STATE_ROOT_COMMITTER.compute(this, null, accumulator.copy()).root();
   }
 
   @Override
   public Hash rootHash() {
     if (isStorageFrozen && accumulator.isAccumulatorStateChanged()) {
-      worldStateRootHash = DEFAULT_STATE_ROOT_COMMITTER.compute(this,null, accumulator.copy()).root();
+      worldStateRootHash =
+          DEFAULT_STATE_ROOT_COMMITTER.compute(this, null, accumulator.copy()).root();
       accumulator.resetAccumulatorStateChanged();
     }
     return worldStateRootHash;
   }
+
   /**
    * Configures the current world state to operate in "frozen" mode.
    *
