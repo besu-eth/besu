@@ -33,6 +33,7 @@ import org.hyperledger.besu.ethereum.eth.manager.exceptions.NoAvailablePeersExce
 import org.hyperledger.besu.ethereum.eth.manager.exceptions.PeerDisconnectedException;
 import org.hyperledger.besu.ethereum.eth.messages.BlockBodiesMessage;
 import org.hyperledger.besu.ethereum.eth.sync.ChainHeadTracker;
+import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection;
 import org.hyperledger.besu.ethereum.p2p.rlpx.connections.PeerConnection.PeerNotConnected;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.MessageData;
 import org.hyperledger.besu.ethereum.p2p.rlpx.wire.messages.DisconnectMessage.DisconnectReason;
@@ -43,6 +44,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -377,6 +379,21 @@ public class EthPeersTest {
 
     // Mock works
     assertThat(peerToDisconnect.getEthPeer().isDisconnected()).isTrue(); // peer is disconnected
+  }
+
+  @Test
+  public void comparesConnectionInitiationTimesWithoutOverflowingWhenFarApart() {
+    final PeerConnection oldConnection = mock(PeerConnection.class);
+    final PeerConnection newConnection = mock(PeerConnection.class);
+    // more than Integer.MAX_VALUE milliseconds (~24.8 days) apart
+    when(oldConnection.getInitiatedAt()).thenReturn(0L);
+    when(newConnection.getInitiatedAt()).thenReturn(TimeUnit.DAYS.toMillis(30));
+
+    assertThat(ethPeers.compareConnectionInitiationTimes(oldConnection, newConnection))
+        .isNegative();
+    assertThat(ethPeers.compareConnectionInitiationTimes(newConnection, oldConnection))
+        .isPositive();
+    assertThat(ethPeers.compareConnectionInitiationTimes(oldConnection, oldConnection)).isZero();
   }
 
   @Test
