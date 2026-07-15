@@ -45,7 +45,6 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
-import io.vertx.core.buffer.Buffer;
 import org.apache.tuweni.bytes.Bytes;
 import org.apache.tuweni.units.bigints.UInt64;
 import org.ethereum.beacon.discovery.schema.EnrField;
@@ -102,13 +101,13 @@ public class PacketSerializerTest {
     final SECPPublicKey publicKey = Mockito.mock(SECPPublicKey.class);
     Packet packet = new Packet(type, data, hash, signature, publicKey);
 
-    Buffer result = packetSerializer.encode(packet);
+    Bytes result = packetSerializer.encode(packet);
 
     Mockito.verifyNoInteractions(publicKey);
 
     String expectedResult =
         "0xc68a00f14b2e91d2592005ca4e77247c8e0627fc5a6e6d942bd9e1af41d2f5b9000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020001d105c9840a00000182765f808201c8820315";
-    Assertions.assertEquals(expectedResult, Bytes.wrapBuffer(result).toHexString());
+    Assertions.assertEquals(expectedResult, result.toHexString());
   }
 
   @Test
@@ -129,13 +128,13 @@ public class PacketSerializerTest {
     final SECPPublicKey publicKey = Mockito.mock(SECPPublicKey.class);
     Packet packet = new Packet(type, data, hash, signature, publicKey);
 
-    Buffer result = packetSerializer.encode(packet);
+    Bytes result = packetSerializer.encode(packet);
 
     Mockito.verifyNoInteractions(publicKey);
 
     String expectedResult =
         "0x21206a30fabe5d8fe7c4896bb25f51a9f2a22260da9164d21645fb482439736c000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020002d3c9840a00000182765f808201238201c8820315";
-    Assertions.assertEquals(expectedResult, Bytes.wrapBuffer(result).toHexString());
+    Assertions.assertEquals(expectedResult, result.toHexString());
   }
 
   @Test
@@ -152,13 +151,13 @@ public class PacketSerializerTest {
     final SECPPublicKey publicKey = Mockito.mock(SECPPublicKey.class);
     Packet packet = new Packet(type, data, hash, signature, publicKey);
 
-    Buffer result = packetSerializer.encode(packet);
+    Bytes result = packetSerializer.encode(packet);
 
     Mockito.verifyNoInteractions(publicKey);
 
     String expectedResult =
         "0xe51a3c97707983d13de6a7aa7c54cc67e8a8f964145bb86cd0af7ee6dd6a196b000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020003f845b840cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd8201c8";
-    Assertions.assertEquals(expectedResult, Bytes.wrapBuffer(result).toHexString());
+    Assertions.assertEquals(expectedResult, result.toHexString());
   }
 
   @Test
@@ -181,13 +180,13 @@ public class PacketSerializerTest {
     final SECPPublicKey publicKey = Mockito.mock(SECPPublicKey.class);
     Packet packet = new Packet(type, data, hash, signature, publicKey);
 
-    Buffer result = packetSerializer.encode(packet);
+    Bytes result = packetSerializer.encode(packet);
 
     Mockito.verifyNoInteractions(publicKey);
 
     String expectedResult =
         "0xc6dce7f54086fb7537a9c2793fd7938b057888442109304ea463017c6265e743000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020004f852f84df84b840a00000182765f80b840989898989898989898989898989898989898989898989898989898989898989898989898989898989898989898989898989898989898989898989898989898988201c8";
-    Assertions.assertEquals(expectedResult, Bytes.wrapBuffer(result).toHexString());
+    Assertions.assertEquals(expectedResult, result.toHexString());
   }
 
   @Test
@@ -203,13 +202,13 @@ public class PacketSerializerTest {
     final SECPPublicKey publicKey = Mockito.mock(SECPPublicKey.class);
     Packet packet = new Packet(type, data, hash, signature, publicKey);
 
-    Buffer result = packetSerializer.encode(packet);
+    Bytes result = packetSerializer.encode(packet);
 
     Mockito.verifyNoInteractions(publicKey);
 
     String expectedResult =
         "0xfde48f75a7340fafea894eb45f7badecd9705227902c5b48928ad3c57b1963e7000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020005c38201c8";
-    Assertions.assertEquals(expectedResult, Bytes.wrapBuffer(result).toHexString());
+    Assertions.assertEquals(expectedResult, result.toHexString());
   }
 
   @Test
@@ -230,12 +229,12 @@ public class PacketSerializerTest {
     final SECPPublicKey publicKey = Mockito.mock(SECPPublicKey.class);
     Packet packet = new Packet(type, data, hash, signature, publicKey);
 
-    Buffer result = packetSerializer.encode(packet);
+    Bytes result = packetSerializer.encode(packet);
 
     Mockito.verifyNoInteractions(publicKey);
 
     String expectedResult =
         "0x9d0b57ce920728f26211e7784f626bf9a881e7e942c7243160d535a3760e8848000000000000000000000000000000000000000000000000000000000000000100000000000000000000000000000000000000000000000000000000000000020006f870821234f86bb860000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000820237826964827634";
-    Assertions.assertEquals(expectedResult, Bytes.wrapBuffer(result).toHexString());
+    Assertions.assertEquals(expectedResult, result.toHexString());
   }
 }
