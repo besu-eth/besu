@@ -450,6 +450,25 @@ public interface GasCalculator {
       UInt256 newValue, Supplier<UInt256> currentValue, Supplier<UInt256> originalValue);
 
   /**
+   * Returns the regular-gas cost of an SSTORE, i.e. the portion charged as regular gas (as opposed
+   * to state gas). Through Osaka this is the whole SSTORE cost, so it delegates to {@link
+   * #calculateStorageCost}. EIP-8038 (Amsterdam) splits the cost into regular and state gas and
+   * overrides this to return only the regular portion; a future fork that moves the remaining
+   * regular portion to state gas can zero it out.
+   *
+   * @param newValue the new value to be stored
+   * @param currentValue the supplier of the current value
+   * @param originalValue the supplier of the original value
+   * @return the regular-gas cost for the SSTORE operation
+   */
+  default long slotAccessCost(
+      final UInt256 newValue,
+      final Supplier<UInt256> currentValue,
+      final Supplier<UInt256> originalValue) {
+    return calculateStorageCost(newValue, currentValue, originalValue);
+  }
+
+  /**
    * Returns the refund amount for an SSTORE operation.
    *
    * @param newValue the new value to be stored
@@ -479,7 +498,7 @@ public interface GasCalculator {
   /**
    * Returns the cold access surcharge charged for an SSTORE to a storage slot not previously
    * accessed in the TX context. By default this equals the cold SLOAD cost; EIP-8038 overrides it
-   * to exclude the warm access base already included in {@link #calculateStorageCost}.
+   * to exclude the warm access base already included in {@link #slotAccessCost}.
    *
    * @return the SSTORE cold access surcharge.
    */

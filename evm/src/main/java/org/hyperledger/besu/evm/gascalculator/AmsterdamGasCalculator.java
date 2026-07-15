@@ -252,7 +252,7 @@ public class AmsterdamGasCalculator extends OsakaGasCalculator {
   }
 
   @Override
-  public long calculateStorageCost(
+  public long slotAccessCost(
       final UInt256 newValue,
       final Supplier<UInt256> currentValue,
       final Supplier<UInt256> originalValue) {
