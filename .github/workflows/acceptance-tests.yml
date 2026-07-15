@@ -34,6 +34,8 @@ jobs:
         run:  sudo apt-get install -y xmlstarlet
       - name: setup gradle
         uses: gradle/actions/setup-gradle@39e147cb9de83bb9910b8ef8bd7fff0ee20fcd6f # v6.0.1
+        with:
+          cache-read-only: false
       - name: List all acceptance tests
         run: ./gradlew acceptanceTest --test-dry-run -Dorg.gradle.parallel=true
       - name: Extract current test list
