@@ -2716,7 +2716,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
    * @throws InvalidConfigurationException if ports are not available.
    */
   protected void checkIfRequiredPortsAreAvailable() {
-    final List<Integer> unavailablePorts = new ArrayList<>();
+    final List<String> unavailablePorts = new ArrayList<>();
     getEffectivePorts().stream()
         .filter(Objects::nonNull)
         .filter(port -> port > 0)
@@ -2724,16 +2724,16 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
             port -> {
               if (port.equals(p2PDiscoveryConfig.p2pPort())
                   && NetworkUtility.isPortUnavailableForTcp(port)) {
-                unavailablePorts.add(port);
+                unavailablePorts.add(port + "/TCP");
               }
               if (port.equals(p2PDiscoveryConfig.p2pDiscoveryPort())
                   && NetworkUtility.isPortUnavailableForUdp(port)) {
-                unavailablePorts.add(port);
+                unavailablePorts.add(port + "/UDP");
               }
               if (!port.equals(p2PDiscoveryConfig.p2pPort())
                   && !port.equals(p2PDiscoveryConfig.p2pDiscoveryPort())
                   && NetworkUtility.isPortUnavailableForTcp(port)) {
-                unavailablePorts.add(port);
+                unavailablePorts.add(port + "/TCP");
               }
             });
     if (!unavailablePorts.isEmpty()) {
