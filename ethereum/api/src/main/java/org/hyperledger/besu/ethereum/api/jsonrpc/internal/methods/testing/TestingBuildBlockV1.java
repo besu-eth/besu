@@ -211,9 +211,19 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
     final Bytes32 parentBeaconBlockRoot = payloadAttributes.getParentBeaconBlockRoot();
     final Long timestamp = payloadAttributes.getTimestamp();
     final Long slotNumber = payloadAttributes.getSlotNumber();
+    final Long targetGasLimit = payloadAttributes.getTargetGasLimit();
 
     try {
       final Address coinbase = payloadAttributes.getSuggestedFeeRecipient();
+
+      // The header coinbase is sourced from miningConfiguration (see
+      // BlockHeaderBuilder.createPending), whereas transaction fees and the EIP-7928
+      // block access list are credited to the mining beneficiary derived from the
+      // suggestedFeeRecipient below. Without aligning the two, the built block's header
+      // records the node's configured coinbase (Address.ZERO on a filler) while the BAL
+      // credits suggestedFeeRecipient, so re-execution on engine_newPayload recomputes a
+      // BAL under the header coinbase and the block self-rejects with a BAL hash mismatch.
+      miningConfiguration.setCoinbase(coinbase);
 
       final TestingBlockCreator blockCreator =
           new TestingBlockCreator(
@@ -233,6 +243,7 @@ public class TestingBuildBlockV1 implements JsonRpcMethod {
               Optional.of(withdrawals),
               Optional.ofNullable(parentBeaconBlockRoot),
               Optional.ofNullable(slotNumber),
+              Optional.ofNullable(targetGasLimit),
               parentHeader);
 
       // When transactions are explicitly provided, return an error if any were not applied.

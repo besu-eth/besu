@@ -264,6 +264,9 @@ public class MergeBesuControllerBuilder extends BesuControllerBuilder {
   public BesuController build() {
     final BesuController controller = super.build();
     postMergeContext.setSyncState(syncState.get());
+    if (!p2pEnabled) {
+      syncState.get().setReachedTerminalDifficulty(true);
+    }
     return controller;
   }
 

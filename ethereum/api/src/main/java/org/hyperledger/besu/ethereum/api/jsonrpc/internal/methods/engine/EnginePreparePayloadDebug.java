@@ -118,6 +118,7 @@ public class EnginePreparePayloadDebug extends ExecutionEngineJsonRpcMethod {
                         .withdrawals(Optional.of(withdrawals))
                         .parentBeaconBlockRoot(param.getParentBeaconBlockRoot())
                         .slotNumber(Optional.empty())
+                        .targetGasLimit(Optional.empty())
                         .build()));
   }
 }

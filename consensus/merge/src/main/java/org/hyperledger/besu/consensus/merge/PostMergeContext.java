@@ -131,6 +131,8 @@ public class PostMergeContext implements MergeContext {
       return true;
     }
     // Pre-TTD: if terminal difficulty hasn't been reached we're still in PoW sync.
+    // When started with --p2p-enabled=false the controller marks TTD reached at startup,
+    // so this branch is skipped and the node can serve the engine API immediately.
     if (!state.hasReachedTerminalDifficulty().orElse(false)) {
       return true;
     }

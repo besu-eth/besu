@@ -230,12 +230,9 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
     try {
       maybeBlockAccessList = extractBlockAccessList(blockParam);
     } catch (final InvalidBlockAccessListException e) {
-      return respondWithInvalid(
+      return new JsonRpcErrorResponse(
           reqId,
-          blockParam,
-          mergeCoordinator.getLatestValidAncestor(blockParam.getParentHash()).orElse(null),
-          INVALID,
-          e.getMessage());
+          ValidationResult.invalid(RpcErrorType.INVALID_ENGINE_NEW_PAYLOAD_PARAMS, e.getMessage()));
     }
 
     final List<Transaction> transactions;
@@ -375,22 +372,6 @@ public abstract class AbstractEngineNewPayload extends ExecutionEngineJsonRpcMet
 
     if (latestValidAncestor.isEmpty()) {
       return respondWith(reqId, blockParam, null, ACCEPTED);
-    }
-
-    // If the parent world state is not immediately in the Bonsai layered cache, executing
-    // this block would require expensive trie-log replay on the vert.x worker thread,
-    // potentially blocking for tens of seconds and accumulating unbounded LayeredKeyValueStorage
-    // chains. Return SYNCING so the CL retries after sending FCU, which fills the cache.
-    if (!protocolContext
-        .getWorldStateArchive()
-        .isWorldStateImmediatelyCached(blockParam.getParentHash())) {
-      LOG.atDebug()
-          .setMessage(
-              "Parent world state not immediately cached for block {}, parentHash={}, returning SYNCING")
-          .addArgument(blockParam::getBlockHash)
-          .addArgument(blockParam::getParentHash)
-          .log();
-      return respondWith(reqId, blockParam, null, SYNCING);
     }
 
     // execute block and return result response
