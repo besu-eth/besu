@@ -57,8 +57,7 @@ public class ChainSyncStateStorageTest {
   @Test
   public void shouldStoreAndLoadStateWithNonNullHeaderDownloadAnchor() {
     final ChainSyncState state =
-        new ChainSyncState(
-            pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, false, null);
+        new ChainSyncState(pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, false);
 
     storage.storeState(state);
 
@@ -75,8 +74,7 @@ public class ChainSyncStateStorageTest {
   @Test
   public void shouldStoreAndLoadStateWithHeadersDownloadCompleteTrue() {
     final ChainSyncState state =
-        new ChainSyncState(
-            pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, true, null);
+        new ChainSyncState(pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, true);
 
     storage.storeState(state);
 
@@ -93,8 +91,7 @@ public class ChainSyncStateStorageTest {
   @Test
   public void shouldStoreAndLoadStateWithHeadersDownloadCompleteFalse() {
     final ChainSyncState state =
-        new ChainSyncState(
-            pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, false, null);
+        new ChainSyncState(pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, false);
 
     storage.storeState(state);
 
@@ -108,8 +105,7 @@ public class ChainSyncStateStorageTest {
   @Test
   public void shouldRoundTripStateWithNewStorageInstance() {
     final ChainSyncState state =
-        new ChainSyncState(
-            pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, true, null);
+        new ChainSyncState(pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, true);
 
     storage.storeState(state);
 
@@ -147,8 +143,7 @@ public class ChainSyncStateStorageTest {
   @Test
   public void shouldDeleteStateFiles() {
     final ChainSyncState state =
-        new ChainSyncState(
-            pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, false, null);
+        new ChainSyncState(pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, false);
 
     storage.storeState(state);
 
@@ -170,8 +165,7 @@ public class ChainSyncStateStorageTest {
   @Test
   public void shouldDeleteBothStateAndTempFiles() throws IOException {
     final ChainSyncState state =
-        new ChainSyncState(
-            pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, false, null);
+        new ChainSyncState(pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, false);
 
     storage.storeState(state);
 
@@ -200,8 +194,7 @@ public class ChainSyncStateStorageTest {
 
     // Store a new state (should clean up the temp file)
     final ChainSyncState state =
-        new ChainSyncState(
-            pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, false, null);
+        new ChainSyncState(pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, false);
     storage.storeState(state);
 
     // Verify the state file exists and temp file was cleaned up
@@ -226,8 +219,7 @@ public class ChainSyncStateStorageTest {
   @Test
   public void shouldOverwriteExistingStateFile() {
     final ChainSyncState state1 =
-        new ChainSyncState(
-            pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, false, null);
+        new ChainSyncState(pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, false);
     storage.storeState(state1);
 
     final ChainSyncState loadedState1 =
@@ -236,8 +228,7 @@ public class ChainSyncStateStorageTest {
 
     // Store a new state with different values
     final ChainSyncState state2 =
-        new ChainSyncState(
-            pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, true, null);
+        new ChainSyncState(pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, true);
     storage.storeState(state2);
 
     final ChainSyncState loadedState2 =
@@ -278,45 +269,5 @@ public class ChainSyncStateStorageTest {
     assertThat(
             storage.loadState(rlp -> BlockHeader.readFrom(rlp, new MainnetBlockHeaderFunctions())))
         .isNull();
-  }
-
-  @Test
-  public void shouldRoundTripWithAndWithoutHeaderDownloadProgress() {
-    // headerDownloadAnchor is always present; only headerDownloadProgress is optional.
-    final BlockHeader progressHeader = new BlockHeaderTestFixture().number(800).buildHeader();
-
-    // Case 1: progress set, headers not complete
-    assertRoundTrip(
-        new ChainSyncState(
-            pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, false, progressHeader),
-        headerDownloadAnchor,
-        progressHeader);
-
-    // Case 2: progress null, headers not complete
-    assertRoundTrip(
-        new ChainSyncState(
-            pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, false, null),
-        headerDownloadAnchor,
-        null);
-
-    // Case 3: progress null, headers complete
-    assertRoundTrip(
-        new ChainSyncState(
-            pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, true, null),
-        headerDownloadAnchor,
-        null);
-  }
-
-  private void assertRoundTrip(
-      final ChainSyncState state,
-      final BlockHeader expectedAnchor,
-      final BlockHeader expectedProgress) {
-    storage.storeState(state);
-    final ChainSyncState loaded =
-        storage.loadState(rlp -> BlockHeader.readFrom(rlp, new MainnetBlockHeaderFunctions()));
-    assertThat(loaded).isNotNull();
-    assertThat(loaded.headerDownloadAnchor()).isEqualTo(expectedAnchor);
-    assertThat(loaded.headerDownloadProgress()).isEqualTo(expectedProgress);
-    assertThat(loaded.headersDownloadComplete()).isEqualTo(state.headersDownloadComplete());
   }
 }

@@ -49,7 +49,7 @@ public class DynamicPivotBlockManagerTest {
     when(fastSyncActions.getSyncState()).thenReturn(syncState);
     when(ethContext.getScheduler()).thenReturn(new DeterministicEthScheduler());
     dynamicPivotBlockManager =
-        new DynamicPivotBlockSelector(ethContext, fastSyncActions, snapSyncState, null);
+        new DynamicPivotBlockSelector(ethContext, fastSyncActions, snapSyncState, null, 60_000L);
   }
 
   @Test
@@ -103,7 +103,8 @@ public class DynamicPivotBlockManagerTest {
     when(nonFiringContext.getScheduler()).thenReturn(nonFiringScheduler);
 
     final DynamicPivotBlockSelector throttled =
-        new DynamicPivotBlockSelector(nonFiringContext, fastSyncActions, snapSyncState, null);
+        new DynamicPivotBlockSelector(
+            nonFiringContext, fastSyncActions, snapSyncState, null, 60_000L);
 
     final BlockHeader newHeader = new BlockHeaderTestFixture().number(1060).buildHeader();
     final SnapSyncProcessState selectedState = new SnapSyncProcessState(newHeader.getHash());

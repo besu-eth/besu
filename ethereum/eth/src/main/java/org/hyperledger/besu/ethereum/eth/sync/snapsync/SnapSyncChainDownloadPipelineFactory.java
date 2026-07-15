@@ -88,11 +88,7 @@ public class SnapSyncChainDownloadPipelineFactory {
     // Lower anchor: the floor block (already in DB, lowest downloaded header must connect to it)
     final BlockHeader lowerAnchor = chainState.headerDownloadAnchor();
 
-    // Upper bound: if we have progress, resume below it; otherwise start from pivot
-    final BlockHeader upperBound =
-        chainState.headerDownloadProgress() != null
-            ? chainState.headerDownloadProgress()
-            : chainState.pivotBlockHeader();
+    final BlockHeader upperBound = chainState.pivotBlockHeader();
 
     LOG.info(
         "Creating backward header download pipeline from upper={} down to lower={}, parallelism={}, batchSize={}, peers={}",

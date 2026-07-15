@@ -29,20 +29,23 @@ import java.util.Objects;
  * @param bodyCheckpoint the lowest block from which Stage 2 must download bodies
  * @param headerDownloadAnchor the block header at which Stage 1 stops downloading
  * @param headersDownloadComplete true if the header download has finished
- * @param headerDownloadProgress lowest header successfully imported so far (resume point)
  */
 public record ChainSyncState(
     BlockHeader pivotBlockHeader,
     BlockHeader bodyCheckpoint,
     BlockHeader headerDownloadAnchor,
-    boolean headersDownloadComplete,
-    BlockHeader headerDownloadProgress) {
+    boolean headersDownloadComplete) {
 
-  public ChainSyncState {
-    Objects.requireNonNull(pivotBlockHeader, "pivotBlockHeader");
-    Objects.requireNonNull(bodyCheckpoint, "bodyCheckpoint");
-    Objects.requireNonNull(headerDownloadAnchor, "headerDownloadAnchor");
-    // headerDownloadProgress is intentionally nullable (null == no resume point yet)
+  public ChainSyncState(
+      final BlockHeader pivotBlockHeader,
+      final BlockHeader bodyCheckpoint,
+      final BlockHeader headerDownloadAnchor,
+      final boolean headersDownloadComplete) {
+    this.pivotBlockHeader = Objects.requireNonNull(pivotBlockHeader, "pivotBlockHeader");
+    this.bodyCheckpoint = Objects.requireNonNull(bodyCheckpoint, "bodyCheckpoint");
+    this.headerDownloadAnchor =
+        Objects.requireNonNull(headerDownloadAnchor, "headerDownloadAnchor");
+    this.headersDownloadComplete = headersDownloadComplete;
   }
 
   /**
@@ -57,22 +60,7 @@ public record ChainSyncState(
       final BlockHeader pivotBlockHeader,
       final BlockHeader bodyCheckpoint,
       final BlockHeader headerDownloadAnchor) {
-    return new ChainSyncState(pivotBlockHeader, bodyCheckpoint, headerDownloadAnchor, false, null);
-  }
-
-  /**
-   * Creates a new state for continuing sync to an updated pivot once the previous pivot block has
-   * been reached. The body checkpoint is preserved; the previous pivot becomes the new {@code
-   * headerDownloadAnchor} so Stage 1 downloads from the new pivot down to the old one.
-   *
-   * @param newPivotHeader the new pivot block header
-   * @param previousPivotHeader the previous pivot, used as the Stage 1 stop point
-   * @return new ChainSyncState for continuation
-   */
-  public ChainSyncState continueToNewPivot(
-      final BlockHeader newPivotHeader, final BlockHeader previousPivotHeader) {
-    return new ChainSyncState(
-        newPivotHeader, this.bodyCheckpoint, previousPivotHeader, false, null);
+    return new ChainSyncState(pivotBlockHeader, bodyCheckpoint, headerDownloadAnchor, false);
   }
 
   /**
@@ -82,7 +70,7 @@ public record ChainSyncState(
    */
   public ChainSyncState withHeadersDownloadComplete() {
     return new ChainSyncState(
-        this.pivotBlockHeader, this.bodyCheckpoint, this.headerDownloadAnchor, true, null);
+        this.pivotBlockHeader, this.bodyCheckpoint, this.headerDownloadAnchor, true);
   }
 
   /**
@@ -94,14 +82,14 @@ public record ChainSyncState(
    * @return new ChainSyncState with Stage 1 marked complete for the new pivot
    */
   public ChainSyncState withCanonicalPivot(final BlockHeader newPivotHeader) {
-    return new ChainSyncState(
-        newPivotHeader, this.bodyCheckpoint, this.headerDownloadAnchor, true, null);
+    return new ChainSyncState(newPivotHeader, this.bodyCheckpoint, this.headerDownloadAnchor, true);
   }
 
   /**
    * Creates a new state that restarts Stage 1 with a new pivot and a specific header download
    * anchor, while preserving the existing body checkpoint. {@code headersDownloadComplete} is reset
-   * to {@code false} and {@code headerDownloadProgress} is cleared.
+   * to {@code false}. Used both when advancing to a new pivot (anchor = previous pivot) and when
+   * restarting after a reorg (anchor = highest stored header below the new pivot).
    *
    * @param newPivotHeader the new pivot block header
    * @param headerAnchor the block header at which Stage 1 should stop downloading
@@ -109,23 +97,7 @@ public record ChainSyncState(
    */
   public ChainSyncState restartHeaderDownload(
       final BlockHeader newPivotHeader, final BlockHeader headerAnchor) {
-    return new ChainSyncState(newPivotHeader, this.bodyCheckpoint, headerAnchor, false, null);
-  }
-
-  /**
-   * Creates a new state with updated header download progress. The given header is recorded as the
-   * lowest successfully imported header so that a pipeline restart can resume from this point.
-   *
-   * @param lowestImportedHeader the lowest header that was successfully imported
-   * @return new ChainSyncState instance with updated header download progress
-   */
-  public ChainSyncState withHeaderProgress(final BlockHeader lowestImportedHeader) {
-    return new ChainSyncState(
-        this.pivotBlockHeader,
-        this.bodyCheckpoint,
-        this.headerDownloadAnchor,
-        this.headersDownloadComplete,
-        lowestImportedHeader);
+    return new ChainSyncState(newPivotHeader, this.bodyCheckpoint, headerAnchor, false);
   }
 
   /**
@@ -137,11 +109,7 @@ public record ChainSyncState(
    */
   public ChainSyncState withRecoveryMatch(final BlockHeader matchedAncestor) {
     return new ChainSyncState(
-        this.pivotBlockHeader,
-        this.bodyCheckpoint,
-        matchedAncestor,
-        this.headersDownloadComplete,
-        this.headerDownloadProgress);
+        this.pivotBlockHeader, this.bodyCheckpoint, matchedAncestor, this.headersDownloadComplete);
   }
 
   @Override
@@ -155,8 +123,6 @@ public record ChainSyncState(
         + bodyCheckpoint.getNumber()
         + ", headerDownloadAnchorNumber="
         + headerDownloadAnchor.getNumber()
-        + ", headerDownloadProgressNumber="
-        + (headerDownloadProgress != null ? headerDownloadProgress.getNumber() : "null")
         + ", headersDownloadComplete="
         + headersDownloadComplete
         + '}';
@@ -167,21 +133,17 @@ public record ChainSyncState(
     if (o == null || getClass() != o.getClass()) {
       return false;
     }
+    // All three headers are guaranteed non-null by the constructor, so compare them directly.
     final ChainSyncState that = (ChainSyncState) o;
     return headersDownloadComplete == that.headersDownloadComplete
-        && Objects.equals(pivotBlockHeader, that.pivotBlockHeader)
-        && Objects.equals(bodyCheckpoint, that.bodyCheckpoint)
-        && Objects.equals(headerDownloadAnchor, that.headerDownloadAnchor)
-        && Objects.equals(headerDownloadProgress, that.headerDownloadProgress);
+        && pivotBlockHeader.equals(that.pivotBlockHeader)
+        && bodyCheckpoint.equals(that.bodyCheckpoint)
+        && headerDownloadAnchor.equals(that.headerDownloadAnchor);
   }
 
   @Override
   public int hashCode() {
     return Objects.hash(
-        pivotBlockHeader,
-        bodyCheckpoint,
-        headerDownloadAnchor,
-        headersDownloadComplete,
-        headerDownloadProgress);
+        pivotBlockHeader, bodyCheckpoint, headerDownloadAnchor, headersDownloadComplete);
   }
 }

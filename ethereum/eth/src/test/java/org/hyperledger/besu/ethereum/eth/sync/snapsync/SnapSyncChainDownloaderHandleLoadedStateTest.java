@@ -86,9 +86,6 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class SnapSyncChainDownloaderHandleLoadedStateTest {
 
-  // ── Threshold: use a small value so above/below tests need small block ranges ───────────────
-  private static final long THRESHOLD = 50L;
-
   // ── Block heights used across tests ──────────────────────────────────────────────────────────
   /** A block that will be stored in the blockchain (canonical). */
   private static final int CANONICAL_BLOCK = 200;
@@ -134,8 +131,7 @@ class SnapSyncChainDownloaderHandleLoadedStateTest {
     blockchain.storeBlockHeaders(
         chain.subList(1, CANONICAL_BLOCK + 1).stream().map(Block::getHeader).toList());
 
-    syncConfig =
-        SynchronizerConfiguration.builder().chainSyncContinuationThresholdBlocks(THRESHOLD).build();
+    syncConfig = SynchronizerConfiguration.builder().build();
 
     // Protocol schedule wiring for ScheduleBasedBlockHeaderFunctions (state deserialization)
     lenient().when(protocolSchedule.getByBlockHeader(any())).thenReturn(protocolSpec);
@@ -195,9 +191,6 @@ class SnapSyncChainDownloaderHandleLoadedStateTest {
     final ArgumentCaptor<ChainSyncState> captor = ArgumentCaptor.forClass(ChainSyncState.class);
     final BackwardHeaderDriver driver = mock(BackwardHeaderDriver.class);
     lenient().when(driver.getMatchedAncestor()).thenReturn(Optional.empty());
-    lenient()
-        .when(driver.getLowestImportedHeader())
-        .thenReturn(chain.get(NEW_PIVOT_HIGHER).getHeader());
 
     final Pipeline<Long> backwardPipeline = mock(Pipeline.class);
     when(pipelineFactory.createBackwardHeaderDownloadPipeline(captor.capture()))
@@ -381,78 +374,6 @@ class SnapSyncChainDownloaderHandleLoadedStateTest {
   }
 
   /**
-   * Case 4 – not canonical, headers in progress, downloaded blocks ≥ threshold. Expected: keep
-   * loaded state for this cycle; queue new pivot for the next cycle. Verified by checking Stage 1
-   * uses the LOADED state's pivot, not the new pivot.
-   */
-  @Test
-  void whenNotCanonical_headersInProgress_aboveThreshold_keepsLoadedStateForCurrentCycle()
-      throws Exception {
-    // Simulate progress: THRESHOLD+10 headers already downloaded
-    final BlockHeader progressHeader = chain.get((int) (OLD_PIVOT - THRESHOLD - 10)).getHeader();
-    // headersDownloaded = OLD_PIVOT - progress.getNumber() = THRESHOLD+10 >= THRESHOLD ✓
-
-    final BlockHeader oldPivotHeader = chain.get(OLD_PIVOT).getHeader();
-    final ChainSyncState previous =
-        ChainSyncState.initialSync(oldPivotHeader, chain.get(0).getHeader(), oldPivotHeader);
-    persistLoadedState(previous.withHeaderProgress(progressHeader));
-
-    // New pivot is NOT canonical
-    final BlockDataGenerator otherGen = new BlockDataGenerator(77);
-    final BlockHeader newNonCanonicalPivot =
-        otherGen.blockSequence(NEW_PIVOT_HIGHER + 1).get(NEW_PIVOT_HIGHER).getHeader();
-
-    final CountDownLatch latch = new CountDownLatch(1);
-    final ArgumentCaptor<ChainSyncState> captor = wireBackwardPipeline(latch);
-
-    final SnapSyncChainDownloader dl = downloader(newNonCanonicalPivot);
-    startAndTerminate(dl, latch);
-
-    // The FIRST Stage-1 call must use the OLD pivot (loaded state preserved)
-    final ChainSyncState firstComputed = captor.getAllValues().get(0);
-    assertThat(firstComputed.pivotBlockHeader())
-        .as("first Stage-1 cycle must use the loaded state's old pivot, not the new one")
-        .isEqualTo(oldPivotHeader);
-  }
-
-  /**
-   * Case 5 – not canonical, headers in progress, downloaded blocks {@literal <} threshold.
-   * Expected: discard partial work and restart Stage 1 with new pivot.
-   */
-  @Test
-  void whenNotCanonical_headersInProgress_belowThreshold_restartsWithNewPivot() throws Exception {
-    // Simulate tiny progress: only 5 headers downloaded, well below threshold
-    final BlockHeader progressHeader = chain.get(OLD_PIVOT - 5).getHeader();
-    // headersDownloaded = OLD_PIVOT - (OLD_PIVOT-5) = 5 < THRESHOLD ✓
-
-    final BlockHeader oldPivotHeader = chain.get(OLD_PIVOT).getHeader();
-    final ChainSyncState previous =
-        ChainSyncState.initialSync(oldPivotHeader, chain.get(0).getHeader(), oldPivotHeader);
-    persistLoadedState(previous.withHeaderProgress(progressHeader));
-
-    final BlockDataGenerator otherGen = new BlockDataGenerator(55);
-    final BlockHeader newNonCanonicalPivot =
-        otherGen.blockSequence(NEW_PIVOT_HIGHER + 1).get(NEW_PIVOT_HIGHER).getHeader();
-
-    final CountDownLatch latch = new CountDownLatch(1);
-    final ArgumentCaptor<ChainSyncState> captor = wireBackwardPipeline(latch);
-
-    final SnapSyncChainDownloader dl = downloader(newNonCanonicalPivot);
-    startAndTerminate(dl, latch);
-
-    final ChainSyncState computed = captor.getValue();
-    assertThat(computed.pivotBlockHeader())
-        .as("Stage 1 must use the new pivot after discarding partial work")
-        .isEqualTo(newNonCanonicalPivot);
-    assertThat(computed.headerDownloadAnchor())
-        .as("anchor must be preserved from the loaded state")
-        .isEqualTo(oldPivotHeader);
-    assertThat(computed.headerDownloadProgress())
-        .as("progress must be cleared on restart")
-        .isNull();
-  }
-
-  /**
    * Case 6 – not canonical, no header progress at all. Expected: restart Stage 1 with the new pivot
    * from scratch.
    */
@@ -481,8 +402,5 @@ class SnapSyncChainDownloaderHandleLoadedStateTest {
     assertThat(computed.headerDownloadAnchor())
         .as("anchor must be preserved from the loaded state")
         .isEqualTo(oldPivotHeader);
-    assertThat(computed.headerDownloadProgress())
-        .as("no progress to preserve — must be null")
-        .isNull();
   }
 }

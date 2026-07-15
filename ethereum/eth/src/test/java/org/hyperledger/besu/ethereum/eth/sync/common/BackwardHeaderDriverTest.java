@@ -101,23 +101,6 @@ public class BackwardHeaderDriverTest {
   }
 
   @Test
-  public void shouldTrackLowestImportedHeader() {
-    final BackwardHeaderDriver driver =
-        new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, anchorHeader, blockchain);
-
-    // Initially the lowest imported header is the pivot
-    assertThat(driver.getLowestImportedHeader()).isEqualTo(pivotHeader);
-
-    // After importing a batch, lowest should be the last header in the batch
-    driver.accept(getHeaders(99, 98, 97, 96));
-    assertThat(driver.getLowestImportedHeader()).isEqualTo(blocks.get(96).getHeader());
-
-    // After another batch, lowest should update again
-    driver.accept(getHeaders(95, 94, 93, 92));
-    assertThat(driver.getLowestImportedHeader()).isEqualTo(blocks.get(92).getHeader());
-  }
-
-  @Test
   public void shouldCompleteSuccessfullyWhenImportingToLowestHeader() {
     final BackwardHeaderDriver driver =
         new BackwardHeaderDriver(BATCH_SIZE, anchorHeader, pivotHeader, anchorHeader, blockchain);

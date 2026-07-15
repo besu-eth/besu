@@ -40,7 +40,6 @@ public class DynamicPivotBlockSelector {
   public static final BiConsumer<BlockHeader, Boolean> doNothingOnPivotChange = (___, __) -> {};
 
   private static final Logger LOG = LoggerFactory.getLogger(DynamicPivotBlockSelector.class);
-  private static final Duration CHECK_INTERVAL = Duration.ofMinutes(1);
 
   private final AtomicBoolean isTimeToCheckAgain = new AtomicBoolean(true);
 
@@ -48,6 +47,7 @@ public class DynamicPivotBlockSelector {
   private final PivotSyncActions syncActions;
   private final SnapSyncProcessState syncState;
   private final PivotUpdateListener pivotUpdateListener;
+  private final Duration checkInterval;
 
   private Optional<BlockHeader> lastPivotBlockFound = Optional.empty();
 
@@ -55,11 +55,13 @@ public class DynamicPivotBlockSelector {
       final EthContext ethContext,
       final PivotSyncActions fastSyncActions,
       final SnapSyncProcessState fastSyncState,
-      final PivotUpdateListener pivotUpdateListener) {
+      final PivotUpdateListener pivotUpdateListener,
+      final long checkIntervalMillis) {
     this.ethContext = ethContext;
     this.syncActions = fastSyncActions;
     this.syncState = fastSyncState;
     this.pivotUpdateListener = pivotUpdateListener;
+    this.checkInterval = Duration.ofMillis(checkIntervalMillis);
   }
 
   public void check(final BiConsumer<BlockHeader, Boolean> onNewPivotBlock) {
@@ -143,7 +145,7 @@ public class DynamicPivotBlockSelector {
                 LOG.debug("Is time to check the pivot again");
                 isTimeToCheckAgain.set(true);
               },
-              CHECK_INTERVAL);
+              checkInterval);
     } else {
       isTimeToCheckAgain.set(true);
     }

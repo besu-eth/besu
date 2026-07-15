@@ -36,7 +36,6 @@ public class SynchronizerConfiguration {
   public static final int DEFAULT_WORLD_STATE_MAX_REQUESTS_WITHOUT_PROGRESS = 1000;
   public static final long DEFAULT_WORLD_STATE_MIN_MILLIS_BEFORE_STALLING =
       TimeUnit.MINUTES.toMillis(5);
-  public static final long DEFAULT_CHAIN_SYNC_CONTINUATION_THRESHOLD_BLOCKS = 100_800L;
   public static final Range<Long> DEFAULT_BLOCK_PROPAGATION_RANGE = Range.closed(-10L, 30L);
   public static final long DEFAULT_DOWNLOADER_CHANGE_TARGET_THRESHOLD_BY_HEIGHT = 200L;
   public static final UInt256 DEFAULT_DOWNLOADER_CHANGE_TARGET_THRESHOLD_BY_TD =
@@ -91,7 +90,6 @@ public class SynchronizerConfiguration {
   private final int computationParallelism;
   private final int maxTrailingPeers;
   private final long worldStateMinMillisBeforeStalling;
-  private final long chainSyncContinuationThresholdBlocks;
   private final long forwardDownloadStepTimeoutMillis;
   private final long backwardHeadersDownloadStepTimeoutMillis;
   private final long bodiesDownloadStepTimeoutMillis;
@@ -110,7 +108,6 @@ public class SynchronizerConfiguration {
       final int worldStateRequestParallelism,
       final int worldStateMaxRequestsWithoutProgress,
       final long worldStateMinMillisBeforeStalling,
-      final long chainSyncContinuationThresholdBlocks,
       final int worldStateTaskCacheSize,
       final SnapSyncConfiguration snapSyncConfiguration,
       final Range<Long> blockPropagationRange,
@@ -140,7 +137,6 @@ public class SynchronizerConfiguration {
     this.worldStateRequestParallelism = worldStateRequestParallelism;
     this.worldStateMaxRequestsWithoutProgress = worldStateMaxRequestsWithoutProgress;
     this.worldStateMinMillisBeforeStalling = worldStateMinMillisBeforeStalling;
-    this.chainSyncContinuationThresholdBlocks = chainSyncContinuationThresholdBlocks;
     this.worldStateTaskCacheSize = worldStateTaskCacheSize;
     this.snapSyncConfiguration = snapSyncConfiguration;
     this.blockPropagationRange = blockPropagationRange;
@@ -280,10 +276,6 @@ public class SynchronizerConfiguration {
     return worldStateMinMillisBeforeStalling;
   }
 
-  public long getChainSyncContinuationThresholdBlocks() {
-    return chainSyncContinuationThresholdBlocks;
-  }
-
   public int getWorldStateTaskCacheSize() {
     return worldStateTaskCacheSize;
   }
@@ -346,8 +338,6 @@ public class SynchronizerConfiguration {
     private int worldStateMaxRequestsWithoutProgress =
         DEFAULT_WORLD_STATE_MAX_REQUESTS_WITHOUT_PROGRESS;
     private long worldStateMinMillisBeforeStalling = DEFAULT_WORLD_STATE_MIN_MILLIS_BEFORE_STALLING;
-    private long chainSyncContinuationThresholdBlocks =
-        DEFAULT_CHAIN_SYNC_CONTINUATION_THRESHOLD_BLOCKS;
     private int worldStateTaskCacheSize = DEFAULT_WORLD_STATE_TASK_CACHE_SIZE;
     private boolean snapSyncSavePreCheckpointHeadersOnlyEnabled = true;
     private boolean era1ImportPrepipelineEnabled = DEFAULT_ERA1_IMPORT_PREPIPELINE_ENABLED;
@@ -468,12 +458,6 @@ public class SynchronizerConfiguration {
       return this;
     }
 
-    public Builder chainSyncContinuationThresholdBlocks(
-        final long chainSyncContinuationThresholdBlocks) {
-      this.chainSyncContinuationThresholdBlocks = chainSyncContinuationThresholdBlocks;
-      return this;
-    }
-
     public Builder worldStateTaskCacheSize(final int worldStateTaskCacheSize) {
       this.worldStateTaskCacheSize = worldStateTaskCacheSize;
       return this;
@@ -531,7 +515,6 @@ public class SynchronizerConfiguration {
           worldStateRequestParallelism,
           worldStateMaxRequestsWithoutProgress,
           worldStateMinMillisBeforeStalling,
-          chainSyncContinuationThresholdBlocks,
           worldStateTaskCacheSize,
           snapSyncConfiguration,
           blockPropagationRange,

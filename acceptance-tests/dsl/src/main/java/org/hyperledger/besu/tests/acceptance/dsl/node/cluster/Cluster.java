@@ -230,4 +230,14 @@ public class Cluster implements AutoCloseable {
   public String getConsoleContents() {
     return besuNodeRunner.getConsoleContents();
   }
+
+  /**
+   * Returns the console output captured so far without stopping the capture, so callers can poll
+   * for a log line while the nodes keep running. Requires a prior {@link #startConsoleCapture()}.
+   *
+   * @return The console output captured so far since startConsoleCapture() was called.
+   */
+  public String peekConsoleContents() {
+    return besuNodeRunner.peekConsoleContents();
+  }
 }

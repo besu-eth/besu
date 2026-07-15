@@ -291,16 +291,6 @@ public class BackwardHeaderDriver implements Iterator<Long>, Consumer<List<Block
   }
 
   /**
-   * Returns the lowest header that has been imported so far (i.e. the header with the smallest
-   * block number that has been stored).
-   *
-   * @return the lowest imported header
-   */
-  public BlockHeader getLowestImportedHeader() {
-    return lowestImportedHeader;
-  }
-
-  /**
    * Returns the canonical ancestor found by recovery, if recovery fired. Empty on the happy path
    * (parent links to the original anchor as expected)
    *

@@ -38,7 +38,7 @@ import org.slf4j.LoggerFactory;
 public class ChainSyncStateStorage {
   private static final Logger LOG = LoggerFactory.getLogger(ChainSyncStateStorage.class);
   private static final String STATE_FILE_NAME = "chain-sync-state.rlp";
-  private static final byte FORMAT_VERSION = 5;
+  private static final byte FORMAT_VERSION = 6;
 
   private final File stateFile;
   private final File tempFile;
@@ -90,30 +90,17 @@ public class ChainSyncStateStorage {
         // Read header download anchor
         final BlockHeader headerDownloadAnchor = headerReader.apply(input);
 
-        // Read optional header download progress
-        BlockHeader headerDownloadProgress = null;
-        if (input.nextIsNull()) {
-          input.skipNext();
-        } else {
-          headerDownloadProgress = headerReader.apply(input);
-        }
-
         input.leaveList();
 
         LOG.debug(
-            "Loaded chain sync state: pivot={}, bodyCheckpoint={}, headerAnchor={}, headerProgress={}, headersComplete={}",
+            "Loaded chain sync state: pivot={}, bodyCheckpoint={}, headerAnchor={}, headersComplete={}",
             pivotBlockHeader.getNumber(),
             checkpointBlockHeader.getNumber(),
             headerDownloadAnchor.getNumber(),
-            headerDownloadProgress != null ? headerDownloadProgress.getNumber() : "none",
             headersDownloadComplete);
 
         return new ChainSyncState(
-            pivotBlockHeader,
-            checkpointBlockHeader,
-            headerDownloadAnchor,
-            headersDownloadComplete,
-            headerDownloadProgress);
+            pivotBlockHeader, checkpointBlockHeader, headerDownloadAnchor, headersDownloadComplete);
 
       } catch (final IOException e) {
         throw new IllegalStateException(
@@ -154,13 +141,6 @@ public class ChainSyncStateStorage {
         // Write header download anchor
         state.headerDownloadAnchor().writeTo(output);
 
-        // Write optional header download progress
-        if (state.headerDownloadProgress() != null) {
-          state.headerDownloadProgress().writeTo(output);
-        } else {
-          output.writeNull();
-        }
-
         output.endList();
 
         // Write to temp file
@@ -174,13 +154,10 @@ public class ChainSyncStateStorage {
             StandardCopyOption.REPLACE_EXISTING);
 
         LOG.debug(
-            "Stored chain sync state: pivot={}, bodyCheckpoint={}, headerAnchor={}, headerProgress={}, headersComplete={}",
+            "Stored chain sync state: pivot={}, bodyCheckpoint={}, headerAnchor={}, headersComplete={}",
             state.pivotBlockHeader().getNumber(),
             state.bodyCheckpoint().getNumber(),
             state.headerDownloadAnchor().getNumber(),
-            state.headerDownloadProgress() != null
-                ? state.headerDownloadProgress().getNumber()
-                : "none",
             state.headersDownloadComplete());
 
       } catch (final IOException e) {
