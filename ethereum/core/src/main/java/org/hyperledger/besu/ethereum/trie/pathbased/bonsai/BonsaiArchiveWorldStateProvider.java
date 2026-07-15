@@ -278,6 +278,10 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
 
       final PathBasedWorldStateUpdateAccumulator<?> diffBasedUpdater =
           (PathBasedWorldStateUpdateAccumulator<?>) mutableState.updater();
+      // Only the account(s) this proof needs a storage trie for must have their storage rolled;
+      // rolling every changed account's storage would read (then discard) the slots of the whole
+      // window. Null outside a proof so historical eth_call/eth_getBalance still roll full storage.
+      diffBasedUpdater.setArchiveProofStorageRollFilter(proofStorageRebuildAccounts.get());
       try {
         if (checkpointBlock.getNumber() < targetHeader.getNumber()) {
           // Roll forward: checkpoint is before target; apply each block's trie log in sequence.

@@ -77,6 +77,15 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
   private final Map<UInt256, Hash> storageKeyHashLookup = new ConcurrentHashMap<>();
   protected boolean isAccumulatorStateChanged;
 
+  // When non-null, rollForward/rollBack apply storage changes only for these accounts. Archive proof
+  // rolling sets it so that rolling to the target block does not read (and then discard) the storage
+  // slots of every account changed in the window — only the account(s) the proof actually needs its
+  // storage trie for. Every storage change in a Bonsai trie log is accompanied by an account change
+  // carrying the new storage root, so the account trie stays correct even when a storage roll is
+  // skipped. Null (the default) rolls all storage: normal block/reorg processing and full historical
+  // state materialisation (e.g. eth_call/eth_getBalance at an old block).
+  private Set<Address> archiveProofStorageRollFilter;
+
   public PathBasedWorldStateUpdateAccumulator(
       final PathBasedWorldView world,
       final Consumer<PathBasedValue<ACCOUNT>> accountPreloader,
@@ -625,6 +634,20 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     return wrappedWorldView().getWorldStateStorage();
   }
 
+  /**
+   * Restricts which accounts' storage changes {@link #rollForward}/{@link #rollBack} apply. See
+   * {@link #archiveProofStorageRollFilter}. Pass {@code null} to roll all storage (the default).
+   *
+   * @param accounts the only accounts whose storage should be rolled, or {@code null} for all.
+   */
+  public void setArchiveProofStorageRollFilter(final Set<Address> accounts) {
+    this.archiveProofStorageRollFilter = accounts;
+  }
+
+  private boolean shouldRollStorageFor(final Address address) {
+    return archiveProofStorageRollFilter == null || archiveProofStorageRollFilter.contains(address);
+  }
+
   public void rollForward(final TrieLog layer) {
     layer
         .getAccountChanges()
@@ -638,11 +661,15 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     layer
         .getStorageChanges()
         .forEach(
-            (address, storage) ->
-                storage.forEach(
-                    (storageSlotKey, value) ->
-                        rollStorageChange(
-                            address, storageSlotKey, value.getPrior(), value.getUpdated())));
+            (address, storage) -> {
+              if (!shouldRollStorageFor(address)) {
+                return;
+              }
+              storage.forEach(
+                  (storageSlotKey, value) ->
+                      rollStorageChange(
+                          address, storageSlotKey, value.getPrior(), value.getUpdated()));
+            });
   }
 
   public void rollBack(final TrieLog layer) {
@@ -658,11 +685,15 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     layer
         .getStorageChanges()
         .forEach(
-            (address, storage) ->
-                storage.forEach(
-                    (storageSlotKey, value) ->
-                        rollStorageChange(
-                            address, storageSlotKey, value.getUpdated(), value.getPrior())));
+            (address, storage) -> {
+              if (!shouldRollStorageFor(address)) {
+                return;
+              }
+              storage.forEach(
+                  (storageSlotKey, value) ->
+                      rollStorageChange(
+                          address, storageSlotKey, value.getUpdated(), value.getPrior()));
+            });
   }
 
   private void rollAccountChange(
