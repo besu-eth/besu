@@ -56,6 +56,7 @@
 - Besu now falls back to Proof of Stake when the genesis file declares no consensus mechanism (e.g. an empty `"config": {}`). [#10266](https://github.com/besu-eth/besu/pull/10266)
 - Add `HealthCheckService` plugin API enabling custom health check implementations. The plugin-based `/readiness` response body is simplified to `{"status":"UP"|"DOWN"}` and no longer includes the previous `{peers, sync}` detail. [#10167](https://github.com/besu-eth/besu/pull/10167)
 - Added opt-in per-transaction gas limit override (`pertxgaslimit` under `config.qbft` / `config.ibft2`) for QBFT and IBFT2 private networks.  Replaces the previous QBFT-only `pertxgaslimitcap` and supports fork transitions via `BftFork`. [#10722](https://github.com/besu-eth/besu/pull/10722)
+- Added `--p2p-tx-feecap` to cap the maximum fee of transactions received from peers over P2P, mirroring `--rpc-tx-feecap` (which applies to locally-submitted transactions). Defaults to 1 ETH like `--rpc-tx-feecap`. A value of 0 caps fees to 0, rejecting any transaction with a positive gas price.
 
 ## 26.6.1
 
