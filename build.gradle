@@ -830,6 +830,7 @@ subprojects {
         if (asyncProfiler == null) profilers = []
         profilers.add('gc')
       }
+      profilers.add('org.hyperledger.besu.ethereum.vm.operations.GasProfiler')
       duplicateClassesStrategy = DuplicatesStrategy.INCLUDE
     }
 
