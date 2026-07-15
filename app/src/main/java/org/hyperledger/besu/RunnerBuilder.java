@@ -169,8 +169,8 @@ public class RunnerBuilder {
   private String p2pAdvertisedHost;
   private String p2pListenInterface = NetworkUtility.INADDR_ANY;
   private int p2pListenPort;
-  private int p2pDiscoveryListenPort;
-  private int p2pDiscoveryListenPortIpv6;
+  private Integer p2pDiscoveryListenPort;
+  private Integer p2pDiscoveryListenPortIpv6;
   private Optional<String> p2pAdvertisedHostIpv6 = Optional.empty();
   private Optional<String> p2pListenInterfaceIpv6 = Optional.empty();
   private int p2pListenPortIpv6 = EnodeURLImpl.DEFAULT_LISTENING_PORT_IPV6;
@@ -313,7 +313,7 @@ public class RunnerBuilder {
    * @param p2pDiscoveryListenPort the UDP discovery port
    * @return the runner builder
    */
-  public RunnerBuilder p2pDiscoveryListenPort(final int p2pDiscoveryListenPort) {
+  public RunnerBuilder p2pDiscoveryListenPort(final Integer p2pDiscoveryListenPort) {
     this.p2pDiscoveryListenPort = p2pDiscoveryListenPort;
     return this;
   }
@@ -324,7 +324,7 @@ public class RunnerBuilder {
    * @param p2pDiscoveryListenPortIpv6 the IPv6 UDP discovery port
    * @return the runner builder
    */
-  public RunnerBuilder p2pDiscoveryListenPortIpv6(final int p2pDiscoveryListenPortIpv6) {
+  public RunnerBuilder p2pDiscoveryListenPortIpv6(final Integer p2pDiscoveryListenPortIpv6) {
     this.p2pDiscoveryListenPortIpv6 = p2pDiscoveryListenPortIpv6;
     return this;
   }
@@ -686,7 +686,7 @@ public class RunnerBuilder {
     Preconditions.checkNotNull(besuController);
 
     final int effectiveDiscoveryPort =
-        p2pDiscoveryListenPort > 0 ? p2pDiscoveryListenPort : p2pListenPort;
+        p2pDiscoveryListenPort != null ? p2pDiscoveryListenPort : p2pListenPort;
     final DiscoveryConfiguration discoveryConfiguration =
         DiscoveryConfiguration.create()
             .setBindHost(p2pListenInterface)
@@ -695,7 +695,7 @@ public class RunnerBuilder {
     p2pListenInterfaceIpv6.ifPresent(
         iface -> {
           final int effectiveDiscoveryPortIpv6 =
-              p2pDiscoveryListenPortIpv6 > 0 ? p2pDiscoveryListenPortIpv6 : p2pListenPortIpv6;
+              p2pDiscoveryListenPortIpv6 != null ? p2pDiscoveryListenPortIpv6 : p2pListenPortIpv6;
           discoveryConfiguration.setBindHostIpv6(p2pListenInterfaceIpv6);
           discoveryConfiguration.setBindPortIpv6(effectiveDiscoveryPortIpv6);
           discoveryConfiguration.setAdvertisedHostIpv6(p2pAdvertisedHostIpv6);

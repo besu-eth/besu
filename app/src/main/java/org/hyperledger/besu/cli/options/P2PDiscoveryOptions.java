@@ -126,7 +126,8 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
   @CommandLine.Option(
       names = {"--p2p-discovery-port"},
       paramLabel = DefaultCommandValues.MANDATORY_PORT_FORMAT_HELP,
-      description = "UDP port for devp2p peer discovery. Defaults to --p2p-port when not set.")
+      description =
+          "UDP port for devp2p peer discovery. Defaults to --p2p-port when not set. Use 0 for ephemeral port allocation.")
   public Integer p2pDiscoveryPort = null;
 
   // ===================== IPv6 Network Options =====================
@@ -160,7 +161,7 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
       names = {"--p2p-discovery-port-ipv6"},
       paramLabel = DefaultCommandValues.MANDATORY_PORT_FORMAT_HELP,
       description =
-          "IPv6 UDP port for devp2p peer discovery. Defaults to --p2p-port-ipv6 when not set.")
+          "IPv6 UDP port for devp2p peer discovery. Defaults to --p2p-port-ipv6 when not set. Use 0 for ephemeral port allocation.")
   public Integer p2pDiscoveryPortIpv6 = null;
 
   // ===================== IP Version Preference =====================
