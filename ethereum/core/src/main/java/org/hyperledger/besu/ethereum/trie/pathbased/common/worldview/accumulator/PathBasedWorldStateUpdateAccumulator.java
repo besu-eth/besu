@@ -648,6 +648,19 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     return archiveProofStorageRollFilter == null || archiveProofStorageRollFilter.contains(address);
   }
 
+  /**
+   * True while rolling a world state to serve an archive proof (signalled by a non-null {@link
+   * #archiveProofStorageRollFilter}). In this mode the roll trusts the trie log: at an account's or
+   * slot's first touch during a contiguous roll from a checkpoint, the change's "from" value already
+   * equals the checkpoint value, so it can seed the accumulator directly instead of reading it back
+   * from storage. This eliminates the first-touch flat-DB {@code seekForPrev} that otherwise
+   * dominates proof latency. Never enabled for normal block/reorg processing or for full historical
+   * state materialisation (eth_call/eth_getBalance), which keep the read-and-validate path.
+   */
+  private boolean isArchiveProofRoll() {
+    return archiveProofStorageRollFilter != null;
+  }
+
   public void rollForward(final TrieLog layer) {
     layer
         .getAccountChanges()
@@ -705,6 +718,13 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
       return;
     }
     PathBasedValue<ACCOUNT> accountValue = accountsToUpdate.get(address);
+    if (accountValue == null && isArchiveProofRoll() && expectedValue != null) {
+      // Archive proof roll: at first touch expectedValue is the checkpoint account value, so seed
+      // prior from the trie log instead of a storage read. The assertion below then trivially holds.
+      final ACCOUNT seeded = createAccount(this, address, expectedValue, true);
+      accountValue = new PathBasedValue<>(seeded, createAccount(this, address, expectedValue, true));
+      accountsToUpdate.put(address, accountValue);
+    }
     if (accountValue == null) {
       accountValue = loadAccountFromParent(address, accountValue);
     }
@@ -840,6 +860,20 @@ public abstract class PathBasedWorldStateUpdateAccumulator<ACCOUNT extends PathB
     }
     final Map<StorageSlotKey, PathBasedValue<UInt256>> storageMap = storageToUpdate.get(address);
     PathBasedValue<UInt256> slotValue = storageMap == null ? null : storageMap.get(storageSlotKey);
+    if (slotValue == null
+        && isArchiveProofRoll()
+        && expectedValue != null
+        && !expectedValue.isZero()) {
+      // Archive proof roll: at first touch expectedValue is the checkpoint slot value, so seed prior
+      // from the trie log instead of a flat-DB read. A zero/absent expectedValue falls through to
+      // the create path below, which needs no read either.
+      slotValue = new PathBasedValue<>(expectedValue, expectedValue);
+      storageToUpdate
+          .computeIfAbsent(
+              address,
+              k -> new StorageConsumingMap<>(address, new ConcurrentHashMap<>(), storagePreloader))
+          .put(storageSlotKey, slotValue);
+    }
     if (slotValue == null) {
       final Optional<UInt256> storageValue =
           wrappedWorldView().getStorageValueByStorageSlotKey(address, storageSlotKey);
