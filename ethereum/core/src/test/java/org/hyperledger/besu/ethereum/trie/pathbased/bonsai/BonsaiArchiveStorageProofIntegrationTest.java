@@ -175,6 +175,32 @@ class BonsaiArchiveStorageProofIntegrationTest {
     assertThat(proof.get().getStorageProof(absentSlot)).isNotEmpty();
   }
 
+  @Test
+  void accountOnlyProof_skipsStorageTrieRebuild_butKeepsCorrectStorageRoot() throws Exception {
+    final BonsaiArchiveWorldStateProvider archiveProvider = buildMigratedArchive();
+    final BlockHeader targetHeader = blockchain.getBlockHeader(TARGET_BLOCK).orElseThrow();
+
+    // Account-only proof (no storage keys): the roll's selective reset skips rebuilding ACCOUNT's
+    // storage trie during persist(), even though its storage churns every block in the rolled
+    // window. The account leaf must still carry the correct target-block storage root.
+    final Optional<WorldStateProof> accountOnly =
+        archiveProvider.getAccountProof(targetHeader, ACCOUNT, List.of(), Function.identity());
+    // Storage proof: forces ACCOUNT's storage trie to be fully rebuilt from the checkpoint nodes.
+    final Optional<WorldStateProof> withStorage =
+        archiveProvider.getAccountProof(
+            targetHeader, ACCOUNT, List.of(UInt256.ONE), Function.identity());
+
+    assertThat(accountOnly).isPresent();
+    assertThat(withStorage).isPresent();
+    // Skipping the storage-trie rebuild must leave the account's storage root identical to the
+    // fully-rebuilt path — otherwise the account leaf, and hence the overall state root, would
+    // diverge from the true block state and the proof would be invalid.
+    final var rebuiltStorageRoot =
+        withStorage.get().getStateTrieAccountValue().orElseThrow().getStorageRoot();
+    assertThat(accountOnly.get().getStateTrieAccountValue().orElseThrow().getStorageRoot())
+        .isEqualTo(rebuiltStorageRoot);
+  }
+
   private BonsaiArchiveWorldStateProvider buildMigratedArchive() throws Exception {
     final BlockDataGenerator blockGen = new BlockDataGenerator();
     final Block genesis = blockGen.genesisBlock();

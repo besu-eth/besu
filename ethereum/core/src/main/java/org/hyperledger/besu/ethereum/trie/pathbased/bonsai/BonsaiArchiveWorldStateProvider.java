@@ -50,6 +50,7 @@ import org.hyperledger.besu.plugin.services.worldstate.MutableWorldState;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
@@ -69,6 +70,12 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
   private final boolean stateProofsEnabled;
   private final long trieNodeCheckpointInterval;
   private volatile LongSupplier archiveMigrationProgressSupplier = () -> -1L;
+
+  // Set for the duration of an eth_getProof: the accounts whose storage tries persist() must
+  // materialise (the proved account when storage keys were requested; empty for an account-only
+  // proof). Null when no proof is in flight — the rolled world state is then fully materialised, as
+  // required by historical eth_call/eth_getBalance/traces that also roll via this provider.
+  private static final ThreadLocal<Set<Address>> proofStorageRebuildAccounts = new ThreadLocal<>();
 
   public BonsaiArchiveWorldStateProvider(
       final BonsaiWorldStateKeyValueStorage worldStateKeyValueStorage,
@@ -166,9 +173,20 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
     // getNearestBefore there opens and closes its own RocksDB iterator (a superversion pin plus SST
     // metadata snapshot per call), which dominates proof latency on busy windows. Opening the scope
     // here on the shared archive storage makes the nested scope in super.getAccountProof a no-op.
+    //
+    // Record which storage tries persist() actually needs to rebuild for this proof: only the
+    // proved account, and only when storage keys were requested (an account-only proof needs no
+    // storage trie at all). The roll's resetStorageRootsToCheckpointForArchiveProof then skips
+    // rebuilding every other changed account's storage trie — the dominant persist() cost on busy
+    // windows. Cleared in the finally so a later non-proof roll on this (pooled) thread rebuilds
+    // fully.
+    proofStorageRebuildAccounts.set(
+        accountStorageKeys.isEmpty() ? Set.of() : Set.of(accountAddress));
     try (var seekScope = archiveReadStorage.getComposedWorldStateStorage().openNearestSeekScope();
         var ignored = BonsaiArchiveReadContext.open()) {
       return super.getAccountProof(blockHeader, accountAddress, accountStorageKeys, mapper);
+    } finally {
+      proofStorageRebuildAccounts.remove();
     }
   }
 
@@ -320,7 +338,10 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         // the storage trie from the checkpoint's archived nodes and derives the target root
         // from the slot diffs in storagesToUpdate.
         if (diffBasedUpdater instanceof BonsaiWorldStateUpdateAccumulator bonsaiUpdater) {
-          bonsaiUpdater.resetStorageRootsToCheckpointForArchiveProof();
+          // proofStorageRebuildAccounts is null outside an eth_getProof, which rebuilds every
+          // storage trie (full materialisation for historical eth_call/eth_getBalance/traces).
+          bonsaiUpdater.resetStorageRootsToCheckpointForArchiveProof(
+              proofStorageRebuildAccounts.get());
         }
         diffBasedUpdater.commit();
 

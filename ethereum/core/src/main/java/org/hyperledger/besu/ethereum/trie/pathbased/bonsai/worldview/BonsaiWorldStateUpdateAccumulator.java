@@ -28,6 +28,9 @@ import org.hyperledger.besu.ethereum.trie.pathbased.common.worldview.accumulator
 import org.hyperledger.besu.evm.internal.EvmConfiguration;
 import org.hyperledger.besu.evm.worldstate.UpdateTrackingAccount;
 
+import java.util.ArrayList;
+import java.util.Set;
+
 public class BonsaiWorldStateUpdateAccumulator
     extends PathBasedWorldStateUpdateAccumulator<BonsaiAccount> {
   private final CodeCache codeCache;
@@ -57,24 +60,47 @@ public class BonsaiWorldStateUpdateAccumulator
   }
 
   /**
-   * For archive proof rolling: after rolling back N blocks, each account with storage changes has
-   * its storageRoot at the target block's value (e.g. block 5). But persist() needs to start the
-   * storage trie from a root whose nodes ARE in the archive CF — i.e. the checkpoint root (block
-   * 99). Reset storageRoot to the checkpoint value (getPrior().storageRoot) so persist() uses the
-   * checkpoint's trie as the base and derives the target root from the slot diffs.
+   * For archive proof rolling: prepare the rolled accumulator for a {@code persist()} that only
+   * materialises the storage tries the proof actually needs.
+   *
+   * <p>After rolling from the checkpoint to the target block, every account with storage changes
+   * carries its target-block storage root, and its slot diffs are queued in {@code
+   * storageToUpdate}. A full persist would rebuild the storage trie for <em>every</em> such account
+   * — the dominant cost of an archive proof on a busy window — even though a proof only needs the
+   * storage trie of the account(s) it is proving.
+   *
+   * <p>For each account in {@code accountsToRebuild}: reset its storage root to the checkpoint value
+   * ({@code getPrior().storageRoot}) so persist() starts from a root whose nodes ARE in the archive
+   * CF and re-derives the target root from the slot diffs, materialising the storage-trie nodes the
+   * storage proof will traverse.
+   *
+   * <p>For every other account (a plain update): drop its slot diffs so persist() does no
+   * storage-trie work for it. The account keeps its already-rolled target storage root, which is all
+   * the account trie needs, so the computed state root still matches the target block. Created,
+   * deleted and self-destruct-cleared accounts are left untouched for normal processing.
+   *
+   * @param accountsToRebuild the accounts whose storage tries must be materialised (typically just
+   *     the account being proved, when storage keys were requested). Pass {@code null} to rebuild
+   *     <em>all</em> storage tries — required when the rolled world state must be fully materialised
+   *     (e.g. serving a historical {@code eth_call}/{@code eth_getBalance}, not a proof).
    */
-  public void resetStorageRootsToCheckpointForArchiveProof() {
-    getStorageToUpdate()
-        .keySet()
-        .forEach(
-            address -> {
-              final PathBasedValue<BonsaiAccount> accountValue = getAccountsToUpdate().get(address);
-              if (accountValue != null
-                  && accountValue.getUpdated() != null
-                  && accountValue.getPrior() != null) {
-                accountValue.getUpdated().setStorageRoot(accountValue.getPrior().getStorageRoot());
-              }
-            });
+  public void resetStorageRootsToCheckpointForArchiveProof(final Set<Address> accountsToRebuild) {
+    for (final Address address : new ArrayList<>(getStorageToUpdate().keySet())) {
+      final PathBasedValue<BonsaiAccount> accountValue = getAccountsToUpdate().get(address);
+      if (accountValue == null
+          || accountValue.getUpdated() == null
+          || accountValue.getPrior() == null) {
+        // Created (prior == null) or deleted (updated == null) account: leave for normal
+        // processing to preserve creation / self-destruct semantics.
+        continue;
+      }
+      if (accountsToRebuild == null || accountsToRebuild.contains(address)) {
+        accountValue.getUpdated().setStorageRoot(accountValue.getPrior().getStorageRoot());
+      } else if (!getStorageToClear().contains(address)) {
+        // Plain storage update not needed by this proof: skip its storage-trie rebuild entirely.
+        getStorageToUpdate().remove(address);
+      }
+    }
   }
 
   @Override
