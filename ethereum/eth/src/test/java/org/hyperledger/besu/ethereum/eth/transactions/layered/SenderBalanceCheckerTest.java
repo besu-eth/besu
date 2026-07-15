@@ -19,12 +19,15 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import org.hyperledger.besu.datatypes.Address;
 import org.hyperledger.besu.datatypes.TransactionType;
 import org.hyperledger.besu.datatypes.Wei;
 import org.hyperledger.besu.ethereum.ProtocolContext;
 import org.hyperledger.besu.ethereum.chain.MutableBlockchain;
 import org.hyperledger.besu.ethereum.core.BlockHeader;
 import org.hyperledger.besu.ethereum.core.BlockHeaderTestFixture;
+import org.hyperledger.besu.ethereum.core.Transaction;
+import org.hyperledger.besu.ethereum.core.TransactionTestFixture;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSchedule;
 import org.hyperledger.besu.ethereum.mainnet.ProtocolSpec;
 import org.hyperledger.besu.ethereum.worldstate.WorldStateArchive;
@@ -65,6 +68,18 @@ public class SenderBalanceCheckerTest extends BaseTransactionPoolTest {
     final Account account = mock(Account.class);
     when(account.getBalance()).thenReturn(balance);
     when(worldState.get(SENDER1)).thenReturn(account);
+  }
+
+  // createTransaction sets the transaction value to the nonce, so for non-zero nonces a truly
+  // zero upfront cost transaction must be built explicitly
+  private Transaction createZeroCostTransaction(final long nonce) {
+    return new TransactionTestFixture()
+        .to(Optional.of(Address.fromHexString("0x634316eA0EE79c701c6F67C53A4C54cBAfd2316d")))
+        .value(Wei.ZERO)
+        .nonce(nonce)
+        .type(TransactionType.FRONTIER)
+        .gasPrice(Wei.ZERO)
+        .createTransaction(KEYS1);
   }
 
   @Test
@@ -111,5 +126,33 @@ public class SenderBalanceCheckerTest extends BaseTransactionPoolTest {
         .isTrue();
     assertThat(balanceChecker.hasEnoughBalanceFor(createRemotePendingTransaction(payingTx1)))
         .isFalse();
+  }
+
+  @Test
+  public void zeroCostTransactionIsAcceptedAfterPayingTransactionDepletesCachedBalance() {
+    final var payingTx = createTransaction(TransactionType.FRONTIER, 0, Wei.of(10), 0, null, KEYS1);
+    final var zeroCostTx = createZeroCostTransaction(1);
+    // exactly enough balance for the paying transaction, so the cached balance is depleted to zero
+    setSenderBalance(payingTx.getUpfrontCost(0L));
+
+    assertThat(balanceChecker.hasEnoughBalanceFor(createRemotePendingTransaction(payingTx)))
+        .isTrue();
+    // the depleted cached balance is zero, which still covers a zero upfront cost transaction
+    assertThat(balanceChecker.hasEnoughBalanceFor(createRemotePendingTransaction(zeroCostTx)))
+        .isTrue();
+  }
+
+  @Test
+  public void zeroCostTransactionIsAcceptedAfterRejectedTransactionZeroesCachedBalance() {
+    final var tooExpensiveTx =
+        createTransaction(TransactionType.FRONTIER, 0, Wei.of(10), 0, null, KEYS1);
+    final var zeroCostTx = createZeroCostTransaction(1);
+    // not enough balance for the paying transaction: the rejection sets the cached balance to zero
+    setSenderBalance(Wei.ONE);
+
+    assertThat(balanceChecker.hasEnoughBalanceFor(createRemotePendingTransaction(tooExpensiveTx)))
+        .isFalse();
+    assertThat(balanceChecker.hasEnoughBalanceFor(createRemotePendingTransaction(zeroCostTx)))
+        .isTrue();
   }
 }
