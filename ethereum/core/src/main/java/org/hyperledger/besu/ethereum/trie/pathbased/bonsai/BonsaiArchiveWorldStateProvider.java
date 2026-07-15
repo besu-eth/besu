@@ -282,6 +282,11 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
       // rolling every changed account's storage would read (then discard) the slots of the whole
       // window. Null outside a proof so historical eth_call/eth_getBalance still roll full storage.
       diffBasedUpdater.setArchiveProofStorageRollFilter(proofStorageRebuildAccounts.get());
+      // Timing breakdown for the proof roll (DEBUG-only diagnostics): time spent loading and
+      // deserializing each block's trie log vs. applying it to the accumulator vs. persist().
+      long trieLogLoadNanos = 0L;
+      long applyNanos = 0L;
+      int rollSteps = 0;
       try {
         if (checkpointBlock.getNumber() < targetHeader.getNumber()) {
           // Roll forward: checkpoint is before target; apply each block's trie log in sequence.
@@ -295,11 +300,17 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
                     .orElseThrow(() -> new MerkleTrieException("missing block header at " + n))
                     .getBlockHash();
             LOG.debug("Roll forward {}", blockHash);
-            diffBasedUpdater.rollForward(
+            final long loadStart = System.nanoTime();
+            final TrieLog trieLog =
                 trieLogManager
                     .getTrieLogLayer(blockHash)
                     .orElseThrow(
-                        () -> new MerkleTrieException("missing trie log for " + blockHash)));
+                        () -> new MerkleTrieException("missing trie log for " + blockHash));
+            final long applyStart = System.nanoTime();
+            diffBasedUpdater.rollForward(trieLog);
+            trieLogLoadNanos += applyStart - loadStart;
+            applyNanos += System.nanoTime() - applyStart;
+            rollSteps++;
           }
         } else {
           // Roll backward: checkpoint is after target; existing path.
@@ -307,6 +318,7 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
               blockchain.getBlockHeaderSafe(mutableState.blockHash()).map(BlockHeader.class::cast);
 
           final List<TrieLog> rollBacks = new ArrayList<>();
+          final long loadStart = System.nanoTime();
           if (maybePersistedHeader.isEmpty()) {
             trieLogManager.getTrieLogLayer(mutableState.blockHash()).ifPresent(rollBacks::add);
           } else {
@@ -330,10 +342,14 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
               persistedBlockHash = persistedHeader.getBlockHash();
             }
           }
+          final long applyStart = System.nanoTime();
           for (final TrieLog rollBack : rollBacks) {
             LOG.debug("Attempting rollback of {}", rollBack.getBlockHash());
             diffBasedUpdater.rollBack(rollBack);
           }
+          trieLogLoadNanos += applyStart - loadStart;
+          applyNanos += System.nanoTime() - applyStart;
+          rollSteps += rollBacks.size();
         }
 
         // After rolling in either direction the accumulator's updated.storageRoot is the
@@ -349,7 +365,17 @@ public class BonsaiArchiveWorldStateProvider extends BonsaiWorldStateProvider {
         }
         diffBasedUpdater.commit();
 
+        final long persistStart = System.nanoTime();
         mutableState.persist(targetHeader);
+        final long persistNanos = System.nanoTime() - persistStart;
+
+        LOG.debug(
+            "Archive proof roll timing block {}: steps={} trieLogLoad={}ms apply={}ms persist={}ms",
+            targetHeader.getNumber(),
+            rollSteps,
+            trieLogLoadNanos / 1_000_000L,
+            applyNanos / 1_000_000L,
+            persistNanos / 1_000_000L);
 
         return Optional.of(mutableState);
       } catch (final MerkleTrieException re) {
