@@ -33,6 +33,7 @@ public record P2PDiscoveryConfiguration(
     Optional<String> p2pHostIpv6,
     Optional<String> p2pInterfaceIpv6,
     Integer p2pPortIpv6,
+    Integer p2pDiscoveryPortIpv6,
     Integer maxPeers,
     Boolean isLimitRemoteWireConnectionsEnabled,
     Percentage maxRemoteConnectionsPercentage,

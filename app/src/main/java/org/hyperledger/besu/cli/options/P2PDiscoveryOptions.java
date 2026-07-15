@@ -155,6 +155,14 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
           "Port on which to listen for IPv6 P2P communication (default: ${DEFAULT-VALUE})")
   public Integer p2pPortIpv6 = EnodeURLImpl.DEFAULT_LISTENING_PORT_IPV6;
 
+  /** The IPv6 UDP port used for devp2p peer discovery. Defaults to --p2p-port-ipv6 when not set. */
+  @CommandLine.Option(
+      names = {"--p2p-discovery-port-ipv6"},
+      paramLabel = DefaultCommandValues.MANDATORY_PORT_FORMAT_HELP,
+      description =
+          "IPv6 UDP port for devp2p peer discovery. Defaults to --p2p-port-ipv6 when not set.")
+  public Integer p2pDiscoveryPortIpv6 = null;
+
   // ===================== IP Version Preference =====================
 
   /**
@@ -285,6 +293,7 @@ public class P2PDiscoveryOptions implements CLIOptions<P2PDiscoveryConfiguration
         Optional.ofNullable(p2pHostIpv6),
         Optional.ofNullable(p2pInterfaceIpv6),
         p2pPortIpv6,
+        p2pDiscoveryPortIpv6 != null ? p2pDiscoveryPortIpv6 : p2pPortIpv6,
         maxPeers,
         isLimitRemoteWireConnectionsEnabled,
         maxRemoteConnectionsPercentage,

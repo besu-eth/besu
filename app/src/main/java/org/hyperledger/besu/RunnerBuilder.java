@@ -170,6 +170,7 @@ public class RunnerBuilder {
   private String p2pListenInterface = NetworkUtility.INADDR_ANY;
   private int p2pListenPort;
   private int p2pDiscoveryListenPort;
+  private int p2pDiscoveryListenPortIpv6;
   private Optional<String> p2pAdvertisedHostIpv6 = Optional.empty();
   private Optional<String> p2pListenInterfaceIpv6 = Optional.empty();
   private int p2pListenPortIpv6 = EnodeURLImpl.DEFAULT_LISTENING_PORT_IPV6;
@@ -314,6 +315,17 @@ public class RunnerBuilder {
    */
   public RunnerBuilder p2pDiscoveryListenPort(final int p2pDiscoveryListenPort) {
     this.p2pDiscoveryListenPort = p2pDiscoveryListenPort;
+    return this;
+  }
+
+  /**
+   * Add IPv6 UDP discovery listen port. Defaults to p2pListenPortIpv6 when not set.
+   *
+   * @param p2pDiscoveryListenPortIpv6 the IPv6 UDP discovery port
+   * @return the runner builder
+   */
+  public RunnerBuilder p2pDiscoveryListenPortIpv6(final int p2pDiscoveryListenPortIpv6) {
+    this.p2pDiscoveryListenPortIpv6 = p2pDiscoveryListenPortIpv6;
     return this;
   }
 
@@ -682,8 +694,10 @@ public class RunnerBuilder {
             .setAdvertisedHost(p2pAdvertisedHost);
     p2pListenInterfaceIpv6.ifPresent(
         iface -> {
+          final int effectiveDiscoveryPortIpv6 =
+              p2pDiscoveryListenPortIpv6 > 0 ? p2pDiscoveryListenPortIpv6 : p2pListenPortIpv6;
           discoveryConfiguration.setBindHostIpv6(p2pListenInterfaceIpv6);
-          discoveryConfiguration.setBindPortIpv6(p2pListenPortIpv6);
+          discoveryConfiguration.setBindPortIpv6(effectiveDiscoveryPortIpv6);
           discoveryConfiguration.setAdvertisedHostIpv6(p2pAdvertisedHostIpv6);
         });
     discoveryConfiguration.setPreferIpv6Outbound(preferIpv6Outbound);
