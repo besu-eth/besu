@@ -2975,7 +2975,7 @@ public class BesuCommand implements DefaultCommandValues, Runnable {
         .setHistoryExpiryPruneEnabled(getDataStorageConfiguration().getHistoryExpiryPruneEnabled())
         .setBlobDBSettings(rocksDBPlugin.getBlobDBSettings())
         .setRocksDbMaxOpenFiles(
-            rocksDBPlugin.getResolvedMaxOpenFiles(), !rocksDBPlugin.isMaxOpenFilesExplicitlySet());
+            rocksDBPlugin.getResolvedMaxOpenFiles(), rocksDBPlugin.isMaxOpenFilesExplicitlySet());
 
     return builder.build();
   }

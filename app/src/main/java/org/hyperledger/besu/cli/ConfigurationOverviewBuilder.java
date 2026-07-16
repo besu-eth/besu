@@ -79,7 +79,7 @@ public class ConfigurationOverviewBuilder {
   private Integer maxBlobsPerTransaction;
   private Integer maxBlobsPerBlock;
   private Integer rocksDbMaxOpenFiles;
-  private boolean rocksDbMaxOpenFilesDerived;
+  private boolean rocksDbMaxOpenFilesExplicitlySet;
   private static final String SNAP_SYNC_MODE = "SNAP";
 
   /**
@@ -439,16 +439,16 @@ public class ConfigurationOverviewBuilder {
   }
 
   /**
-   * Sets the RocksDB max open files value and whether it was derived or explicitly set.
+   * Sets the RocksDB max open files value and whether it was explicitly set via CLI.
    *
    * @param maxOpenFiles the max open files value
-   * @param derived true if the value was derived from available memory, false if explicitly set
+   * @param explicitlySet true if the value was set via CLI, false if derived from available memory
    * @return the builder
    */
   public ConfigurationOverviewBuilder setRocksDbMaxOpenFiles(
-      final int maxOpenFiles, final boolean derived) {
+      final int maxOpenFiles, final boolean explicitlySet) {
     this.rocksDbMaxOpenFiles = maxOpenFiles;
-    this.rocksDbMaxOpenFilesDerived = derived;
+    this.rocksDbMaxOpenFilesExplicitlySet = explicitlySet;
     return this;
   }
 
@@ -508,7 +508,7 @@ public class ConfigurationOverviewBuilder {
       lines.add(
           "RocksDB max open files: "
               + rocksDbMaxOpenFiles
-              + (rocksDbMaxOpenFilesDerived ? " (derived)" : " (set)"));
+              + (rocksDbMaxOpenFilesExplicitlySet ? " (set)" : " (derived)"));
     }
 
     if (syncMode != null) {

@@ -158,6 +158,7 @@ public class RocksDBCLIOptionsTest {
 
       final RocksDBCLIOptions options = RocksDBCLIOptions.create();
       new CommandLine(options).parseArgs(cliArgs);
+      options.getResolvedMaxOpenFiles();
       return options;
     }
   }
